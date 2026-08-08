@@ -60,7 +60,7 @@ export interface FindsResponse {
   sort: FindsSort;
 }
 
-export function findsQueryString(filters: FindsFilters): string {
+function findsQueryString(filters: FindsFilters): string {
   const params = new URLSearchParams({ sort: filters.sort });
   if (filters.brandSlug) params.set("brand_slug", filters.brandSlug);
   if (filters.category) params.set("category", filters.category);

@@ -20,7 +20,7 @@ interface GradePricingSummaryProps {
 // Mirrors the server precedence (grade-billing.ts) for a SINGLE tier so the
 // step-1 summary can show, per tier, exactly which method would apply — without
 // touching the actual charge logic (display only).
-export function billingMethodForTier(
+function billingMethodForTier(
   tier: GradeTierKey,
   ctx: { creditBalance: number; includedUsed: number; includedLimit: number }
 ): GradeBillingMethod {

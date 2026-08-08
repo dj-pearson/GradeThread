@@ -97,7 +97,7 @@ export const MAX_AUTO_GROUP_PHOTOS = 12;
  * back-to-back: a same-garment reshoot lands a couple of clusters away, while
  * a "similar" pair spanning half the dump is a same-background false positive.
  */
-export const VISUAL_MERGE_ORDINAL_WINDOW = 3;
+const VISUAL_MERGE_ORDINAL_WINDOW = 3;
 
 /** A similar pair plus its dHash distance, so merges can be applied best-first. */
 export interface DistancedPair extends SimilarPair {

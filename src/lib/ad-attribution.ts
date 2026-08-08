@@ -140,7 +140,7 @@ export interface StoredUtm {
  * Fails CLOSED: no decision yet means NO capture, because the banner exists
  * precisely to stop data being kept before the visitor has answered.
  */
-export function utmCaptureAllowed(): boolean {
+function utmCaptureAllowed(): boolean {
   return getConsent()?.analytics === true;
 }
 

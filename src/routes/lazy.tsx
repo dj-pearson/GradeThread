@@ -38,7 +38,7 @@ export function lazy<T extends ComponentType<any>>(
   );
 }
 
-export function PageLoader() {
+function PageLoader() {
   // Live region (US-452): the bare spinner is decorative, so announce the load
   // politely with an sr-only label rather than leaving SR users in silence.
   return (

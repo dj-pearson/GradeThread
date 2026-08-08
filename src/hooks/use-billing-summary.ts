@@ -533,10 +533,6 @@ export function isTrialing(s: BillingSummary["subscription"]): boolean {
     || (!!s.trial_ends_at && new Date(s.trial_ends_at).getTime() > Date.now() && !s.stripe_customer_id);
 }
 
-export function isPaidPlan(plan: FlipdeskPlan): boolean {
-  return plan !== "free";
-}
-
 // US-807: true when the subscription is owned by Apple's App Store (purchased in
 // the iOS app) and currently entitling. The web UI then surfaces an
 // "managed in the iOS app" card and hides Stripe subscription CTAs — credit
@@ -547,10 +543,6 @@ export function isAppstoreManaged(s: BillingSummary["subscription"]): boolean {
     s.billing_source === "appstore" &&
     (s.status === "active" || s.status === "trialing" || s.status === "past_due")
   );
-}
-
-export function refreshBilling(qc: ReturnType<typeof useQueryClient>) {
-  qc.invalidateQueries({ queryKey: ["billing_summary"] });
 }
 
 // Stripe billing webhooks (credit grants, plan changes) land asynchronously a

@@ -31,7 +31,7 @@ export type ResellerTermGroup =
   | "sourcing"
   | "measurements";
 
-export const RESELLER_GROUP_LABELS: Record<ResellerTermGroup, string> = {
+const RESELLER_GROUP_LABELS: Record<ResellerTermGroup, string> = {
   "condition-lingo": "Condition lingo",
   workflow: "Selling workflow",
   marketplace: "Marketplace terms",

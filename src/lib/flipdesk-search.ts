@@ -37,7 +37,7 @@ export const SEARCH_SCOPES: { id: SearchScope; label: string }[] = [
   { id: "sales", label: "Sales" },
 ];
 
-export const RESULT_TYPE_LABELS: Record<string, string> = {
+const RESULT_TYPE_LABELS: Record<string, string> = {
   item: "Item",
   listing: "Listing",
   sale: "Sale",

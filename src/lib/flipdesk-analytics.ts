@@ -104,7 +104,7 @@ export function sellThroughByGroup(
 
 // ─── Grading ROI ─────────────────────────────────────────────────
 
-export const PRICE_BANDS = [
+const PRICE_BANDS = [
   { label: "Under $50", min: 0, max: 50 },
   { label: "$50–150", min: 50, max: 150 },
   { label: "$150+", min: 150, max: Infinity },

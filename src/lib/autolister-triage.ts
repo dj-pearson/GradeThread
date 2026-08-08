@@ -3,13 +3,13 @@
 // health and lets the seller jump to the groups that need work. These helpers
 // classify groups into needs-attention buckets — no React, fully unit-tested.
 
-export const TRIAGE_CONDITIONS = [
-  "singleton",
-  "oversized",
-  "missing_cover_or_tag",
-  "has_suggestion",
-] as const;
-export type TriageCondition = (typeof TRIAGE_CONDITIONS)[number];
+// A plain union, not an `as const` array: nothing iterates these, so the array
+// only ever existed to derive this type and was emitted into the bundle for it.
+export type TriageCondition =
+  | "singleton"
+  | "oversized"
+  | "missing_cover_or_tag"
+  | "has_suggestion";
 
 export interface TriageGroup {
   id: string;

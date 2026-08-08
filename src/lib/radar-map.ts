@@ -103,7 +103,7 @@ export function unprojectMercator(point: ScreenPoint): LatLng {
 }
 
 /** World width in pixels at a zoom level. */
-export function worldSize(zoom: number): number {
+function worldSize(zoom: number): number {
   return TILE_SIZE * Math.pow(2, zoom);
 }
 

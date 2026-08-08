@@ -4,20 +4,14 @@
 // without the alias). Type-only, so it's erased at runtime. (US-1670 build fix.)
 import type { SignupSource } from "../types/database";
 
-// Grade scale labels (1.0-10.0)
-export const GRADE_LABELS = {
-  10: "New with Tags (NWT)",
-  9: "New without Tags (NWOT)",
-  8: "Excellent",
-  7: "Very Good",
-  6: "Good",
-  5: "Fair",
-  4: "Below Average",
-  3: "Poor",
-  2: "Very Poor",
-  1: "Salvage/Parts Only",
-} as const;
-
+// There is no integer-keyed GRADE_LABELS map here any more. US-2436 deleted it,
+// and not for being unused — for being WRONG. It named ten labels including
+// "Below Average", "Very Poor" and "Salvage/Parts Only", which are not on the
+// published scale: that scale has the seven tiers below, and
+// vault/20-domain/grading-scale-and-weights.md is its contract. whats-it-worth.tsx
+// had already written its own tierLabelForGrade() to get away from those labels.
+// A grade's display text comes from the server-written inventory_items.grade_label
+// column; a tier name comes from GRADE_TIERS.
 export const GRADE_TIERS = [
   "NWT",
   "NWOT",
@@ -84,17 +78,11 @@ export const MEASUREMENT_PHOTO_TYPES = [
   "measurement_inseam",
 ] as const;
 
-// Human labels for the measurement points (shared by both taxonomies).
-export const MEASUREMENT_PHOTO_LABELS: Record<
-  (typeof MEASUREMENT_PHOTO_TYPES)[number],
-  string
-> = {
-  measurement_chest: "Chest / Bust",
-  measurement_waist: "Waist",
-  measurement_length: "Length",
-  measurement_sleeve: "Sleeve",
-  measurement_inseam: "Inseam",
-};
+// The human labels for these five live in PHOTO_TYPE_LABELS below, which covers
+// the same keys with a "Measure: " prefix and is the one anything renders.
+// US-2436 removed a third, unreferenced copy that sat here; the second copy is
+// still inline in photo-upload.tsx, which is a de-duplication worth doing but
+// not in a mechanical pass.
 
 // Image types (core grading submissions). label_2 = a second tag shot (brand +
 // separate size/care tag); detail_2..4 = extra close-ups; measurement_* let a
@@ -112,13 +100,11 @@ export const IMAGE_TYPES = [
   ...MEASUREMENT_PHOTO_TYPES,
 ] as const;
 
-// Dispute statuses
-export const DISPUTE_STATUSES = [
-  "open",
-  "under_review",
-  "resolved",
-  "rejected",
-] as const;
+// No DISPUTE_STATUSES array here: the DisputeStatus union in
+// src/types/database.ts is the live contract and superseded the runtime array,
+// which US-2436 removed after finding nothing had imported it. Same shape as the
+// PayoutImportMethod note further down. admin/disputes.tsx builds its own label
+// and colour maps keyed by that union, so the compiler catches a missing status.
 
 // US-2153: how long after a grade is issued it can still be disputed. This is
 // the web copy of the value; the SERVER (grade.ts DISPUTE_WINDOW_DAYS) is the
@@ -595,16 +581,14 @@ export function higherBuyerPlan(a: BuyerPlanKey, b: BuyerPlanKey): BuyerPlanKey 
 // code; PLAN_MATRIX exists so the pricing doc can reference a stable name.
 export const PLAN_MATRIX = FLIPDESK_PLANS;
 
-// Thresholds at which the frontend fires upgrade modals. Tweakable per-user
-// via users.usage_alert_thresholds in US-209.
-export const FLIPDESK_UPGRADE_TRIGGERS = {
-  /** Soft toast at this fraction of any cap (default). */
-  softWarnPct: 0.8,
-  /** Hard 402 block at this fraction. */
-  hardBlockPct: 1.0,
-  /** User-configurable threshold options (US-209 settings). */
-  userOptions: [0.5, 0.8, 0.95] as const,
-} as const;
+// No FLIPDESK_UPGRADE_TRIGGERS here, and vault/50-business/pricing.md no longer
+// says there is. US-2436 deleted it: nothing had ever read it, while the soft
+// warn threshold really lives as SOFT_WARN_PCT in the edge's plan-gate.ts (which
+// emits the X-Plan-Warning header) and is mirrored by two bare 0.8 literals in
+// usage-meter.tsx and sidebar-usage-widget.tsx. Its userOptions field described
+// a user-configurable threshold (US-209) that has no column, no setting and no
+// UI. Deleting a constant does not fix the 0.8 living in three places with no
+// guard between them — that is US-2441.
 
 // ─── The legacy plan vocabulary ──────────────────────────────────
 //
@@ -615,9 +599,14 @@ export const FLIPDESK_UPGRADE_TRIGGERS = {
 // (00513). So the legacy keys are live data, not dead code.
 //
 // What changed is that the translation is now EXPLICIT. A caller holding a
-// legacy value calls flipdeskPlanForLegacy() or legacyPlanConfig() and can be
-// seen doing it; before, a deprecated alias did it invisibly and six call
-// sites accumulated behind it while the story that filed this counted two.
+// legacy value calls flipdeskPlanForLegacy() and can be seen doing it; before,
+// a deprecated alias did it invisibly and six call sites accumulated behind it
+// while the story that filed this counted two.
+//
+// There was a second translator here, legacyPlanConfig(), returning the whole
+// plan config rather than the key. US-2436 deleted it — nothing had called it
+// since US-2365 split the two apart, and this sentence naming it was the only
+// thing keeping it looking used.
 //
 // Prefer `profile.flipdesk_plan` wherever it exists. Reach for these only when
 // the value you hold really is the legacy column.
@@ -643,20 +632,6 @@ export function flipdeskPlanForLegacy(legacy: PlanKey): FlipdeskPlanKey {
   return LEGACY_MAP[legacy];
 }
 
-/**
- * The current plan config for a legacy `users.plan` value, or undefined when
- * the string is not one.
- *
- * Tolerant on purpose: every caller reads this straight off a user row and
- * already guarded with `?.`, so an unrecognised value must degrade to showing
- * the raw string rather than throwing on an admin page.
- */
-export function legacyPlanConfig(
-  legacy: string | null | undefined,
-): FlipdeskPlanConfig | undefined {
-  const key = LEGACY_MAP[legacy as PlanKey];
-  return key ? FLIPDESK_PLANS[key] : undefined;
-}
 
 const LEGACY_MAP: Record<PlanKey, FlipdeskPlanKey> = {
   free: "free",
@@ -684,7 +659,7 @@ export type GradeFactorKey = keyof typeof GRADE_FACTORS;
 // the paid Premium/Express tiers (mirrors tierSupportsAuthenticityAddon on the
 // edge). The add-on is a SEPARATE garment-authenticity signal — distinct from
 // the condition grade and from photo-tamper detection.
-export const AUTHENTICITY_ADDON_TIERS: readonly GradeTierKey[] = [
+const AUTHENTICITY_ADDON_TIERS: readonly GradeTierKey[] = [
   "premium",
   "express",
 ] as const;
@@ -741,9 +716,10 @@ export const ITEM_STATUSES = [
   "wearing",
 ] as const;
 
-// Personal-use statuses — items the user is keeping/wearing rather than selling.
-// These are filtered out of the main Kanban pipeline view (US-101 / US-109).
-export const PERSONAL_STATUSES = ["keeping", "wearing"] as const;
+// Personal-use statuses — keeping/wearing, filtered out of the main Kanban
+// pipeline (US-101 / US-109). There is no constant for them: workflow.ts and
+// pipeline-rules.ts each test the pair inline and never imported the array that
+// used to sit here, so US-2436 removed it. Those two modules are the source.
 
 // US-1484: statuses a user may hand-set when creating an item at intake. The
 // system/terminal states — grading (owned by the grade-submission flow), graded,
@@ -968,8 +944,7 @@ export const SCORE_STOP = {
 // their own hexes (#0F3460, #E94560, #16a34a, #f59e0b, #3b82f6, #94a3b8, …);
 // this consolidates them into one accessible, stably-named ramp so every chart
 // reads as one system. `navy`/`red` are the brand anchors; the rest are a fixed
-// categorical ramp. Order is stable — index into CHART_SERIES so the Nth series
-// is the same color in every chart.
+// categorical ramp.
 export const CHART_PALETTE = {
   navy: BRAND_NAVY, // #0F3460 — brand primary / default single series
   red: BRAND_RED, // #cc1f3d — brand accent / negative
@@ -983,18 +958,12 @@ export const CHART_PALETTE = {
   slate: "#94a3b8", // muted / baseline / comparison
 } as const;
 
-// Stable-ordered categorical series — index into this for multi-series charts
-// so series N is the same color across every chart.
-export const CHART_SERIES = [
-  CHART_PALETTE.navy,
-  CHART_PALETTE.red,
-  CHART_PALETTE.emerald,
-  CHART_PALETTE.amber,
-  CHART_PALETTE.blue,
-  CHART_PALETTE.indigo,
-  CHART_PALETTE.violet,
-  CHART_PALETTE.slate,
-] as const;
+// There is no stable-ordered CHART_SERIES ramp, though two comments here used to
+// tell you to index one. US-2436 removed it: nothing ever imported it, and
+// grade-charts.tsx built its own ordered ramp in a DIFFERENT order instead, so
+// the shared one had become an instruction nobody followed. Wiring the charts to
+// a single ramp would repaint live charts, which is a deliberate visual change,
+// not a cleanup — so the local ramp stands until someone decides to.
 
 // ─── FlipDesk ────────────────────────────────────────────────────
 
@@ -1066,24 +1035,26 @@ export const CONSIGNOR_STATUS_LABELS: Record<
   archived: "Archived",
 };
 
-export const CONSIGNOR_PAYOUT_STATUSES = [
-  "pending",
-  "processing",
-  "paid",
-  "failed",
-  "canceled",
-  // US-2022: the sale came apart after the consignor was paid.
-  // "reversed"        — we clawed the transfer back; nothing is owed.
-  // "clawback_pending" — the transfer could NOT be reversed (the consignor had
-  //   already withdrawn the funds), so the seller is genuinely out of pocket
-  //   until a human recovers it. This status exists so that loss is VISIBLE;
-  //   leaving the row on "paid" is the silent failure the story was about.
-  "reversed",
-  "clawback_pending",
-] as const;
+// A plain union, not an `as const` array: nothing iterates these, so the array
+// only ever existed to derive this type and was emitted into the bundle for it.
+//
+// US-2022: the last two are what happens when the sale comes apart AFTER the
+// consignor was paid. "reversed" — we clawed the transfer back; nothing is owed.
+// "clawback_pending" — the transfer could NOT be reversed (the consignor had
+// already withdrawn the funds), so the seller is genuinely out of pocket until a
+// human recovers it. That status exists so the loss is VISIBLE; leaving the row
+// on "paid" is the silent failure the story was about.
+type ConsignorPayoutStatus =
+  | "pending"
+  | "processing"
+  | "paid"
+  | "failed"
+  | "canceled"
+  | "reversed"
+  | "clawback_pending";
 
 export const CONSIGNOR_PAYOUT_STATUS_LABELS: Record<
-  (typeof CONSIGNOR_PAYOUT_STATUSES)[number],
+  ConsignorPayoutStatus,
   string
 > = {
   pending: "Pending",
@@ -1229,19 +1200,11 @@ export const FABRIC_CLOSEUP_PHOTO_TYPES = [
   "detail_3",
   "detail_4",
 ] as const;
-export const OPTIONAL_PHOTO_TYPES = [
-  "tag",
-  "detail",
-  "tag_2",
-  "detail_2",
-  "detail_3",
-  "detail_4",
-  "interior",
-  "defect",
-  "flatlay",
-  "on_model",
-  ...MEASUREMENT_PHOTO_TYPES,
-] as const;
+// There is deliberately no OPTIONAL_PHOTO_TYPES. Every list above answers a
+// question some gate asks; "optional" is just the complement of the required
+// ones inside FLIPDESK_PHOTO_TYPES, and no gate ever asked for it. US-2436
+// removed it unused rather than leave a fourth list that has to be kept in step
+// with three others for nothing.
 
 export const PHOTO_TYPE_LABELS: Record<
   (typeof FLIPDESK_PHOTO_TYPES)[number],
@@ -1294,7 +1257,7 @@ export function isNonListablePhotoType(t?: string | null): boolean {
 // Background removal already refuses them; the photo editor refuses them too,
 // because writing an edited copy back would have to choose a bucket and the
 // public one would publish the PII.
-export const SENSITIVE_PHOTO_TYPES = ["tag", "tag_2", "certificate"] as const;
+const SENSITIVE_PHOTO_TYPES = ["tag", "tag_2", "certificate"] as const;
 
 export function isSensitivePhotoType(t?: string | null): boolean {
   return (SENSITIVE_PHOTO_TYPES as readonly string[]).includes(t ?? "");
@@ -1356,13 +1319,17 @@ export const AUCTION_DURATION_LABELS: Record<
  */
 export const GRADING_REVIEW_CONFIDENCE_THRESHOLD = 0.75;
 
-export const GRADING_SUBMISSION_TIERS = [
-  "standard",
-  "premium",
-  "express",
-] as const;
+// No GRADING_SUBMISSION_TIERS constant here, and removing the unused one was
+// not the fix. US-2436 found the standard/premium/express triple written out
+// SIX times — GRADE_TIERS in the edge's grade-pricing.ts and again in
+// openapi-spec.ts, TIER_OPTIONS in grade-this-item-card.tsx, GRADE_TIER_OPTIONS
+// in pipeline.tsx, an inline literal in landing.tsx, and a z.enum in
+// flipdesk-grading.ts — with the DB enum grading_submission_tier (00008) under
+// all of them. This copy was simply the one nothing imported. Consolidating the
+// other five is a real job and is not a mechanical cleanup.
 
-export const PAYOUT_IMPORT_METHODS = ["csv_upload", "api_sync"] as const;
+// No PAYOUT_IMPORT_METHODS constant either: the PayoutImportMethod union in
+// src/types/database.ts is the live contract and superseded the runtime array.
 
 export const EXPENSE_CATEGORIES = [
   "shipping_supplies",
@@ -1537,62 +1504,25 @@ export const EXTENSION_CROSS_LISTING_PLATFORMS = [
 export type ExtensionCrossListingPlatform =
   (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number];
 
-// Stripe price IDs (US-202) — populated from import.meta.env at build time
-// by the setup script in US-203. Placeholders for local dev; production
-// IDs ship through VITE_STRIPE_PRICE_* env vars.
+// THE BROWSER DOES NOT KNOW ANY STRIPE PRICE ID, and it must not learn one.
 //
-// Note: edge-function (Deno/Hono) code reads these from Deno.env directly
-// so this constant is frontend-only.
-// `import.meta.env` is typed by vite/client under the app tsconfig, but this
-// module is also reached by the Vite-config type-check graph (via the SEO route
-// registry), where that type isn't present — so read it through a local cast
-// that type-checks in both contexts. Behavior is unchanged (Vite still inlines
-// the real VITE_* values at build time; the fallback covers non-Vite contexts).
-const env = (key: string, fallback: string): string =>
-  ((import.meta as { env?: Record<string, string | undefined> }).env?.[key]) ??
-  fallback;
-
-export const STRIPE_PRICE_IDS = {
-  flipdesk: {
-    starter: {
-      monthly: env("VITE_STRIPE_PRICE_FLIPDESK_STARTER_MONTHLY", "price_flipdesk_starter_monthly_placeholder"),
-      yearly:  env("VITE_STRIPE_PRICE_FLIPDESK_STARTER_YEARLY",  "price_flipdesk_starter_yearly_placeholder"),
-    },
-    pro: {
-      monthly: env("VITE_STRIPE_PRICE_FLIPDESK_PRO_MONTHLY", "price_flipdesk_pro_monthly_placeholder"),
-      yearly:  env("VITE_STRIPE_PRICE_FLIPDESK_PRO_YEARLY",  "price_flipdesk_pro_yearly_placeholder"),
-    },
-    business: {
-      monthly: env("VITE_STRIPE_PRICE_FLIPDESK_BUSINESS_MONTHLY", "price_flipdesk_business_monthly_placeholder"),
-      yearly:  env("VITE_STRIPE_PRICE_FLIPDESK_BUSINESS_YEARLY",  "price_flipdesk_business_yearly_placeholder"),
-    },
-  },
-  // Buyer Platform subscription (US-1799). A buyer sub and a FlipDesk sub can
-  // coexist on one Stripe customer; the webhook resolves the product by matching
-  // the subscription's price id against this map (buyerPlanForPriceId), never by
-  // assuming "the subscription" is the seller one.
-  buyer: {
-    guard: {
-      monthly: env("VITE_STRIPE_PRICE_BUYER_GUARD_MONTHLY", "price_buyer_guard_monthly_placeholder"),
-      yearly:  env("VITE_STRIPE_PRICE_BUYER_GUARD_YEARLY",  "price_buyer_guard_yearly_placeholder"),
-    },
-    connoisseur: {
-      monthly: env("VITE_STRIPE_PRICE_BUYER_CONNOISSEUR_MONTHLY", "price_buyer_connoisseur_monthly_placeholder"),
-      yearly:  env("VITE_STRIPE_PRICE_BUYER_CONNOISSEUR_YEARLY",  "price_buyer_connoisseur_yearly_placeholder"),
-    },
-  },
-  gradethread: {
-    standard: env("VITE_STRIPE_PRICE_GRADE_STANDARD", "price_grade_standard_placeholder"),
-    premium:  env("VITE_STRIPE_PRICE_GRADE_PREMIUM",  "price_grade_premium_placeholder"),
-    express:  env("VITE_STRIPE_PRICE_GRADE_EXPRESS",  "price_grade_express_placeholder"),
-  },
-  creditPacks: {
-    10:  env("VITE_STRIPE_PRICE_CREDITS_10",  "price_credits_10_placeholder"),
-    25:  env("VITE_STRIPE_PRICE_CREDITS_25",  "price_credits_25_placeholder"),
-    50:  env("VITE_STRIPE_PRICE_CREDITS_50",  "price_credits_50_placeholder"),
-    100: env("VITE_STRIPE_PRICE_CREDITS_100", "price_credits_100_placeholder"),
-  },
-} as const;
+// There used to be a STRIPE_PRICE_IDS map here reading a whole VITE_STRIPE_PRICE_*
+// env family at build time. US-2436 deleted it. Nothing imported it, and the env
+// family it read is now referenced nowhere in the repo — the pricing pages render
+// dollar amounts from FLIPDESK_PLANS and GRADETHREAD_TIERS, never an id.
+//
+// Every checkout posts a PLAN NAME — {plan, interval} — and the edge resolves the
+// id server-side: pricing-config.ts layers the pricing_plans rows over Deno.env
+// STRIPE_PRICE_* per field, and payments.ts reads the grade, credit-pack, buyer
+// and API-overage ids from Deno.env directly. That is one source of truth, and it
+// is admin-editable without a rebuild.
+//
+// The reason this is a warning and not just history: every entry fell back to a
+// literal like "price_flipdesk_pro_monthly_placeholder". A client-side map of
+// price ids with placeholder fallbacks sends a fake id into a live Checkout the
+// first time someone adopts it from a context where the env vars are not inlined.
+// If you need a price id in the browser, you have taken a wrong turn — send the
+// plan name instead.
 
 // ─── Content module (Blog + Social) ────────────────────────────────
 

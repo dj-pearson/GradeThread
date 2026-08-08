@@ -74,7 +74,7 @@ export function resolveBestOfferThresholds(
 // left over from an older, lower price — the exact shape of the bug that made
 // these manual. eBay accepts it happily (it only checks accept < price), so the
 // only place it can be caught is in front of the seller, before they save.
-export const LOW_ACCEPT_RATIO = 0.7;
+const LOW_ACCEPT_RATIO = 0.7;
 
 /**
  * A non-blocking warning when the auto-accept sits below LOW_ACCEPT_RATIO of the

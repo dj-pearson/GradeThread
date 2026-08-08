@@ -30,8 +30,6 @@ export const BODY_MEASUREMENT_FIELDS: BodyMeasurementField[] = [
   { key: "neck", label: "Neck", guidance: "Around the base of your neck where a collar sits, one finger of room.", min: 10, max: 24 },
 ];
 
-export const BODY_MEASUREMENT_KEYS = BODY_MEASUREMENT_FIELDS.map((f) => f.key);
-
 const FIELD_BY_KEY = new Map(BODY_MEASUREMENT_FIELDS.map((f) => [f.key, f]));
 
 export interface BodyProfile {

@@ -264,12 +264,11 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
   },
 ];
 
-const LANDING_BY_SLUG = new Map(FLIPDESK_LANDINGS.map((l) => [l.slug, l]));
+// Path-keyed only. There was a slug index and a getFlipdeskLandingBySlug beside
+// it; routing is path-keyed everywhere, so neither ever found a caller and
+// US-2436 removed both.
 const LANDING_BY_PATH = new Map(FLIPDESK_LANDINGS.map((l) => [l.path, l]));
 
-export function getFlipdeskLandingBySlug(slug: string): FlipdeskLanding | undefined {
-  return LANDING_BY_SLUG.get(slug);
-}
 export function getFlipdeskLandingByPath(path: string): FlipdeskLanding | undefined {
   return LANDING_BY_PATH.get(path);
 }

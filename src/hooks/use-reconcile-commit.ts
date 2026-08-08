@@ -184,7 +184,7 @@ async function resolveItemId(
  * item_photos (with photo_type, captured_at, reconcile_session_id), and advance
  * the item to `photographed` once the required photo set is present.
  */
-export async function commitCluster(
+async function commitCluster(
   cluster: CommitCluster,
   workspaceOwnerId: string,
   sessionId: string | null,

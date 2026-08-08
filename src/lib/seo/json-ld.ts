@@ -430,7 +430,7 @@ export function definedTermSetLd(
 // and the grade-scale set (/grading/scale): the reseller-lingo glossary
 // (/grading/glossary — EUC, VGUC, death pile, comps, SNAD…). Its own @id so AI
 // answer engines can cite the whole reseller vocabulary as one canonical set.
-export const RESELLER_GLOSSARY_SET_ID = `${SITE_URL}/grading/glossary#glossary`;
+const RESELLER_GLOSSARY_SET_ID = `${SITE_URL}/grading/glossary#glossary`;
 
 export interface ResellerDefinedTermInput {
   term: string;
@@ -480,7 +480,7 @@ export function resellerGlossarySetLd(
 // The clothing-flaw vocabulary (pilling, moth holes, crocking…) as one named,
 // citable set, anchored on the /grading/flaws hub. Each flaw page emits its own
 // DefinedTerm (linked here) alongside an Article.
-export const FLAW_LIBRARY_SET_ID = `${SITE_URL}/grading/flaws#flaws`;
+const FLAW_LIBRARY_SET_ID = `${SITE_URL}/grading/flaws#flaws`;
 
 /** DefinedTerm for a single flaw page, linked to the flaw-library set. */
 export function flawDefinedTermLd(e: ResellerDefinedTermInput): JsonLd {
@@ -527,7 +527,7 @@ export function flawLibrarySetLd(
 // Distinct from the /condition-grading vocabulary glossary set above: this set IS
 // the published 1.0–10.0 standard (the seven grade bands), the schema-level
 // statement that GradeThread publishes the scale everyone else references.
-export const GRADE_SCALE_SET_ID = `${SITE_URL}/grading/scale#scale`;
+const GRADE_SCALE_SET_ID = `${SITE_URL}/grading/scale#scale`;
 
 /**
  * DefinedTermSet for the GradeThread Clothing Condition Grading Scale (US-1664),

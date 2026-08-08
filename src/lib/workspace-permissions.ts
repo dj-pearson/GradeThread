@@ -34,10 +34,6 @@ const CAPABILITY_MIN_ROLE: Record<WorkspaceCapability, WorkspaceRole> = {
   delete_workspace: "owner",
 };
 
-export function roleRank(role: WorkspaceRole): number {
-  return ROLE_RANK[role];
-}
-
 export function roleAtLeast(role: WorkspaceRole, min: WorkspaceRole): boolean {
   return ROLE_RANK[role] >= ROLE_RANK[min];
 }

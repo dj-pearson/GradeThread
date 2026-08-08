@@ -27,8 +27,8 @@ import { fetchAllPages, READ_PAGE_SIZE } from "@/lib/paged-read";
 //    don't need aggressive background refetching to stay correct.
 //  - gcTime 30 min: keep the big array warm across route hops (Pipeline ->
 //    Composer -> Item etc.) so navigating back doesn't refetch the whole view.
-export const ITEMS_FULL_STALE_TIME = 15 * 60 * 1000;
-export const ITEMS_FULL_GC_TIME = 30 * 60 * 1000;
+const ITEMS_FULL_STALE_TIME = 15 * 60 * 1000;
+const ITEMS_FULL_GC_TIME = 30 * 60 * 1000;
 
 export function itemsFullQueryKey(userId: string | undefined) {
   return ["items_full", userId] as const;

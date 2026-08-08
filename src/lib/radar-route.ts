@@ -43,7 +43,7 @@ import {
 // ── Constants ───────────────────────────────────────────────────────────────
 
 /** How long a thrift stop takes. A racked store is 30–40 minutes to walk. */
-export const DEFAULT_DWELL_MINUTES = 35;
+const DEFAULT_DWELL_MINUTES = 35;
 
 /** Average door-to-door driving speed, in km/h. Urban errand driving, not motorway. */
 export const AVERAGE_SPEED_KMH = 40;
@@ -55,10 +55,10 @@ export const AVERAGE_SPEED_KMH = 40;
  * flies. Real roads are longer; 1.3 is the usual planning multiplier and keeps
  * the circuit from promising a day that does not fit.
  */
-export const ROAD_DETOUR_FACTOR = 1.3;
+const ROAD_DETOUR_FACTOR = 1.3;
 
 /** Even a store across the car park costs you the parking. */
-export const MIN_LEG_MINUTES = 2;
+const MIN_LEG_MINUTES = 2;
 
 /**
  * How many stops a plan may hold.
@@ -571,7 +571,7 @@ function dedupe(candidates: readonly RouteCandidate[]): RouteCandidate[] {
  * and the reseller has to be told that, or they will read their own averages as a
  * crowd's verdict.
  */
-export function planNotes(input: {
+function planNotes(input: {
   candidates: number;
   stops: number;
   skipped: number;

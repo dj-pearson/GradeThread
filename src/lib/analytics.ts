@@ -42,7 +42,7 @@ export interface ConsentState {
   marketing: boolean;
 }
 
-export const GRANT_ALL: ConsentState = { analytics: true, marketing: true };
+const GRANT_ALL: ConsentState = { analytics: true, marketing: true };
 export const DENY_ALL: ConsentState = { analytics: false, marketing: false };
 
 /**
@@ -197,7 +197,7 @@ async function startAnalyticsTools() {
 }
 
 /** Apply a consent state now (update Consent Mode, start/stop analytics tools). */
-export async function applyConsent(state: ConsentState) {
+async function applyConsent(state: ConsentState) {
   applyGtagConsent(state);
   if (state.analytics) {
     await startAnalyticsTools();

@@ -64,7 +64,7 @@ Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 s
 | `VITE_TURNSTILE_SITE_KEY` | 🟡 CF Pages build | Cloudflare Turnstile **site** key; renders the captcha widget. Must be set if GoTrue captcha is on or web auth breaks. |
 | `VITE_VAPID_PUBLIC_KEY` | ⬜ CF Pages build | Web-push VAPID public key; must equal the edge's `VAPID_PUBLIC_KEY`. Unset ⇒ web push no-ops. |
 | `VITE_APPLE_OAUTH_ENABLED` | ⬜ CF Pages build | Shows the "Sign in with Apple" button (pairs with the GoTrue Apple provider). |
-| `VITE_STRIPE_PRICE_*` | 🟡 CF Pages build | The same price-ID set as §3d, mirrored client-side so the pricing pages can render what they sell. Same names with a `VITE_` prefix. |
+| ~~`VITE_STRIPE_PRICE_*`~~ | ⛔ do not set | **Not a variable this app reads.** Removed in US-2436 along with the client constant that was the only thing referencing it. The browser never handles a Stripe price ID — see the note under §3d. |
 | `VITE_COVERAGE_GUARANTEE_FLOOR` | ⬜ CF Pages build | Floor shown on the coverage-guarantee marketing copy. |
 | `VITE_CONTACT_EMAIL` / `VITE_FOUNDING_DATE` | ⬜ CF Pages build | Organization JSON-LD fields. |
 | `VITE_SOCIAL_YOUTUBE` / `_WIKIDATA` | ⬜ CF Pages build | Two more `sameAs` profile URLs alongside the four below. |
@@ -230,8 +230,15 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 
 > Every `STRIPE_PRICE_*` above resolves to `""` when unset, so a missing one does
 > not crash — it makes that product unbuyable at checkout with no boot warning.
-> The price IDs are also mirrored client-side as `VITE_STRIPE_PRICE_*` (§1); the
-> two sets must name the same Stripe prices or the page and the charge disagree.
+
+> **These are the only price IDs, and they are server-side only.** For FlipDesk
+> plans a `pricing_plans` row wins per-field over the env value
+> (`lib/pricing-config.ts`), so an admin can change a price without a redeploy;
+> grade tiers, credit packs, buyer plans and API overage read straight from
+> `Deno.env` in `routes/payments.ts`. The browser posts a plan NAME and the server
+> resolves the ID. There was a mirrored `VITE_STRIPE_PRICE_*` family here until
+> US-2436; nothing read it, and two families of the same IDs could silently
+> disagree — which is exactly the failure this paragraph used to warn about.
 
 > Point the Stripe webhook at `https://functions.gradethread.com/api/webhooks/stripe`.
 
@@ -469,7 +476,7 @@ list; the ones that have actually bitten us are below.
 
 ## Minimum set to run production today
 
-**CF Pages (build):** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_EDGE_API_URL`, `VITE_TURNSTILE_SITE_KEY`, plus the `VITE_STRIPE_PRICE_*` you sell
+**CF Pages (build):** `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_EDGE_API_URL`, `VITE_TURNSTILE_SITE_KEY`
 
 **Coolify (edge) — the eight the container refuses to boot without:**
 `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY` (or

@@ -56,7 +56,7 @@ const CF_IMAGE_RESIZING_ENABLED =
  * Pre-generated thumbnails (US-413) target ~320w, so grid img elements never need
  * the 2400w original.
  */
-export const FLIPDESK_THUMB_WIDTH = 320;
+const FLIPDESK_THUMB_WIDTH = 320;
 
 /**
  * Best display source for a stored `item-photos` row in a grid/canvas/uploader

@@ -17,8 +17,8 @@ import type { JsonLd } from "@/lib/seo/json-ld";
 export const GRADE_STANDARD_VERSION = "1.0";
 
 /** Fixed dates (never a build timestamp) so prerender + SPA stay byte-identical. */
-export const GRADE_STANDARD_PUBLISHED = "2026-06-26";
-export const GRADE_STANDARD_MODIFIED = "2026-06-26";
+const GRADE_STANDARD_PUBLISHED = "2026-06-26";
+const GRADE_STANDARD_MODIFIED = "2026-06-26";
 
 /** The canonical machine-readable field name partners ingest. */
 export const GRADE_FIELD_NAME = "GradeThread Grade";
@@ -27,7 +27,7 @@ export const GRADE_FIELD_NAME = "GradeThread Grade";
 export const GRADE_ITEM_SPECIFIC = "Condition Grade";
 
 /** The public, versioned open-spec page. */
-export const GRADE_STANDARD_SPEC_URL = `${SITE_URL}/grading-standard`;
+const GRADE_STANDARD_SPEC_URL = `${SITE_URL}/grading-standard`;
 
 /** The stable, citable JSON Schema for the grade field (static asset). */
 export const GRADE_STANDARD_SCHEMA_URL = `${SITE_URL}/grade-standard.schema.json`;
@@ -42,7 +42,7 @@ const ORG_ID = `${SITE_URL}/#organization`;
  * PropertyValue (additionalProperty) — exactly what a partner would attach to a
  * Product/Offer to carry a GradeThread grade. Deterministic example values.
  */
-export function gradeFieldExample(): Record<string, unknown> {
+function gradeFieldExample(): Record<string, unknown> {
   return {
     "@type": "PropertyValue",
     propertyID: GRADE_FIELD_PROPERTY_ID,

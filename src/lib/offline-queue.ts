@@ -67,7 +67,7 @@ export async function enqueueIntake(payload: InventoryItemInsert): Promise<void>
   await runTx("readwrite", (s) => s.add(record));
 }
 
-export async function getQueuedIntakes(): Promise<QueuedIntake[]> {
+async function getQueuedIntakes(): Promise<QueuedIntake[]> {
   const all = await runTx<QueuedIntake[]>(
     "readonly",
     (s) => s.getAll() as IDBRequest<QueuedIntake[]>,
@@ -75,7 +75,7 @@ export async function getQueuedIntakes(): Promise<QueuedIntake[]> {
   return all.sort((a, b) => a.createdAt - b.createdAt);
 }
 
-export async function removeQueuedIntake(id: string): Promise<void> {
+async function removeQueuedIntake(id: string): Promise<void> {
   await runTx("readwrite", (s) => s.delete(id));
 }
 

@@ -77,7 +77,7 @@ export interface LeaderboardFilters {
   limit?: number;
 }
 
-export function leaderboardQueryString(filters: LeaderboardFilters): string {
+function leaderboardQueryString(filters: LeaderboardFilters): string {
   const params = new URLSearchParams({ period: filters.period });
   if (filters.metric) params.set("metric", filters.metric);
   if (filters.brandSlug) params.set("brand_slug", filters.brandSlug);

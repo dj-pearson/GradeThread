@@ -15,8 +15,8 @@
 //     backoff, always with jitter so parallel lanes don't retry in lockstep.
 
 /** The server allows 120/60s; stay under it with headroom for retries. */
-export const STAGING_UPLOAD_MAX_PER_WINDOW = 100;
-export const STAGING_UPLOAD_WINDOW_MS = 60_000;
+const STAGING_UPLOAD_MAX_PER_WINDOW = 100;
+const STAGING_UPLOAD_WINDOW_MS = 60_000;
 
 /** Max automatic attempts per file for rate-limited uploads (1 + retries). */
 export const RATE_LIMIT_MAX_ATTEMPTS = 4;

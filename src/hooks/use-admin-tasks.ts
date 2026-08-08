@@ -18,13 +18,13 @@ import type { ParsedImport } from "@/lib/admin-tasks-import";
 // migration 00344, so the browser CANNOT reach them anymore — this module is
 // the only path. Exported hook API is unchanged from the direct-DB era.
 
-export const TASK_PROJECTS_KEY = ["admin_task_projects"] as const;
-export const ALL_TASKS_KEY = ["admin_tasks_all"] as const;
+const TASK_PROJECTS_KEY = ["admin_task_projects"] as const;
+const ALL_TASKS_KEY = ["admin_tasks_all"] as const;
 export const projectTasksKey = (projectId: string) =>
   ["admin_tasks", projectId] as const;
-export const taskCommentsKey = (taskId: string) =>
+const taskCommentsKey = (taskId: string) =>
   ["admin_task_comments", taskId] as const;
-export const COMMENT_COUNTS_KEY = ["admin_task_comment_counts"] as const;
+const COMMENT_COUNTS_KEY = ["admin_task_comment_counts"] as const;
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await edgeFetch(`/api/admin/tasks${path}`, init);

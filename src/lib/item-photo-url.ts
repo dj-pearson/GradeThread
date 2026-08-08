@@ -25,13 +25,13 @@ import { getImageUrl, SIGNED_URL_TTL_SECONDS } from "./storage";
 import { itemPhotoThumb } from "./images";
 
 /** The only PUBLIC bucket: seller listing imagery, permanent public URLs. */
-export const PUBLIC_BUCKET = "item-photos";
+const PUBLIC_BUCKET = "item-photos";
 /** PII / grading close-ups. Read (and written back) via signed URLs only. */
 export const PRIVATE_BUCKET = "submission-images";
 
 // Re-sign this many ms BEFORE the URL actually expires, so a render never hands
 // out a URL that dies mid-request. Mirrors iOS PhotoSignedURLProvider.refreshSkew.
-export const SIGNED_URL_REFRESH_SKEW_MS = 60_000;
+const SIGNED_URL_REFRESH_SKEW_MS = 60_000;
 
 export interface PhotoLike {
   photo_type?: string | null;

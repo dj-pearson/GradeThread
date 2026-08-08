@@ -375,7 +375,7 @@ export function pickReferenceIndex(all: ToneStats[]): number {
  * handled here — they ride on `ctx.filter` via `filterString`, which the browser
  * does far faster.
  */
-export function applyPixelPasses(
+function applyPixelPasses(
   data: Uint8ClampedArray,
   width: number,
   height: number,
@@ -398,7 +398,7 @@ export function applyPixelPasses(
  * saved result. A fixed 1px radius would be a strong effect on a 900px preview
  * and almost invisible on the 4000px original the seller actually saves.
  */
-export function sharpenRadius(width: number, height: number): number {
+function sharpenRadius(width: number, height: number): number {
   return clamp(Math.round(Math.max(width, height) / 900), 1, 6);
 }
 

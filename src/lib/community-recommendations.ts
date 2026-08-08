@@ -83,7 +83,7 @@ export function inventoryBrandLink(brand: string): string {
 }
 
 /** Inventory filtered to a single category. */
-export function inventoryCategoryLink(category: string): string {
+function inventoryCategoryLink(category: string): string {
   const filter = encodeQuery({
     combinator: "and",
     rules: [{ id: "rec-category", field: "category", op: "eq", value: category }],

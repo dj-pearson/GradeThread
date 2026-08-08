@@ -56,8 +56,9 @@ export type BuyerFunnelStep = (typeof BUYER_FUNNEL_STEPS)[number];
  * Exits are NOT steps. They record leaving the funnel, so putting them in the
  * ordered list would make every drop-off chart count a dismissal as progress.
  */
-export const BUYER_FUNNEL_EXITS = ["claim_dismissed"] as const;
-export type BuyerFunnelExit = (typeof BUYER_FUNNEL_EXITS)[number];
+// A plain union: nothing iterates the exits, so the `as const` array they were
+// derived from was shipped in the bundle purely to produce this type.
+export type BuyerFunnelExit = "claim_dismissed";
 
 /** Zero-based position of a step in the funnel; -1 for an exit. */
 export function buyerFunnelStepIndex(step: BuyerFunnelStep | BuyerFunnelExit): number {

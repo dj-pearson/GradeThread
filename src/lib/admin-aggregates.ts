@@ -120,23 +120,21 @@ export interface AdminRevenueMetrics {
   };
 }
 
+// Only the RPCs the BROWSER still calls. admin_system_metrics and
+// admin_revenue_metrics are absent on purpose: US-1565 moved the admin System
+// page behind the edge, which calls both server-side in routes/admin-dashboard.ts,
+// and US-2436 removed the browser wrappers that had been left behind. The
+// AdminSystemMetrics / AdminRevenueMetrics interfaces above STAY — system.tsx
+// still imports them to type what edgeFetch returns.
 type RpcClient = {
   rpc: ((
-    fn: "admin_system_metrics",
-    args?: Record<string, never>,
-  ) => Promise<{ data: AdminSystemMetrics | null; error: { message: string } | null }>) &
-    ((
-      fn: "admin_user_list_stats",
-      args: { p_user_ids: string[] },
-    ) => Promise<{ data: AdminUserListStats | null; error: { message: string } | null }>) &
+    fn: "admin_user_list_stats",
+    args: { p_user_ids: string[] },
+  ) => Promise<{ data: AdminUserListStats | null; error: { message: string } | null }>) &
     ((
       fn: "admin_audit_log_filter_options",
       args?: Record<string, never>,
     ) => Promise<{ data: AdminAuditFilterOptions | null; error: { message: string } | null }>) &
-    ((
-      fn: "admin_revenue_metrics",
-      args?: Record<string, never>,
-    ) => Promise<{ data: AdminRevenueMetrics | null; error: { message: string } | null }>) &
     ((
       fn: "admin_audit_log_search",
       args: {
@@ -151,14 +149,6 @@ type RpcClient = {
       },
     ) => Promise<{ data: AdminAuditSearchRow[] | null; error: { message: string } | null }>);
 };
-
-export async function fetchAdminSystemMetrics(): Promise<AdminSystemMetrics> {
-  const client = supabase as unknown as RpcClient;
-  const { data, error } = await client.rpc("admin_system_metrics");
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("No system metrics returned");
-  return data;
-}
 
 export async function fetchAdminUserListStats(
   userIds: string[],
@@ -197,12 +187,4 @@ export async function fetchAdminAuditFilterOptions(): Promise<AdminAuditFilterOp
   const { data, error } = await client.rpc("admin_audit_log_filter_options");
   if (error) throw new Error(error.message);
   return data ?? { actions: [], targetTypes: [], admins: [] };
-}
-
-export async function fetchAdminRevenueMetrics(): Promise<AdminRevenueMetrics> {
-  const client = supabase as unknown as RpcClient;
-  const { data, error } = await client.rpc("admin_revenue_metrics");
-  if (error) throw new Error(error.message);
-  if (!data) throw new Error("No revenue metrics returned");
-  return data;
 }

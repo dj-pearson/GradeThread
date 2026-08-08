@@ -47,6 +47,12 @@ protecting against a *non-admin end user*. That was true when the browser called
 these functions directly. Moving the caller invalidated the reasoning without
 touching a line of the SQL.
 
+The browser wrappers themselves outlived that move by a year: `admin-aggregates.ts`
+still exported a `fetchAdminSystemMetrics` and a `fetchAdminRevenueMetrics` that
+nothing had called since US-1565, so the file read as though the browser were
+still one of the two callers. US-2436 deleted both. The RPCs now have exactly
+one caller each, which is what makes the guard question answerable at all.
+
 ## The contract
 
 **A function called from the edge must use a guard that tolerates a NULL

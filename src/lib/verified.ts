@@ -47,7 +47,7 @@ export function certificateShareUrl(certId: string, source: string): string {
 // Certificate ids are minted with crypto.randomUUID() (grading-pipeline.ts), so
 // every public cert id is a UUID. Used by the buyer-facing /verify lookup to
 // reject obvious junk before navigating to the certificate page.
-export const CERT_ID_RE =
+const CERT_ID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 // describe a find differently. Mirrors the SSR card in
 // functions/finds/[[path]].ts — same fields, same links.
 
-export function findValueLabel(cents: number | null): string | null {
+function findValueLabel(cents: number | null): string | null {
   if (cents == null || !Number.isFinite(cents)) return null;
   return `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 }

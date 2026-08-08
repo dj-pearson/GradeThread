@@ -130,7 +130,7 @@ export const HOW_IT_WORKS_STEPS = [
   },
 ];
 
-export const HOW_IT_WORKS_FAQS = [
+const HOW_IT_WORKS_FAQS = [
   {
     q: "How long does grading take?",
     a: "Most grades complete within minutes. Premium and Express tiers carry faster service-level targets when you need a guaranteed turnaround.",
@@ -232,7 +232,7 @@ export function pricingJsonLd(): JsonLd[] {
 }
 
 // ── /faq ───────────────────────────────────────────────────────────
-export const FAQ_EXTRA = [
+const FAQ_EXTRA = [
   {
     q: "What does the 1.0–10.0 grade mean?",
     a: "The scale runs from 1.0 (salvage/parts only) to 10.0 (new with tags). It maps to seven named tiers — NWT, NWOT, Excellent, Very Good, Good, Fair, and Poor — so condition is comparable across every item and seller.",
@@ -1213,7 +1213,7 @@ export const RESALE_REPORT_MODIFIED = "2026-08-07";
 // Open-ended ISO 8601 interval — the coverage window starts at the platform's
 // first recorded resale data and runs to "now". The visible page states the
 // exact observed min/max dates from the live data.
-export const RESALE_REPORT_TEMPORAL_COVERAGE = "2026-01-01/..";
+const RESALE_REPORT_TEMPORAL_COVERAGE = "2026-01-01/..";
 
 export const RESALE_REPORT_FAQS = [
   {
@@ -1245,7 +1245,7 @@ export const RESALE_REPORT_FAQS = [
 // US-1775: "State of Secondhand Durability" report. Fixed publish date (never
 // the build timestamp); the visible page states the live sample.
 export const DURABILITY_REPORT_PUBLISHED = "2026-07-09";
-export const DURABILITY_REPORT_MODIFIED = "2026-07-09";
+const DURABILITY_REPORT_MODIFIED = "2026-07-09";
 
 export const DURABILITY_REPORT_FAQS = [
   {
@@ -1332,7 +1332,7 @@ export const VERIFY_STEPS = [
   },
 ];
 
-export const VERIFY_FAQS = [
+const VERIFY_FAQS = [
   {
     q: "How do I verify a GradeThread grade as a buyer?",
     a: "Scan the QR code on the listing or item, open the seller's certificate link, or paste the certificate URL or code at gradethread.com/verify. The official certificate shows the grade, factor breakdown, and garment photos so you can confirm condition before you pay — no account needed.",
@@ -1384,7 +1384,7 @@ export const SCAN_STEPS = [
   },
 ];
 
-export const SCAN_FAQS = [
+const SCAN_FAQS = [
   {
     q: "How do I look up a garment's passport before buying?",
     a: "Scan the GradeThread passport QR on the item or listing, open the seller's passport link, or paste the passport slug or printed tag code at gradethread.com/scan. The public passport shows the item's confidence-scored grade, listing, and ownership history — free and with no account.",
@@ -1421,7 +1421,7 @@ export function passportScanJsonLd(): JsonLd[] {
 // Condition Index curve (real eBay comps), so the JSON-LD here stays GENERIC
 // (it must be deterministic and data-free: the prerender head-builder calls
 // this with no live curve data, and the parity test compares it to the SPA).
-export const WHATS_IT_WORTH_FAQS = [
+const WHATS_IT_WORTH_FAQS = [
   {
     q: "How much is my used clothing worth?",
     a: "Resale value depends mostly on the brand, the item, and its condition. Pick an item and a 1.0–10.0 condition grade in the What's It Worth tool and we show the typical resale value at that grade, drawn from the GradeThread Condition Index — real eBay sold-comparable data, not a guess.",

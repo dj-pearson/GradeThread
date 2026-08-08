@@ -14,9 +14,9 @@
 export const TITLE_MAX = 80;
 // eBay guidance + EBAY_RANKING_PLAYBOOK: aim to use most of the 80-char surface.
 // 70–80 is the "green" band; below wastes retrieval reach, 80 is the hard cap.
-export const TITLE_GREEN_MIN = 70;
+const TITLE_GREEN_MIN = 70;
 // Bulk autolister flags anything below this as too thin to publish confidently.
-export const TITLE_WEAK_BELOW = 60;
+const TITLE_WEAK_BELOW = 60;
 
 // ── lint (LOCKSTEP mirror of edge title-lint.ts) ────────────────────────────
 

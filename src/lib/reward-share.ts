@@ -15,7 +15,7 @@ import type { CelebrationShare } from "@/lib/reward-celebrations";
 // them would fragment the CDN cache for a card that is identical for everyone.
 
 /** The public card URL for a celebration's share, on `origin`. */
-export function rewardCardUrl(share: CelebrationShare, origin: string): string {
+function rewardCardUrl(share: CelebrationShare, origin: string): string {
   const path = share.kind === "badge"
     ? `/badge/achievement/${encodeURIComponent(share.key)}`
     : `/badge/level/${encodeURIComponent(share.key)}`;

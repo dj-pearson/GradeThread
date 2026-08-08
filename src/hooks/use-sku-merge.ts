@@ -33,7 +33,7 @@ export interface SkuMergeState {
  * so the pg code/message/details are read directly — an `err instanceof Error`
  * gate here stringifies to "[object Object]" and misses the constraint entirely.
  */
-export function isSkuDuplicateError(err: unknown): boolean {
+function isSkuDuplicateError(err: unknown): boolean {
   const pgErr = err as { code?: string; message?: string; details?: string };
   if (pgErr?.code !== "23505") return false;
   const text = `${pgErr.message ?? ""} ${pgErr.details ?? ""}`;
@@ -51,7 +51,7 @@ export function isSkuDuplicateError(err: unknown): boolean {
  *
  * Pure, and exported so the mapping is testable without a merge.
  */
-export function mergeOverridesToItemUpdate(
+function mergeOverridesToItemUpdate(
   v: Partial<MergeValues>,
   fallbackTitle: string,
 ): Record<string, unknown> {

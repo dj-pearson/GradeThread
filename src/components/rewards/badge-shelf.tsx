@@ -71,7 +71,7 @@ function earnedMonth(iso: string | null): string {
  * one-tap share the celebration offers, available forever afterwards rather than
  * only in the eight seconds the toast is on screen.
  */
-export function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | "md" }) {
+function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | "md" }) {
   const Icon = ICONS[badge.icon] ?? Medal;
   const tier = TIER_LABEL[badge.tier] ?? badge.tier;
   const when = earnedMonth(badge.earned_at);

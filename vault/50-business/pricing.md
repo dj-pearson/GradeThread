@@ -18,11 +18,15 @@ summary: The single source of truth for every price; src/lib/constants.ts is its
 This is the single source of truth for the pricing model. Every downstream
 billing story (US-201 → US-225) derives from the numbers here.
 
-**Machine-readable mirror:** `src/lib/constants.ts` exports `FLIPDESK_PLANS`,
-`GRADETHREAD_TIERS`, `CREDIT_PACKS`, and `FLIPDESK_UPGRADE_TRIGGERS` (re-exported
-as `PLAN_MATRIX` for convenience). **Any change to those constants MUST update
-this doc in the same PR, and vice-versa.** The Stripe catalog is generated from
-the same numbers by `scripts/setup-stripe-pricing.mjs` (US-203).
+**Machine-readable mirror:** `src/lib/constants.ts` exports `FLIPDESK_PLANS`
+(re-exported as `PLAN_MATRIX` for convenience), `GRADETHREAD_TIERS` and
+`CREDIT_PACKS`. **Any change to those constants MUST update this doc in the same
+PR, and vice-versa.** The Stripe catalog is generated from the same numbers by
+`scripts/setup-stripe-pricing.mjs` (US-203).
+
+This list used to name a fourth constant, `FLIPDESK_UPGRADE_TRIGGERS`, and that
+was a claim about code rather than a description of it — nothing had ever read it.
+US-2436 deleted it; §5 below now names where the thresholds actually live.
 
 Two products are billed on **one** Stripe customer:
 
@@ -164,7 +168,16 @@ The included-grades and AI-actions counters reset on
 
 ## 5. Upgrade triggers (US-209 / US-210)
 
-Defined in `FLIPDESK_UPGRADE_TRIGGERS`.
+The soft threshold is defined SERVER-SIDE, by `SOFT_WARN_PCT` in
+`services/edge-functions/src/lib/plan-gate.ts` — that is the copy that decides
+whether a request comes back carrying `X-Plan-Warning: CAP_80`, so it is the
+authoritative one. Two client meters, `usage-meter.tsx` and
+`sidebar-usage-widget.tsx`, compare against a bare `0.8` literal of their own.
+Nothing guards the three against drifting apart; US-2441 carries that.
+
+The hard threshold is not a named constant at all — it is the 402 path itself.
+Per-user configurable thresholds (US-209) were never built: no column, no
+setting, no UI.
 
 - **Soft (80% of any cap):** a dismissible toast fires once per cap per month
   ("You've used 80% of your <cap> — upgrade to <next plan> for <new limit>").
@@ -351,8 +364,8 @@ value proposition: standardized condition grading at software margins.
 | FlipDesk tiers | `FLIPDESK_PLANS` (`PLAN_MATRIX`) | Products `flipdesk_*`, monthly+yearly Prices |
 | Per-grade tiers | `GRADETHREAD_TIERS` | Products `grade_*`, one-time Prices |
 | Credit packs | `CREDIT_PACKS` | Products `credits_*`, one-time Prices |
-| Upgrade thresholds | `FLIPDESK_UPGRADE_TRIGGERS` | — |
-| Price IDs (env-injected) | `STRIPE_PRICE_IDS` | output of `scripts/setup-stripe-pricing.mjs` |
+| Upgrade thresholds | `SOFT_WARN_PCT` in `plan-gate.ts` (server, authoritative); bare `0.8` in the two usage meters | — |
+| Price IDs | **never client-side.** `pricing_plans` rows over `Deno.env STRIPE_PRICE_*`, resolved in `pricing-config.ts` / `payments.ts` | output of `scripts/setup-stripe-pricing.mjs` |
 
 ---
 
@@ -361,9 +374,10 @@ value proposition: standardized condition grading at software margins.
 Pricing is defined in three places that must move together:
 
 1. **This note** — the canonical model (US-200).
-2. **`src/lib/constants.ts`** — the machine-readable mirror: `FLIPDESK_PLANS`,
-   `BUYER_PLANS`, `GRADETHREAD_TIERS`, `CREDIT_PACKS`, `FLIPDESK_UPGRADE_TRIGGERS`
-   (re-exported as `PLAN_MATRIX`).
+2. **`src/lib/constants.ts`** — the machine-readable mirror: `FLIPDESK_PLANS`
+   (re-exported as `PLAN_MATRIX`), `BUYER_PLANS`, `GRADETHREAD_TIERS`,
+   `CREDIT_PACKS`. Prices and limits only — **no Stripe price ids**, which the
+   browser never sees.
 3. **The Stripe catalog** — generated from the same numbers by
    `scripts/setup-stripe-pricing.mjs` (US-203).
 

@@ -87,7 +87,7 @@ export interface PublicRoute {
 // pages that didn't change). Bump a route's date ONLY when its rendered content
 // meaningfully changes. Routes not listed (e.g. generated glossary spokes) fall
 // back to DEFAULT_LAST_MODIFIED.
-export const DEFAULT_LAST_MODIFIED = "2026-06-01";
+const DEFAULT_LAST_MODIFIED = "2026-06-01";
 const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/": "2026-06-26",
   "/how-it-works": "2026-06-01",

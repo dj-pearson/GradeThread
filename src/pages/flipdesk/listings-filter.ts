@@ -15,7 +15,7 @@ import type { TabDef } from "@/pages/flipdesk/inventory-tabs";
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** The columns the table's search box looks at. */
-export const SEARCH_FIELDS = [
+const SEARCH_FIELDS = [
   "item_title",
   "brand",
   "style",

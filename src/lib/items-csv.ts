@@ -7,7 +7,7 @@ import type { ItemFullRow } from "@/types/database";
 // `=cmd|...` would run on open. Prefix such a cell with an apostrophe so the
 // spreadsheet treats it as literal text. Genuine numeric values (including
 // negative amounts like -5.00) are left intact so money columns still compute.
-export function neutralizeCsvFormula(s: string): string {
+function neutralizeCsvFormula(s: string): string {
   if (s === "") return s;
   if (/^[=+\-@\t\r]/.test(s) && !isPlainNumber(s)) return `'${s}`;
   return s;

@@ -62,7 +62,7 @@ function fallbackProfile(category: string | null | undefined): PhotoProfile {
 }
 
 /** Fetches + caches the whole profile table. Static config → long stale time. */
-export function usePhotoProfiles() {
+function usePhotoProfiles() {
   return useQuery({
     queryKey: ["photo_profiles"],
     staleTime: 60 * 60 * 1000, // 1h — config rarely changes within a session

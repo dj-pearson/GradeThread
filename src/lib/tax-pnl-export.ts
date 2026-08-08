@@ -196,7 +196,7 @@ export const TAX_PNL_HEADERS = [
 ] as const;
 
 // Per-item detail rows aligned to TAX_PNL_HEADERS, money formatted to 2dp.
-export function taxPnlCsvRows(rows: TaxPnlRow[]): string[][] {
+function taxPnlCsvRows(rows: TaxPnlRow[]): string[][] {
   return rows.map((r) => [
     r.saleDate,
     r.title,

@@ -501,11 +501,6 @@ export function publishedShorts(): PublishedShort[] {
   return GRADING_SHORTS.filter(isPublished);
 }
 
-/** Guide slugs that have a scripted short. Used by the production runbook. */
-export function scriptedGuideSlugs(): string[] {
-  return GRADING_SHORTS.map((s) => s.guideSlug);
-}
-
 /** Guides with no short scripted yet — the candidate pool for the next batch. */
 export function guidesWithoutShorts(): string[] {
   return GARMENT_GUIDES.filter((g) => !SHORT_BY_GUIDE.has(g.slug)).map(

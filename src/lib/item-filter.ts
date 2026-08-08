@@ -71,7 +71,7 @@ export const FIELD_LABELS: Record<FilterField, string> = {
 };
 
 // Which field is numeric — drives the operator set the UI offers.
-export const NUMERIC_FIELDS: ReadonlySet<FilterField> = new Set<FilterField>([
+const NUMERIC_FIELDS: ReadonlySet<FilterField> = new Set<FilterField>([
   "cost",
   "target_price",
   "grade",
@@ -104,7 +104,7 @@ export const ENUM_FIELD_OPTIONS: Partial<
   ],
 };
 
-export const OP_LABELS: Record<FilterOp, string> = {
+const OP_LABELS: Record<FilterOp, string> = {
   eq: "is",
   neq: "is not",
   lt: "<",
@@ -128,7 +128,7 @@ const DATE_OP_LABELS: Partial<Record<FilterOp, string>> = {
   eq: "on",
 };
 
-export const TEXT_OPS: FilterOp[] = [
+const TEXT_OPS: FilterOp[] = [
   "eq",
   "neq",
   "contains",
@@ -137,7 +137,7 @@ export const TEXT_OPS: FilterOp[] = [
   "isnull",
   "notnull",
 ];
-export const NUMERIC_OPS: FilterOp[] = [
+const NUMERIC_OPS: FilterOp[] = [
   "eq",
   "neq",
   "lt",
@@ -147,7 +147,7 @@ export const NUMERIC_OPS: FilterOp[] = [
   "isnull",
   "notnull",
 ];
-export const DATE_OPS: FilterOp[] = [
+const DATE_OPS: FilterOp[] = [
   "lt",
   "lte",
   "gt",
@@ -157,7 +157,7 @@ export const DATE_OPS: FilterOp[] = [
   "notnull",
 ];
 // Enum fields snap to a single chosen value, so only equality + emptiness.
-export const ENUM_OPS: FilterOp[] = ["eq", "neq", "isnull", "notnull"];
+const ENUM_OPS: FilterOp[] = ["eq", "neq", "isnull", "notnull"];
 
 // The valid operator list for a field, by its type. The UI uses this to render
 // the operator dropdown and to snap a stale operator to a valid one when the
