@@ -260,6 +260,48 @@ export function resolveBlocksFromRows(
   return out;
 }
 
+/** One active block override, as reported alongside an eval run. */
+export interface ActiveBlockVersion {
+  blockKey: string;
+  garmentScope: string | null;
+  versionName: string;
+}
+
+/**
+ * Every ACTIVE block override for a stage, for reporting rather than serving.
+ *
+ * This exists because the seam opened a hole in the fingerprint it sits beside.
+ * `unversionedPromptSurfaceHash()` digests the CODE DEFAULTS, so once a block row
+ * can replace one of those defaults at runtime, the hash stops describing what
+ * actually ran — two eval runs under different block versions would carry the
+ * SAME hash and read as comparable. That is worse than no fingerprint, because
+ * the whole point of the hash is to say "these two runs measured different
+ * prompts, do not compare their MAE".
+ *
+ * Canaries are deliberately excluded: an eval run has no bucketKey, so it never
+ * takes a canary slice, and listing one would describe traffic this run did not
+ * serve.
+ */
+export async function activeBlockVersions(
+  stage: PromptStage,
+): Promise<ActiveBlockVersion[]> {
+  const rows = await loadBlockRows(stage);
+  return rows
+    .filter((r) => r.is_active)
+    .map((r) => ({
+      blockKey: r.block_key,
+      garmentScope: r.garment_scope,
+      versionName: r.version_name,
+    }))
+    // Sorted so two runs with the same overrides produce the same report
+    // regardless of row order, the same reason the version suffix sorts.
+    .sort((a, b) =>
+      `${a.blockKey}:${a.garmentScope ?? ""}`.localeCompare(
+        `${b.blockKey}:${b.garmentScope ?? ""}`,
+      )
+    );
+}
+
 /**
  * The version suffix a grade records for the blocks that actually served.
  *

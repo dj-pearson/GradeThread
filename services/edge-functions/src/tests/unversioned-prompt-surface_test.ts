@@ -140,19 +140,40 @@ Deno.test("the composite half is probed — schema, Rules and factor weights", (
   );
 });
 
-Deno.test("runEval reports the surface as explicitly NOT covered", async () => {
+Deno.test("runEval reports the surface, and what of it is now covered", async () => {
   // A source scan, because reaching the real runEval needs a database and the
-  // property is about what the RESULT CLAIMS, not about what it computed. The
-  // constant `false` is the point: it is the honest answer today, and it should
-  // stop being a constant only when the user message gets a real seam.
+  // property is about what the RESULT CLAIMS, not about what it computed.
+  //
+  // This used to require the literal `covered: false`, and the comment said that
+  // constant should stop being a constant only when the user message got a real
+  // seam. US-2438 built the seam, so it now requires the LIST — deliberately not
+  // a `true`, because coverage is partial and a boolean cannot say which blocks.
   const src = (
     await Deno.readTextFile(new URL("../lib/grading-eval.ts", import.meta.url))
   ).replace(/\r\n/g, "\n");
 
   assert(
-    /unversioned_surface:\s*\{\s*hash:\s*surfaceHash,\s*covered:\s*false\s*\}/.test(src),
+    /unversioned_surface:\s*\{\s*hash:\s*surfaceHash,\s*covered:\s*COVERED_BLOCK_KEYS,\s*blocks:\s*activeBlocks,\s*\}/
+      .test(src),
     "runEval no longer reports unversioned_surface. Without it a caller " +
       "comparing two eval runs cannot tell whether they measured the same prompt.",
+  );
+  assert(
+    !/covered:\s*true/.test(src),
+    "the eval claims the user-message surface is fully covered. It is not — the " +
+      "response schema, the Rules block and the factor-weights line are still " +
+      "compiled in with no identity, so a boolean overstates the gate.",
+  );
+
+  // THE HOLE THE SEAM OPENED. `surfaceHash` digests the CODE DEFAULTS. Once a
+  // block row can replace one of those at runtime, the hash no longer describes
+  // what ran, and two runs under different block versions read as comparable —
+  // worse than no fingerprint, because the hash's only job is to say when two
+  // runs must NOT be compared. Reporting the active overrides is what closes it.
+  assert(
+    /const activeBlocks = await activeBlockVersions\(/.test(src),
+    "runEval no longer reads the active block overrides, so its surface hash " +
+      "silently stops describing the prompt that actually ran",
   );
 
   // Strip comments first: the block above this assertion explains the bug and

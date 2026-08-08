@@ -16,6 +16,7 @@ code_refs:
   - services/edge-functions/src/lib/grading-pipeline.ts
   - supabase/migrations/00562_grade_prompt_surface_hash.sql
   - services/edge-functions/src/lib/prompt-blocks.ts
+  - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
 reviewed: 2026-08-08
 tags: [grading, prompts, security, injection, contract]
@@ -283,8 +284,38 @@ decision above was argued on. The response schema, the Rules block and the
 factor-weights sentence are still compiled into template literals with no
 identity of their own, so they are still ungated; splitting them out is the rest
 of US-2438, along with the eval-gate legs (AC2/AC3) and the flag retirement
-(AC4). Until then `runEval` still reports `unversioned_surface.covered: false`,
-which is the honest answer for the blocks it measures.
+(AC4).
+
+`runEval`'s `unversioned_surface.covered` is therefore a LIST of block keys, not
+a boolean. It stopped being the literal `false` the moment the registry could
+version something — but a `true` would claim the gate measures a surface it does
+not, and only a list can say which half.
+
+### The seam opened a hole in the fingerprint, and closing it is the subtle part
+
+`unversionedPromptSurfaceHash()` digests the **code defaults**. The moment a row
+can replace one of those at runtime, the hash stops describing what actually ran:
+two eval runs under different block versions carry the **same** hash and read as
+comparable. That is worse than having no fingerprint, because the hash's only job
+is to say when two runs must *not* be compared — it converts "we do not know"
+into "we checked", which is the exact failure mode this whole mechanism exists to
+prevent.
+
+So `runEval` now reports `unversioned_surface.blocks`: the ACTIVE block
+overrides at run time, sorted, and logged beside the verdict as well as returned.
+Canaries are excluded deliberately — an eval run has no `bucketKey`, so it never
+takes a canary slice, and listing one would describe traffic the run did not
+serve.
+
+The general form worth carrying: **a fingerprint's blind spot grows every time
+you add a way to vary what it fingerprints.** Adding a seam is also a change to
+every guarantee that was resting on the absence of one.
+
+`listing-eval.ts` reports `covered: []` and `blocks: []`, and that is not
+boilerplate. The block registry is keyed by grading stage; `LISTING_GEN_TOOL` is
+a tool schema, not a prompt block, so the registry cannot reach it. Now that both
+gates have a field of the same name, borrowing the grading gate's coverage there
+would be the easiest possible way to overstate it, and a test forbids it.
 
 **Attribution landed at the per-image entry, deliberately.** A block override
 appends `+blocks(key=version,…)` to `per_image_analysis[].prompt_version`, not to

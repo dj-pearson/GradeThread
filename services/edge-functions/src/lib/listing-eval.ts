@@ -12,7 +12,11 @@ import { supabaseAdmin } from "./supabase.ts";
 import { getDefaultModel } from "./ai-config.ts";
 import { generateListingFields, LISTING_GEN_TOOL } from "./ai-listing.ts";
 import { hashPrompt } from "./ai-usage.ts";
-import type { EvalRunResult, EvalCaseResult, EvalTagResult } from "./grading-eval.ts";
+import type {
+  EvalCaseResult,
+  EvalRunResult,
+  EvalTagResult,
+} from "./grading-eval.ts";
 
 // Activation thresholds for the listing-gen eval. Each one a hard floor:
 // every case must clear them, AND the per-case agreement rate must hit
@@ -61,7 +65,8 @@ function scoreCase(
   },
   caseRow: ListingEvalCaseRow,
 ): ListingEvalScoring {
-  const titleOk = result.title.length > 0 && result.title.length <= maxTitleLength();
+  const titleOk = result.title.length > 0 &&
+    result.title.length <= maxTitleLength();
 
   const expectedAspects = caseRow.expected_required_aspect_names ?? [];
   let covered = 0;
@@ -80,8 +85,7 @@ function scoreCase(
   ) {
     const min = caseRow.expected_price_min_cents ?? 0;
     const max = caseRow.expected_price_max_cents ?? Number.POSITIVE_INFINITY;
-    priceOk =
-      result.suggested_price_cents >= min &&
+    priceOk = result.suggested_price_cents >= min &&
       result.suggested_price_cents <= max &&
       result.suggested_price_cents > 0;
   } else {
@@ -160,7 +164,9 @@ export async function runListingEval(
       const photoList = Array.isArray(row.photos) ? row.photos : [];
       if (photoList.length === 0) throw new Error("case has no photos");
       const photos = await loadPhotoUrls(photoList);
-      if (photos.length === 0) throw new Error("case photos could not be resolved");
+      if (photos.length === 0) {
+        throw new Error("case photos could not be resolved");
+      }
 
       const knownFields: Record<string, unknown> = {};
       for (
@@ -177,7 +183,9 @@ export async function runListingEval(
 
       const gen = await generateListingFields({
         photos,
-        knownFields: Object.keys(knownFields).length > 0 ? knownFields : undefined,
+        knownFields: Object.keys(knownFields).length > 0
+          ? knownFields
+          : undefined,
         measurements: row.measurements ?? undefined,
       });
       const scoring = scoreCase(gen.listing, row);
@@ -186,8 +194,7 @@ export async function runListingEval(
 
       // A case "agrees" iff it clears every hard threshold and the per-case
       // aspect coverage meets the min — anything else flunks the gate.
-      const agreed =
-        scoring.titleOk &&
+      const agreed = scoring.titleOk &&
         scoring.priceOk &&
         scoring.aspectCoverage >= minRequiredAspectCoverage();
 
@@ -200,19 +207,23 @@ export async function runListingEval(
         predicted_score: gen.listing.suggested_price_cents,
         error: 1 - scoring.aspectCoverage,
         agreed,
-        ...(agreed
-          ? {}
-          : {
-              failed_reason: [
-                !scoring.titleOk ? `title length ${gen.listing.title.length} > 80` : null,
-                !scoring.priceOk ? `price ${gen.listing.suggested_price_cents}c out of band` : null,
-                scoring.aspectCoverage < minRequiredAspectCoverage()
-                  ? `aspect coverage ${(scoring.aspectCoverage * 100).toFixed(0)}% < ${(minRequiredAspectCoverage() * 100).toFixed(0)}%`
-                  : null,
-              ]
-                .filter((x): x is string => !!x)
-                .join("; "),
-            }),
+        ...(agreed ? {} : {
+          failed_reason: [
+            !scoring.titleOk
+              ? `title length ${gen.listing.title.length} > 80`
+              : null,
+            !scoring.priceOk
+              ? `price ${gen.listing.suggested_price_cents}c out of band`
+              : null,
+            scoring.aspectCoverage < minRequiredAspectCoverage()
+              ? `aspect coverage ${
+                (scoring.aspectCoverage * 100).toFixed(0)
+              }% < ${(minRequiredAspectCoverage() * 100).toFixed(0)}%`
+              : null,
+          ]
+            .filter((x): x is string => !!x)
+            .join("; "),
+        }),
       });
     } catch (err) {
       perCase.push({
@@ -242,8 +253,7 @@ export async function runListingEval(
     max_mae: 1 - minRequiredAspectCoverage(),
     min_agreement: minAgreement(),
   };
-  const passed =
-    agreementRate >= thresholds.min_agreement &&
+  const passed = agreementRate >= thresholds.min_agreement &&
     mae <= thresholds.max_mae;
 
   // Reuse grading_eval_runs as the run-history audit table — the shape is
@@ -317,6 +327,16 @@ export async function runListingEval(
     // the thresholds this gate scores — title length, required-aspect coverage,
     // price sanity — all read fields THAT SCHEMA defines, a change to it moves
     // every score without touching the version being certified.
-    unversioned_surface: { hash: hashPrompt(LISTING_GEN_TOOL), covered: false },
+    //
+    // US-2438 gave the GRADING user message a per-block seam. It does NOT reach
+    // here: the block registry is keyed by grading stage, and LISTING_GEN_TOOL is
+    // a tool schema rather than a prompt block. So this stays empty — a genuinely
+    // uncovered surface, reported as such rather than borrowing the grading
+    // gate's coverage because the two fields now share a name.
+    unversioned_surface: {
+      hash: hashPrompt(LISTING_GEN_TOOL),
+      covered: [],
+      blocks: [],
+    },
   };
 }

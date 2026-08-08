@@ -480,6 +480,76 @@ Deno.test("US-2438: the code-default sentinel never appears in a suffix", () => 
   );
 });
 
+// ── The eval report ────────────────────────────────────────────────────────
+
+Deno.test("US-2438: the eval names the covered blocks as a list, never a boolean", () => {
+  // `covered` was a literal `false` and is now COVERED_BLOCK_KEYS. It must stay
+  // a LIST: coverage is partial — the response schema, the Rules block and the
+  // factor-weights line are still compiled in with no identity of their own — so
+  // a `true` would tell an operator the gate measures a surface it does not.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  assert(
+    src.includes("covered: COVERED_BLOCK_KEYS"),
+    "the eval no longer names which blocks are covered",
+  );
+  assert(
+    !/covered:\s*true/.test(src),
+    "coverage is partial and must not read as complete",
+  );
+  // And the list it reports is the one the resolver actually consults, not a
+  // restatement that could drift from it.
+  assertEquals([...COVERED_BLOCK_KEYS], Object.keys(PROMPT_BLOCK_KEYS).sort());
+});
+
+Deno.test("US-2438: an active block override is reported beside the surface hash", () => {
+  // THE HOLE THE SEAM OPENED, pinned at the source. unversionedPromptSurfaceHash()
+  // digests the CODE DEFAULTS. The moment a row can replace one at runtime, two
+  // eval runs under different block versions carry the SAME hash and read as
+  // comparable — and the hash's only job is to say when two runs must NOT be
+  // compared. A fingerprint that fails to move is worse than none: it converts
+  // "we do not know" into "we checked".
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grading-eval.ts", import.meta.url),
+  );
+  assert(
+    /const activeBlocks = await activeBlockVersions\(/.test(src),
+    "the eval no longer reads the active block overrides",
+  );
+  assert(
+    src.includes("blocks: activeBlocks"),
+    "the overrides are read but not reported",
+  );
+  // Logged as well as returned: the reader most likely to be misled is someone
+  // tailing a failing run against the passing one before it, who never sees the
+  // returned object at all.
+  const code = src.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  assert(
+    code.includes("Active block overrides"),
+    "the overrides are returned but never logged beside the verdict they qualify",
+  );
+});
+
+Deno.test("US-2438: listing-eval reports its own surface as genuinely uncovered", () => {
+  // The grading registry does not reach the listing gate — LISTING_GEN_TOOL is a
+  // tool schema, not a prompt block. The two `covered` fields now share a name,
+  // and borrowing the grading gate's coverage here would be the easiest possible
+  // way to overstate it.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/listing-eval.ts", import.meta.url),
+  );
+  assert(
+    /covered:\s*\[\]/.test(src),
+    "listing-eval claims coverage it does not have",
+  );
+  assert(
+    !src.includes("COVERED_BLOCK_KEYS"),
+    "listing-eval is reporting the GRADING registry's coverage for a surface the " +
+      "registry cannot reach",
+  );
+});
+
 // ── The route still goes through the seam ──────────────────────────────────
 
 Deno.test("US-2438: analyzeImage resolves blocks and passes them to the builder", () => {

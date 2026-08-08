@@ -10,6 +10,11 @@ import {
   type ResolvedPrompt,
   unversionedPromptSurfaceHash,
 } from "./ai-grading.ts";
+import {
+  type ActiveBlockVersion,
+  activeBlockVersions,
+  COVERED_BLOCK_KEYS,
+} from "./prompt-blocks.ts";
 import { isAllowedGradingModel, servingModelForStage } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
 import { scoreToGradeTier } from "./human-review.ts";
@@ -98,10 +103,25 @@ export interface EvalRunResult {
    *
    * `hash` fingerprints that surface. Two runs with different hashes measured
    * different prompts and must not be compared, however close their MAE looks.
-   * `covered` is a constant `false` on purpose: it is the honest answer, and it
-   * stops being a constant only when US-2432 gives the user message a real seam.
+   *
+   * US-2438 changed `covered` from a constant `false` to the list of block keys
+   * the registry can version — those are no longer ambient. It is a list rather
+   * than a boolean because coverage is PARTIAL and saying so is the point: the
+   * response schema and the Rules block are still compiled in with no identity,
+   * so a `true` here would overstate the gate exactly the way the old comment
+   * warned about.
+   *
+   * `blocks` closes the hole the seam opened in the hash. `hash` digests the CODE
+   * DEFAULTS, so an ACTIVE block row silently changes what ran without moving it
+   * — two runs under different block versions would read as comparable. Listing
+   * the active overrides makes that visible. An empty list means the registry is
+   * empty and the hash alone still describes the surface.
    */
-  unversioned_surface: { hash: string; covered: false };
+  unversioned_surface: {
+    hash: string;
+    covered: readonly string[];
+    blocks: ActiveBlockVersion[];
+  };
 }
 
 // Chunked base64 (mirrors grading-pipeline.ts uint8ToBase64).
@@ -352,10 +372,23 @@ export async function runEval(
   // preceded it — and if the surface moved between them, the delta they are
   // about to attribute to the prompt is not the prompt.
   const surfaceHash = unversionedPromptSurfaceHash();
+  // US-2438: the hash digests the CODE DEFAULTS, so an active block row changes
+  // what ran without moving it. Report the overrides beside it or the fingerprint
+  // quietly starts lying about which runs are comparable.
+  const activeBlocks = await activeBlockVersions(
+    v.stage === "composite" ? "composite" : "per_image",
+  );
   console.log(
     `[grading-eval] run ${v.version_name} (${v.stage}) — unversioned user-message ` +
       `surface ${surfaceHash}, NOT under test. Compare only against runs sharing ` +
-      `this hash; a different one measured a different prompt.`,
+      `this hash; a different one measured a different prompt.` +
+      (activeBlocks.length > 0
+        ? ` Active block overrides (versioned, and NOT part of that hash): ` +
+          activeBlocks
+            .map((b) => `${b.blockKey}[${b.garmentScope ?? "*"}]=${b.versionName}`)
+            .join(", ") +
+          `. Two runs differing here measured different prompts even with the same hash.`
+        : ` No block overrides active.`),
   );
 
   // Persist the run.
@@ -406,7 +439,11 @@ export async function runEval(
     thresholds,
     per_case: perCase,
     per_tag: perTag,
-    unversioned_surface: { hash: surfaceHash, covered: false },
+    unversioned_surface: {
+      hash: surfaceHash,
+      covered: COVERED_BLOCK_KEYS,
+      blocks: activeBlocks,
+    },
   };
 }
 
