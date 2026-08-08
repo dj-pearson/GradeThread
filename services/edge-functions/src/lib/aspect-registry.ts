@@ -15,9 +15,15 @@
 // so it benefits transitively with no Swift table to drift.
 //
 // The registry covers every canonical field: the legacy structured columns
-// (brand, size, color, material, style) AND every US-821 canonical attribute
-// (department, size_type, sleeve_length, neckline, pattern, fit, closure,
-// features, garment_care, country_of_manufacture, vintage, theme, mpn).
+// (brand, size, color, material, style) AND every canonical attribute the
+// capture pass can fill — the original US-821 sixteen plus the US-2421
+// widening to 40 (apparel cut, fabric, product identity, use case, shoes, bags).
+//
+// The ONE canonical key with no entry here is `observations` (US-2421's
+// catch-all). That is deliberate: it holds facts that by definition have no
+// named home, so there is no aspect to map it to. It is stored so a future
+// canonical key can be backfilled from it — at which point THAT key gets an
+// entry, and this one still won't.
 
 import { normalizeAspectValue } from "./aspect-normalize.ts";
 
@@ -58,7 +64,7 @@ export interface AspectRegistry {
 
 // Bump `version` whenever entries change so a served/cached copy is versioned.
 export const ASPECT_REGISTRY: AspectRegistry = {
-  version: 1,
+  version: 3,
   entries: [
     // ── Legacy structured columns ──
     { key: "brand", source: "column", column: "brand", multi: false, aspects: ["Brand"] },
@@ -132,6 +138,191 @@ export const ASPECT_REGISTRY: AspectRegistry = {
       aspects: ["Theme", "Character", "Character Family"],
     },
     { key: "mpn", source: "attribute", attribute: "mpn", multi: false, aspects: ["MPN", "Manufacturer Part Number"] },
+
+    // ── US-2421/US-2422: the wide capture's aspects ──
+    //
+    // ORDER MATTERS. resolveItemAspects walks entries top-down and each entry
+    // takes only the FIRST candidate name the category actually exposes
+    // (ownedAspectName), skipping any name an earlier entry already filled. So
+    // an entry that shares a name with an earlier one — fabric_type vs the
+    // `material` column ("Fabric Type"), character vs `theme` ("Character") —
+    // is placed AFTER it on purpose: the older, more authoritative field keeps
+    // first claim, and the new key picks up the second name when the leaf has
+    // both. On a leaf with only one of them, the new key fills it only when the
+    // older field had nothing to give.
+
+    // Apparel cut + construction.
+    {
+      key: "accents",
+      source: "attribute",
+      attribute: "accents",
+      multi: true,
+      aspects: ["Accents", "Embellishment", "Embellishments"],
+    },
+    {
+      key: "sleeve_style",
+      source: "attribute",
+      attribute: "sleeve_style",
+      multi: false,
+      aspects: ["Sleeve Style", "Sleeve Type"],
+    },
+    { key: "rise", source: "attribute", attribute: "rise", multi: false, aspects: ["Rise"] },
+    {
+      key: "leg_style",
+      source: "attribute",
+      attribute: "leg_style",
+      multi: false,
+      aspects: ["Leg Style", "Leg Type"],
+    },
+    {
+      key: "dress_length",
+      source: "attribute",
+      attribute: "dress_length",
+      multi: false,
+      aspects: ["Dress Length", "Skirt Length"],
+    },
+    {
+      key: "garment_length",
+      source: "attribute",
+      attribute: "garment_length",
+      multi: false,
+      // Deliberately NOT the bare "Length": on bottoms and bags that aspect is
+      // a NUMBER (inches), and pushing "Regular" into it fails the publish.
+      aspects: ["Garment Length", "Coat/Jacket Length", "Top Length"],
+    },
+    {
+      key: "lining",
+      source: "attribute",
+      attribute: "lining",
+      multi: false,
+      // NOT "Lining Material": that aspect wants a fabric (Sherpa, Faux Fur),
+      // while this key answers whether and how the garment is lined at all.
+      aspects: ["Lining"],
+    },
+
+    // Fabric. `material` (the column) owns the primary name; these carry the
+    // qualities eBay asks for beside it.
+    {
+      key: "fabric_type",
+      source: "attribute",
+      attribute: "fabric_type",
+      multi: false,
+      aspects: ["Fabric Type", "Fabric", "Material"],
+    },
+    {
+      key: "fabric_weight",
+      source: "attribute",
+      attribute: "fabric_weight",
+      multi: false,
+      aspects: ["Fabric Weight"],
+    },
+
+    // Product identity.
+    {
+      key: "product_line",
+      source: "attribute",
+      attribute: "product_line",
+      multi: false,
+      aspects: ["Product Line", "Collection", "Series"],
+    },
+    { key: "model", source: "attribute", attribute: "model", multi: false, aspects: ["Model"] },
+    {
+      key: "collaboration",
+      source: "attribute",
+      attribute: "collaboration",
+      multi: false,
+      aspects: ["Collaboration"],
+    },
+    {
+      key: "character",
+      source: "attribute",
+      attribute: "character",
+      multi: false,
+      aspects: ["Character", "Character Family"],
+    },
+
+    // Use case.
+    { key: "occasion", source: "attribute", attribute: "occasion", multi: false, aspects: ["Occasion"] },
+    {
+      key: "activity",
+      source: "attribute",
+      attribute: "activity",
+      multi: false,
+      aspects: ["Activity", "Sport", "Sport/Activity"],
+    },
+    { key: "season", source: "attribute", attribute: "season", multi: false, aspects: ["Season"] },
+    { key: "era", source: "attribute", attribute: "era", multi: false, aspects: ["Era", "Decade"] },
+
+    // Footwear. The default names are the generic ones; the shoes vertical adds
+    // the leaf-specific spellings ahead of them.
+    {
+      key: "heel_type",
+      source: "attribute",
+      attribute: "heel_type",
+      multi: false,
+      aspects: ["Heel Type"],
+      byCategory: { shoes: ["Heel Style"] },
+    },
+    {
+      key: "heel_height",
+      source: "attribute",
+      attribute: "heel_height",
+      multi: false,
+      aspects: ["Heel Height"],
+    },
+    {
+      key: "toe_shape",
+      source: "attribute",
+      attribute: "toe_shape",
+      multi: false,
+      aspects: ["Toe Shape"],
+      byCategory: { shoes: ["Toe Type", "Toe Style"] },
+    },
+    {
+      key: "shoe_width",
+      source: "attribute",
+      attribute: "shoe_width",
+      multi: false,
+      // "Width" alone is a bag/furniture dimension elsewhere, so it is offered
+      // only inside the shoes vertical.
+      aspects: ["Shoe Width", "US Shoe Width"],
+      byCategory: { shoes: ["Shoe Width", "US Shoe Width", "Width"] },
+    },
+    {
+      key: "shoe_shaft_height",
+      source: "attribute",
+      attribute: "shoe_shaft_height",
+      multi: false,
+      aspects: ["Shaft Height"],
+      byCategory: { shoes: ["Shaft Height", "Boot Height"] },
+    },
+
+    // Bags + accessories.
+    {
+      key: "strap_type",
+      source: "attribute",
+      attribute: "strap_type",
+      multi: false,
+      aspects: ["Strap Type"],
+      byCategory: {
+        bags: ["Handle/Strap Type", "Handle Type", "Strap Type"],
+        accessories: ["Strap Type", "Band Type"],
+      },
+    },
+    {
+      key: "hardware_color",
+      source: "attribute",
+      attribute: "hardware_color",
+      multi: false,
+      // NOT "Hardware Material": that aspect wants brass/steel/resin, and a
+      // tone like "Gold-Tone" is not a material — eBay would reject it, or
+      // worse, accept it and mislead the buyer.
+      aspects: ["Hardware Color"],
+      byCategory: {
+        bags: ["Hardware Color", "Metal Color"],
+        accessories: ["Metal Color", "Hardware Color"],
+      },
+    },
   ],
 };
 

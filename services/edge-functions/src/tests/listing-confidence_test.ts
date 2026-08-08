@@ -185,3 +185,49 @@ Deno.test("carry-over: empty aspects → empty update (no accidental writes)", (
   );
   assertEquals(Object.keys(update).length, 0);
 });
+
+// US-2422: registry entries deliberately share candidate aspect names — the
+// `material` COLUMN and the `fabric_type` ATTRIBUTE both list "Material" and
+// "Fabric Type", because a leaf exposing both means fiber by one and cloth
+// construction by the other. The carry-over must still write ONE fact once.
+Deno.test("carry-over: one aspect feeds one field, even when entries share a name", () => {
+  const update = aspectCarryOver(
+    { size: null, color: null, material: null, style: null, attributes: null },
+    { Material: ["Wool"] },
+  );
+  assertEquals(update.material, "Wool");
+  // fabric_type also lists "Material", but the column claimed it first.
+  assertEquals(update.attributes, undefined);
+});
+
+Deno.test("carry-over: a leaf exposing BOTH names fills both fields, distinctly", () => {
+  const update = aspectCarryOver(
+    { size: null, color: null, material: null, style: null, attributes: null },
+    { Material: ["Cotton"], "Fabric Type": ["Denim"] },
+  );
+  assertEquals(update.material, "Cotton");
+  assertEquals(update.attributes, { fabric_type: "Denim" });
+});
+
+// A per-vertical aspect name belongs to ITS vertical. "Width" is a shoe size
+// inside the shoes vertical and a numeric dimension in inches on a handbag, so
+// carrying a bag's Width into attributes.shoe_width would store "12" as a shoe
+// width and project it back onto the next listing.
+Deno.test("carry-over: a shoes-only aspect name does not fire on another vertical", () => {
+  const base = {
+    size: null,
+    color: null,
+    material: null,
+    style: null,
+    attributes: null,
+  };
+  assertEquals(
+    aspectCarryOver({ ...base, item_category: "bags" }, { Width: ["12"] }).attributes,
+    undefined,
+  );
+  assertEquals(
+    aspectCarryOver({ ...base, item_category: "shoes" }, { Width: ["Wide (E, W)"] })
+      .attributes,
+    { shoe_width: "Wide (E, W)" },
+  );
+});

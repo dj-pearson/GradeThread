@@ -163,9 +163,17 @@ const EXTRACT_FIELDS = [
 // values hinted in the prompt) so US-823's normalization layer owns synonyms;
 // constraining them to enums here would silently drop legitimate values.
 //
-// Token-budget note: this set adds ~13 small object slots to the SAME single
-// extract tool call (no extra AI invocation). max_tokens was bumped to 2500 to
+// Token-budget note: this set adds small object slots to the SAME single
+// extract tool call (no extra AI invocation). US-2421 widened it from 16 keys
+// to 40 + the `observations` catch-all, so max_tokens was raised to 4096 to
 // keep the tool-call JSON from truncating mid-string with the wider schema.
+//
+// US-2421 — WHY the set is this wide. The capture pass runs once, before a
+// category is known. Every key it does NOT ask for is a specific the seller
+// types by hand later, or a re-run of the whole vision pass after they switch
+// category. So the set covers what eBay's apparel, shoes, bags and accessories
+// leaves actually ask for, across all four verticals at once — a shoes-only key
+// costs one empty slot on a t-shirt and saves a whole AI pass on a boot.
 interface CanonicalAttributeSpec {
   key: string;
   multi: boolean;
@@ -194,6 +202,55 @@ export const CANONICAL_ATTRIBUTES: CanonicalAttributeSpec[] = [
   { key: "style_code", multi: false, description: "Brand style/product code printed on the tag (e.g. LW7DVCS, 511-0011) — transcribe characters VERBATIM, never normalize. Often the same code as mpn; fill both when one code serves both." },
   { key: "rn_number", multi: false, description: "US FTC RN number from the care label — the digits after 'RN' (e.g. 'RN 106259' → 106259). Identifies the manufacturer of record." },
   { key: "upc", multi: false, description: "UPC/EAN barcode digits from a retail hang tag or sticker, transcribed verbatim (12–13 digits)" },
+
+  // ── US-2421: the wide capture ─────────────────────────────────────
+  // Apparel — construction and cut the front/flatlay photos show directly.
+  { key: "accents", multi: true, description: "Decorative accents as an array — e.g. Embroidered, Sequins, Beaded, Studded, Rhinestone, Lace, Fringe, Distressed, Patched" },
+  { key: "sleeve_style", multi: false, description: "Sleeve CUT (not its length) — e.g. Raglan, Set-In, Puff, Bell, Dolman, Cap, Bishop, Balloon" },
+  { key: "rise", multi: false, description: "Waist rise on bottoms — e.g. High Rise, Mid Rise, Low Rise" },
+  { key: "leg_style", multi: false, description: "Leg cut on bottoms — e.g. Skinny, Straight, Bootcut, Wide Leg, Flare, Tapered, Jogger, Cargo" },
+  { key: "dress_length", multi: false, description: "Hem length on a dress or skirt — e.g. Mini, Above Knee, Knee-Length, Midi, Maxi" },
+  { key: "garment_length", multi: false, description: "Overall garment length/cut for tops and outerwear — e.g. Regular, Cropped, Long, Tunic, Longline" },
+  { key: "lining", multi: false, description: "Lining — e.g. Fully Lined, Partially Lined, Unlined, Sherpa Lined, Flannel Lined, Quilted" },
+
+  // Fabric — material is the primary fiber (a column); these are the qualities
+  // eBay asks for alongside it and that a care label / weave close-up shows.
+  { key: "fabric_type", multi: false, description: "Fabric construction or named cloth — e.g. Denim, Fleece, Corduroy, Jersey, Twill, Knit, Flannel, Terry, Satin, Canvas" },
+  { key: "fabric_weight", multi: false, description: "Fabric weight/hand — e.g. Lightweight, Midweight, Heavyweight" },
+
+  // Product identity — a named line/collab is a top buyer search token.
+  { key: "product_line", multi: false, description: "Product line, collection or family the item belongs to — e.g. ABC, Dri-FIT, Nano Puff, Better Sweater, 501" },
+  { key: "model", multi: false, description: "Manufacturer's model name or number for the specific product (bags, watches, sunglasses, sneakers) — e.g. Speedy 30, Air Max 90" },
+  { key: "collaboration", multi: false, description: "Co-branded collaboration printed on the tag or garment — e.g. 'Nike x Off-White', 'Supreme x The North Face'. Omit unless a second brand is genuinely present." },
+  { key: "character", multi: false, description: "The named character depicted on a graphic — e.g. Mickey Mouse, Batman, Snoopy. Distinct from theme (theme is the franchise/subject; character is who is on it)." },
+
+  // Use case — what a buyer filters on when shopping by need.
+  { key: "occasion", multi: false, description: "Intended occasion — e.g. Casual, Formal, Business/Work, Party/Cocktail, Wedding, Travel, Outdoor" },
+  { key: "activity", multi: false, description: "Sport or activity the item is built for — e.g. Running, Yoga, Hiking, Golf, Basketball, Ski/Snowboard, Cycling, Swimming" },
+  { key: "season", multi: false, description: "Season the item is made for — e.g. Spring, Summer, Fall, Winter, All Seasons" },
+  { key: "era", multi: false, description: "Decade or era of manufacture when the tag/styling supports it — e.g. 1970s, 1980s, 1990s, 2000s. Only when there is real evidence (tag design, union label, single-stitch, copyright date)." },
+
+  // Shoes — the aspects eBay's footwear leaves require or rank highly.
+  { key: "heel_type", multi: false, description: "Heel type on footwear — e.g. Block, Stiletto, Wedge, Kitten, Platform, Flat, Stacked" },
+  { key: "heel_height", multi: false, description: "Heel height band on footwear — e.g. Flat (under 0.5 in.), Low (0.5-1.5 in.), Mid (1.5-3 in.), High (3-4 in.), Very High (over 4 in.)" },
+  { key: "toe_shape", multi: false, description: "Toe shape on footwear — e.g. Round Toe, Pointed Toe, Almond Toe, Square Toe, Open Toe, Peep Toe" },
+  { key: "shoe_width", multi: false, description: "Shoe width read from the size stamp — e.g. Narrow (B, N), Medium (D, M), Wide (E, W, 2E), Extra Wide (4E)" },
+  { key: "shoe_shaft_height", multi: false, description: "Boot shaft height — e.g. Ankle, Mid-Calf, Knee High, Over the Knee" },
+
+  // Bags + accessories.
+  { key: "strap_type", multi: false, description: "Strap/handle type on a bag or shoe — e.g. Shoulder Strap, Crossbody, Top Handle, Adjustable, Detachable, Chain, Ankle Strap" },
+  { key: "hardware_color", multi: false, description: "Metal/hardware tone on a bag, belt or accessory — e.g. Gold-Tone, Silver-Tone, Gunmetal, Rose Gold, Brass" },
+
+  // ── The catch-all (US-2421 AC2) ───────────────────────────────────
+  // Anything the model genuinely saw that no key above can hold. Stored
+  // verbatim on inventory_items.attributes so a future canonical key can be
+  // backfilled from what we already captured — WITHOUT re-running the pass.
+  {
+    key: "observations",
+    multi: true,
+    description:
+      "CATCH-ALL. Any further listing-relevant detail you observed that none of the other attributes can hold, as an array of short 'label: value' strings — e.g. 'pocket style: patch pockets', 'cuff: ribbed', 'made in decade: union label suggests pre-1980'. One fact per entry, only what the photos/text actually support, never a restatement of an attribute you already filled above.",
+  },
 ];
 
 const MULTI_ATTRIBUTE_KEYS = new Set(
@@ -335,9 +392,12 @@ Canonical attributes (the 'attributes' object):
 - Capture EVERY listing attribute you can support in this ONE call, so a later category change never needs a fresh AI pass. These are CANONICAL keys, not eBay aspect names.
 - Fill only the attributes the photos/text clearly support — omit the rest. Never guess.
 - The example values in each field's description are HINTS, not a closed list — return the value you actually observe (a downstream layer normalizes synonyms).
-- 'features' is an array (return all that apply); every other attribute is a single value.
+- 'features', 'accents' and 'observations' are arrays (return all that apply); every other attribute is a single value.
 - Read department, size_type, garment_care, country_of_manufacture, and mpn from the care/brand tag when present. mpn is the manufacturer part/style number printed on the tag — distinct from the marketing 'style' name; do not conflate them.
 - Give each attribute a 0..1 confidence and a source string, same as the core fields.
+- The set spans APPAREL, SHOES, BAGS and ACCESSORIES on purpose. Most attributes will not apply to any one item — that is expected. Fill the ones for this item's vertical (a boot fills heel_type/toe_shape/shoe_width/shoe_shaft_height and leaves sleeve_style empty; a t-shirt does the reverse) and simply omit the rest. Omission is free; a guess is not.
+- Distinctions that are easy to blur, so read them carefully: sleeve_length is HOW LONG the sleeve is, sleeve_style is HOW IT IS CUT. material is the primary fiber, fabric_type is the cloth construction, fabric_weight is the hand. theme is the franchise/subject, character is the named figure depicted. style is the marketing style name, product_line is the family it sits in, model is the manufacturer's model designation.
+- 'observations' is the CATCH-ALL: after filling every attribute that fits, put anything else listing-relevant you saw there as short 'label: value' strings. Do NOT repeat a value you already returned under its own key, and do NOT invent — this is for real details with no home, not for padding.
 
 Identity codes on the tag (style_code, rn_number, upc):
 - Tag/care-label photos often carry machine-readable identity: a brand style/product code (usually an alphanumeric block printed near the size or fiber content — e.g. LW7DVCS, 511-0011, CV8839-010), an RN number ("RN 12345" — the US FTC manufacturer registry), and UPC/EAN barcode digits on retail hang tags.
@@ -759,10 +819,13 @@ export async function extractItemFields(
 
   const response = await client.messages.create({
     model,
-    // 2500 (was 2000): the buyer-facing `description` plus the US-821 canonical
-    // `attributes` object widen the tool-call JSON; extra headroom keeps it from
-    // truncating mid-string.
-    max_tokens: 2500,
+    // 4096 (was 2500, originally 2000): the buyer-facing `description`, the
+    // canonical `attributes` object, and US-2421's widening of that object from
+    // 16 keys to 40 + `observations` all grow the tool-call JSON. A truncated
+    // tool call is a HARD failure (the JSON never closes, so nothing decodes),
+    // so this is sized for the full-fill case, not the typical one — unfilled
+    // attributes are omitted and cost nothing.
+    max_tokens: 4096,
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [EXTRACT_TOOL],
@@ -1482,7 +1545,10 @@ export async function extractEbayAspects(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 2048,
+    // US-2420: the schema now offers up to MAX_AI_ASPECTS (45) aspects, each
+    // answered with values + confidence + source. A truncated tool-call JSON
+    // loses the WHOLE response, so the ceiling is sized for a full fill.
+    max_tokens: 3072,
     ...(temperature !== undefined ? { temperature } : {}),
     system: [systemBlock],
     tools: [tool],

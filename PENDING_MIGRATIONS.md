@@ -1,9 +1,51 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Twenty-four migrations are held: 00530, 00531, 00532, 00533, 00534, 00535, 00536,
-00537, 00538, 00542, 00543, 00544, 00545, 00546, 00547, 00548, 00549, 00550, 00551, 00552, 00553, 00554, 00555 and 00556.** The entries below them
-were applied to prod and this file did not learn about it for a day. See the note under
-00528 for how that was measured and why the measurement, not the file, is the authority.
+**Sixteen migrations are held: 00542 through 00557.** Everything below them is
+applied. See the note under 00528 for how that is measured and why the
+measurement, not this file, is the authority whenever the two disagree.
+
+**These sixteen used to be numbered 00539–00554.** The ADE hub loop ran against
+the same backlog and landed its own 00539, 00540 and 00541, and the owner applied
+all three to prod on 2026-08-08. An applied number is immutable, so the three the
+hub burned stay with the hub and the sixteen here moved up by three. Nothing in
+them changed except the number — same SQL, same order, same risk.
+
+## ⏳ HELD: 00557_loyalty_tenure.sql (US-1914 — tenure tiers & anniversary grants)
+
+**Apply order.** Last, after 00556. It rewrites CHECK constraints owned by
+00544 (`reward_milestones.trigger_type`) and 00549
+(`reward_nudge_sends.nudge_type`), so both must already be applied — which
+numeric order gives you, as long as the whole held tail goes in sequence.
+
+**Risk: LOW.** Two new tables, one trigger function, two re-stated CHECKs that
+only ADD an allowed value, and two seed rows behind `ON CONFLICT DO NOTHING`.
+Nothing is dropped and nothing is backfilled — tenure derives from
+`users.created_at`, which every row already has.
+
+**Apply BEFORE the edge deploy.** `rewards-loyalty.ts` reads and writes
+`user_loyalty_state` on the rewards read path, and the anniversary grant writes
+`trigger_type = 'anniversary'` and the comeback nudge writes its new
+`nudge_type`. Until this applies, those inserts are rejected by the old CHECKs
+and the Rewards screen falls back to its error state.
+
+**What it does.**
+- `reward_tenure_tiers` — the operator-editable ladder, seeded. `rank` is stored
+  rather than re-derived from `min_months`, so an operator editing a threshold
+  cannot move anyone down.
+- `user_loyalty_state` — one row per user: `member_since`, the `tier_rank_peak`
+  high-water mark, and the anniversary bookkeeping. Read-own RLS, plus a
+  `seed_user_loyalty_state()` trigger so the row exists before it is needed.
+- Adds `'anniversary'` to `reward_milestones.trigger_type` and seeds the
+  `anniversary_gift` milestone, so anniversary payouts ride the existing
+  US-1853 grant rail (claim-before-pay, USD ceilings, velocity limit) instead of
+  a second one.
+- Adds the comeback nudge type to `reward_nudge_sends`.
+
+There is deliberately no decay, lapse or reset column anywhere in the file —
+that promise is kept in the schema or not at all.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — two new tables and two
+changed constraints, so PostgREST has to re-read the schema.
 
 ## ⏳ HELD: 00556_badge_click_variant.sql (US-1913 — plain vs status badge clicks)
 
@@ -550,7 +592,89 @@ and the reward state stops refreshing. The frontend is safe either way: the new
 **After applying:** `NOTIFY pgrst, 'reload schema';` — a new table and a new
 column both need PostgREST to re-read the schema cache.
 
-## ⏳ HELD: 00538_reward_tangible_grants.sql (US-1848 — tangible reward rail)
+## ✅ APPLIED: 00541_listing_aspect_coverage.sql (US-2425 — draft coverage metric, applied 2026-08-08 — owner-confirmed)
+
+**Apply order.** Last, after 00540. No dependency beyond `public.listings`
+existing.
+
+**Risk: LOW.** One nullable `jsonb` column on `listings` plus one partial index
+on `updated_at` where the column is not null. No backfill, no constraint change,
+no default — every existing row keeps `NULL` and reads as "not scored yet".
+
+**Client-side read — this one matters for push order.** `src/types/database.ts`
+declares `listings.aspect_coverage`, and the new admin page
+`/admin/listing-coverage` reads it through the edge route
+`/api/admin/listing-coverage`. Cloudflare Pages auto-deploys the frontend on
+push, so if the SQL has not been applied the route's `select` fails and the page
+shows its error card. Apply first.
+
+**What it does.** Records how complete each generated draft's eBay item
+specifics were at the moment AutoLister produced it. Required and recommended
+tiers are stored separately on purpose — a required gap blocks the publish, a
+recommended gap only costs search placement.
+
+## ✅ APPLIED: 00540_listing_category_candidates.sql (US-2424 — category choice, applied 2026-08-08 — owner-confirmed)
+
+**Apply order.** Before 00541, after 00539. No dependency beyond
+`public.listings` existing.
+
+**Risk: LOW.** One nullable `jsonb` column on `listings`. No backfill, no index,
+no constraint change.
+
+**Client-side read.** `src/types/database.ts` declares
+`listings.category_candidates`. Nothing renders it yet, but the type is shipped,
+so apply before the push for the same reason as 00541.
+
+**What it does.** Stores the ranked eBay leaf candidates AutoLister weighed when
+choosing a draft's category, with the required-aspect score behind each. Element
+0 is the chosen leaf. Lets the composer offer a one-click switch to the runner-up
+without a fresh AI run.
+
+## ✅ APPLIED: 00539_quest_definitions.sql (US-1852 — quests & challenges, applied 2026-08-08 — owner-confirmed)
+
+**Apply order.** Last, in numeric order. It must go AFTER 00443 (which owns the
+current `reputation_events` CHECK it rewrites) — long applied — and has no other
+dependency.
+
+**Risk: LOW, with one thing to read twice.** It creates one new table and
+**re-writes the `reputation_events_event_type_check` constraint**: drop, then
+re-add with the eleven existing values plus `quest_completed`. The re-added list
+is a strict superset, so no existing row can violate it and no backfill runs.
+
+`apply-prod-migrations.sh` runs each file with `-v ON_ERROR_STOP=1` and **no
+`--single-transaction`**, so the two `ALTER`s autocommit separately and there is
+a sub-second window where the column carries no CHECK. That window is safe here
+(only the service role writes the table, and a superset re-add cannot fail on
+existing data) — but if the `ADD` ever did fail, the script halts and the column
+stays unconstrained until the file is re-run. Re-running is safe and idempotent.
+00443 has exactly this shape; the same caveat applies to it.
+
+**What it does.** Adds `quest_definitions` — the operator's list of which quests
+and time-boxed challenges are running, how hard they are, when, and what they
+pay. Deliberately NOT added: any per-user progress table. Progress is derived
+from `reputation_events` over the quest's window, the same way season progress is
+(US-1851), so there is one log and no rollover job.
+
+**The safety rails:**
+- `quest_definitions.enabled` defaults **false**, so a half-configured row cannot
+  start paying.
+- `feature_flags.rewards_quests` is read with `defaultEnabled: false` — the whole
+  surface is off until an operator turns it on, and an outage suspends it rather
+  than opening it. **No flag row is seeded**, so nothing needs to be un-set.
+- The payout is clamped to 200 XP in code, both when written and every time it is
+  re-scored — a row written past the ceiling still cannot pay past it.
+
+**Nothing breaks if the frontend deploys first.** The only client surface is the
+admin page at `/admin/growth/quests`, which reads the table through the edge
+(`/api/admin/growth/quests`). Before the migration applies that call returns a
+500 and the page shows its error state; no seller-facing route touches quests at
+all. The edge boot guard will expect `00539`, so apply this before the next
+Coolify deploy as usual.
+
+**After applying:** `NOTIFY pgrst, 'reload schema';` — a new table AND a changed
+constraint, so PostgREST needs to learn about both.
+
+## ✅ APPLIED: 00538_reward_tangible_grants.sql (US-1848 — tangible reward rail, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It depends on nothing newer than
 `users`, `feature_flags` and `system_settings`, all of which are long applied.
@@ -582,7 +706,7 @@ before the next Coolify deploy as usual.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — a new table means
 PostgREST needs to learn about it.
 
-## ⏳ HELD: 00537_buyer_growth_metrics.sql (US-1845 — buyer analytics surface)
+## ✅ APPLIED: 00537_buyer_growth_metrics.sql (US-1845 — buyer analytics surface, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It reads `submissions.buyer_video_grade`
 and `ingested_listings`, so it needs 00535 and 00536 applied first — which the
@@ -608,7 +732,7 @@ unlike 00536.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — PostgREST caches the RPC
 list, so the endpoint 404s at the API layer until it reloads.
 
-## ⏳ HELD: 00536_buyer_video_grading.sql (US-1841 — buyer-funded walk-around grades)
+## ✅ APPLIED: 00536_buyer_video_grading.sql (US-1841 — buyer-funded walk-around grades, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00532 (it builds on the clip path) and last in numeric
 order, like the rest.
@@ -648,7 +772,7 @@ degrades quietly. Still: apply first.
 same commit bumps `EXPECTED_SCHEMA_VERSION` to `00536`, so the boot guard needs
 the row recorded), then push.
 
-## ⏳ HELD: 00535_ingested_listings.sql (US-1808 — extension-fed marketplace listing ingestion)
+## ✅ APPLIED: 00535_ingested_listings.sql (US-1808 — extension-fed marketplace listing ingestion, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Independent of 00530–00534; apply it last, in numeric order,
 like the rest.
@@ -678,7 +802,7 @@ a Cloudflare Pages auto-deploy on push is harmless on its own.
 same commit bumps `EXPECTED_SCHEMA_VERSION` to `00535`, so the boot guard needs
 the row recorded), then push.
 
-## ⏳ HELD: 00534_video_live_capture.sql (US-1766 — live-capture provenance for a clip)
+## ✅ APPLIED: 00534_video_live_capture.sql (US-1766 — live-capture provenance for a clip, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00532 — it recreates the view 00532 last defined, so
 applying it first would drop the `video_capture_verified` column 00532 adds.
@@ -704,7 +828,7 @@ degrades quietly rather than breaking. Still: apply first.
 same commit bumps `EXPECTED_SCHEMA_VERSION` to `00534`, so the boot guard needs
 the row recorded), then push.
 
-## ⏳ HELD: 00533_video_grading_scenarios.sql (US-1765 — model video grading in the AI scenarios)
+## ✅ APPLIED: 00533_video_grading_scenarios.sql (US-1765 — model video grading in the AI scenarios, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00532 — it patches a setting 00532 also patches, and its
 guard assumes 00532 ran first.
@@ -735,7 +859,7 @@ commit bumps `EXPECTED_SCHEMA_VERSION` to `00533`, so the edge still needs the
 row recorded before it boots — apply the SQL, `NOTIFY pgrst, 'reload schema';`,
 redeploy the edge, then push, exactly as for 00532.
 
-## ⏳ HELD: 00532_video_grading.sql (US-1762 — grade from a walk-around clip)
+## ✅ APPLIED: 00532_video_grading.sql (US-1762 — grade from a walk-around clip, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00531. Nothing else is queued behind it.
 
@@ -776,7 +900,7 @@ redeploy somehow lands without ffmpeg, video grading does NOT error — the
 extractor probes once, reports unavailable, and every video submission falls back
 to `needs_photos` uncharged.
 
-## ⏳ HELD: 00531_extension_usage_pings.sql (US-1757 AC2 — anonymous opt-in extension usage counters)
+## ✅ APPLIED: 00531_extension_usage_pings.sql (US-1757 AC2 — anonymous opt-in extension usage counters, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00530. Nothing else is queued behind it.
 
@@ -823,7 +947,7 @@ Then, with the extension's new "share anonymous usage counts" toggle ON, do a
 condition read and click a link back to gradethread.com; a row appears after the
 batch window closes (up to 6 hours, or immediately at 50 events).
 
-## ⏳ HELD: 00530_public_cert_rubric_factors.sql (US-1997 — public cert view exposes rubric_key + factor_scores)
+## ✅ APPLIED: 00530_public_cert_rubric_factors.sql (US-1997 — public cert view exposes rubric_key + factor_scores, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00529. Nothing else is queued behind it.
 

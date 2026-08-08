@@ -313,6 +313,13 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     rationale: "Garment→eBay category mappings feed every seller's listing generation.",
   },
   {
+    file: "admin-listing-coverage.ts",
+    scope: "marketplace:write",
+    mode: "router",
+    rationale:
+      "Cross-tenant read of AutoLister draft specifics coverage; the listing pipeline lives under the marketplace scope and there is no marketplace:read.",
+  },
+  {
     file: "admin-ads.ts",
     scope: "marketplace:write",
     mode: "router",
@@ -354,7 +361,7 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     file: "admin-growth.ts",
     scope: "growth:write",
     mode: "router",
-    rationale: "Segments, broadcast campaigns, announcements, push sends.",
+    rationale: "Segments, broadcast campaigns, announcements, push sends, quest definitions.",
   },
   {
     file: "admin-drip.ts",

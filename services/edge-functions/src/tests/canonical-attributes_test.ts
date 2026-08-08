@@ -111,9 +111,17 @@ Deno.test("decodeExtraction defaults attribute confidence/source like core field
   assertEquals(res.attributes.vintage.source, "text");
 });
 
-Deno.test("CANONICAL_ATTRIBUTES has exactly one multi attribute (features)", () => {
+// The multi set is small and deliberate: an attribute is multi ONLY when eBay's
+// matching aspect is genuinely multi-select. Everything else is single so
+// attributesToColumn writes a scalar and the composer renders one row.
+Deno.test("CANONICAL_ATTRIBUTES multi attributes are exactly features, accents and observations", () => {
   const multi = CANONICAL_ATTRIBUTES.filter((a) => a.multi).map((a) => a.key);
-  assertEquals(multi, ["features"]);
+  assertEquals(multi.sort(), ["accents", "features", "observations"]);
+});
+
+Deno.test("CANONICAL_ATTRIBUTES keys are unique", () => {
+  const keys = CANONICAL_ATTRIBUTES.map((a) => a.key);
+  assertEquals(new Set(keys).size, keys.length);
 });
 
 // ── attributesToColumn: persistence mapping ─────────────────────────────────
@@ -194,6 +202,122 @@ Deno.test("US-1526: a code attribute persists to the attributes column as a scal
   const col = attributesToColumn(attributes);
   assertEquals(col.style_code, "CV8839-010");
   assertEquals(col.upc, "885176939001");
+});
+
+// ── US-2421: the wide capture (40 keys + the observations catch-all) ─────────
+
+// The keys the story names explicitly. Listed literally rather than derived, so
+// dropping one from CANONICAL_ATTRIBUTES fails here instead of silently
+// shrinking what a single capture pass can hold.
+const US_2421_KEYS = [
+  "accents", "product_line", "fabric_weight", "fabric_type", "occasion",
+  "activity", "lining", "heel_type", "heel_height", "toe_shape", "strap_type",
+  "sleeve_style", "rise", "leg_style", "character", "collaboration", "season",
+  "era",
+  // Added alongside them to cover the same four verticals end to end.
+  "model", "shoe_width", "shoe_shaft_height", "hardware_color",
+  "dress_length", "garment_length",
+];
+
+Deno.test("US-2421: every widened key is a registered canonical attribute", () => {
+  const keys = new Set(CANONICAL_ATTRIBUTES.map((a) => a.key));
+  for (const k of US_2421_KEYS) {
+    assertEquals(keys.has(k), true, `${k} missing from CANONICAL_ATTRIBUTES`);
+  }
+});
+
+Deno.test("US-2421: the capture holds 40 named attributes plus the catch-all", () => {
+  const named = CANONICAL_ATTRIBUTES.filter((a) => a.key !== "observations");
+  assertEquals(named.length, 40);
+  assertEquals(
+    CANONICAL_ATTRIBUTES.some((a) => a.key === "observations" && a.multi),
+    true,
+    "observations must be a multi-valued catch-all",
+  );
+});
+
+// Build a raw tool-call payload that fills EVERY canonical slot, the way a
+// maximally-informative photo set would. This is the truncation canary: if the
+// wider schema ever outgrows the decode path, this loses keys.
+function fullFillRaw(): Record<string, unknown> {
+  const attributes: Record<string, unknown> = {};
+  for (const spec of CANONICAL_ATTRIBUTES) {
+    attributes[spec.key] = spec.multi
+      ? { values: [`${spec.key}-a`, `${spec.key}-b`], confidence: 0.8, source: "photo:front" }
+      : { value: `${spec.key}-value`, confidence: 0.8, source: "photo:tag" };
+  }
+  return { attributes };
+}
+
+Deno.test("US-2421: a full-fill response decodes without loss", () => {
+  const res = decodeExtraction(fullFillRaw(), true);
+  assertEquals(
+    Object.keys(res.attributes).sort(),
+    CANONICAL_ATTRIBUTES.map((a) => a.key).sort(),
+  );
+  for (const spec of CANONICAL_ATTRIBUTES) {
+    const got = res.attributes[spec.key];
+    assertEquals(got.confidence, 0.8, `${spec.key} confidence lost`);
+    assertEquals(
+      got.values,
+      spec.multi ? [`${spec.key}-a`, `${spec.key}-b`] : [`${spec.key}-value`],
+      `${spec.key} values lost`,
+    );
+  }
+});
+
+Deno.test("US-2421: a full-fill response persists every key to the attributes column", () => {
+  const res = decodeExtraction(fullFillRaw(), true);
+  const col = attributesToColumn(res.attributes);
+  for (const spec of CANONICAL_ATTRIBUTES) {
+    if (spec.multi) {
+      assertEquals(col[spec.key], [`${spec.key}-a`, `${spec.key}-b`]);
+    } else {
+      assertEquals(col[spec.key], `${spec.key}-value`);
+    }
+  }
+});
+
+Deno.test("US-2421: observations captures unnamed facts as an array; absent stays absent", () => {
+  const res = decodeExtraction(
+    {
+      attributes: {
+        observations: {
+          values: ["pocket style: patch pockets", "cuff: ribbed", "  ", "unknown"],
+          confidence: 0.6,
+          source: "photo:detail",
+        },
+      },
+    },
+    true,
+  );
+  // Blank + placeholder entries are dropped; the real facts survive verbatim.
+  assertEquals(res.attributes.observations.values, [
+    "pocket style: patch pockets",
+    "cuff: ribbed",
+  ]);
+  // …and it persists as an array, so a future canonical key can be backfilled
+  // from stored data instead of a fresh AI pass (AC2).
+  assertEquals(attributesToColumn(res.attributes).observations, [
+    "pocket style: patch pockets",
+    "cuff: ribbed",
+  ]);
+  assertEquals(decodeExtraction({}, true).attributes.observations, undefined);
+});
+
+Deno.test("US-2421: the new single-valued keys truncate an array to one value", () => {
+  const res = decodeExtraction(
+    {
+      attributes: {
+        heel_type: { values: ["Block", "Wedge"], confidence: 0.7 },
+        accents: { values: ["Embroidered", "Beaded"], confidence: 0.7 },
+      },
+    },
+    true,
+  );
+  assertEquals(res.attributes.heel_type.values, ["Block"]);
+  // accents is genuinely multi-select on eBay, so both survive.
+  assertEquals(res.attributes.accents.values, ["Embroidered", "Beaded"]);
 });
 
 // ── US-1530: conflicts[] decode (cross-photo disagreements surface, never coin-flip) ──

@@ -2691,6 +2691,26 @@ Deno.test({
   },
 });
 
+// US-2425: the draft-coverage console aggregates AutoLister specifics coverage
+// across EVERY tenant (the question "is the pipeline improving, and in which
+// vertical?" is meaningless inside one seller's data), so it must be
+// unreachable by a seller. adminAuthMiddleware denies any non-admin caller
+// before a row is read, and requireScope("marketplace:write") gates it again.
+Deno.test({
+  name: "B (non-admin) cannot read the AutoLister draft-coverage console",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const path of [
+      "/api/admin/listing-coverage",
+      "/api/admin/listing-coverage?limit=1000",
+    ]) {
+      const res = await fetch(`${BASE}${path}`, { headers: authHeaders(B_JWT!) });
+      await res.body?.cancel();
+      assertDenied(res.status, `GET ${path}`);
+    }
+  },
+});
+
 // US-1092: appending to a garment's passport is tenant-scoped — B must not
 // append an event to A's garment (the public GET /:slug read is intentionally
 // anonymous + PII-free, so the WRITE path is the isolation surface). Ownership
@@ -3604,6 +3624,38 @@ Deno.test({
 //     and the write-back (closet-grade-link.ts) repeats the same user_id scope,
 //     so a link that somehow survived still updates zero rows. Same shape as the
 //     `regrade_of` / `retake_of` ids alongside it.
+
+// US-1851: the rewards read surface. Both routes are self-scoped and take NO id
+// from the caller — GET /api/rewards/me reads reputation_events and
+// user_reward_state with .eq("user_id", userId), and GET
+// /api/rewards/seasons/:key/recap re-scores that SAME self-scoped event list over
+// a date window, so the `:key` path segment selects a TIME range, never a user.
+// The one door worth pinning is the mount itself: these routes live behind
+// app.use("/api/rewards/*", authMiddleware), and if that line were ever dropped
+// the handler would run with no userId and the service-role client would happily
+// read the whole table. An unauthenticated 401 is what proves the guard is on.
+// US-1852: GET /api/rewards/quests joins the same self-scoped surface. It takes
+// no id at all — the quest DEFINITIONS are product config (deny-all RLS, read
+// only through the service-role client) and the progress counted against them
+// comes from the caller's own reputation_events. The quest board is not a place
+// a foreign id can be smuggled in, so the mount guard below is the whole test.
+Deno.test({
+  name: "rewards read surface is not reachable without a token",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (
+      const path of [
+        "/api/rewards/me",
+        "/api/rewards/seasons/2026-Q3/recap",
+        "/api/rewards/quests",
+      ]
+    ) {
+      const res = await fetch(`${BASE}${path}`);
+      await res.body?.cancel();
+      assert(res.status === 401, `unauthenticated GET ${path} should 401, got ${res.status}`);
+    }
+  },
+});
 
 // US-1904: propose-groups fetches staged images by storage_path. Like its
 // verify-groups sibling, every path must live under the CALLER's own

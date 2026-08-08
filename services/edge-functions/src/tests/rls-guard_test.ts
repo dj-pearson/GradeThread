@@ -108,6 +108,12 @@ const SERVICE_ROLE_ONLY = new Set([
   // timestamp), and an anonymous writer means a readable table would be a free
   // public firehose.
   "extension_usage_pings",
+  // US-1852 quest definitions. Product config, not tenant data — there is no
+  // owner column because a quest belongs to the product. Deny-all matters in
+  // both directions: readable, it would leak unlaunched challenges before their
+  // window opens; writable, a seller could set their own quest's target to 1 and
+  // its payout to the ceiling, which is a direct XP-minting hole.
+  "quest_definitions",
   // US-1786 impact factors: GLOBAL, NON-TENANT config (published apparel LCA
   // figures, no owner) — deny-all. Only the service-role edge reads it for the
   // impact estimate; the SPA never queries it directly.

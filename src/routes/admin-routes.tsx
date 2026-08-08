@@ -34,6 +34,7 @@ const AdminDashboardPage = lazy(() => import("@/pages/admin/dashboard").then(m =
 const AdminUsersPage = lazy(() => import("@/pages/admin/users").then(m => ({ default: m.AdminUsersPage })));
 const AdminBulkPage = lazy(() => import("@/pages/admin/bulk").then(m => ({ default: m.AdminBulkPage })));
 const AdminCategoryMapPage = lazy(() => import("@/pages/admin/category-map").then(m => ({ default: m.AdminCategoryMapPage })));
+const AdminListingCoveragePage = lazy(() => import("@/pages/admin/listing-coverage").then(m => ({ default: m.AdminListingCoveragePage })));
 const AdminBrandKnowledgePage = lazy(() => import("@/pages/admin/brand-knowledge").then(m => ({ default: m.AdminBrandKnowledgePage })));
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
 const AdminReviewsPage = lazy(() => import("@/pages/admin/reviews").then(m => ({ default: m.AdminReviewsPage })));
@@ -101,6 +102,7 @@ const GrowthSegmentsPage = lazy(() => import("@/pages/admin/growth/segments").th
 const GrowthCampaignsPage = lazy(() => import("@/pages/admin/growth/campaigns").then(m => ({ default: m.GrowthCampaignsPage })));
 const GrowthAnnouncementsPage = lazy(() => import("@/pages/admin/growth/announcements").then(m => ({ default: m.GrowthAnnouncementsPage })));
 const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").then(m => ({ default: m.GrowthReferralsPage })));
+const GrowthQuestsPage = lazy(() => import("@/pages/admin/growth/quests").then(m => ({ default: m.GrowthQuestsPage })));
 const BuyerGrowthPage = lazy(() => import("@/pages/admin/growth/buyer").then(m => ({ default: m.BuyerGrowthPage })));
 const GrowthQuestsPage = lazy(() => import("@/pages/admin/growth/quests").then(m => ({ default: m.GrowthQuestsPage })));
 const GrowthRewardMilestonesPage = lazy(() => import("@/pages/admin/growth/reward-milestones").then(m => ({ default: m.GrowthRewardMilestonesPage })));
@@ -113,6 +115,7 @@ export function AdminRoutes() {
       <Route path="users" element={<SuspenseWrapper><AdminUsersPage /></SuspenseWrapper>} />
       <Route path="bulk" element={<SuspenseWrapper><AdminBulkPage /></SuspenseWrapper>} />
       <Route path="category-map" element={<SuspenseWrapper><AdminCategoryMapPage /></SuspenseWrapper>} />
+      <Route path="listing-coverage" element={<SuspenseWrapper><AdminListingCoveragePage /></SuspenseWrapper>} />
       <Route path="brand-knowledge" element={<SuspenseWrapper><AdminBrandKnowledgePage /></SuspenseWrapper>} />
       <Route path="users/:id" element={<SuspenseWrapper><AdminUserDetailPage /></SuspenseWrapper>} />
       <Route path="submissions" element={<SuspenseWrapper><AdminSubmissionsPage /></SuspenseWrapper>} />
@@ -194,6 +197,7 @@ export function AdminRoutes() {
       <Route path="growth/campaigns" element={<SuspenseWrapper><GrowthCampaignsPage /></SuspenseWrapper>} />
       <Route path="growth/announcements" element={<SuspenseWrapper><GrowthAnnouncementsPage /></SuspenseWrapper>} />
       <Route path="growth/referrals" element={<SuspenseWrapper><GrowthReferralsPage /></SuspenseWrapper>} />
+      <Route path="growth/quests" element={<SuspenseWrapper><GrowthQuestsPage /></SuspenseWrapper>} />
       <Route path="growth/buyer" element={<SuspenseWrapper><BuyerGrowthPage /></SuspenseWrapper>} />
       <Route path="growth/quests" element={<SuspenseWrapper><GrowthQuestsPage /></SuspenseWrapper>} />
       <Route path="growth/reward-milestones" element={<SuspenseWrapper><GrowthRewardMilestonesPage /></SuspenseWrapper>} />
