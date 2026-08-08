@@ -71,7 +71,13 @@ describe("composer unsaved-changes guard (US-2256)", () => {
     expect(composer).toMatch(
       /JSON\.stringify\(\{ \.\.\.snapshotValues, \.\.\.overrides \}\)/,
     );
-    expect(composer).toContain("markSaved(syncCascadedCategory(itemPatch))");
+    // Both save-time rewrites must reach the stamp: the category cascade and
+    // (US-1995) the backwards title sync, which rewrites `title` during the
+    // save. Either one left out re-dirties the form the moment it saves.
+    expect(composer).toMatch(
+      /markSaved\(\{\s*\.\.\.syncCascadedCategory\(itemPatch\),\s*\.\.\.adoptSyncedTitle\(titlePatch\),?\s*\}\)/,
+    );
+    expect(composer.match(/adoptSyncedTitle\(titlePatch\)/g)?.length).toBe(2);
   });
 
   it("does not count the aspect picker's own mount report as a seller edit", () => {

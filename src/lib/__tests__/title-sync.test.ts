@@ -85,6 +85,21 @@ describe("shared behavioural fixture (edge ⇄ web lockstep)", () => {
     }
   });
 
+  // US-1995 AC2. Asserted by applying the changes TWICE, because that is the
+  // shape the bug takes in production: `changes` comes from a captured
+  // before-map, so a retried mutation or a stale query cache replays the same
+  // {from, to} against a title that already holds the new value.
+  it("syncTitle is idempotent — applying twice equals applying once", () => {
+    expect(fixture.idempotent.length).toBeGreaterThan(0);
+    for (const c of fixture.idempotent) {
+      const once = syncTitle(c.title, c.changes);
+      expect(once, `fixture case: ${c.name} (first pass)`).toBe(c.expected);
+      expect(syncTitle(once, c.changes), `fixture case: ${c.name} (second pass)`).toBe(
+        c.expected,
+      );
+    }
+  });
+
   it("changesFromItemDiff matches the edge copy's expectations", () => {
     expect(fixture.changesFromItemDiff.length).toBeGreaterThan(0);
     for (const c of fixture.changesFromItemDiff) {

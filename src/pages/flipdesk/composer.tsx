@@ -127,6 +127,8 @@ import type {
   ItemStatus,
   ListingRow,
 } from "@/types/database";
+import { changesFromItemDiff } from "@/lib/title-sync";
+import { buildTitleSyncPatch, type TitleSyncPatch } from "@/lib/title-sync-patch";
 import { MergeSkuDialog } from "@/components/flipdesk/merge-sku-dialog";
 import { RecordSaleDialog } from "@/components/flipdesk/record-sale-dialog";
 import { ItemDetailsCard } from "@/components/flipdesk/composer/item-details-card";
@@ -1260,6 +1262,66 @@ export function FlipdeskComposerPage({
     );
   }
 
+  // US-1995: the specifics editor writes Brand/Size/Color/Style back onto the
+  // item columns (aspectWriteBackPatch above), so the listing TITLE has to
+  // follow — otherwise correcting a brand here leaves the OLD brand in the one
+  // field buyers search hardest.
+  //
+  // THIS IS A REGRESSION, NOT A NEW FEATURE. US-1891 shipped the substitution on
+  // the item canvas; the composer replaced that canvas and never inherited it,
+  // so the flagship item surface has been writing stale titles since. The story
+  // that filed this (US-1995) predates the canvas deletion and names surfaces
+  // that no longer exist — this one is the live gap.
+  //
+  // Same orchestration every other surface uses: eBay-origin listings are
+  // refused outright, both A/B variants move, and a hand-edited or live title is
+  // flagged for review rather than silently rewritten.
+  function titleSyncPatchFor(isLive: boolean): TitleSyncPatch {
+    if (!itemAspectSource) return {};
+    const wb = columnWriteBack();
+    const cols = wb.columns as Record<string, string | null | undefined>;
+    const beforeAttrs = (itemAspectSource.attributes ?? {}) as Record<string, unknown>;
+    const beforeDept = beforeAttrs.Department;
+    const afterDept = wb.attributes?.Department;
+    const before = {
+      brand: itemAspectSource.brand ?? null,
+      size: itemAspectSource.size ?? null,
+      color: itemAspectSource.color ?? null,
+      style: itemAspectSource.style ?? null,
+      department: typeof beforeDept === "string" ? beforeDept : null,
+    };
+    // The write-back only reports the columns it CHANGES, so an absent key means
+    // "unchanged" and must fall back to the before value — reading it as null
+    // would manufacture a change out of every field the seller did not touch.
+    return buildTitleSyncPatch({
+      baseTitle: title,
+      variants: listing?.title_variants,
+      changes: changesFromItemDiff(before, {
+        brand: cols.brand ?? before.brand,
+        size: cols.size ?? before.size,
+        color: cols.color ?? before.color,
+        style: cols.style ?? before.style,
+        department: typeof afterDept === "string" ? afterDept : before.department,
+      }),
+      snapshotTitle: aiSnapshot?.title ?? null,
+      isLive,
+      listingOrigin: listing?.listing_origin ?? null,
+    });
+  }
+
+  // The composer's title is a VISIBLE, editable field, so a substitution the
+  // seller cannot see would be undone by their next save: `title` state would
+  // still hold the old text and write straight over it. Pushing the synced value
+  // back into state and into the saved snapshot is what stops the second save
+  // reverting the first.
+  function adoptSyncedTitle(patch: TitleSyncPatch): Partial<typeof snapshotValues> | undefined {
+    if (typeof patch.listing_title !== "string" || patch.listing_title === title) {
+      return undefined;
+    }
+    setTitle(patch.listing_title);
+    return { title: patch.listing_title };
+  }
+
   // The cascade below writes `item_category` as part of the item patch, but the
   // Item details card renders `itemCategory` state, which is seeded ONCE and
   // never re-seeded (re-seeding on every refetch would throw away unsaved
@@ -1426,10 +1488,16 @@ export function FlipdeskComposerPage({
       // `&& item.listing_status === "draft"` gate was safe only because this
       // editor was draft-only; reached from Active/Sold it would insert a
       // SECOND listings row for the same item and orphan the live one.
+      // US-1995: fold the title substitution into the SAME listing write. A
+      // second statement would be a second failure point on a path that already
+      // has no transaction around it, and the half that failed would be the one
+      // the seller cannot see.
+      const titlePatch = titleSyncPatchFor(false);
+
       if (item.listing_id) {
         const { error } = await supabase
           .from("listings")
-          .update(payload as never)
+          .update({ ...payload, ...titlePatch } as never)
           .eq("id", item.listing_id);
         if (error) throw error;
         listingId = item.listing_id;
@@ -1437,7 +1505,7 @@ export function FlipdeskComposerPage({
         const { data: created, error } = await supabase
           .from("listings")
           // US-1077: a composer-authored draft is GradeThread-originated.
-          .insert({ ...payload, listing_origin: "gradethread" } as never)
+          .insert({ ...payload, ...titlePatch, listing_origin: "gradethread" } as never)
           .select("id")
           .single();
         if (error) throw error;
@@ -1451,7 +1519,10 @@ export function FlipdeskComposerPage({
       });
       // US-1895: refresh the recommended-coverage meter after an aspect save.
       await qc.invalidateQueries({ queryKey: ["recommended-coverage", item.id] });
-      markSaved(syncCascadedCategory(itemPatch));
+      markSaved({
+        ...syncCascadedCategory(itemPatch),
+        ...adoptSyncedTitle(titlePatch),
+      });
       toast.success(item.listing_id ? "Saved." : "Draft saved.");
       return listingId;
     } catch (err) {
@@ -1750,15 +1821,23 @@ export function FlipdeskComposerPage({
         if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
         throw sErr;
       }
+      // US-1995: isLive, so the substitution lands but the listing is flagged
+      // for review rather than silently rewritten — buyers are already reading
+      // these words. It never ends and relists; the revise-in-place path below
+      // is the only way a live title moves on eBay.
+      const titlePatch = titleSyncPatchFor(true);
       const { error } = await supabase
         .from("listings")
-        .update(buildLiveListingPatch(state) as never)
+        .update({ ...buildLiveListingPatch(state), ...titlePatch } as never)
         .eq("id", item.listing_id);
       if (error) throw error;
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
       await qc.invalidateQueries({ queryKey: ["inventory_item_ebay", item.id] });
-      markSaved(syncCascadedCategory(itemPatch));
+      markSaved({
+        ...syncCascadedCategory(itemPatch),
+        ...adoptSyncedTitle(titlePatch),
+      });
       return item.listing_id;
     } catch (err) {
       toast.error(`Save failed: ${errorMessage(err)}`);

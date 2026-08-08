@@ -42,6 +42,13 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function tokenBoundedRe(value: string): RegExp {
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${escapeRe(value)}(?![\\p{L}\\p{N}])`,
+    "giu",
+  );
+}
+
 function transferCase(matched: string, replacement: string): string {
   const letters = matched.replace(/[^\p{L}]/gu, "");
   if (letters.length > 0 && letters === letters.toUpperCase()) {
@@ -63,11 +70,42 @@ export function applyTitleSubstitution(
   const newVal = (to ?? "").trim();
   if (!oldVal || !newVal) return src;
   if (oldVal.toLowerCase() === newVal.toLowerCase()) return src;
-  const re = new RegExp(
-    `(?<![\\p{L}\\p{N}])${escapeRe(oldVal)}(?![\\p{L}\\p{N}])`,
-    "giu",
-  );
-  return src.replace(re, (m) => transferCase(m, newVal));
+
+  // US-1995: this has to be IDEMPOTENT, and a bare replace is not.
+  //
+  // When the new value CONTAINS the old one — "L" -> "L/XL", "North Face" ->
+  // "The North Face", "Blue" -> "Blue Navy", "501" -> "501 Original" — a second
+  // pass matches the old value sitting inside the replacement it just wrote and
+  // expands again: "L/XL/XL", "The The North Face". Those are not exotic inputs;
+  // widening a size and qualifying a brand are everyday seller corrections.
+  //
+  // It matters because idempotence is the ONLY thing standing between two
+  // surfaces that both sync and a corrupted title. `changes` is computed from a
+  // captured before-map, so a retried mutation or a not-yet-invalidated query
+  // cache replays {from: old, to: new} against a title that already holds the
+  // new value. "Pick one owner per surface" is the design, but it is a
+  // convention, and a convention is not a guard.
+  //
+  // So in the containing case, spans that ALREADY read as the new value are
+  // protected and only occurrences outside them are replaced.
+  const expands = tokenBoundedRe(oldVal).test(newVal);
+  const guarded: Array<[number, number]> = expands
+    ? [...src.matchAll(tokenBoundedRe(newVal))].map((m) => {
+        const start = m.index ?? 0;
+        return [start, start + m[0].length] as [number, number];
+      })
+    : [];
+
+  let out = "";
+  let cursor = 0;
+  for (const m of src.matchAll(tokenBoundedRe(oldVal))) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (guarded.some(([gs, ge]) => start >= gs && end <= ge)) continue;
+    out += src.slice(cursor, start) + transferCase(m[0], newVal);
+    cursor = end;
+  }
+  return out + src.slice(cursor);
 }
 
 export function syncTitle(

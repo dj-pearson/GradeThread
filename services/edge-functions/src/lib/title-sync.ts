@@ -1,7 +1,8 @@
 // US-1891: backwards title sync.
 //
-// ↳ UNCALLED BY DESIGN, NOT BY ACCIDENT (re-audited 2026-07-18, header corrected
-//   2026-07-19). See vault/70-agent/shipped-but-unwired.md and US-1995.
+// ↳ NOW WIRED (US-1995, 2026-08-08). This module was uncalled for three weeks
+//   and the header below used to explain why that was correct. It is called
+//   now, by reconcile-fields.ts. See vault/70-agent/shipped-but-unwired.md.
 //
 // Aspects sync both ways already (US-822/824), but `listing_title` is a
 // free-form column that nothing rebuilds — so correcting an item's Brand (or
@@ -14,35 +15,40 @@
 // unit-testable without any DB/eBay/AI calls. The caller decides WHEN to apply
 // it (GT-origin non-ebay listings only) and applies it to BOTH title variants.
 //
-// ⚠ DO NOT "FIX" THE ZERO CALLER COUNT BY WIRING THIS INTO AN EDGE ROUTE.
+// ⚠ THE OLD HEADER HERE WAS WRONG, AND IT IS WORTH KNOWING HOW.
 //
-// An earlier version of this header said the gap was "the edge item update
-// path". THERE IS NO SUCH ENDPOINT — no route in services/edge-functions does
-// .update() on inventory_items, so anyone acting on that sentence would spend
-// the session hunting for something that was never built. The audit that
-// established this is recorded in US-1995.
+// It said "DO NOT fix the zero caller count by wiring this into an edge route",
+// on the reasoning that no edge route does .update() on inventory_items. That
+// second claim was false: reconcile/apply in flipdesk-autolister.ts writes
+// inventory_items AND listings from buildMergeWrites. The header also listed
+// "web item canvas ....... wired", naming a file that had already been deleted;
+// its replacement, composer.tsx, inherited none of the sync. So a confident
+// DO-NOT-TOUCH block was standing guard over two live gaps.
 //
-// Every surface that writes a SYNCABLE_TITLE_FIELD has since been checked
-// individually, and the edge is not among them:
+// The lesson is narrow and repeatable: a header that argues from an ABSENCE
+// ("no route does X") ages badly, because nothing fails when the absence ends.
+// Where a claim like that is load-bearing, pin it with a test, not a comment.
 //
-//   web item canvas ....... wired (buildTitleSyncPatch)
-//   web bulk edit ......... wired (buildTitleSyncPatch) — was the real gap
-//   AutoLister ............ N/A: regenerates titles wholesale, so nothing to
+// Every surface that writes a SYNCABLE_TITLE_FIELD, re-audited 2026-08-08:
+//
+//   web composer .......... wired (buildTitleSyncPatch) — was the P1 gap
+//   web bulk edit ......... wired (buildTitleSyncPatch)
+//   web grid inline edit .. wired (buildTitleSyncPatch)
+//   edge reconcile/apply .. wired HERE, via reconcile-fields.ts: the kept title
+//                           is reconciled against the winning brand/size/
+//                           color/style. Pinned by reconcile-fields_test.ts.
+//   AutoLister generate ... N/A: regenerates titles wholesale, so nothing to
 //                           substitute into
 //   identification-verify . N/A: writes only { attributes, ai_field_sources };
 //                           touches no field a title can contain
 //   CSV import ............ N/A: fill-only, so the old value is always blank
 //                           and the substitution is a provable no-op
 //   iOS ................... THE ONE REMAINING GAP, and it cannot consume this
-//                           module — it needs a Swift port
+//                           module — it needs a Swift port (AIItemFieldWriter)
 //
-// SO WHY DOES THIS FILE STILL EXIST? It is the reference implementation the
-// Swift port is meant to mirror, and it is one half of the behavioural parity
-// fixture (src/test/fixtures/title-sync-cases.json) asserted by BOTH the deno
-// and vitest suites. Deleting it would remove one side of the only guard that
-// keeps the copies honest. scripts/audit-unwired-exports.mjs will keep
-// reporting this module as unwired; that report is correct and expected, and
-// this block is the answer to it.
+// This file is also one half of the behavioural parity fixture
+// (src/test/fixtures/title-sync-cases.json) asserted by BOTH the deno and
+// vitest suites, which is what keeps it honest against the web copy.
 //
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
 
@@ -55,6 +61,15 @@ export interface FieldChange {
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Boundaries: not preceded/followed by a letter or number. Lets "L" match as a
+// whole token but never inside "XL" or "Long".
+function tokenBoundedRe(value: string): RegExp {
+  return new RegExp(
+    `(?<![\\p{L}\\p{N}])${escapeRe(value)}(?![\\p{L}\\p{N}])`,
+    "giu",
+  );
 }
 
 // Carry the CASE STYLE of the matched title token onto the replacement so a
@@ -78,6 +93,8 @@ function transferCase(matched: string, replacement: string): string {
  * itself — every size shape uniformly: "Size L", "Sz L", and a bare "L" all
  * have the "L" token replaced. Returns the title unchanged when `from` isn't
  * present (the no-op contract) or the change is empty/identical.
+ *
+ * IDEMPOTENT (US-1995): applying the same change twice equals applying it once.
  */
 export function applyTitleSubstitution(
   title: string,
@@ -90,13 +107,41 @@ export function applyTitleSubstitution(
   if (!oldVal || !newVal) return src;
   if (oldVal.toLowerCase() === newVal.toLowerCase()) return src;
 
-  // Boundaries: not preceded/followed by a letter or number. Lets "L" match as
-  // a whole token but never inside "XL" or "Long".
-  const re = new RegExp(
-    `(?<![\\p{L}\\p{N}])${escapeRe(oldVal)}(?![\\p{L}\\p{N}])`,
-    "giu",
-  );
-  return src.replace(re, (m) => transferCase(m, newVal));
+  // US-1995: this has to be IDEMPOTENT, and a bare replace is not.
+  //
+  // When the new value CONTAINS the old one — "L" -> "L/XL", "North Face" ->
+  // "The North Face", "Blue" -> "Blue Navy", "501" -> "501 Original" — a second
+  // pass matches the old value sitting inside the replacement it just wrote and
+  // expands again: "L/XL/XL", "The The North Face". Those are not exotic inputs;
+  // widening a size and qualifying a brand are everyday seller corrections.
+  //
+  // It matters because idempotence is the ONLY thing standing between two
+  // surfaces that both sync and a corrupted title. `changes` is computed from a
+  // captured before-map, so a retried mutation or a not-yet-invalidated query
+  // cache replays {from: old, to: new} against a title that already holds the
+  // new value. "Pick one owner per surface" is the design, but it is a
+  // convention, and a convention is not a guard.
+  //
+  // So in the containing case, spans that ALREADY read as the new value are
+  // protected and only occurrences outside them are replaced.
+  const expands = tokenBoundedRe(oldVal).test(newVal);
+  const guarded: Array<[number, number]> = expands
+    ? [...src.matchAll(tokenBoundedRe(newVal))].map((m) => {
+      const start = m.index ?? 0;
+      return [start, start + m[0].length] as [number, number];
+    })
+    : [];
+
+  let out = "";
+  let cursor = 0;
+  for (const m of src.matchAll(tokenBoundedRe(oldVal))) {
+    const start = m.index ?? 0;
+    const end = start + m[0].length;
+    if (guarded.some(([gs, ge]) => start >= gs && end <= ge)) continue;
+    out += src.slice(cursor, start) + transferCase(m[0], newVal);
+    cursor = end;
+  }
+  return out + src.slice(cursor);
 }
 
 /**

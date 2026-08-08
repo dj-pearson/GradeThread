@@ -137,6 +137,7 @@ const FIXTURE = JSON.parse(
   ),
 ) as {
   syncTitle: { name: string; title: string; changes: FieldChange[]; expected: string }[];
+  idempotent: { name: string; title: string; changes: FieldChange[]; expected: string }[];
   changesFromItemDiff: {
     name: string;
     before: Record<string, string>;
@@ -149,6 +150,19 @@ Deno.test("shared fixture: syncTitle matches the web copy's expectations", () =>
   assert(FIXTURE.syncTitle.length > 0, "fixture is empty — wrong path?");
   for (const c of FIXTURE.syncTitle) {
     assertEquals(syncTitle(c.title, c.changes), c.expected, `fixture case: ${c.name}`);
+  }
+});
+
+// US-1995 AC2. Asserted by applying the changes TWICE, because that is the shape
+// the bug takes in production: `changes` comes from a captured before-map, so a
+// retried mutation or a stale query cache replays the same {from, to} against a
+// title that already holds the new value.
+Deno.test("shared fixture: syncTitle is idempotent — twice equals once", () => {
+  assert(FIXTURE.idempotent.length > 0, "fixture is empty — wrong path?");
+  for (const c of FIXTURE.idempotent) {
+    const once = syncTitle(c.title, c.changes);
+    assertEquals(once, c.expected, `fixture case: ${c.name} (first pass)`);
+    assertEquals(syncTitle(once, c.changes), c.expected, `fixture case: ${c.name} (second pass)`);
   }
 });
 

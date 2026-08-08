@@ -27,6 +27,8 @@ import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { changesFromItemDiff } from "@/lib/title-sync";
+import { buildTitleSyncPatch } from "@/lib/title-sync-patch";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
@@ -370,6 +372,52 @@ export function FlipdeskGridPage() {
     toast.info(`Pasted ${grid.length} row${grid.length === 1 ? "" : "s"}.`);
   }
 
+  // The item columns this grid edits that a listing title can quote. `color` and
+  // `department` are syncable fields too but this grid has no column for either,
+  // so listing them would only widen the read for values that cannot change here.
+  const TITLE_SYNC_COLS = ["brand", "style", "size"] as const;
+
+  interface TitleSyncListing {
+    id: string;
+    inventory_item_id: string | null;
+    listing_title: string | null;
+    title_variants: unknown;
+    listing_origin: string | null;
+    ai_generated_snapshot: { title?: string | null } | null;
+  }
+
+  // Best effort, deliberately. The item write is what the seller asked for and it
+  // has already succeeded; failing the row because its title could not follow
+  // would report a save that DID happen as an error, and the recovery — re-saving
+  // — would then re-apply nothing. The substitution is idempotent (US-1995), so a
+  // later edit on any surface picks it up.
+  async function syncListingTitle(
+    itemId: string,
+    patch: Record<string, unknown>,
+    lst: TitleSyncListing | undefined,
+  ) {
+    if (!lst) return;
+    const before = pageRows.find((r) => r.id === itemId);
+    if (!before) return;
+    const changes = changesFromItemDiff(
+      { brand: before.brand, style: before.style, size: before.size },
+      {
+        brand: "brand" in patch ? patch.brand : before.brand,
+        style: "style" in patch ? patch.style : before.style,
+        size: "size" in patch ? patch.size : before.size,
+      },
+    );
+    const titlePatch = buildTitleSyncPatch({
+      baseTitle: lst.listing_title,
+      variants: lst.title_variants,
+      changes,
+      snapshotTitle: lst.ai_generated_snapshot?.title ?? null,
+      listingOrigin: lst.listing_origin,
+    });
+    if (Object.keys(titlePatch).length === 0) return;
+    await supabase.from("listings").update(titlePatch as never).eq("id", lst.id);
+  }
+
   async function discardAll() {
     // Confirm before wiping a non-trivial batch of unsaved edits — a stray
     // click here would otherwise silently destroy the whole staging buffer.
@@ -391,6 +439,34 @@ export function FlipdeskGridPage() {
     setSaving(true);
     const errors: { message: string }[] = [];
     let savedCount = 0;
+
+    // US-1995: this grid edits Brand, Style and Size directly, so the listing
+    // TITLE has to follow — a seller who fixes a brand across twenty rows here
+    // otherwise gets twenty titles still naming the old one.
+    //
+    // The listing columns the substitution needs are NOT on items_full: it
+    // carries listing_id and listing_title but not listing_origin,
+    // title_variants or the AI snapshot. Read them once for the affected items
+    // rather than per row. listing_origin especially is not optional — an
+    // ebay-origin listing's title belongs to eBay
+    // (vault/20-domain/sync-source-of-truth.md), and without the column the only
+    // safe default would be to skip every row.
+    const syncCandidates = Array.from(staged.entries())
+      .filter(([, rec]) => TITLE_SYNC_COLS.some((f) => f in rec))
+      .map(([id]) => id);
+    const listingByItem = new Map<string, TitleSyncListing>();
+    if (syncCandidates.length > 0) {
+      const { data: lst } = await supabase
+        .from("listings")
+        .select(
+          "id, inventory_item_id, listing_title, title_variants, listing_origin, ai_generated_snapshot",
+        )
+        .in("inventory_item_id", syncCandidates);
+      for (const row of (lst ?? []) as TitleSyncListing[]) {
+        if (row.inventory_item_id) listingByItem.set(row.inventory_item_id, row);
+      }
+    }
+
     await Promise.all(
       Array.from(staged.entries()).map(async ([itemId, rec]) => {
         try {
@@ -408,6 +484,7 @@ export function FlipdeskGridPage() {
             .update(patch as never)
             .eq("id", itemId);
           if (error) throw error;
+          await syncListingTitle(itemId, patch, listingByItem.get(itemId));
           savedCount++;
         } catch (err) {
           errors.push({

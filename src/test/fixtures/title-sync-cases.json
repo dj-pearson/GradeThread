@@ -82,6 +82,79 @@
       "title": "Patagonia Fleece Jacket",
       "changes": [],
       "expected": "Patagonia Fleece Jacket"
+    },
+    {
+      "name": "the new value CONTAINS the old one — brand qualified",
+      "title": "North Face Nuptse Puffer Jacket",
+      "changes": [{ "field": "brand", "from": "North Face", "to": "The North Face" }],
+      "expected": "The North Face Nuptse Puffer Jacket"
+    },
+    {
+      "name": "the new value CONTAINS the old one — size widened",
+      "title": "Nike Dri-FIT Tee L",
+      "changes": [{ "field": "size", "from": "L", "to": "L/XL" }],
+      "expected": "Nike Dri-FIT Tee L/XL"
+    },
+    {
+      "name": "a standalone old value is still replaced when the new value is elsewhere",
+      "title": "Nike Tee L Also Marked L/XL",
+      "changes": [{ "field": "size", "from": "L", "to": "L/XL" }],
+      "expected": "Nike Tee L/XL Also Marked L/XL"
+    }
+  ],
+  "_idempotent_readme": [
+    "US-1995 AC2: applying the SAME changes twice must equal applying them once.",
+    "",
+    "Both suites run syncTitle(syncTitle(title, changes), changes) and assert `expected`.",
+    "",
+    "This is not a purity nicety. `changes` is computed from a captured before-map, so a",
+    "retried mutation or a query cache that has not been invalidated replays {from: old,",
+    "to: new} against a title that ALREADY holds the new value. A bare replace re-expands",
+    "whenever the new value contains the old one — 'L' -> 'L/XL' becomes 'L/XL/XL' — and",
+    "size widening, brand qualification and color qualification are everyday corrections,",
+    "not edge cases. 'One owner per surface' is the design, but it is a convention, and a",
+    "convention is not a guard."
+  ],
+  "idempotent": [
+    {
+      "name": "ordinary swap is idempotent (it always was)",
+      "title": "Patagonia Fleece Jacket",
+      "changes": [{ "field": "brand", "from": "Patagonia", "to": "Arc'teryx" }],
+      "expected": "Arc'teryx Fleece Jacket"
+    },
+    {
+      "name": "brand qualification does not compound into 'The The North Face'",
+      "title": "North Face Nuptse Puffer Jacket",
+      "changes": [{ "field": "brand", "from": "North Face", "to": "The North Face" }],
+      "expected": "The North Face Nuptse Puffer Jacket"
+    },
+    {
+      "name": "size widening does not compound into 'L/XL/XL'",
+      "title": "Nike Dri-FIT Tee L",
+      "changes": [{ "field": "size", "from": "L", "to": "L/XL" }],
+      "expected": "Nike Dri-FIT Tee L/XL"
+    },
+    {
+      "name": "color qualification does not compound",
+      "title": "Nike Tee Blue",
+      "changes": [{ "field": "color", "from": "Blue", "to": "Blue Navy" }],
+      "expected": "Nike Tee Blue Navy"
+    },
+    {
+      "name": "style-code expansion does not compound",
+      "title": "Levi's 501 Jeans",
+      "changes": [{ "field": "style", "from": "501", "to": "501 Original" }],
+      "expected": "Levi's 501 Original Jeans"
+    },
+    {
+      "name": "a multi-change pass is idempotent as a whole",
+      "title": "North Face Tee L Blue",
+      "changes": [
+        { "field": "brand", "from": "North Face", "to": "The North Face" },
+        { "field": "size", "from": "L", "to": "L/XL" },
+        { "field": "color", "from": "Blue", "to": "Blue Navy" }
+      ],
+      "expected": "The North Face Tee L/XL Blue Navy"
     }
   ],
   "changesFromItemDiff": [

@@ -5,6 +5,8 @@
 // AutoLister review-step UX: matched by the user's own SKU, the seller picks
 // per field which value reaches the final draft.
 
+import { applyTitleSubstitution, SYNCABLE_TITLE_FIELDS } from "./title-sync.ts";
+
 export interface ReconcileItemRow {
   id: string;
   sku: string | null;
@@ -147,6 +149,33 @@ export function buildMergeWrites(
       if (winnerText) aspectUpdate[f.ai.aspect] = [winnerText];
       else delete aspectUpdate[f.ai.aspect];
     }
+  }
+
+  // US-1995: the title the seller kept can still name the brand they just
+  // replaced.
+  //
+  // Every other field here is decided in isolation, but Title is not independent
+  // of Brand/Size/Color/Style — it QUOTES them. Choose "original" for Title and
+  // "ai" for Brand, which is the default suggestion whenever the AI read a
+  // different brand off the tag, and the write lands a corrected Brand column
+  // beside a title still selling the old one. The title is not ignored on this
+  // path, which is why it looked handled; it is written, just never reconciled
+  // against the other winners.
+  //
+  // applyTitleSubstitution rather than syncTitle, deliberately: syncTitle
+  // re-trims to eBay's 80 characters and this path never trimmed. Silently
+  // truncating a title the seller explicitly chose would be a larger change than
+  // the one being fixed, and publish enforces the cap itself.
+  const resolvedTitle = listingColUpdate.listing_title;
+  if (typeof resolvedTitle === "string" && resolvedTitle) {
+    let synced = resolvedTitle;
+    for (const f of RECONCILE_FIELDS) {
+      if (!(SYNCABLE_TITLE_FIELDS as readonly string[]).includes(f.key)) continue;
+      const to = itemUpdate[f.itemCol];
+      if (typeof to !== "string") continue;
+      synced = applyTitleSubstitution(synced, asText(item[f.itemCol]), to);
+    }
+    if (synced !== resolvedTitle) listingColUpdate.listing_title = synced;
   }
 
   return { itemUpdate, listingColUpdate, aspectUpdate };

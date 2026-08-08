@@ -6,11 +6,12 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/authenticity-eval.ts
   - services/edge-functions/src/lib/title-sync.ts
+  - services/edge-functions/src/lib/reconcile-fields.ts
   - services/edge-functions/src/lib/rubric.ts
   - src/test/no-dead-column-writes.test.ts
-reviewed: 2026-08-07
+reviewed: 2026-08-08
 tags: [quality, testing, dead-code, gotcha]
-summary: Modules that pass their tests while nothing calls them; one is a real unenforced guarantee, one is uncalled by design, one was a policy retirement that got deleted once a live switch started promising it, and one was assumed correct because being unwired hid a broken table — telling the shapes apart is the point.
+summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, and one was assumed correct because being unwired hid a broken table — telling the shapes apart is the point.
 ---
 
 # Shipped but unwired
@@ -23,69 +24,83 @@ This is the same defect class as [[guards-that-cannot-fail]] — a check that ru
 and measures something adjacent to what it claims to protect. Here the check
 runs and measures a function nobody invokes.
 
-Verified by call-graph search on 2026-07-19.
+Verified by call-graph search on 2026-07-19, re-verified 2026-08-08. Two of the
+four verdicts had gone stale in three weeks, which is roughly the point of the
+note.
 
 ## Accidentally dead
 
-### `authenticity-eval.ts` — the prompt gate that does not gate
+### `authenticity-eval.ts` — the prompt gate that did not gate (partly fixed)
 
-**All six exports have zero non-self callers.** `runAuthenticityEval`,
+**Was:** all six exports had zero non-self callers. `runAuthenticityEval`,
 `aggregateAuthenticityEval`, `isDangerousMiss`, `caseAgrees`, `verdictToLabel`,
-`authenticityEvalMinAgreement` — nothing imports any of them.
+`authenticityEvalMinAgreement` — nothing imported any of them, while the
+`grading-engine` skill documented a shadow → eval gate → canary lifecycle that
+was real for *grading* prompts and vacuous for *authenticity* ones.
 
-The module's own header states it plainly:
+**Now (US-1996):** three exports are wired, and the distinction matters.
 
-> "what is missing is the gate that would stop a bad PROMPT VERSION shipping."
-> "Do not read this module's green tests as evidence the gate exists."
+- `warnAuthenticityGate` runs at boot in `main.ts`, so a live authenticity prompt
+  with no passing eval run announces itself instead of being silent.
+- `assertAuthenticityPromptActivatable` fails closed and exists so a future
+  activation path cannot be built without it.
+- `authenticityGateStatus` backs both, and treats a query error, a missing run
+  and a model mismatch all as **ungated**.
 
-**Why this one matters more than it looks.** The `grading-engine` skill documents
-a prompt-version lifecycle — shadow, then eval gate, then canary. That lifecycle
-is real for *grading* prompts. For **authenticity** prompts the eval gate is this
-module, and it is not wired, so an authenticity prompt version can ship without
-clearing any accuracy bar. Anyone reading the skill would reasonably assume
-otherwise.
+**Still not enforced, deliberately:** nothing BLOCKS, because authenticity
+prompts are code constants rather than `ai_prompt_versions` rows — there is no
+activation call to intercept. Wiring a blocker today would mean inventing a
+lifecycle nobody asked for, which is how the dead code appeared in the first
+place. `authenticity-gate-guard_test.ts` fails the build if an activation path
+ever appears without calling the eval. `grading_eval_cases` also has no
+authenticity rows yet (US-2131 — expert-dependent, cannot be generated), so the
+boot warning reports ungated for every version until real labeled cases exist.
 
-Tracked in US-1996.
+## Judged "uncalled by design" — and judged wrong
 
-## Uncalled by design — the audit already ran
+The section below used to be the counterweight to the one above: proof that zero
+callers can be the correct state. Its single example turned out to be
+accidentally dead after all, which makes it a better lesson than it was an
+example. **A "by design" verdict is a claim about the rest of the codebase, and
+it decays.** Re-check it before you rely on it, especially when it rests on
+something not existing.
 
-Zero callers, and that is the correct state. The distinction from the section
-above is the whole value of this note: one of these is an unenforced guarantee,
-the other is a module doing exactly what it should.
+### `title-sync.ts` (edge) — WIRED as of 2026-08-08 (US-1995)
 
-### `title-sync.ts` (edge) — uncalled by DESIGN, not by accident
+> [!warning] This entry said "uncalled by design" for three weeks, and it was wrong
+> It argued the edge copy should keep zero callers, on the grounds that **no
+> route in `services/edge-functions` does `.update()` on `inventory_items`**.
+> That claim was false: `reconcile/apply` in `flipdesk-autolister.ts` writes both
+> `inventory_items` and `listings` from `buildMergeWrites`. The same entry listed
+> "web item canvas | wired", naming a file that had already been deleted — its
+> replacement, `composer.tsx`, inherited none of the sync. A confident
+> do-not-touch entry was standing guard over two live gaps.
 
-> [!warning] This entry was wrong until 2026-07-19 — do not act on the old version
-> It previously said the gap was "the edge item-update path". **There is no such
-> endpoint** — no route in `services/edge-functions` does `.update()` on
-> `inventory_items`. Anyone acting on that would have hunted for something never
-> built. The per-surface audit under US-1995 settled it; neither this note nor
-> the module header was updated at the time, so both kept pointing the wrong way.
+**Why it read as settled.** The 2026-07-19 audit was per-surface and genuinely
+careful; what it got wrong was arguing from an **absence**. "No route does X"
+cannot fail a test, so nothing announced it when a route started doing X. Where a
+claim like that is load-bearing, pin it with a test rather than a paragraph.
 
-The edge copy has zero production callers and **should keep them**. Every surface
-that writes a syncable title field was checked individually:
+Every surface that writes a syncable title field, re-audited 2026-08-08:
 
 | Surface | State |
 |---|---|
-| web item canvas | wired (`buildTitleSyncPatch`) |
-| web bulk edit | wired — this was the real gap, now closed |
-| AutoLister | N/A — regenerates titles wholesale |
+| web composer | wired (`buildTitleSyncPatch`) — was the P1 gap |
+| web bulk edit | wired (`buildTitleSyncPatch`) |
+| web grid inline edit | wired (`buildTitleSyncPatch`) |
+| edge `reconcile/apply` | wired via `reconcile-fields.ts` — the kept title is reconciled against the winning brand/size/color/style; pinned by `reconcile-fields_test.ts` |
+| AutoLister generate | N/A — regenerates titles wholesale |
 | identification-verify | N/A — writes only `attributes` / `ai_field_sources` |
 | CSV import | N/A — fill-only, so the old value is blank and the substitution is a provable no-op |
-| **iOS** | **the one remaining gap** — and it cannot consume this module; it needs a Swift port |
+| **iOS** | **the one remaining gap** — and it cannot consume this module; it needs a Swift port (`AIItemFieldWriter`) |
 
-So the module stays for two reasons: it is the reference the Swift port mirrors,
-and it is one half of the behavioural parity fixture
+The module is still one half of the behavioural parity fixture
 (`src/test/fixtures/title-sync-cases.json`) asserted by both the deno and vitest
-suites. Deleting it would remove one side of the only guard keeping the copies
-honest.
-
-`scripts/audit-unwired-exports.mjs` will keep reporting it as unwired. That
-report is correct; this entry is the answer to it.
+suites, which is what keeps the two copies honest.
 
 A user changing a brand on **iOS** still gets a corrected item and a stale
 listing title. That is the whole of what remains of US-1995, and it needs a
-macOS session.
+macOS session — see [[blocked-work-gates]].
 
 ## Deliberately dead — and why that was not enough
 
@@ -200,8 +215,9 @@ at read time. It reads like every other fact and makes the model *more*
 confident, not less.
 
 **The generalisable bit:** a module can be unwired because the path it was built
-for does not exist. Before wiring one, check that its declared callers are real —
-`title-sync.ts` above failed the same way.
+for does not exist. Before wiring one, check that its declared callers are real.
+And check the reverse too — `title-sync.ts` above was declared to have no
+possible caller, and by then it had one.
 
 ## The habit this argues for
 
