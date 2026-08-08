@@ -400,9 +400,16 @@ app.use("/api/affiliate/payouts", authMiddleware);
 // GradeThread Verified — seller manages their OWN public profile. No workspace
 // middleware: the profile is the individual seller's account, not a tenant's.
 app.use("/api/verified/*", authMiddleware);
-// US-1851 rewards (level / season / perks) — PERSONAL, like the verified
-// profile. Deliberately NOT workspace-scoped: XP and a tier belong to the human
-// who earned them, so a workspace member must not read the owner's.
+// US-1851 rewards (level / season / perks / streaks) — PERSONAL, like the
+// verified profile. Deliberately NOT workspace-scoped: XP and a tier belong to
+// the human who earned them, so a workspace member must not read the owner's.
+//
+// ⚠ ONE registration only. Two US-1851 commits (79c5a1a8, e8e098de) each added
+// this line with its own comment, and the duplicate survived review because
+// running auth twice is functionally harmless. It is not free: authMiddleware
+// calls supabaseAdmin.auth.getUser(), a network round-trip to GoTrue, so every
+// /api/rewards/* request paid the auth latency twice until 2026-08-08. Hono
+// runs each matching app.use in order — it does not dedupe.
 app.use("/api/rewards/*", authMiddleware);
 // US-1855 Showcase WRITES (per-find consent + reactions) — personal, like the
 // verified profile. The public feed itself is anonymous and lives under
@@ -411,9 +418,6 @@ app.use("/api/showcase/*", authMiddleware);
 // Buyer surfaces (US-1811+) — personal account, no workspace middleware; every
 // handler scopes by c.get("userId").
 app.use("/api/buyer/*", authMiddleware);
-// Seller progression (US-1851) — level/tier/season. Also personal, not a tenant
-// resource: XP is earned by the account, not by the workspace it belongs to.
-app.use("/api/rewards/*", authMiddleware);
 // Garment Passport (US-1092): the public chain read (GET /api/passport/:slug) is
 // anonymous; only the append path under /garments/* is authed + workspace-scoped.
 app.use("/api/passport/garments/*", authMiddleware);
