@@ -1,16 +1,16 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-**Eighteen migrations are held: 00542 through 00559.** Everything below them is
-applied. See the note under 00528 for how that is measured and why the
-measurement, not this file, is the authority whenever the two disagree.
+**Nothing is held.** 00542 through 00559 were applied to prod on 2026-08-08 and
+confirmed by the owner. See the note under 00528 for how that is measured and
+why the measurement, not this file, is the authority whenever the two disagree.
 
-**These sixteen used to be numbered 00539–00554.** The ADE hub loop ran against
-the same backlog and landed its own 00539, 00540 and 00541, and the owner applied
-all three to prod on 2026-08-08. An applied number is immutable, so the three the
-hub burned stay with the hub and the sixteen here moved up by three. Nothing in
-them changed except the number — same SQL, same order, same risk.
+**00542–00557 used to be numbered 00539–00554.** The ADE hub loop ran against
+the same backlog and landed its own 00539, 00540 and 00541, and those went to
+prod first. An applied number is immutable, so the three the hub burned stayed
+with the hub and the sixteen here moved up by three. Nothing in them changed
+except the number — same SQL, same order, same risk.
 
-## ⏳ HELD: 00559_billing_environment_marker.sql (US-2286 — mark which store environment paid)
+## ✅ APPLIED: 00559_billing_environment_marker.sql (US-2286 — mark which store environment paid, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, after 00558. It depends on 00558 only in the loose sense
 that both touch `public.users`; there is no ordering hazard between them.
@@ -54,7 +54,7 @@ migration, so they need the store-side purchase history to identify.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — new columns, so
 PostgREST must re-read or every write to them 404s at the schema cache.
 
-## ⏳ HELD: 00558_billing_source_googleplay.sql (US-2287 — Play subscriptions are being rejected)
+## ✅ APPLIED: 00558_billing_source_googleplay.sql (US-2287 — Play subscriptions are being rejected, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, after 00557. It only touches a CHECK constraint on
 `public.users` created by 00104, so it is independent of the rest of the held
@@ -92,7 +92,7 @@ the affected set is recoverable rather than lost.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — a constraint change, so
 PostgREST should re-read.
 
-## ⏳ HELD: 00557_loyalty_tenure.sql (US-1914 — tenure tiers & anniversary grants)
+## ✅ APPLIED: 00557_loyalty_tenure.sql (US-1914 — tenure tiers & anniversary grants, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, after 00556. It rewrites CHECK constraints owned by
 00544 (`reward_milestones.trigger_type`) and 00549
@@ -129,7 +129,7 @@ that promise is kept in the schema or not at all.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — two new tables and two
 changed constraints, so PostgREST has to re-read the schema.
 
-## ⏳ HELD: 00556_badge_click_variant.sql (US-1913 — plain vs status badge clicks)
+## ✅ APPLIED: 00556_badge_click_variant.sql (US-1913 — plain vs status badge clicks, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00404, which creates `badge_click_events`. Long applied,
 so in practice: anywhere in the held tail, and it is independent of 00555.
@@ -148,7 +148,7 @@ flat.
 `'plain'`, CHECK over `plain | status`). Every existing row reads `plain`, which
 is accurate: before US-1913 there was no other badge format.
 
-## ⏳ HELD: 00555_seller_integrity_tier.sql (US-1912 — seller Grade Integrity tier)
+## ✅ APPLIED: 00555_seller_integrity_tier.sql (US-1912 — seller Grade Integrity tier, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00443 (which owns the `reputation_events` event-type
 allow-list this re-states) and after 00421 (which creates
@@ -193,7 +193,7 @@ after a buyer outcome computes their real tier — and because `previous_tier`
 starts effectively at `building`, crossing the floor registers as a promotion and
 pays once.
 
-## ⏳ HELD: 00554_radar_activity_by_day.sql (US-1865 — Thrift Radar weekly activity pattern)
+## ✅ APPLIED: 00554_radar_activity_by_day.sql (US-1865 — Thrift Radar weekly activity pattern, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00552 — it adds a column to `radar_venue_aggregates`,
 which that migration creates.
@@ -225,7 +225,7 @@ deletes what it did not rewrite, so the all-zero default is replaced within the
 hour. A row still holding zeros renders as "no pattern yet" rather than as a
 claim that the store is quiet every day.
 
-## ⏳ HELD: 00553_radar_personal_stores.sql (US-1864 — Thrift Radar personal store history)
+## ✅ APPLIED: 00553_radar_personal_stores.sql (US-1864 — Thrift Radar personal store history, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00551 — both new objects reference `radar_venues`
 (`sources.radar_venue_id` and `radar_personal_scans.venue_id` are foreign keys to
@@ -276,7 +276,7 @@ on an existing table the SPA selects.
 **Exercised** against a throwaway local stack via `npm run verify:db` (Docker),
 not against prod.
 
-## ⏳ HELD: 00552_radar_aggregates.sql (US-1863 — Thrift Radar aggregates + retention archive)
+## ✅ APPLIED: 00552_radar_aggregates.sql (US-1863 — Thrift Radar aggregates + retention archive, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00551 — `radar_venue_aggregates.venue_id` is a foreign key
 to `radar_venues`, so applying this first fails on a missing relation.
@@ -325,7 +325,7 @@ frontend's point of view.
 **Exercised** against a throwaway local stack via `npm run verify:db` (Docker),
 not against prod.
 
-## ⏳ HELD: 00551_radar_venues.sql (US-1862 — Thrift Radar venue registry)
+## ✅ APPLIED: 00551_radar_venues.sql (US-1862 — Thrift Radar venue registry, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** After 00550, which created `radar_scan_events` — this migration
 adds the foreign key from that table's `venue_id` column to the new
@@ -368,7 +368,7 @@ is the pre-US-1862 behaviour, so the scan the user is waiting on is unaffected
 **Rollback.** Safe to leave in place. Nothing reads the table except the edge's
 resolver, which degrades to "unresolved" without it.
 
-## ⏳ HELD: 00550_radar_scan_events.sql (US-1861 — Thrift Radar consent + events)
+## ✅ APPLIED: 00550_radar_scan_events.sql (US-1861 — Thrift Radar consent + events, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It touches `public.users`,
 `public.system_settings` and `public.applied_migrations` — all long applied — so
@@ -403,7 +403,7 @@ schema), then push.
 contribution without a deploy, set that key's `value` to
 `{"contribution_enabled": false, ...}`.
 
-## ⏳ HELD: 00549_reward_nudges.sql (US-1859 — re-engagement nudges)
+## ✅ APPLIED: 00549_reward_nudges.sql (US-1859 — re-engagement nudges, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It references `public.users`,
 `public.system_settings` and the `notification_type` enum (00007) — all long
@@ -436,7 +436,7 @@ registered in Coolify separately.
 (`0 15 * * *` → `POST /api/jobs/reward-nudges`) — see CRON_SETUP.md. Until it is
 registered nothing sends, which is a safe state, not a broken one.
 
-## ⏳ HELD: 00548_reward_economics_guardrails.sql (US-1858 — reward budget guardrails)
+## ✅ APPLIED: 00548_reward_economics_guardrails.sql (US-1858 — reward budget guardrails, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It references `public.users`,
 `public.system_settings` and the `abuse_signal_type` enum (00212) — all long
@@ -460,7 +460,7 @@ apply: the guardrails only narrow a budget that is already gated by the
 - Seeds `system_settings.rewards_economics_guardrails` (margin floor, free-tier
   allowance, daily velocity limits, auto-pause and fraud-hold switches).
 
-## ⏳ HELD: 00547_reward_leaderboards.sql (US-1856 — public reward leaderboards)
+## ✅ APPLIED: 00547_reward_leaderboards.sql (US-1856 — public reward leaderboards, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It touches `users` and `referral_events`
 (both long applied) and adds an index on `showcase_reactions`, which arrives in
@@ -496,7 +496,7 @@ current query reads them.
 `/api/rewards/leaderboard`; it never queries `users.leaderboard_*` directly. The
 new columns are added to the frontend `Database` type for completeness only.
 
-## ⏳ HELD: 00546_showcase_finds.sql (US-1855 — public Showcase / "Finds" feed)
+## ✅ APPLIED: 00546_showcase_finds.sql (US-1855 — public Showcase / "Finds" feed, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It needs `submissions`, `grade_reports`
 and `users` (all long applied), so it depends on none of the other held
@@ -530,7 +530,7 @@ current query reads them.
 from `/api/content/public/finds.json` and never queries `public_showcase_finds`
 or `showcase_reactions` directly, so the RLS posture above is the whole story.
 
-## ⏳ HELD: 00545_share_to_earn.sql (US-1854 — share-to-earn loop)
+## ✅ APPLIED: 00545_share_to_earn.sql (US-1854 — share-to-earn loop, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It only needs `reputation_events`
 (00417), `badge_click_events` (00404) and `users`, all long applied — so it does
@@ -567,7 +567,7 @@ columns — both go through the edge (`/api/rewards/share`,
 `/api/content/public/badge-click`). So a frontend auto-deploy ahead of the SQL is
 harmless; the edge is the one that must not run ahead.
 
-## ⏳ HELD: 00544_reward_milestone_catalog.sql (US-1853 — milestone rewards)
+## ✅ APPLIED: 00544_reward_milestone_catalog.sql (US-1853 — milestone rewards, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It depends on `reward_tangible_grants`
 (00538, also held), `users` and `set_updated_at()`, so it MUST go after 00538.
@@ -605,7 +605,7 @@ pays anybody until an operator turns it on.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — one new table and two new
 columns need PostgREST to re-read the schema cache.
 
-## ⏳ HELD: 00543_reward_quests.sql (US-1852 — quests & challenges)
+## ✅ APPLIED: 00543_reward_quests.sql (US-1852 — quests & challenges, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It depends on `reputation_events`
 (00417/00443), `users`, `feature_flags` and `set_updated_at()` — all long
@@ -642,7 +642,7 @@ renders nothing when the read fails.
 **After applying:** `NOTIFY pgrst, 'reload schema';` — two new tables need
 PostgREST to re-read the schema cache.
 
-## ⏳ HELD: 00542_reward_levels_seasons.sql (US-1851 — levels & seasons)
+## ✅ APPLIED: 00542_reward_levels_seasons.sql (US-1851 — levels & seasons, applied 2026-08-08 — owner-confirmed)
 
 **Apply order.** Last, in numeric order. It alters `user_reward_state` (added by
 00443, long applied) and depends on nothing newer.
