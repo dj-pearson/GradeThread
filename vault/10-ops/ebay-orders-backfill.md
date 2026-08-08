@@ -7,9 +7,9 @@ code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/sync-watermark.ts
   - services/edge-functions/src/routes/jobs-ebay-order-backstop.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [ebay, flipdesk, sync, recovery]
-summary: How to recover eBay orders that a pre-US-2320 sync skipped past, and how to tell whether a seller lost any.
+summary: How to recover eBay orders that a pre-US-2320 sync skipped past, how to tell whether a seller lost any, and why the run status field is the wrong thing to check.
 ---
 
 # eBay orders backfill after a lost sync window
@@ -59,14 +59,36 @@ full sales history" action, run once per connection.
    enrichment pass against eBay's rate limits; running every seller at once
    will trip them and produce the exact partial pass this runbook exists to
    clean up. One connection at a time, sequentially, is fine.
-4. Re-check after each run. A run that reports `status: 'partial'` on its
-   sync-run row did not finish — read its `errors` and run it again. Post
-   US-2320 a partial run no longer advances the cursor past what it wrote, so
-   re-running is safe and picks up where it stopped.
+4. Re-check after each run — but **`status: 'partial'` is not the signal.**
+   `status` is `partial` whenever the run's `errors` bag is non-empty from **any**
+   phase (`flipdesk-ebay.ts:3767`), and that bag collects conflicts, orphan
+   orders, and a Feed-report failure that then succeeded via the paged path. A
+   run can be `partial` and have pulled every order correctly.
+
+   Grep `errors` for the cursor lines instead. Only these two mean the orders
+   pass did not finish:
+
+   - `orders: sync cursor NOT advanced (<reason>). This sync is PARTIAL…`
+     (`flipdesk-ebay.ts:3742`)
+   - `orders: N order(s) not saved — sync cursor held at …`
+     (`flipdesk-ebay.ts:3729`)
+
+   Either one ⇒ run it again. Post US-2320 the cursor never advances past what
+   the run actually wrote, so re-running is safe and picks up where it stopped.
+
+> [!warning] This runbook told operators to trust `status` (corrected 2026-08-08)
+> It said a `partial` run "did not finish". Read that way, an operator re-runs a
+> 23-month pull for every seller whose run had one unmatched orphan order — and,
+> worse, learns that "partial" is noise and stops re-running the ones that
+> genuinely stalled. The status field was never phase-specific; the note assumed
+> it was. This was an authoring error at the note's first review, not drift.
 
 The pull is idempotent: existing sales are matched by
-`(platform_order_id, line_item_id)` and updated in place, so a re-run of a
-window that already imported cleanly writes nothing new.
+`(inventory_item_id, platform_order_id, line_item_id)` — the lookup is scoped by
+the item first (`flipdesk-ebay.ts:3286`) — and updated in place, so a re-run of a
+window that already imported cleanly writes nothing new. The two-column
+`(user_id, platform_order_id, line_item_id)` key belongs to a different table,
+`flipdesk_ebay_orphan_sales`; do not reach for it here.
 
 ## What it cannot recover
 
@@ -75,15 +97,33 @@ eBay's own retention. Orders modified more than ~24 months ago are rejected by
 orders older than that, the only source left is their eBay Seller Hub export,
 imported manually.
 
+The two numbers in this note are not a contradiction: **eBay's limit is ~24
+months; our floor is 700 days (~23)**, `ebayLookbackFloor` at
+`flipdesk-ebay.ts:3111`. The month of margin is deliberate — asking right up to
+eBay's edge earns a 30830 that fails the whole pass rather than trimming it.
+
 ## Why it cannot happen again
 
 `planOrdersWatermark` (`lib/sync-watermark.ts`) now owns the cursor decision:
 
 - fetch incomplete (a throw mid-paging, or the page ceiling) → the cursor does
   not move at all;
-- orders fetched but not persisted → the cursor rewinds to the earliest failure
-  so those orders re-pull;
+- orders fetched but not persisted, **and the earliest failure has a usable
+  `lastModifiedDate`** → the cursor rewinds to that timestamp so those orders
+  re-pull;
+- orders fetched but not persisted, **and that timestamp is null or
+  unparseable** → reason `undatable_failure`, and the cursor **freezes** rather
+  than rewinding (`sync-watermark.ts:65`). There is nowhere safe to rewind to, so
+  it holds. An operator seeing `undatable_failure` in `errors` is looking at a
+  data-shape problem in eBay's response, not a rate limit;
+- a failure timestamped in the future → reason `rewound`, advances to `now()`
+  (`sync-watermark.ts:72`) — a defensive branch against a bad clock;
 - clean pass → `now()`, as before.
+
+The authoritative list is the `WatermarkPlan` union at `sync-watermark.ts:38`.
+This note listed three of the five until 2026-08-08, and the missing
+`undatable_failure` is the one an operator is most likely to actually see in a
+`reason` string with nothing to match it against.
 
 Shopify already worked this way — `flipdesk-shopify.ts` gates its watermark on
 `ingest.ok`. Any new connector's cursor must be gated the same way; see

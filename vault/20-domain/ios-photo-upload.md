@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - ios/GradeThread/Upload/PhotoUploadService.swift
-reviewed: 2026-08-01
+reviewed: 2026-08-08
 tags: [ios, photos, uploads, contract]
 summary: A months-long "AI couldn't process your photos" saga that was four separate bugs, and the rules each one left behind.
 ---

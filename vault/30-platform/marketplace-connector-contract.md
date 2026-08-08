@@ -9,7 +9,8 @@ code_refs:
   - services/edge-functions/src/lib/whatnot-client.ts
   - services/edge-functions/src/lib/crypto-aes.ts
   - services/edge-functions/src/lib/token-refresh-race.ts
-reviewed: 2026-08-03
+  - services/edge-functions/src/lib/rewards-engine.ts
+reviewed: 2026-08-08
 tags: [marketplaces, oauth, contract, security]
 summary: Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 ---
@@ -20,7 +21,7 @@ Depop, Etsy and Whatnot each ship a client whose header re-derives the same
 lifecycle. The shape is the contract; the per-marketplace deltas are small.
 **A new connector implements this, then documents only what it does differently.**
 
-## The five invariants
+## The six invariants
 
 **1. A kill switch, defaulting to off.** Every connector gates on
 `<MARKETPLACE>_ENABLED`. Until an operator flips it *and* supplies credentials,
@@ -84,6 +85,15 @@ going stale with nothing logged.
 *connect* an account is not being able to *list* to it. These two ship
 separately and the second is the larger piece of work.
 
+**6. A new connection grants `marketplace_connected` exactly once** (US-1849).
+Every connector calls `grantMarketplaceConnectedReward(userId, "<marketplace>",
+account)` at the tail of its `upsert<Marketplace>Connection`, on the INSERT path
+only — the reconnect path returns before it, so reconnecting cannot re-earn. The
+helper dedupes on `<marketplace>:<account>` and is best-effort: a grant failure
+is swallowed and logged, because a rewards outage must never fail an OAuth
+callback. `rewards-engine_test.ts` source-scans all five clients (ebay, depop,
+etsy, shopify, whatnot) and fails if one stops granting.
+
 ## Per-marketplace deltas
 
 | Marketplace | Delta |
@@ -102,3 +112,4 @@ are bad.
 - [[key-rotation]] — `EDGE_ENCRYPTION_KEY` rotation for the tokens above
 - [[ebay-condition-and-policies]] — eBay is the mature integration this generalises from
 - [[adr-poshmark-via-extension]] — the marketplaces deliberately NOT given a connector
+- [[reward-ledger]] — the one-ledger rule the connect grant writes through

@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
@@ -53,6 +53,13 @@ The ids live in `CONDITION_ENUM_TO_ID` (`publish-preflight.ts`); the enum itself
 is mirrored in four places that must move together — edge
 `EBAY_CONDITION_VALUES`, web `EBAY_CONDITION_OPTIONS`, iOS `EbayCondition.swift`,
 and that id map.
+
+> [!warning] The iOS mirror is currently behind (found 2026-08-08)
+> `EbayCondition.swift` jumps from `.likeNew` straight to `.usedExcellent`: it is
+> missing `PRE_OWNED_EXCELLENT` (2990) and `PRE_OWNED_FAIR` (3010), which the
+> other three mirrors carry. This is exactly the drift the four-places rule warns
+> about, found by re-reading rather than by any test. Fixing it needs a macOS
+> session — see [[blocked-work-gates]].
 
 **The grade mapping was the actual bug.** `mapEbayCondition` sent the grade-9
 new-without-tags tier to `LIKE_NEW`, and iOS even labelled `LIKE_NEW` as "New

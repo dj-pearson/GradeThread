@@ -6,9 +6,12 @@ source_of_truth: code
 code_refs:
   - src/lib/images.ts
   - functions/_shared/blog-render.ts
-reviewed: 2026-08-04
+  - wrangler.toml
+  - lighthouserc.json
+  - functions/_shared/sitemap.ts
+reviewed: 2026-08-08
 tags: [seo, performance, images, cwv]
-summary: The shipped performance levers, the Cloudflare toggles still to enable, and how responsive images are actually gated.
+summary: The shipped performance levers, how responsive images are gated (ON since US-2333), and how the edge SSR cache and its purges actually work.
 ---
 # Core Web Vitals + edge caching (US-1690)
 
@@ -39,9 +42,22 @@ Thresholds live in `lighthouserc.json` at `warn` level, non-blocking.
 **Layout stability (CLS).** Inter is self-hosted with `font-display: swap`
 (`src/index.css`) and preloaded from `index.html`, so the hero H1 paints in the
 system fallback and swaps without shifting. Every public image carries explicit
-`width`/`height` or an `aspect-ratio`: the `<Image>` component
-(`src/components/responsive-image.tsx`) *requires* those props, and the blog SSR
-(`functions/_shared/blog-render.ts`) emits them on hero and content images.
+`width`/`height` or an `aspect-ratio` — but by **two different mechanisms**, and
+the note used to blur them:
+
+- `<Image>` (`src/components/responsive-image.tsx:7,61`) genuinely *requires*
+  `width`/`height` props and emits them as attributes.
+- The blog SSR emits **neither**. `renderHeroImage`
+  (`blog-render.ts:1283`) writes only `class/src/srcset/sizes/alt/loading/
+  fetchpriority/decoding`; the hero's box is reserved by CSS instead
+  (`.hero { aspect-ratio: 16 / 9 }`, `blog-render.ts:399`). `rewriteContentImages`
+  (`blog-render.ts:1388`) *reads* dimensions the author supplied and, only when
+  both are absent and there is no `style=`, injects
+  `style="aspect-ratio:auto 16/9"`.
+
+The CLS outcome is the same; the mechanism is not. Anyone grepping the SSR for a
+`width=` attribute after reading the old sentence found nothing and had no way to
+tell whether that was a bug.
 
 **Responsive images (US-306), and how they are gated.** `<Image>` and the blog
 SSR emit a Cloudflare `srcset` + `sizes` **only** when
@@ -85,18 +101,21 @@ mobile PageSpeed blocker at roughly 490ms.
 The enforcing CSP allows it by **sha256 hash** in `public/_headers` `script-src`
 — deliberately not `'unsafe-inline'`.
 
-> [!warning] Edit that script and the hash stops matching, so the browser
-> silently refuses to run it. Consent Mode, the font, and analytics all stop
-> working with no error anyone will notice. **Recompute the hash in the same
-> change.**
+**The hash is recomputed by the build; you do not touch it.** `scripts/prerender.mjs`
+calls `syncCspHash(builtIndex, headers)` (`prerender.mjs:378`, helper in
+`scripts/csp-hash.mjs`), which sha256s the inline script as built and rewrites the
+directive in `dist/_headers`. The build **fails loudly** if the token it expects
+to replace is missing, so a silently-wrong hash is not a state you can reach.
 
-```bash
-node -e "const fs=require('fs'),c=require('crypto');const m=fs.readFileSync('dist/index.html','utf8').match(/<script>([\s\S]*?)<\/script>/);console.log('sha256-'+c.createHash('sha256').update(m[1],'utf8').digest('base64'))"
-```
+> [!note] This section carried a manual-recompute warning until 2026-08-08
+> It told you to run a `node -e` one-liner against `dist/index.html` and edit
+> `public/_headers` in the same change. US-358 automated exactly that, and
+> `public/_headers:5-10` has said so since. The warning was the note's most
+> emphatic callout, which is precisely why it was worth deleting rather than
+> softening: an emphatic instruction to do work the build already does teaches a
+> reader that the emphatic callouts are noise.
 
-Run it against `dist/index.html` after a build, since the CSP applies to the
-served file. Vite does not currently alter the inline bytes, so the source hash
-happens to equal the dist hash — do not rely on that, hash the built file. The
+The
 script sits **outside** the `prerender:head` markers, so it survives into every
 prerendered page.
 
@@ -136,9 +155,14 @@ curl -sI "https://gradethread.com/cdn-cgi/image/width=320,format=auto/logo_prima
 curl -sI "https://gradethread.com/logo_primary.png" | head -n 1
 ```
 
-A 404 on the first means Transformations is still off, or the variable is unset
-or not redeployed. **The site is not broken in that state** — it serves full-size
-originals. That is the current production state.
+A 404 on the first means Transformations is off, or the variable is unset or not
+redeployed. **The site is not broken in that state** — `cfImage()`'s
+`onerror=redirect` serves full-size originals.
+
+That was production until US-2333 (2026-08-03). It is not any more:
+`VITE_CF_IMAGE_RESIZING=true` in both `.env.production:57` and `wrangler.toml`
+(prod and preview). The `curl` above should now return **200**, and a 404 is a
+regression to chase rather than the expected state.
 
 ## Measurement
 
@@ -151,14 +175,25 @@ and in PostHog as a `web_vitals` capture, both carrying `metric_name`,
 as an integer (0.043 → `43`); the rest are whole milliseconds.
 
 **Lab (CI).** `.github/workflows/lighthouse.yml` builds the prerendered `dist/`
-(the same HTML bots see), runs Lighthouse against `/`, `/condition-grading` and
-`/how-it-works` (desktop preset, 3 runs, median), asserts budgets at `warn`, and
-upserts a non-blocking PR comment. It is `continue-on-error` — the merge gate is
-`ci.yml`, not this. Locally: `npm run build && npx @lhci/cli autorun --config=./lighthouserc.json`.
+(the same HTML bots see) and runs Lighthouse over **13 URLs**
+(`lighthouserc.json:5-18`) on **both** the desktop and mobile configs
+(`lighthouserc.mobile.json`), asserts budgets at `warn`, and upserts a
+non-blocking PR comment. It is `continue-on-error` — the merge gate is `ci.yml`,
+not this. Locally: `npm run build && npx @lhci/cli autorun --config=./lighthouserc.json`.
+
+`"numberOfRuns": 1` (`lighthouserc.json:20`), deliberately, to cap CI runtime —
+the workflow's "median" language is about picking a representative run per URL,
+not averaging repeats. So a single noisy number is a **signal to re-run**, not a
+regression. This note said "3 URLs, desktop preset, 3 runs, median" until
+2026-08-08; every part of that was wrong, and the third part is the one that
+would make you trust a fluke.
+
+Budgets asserted include `categories:seo ≥ 0.95` alongside the performance ones
+in the table above.
 
 ## Verifying no regression
 
-Run Lighthouse (mobile profile) and check field data on one URL of each type: a
+Check field data on one URL of each type: a
 marketing pillar (`/grading/scale`), a blog post, a certificate (`/cert/:id`) and
 a pSEO page (`/grading/glossary/euc`). Confirm the LCP element is the prerendered
 hero rather than a hydrated swap-in, CLS ≈ 0, INP within budget, and that the
@@ -174,10 +209,20 @@ curl -s https://gradethread.com/robots.txt | grep -i sitemap
 
 ## Adding a new marketing image
 
-1. Add it to `ROUTE_OG_IMAGES` in `src/lib/seo/public-routes.ts`, with `alt`.
-2. Mirror it into `MARKETING_IMAGES` in `functions/_shared/sitemap.ts` — Pages
-   Functions cannot import from `src/`, which is why this is two edits in
-   lockstep rather than one.
+Add it to `ROUTE_OG_IMAGES` in `src/lib/seo/public-routes.ts`, with `alt`. That
+is the whole procedure — one edit.
+
+The image sitemap reads `dist/seo-manifest.json`, which the Vite `seoManifestPlugin`
+emits from `ROUTE_OG_IMAGES` at build (US-2111), so new cards arrive on their own.
+
+> [!warning] Do NOT mirror it into `functions/_shared/sitemap.ts` (corrected 2026-08-08)
+> This note used to call that a mandatory second edit "in lockstep", on the
+> reasoning that Pages Functions cannot import from `src/`. True, and irrelevant:
+> the manifest is how the value crosses that boundary. The array is now
+> `FALLBACK_MARKETING_IMAGES` (`sitemap.ts:720`) and exists only for a
+> manifest-fetch failure — its own comment at `sitemap.ts:718` says "Do not add
+> new cards here". Following the old step adds a line to a fallback list that is
+> **expected** to drift, and teaches the next person that the two must match.
 
 Blog hero images need no manual step; they reach the image sitemap from
 `/api/content/public/sitemap.json`. For the *route* itself, follow
@@ -271,8 +316,9 @@ recurring request stops within one interval of hiding and resumes on focus.
 
 The shared/crawled public pages are server-rendered by Cloudflare Pages
 Functions, not static HTML: certificates (`functions/cert/[id].ts`), verified
-seller profiles (`functions/verified/[handle].ts`), and the blog
-(`functions/blog/[[path]].ts`). These are the surfaces link-preview bots and
+seller profiles (`functions/verified/[handle].ts`), the blog
+(`functions/blog/[[path]].ts`), author pages (`functions/authors/[[path]].ts:45`)
+and garment passports (`functions/passport/[slug].ts:73`). These are the surfaces link-preview bots and
 search/AI crawlers hammer, and they re-render the same HTML for every hit.
 
 **Why a Cache-Control header alone isn't enough.** Every SSR response already
@@ -291,8 +337,12 @@ requests:
   this with affiliate `?ref=` codes and resolved it by emitting a fixed,
   nonce-stamped script (`functions/_shared/affiliate-capture.ts`) that reads the
   param client-side from the visitor's own URL — the HTML stays identical.
-- Only `GET` `200` responses with a public `Cache-Control` are stored — the blog
-  `preview` route (`private, no-store`) and 404/503s are passed through untouched.
+- Stored only when the response is `200` **and** its `Cache-Control` contains
+  neither `no-store` nor `private` (`blog-render.ts:256`) — so the blog `preview`
+  route (`private, no-store`) and 404/503s pass through untouched. Note the guard
+  is a **deny-list, not an allow-list**: it does not require a `public` token, so
+  a 200 with no `Cache-Control` at all WOULD be cached. Any new SSR surface must
+  set its header explicitly rather than relying on this to fail safe.
 - Adds `x-gt-cache: HIT|MISS` so a HIT is verifiable, and stores via `waitUntil()`
   so the first (MISS) response isn't blocked.
 - Degrades to a plain render when `caches` is unavailable (local `wrangler`).
@@ -301,15 +351,18 @@ requests:
 The existing `lib/cloudflare-purge.ts` plumbing is extended with
 `buildCertPurgeFiles()` / `buildSellerPurgeFiles()` and best-effort wrappers
 `purgeCertificateCache()` / `purgeSellerProfileCache()` (no-op + no DB hit when
-`CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ZONE_ID` are unset; never throw). They evict
+`CLOUDFLARE_API_TOKEN`/`CLOUDFLARE_ZONE_ID` are unset; never throw). Call sites
+import **`invalidateCertificate()`**, not `purgeCertificateCache()` directly —
+the former also runs `deleteCertImages()` (`lib/cloudflare-purge.ts:122`). Grep
+for the wrong name and you will conclude the cert purge is unwired. They evict
 the cert SSR page **plus** its OG/badge/slab image renderers (all encode the
 score), or the profile SSR page + its OG card. Wired into every write that
 changes the data:
 
 | Trigger | Code | Purges |
 |---|---|---|
-| Dispute resolved with a grade change | `routes/admin-disputes.ts` | `/cert/:id` (+ og/badge/slab) |
-| Review-queue grade adjustment | `routes/admin-grading.ts` | `/cert/:id` (+ og/badge/slab) |
+| Dispute resolved with a grade change | `routes/admin-disputes.ts:13` → `invalidateCertificate()` | `/cert/:id` (+ og/badge/slab) |
+| Review-queue grade adjustment | `routes/admin-grading.ts:115` → `invalidateCertificate()` | `/cert/:id` (+ og/badge/slab) |
 | Seller edits/toggles their profile (incl. handle rename → old+new) | `routes/verified.ts` | `/verified/:handle` (+ og) |
 | Blog publish/edit/unpublish | `routes/content-blog.ts`, `content-scheduler.ts` (pre-existing) | `/blog/:slug`, `/blog`, sitemap, rss |
 
@@ -349,8 +402,17 @@ The two facts are complementary, not contradictory:
    transform failure serves the original rather than a broken image.
 
 So the failure mode the docs argued about cannot happen in either direction.
-Cloudflare Image Transformations remain **off** on the zone (`/cdn-cgi/image/`
-404s), which is why the flag defaults to off.
+
+> [!warning] This paragraph contradicted the note's own table (corrected 2026-08-08)
+> It ended "Cloudflare Image Transformations remain **off** on the zone, which is
+> why the flag defaults to off" — while the toggles table above already recorded
+> the flag as DONE and verified 2026-08-03. **The flag has been on since US-2333**
+> (`.env.production`, `wrangler.toml`). A reader who landed in Corrections got the
+> opposite answer from the same document.
+>
+> Worth naming as a shape: a "Corrections" section is written once, to settle an
+> argument, and then never re-read when the thing it settled changes. It ages
+> faster than the body it corrects, not slower.
 
 ### Route counts: two different metrics, never labelled
 

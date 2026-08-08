@@ -7,10 +7,11 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/routes/flipdesk-ebay.ts
   - services/edge-functions/src/lib/cert-number.ts
+  - services/edge-functions/src/lib/gt-grade-standard.ts
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -32,8 +33,11 @@ treatment because it would look better.
    writes the grade line; the server appends the cert number in
    `applyGradeListingPromotion` (`flipdesk-ebay.ts`).
 2. **A structured item specific.** `applyGradeListingPromotion` adds
-   `"Condition Grade" → "X.X (GradeThread)"` to the aspect map. It is added
-   **after** aspect sanitisation, so it always rides along.
+   `"Condition Grade" → "GradeThread X.X"` to the aspect map — keys and format
+   from `lib/gt-grade-standard.ts`. It is added **after** aspect sanitisation, so
+   it always reaches the wire; but on the PUBLISH path it never overwrites a
+   value the seller already set. Only a forced resync/revise (`opts.force`)
+   replaces a live value.
 3. **A cert number the buyer can type.** `grade_reports.certificate_number` — a
    unique Crockford-base32 `GT-XXXXXXX` minted at grade time by
    `generateUniqueCertNumber` (`lib/cert-number.ts`) and exposed on the public

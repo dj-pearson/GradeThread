@@ -7,8 +7,10 @@ source_of_truth: code
 code_refs:
   - src/lib/composer-save.ts
   - src/pages/flipdesk/composer.tsx
+  - src/pages/flipdesk/grid.tsx
+  - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -30,18 +32,35 @@ is correct — an eBay-optimised title should not be undone by an inventory
 edit — but it makes a whole class of bug possible: edit the item, publish, and
 get the old text with no error anywhere.
 
-## Why this is currently safe: there is exactly one editor
+## Why this is mostly safe: one full editor, and one grid that half-syncs
 
-`FlipdeskComposerPage` (`src/pages/flipdesk/composer.tsx`) is the only
-item/listing editor, at **every** status. `/dashboard/flipdesk/items/:id`,
+`FlipdeskComposerPage` (`src/pages/flipdesk/composer.tsx`) is the only **full**
+item/listing editor, at every status. `/dashboard/flipdesk/items/:id`,
 `/items/:id/draft` and the item detail dialog all embed it, and every
 listings-table row navigates to it.
 
 It writes `listing_title`, `listing_description` and `listing_price` **straight
 to the listings row** through `buildListingFields` (`src/lib/composer-save.ts`),
 which both save paths share precisely so a column cannot be wired into one and
-forgotten in the other. The seller's edit and the snapshot publish reads are the
-same write.
+forgotten in the other.
+
+**It is not the only writer.** `src/pages/flipdesk/grid.tsx` edits `title`,
+`target_price`, `brand`, `style`, `size` and `condition_notes` inline, against
+`inventory_items` only. Since US-1995 it syncs **brand/style/size** into
+`listings.listing_title` (`TITLE_SYNC_COLS`, `grid.tsx:378`) — but a grid edit to
+**Title** or **Target price** still never reaches the listings row, and will not
+publish. That is the open case of the rule below, stated here rather than left to
+be rediscovered.
+
+**And since US-1995 a composer save is no longer a pure copy of the form.**
+`titleSyncPatchFor()` builds a `TitleSyncPatch` from the specifics write-back and
+it is spread **after** `buildListingFields`' payload, so `listing_title` can leave
+a save different from what the seller typed, and `title_variants` / `needs_review`
+reach the row without passing through the shared builder. `adoptSyncedTitle()`
+pushes the substituted value back into React state so the next save does not
+revert it. The shared-builder guarantee therefore no longer covers every listings
+column the composer writes; it held here only because both call sites were
+patched by hand.
 
 > [!note] This obsoleted a fix rather than losing it (2026-08-01)
 > A "smart merge" once lived in `item-canvas.tsx`, propagating canvas edits into
@@ -63,7 +82,24 @@ otherwise serve the snapshot and the seller's change silently will not ship.
 
 That is not hypothetical: bulk edit needed its own title sync for exactly this
 reason, having been shipped for the canvas and never for there. The composer is
-safe because it writes the listing row directly; nothing else gets that for free.
+safe because it writes the listing row directly; nothing else gets that for free,
+and the grid is the standing proof — it got the sync for three columns and still
+lacks it for two.
+
+There is now a **second** way to diverge, added by the backwards title sync:
+editing `brand`, `size`, `color` or `style` on the item makes
+`listings.listing_title` stale even though nobody wrote `inventory_items.title`.
+The rule above only names title/description/price, so it does not catch that
+case; a surface writing any syncable field needs the title patch too.
+
+> [!warning] The sync marks its own work as a hand edit
+> `ai_generated_snapshot` is written only at generation and is never re-stamped.
+> So the FIRST sync leaves `listing_title != ai_generated_snapshot.title`
+> permanently, and every later sync on that listing reads `handEdited === true`
+> and sets `needs_review`. A machine substitution is thereafter indistinguishable
+> from a seller's own edit. Harmless for publish, which never reads
+> `needs_review`, but it makes the review queue noisier than the code comment
+> implies.
 
 The reverse direction — a specifics edit reaching the item's columns — is a
 different contract; see [[sync-source-of-truth]].

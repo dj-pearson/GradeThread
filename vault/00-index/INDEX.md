@@ -62,6 +62,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[adr-0001-knowledge-vault]] — decision — Consolidate 203 scattered markdown files into one navigable wiki; retrieve by link traversal rather than embeddings.
 - [[adr-0002-shipped-runbook-copies]] — decision — The in-app runbooks and rotation registry stay hand-written with a staleness guard, because generating them would either flood the UI or require an excerpt field that is a second copy anyway.
 - [[adr-0003-dual-consumer-vault]] — decision — Live Dataview queries serve humans, the generated INDEX serves agents; both are kept because each is inert to the other's reader.
+- [[adr-0004-drift-guard-stays-coarse]] — decision — File-mtime drift detection fired on 13 notes and 8 were still accurate, but the same coarseness caught two errors that had been wrong for months — so the trigger stays, and the cost gets paid on the re-read side.
 - [[adr-authenticity-guarantee]] — decision — Why GradeThread does not financially back its authenticity assessments yet, and the four things that would have to be true to revisit.
 - [[adr-authenticity-open-questions]] — decision — Four authenticity decisions, all decided 2026-07-19 — the appeal SLA number and the counsel engagement are the only pieces still outstanding.
 - [[adr-comps-pseo]] — decision — Whether to build programmatic comp pages, and why the answer turned on indexation risk.

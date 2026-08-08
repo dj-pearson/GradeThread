@@ -9,7 +9,7 @@ code_refs:
   - src/lib/ebay-category-map.ts
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---

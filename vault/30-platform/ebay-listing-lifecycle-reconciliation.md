@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/routes/flipdesk-automations.ts
   - services/edge-functions/src/lib/active-listings.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error.
 ---

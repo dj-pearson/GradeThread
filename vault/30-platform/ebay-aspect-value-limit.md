@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-08-03
+reviewed: 2026-08-08
 tags: [ebay, publishing, gotcha]
 summary: eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 ---
@@ -15,7 +15,8 @@ summary: eBay rejects aspect values over 65 chars at publish, not at upload - wh
 
 eBay hard-rejects any item-specific (aspect) **value** longer than 65 characters.
 Enforced in `ebay-client.ts` via `EBAY_ASPECT_VALUE_MAX_LEN = 65` and
-`capAspectValuesForEbay()` (verified 2026-08-01, `ebay-client.ts:2224`).
+`capAspectValuesForEbay()` (verified 2026-08-08: the constant at
+`ebay-client.ts:2301`, the function at `ebay-client.ts:2322`).
 
 ## Why this is worth a note rather than a comment
 
@@ -45,9 +46,23 @@ from the number (US-528). Read the **last** `[flipdesk-ebay] publish failed:`
 line in the edge-function log and look at the message, not the code — the
 user-facing "active offer" message hides the real one.
 
-`isOfferAlreadyExistsError` handles the ambiguity by requiring **both** the id
-*and* `/already exists/i` in the message. **Do not loosen that to an id-only
-check** — it would classify every over-long-aspect failure as a duplicate offer.
+> [!warning] This note described a safeguard that does not exist (corrected 2026-08-08)
+> It said `isOfferAlreadyExistsError` requires **both** the id and
+> `/already exists/i`, and warned against loosening it to an id-only check. The
+> code has been the opposite since US-528 (2026-06-03): errorId 25002 **alone**
+> returns true, and the message heuristic is only a fallback for non-JSON error
+> bodies (`ebay-client.ts:2455`). So the note prescribed a guard nobody wrote and
+> warned against the behaviour that was already shipping. It was mis-recorded at
+> the note's first review, not broken by a later change.
+
+`isOfferAlreadyExistsError` treats **errorId 25002 alone as sufficient**; the
+message test (`/already exists/i` **and** `/offer/i`) only runs when the id is
+missing. Because 25002 is overloaded, an over-long-aspect failure IS classified
+as "offer already exists". That false positive is deliberate and safe at the call
+site: `publishItemForOwner` looks up the SKU's offers and re-throws the original
+error when it finds none (`ebay-client.ts:2448-2453`). What you cannot do is use
+this predicate to tell the two meanings of 25002 apart — read
+`err.ebayErrorMessages` for that.
 
 A single free-text aspect can permanently block a listing this way.
 
@@ -68,9 +83,15 @@ boundary so values do not truncate mid-word into garbage, and falling back to a
 hard cut only when the first 65 characters contain no break. Trailing separators
 are stripped.
 
-It is applied at a **shared chokepoint** in the inventory-item payload builder, so
-every publish path inherits it. New publish paths should route through that same
-builder rather than constructing aspect maps directly.
+It is applied inside `createOrReplaceInventoryItem` (`ebay-client.ts:2348`), the
+PUT that every single-item publish and revise path shares, on a shallow copy so
+the caller's own map is untouched.
+
+**One gap:** `createOrReplaceInventoryItemGroup` (`ebay-client.ts:3078`) sends
+group-level `aspects` **uncapped**, so a multi-variation listing can still be
+blocked by an over-long shared aspect. The variant SKUs themselves are safe —
+they go through `createOrReplaceInventoryItem`. New publish paths should route
+through that function rather than constructing aspect maps directly.
 
 ## Related
 
