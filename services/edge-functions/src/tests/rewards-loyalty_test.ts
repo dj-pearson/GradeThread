@@ -10,7 +10,7 @@
 // The DB half is deliberately untested — it is thin, and testing it would mean
 // mocking PostgREST rather than checking a rule.
 
-import { assertEquals } from "https://deno.land/std@0.224.0/assert/mod.ts";
+import { assertEquals } from "@std/assert";
 
 // The env dance is NOT cosmetic: both modules under test import lib/supabase.ts
 // transitively, which throws `SUPABASE_URL is not set` at MODULE EVALUATION. A

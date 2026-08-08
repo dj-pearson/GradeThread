@@ -213,7 +213,6 @@ import { showcaseRoutes } from "./routes/showcase.ts";
 import { buyerPurchasesRoutes } from "./routes/buyer-purchases.ts";
 import { buyerClosetRoutes } from "./routes/buyer-closet.ts";
 import { buyerRewardsRoutes } from "./routes/buyer-rewards.ts";
-import { rewardsRoutes } from "./routes/rewards.ts";
 import { buyerProfileRoutes } from "./routes/buyer-profile.ts";
 import { buyerWantsRoutes } from "./routes/buyer-wants.ts";
 import { buyerAuthenticityRoutes } from "./routes/buyer-authenticity.ts";
@@ -1651,7 +1650,6 @@ app.route("/api/buyer", buyerProfileRoutes);
 app.route("/api/buyer", buyerWantsRoutes);
 app.route("/api/buyer", buyerAuthenticityRoutes);
 app.route("/api/buyer", buyerTrustRoutes);
-app.route("/api/rewards", rewardsRoutes);
 
 // 404
 app.notFound((c) => {

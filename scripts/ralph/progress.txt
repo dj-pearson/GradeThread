@@ -4504,3 +4504,8 @@ Branch: ralph/gradethread-build
 - Timestamp: 2026-08-08T01:13:34.175Z
 - Cost: $17.8622 over 158 turns
 ---
+## US-1914: Loyalty: tenure tiers, anniversary rewards & never-decay standing
+- Status: COMPLETE
+- Timestamp: 2026-08-08T04:02:23.273Z
+- Cost: $11.1822 over 41 turns
+---

@@ -104,7 +104,6 @@ const GrowthAnnouncementsPage = lazy(() => import("@/pages/admin/growth/announce
 const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").then(m => ({ default: m.GrowthReferralsPage })));
 const GrowthQuestsPage = lazy(() => import("@/pages/admin/growth/quests").then(m => ({ default: m.GrowthQuestsPage })));
 const BuyerGrowthPage = lazy(() => import("@/pages/admin/growth/buyer").then(m => ({ default: m.BuyerGrowthPage })));
-const GrowthQuestsPage = lazy(() => import("@/pages/admin/growth/quests").then(m => ({ default: m.GrowthQuestsPage })));
 const GrowthRewardMilestonesPage = lazy(() => import("@/pages/admin/growth/reward-milestones").then(m => ({ default: m.GrowthRewardMilestonesPage })));
 const GrowthRewardEconomicsPage = lazy(() => import("@/pages/admin/growth/reward-economics").then(m => ({ default: m.GrowthRewardEconomicsPage })));
 
@@ -199,7 +198,6 @@ export function AdminRoutes() {
       <Route path="growth/referrals" element={<SuspenseWrapper><GrowthReferralsPage /></SuspenseWrapper>} />
       <Route path="growth/quests" element={<SuspenseWrapper><GrowthQuestsPage /></SuspenseWrapper>} />
       <Route path="growth/buyer" element={<SuspenseWrapper><BuyerGrowthPage /></SuspenseWrapper>} />
-      <Route path="growth/quests" element={<SuspenseWrapper><GrowthQuestsPage /></SuspenseWrapper>} />
       <Route path="growth/reward-milestones" element={<SuspenseWrapper><GrowthRewardMilestonesPage /></SuspenseWrapper>} />
       <Route path="growth/reward-economics" element={<SuspenseWrapper><GrowthRewardEconomicsPage /></SuspenseWrapper>} />
       // Content module — blog, social, topic bank, knowledge base,

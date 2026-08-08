@@ -246,6 +246,9 @@ Deno.test("a defect or measurement shot does not stand in for a detail", () => {
 function milestone(over: Partial<MilestoneReward> = {}): MilestoneReward {
   return {
     key: "m",
+    // US-1914: identical to `key` for every milestone except an INSTANCED one
+    // (the anniversary gift, whose grant key carries the year).
+    baseKey: "m",
     triggerType: "xp_threshold",
     xpThreshold: 100,
     triggerKey: null,
@@ -266,6 +269,9 @@ function ctx(over: Partial<MilestoneTriggerContext> = {}): MilestoneTriggerConte
     xpTotal: 0,
     badgeKeys: new Set<string>(),
     seasonGoalKeys: new Set<string>(),
+    // US-1914: 0 = no anniversary owed, which is the case for every milestone
+    // in this file.
+    anniversaryYear: 0,
     ...over,
   };
 }
