@@ -158,3 +158,10 @@ dist-ext/
 *.keystore
 *.jks
 ios-screenshots/**/*.zip
+
+# scripts/archive-passing-stories.mjs writes these before it rewrites the two
+# backlog files. They are a local undo for one command, not history — the
+# history is prd.archive.json itself, which IS tracked. Committing a 4 MB copy
+# of it on every archive run would be pure noise.
+prd.json.bak
+prd.archive.json.bak
