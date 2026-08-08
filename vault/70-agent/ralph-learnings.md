@@ -121,6 +121,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   ("there are **N**"), pinned by its own case in the same test. The generated
   tables can be perfectly in sync while that sentence is stale, which is the
   gap a generation guard leaves open. Bump it in the same commit.
+- `src/test/prd-archive-integrity.test.ts` goes red on its own as the loop runs:
+  it fails once `prd.json` holds `passes:true` stories, and the harness is what
+  puts them there. NO iteration can fix it — the prompt forbids editing
+  `prd.json`, and re-archiving means stopping the loop first
+  (`scripts/ralph/stop-ralph.*`) so the rewrite isn't clobbered. Treat a lone
+  failure here as the archive backlog, not your regression; check the diff names
+  a story you never touched.
 - Adding a cron means FOUR edits or `cron-registry-drift_test.ts` fails: the
   `/api/jobs/*` route in main.ts, a CRON_REGISTRY entry (cron-runs.ts), AND the
   generated tables in COOLIFY.md + vault/10-ops/launch-checklist.md (`cron-registry` markers)
