@@ -19,7 +19,7 @@ import {
   mapSubscriptionToFlipdeskPlan,
 } from "./webhooks.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
-import { resolveChargeMetadata } from "../lib/stripe-metadata.ts";
+import { performPackRefund, type RevokeResult } from "../lib/admin-pack-refund.ts";
 import {
   normalizeRefundAmount,
   refundIdempotencyKey,
@@ -593,146 +593,102 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", requireScope("billing:
     return c.json({ error: "charge_id is required" }, 400);
   }
 
-  const { data: targetUser, error: userError } = await supabaseAdmin
-    .from("users")
-    .select("id, email, stripe_customer_id")
-    .eq("id", targetUserId)
-    .single();
-  if (userError || !targetUser) {
-    return c.json({ error: "User not found" }, 404);
-  }
-
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
-  // Load the charge to verify ownership + read the granted credit count.
-  let charge: Stripe.Charge;
-  try {
-    charge = await stripe.charges.retrieve(chargeId);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return c.json({ error: `Charge lookup failed: ${msg}` }, 404);
-  }
-
-  // US-1414: charge.metadata is empty for Checkout payments (metadata lives on
-  // the PaymentIntent), so resolve it before the ownership/product/credits
-  // checks — otherwise every pack refund wrongly 403s/422s ("not a credit-pack
-  // charge") because the fields read as undefined.
-  const meta = await resolveChargeMetadata(charge, async (id) => {
-    try {
-      const pi = await stripe.paymentIntents.retrieve(id);
-      return (pi.metadata ?? {}) as Record<string, string>;
-    } catch (err) {
-      console.error("[admin-billing] PaymentIntent metadata lookup failed:", err);
-      return null;
-    }
+  // The sequence — ownership gate, refund, ledger reversal, and every failure
+  // branch between them — lives in lib/admin-pack-refund.ts so it can be driven
+  // without a Stripe account and without a database (US-2345 AC1). This adapter
+  // is the ONLY place the route touches Stripe or the service-role client for
+  // this path; keeping it to one binding is what the guard test checks.
+  const outcome = await performPackRefund({ targetUserId, adminId, chargeId, reasonNote }, {
+    loadUser: async (userId) => {
+      const { data, error } = await supabaseAdmin
+        .from("users")
+        .select("id, email, stripe_customer_id")
+        .eq("id", userId)
+        .single();
+      return error || !data ? null : data;
+    },
+    retrieveCharge: async (id) => {
+      const charge = await stripe.charges.retrieve(id);
+      return {
+        refunded: charge.refunded,
+        customer: typeof charge.customer === "string"
+          ? charge.customer
+          : charge.customer?.id ?? null,
+        payment_intent: typeof charge.payment_intent === "string"
+          ? charge.payment_intent
+          : charge.payment_intent?.id ?? null,
+        metadata: (charge.metadata ?? {}) as Record<string, string>,
+      };
+    },
+    retrieveIntentMetadata: async (id) => {
+      try {
+        const pi = await stripe.paymentIntents.retrieve(id);
+        return (pi.metadata ?? {}) as Record<string, string>;
+      } catch (err) {
+        console.error("[admin-billing] PaymentIntent metadata lookup failed:", err);
+        return null;
+      }
+    },
+    createRefund: async ({ chargeId: id, metadata, idempotencyKey }) => {
+      const refund = await stripe.refunds.create(
+        { charge: id, reason: "requested_by_customer", metadata },
+        { idempotencyKey },
+      );
+      return { id: refund.id, amount: refund.amount };
+    },
+    revokeCredits: async ({ userId, credits, paymentIntentId, notes, idempotencyKey }) => {
+      const { data, error } = await supabaseAdmin.rpc("revoke_grade_credits", {
+        p_user_id: userId,
+        p_credits: credits,
+        p_stripe_payment_intent: paymentIntentId,
+        p_notes: notes,
+        p_idempotency_key: idempotencyKey,
+      });
+      if (error) return { ok: false, message: (error.message ?? "").toString() };
+      return { ok: true, result: (data ?? {}) as RevokeResult };
+    },
   });
 
-  // Tenant scoping (CLAUDE.md US-268): the charge MUST belong to this user —
-  // by the user_id stamped on the pack checkout, or its Stripe customer.
-  const chargeUserId = meta.user_id ?? null;
-  const customerId = typeof charge.customer === "string"
-    ? charge.customer
-    : charge.customer?.id ?? null;
-  const ownsByMetadata = chargeUserId === targetUserId;
-  const ownsByCustomer = Boolean(targetUser.stripe_customer_id) &&
-    customerId === targetUser.stripe_customer_id;
-  if (!ownsByMetadata && !ownsByCustomer) {
-    return c.json({ error: "Charge does not belong to this user." }, 403);
-  }
-  if (meta.product !== "credit_pack") {
-    return c.json(
-      { error: "Not a credit-pack charge. Use Recent charges → Refund for other charges." },
-      422,
-    );
-  }
-  if (charge.refunded) {
-    return c.json({ error: "Charge is already fully refunded." }, 409);
-  }
-
-  const credits = Number.parseInt(meta.credits ?? "", 10);
-  if (!Number.isFinite(credits) || credits <= 0) {
-    return c.json({ error: "Charge has no valid credit count in metadata." }, 422);
-  }
-
-  // (1) Stripe refund — idempotency key keyed on the charge so a retry returns
-  // the SAME refund object instead of refunding the money twice.
-  let refund: Stripe.Refund;
-  try {
-    refund = await stripe.refunds.create(
-      {
-        charge: chargeId,
-        reason: "requested_by_customer",
-        metadata: {
-          admin_id: adminId,
-          product: "credit_pack",
-          ...(reasonNote ? { admin_reason: reasonNote } : {}),
-        },
-      },
-      { idempotencyKey: `pack-refund:${chargeId}` },
-    );
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[admin-billing] pack refund (stripe) failed:", msg);
-    return c.json({ error: `Refund failed: ${msg}` }, 500);
+  if (!outcome.ok) {
+    if (outcome.stage === "ledger") {
+      // The money LEFT and the wallet is still full. This audit row is the only
+      // record that a reconciliation is owed, so it is written on the failure
+      // path — the opposite of the manual-refund rule, because there the refund
+      // threw and nothing moved.
+      console.error("[admin-billing] pack refund ledger reversal failed:", outcome.ledgerError);
+      await auditLog(c, "admin.pack_refund", "charge", chargeId, {
+        user_id: targetUserId,
+        refund_id: outcome.refundId,
+        credits: outcome.credits,
+        ledger_error: outcome.ledgerError,
+      });
+      // The body is a FIXED string from the lib. The RPC's own error text went
+      // to the audit row and the console above and stops there — the ledger
+      // failure is the one place a raw DB message exists on this path, and it
+      // is deliberately not in the response.
+      return c.json({ error: outcome.message, refund_id: outcome.refundId }, 500); // safe-raw-error: fixed literal, see above
+    }
+    if (outcome.stage === "refund") {
+      console.error("[admin-billing] pack refund (stripe) failed:", outcome.message);
+      return c.json({ error: `Refund failed: ${outcome.message}` }, 500);
+    }
+    // Every reject message is a curated literal, except the charge-lookup one,
+    // which embeds a STRIPE error — the same text this route returned before
+    // the sequence moved to the lib, on an admin-only, step-up-gated route
+    // where an operator needs to see why Stripe refused the read. No DB text
+    // can reach here: loadUser swallows its error to null ("User not found").
+    return c.json({ error: outcome.message }, outcome.status); // safe-raw-error: curated/Stripe text, never DB
   }
 
-  // (2) Offsetting ledger reversal — the SAME idempotency key the
-  // charge.refunded webhook will use, so the wallet is clawed back exactly once
-  // no matter which path runs first (the other no-ops).
-  //
-  // US-2033: that shared key is now keyed on the REFUND, not the charge. Keying
-  // per charge silently under-clawed a second, partial refund on the same
-  // charge: the webhook computed the right amount and then skipped the write
-  // because the key was already claimed. Per refund, each refund moves its own
-  // increment, and this path and the webhook still dedupe against each other —
-  // Stripe's own idempotency above guarantees a retry returns the SAME refund
-  // object, so `refund.id` is stable across retries of this handler.
-  const paymentIntentId = typeof charge.payment_intent === "string"
-    ? charge.payment_intent
-    : charge.payment_intent?.id ?? null;
-  const { data: revokeData, error: revokeErr } = await supabaseAdmin.rpc(
-    "revoke_grade_credits",
-    {
-      p_user_id: targetUserId,
-      p_credits: credits,
-      p_stripe_payment_intent: paymentIntentId,
-      p_notes: `Admin pack refund for charge ${chargeId} by ${adminId} (refund ${refund.id})`,
-      p_idempotency_key: `pack-refund:${refund.id}`,
-    },
-  );
-
-  if (revokeErr) {
-    // The money refund SUCCEEDED — surface the ledger gap loudly (the webhook
-    // will also retry the reversal under the same idempotency key).
-    console.error("[admin-billing] pack refund ledger reversal failed:", revokeErr);
-    await auditLog(c, "admin.pack_refund", "charge", chargeId, {
-      user_id: targetUserId,
-      refund_id: refund.id,
-      credits,
-      ledger_error: (revokeErr.message ?? "").toString().slice(0, 500),
-    });
-    return c.json(
-      {
-        error: "Refund issued, but the ledger reversal failed — reconcile manually.",
-        refund_id: refund.id,
-      },
-      500,
-    );
-  }
-
-  const result = (revokeData ?? {}) as {
-    revoked?: number;
-    shortfall?: number;
-    balance_after?: number;
-    idempotent_replay?: boolean;
-  };
-
+  const { result } = outcome;
   await auditLog(c, "admin.pack_refund", "charge", chargeId, {
     user_id: targetUserId,
-    refund_id: refund.id,
-    refund_amount_cents: refund.amount,
-    credits,
+    refund_id: outcome.refundId,
+    refund_amount_cents: outcome.refundAmountCents,
+    credits: outcome.credits,
     revoked: result.revoked ?? null,
     shortfall: result.shortfall ?? null,
     balance_after: result.balance_after ?? null,
@@ -741,8 +697,8 @@ adminBillingRoutes.post("/billing/users/:id/refund-pack", requireScope("billing:
 
   return c.json({
     ok: true,
-    refund_id: refund.id,
-    refund_amount_cents: refund.amount,
+    refund_id: outcome.refundId,
+    refund_amount_cents: outcome.refundAmountCents,
     revoked: result.revoked ?? null,
     shortfall: result.shortfall ?? null,
     newBalance: result.balance_after ?? null,

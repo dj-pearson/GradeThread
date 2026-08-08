@@ -148,6 +148,13 @@ const MONEY_FLOORS = {
   // admin-billing.ts itself stays in MONEY_DEBT: nothing imports it, this test
   // reads it as TEXT, so its own coverage is still zero.
   "lib/admin-charge-refund.ts": 97,
+  // US-2345 AC1: the admin CREDIT-PACK refund sequence, extracted for the same
+  // reason and measured at 100% line / 95.8% branch. Floored at 99 rather than
+  // 100 only so a comment or a type line cannot fail the build; every executable
+  // line is covered today, so the first untested branch added here drops it.
+  // This is the path that moves Stripe money AND claws credits back, so the gap
+  // it closes is the half-completed refund the charge-refund lib cannot have.
+  "lib/admin-pack-refund.ts": 99,
 };
 const MONEY_DEBT = new Set([
   // ~1,400 lines. The charge/refund path. AC1 of US-2345 owns this; the work is
