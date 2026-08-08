@@ -322,8 +322,14 @@ Deno.test("US-2317: the saved-search read is capped AND ordered stalest-first", 
   const src = await Deno.readTextFile(
     new URL("../lib/condition-alerts.ts", import.meta.url),
   );
-  const at = src.indexOf('.from("saved_searches")\n    .select(');
-  assert(at > 0, "the saved_searches read was not found");
+  // Located by regex rather than indexOf with a literal newline: this file is
+  // LF in the blob and CRLF in a Windows working tree, so `\n` between the two
+  // chained calls matched nothing locally and this guard reported that the cap
+  // had been removed when it had not (US-2429). A guard that cries wolf on a
+  // checkout detail is a guard people stop reading.
+  const found = /\.from\("saved_searches"\)\s*\.select\(/.exec(src);
+  assert(found !== null, "the saved_searches read was not found");
+  const at = found.index;
   const window = src.slice(at, at + 700);
   assert(
     window.includes(".limit(SAVED_SEARCH_SCAN_CAP)"),

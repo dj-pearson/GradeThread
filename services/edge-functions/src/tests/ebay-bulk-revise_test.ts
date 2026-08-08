@@ -12,9 +12,15 @@
 
 import { assert } from "@std/assert";
 
+// Line endings normalized to LF before anything reads these bytes. The blob is
+// LF and a Windows working tree is CRLF, so the `[\s\S]{0,400}` windows below
+// counted a byte per line that CI never sees — the "one row throwing does not
+// abandon the rest" guard failed locally on untouched code (US-2429). Raising
+// the numbers would have hidden it and made them mean nothing; normalizing
+// keeps a window of 400 the same 400 characters everywhere.
 const SRC = Deno.readTextFileSync(
   new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-);
+).replace(/\r\n/g, "\n");
 
 /** The body of the bulk-revise handler, bounded by the next route registration. */
 function bulkHandler(): string {

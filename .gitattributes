@@ -39,3 +39,22 @@ gradlew text eol=lf
 # for a reason that had nothing to do with the change being pushed — which
 # teaches --no-verify. Postgres does not care either way.
 *.sql text eol=lf
+
+# FOURTH time (US-2429), and the one the three rules above should have implied.
+# This repo leans hard on SOURCE-SCAN guard tests: a test reads a .ts file's
+# bytes and asserts a structural property that cannot be checked by running the
+# code (a tenant scope, a plan gate, a `continue` inside a catch). Those scans
+# are written against LF, because that is what the author sees in the blob —
+# `indexOf('.from("x")\n    .select(')` and `/catch \(err\)[\s\S]{0,400}continue;/`
+# are both real examples that failed here. The first never matches `\r\n` at all;
+# the second runs out of window because CRLF adds a byte per line.
+#
+# So the guard reports that a security property was REMOVED when nothing was
+# touched. That is worse than a flaky test: it is a false alarm on exactly the
+# assertions you most need to believe, and `npm run verify` is the pre-push hook.
+#
+# Fixing the scans to tolerate whitespace is still right and US-2429 does that
+# too — this rule removes the class, the tolerant patterns survive a checkout
+# that predates it. Blobs are already LF, so this changes the working tree only.
+*.ts text eol=lf
+*.tsx text eol=lf
