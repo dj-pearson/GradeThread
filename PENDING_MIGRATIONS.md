@@ -1,5 +1,43 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00573_legal_acceptances_signup_confirmed.sql (US-2116 AC4 — the consent record says which row is which)
+
+**Risk: NONE. It is one `COMMENT ON COLUMN`.** No table, column, constraint,
+index, policy or function is created, altered or dropped. Nothing is backfilled
+and no row is read or written.
+
+**Apply order: AFTER 00572.** No dependency, just NNNNN order.
+
+**NOT push-blocking, and nothing waits on it.** `legal_acceptances.method` has
+always been plain `text` with no CHECK, so the new `signup_clickwrap_confirmed`
+value writes with or without this file. The edge code shipping alongside it does
+not read the comment. An old database under new code behaves identically.
+
+**What it fixes.** 00142:44 documents three method values and the code now
+writes four. Applied migrations are immutable, so the only way to correct that
+sentence is another migration. It matters because this column is the answer to
+"what did this user agree to, and how do you know?" — and whoever asks that is
+reading the table, in an incident or a data request, not reading TypeScript. A
+comment listing three of four values tells them the fourth is unexpected data.
+
+**The pair it documents.** An email signup now produces TWO rows.
+`signup_clickwrap` comes from the `handle_new_user` trigger, which has no HTTP
+request and therefore no IP or user-agent — guaranteed but weak. `signup_clickwrap_confirmed`
+comes from `POST /api/legal/confirm-signup` on the first authenticated session,
+with the IP and user-agent the edge observed itself and the versions copied off
+the first row — best-effort but strong. Its `accepted_at` is when the SERVER
+observed the session, not when consent was given; that is why they are two
+method values and not one value with a null IP.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00573` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — PostgREST's schema cache does not carry column
+comments, and no table, column or RPC changed.
+
+**Rollback** is restoring the previous comment text. Nothing depends on it.
+
 ## 🔴 HELD: 00572_tag_eras_provenance.sql (US-2212 AC5 — an era we cannot cite is invention)
 
 **Risk: LOW.** One IMMUTABLE function, one CHECK constraint added `NOT VALID`,
@@ -440,7 +478,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564 through 00572 are held** — see the top of this file. Everything below it is applied:
+**00564 through 00573 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528
