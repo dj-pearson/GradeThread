@@ -17,6 +17,7 @@
 
 import { redact } from "./log-redact.ts";
 import { edgeEnv } from "./env.ts";
+import { resolveRelease } from "./release-identity.ts";
 
 // The access logger sets correlationId on every request before any handler
 // runs, so it's a required context var visible to every typed Context. (userId
@@ -46,17 +47,14 @@ export function readCtxVar(
 }
 
 // ── Release identity ────────────────────────────────────────────────
-// The deploy pipeline stamps the image with the commit SHA (US-513). We accept
-// any of the common env names so the same code works on Coolify / CI / local.
+// The deploy pipeline stamps the image with the commit SHA (US-513). Resolution
+// lives in release-identity.ts — read the comment at the top of that file before
+// changing this: the old `??` chain here looked like it accepted several env
+// names and, on the only platform that matters, accepted exactly one.
 let cachedRelease: string | null = null;
 export function releaseSha(): string {
   if (cachedRelease !== null) return cachedRelease;
-  const raw = (Deno.env.get("RELEASE_SHA") ??
-    Deno.env.get("COMMIT_SHA") ??
-    Deno.env.get("SOURCE_COMMIT") ??
-    Deno.env.get("GIT_SHA") ??
-    "unknown").trim();
-  cachedRelease = raw === "" ? "unknown" : raw.slice(0, 40);
+  cachedRelease = resolveRelease((k) => Deno.env.get(k));
   return cachedRelease;
 }
 

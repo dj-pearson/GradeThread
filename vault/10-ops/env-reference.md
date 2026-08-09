@@ -148,7 +148,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `EDGE_TRACE_SAMPLE_RATE` | ⬜ Coolify edge | Trace/log sampling `[0,1]`; blank → log everything. |
 | `EDGE_MEMORY_LIMIT_MB` | ⬜ Coolify edge | Soft memory ceiling used for health/limit reporting. |
 | `COOLIFY_FQDN` | ⬜ Coolify edge | FQDN Traefik binds the service to. |
-| `COMMIT_SHA` / `GIT_SHA` / `RELEASE_SHA` / `SOURCE_COMMIT` | ⬜ Coolify edge | Build/version stamps reported on `/health` and in logs. |
+| `RELEASE_SHA` / `COMMIT_SHA` / `SOURCE_COMMIT` / `GIT_SHA` | ⬜ Coolify edge | Build/version stamp reported on `/health` and tagged on every log line and Sentry event. Read **in this precedence order**, and a placeholder value (`dev`, `unknown`, `local`, `none`, `latest`, blank) falls through to the next key rather than winning — the image always bakes `RELEASE_SHA=dev`, so before US-2001 the later three were unreachable in production. Setting any of them to a real commit at runtime fixes an unattributable release without a rebuild. `src/lib/release-identity.ts`. |
 | `WEBHOOK_PAYOUT_DEBUG` | ⬜ Coolify edge | Security **debug** flag (payout-webhook payload logging); forcibly ignored in production. |
 | `SCHEMA_GUARD_GRACE_ATTEMPTS` / `_DELAY_MS` | ⬜ Coolify edge | Retries and spacing the boot schema guard allows before giving up (defaults 3 / `5000`). This is the US-778 grace window — raise it when a migration lands seconds before the deploy, never to hide a genuinely un-applied migration. |
 | `SHUTDOWN_DRAIN_MS` | ⬜ Coolify edge | How long in-flight requests get to finish on SIGTERM before the process exits. |

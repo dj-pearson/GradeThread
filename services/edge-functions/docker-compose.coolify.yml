@@ -52,6 +52,11 @@ services:
       # Marks this as the production runtime. Security debug flags (e.g.
       # WEBHOOK_PAYOUT_DEBUG) are ignored when EDGE_ENV=production. (US-266)
       - EDGE_ENV=production
+      # US-2001 runtime half: bare pass-throughs, set only when the host has
+      # them, so an unset var cannot clobber the build-arg stamp above. See
+      # docker-compose.yml for the full reasoning.
+      - SOURCE_COMMIT
+      - COMMIT_SHA
       # US-573: the container memory limit (MiB) the app reports against on
       # /health/metrics so the load-test gate + ops can compute headroom. Keep in
       # sync with deploy.resources.limits.memory below.

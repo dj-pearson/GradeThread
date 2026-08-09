@@ -64,6 +64,50 @@ Deno.test("every compose file that builds the Dockerfile passes GIT_SHA", async 
   );
 });
 
+Deno.test("every compose file also passes the release vars at RUNTIME", async () => {
+  // 2026-08-09: production was measured serving release:"dev" on an image built
+  // AFTER all three files carried the build arg. So the build-time half is not
+  // sufficient on its own — either the builder still drops the arg, or Coolify
+  // does not populate SOURCE_COMMIT at build time. The runtime pass-through is
+  // the independent second route, and it is what makes "just set the env var"
+  // work without a rebuild.
+  //
+  // The BARE form (`- SOURCE_COMMIT`, no `=`) is required, not incidental: the
+  // `- SOURCE_COMMIT=${SOURCE_COMMIT:-dev}` form would set the variable to "dev"
+  // whenever the host lacks it, and a runtime env var OVERRIDES the Dockerfile
+  // ENV — so the "safe-looking" default would clobber a correctly stamped image.
+  // Same exemption as the build test, for the same reason: docker-compose.dev.yml
+  // has an `environment:` block but is an OVERRIDE, merged onto the base file, so
+  // it inherits these entries. Requiring them there would demand a duplicate of a
+  // value it already has. A file with a `build:` section is the one that stands
+  // alone as a deployment definition.
+  const files = await composeFiles();
+  const offenders: string[] = [];
+  let runtimes = 0;
+
+  for (const name of files) {
+    const text = await Deno.readTextFile(new URL(name, COMPOSE_DIR));
+    if (!/^\s*build:\s*$/m.test(text)) continue;
+    if (!/^\s*environment:\s*$/m.test(text)) {
+      offenders.push(`${name} (no environment block at all)`);
+      continue;
+    }
+    runtimes++;
+    const bare = /^\s*-\s*SOURCE_COMMIT\s*$/m.test(text);
+    const assigned = /^\s*-\s*SOURCE_COMMIT=/m.test(text);
+    if (assigned) offenders.push(`${name} (assigns a value — must be bare)`);
+    else if (!bare) offenders.push(`${name} (missing)`);
+  }
+
+  assert(runtimes >= 3, `expected at least 3 compose files with an environment block, found ${runtimes}`);
+  assert(
+    offenders.length === 0,
+    `these compose files do not pass SOURCE_COMMIT through at runtime as a bare ` +
+      `entry: ${offenders.join(", ")}. Add \`- SOURCE_COMMIT\` under environment ` +
+      `— with no \`=\`, so an unset host var cannot overwrite the build stamp. (US-2001)`,
+  );
+});
+
 Deno.test("the Dockerfile still consumes GIT_SHA into RELEASE_SHA", async () => {
   // The build arg is only useful because of this pair. If the Dockerfile ever
   // stops wiring ARG → ENV, the test above would keep passing while every

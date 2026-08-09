@@ -3,6 +3,7 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
 import { edgeEnv } from "../lib/env.ts";
+import { isPlaceholderRelease, RELEASE_ENV_KEYS } from "../lib/release-identity.ts";
 import { compareSchemaVersion, EXPECTED_SCHEMA_VERSION } from "../lib/schema-version.ts";
 import {
   gradingBufferConcurrency,
@@ -78,13 +79,17 @@ export function summarizeSchema(expected: string, applied: string | null): Schem
   return { expected, applied, status: compareSchemaVersion(expected, applied) };
 }
 
-// US-2001: releases that carry no build identity. `dev` is the literal default
-// in Dockerfile:12 (`ARG GIT_SHA=dev`); `unknown` is releaseSha()'s fallback
-// when no SHA env var is set at all. Either means every Sentry event, log line
-// and trace from this container is tagged with a value that cannot be traced to
-// a commit — so "did the fix ship?" is unanswerable for the half of the system
-// handling grading, payments, eBay writes and webhooks.
-const UNATTRIBUTABLE_RELEASES = new Set(["dev", "unknown", ""]);
+// US-2001: "carries no build identity" is defined ONCE, in release-identity.ts,
+// and this file now asks that module rather than keeping its own set. It used to
+// hold `["dev", "unknown", ""]` — a strict subset that would have reported "ok"
+// for a release of `local`, `none` or `latest` while env-validation's own list
+// called those placeholders. Two lists meant /health/ready could contradict
+// itself between two adjacent keys.
+//
+// Either way the meaning is the same: every Sentry event, log line and trace
+// from this container is tagged with a value that cannot be traced to a commit,
+// so "did the fix ship?" is unanswerable for the half of the system handling
+// grading, payments, eBay writes and webhooks.
 
 /**
  * US-2001 AC4. Reports the release as a DEGRADED FEATURE rather than failing
@@ -101,11 +106,17 @@ const UNATTRIBUTABLE_RELEASES = new Set(["dev", "unknown", ""]);
  * Pure so it is unit-testable without env manipulation.
  */
 export function releaseReadiness(release: string, env: string): string {
-  if (!UNATTRIBUTABLE_RELEASES.has(release.trim().toLowerCase())) return "ok";
+  if (!isPlaceholderRelease(release)) return "ok";
+  // ⚠ The wording used to assert a CAUSE — "the image was built without a
+  // GIT_SHA build arg". On 2026-08-09 prod was measured still reporting this on
+  // an image built AFTER all three compose files declared that arg, so the
+  // message was confidently naming the wrong thing and sending each reader back
+  // to the build args. State the symptom and list what was actually checked.
   const detail =
-    `unattributable: release="${release}" — the image was built without a ` +
-    `GIT_SHA build arg, so errors cannot be tied to a commit ` +
-    `(see COOLIFY.md, US-2001)`;
+    `unattributable: release="${release}" — none of ` +
+    `${RELEASE_ENV_KEYS.join(", ")} held a real commit, so errors cannot be ` +
+    `tied to a build. Either the image was built without a GIT_SHA build arg ` +
+    `or none of those vars is set at runtime (see COOLIFY.md, US-2001)`;
   // Outside production an untagged local/dev build is expected, not a defect.
   return env === "production" ? detail : `${detail} [non-production]`;
 }

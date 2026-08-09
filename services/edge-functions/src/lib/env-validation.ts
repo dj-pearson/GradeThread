@@ -13,6 +13,7 @@
 
 import { edgeEnv } from "./env.ts";
 import { deliverabilityWarnings } from "./email-transport.ts";
+import { isPlaceholderRelease, resolveRelease } from "./release-identity.ts";
 
 type EnvGetter = (k: string) => string | undefined;
 const realEnv: EnvGetter = (k) => Deno.env.get(k);
@@ -250,16 +251,18 @@ export function warnDeliverability(get: EnvGetter = realEnv): void {
   }
 }
 
-// US-2001: is RELEASE_SHA a real commit, or the Dockerfile's ARG GIT_SHA=dev
-// default that reached production? Treated as a placeholder rather than a
-// version so /health/ready degrades instead of claiming observability is fine.
-// Kept permissive on FORM (any non-placeholder string counts) — the failure
-// seen in prod was the literal default surviving the build, not a malformed
-// SHA, and rejecting anything that is not 40 hex chars would break short-SHA
-// and tag-based deploys for no benefit.
-const RELEASE_PLACEHOLDERS = new Set(["", "dev", "unknown", "local", "none", "latest"]);
-
+// US-2001: is the running build attributable to a commit, or is it the
+// Dockerfile's ARG GIT_SHA=dev default that reached production? A placeholder
+// degrades /health/ready instead of letting it claim observability is fine.
+//
+// ⚠ THIS MUST JUDGE THE SAME VALUE THE LOGS ARE TAGGED WITH. It used to read
+// RELEASE_SHA alone while observability.ts resolved across four env keys, so the
+// health surface and the Sentry tag could disagree — /health/ready would report
+// the release unattributable while events shipped correctly tagged from
+// SOURCE_COMMIT, or the reverse. Both now go through resolveRelease(), so
+// "what does /health/ready say" and "what is on the error" cannot drift apart.
+// The permissive-on-FORM rule lives with the placeholder set in
+// release-identity.ts.
 export function isRealReleaseSha(get: EnvGetter = realEnv): boolean {
-  const raw = (get("RELEASE_SHA") ?? "").trim().toLowerCase();
-  return !RELEASE_PLACEHOLDERS.has(raw);
+  return !isPlaceholderRelease(resolveRelease(get));
 }

@@ -198,6 +198,33 @@ Deno.test("US-2001: a real SHA counts, and so does a short SHA or tag", () => {
   }
 });
 
+Deno.test("US-2001: isRealReleaseSha judges the RESOLVED release, not RELEASE_SHA alone", () => {
+  // ⚠ This case was MISSING and a mutation found it: reverting isRealReleaseSha
+  // to read RELEASE_SHA on its own left the whole suite green. It must not, and
+  // here is why the disagreement is worse than either half being wrong.
+  //
+  // The image ALWAYS bakes RELEASE_SHA (to "dev" without a build arg), so on the
+  // real production container the only way a commit ever arrives is under
+  // another name. observability.ts tags every log line and Sentry event with the
+  // resolved value. If this predicate read RELEASE_SHA alone, /health/ready would
+  // announce the release as unattributable while the errors sitting in Sentry
+  // were correctly tagged — sending whoever is debugging at 3am to fix a build
+  // arg that is already working, which is exactly the wild goose chase US-2001
+  // has been running since July.
+  const get = (k: string) =>
+    ({ RELEASE_SHA: "dev", SOURCE_COMMIT: "c9631342084bfd9e96883321a07a390d3be1e814" })[k];
+  assertEquals(
+    isRealReleaseSha(get),
+    true,
+    "a real SOURCE_COMMIT must count even though RELEASE_SHA is the baked-in placeholder",
+  );
+
+  // And the converse still holds — placeholders everywhere is still degraded.
+  const allPlaceholder = (k: string) =>
+    ({ RELEASE_SHA: "dev", SOURCE_COMMIT: "dev", GIT_SHA: "unknown" })[k];
+  assertEquals(isRealReleaseSha(allPlaceholder), false);
+});
+
 Deno.test("US-2001: observability is DEGRADED when the DSN is set but release is 'dev'", () => {
   // This is the exact prod state that was measured: errorTracking enabled,
   // release "dev", and the readiness line saying observability was fine.

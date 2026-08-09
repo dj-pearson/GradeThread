@@ -27,6 +27,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentRow, AgentToolRegistry } from "./agent-kernel.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { fetchAllPages } from "./paged-read.ts";
+import { isPlaceholderRelease, resolveRelease } from "./release-identity.ts";
 import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "./ops-jobs.ts";
 import { CRON_REGISTRY, DEFAULT_JOB_SECRET_ENV } from "./cron-runs.ts";
 import { correlateIncidents, type Signal } from "./sentinel.ts";
@@ -651,7 +652,19 @@ export function prodToolIO(): ToolIO {
         .maybeSingle();
       return (data as { outcome?: unknown } | null)?.outcome ?? null;
     },
-    releaseSha: () => Deno.env.get("RELEASE_SHA") ?? null,
+    // US-2001: resolve across every release env key and treat a placeholder as
+    // ABSENT, returning null. This read had the same defect as observability.ts:
+    // the image always sets RELEASE_SHA (to "dev" when no build arg is passed),
+    // so this returned the string "dev" forever. US-1610 detects a deploy by
+    // watching this value CHANGE — a constant "dev" is not an error state, it is
+    // a value that never changes, so the release-verify agent has been reporting
+    // "no deploy" on every run since it shipped rather than failing loudly.
+    // null is deliberate over "unknown": no identity must stay distinguishable
+    // from an identity, or the same blindness returns wearing a different word.
+    releaseSha: () => {
+      const r = resolveRelease((k) => Deno.env.get(k));
+      return isPlaceholderRelease(r) ? null : r;
+    },
     fetchReleaseState: async () => {
       const { data } = await supabaseAdmin
         .from("system_settings").select("value").eq("key", "release.verify_state").maybeSingle();

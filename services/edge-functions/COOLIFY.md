@@ -52,9 +52,45 @@ failure this story is about; the Dockerfile had been asking, in a comment, since
 it was written. `src/tests/compose-release-arg_test.ts` now fails CI if any
 compose file builds the image without the arg.
 
-If prod still reports `dev` after a rebuild, the remaining cause is that your
-Coolify version does not populate `SOURCE_COMMIT`, in which case `:-dev` wins
-silently — set `GIT_SHA` explicitly in the **Build Args** field to rule it out.
+### ⚠️ The build arg was never the only fault (measured 2026-08-09)
+
+On 2026-08-09 production was measured **still serving `release:"dev"` on an image
+built after all three compose files carried the arg** (the same response reported
+`schema.expected: 00585`, so the image was current). The build-arg hunt above had
+been the whole story for three weeks, and it was incomplete.
+
+The second fault was in the code, and it made the obvious manual workaround
+useless. `releaseSha()` read:
+
+```ts
+Deno.env.get("RELEASE_SHA") ?? Deno.env.get("COMMIT_SHA")
+  ?? Deno.env.get("SOURCE_COMMIT") ?? Deno.env.get("GIT_SHA") ?? "unknown"
+```
+
+The Dockerfile sets `ENV RELEASE_SHA=${GIT_SHA}`, so **`RELEASE_SHA` is always
+set in the image** — to the literal `dev` when no build arg is passed. `??` falls
+through on *undefined*, never on a placeholder *value*, so the first key always
+won and every fallback under it was dead code on Coolify. Setting `SOURCE_COMMIT`
+by hand would have been silently ignored.
+
+Both halves are now fixed, and they are independent routes:
+
+1. **Build time** — the `GIT_SHA` arg above, in all three compose files.
+2. **Runtime** — `SOURCE_COMMIT` and `COMMIT_SHA` are passed through in each
+   `environment:` block, and `src/lib/release-identity.ts` falls through
+   placeholder *values*. So **setting `SOURCE_COMMIT` (or `RELEASE_SHA`) as an
+   ordinary Coolify environment variable now fixes an unattributable release
+   without a rebuild.** That is the fastest thing to try.
+
+The runtime entries are written bare (`- SOURCE_COMMIT`, no `=`) on purpose: a
+runtime env var overrides the image's `ENV`, so the safer-looking
+`- SOURCE_COMMIT=${SOURCE_COMMIT:-dev}` would clobber a correctly stamped image
+whenever the host lacks the variable. `compose-release-arg_test.ts` fails CI on
+either the missing form or the assigning one.
+
+If it still reports `dev` after both, the remaining cause is a Coolify version
+that populates `SOURCE_COMMIT` nowhere at all — set `GIT_SHA` explicitly in the
+**Build Args** field, or `RELEASE_SHA` in the environment, to rule it out.
 
 **Verify by measuring, not by reading config:**
 
@@ -69,10 +105,16 @@ above:
 
 ```bash
 curl -s https://functions.gradethread.com/health/ready | jq .features.release
-# "ok"                                     → the build carries a real commit SHA
-# "unattributable: release=\"dev\" — ..."   → the GIT_SHA build arg is not reaching
-#                                            the image; fix the build, not the code
+# "ok"                                    → a real commit SHA was resolved
+# "unattributable: release=\"dev\" — ..."  → none of RELEASE_SHA, COMMIT_SHA,
+#                                           SOURCE_COMMIT, GIT_SHA held a commit
 ```
+
+That message used to assert a cause — "the image was built without a GIT_SHA
+build arg". It was measured saying exactly that on an image whose compose file
+*did* declare the arg, so it was confidently naming the wrong thing and sending
+each reader back to the build args. It now states the symptom and lists the keys
+that were checked.
 
 Two things about that entry are deliberate:
 

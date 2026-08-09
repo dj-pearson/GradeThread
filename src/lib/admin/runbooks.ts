@@ -112,7 +112,11 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "rollback",
     sourceNote: "vault/10-ops/rollback.md",
-    reviewed: "2026-07-19",
+    // 2026-08-09: re-read against the note, which gained a warning that the
+    // /health release field is unreliable (US-2001, measured). Added the same
+    // caveat to the edge step below — the identify-the-build step is the one an
+    // operator reaches for mid-incident, and it was quietly blind.
+    reviewed: "2026-08-09",
     title: "Roll back a bad deploy",
     category: "Deploy",
     summary:
@@ -145,6 +149,7 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "- Coolify → Deployments → redeploy the previous successful commit, or revert the commit on `main` and let the webhook redeploy.",
       "- The edge is backward-compatible with the prior frontend, so an edge rollback is safe to do on its own.",
+      "- **Do not expect `/health` to tell you which build is running.** It returned `release: \"dev\"` when last measured (2026-08-09, US-2001), so identify the build from Coolify's deployment history instead. Check `curl -s https://functions.gradethread.com/health | jq .release` now rather than during an incident — if it still says `dev`, setting `SOURCE_COMMIT` as a Coolify environment variable fixes it without a rebuild.",
       "",
       "## Database",
       "",

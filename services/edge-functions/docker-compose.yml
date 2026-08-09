@@ -28,6 +28,19 @@ services:
       - "8787"
     environment:
       - PORT=8787
+      # US-2001, the RUNTIME half. The build-arg above is a build-time stamp; if
+      # the builder does not pass it, the image bakes in "dev" and nothing later
+      # can correct it. These are bare pass-throughs (no `=`), which set the
+      # variable in the container ONLY when the host actually has it — so an
+      # unset SOURCE_COMMIT leaves the build-arg stamp intact instead of
+      # clobbering a good SHA with an empty string. That distinction is the
+      # whole reason this is not written `- SOURCE_COMMIT=${SOURCE_COMMIT:-dev}`.
+      #
+      # With release-identity.ts falling through placeholder VALUES rather than
+      # only unset keys, setting either of these as an ordinary Coolify env var
+      # now fixes an unattributable release without a rebuild.
+      - SOURCE_COMMIT
+      - COMMIT_SHA
     env_file:
       - .env
     healthcheck:
