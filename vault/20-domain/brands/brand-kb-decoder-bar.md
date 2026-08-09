@@ -6,7 +6,8 @@ status: current
 source_of_truth: vault
 code_refs:
   - supabase/migrations/00460_luxury_outerwear_brand_knowledge.sql
-reviewed: 2026-07-19
+  - supabase/migrations/00574_headwear_brand_knowledge.sql
+reviewed: 2026-08-09
 tags: [brands, grading, decoder, contract]
 summary: A style code becomes a decoder only if it is tag-printed AND regular AND brand-unique in format; the third test is the one that fails, and failing it mints false positives.
 ---
@@ -39,6 +40,7 @@ from any tag that happens to carry a similar-shaped string.
 | PUMA 6-digit `380190` | ✓ | ✓ | **✗** | **No** — bare digit run |
 | Lee `101`, Chanel serial, Moncler serial, Balenciaga tab | ✓ | ✓ | **✗** | **No** — bare digit runs |
 | Canada Goose hologram number | ✓ | ✓ | **✗** | **No** — bare digit run, and not proof of anything |
+| New Era `5950` | ✓ | ✓ | **✗** | **No** — bare digit run, *and* it names the silhouette (see below) |
 
 ### The Reebok case is the clearest argument for the third test
 
@@ -83,6 +85,30 @@ decoder-less (US-1736) and why Lee's `101` is too.
 
 Where a code carries era information but fails the bar, put the fact in
 `tag_eras` or `authentication_tells`, which is where it belonged anyway.
+
+### A code can name the SILHOUETTE, which is a fourth way to fail
+
+Added 2026-08-09 from the headwear pack (`00574`, US-2221). The story called New
+Era 59FIFTY one of the two strongest decoder candidates in the whole grading-KB
+review. It is refused, and the second reason is new to this note:
+
+`5950` has been printed on New Era's main tag since 1993, and it is perfectly
+regular. But **every 59FIFTY ever made carries it.** Decoding it recovers "this
+is a New Era 59FIFTY" — which the tag says in words a line above — and never a
+style. So it is a bare digit run *and* it answers the wrong question.
+
+This is the [[#The fourth question WHICH ENTITY does the identifier name]] test
+one level lower than URBN's `OB######`. There the code named the *parent* and
+could not attribute a sibling; here it names the *model line* and cannot
+attribute a unit. Both are "regular, tag-printed, and useless for the field you
+wanted to fill."
+
+The pack's other refusal is [[brand-kb-negative-findings]]-shaped and is 00468's
+hangtag rule verbatim: New Era's per-cap size and style live on the **visor
+sticker**, which is removable by design — New Era does not sell replacements, so
+loose stickers circulate. The mark that identifies the unit is on the part that
+comes off before resale, exactly like a handbag hangtag. A sticker is not
+evidence about the cap under it.
 
 ## What to do with a code that fails the bar
 

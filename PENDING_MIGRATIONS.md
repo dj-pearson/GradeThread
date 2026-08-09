@@ -1,5 +1,57 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00574_headwear_brand_knowledge.sql (US-2221 — the KB learns to size a hat)
+
+**Risk: LOW. It is four `insert ... on conflict do nothing` statements into
+reference tables.** No table, column, constraint, index, policy or function is
+created, altered or dropped. Nothing existing is read, rewritten or backfilled.
+The rows land in `brand_knowledge`, `brand_size_charts` and `brand_styles` —
+global operator tables with RLS enabled and zero policies, so only the edge
+service-role client sees them.
+
+**Apply order: AFTER 00573.** No dependency, just NNNNN order.
+
+**NOT push-blocking, and nothing waits on it.** Every one of these brands is a
+brand the resolver has always fallen through on, so an old database under new
+code behaves exactly as it does today: `canonicalizeBrand("New Era")` resolves
+from the in-code alias table shipping in the same commit, and the DB rows only
+add the charts and the era notes on top. The frontend reads none of it.
+
+**What it adds.** New Era, Stetson, Kangol and Goorin Bros. were absent from the
+KB entirely — no row, no alias, no chart — while `item_category` has carried
+accessories since 00230 and `GARMENT_CATEGORIES` has listed `hat` all along.
+Four brand rows, five size charts, nine style rows.
+
+**The reason it is a category shift and not four more rows:** a hat is sized in
+head circumference and labelled in eighths of an inch, which no chart in this KB
+carried before. ⚠ And the brands DISAGREE — New Era publishes 22 3/4 in for a
+printed 7 1/4 and Stetson publishes 23 in for the same label, because Stetson's
+is a fit chart that rounds up. So a cross-brand hat-size conversion is lossy by
+up to a quarter inch. Both numbers are seeded as published and a test pins the
+disagreement so nobody reconciles them later.
+
+**No decoder, deliberately.** New Era's `5950` names the silhouette, not the
+item (and a bare four-digit run is the Chanel/Lee refusal), and the per-cap code
+lives on a removable visor sticker — 00468's hangtag rule exactly. The refusal
+is asserted in `headwear-content_test.ts`, not just commented.
+
+**The `tag_eras` provenance constraint from 00572 enforced this on the way in.**
+Every datable era entry carries `source_url` and a numeric `confidence`, or the
+insert would have failed. That is the from-zero db lane doing the checking, not
+a reviewer.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00574` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00574';` and the same for `brand_size_charts` and `brand_styles`.
+Every row carries that marker for exactly this reason.
+
+---
+
 ## ✅ APPLIED: 00573_legal_acceptances_signup_confirmed.sql (US-2116 AC4 — the consent record says which row is which, applied 2026-08-09 — MEASURED)
 
 **Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.

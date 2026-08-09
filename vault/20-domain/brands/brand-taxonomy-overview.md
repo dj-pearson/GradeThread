@@ -129,6 +129,7 @@ Absence is sometimes correct here too — see [[brand-kb-negative-findings]].
 
 ## Related
 
+- [[brand-kb-sizing-units]] — why a size chart is keyed by brand and never converted across brands
 - [[grading-scale-and-weights]] — what consumes brand identification
 - [[adr-0001-knowledge-vault]] — why extraction was worth doing
 - [[INDEX]]

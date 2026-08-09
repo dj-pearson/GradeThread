@@ -1223,6 +1223,30 @@ const BRAND_ALIASES: Record<string, string> = {
   // and the exact "tcp" key resolve.
   gymboree: "Gymboree",
   gymbo: "Gymboree", // a common nickname, safe as an exact whole-field key
+
+  // US-2221 headwear group (migration 00574). All four were absent from the KB
+  // entirely — no row, no alias, no chart — which is a weaker start than the
+  // "passthrough-only" every group since 00443 began from.
+  //
+  // ⚠ THE HAZARD HERE IS THE CANONICAL, NOT THE KEYS: "New Era" is an ordinary
+  // English phrase, so it goes into DETECT_EXCLUDED_FROM_TEXT below. The keys
+  // themselves are safe — brandKey() strips spaces and punctuation, so a brand
+  // field of literally "new era" means the cap house.
+  newera: "New Era",
+  neweracap: "New Era",
+  neweracapcompany: "New Era",
+  newerahats: "New Era",
+  // ⚠ a bare "era" is DELIBERATELY ABSENT — an ordinary English noun, and it is
+  // this KB's OWN vocabulary for a tag generation (brand_knowledge.tag_eras),
+  // so it appears in seeded prose constantly. Only the compound forms resolve.
+  stetson: "Stetson",
+  johnbstetson: "Stetson", // the founder's name, as printed in vintage sweatbands
+  stetsonhats: "Stetson",
+  kangol: "Kangol",
+  kangolheadwear: "Kangol",
+  goorin: "Goorin Bros.",
+  goorinbros: "Goorin Bros.", // brandKey("Goorin Bros.") strips the period
+  goorinbrothers: "Goorin Bros.", // the 1921-1949 registered form, still on labels
 };
 
 /**
@@ -1372,6 +1396,26 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   //     outdoor-technical-content_test.ts.
   "Rab",
   "Kühl",
+  // US-2221 (00574). "New Era" is the most ORDINARY of the phrases in this set:
+  // it is not a noun that happens to be a brand, it is a stock marketing phrase
+  // — "a new era of comfort", "a new era for the franchise" — and it turns up in
+  // exactly the eBay-title corpus detectBrandInText is pointed at. Longest-first
+  // ordering makes it actively harmful rather than merely noisy: in "Nike tee,
+  // a new era of comfort", "New Era" (7) BEATS the real "Nike" (4), and the
+  // garment is mis-branded onto a licensed-headwear ladder.
+  //
+  // Worse than the Express/LOFT case in one respect: the collision is with the
+  // brand's OWN category adjacent copy — sports listings say "a new era" about
+  // teams constantly, and a New Era cap is a licensed sports product, so the
+  // false positives cluster exactly where the true positives live.
+  //
+  // Reachable BY TAG as always (canonicalizeBrand/isKnownBrand resolve it, which
+  // is what the eBay Brand aspect and the comp filter read), never GUESSED from
+  // prose. Verified by mutation in headwear-content_test.ts.
+  //
+  // Stetson, Kangol and Goorin Bros. are NOT excluded: none is an ordinary word,
+  // and losing prose detection for them would cost real recall for nothing.
+  "New Era",
 ]);
 
 /**

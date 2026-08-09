@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
@@ -98,6 +98,18 @@ with a good rationale.
 > operator-facing content, and re-dated. That is this note's thesis working
 > exactly as described — the guard fired, and the copy on-call reads was updated
 > rather than left behind. Nothing about the four-copies finding changed.
+
+> **Re-reviewed 2026-08-09,** same cause and a smaller change. `runbook-sync`
+> fired on `deploy-order` and `launch-readiness` after `deploy.md` and
+> `launch-checklist.md` moved; the move was the cron COUNT going 75 → 76 for the
+> new `expense-recurrence` job. Neither distillation quotes a count — one points
+> at Background Jobs for the live registry, the other says "re-add every task"
+> without a number — so both were re-read, confirmed still accurate, and
+> re-dated rather than edited. Each entry now records what was compared, so the
+> next bump does not start from the guard's message alone. Worth noting the
+> shape: a generated number moving in the source note is the most common way
+> this guard fires, and it is usually a no-op for the shipped copy — but only
+> **usually**, which is why reading both is not optional.
 
 ## Related
 
