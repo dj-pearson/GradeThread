@@ -21,6 +21,16 @@ import {
 import type { CrossListingPlatform } from "../lib/marketplace-adapters/index.ts";
 import type { StoredPlatformVariant } from "../lib/cross-listing-fields.ts";
 import { notifyUser } from "../lib/notify.ts";
+import { getBestOffers, respondToBestOffer } from "../lib/ebay-trading.ts";
+import {
+  claimMarketplaceEvent,
+  notifyOfferResponded,
+} from "../lib/marketplace-event-notify.ts";
+import {
+  decideOffer,
+  describeOfferOutcome,
+  type OfferDecision,
+} from "../lib/offer-rules.ts";
 import {
   createAdForListing,
   createItemPromotion,
@@ -1093,6 +1103,24 @@ async function runRulesForOwner(ownerId: string): Promise<AutomationRunResult> {
   };
   if (rules.length === 0) return result;
 
+  // US-2236: the offer rules run FIRST and independently of the listing pass.
+  // First because an accepted offer ends the listing, and spending the hour's
+  // price-drop on a listing that is about to sell is wasted; independently
+  // because a failure in either half must not stop the other — they share a
+  // rule table and nothing else.
+  try {
+    const offerRun = await runOfferRulesForOwner(ownerId, rules);
+    result.applied += offerRun.accepted + offerRun.declined;
+    result.errors += offerRun.errors;
+  } catch (err) {
+    result.errors++;
+    console.error(
+      "[automations] offer rules failed",
+      ownerId,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
   const listings = await loadOwnerListings(ownerId);
   result.listings_scanned = listings.length;
 
@@ -1290,6 +1318,219 @@ flipdeskAutomationsRoutes.post("/run", async (c) => {
 // ── Cron: hourly, every owner's active rules ──────────────────────
 // Mounted in main.ts as POST /api/jobs/automation-rules, gated by
 // X-Internal-Job-Secret (same pattern as reprice-rules).
+// ── US-2236 AC1: answer incoming Best Offers against the seller's thresholds ──
+//
+// Runs inside the SAME hourly automation-rules cron rather than as a new job:
+// same lock, same plan gate, same cadence, no cron-registry entry to keep in
+// sync across five documents. What it does NOT share is the listing planner —
+// the evaluation unit here is an offer, not a listing, and one listing can
+// carry several open offers with different right answers. See lib/offer-rules
+// .ts for why that made this its own module.
+
+interface OfferContext {
+  listPrice: number | null;
+  itemCost: number | null;
+  connectionId: string | undefined;
+}
+
+/**
+ * List price, acquisition cost and owning connection for each eBay item id.
+ *
+ * TENANT-SCOPED by `listings.user_id` AND by the parent item's `user_id`, even
+ * though the offers already came from this seller's own eBay account. The
+ * offers arrive from an external API, so their item ids are effectively
+ * untrusted input into a service-role query — the US-268 rule is that an id
+ * from outside never selects a row without an ownership predicate, and "eBay
+ * told us" is outside.
+ */
+async function loadOfferContext(
+  ownerId: string,
+  itemIds: string[],
+): Promise<Map<string, OfferContext>> {
+  const out = new Map<string, OfferContext>();
+  if (itemIds.length === 0) return out;
+  const { data } = await supabaseAdmin
+    .from("listings")
+    .select(
+      "platform_listing_id, listing_price, marketplace_connection_id, inventory_items!inner(user_id, acquired_price)",
+    )
+    .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .in("platform_listing_id", itemIds)
+    .eq("inventory_items.user_id", ownerId);
+  type Row = {
+    platform_listing_id: string | null;
+    listing_price: number | null;
+    marketplace_connection_id: string | null;
+    // PostgREST returns a to-one embed as an object; supabase-js types it as an
+    // array. Accept either (same shape as the /negotiation/offers reader).
+    inventory_items:
+      | { acquired_price: number | null }
+      | { acquired_price: number | null }[]
+      | null;
+  };
+  for (const r of (data ?? []) as unknown as Row[]) {
+    if (!r.platform_listing_id) continue;
+    const inv = Array.isArray(r.inventory_items) ? r.inventory_items[0] : r.inventory_items;
+    out.set(r.platform_listing_id, {
+      listPrice: typeof r.listing_price === "number" ? r.listing_price : null,
+      itemCost: typeof inv?.acquired_price === "number" ? inv.acquired_price : null,
+      connectionId: r.marketplace_connection_id ?? undefined,
+    });
+  }
+  return out;
+}
+
+export interface OfferRunResult {
+  offers_seen: number;
+  accepted: number;
+  declined: number;
+  skipped: number;
+  errors: number;
+}
+
+/**
+ * Apply every active offer_threshold rule to this owner's open Best Offers.
+ *
+ * ONE RULE WINS PER OFFER — the first active one that produces a decision. Two
+ * rules disagreeing about the same offer is a configuration the seller can see
+ * and fix; resolving it by "most aggressive wins" or by running both would mean
+ * an offer gets accepted AND declined, and the second call fails against eBay
+ * with a stale-offer error that looks like a bug.
+ */
+export async function runOfferRulesForOwner(
+  ownerId: string,
+  rules: AutomationRuleRow[],
+): Promise<OfferRunResult> {
+  const result: OfferRunResult = {
+    offers_seen: 0,
+    accepted: 0,
+    declined: 0,
+    skipped: 0,
+    errors: 0,
+  };
+  const offerRules = rules.filter((r) => r.trigger_json?.type === "offer_threshold");
+  if (offerRules.length === 0) return result;
+  if (!isEbayConfigured()) return result;
+
+  let offers;
+  try {
+    offers = await getBestOffers(ownerId);
+  } catch (err) {
+    // No connection is the common case for a seller who wrote a rule before
+    // connecting eBay — not an error worth counting or logging loudly.
+    if (!isNoEbayConnectionError(err)) {
+      console.error(
+        "[automations:offers] getBestOffers failed",
+        ownerId,
+        err instanceof Error ? err.message : String(err),
+      );
+      result.errors++;
+    }
+    return result;
+  }
+  // Only offers still awaiting an answer. eBay's GetBestOffers is asked for
+  // Active, but the status is re-checked here so a widened query upstream can
+  // never turn this into a responder that answers settled offers.
+  const open = offers.filter((o) => (o.status ?? "Active") === "Active");
+  result.offers_seen = open.length;
+  if (open.length === 0) return result;
+
+  const ctx = await loadOfferContext(
+    ownerId,
+    [...new Set(open.map((o) => o.itemId).filter(Boolean))],
+  );
+
+  for (const offer of open) {
+    const c = ctx.get(offer.itemId);
+    // No local listing row means no asking price and no ownership proof. Both
+    // are reasons not to act, and the decision function would skip anyway.
+    if (!c) {
+      result.skipped++;
+      continue;
+    }
+
+    let decision: OfferDecision = "skip";
+    let copy = "";
+    let firedRule: AutomationRuleRow | null = null;
+    for (const rule of offerRules) {
+      const t = rule.trigger_json as Extract<
+        AutomationTrigger,
+        { type: "offer_threshold" }
+      >;
+      const outcome = decideOffer({
+        acceptAtPct: t.accept_at_pct,
+        declineBelowPct: t.decline_below_pct,
+        marginFloorPct: t.margin_floor_pct,
+      }, {
+        offerPrice: offer.price,
+        listPrice: c.listPrice,
+        itemCost: c.itemCost,
+      });
+      if (outcome.decision !== "skip") {
+        decision = outcome.decision;
+        copy = describeOfferOutcome(outcome);
+        firedRule = rule;
+        break;
+      }
+    }
+
+    if (decision === "skip" || !firedRule) {
+      result.skipped++;
+      continue;
+    }
+
+    // IDEMPOTENCY, and it has to come before the eBay call rather than after.
+    // The cron can overlap a manual response, a retry, or its own previous run;
+    // claiming the (offer, action) pair first means a duplicate attempt does
+    // nothing instead of racing eBay and logging a stale-offer failure that
+    // reads like a defect.
+    const fresh = await claimMarketplaceEvent(
+      ownerId,
+      "offer",
+      offer.bestOfferId,
+      `auto:${decision}`,
+      "offer_auto_responded",
+      offer.itemId,
+    );
+    if (!fresh) {
+      result.skipped++;
+      continue;
+    }
+
+    try {
+      await respondToBestOffer(ownerId, {
+        itemId: offer.itemId,
+        bestOfferId: offer.bestOfferId,
+        action: decision === "accept" ? "Accept" : "Decline",
+      }, c.connectionId);
+      if (decision === "accept") result.accepted++;
+      else result.declined++;
+      // Always tell the seller, through the SAME notifier the manual response
+      // uses — in-app, email and push, honouring their preferences. An
+      // automation that answers a buyer without saying so is indistinguishable
+      // from the buyer walking away. `copy` is logged rather than sent because
+      // the shared notifier owns the wording; a second phrasing here would
+      // drift from the one the manual path sends.
+      console.log(`[automations:offers] ${ownerId} ${offer.bestOfferId}: ${copy}`);
+      await notifyOfferResponded(
+        ownerId,
+        offer.itemTitle,
+        decision === "accept" ? "accepted" : "declined",
+      );
+    } catch (err) {
+      result.errors++;
+      console.error(
+        "[automations:offers] respond failed",
+        ownerId,
+        offer.bestOfferId,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return result;
+}
+
 export async function handleAutomationRulesCron(c: Context): Promise<Response> {
   if (!(await requireJobSecret(c))) {
     return c.json({ error: "Unauthorized" }, 401);

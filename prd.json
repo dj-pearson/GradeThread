@@ -1279,22 +1279,6 @@
       ]
     },
     {
-      "id": "US-2236",
-      "passes": false,
-      "title": "Offers and Messages: every offer is manual, counters show no margin, and lists never paginate",
-      "description": "As a reseller handling Best Offers, I want auto-accept and auto-decline threshold rules, margin context on counters, and a paged filterable inbox, so high-volume negotiation is not one-by-one and blind to break-even.",
-      "acceptanceCriteria": [
-        "Offers can be auto-accepted above a set percent and auto-declined below a set percent of list price, via the automations engine offer_received trigger (US-2156) or a rule surfaced on src/pages/flipdesk/offers.tsx",
-        "The counter-offer input (offers.tsx lines 186-208) shows the item cost and resulting margin so a counter below break-even is visible",
-        "The offers list and message inbox paginate, and the inbox has an unread filter (today offers.map and messages.map render a flat list, lines 117 and 465)",
-        "Deadline-sensitive offers refresh in the background rather than only on a manual retry"
-      ],
-      "dependsOn": [
-        "US-2156"
-      ],
-      "notes": "Partial 2026-07-30 (AC4): useEbayBestOffers (src/hooks/use-ebay.ts) now refetches in the background every 90s and on window focus (refetchIntervalInBackground left false so a parked tab doesn't burn the eBay call budget), so deadline-sensitive Best Offers stay fresh without a manual retry. Verified: tsc -b + eslint clean. REMAINING: AC1 auto-accept/decline threshold rules (needs the automations engine offer_received trigger, US-2156, which is unwritten — server work), AC2 counter-offer margin context (the EbayBestOffer payload carries no acquisition cost; showing margin needs the item's purchase_price joined in server-side or looked up by listing), AC3 pagination on the offers + messages lists and an unanswered/unread filter (EbayBuyerMessage exposes 'answered', so unread=unanswered — deferred to avoid unverified pagination off-by-ones in the 558-line offers.tsx without a browser). | 2026-07-30 (AC3 done): src/pages/flipdesk/offers.tsx — both the Best Offers list and the buyer-messages list paginate client-side via a shared Pager (LIST_PAGE_SIZE 15), and messages gains a 'Needs reply' toggle (unanswered = !message.answered) with a count badge and its own empty state; page resets when the filter flips. With AC4 (background refetch) this leaves only AC1 (auto-accept/decline threshold rules — US-2156 automations, server) and AC2 (counter-offer margin — the eBay offer payload has no acquisition cost). Verified: tsc -b + eslint clean; browser render not verified. | 2026-07-30 (AC2 done): counter-offer margin context. GET /negotiation/offers (flipdesk-ebay.ts) enriches each best offer with itemCost = the item's acquired_price (numeric(10,2) dollars), looked up from the seller's own listings and TENANT-SCOPED via inventory_items.user_id (the loadListingOwned owner-verified-parent pattern, US-268 pattern 2). EbayBestOffer gains itemCost?; offers.tsx counter input shows 'Margin: <cur> X · cost <cur> Y' and flips to a red 'Below cost' when the counter is under acquisition cost. Units: acquired_price and the eBay offer/counter price are both dollars — no conversion. Verified: web tsc + eslint clean; deno check + deno lint clean on flipdesk-ebay.ts. With AC3 (pagination + needs-reply filter) and AC4 (background refetch) done, only AC1 remains: auto-accept/decline threshold rules via the US-2156 automations offer_received trigger (server automations subsystem)."
-    },
-    {
       "id": "US-2274",
       "passes": false,
       "title": "iOS: the item's own columns don't own their eBay specifics, so changing Size edits nothing the listing will publish",

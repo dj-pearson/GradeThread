@@ -717,3 +717,96 @@ Deno.test("US-2156: the pre-existing actions plan exactly as before", () => {
   });
   assertEquals(planAction({ type: "end_listing" }, BASE_PLAN), { kind: "end_listing" });
 });
+
+// ── US-2236: the offer_threshold trigger's engine wiring ────────────
+//
+// The rule lives in the same table and passes through the same validator as
+// every listing rule, but it is executed by a DIFFERENT runner. These cases pin
+// the two halves of that: it validates like a first-class trigger, and the
+// listing planner refuses it unconditionally.
+
+Deno.test("US-2236: the listing planner NEVER matches an offer_threshold rule", () => {
+  // The single most important case here. If triggerMatches ever returned true
+  // for this shape, the price-drop engine would start answering Best Offers —
+  // it would plan a markdown against a listing because an offer rule matched.
+  const t: AutomationTrigger = {
+    type: "offer_threshold",
+    accept_at_pct: 90,
+    decline_below_pct: 40,
+    margin_floor_pct: 10,
+    cooldown_days: 7,
+  };
+  assertEquals(triggerMatches(t, facts({ ageDays: 999 })), false);
+  assertEquals(triggerMatches(t, facts()), false);
+});
+
+Deno.test("US-2236: a rule with no threshold at all is refused at save time", () => {
+  // An inert rule sitting in the seller's list, doing nothing, is worse than a
+  // validation error they can act on immediately.
+  const r = normalizeAutomationInput({
+    name: "Answer offers",
+    trigger_json: { type: "offer_threshold" },
+    action_json: { type: "notify", message: "hi" },
+  });
+  assert(!r.ok);
+});
+
+Deno.test("US-2236: an accept threshold at or below the decline threshold is refused", () => {
+  // Some offer would qualify for both. Caught at configuration time rather than
+  // silently skipped every hour.
+  for (const [accept, decline] of [[40, 60], [50, 50]]) {
+    const r = normalizeAutomationInput({
+      name: "Answer offers",
+      trigger_json: {
+        type: "offer_threshold",
+        accept_at_pct: accept,
+        decline_below_pct: decline,
+      },
+      action_json: { type: "notify", message: "hi" },
+    });
+    assert(!r.ok, `accept ${accept} / decline ${decline} should be refused`);
+  }
+});
+
+Deno.test("US-2236: a valid rule normalizes, clamps and defaults the margin floor", () => {
+  const r = normalizeAutomationInput({
+    name: "Answer offers",
+    trigger_json: {
+      type: "offer_threshold",
+      accept_at_pct: 250, // clamps to 100
+      decline_below_pct: 0, // clamps to 1
+    },
+    action_json: { type: "notify", message: "hi" },
+  });
+  assert(r.ok);
+  assertEquals(r.value.trigger_json, {
+    type: "offer_threshold",
+    accept_at_pct: 100,
+    decline_below_pct: 1,
+    // Defaulted, not required — every rule gets the safety net even from a
+    // seller who never thinks about it.
+    margin_floor_pct: 10,
+    cooldown_days: DEFAULT_COOLDOWN_DAYS,
+  });
+});
+
+Deno.test("US-2236: one threshold alone is a valid rule", () => {
+  const acceptOnly = normalizeAutomationInput({
+    name: "Take the good ones",
+    trigger_json: { type: "offer_threshold", accept_at_pct: 90 },
+    action_json: { type: "notify", message: "hi" },
+  });
+  assert(acceptOnly.ok);
+  assertEquals(
+    (acceptOnly.value.trigger_json as { decline_below_pct: number | null })
+      .decline_below_pct,
+    null,
+  );
+
+  const declineOnly = normalizeAutomationInput({
+    name: "Bin the lowballs",
+    trigger_json: { type: "offer_threshold", decline_below_pct: 40 },
+    action_json: { type: "notify", message: "hi" },
+  });
+  assert(declineOnly.ok);
+});

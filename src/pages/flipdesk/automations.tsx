@@ -105,6 +105,12 @@ function describeTrigger(t: AutomationTrigger): string {
       return t.direction === "above"
         ? `priced more than ${t.pct}% above comps`
         : `priced more than ${t.pct}% below comps`;
+    case "offer_threshold": {
+      const parts: string[] = [];
+      if (t.accept_at_pct != null) parts.push(`accept at ${t.accept_at_pct}%+`);
+      if (t.decline_below_pct != null) parts.push(`decline under ${t.decline_below_pct}%`);
+      return `an offer arrives — ${parts.join(", ") || "no thresholds set"}`;
+    }
   }
 }
 
@@ -170,7 +176,7 @@ const EBAY_BACKED_ACTIONS = new Set<AutomationAction["type"]>([
 const TRIGGER_OPTIONS: Array<{
   value: AutomationTrigger["type"];
   label: string;
-  group: "Aging" | "Pipeline";
+  group: "Aging" | "Pipeline" | "Offers";
   /** Shows the trailing "…days" input. */
   days: boolean;
 }> = [
@@ -183,6 +189,7 @@ const TRIGGER_OPTIONS: Array<{
   { value: "item_status_changed", label: "The item moved to…", group: "Pipeline", days: true },
   { value: "compliance_violation", label: "A policy violation is open", group: "Pipeline", days: false },
   { value: "comp_price_moved", label: "Price drifted from comps…", group: "Pipeline", days: false },
+  { value: "offer_threshold", label: "An offer arrives (auto answer)…", group: "Offers", days: false },
 ];
 
 const ACTION_OPTIONS: Array<{
@@ -256,6 +263,27 @@ function RuleDialog({
   );
   const [cooldownDays, setCooldownDays] = useState(
     String(initial?.trigger_json.cooldown_days ?? 7),
+  );
+  // US-2236. Empty string means "no threshold", NOT zero — a 0 would clamp to
+  // 1% and auto-decline nearly every offer the seller receives.
+  const [acceptAtPct, setAcceptAtPct] = useState(
+    initial?.trigger_json.type === "offer_threshold" &&
+      initial.trigger_json.accept_at_pct != null
+      ? String(initial.trigger_json.accept_at_pct)
+      : "",
+  );
+  const [declineBelowPct, setDeclineBelowPct] = useState(
+    initial?.trigger_json.type === "offer_threshold" &&
+      initial.trigger_json.decline_below_pct != null
+      ? String(initial.trigger_json.decline_below_pct)
+      : "",
+  );
+  const [offerMarginFloorPct, setOfferMarginFloorPct] = useState(
+    String(
+      initial?.trigger_json.type === "offer_threshold"
+        ? initial.trigger_json.margin_floor_pct
+        : 10,
+    ),
   );
   const [actionType, setActionType] = useState<AutomationAction["type"]>(
     initial?.action_json.type ?? "price_drop_pct",
@@ -371,6 +399,24 @@ function RuleDialog({
           pct: Math.max(1, Math.trunc(Number(compPct) || 1)),
           cooldown_days: cooldown,
         };
+      case "offer_threshold": {
+        // A BLANK field is null, not 0. `Number("")` is 0 and would clamp to
+        // 1%, which on the decline side means auto-declining almost every offer
+        // — the worst possible reading of "I left that box empty".
+        const pct = (v: string) => {
+          const t = v.trim();
+          if (!t) return null;
+          const n = Number(t);
+          return Number.isFinite(n) ? Math.min(100, Math.max(1, Math.trunc(n))) : null;
+        };
+        return {
+          type: triggerType,
+          accept_at_pct: pct(acceptAtPct),
+          decline_below_pct: pct(declineBelowPct),
+          margin_floor_pct: Math.max(0, Math.trunc(Number(offerMarginFloorPct) || 0)),
+          cooldown_days: cooldown,
+        };
+      }
       default:
         return { type: triggerType, days, cooldown_days: cooldown };
     }
@@ -574,6 +620,57 @@ function RuleDialog({
                 </span>
               )}
             </div>
+            {triggerType === "offer_threshold" && (
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                  Accept at or above
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    placeholder="off"
+                    value={acceptAtPct}
+                    onChange={(e) => setAcceptAtPct(e.target.value)}
+                    className="w-20"
+                    aria-label="Auto-accept at percent of asking price"
+                  />
+                  % of asking
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                  Decline under
+                  <Input
+                    type="number"
+                    min={1}
+                    max={100}
+                    placeholder="off"
+                    value={declineBelowPct}
+                    onChange={(e) => setDeclineBelowPct(e.target.value)}
+                    className="w-20"
+                    aria-label="Auto-decline below percent of asking price"
+                  />
+                  % of asking
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
+                  Never accept below cost +
+                  <Input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={offerMarginFloorPct}
+                    onChange={(e) => setOfferMarginFloorPct(e.target.value)}
+                    className="w-20"
+                    aria-label="Minimum margin over cost for an auto-accept"
+                  />
+                  %
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Leave a box empty to turn that half off. The cost floor only
+                  ever blocks an accept — it never causes a decline, so a missing
+                  or wrong purchase price can't lose you a sale. Items with no
+                  purchase price recorded are accepted on the percentage alone.
+                </p>
+              </div>
+            )}
             {triggerType === "offer_received" && (
               <p className="text-xs text-muted-foreground">
                 Reads the offers eBay has already told us about. Offers that
@@ -585,6 +682,13 @@ function RuleDialog({
               <p className="text-xs text-muted-foreground">
                 Compares your asking price to the comp range stored on the
                 listing. A listing with no comps yet never matches.
+              </p>
+            )}
+            {triggerType === "offer_threshold" && (
+              <p className="text-xs text-muted-foreground">
+                Answers eBay Best Offers hourly. This rule's action below is
+                ignored — accepting or declining IS the action. You are told
+                every time it answers one.
               </p>
             )}
             <div className="flex items-center gap-1.5 text-sm text-muted-foreground">

@@ -4,6 +4,11 @@
 // No DB/network here so all of it is unit-tested directly
 // (tests/automation-rules_test.ts).
 
+import {
+  DEFAULT_OFFER_MARGIN_FLOOR_PCT,
+  normalizeThresholdPct,
+} from "./offer-rules.ts";
+
 export const AUTOMATION_NAME_MAX = 80;
 export const MAX_PRICE_DROP_PCT = 90;
 export const MAX_PROMO_RATE_PCT = 100;
@@ -80,6 +85,29 @@ export type AutomationTrigger =
     type: "comp_price_moved";
     direction: "above" | "below";
     pct: number;
+    cooldown_days: number;
+  }
+  // ── US-2236 ───────────────────────────────────────────────────
+  // An incoming Best Offer, judged as a percent of the asking price.
+  //
+  // ⚠ THIS ONE IS NOT EVALUATED BY THE LISTING PLANNER, and that is not an
+  // oversight. Every other trigger above asks a question about ONE LISTING and
+  // yields ONE action for it. This one asks about an OFFER, and a listing can
+  // carry several open offers with different prices and different right
+  // answers. It is executed per-offer by runOfferRulesForOwner (see
+  // routes/flipdesk-automations.ts) using the pure decision in lib/offer-rules
+  // .ts, inside the SAME hourly cron — same lock, same plan gate, no new job.
+  //
+  // triggerMatches() returns FALSE for it unconditionally, so it can never make
+  // the listing planner act. That refusal is test-guarded.
+  | {
+    type: "offer_threshold";
+    /** Accept at or above this percent of list. Null = never auto-accept. */
+    accept_at_pct: number | null;
+    /** Decline strictly below this percent of list. Null = never auto-decline. */
+    decline_below_pct: number | null;
+    /** Minimum margin over acquisition cost an auto-ACCEPT must clear. */
+    margin_floor_pct: number;
     cooldown_days: number;
   };
 
@@ -301,6 +329,30 @@ function normalizeTrigger(
         return { error: `Comp drift must be between 1 and ${MAX_COMP_DRIFT_PCT}%` };
       }
       return { type: "comp_price_moved", direction, pct, cooldown_days: cooldown };
+    }
+    case "offer_threshold": {
+      const accept = normalizeThresholdPct(t.accept_at_pct);
+      const decline = normalizeThresholdPct(t.decline_below_pct);
+      if (accept === null && decline === null) {
+        return { error: "Set an auto-accept or an auto-decline threshold" };
+      }
+      // Refused at CONFIGURATION time, not silently skipped at run time. The
+      // decision function also handles the overlap defensively, but a rule the
+      // seller can see in their list and that will never fire is worse than a
+      // validation error they can act on immediately.
+      if (accept !== null && decline !== null && accept <= decline) {
+        return { error: "The accept threshold must be above the decline threshold" };
+      }
+      const floorRaw = normalizeThresholdPct(t.margin_floor_pct);
+      return {
+        type: "offer_threshold",
+        accept_at_pct: accept,
+        decline_below_pct: decline,
+        // Defaulted rather than required: every rule gets the safety net, and a
+        // seller who never thinks about it is protected anyway.
+        margin_floor_pct: floorRaw ?? DEFAULT_OFFER_MARGIN_FLOOR_PCT,
+        cooldown_days: cooldown,
+      };
     }
     default:
       return { error: "Unknown trigger type" };
@@ -605,6 +657,13 @@ export function triggerMatches(
       return f.status === t.status && withinDays(f.daysInStatus, t.days);
     case "comp_price_moved":
       return compDriftMatches(f, t.direction, t.pct);
+    // US-2236: never from the listing planner — see the union above. Returning
+    // false here rather than omitting the case is deliberate: an omission would
+    // fall through to whatever TypeScript's exhaustiveness left behind, and the
+    // failure mode of a wrong answer here is an offer answered by the price-drop
+    // engine.
+    case "offer_threshold":
+      return false;
   }
 }
 

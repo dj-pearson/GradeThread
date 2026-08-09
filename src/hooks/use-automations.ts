@@ -19,7 +19,17 @@ export type AutomationTrigger =
   | { type: "compliance_violation"; min_violations: number; cooldown_days: number }
   | { type: "grade_completed"; days: number; max_grade: number | null; cooldown_days: number }
   | { type: "item_status_changed"; status: string; days: number; cooldown_days: number }
-  | { type: "comp_price_moved"; direction: "above" | "below"; pct: number; cooldown_days: number };
+  | { type: "comp_price_moved"; direction: "above" | "below"; pct: number; cooldown_days: number }
+  // US-2236: judged per OFFER, not per listing. Runs inside the same hourly
+  // automations cron; the action is implied by the thresholds, so a rule of
+  // this type ignores its action_json.
+  | {
+    type: "offer_threshold";
+    accept_at_pct: number | null;
+    decline_below_pct: number | null;
+    margin_floor_pct: number;
+    cooldown_days: number;
+  };
 
 export type AutomationAction =
   | { type: "price_drop_pct"; pct: number; margin_floor_pct: number }
