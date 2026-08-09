@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00583_golf_brand_knowledge.sql (US-2220 — the logo is part of the item, and it is not the brand)
+## ✅ APPLIED: 00583_golf_brand_knowledge.sql (US-2220 — the logo is part of the item, and it is not the brand, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00582", applied: "00583", status: "ahead"}` — the database's own answer. The edge has also caught up to 00582 since the last batch, so the remaining gap is just this migration's own version bump.
 
 **Risk: LOW. Three `insert ... on conflict do nothing` statements into reference
 tables.** Nothing is created, altered, dropped, read or backfilled. No decoders.
@@ -910,7 +912,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**NOTHING IS HELD.** 00564 through 00582 were applied to prod on 2026-08-09 and
+**NOTHING IS HELD.** 00564 through 00583 were applied to prod on 2026-08-09 and
 measured as they went; every section in this file is now APPLIED. Below the line
 is the older history:
 00542 through 00563 went to prod on 2026-08-08 and were
