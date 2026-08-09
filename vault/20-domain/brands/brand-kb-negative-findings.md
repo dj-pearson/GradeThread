@@ -7,7 +7,8 @@ code_refs:
   - supabase/migrations/00468_handbags_accessories_brand_knowledge.sql
   - services/edge-functions/src/lib/registered-numbers.ts
   - services/edge-functions/src/lib/tag-era.ts
-reviewed: 2026-07-28
+  - supabase/migrations/00572_tag_eras_provenance.sql
+reviewed: 2026-08-09
 tags: [brands, sourcing, authentication, contract]
 summary: Facts that look right and are wrong, plus the statutory reason a missing RN on a handbag is correct rather than suspicious.
 ---
@@ -151,3 +152,68 @@ Humanity, which is why their pocket arcs resemble each other.
 - [[brand-kb-decoder-bar]] — why most codes are refused
 - [[brand-kb-alias-refusals]] — the same reasoning applied to names
 - [[brand-taxonomy-overview]]
+
+## An era we cannot cite is invention — and enforcing that needed NOT VALID
+
+**Added 2026-08-09 (US-2212 AC5).** `brand_knowledge` carries `source_url`,
+`confidence` and `verified` on the **row**. `tag_eras` is a jsonb array of
+entries. So an uncited era sitting inside an otherwise-verified brand was
+indistinguishable from a cited one — and era **is** the price on a vintage
+piece, which makes it the highest-liability content in the whole knowledge base.
+
+The registered-number work already settled the principle: an RN we cannot cite
+is invention, which is why 00457 and 00458 **omit** RNs rather than seed them
+unsourced. A decade is no different.
+
+### The rule is enforced on new content and not retroactively, on purpose
+
+All ~220 seeded entries predate this and carry no per-entry provenance. A plain
+`CHECK` refuses to apply against them, so shipping one would have meant
+fabricating sources — the exact thing the rule prevents — or deleting curated
+knowledge that is still **useful as prompt reference** even when it cannot be
+published.
+
+`brand_knowledge_tag_eras_sourced` is therefore `NOT VALID`: every INSERT and
+UPDATE from now on must cite a datable era, and the legacy rows stay readable
+and stay honestly marked. The backfill is done when this succeeds:
+
+```sql
+ALTER TABLE public.brand_knowledge VALIDATE CONSTRAINT brand_knowledge_tag_eras_sourced;
+```
+
+### Reference and claim are different liabilities
+
+This is the split that made the rule shippable instead of a switch that turns
+the feature off. AC5's words are about *"an unsourced era claim on a public
+certificate"* — a statement about what we **publish**, not about what the model
+may **read**.
+
+| | uncited era | cited era |
+|---|---|---|
+| rendered into the tag-OCR reference block | **yes** | yes |
+| matched, and used for the era-vs-decoder consistency flag | **yes** | yes |
+| persisted and surfaced as a dating claim | **no** | yes |
+
+`datingEras()` is the reference list; `claimableEras()` is the publishable
+subset; `matchTagEra()` returns `sourced: false` rather than dropping the
+match, so the caller decides knowingly. Dropping it would have silently disabled
+the consistency check on every legacy entry — a different feature switched off
+by a change about publishing.
+
+### Format notes are exempt, and that is not a loophole
+
+The column carries two kinds of fact. Roughly 174 of the 220 entries can date a
+garment; the rest have `years` of `all` / `current` / `ongoing` and describe a
+code **format** that never changed (Nike style-number, adidas article-number,
+Ralph Lauren label). A format note makes no dating claim and has nothing to
+cite, so requiring a source on one would push an author to invent a URL for a
+true statement. Both the constraint and `datingEras()` test whether `years`
+names a year or a decade.
+
+### Postgres will not take a subquery in a CHECK
+
+Worth knowing before writing the next one of these. Walking a jsonb array means
+`jsonb_array_elements` inside `NOT EXISTS`, which is a subquery, and a `CHECK`
+rejects it with `0A000`. The predicate lives in an `IMMUTABLE` function
+(`public.tag_eras_all_sourced`) that the constraint calls. The first draft did
+it inline and the `db` verify lane caught it on a from-zero re-apply.

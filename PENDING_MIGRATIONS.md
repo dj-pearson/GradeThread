@@ -1,5 +1,43 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00572_tag_eras_provenance.sql (US-2212 AC5 — an era we cannot cite is invention)
+
+**Risk: LOW.** One IMMUTABLE function, one CHECK constraint added `NOT VALID`,
+two comments. No table rewritten, nothing backfilled, no existing row touched.
+
+**Apply order: AFTER 00571.** No dependency, just NNNNN order.
+
+**NOT push-blocking.** The constraint only bites on INSERT/UPDATE of
+`brand_knowledge`, which no client writes — brand knowledge arrives through
+migrations and the admin curation surface. The edge code that reads the new
+per-entry provenance treats its absence as "uncited", which is what all ~220
+existing entries are, so an old database under new code behaves correctly.
+
+**`NOT VALID` IS THE DESIGN, NOT A SHORTCUT — do not "clean it up".** Every
+seeded entry predates this and carries no provenance. A plain CHECK would refuse
+to apply, so the only ways to ship it would be to fabricate sources (the thing
+the rule exists to prevent) or delete curated knowledge that is still useful as
+prompt reference. NOT VALID enforces on all new writes and leaves the legacy
+rows readable. **The backfill is finished when this succeeds:**
+
+```sql
+ALTER TABLE public.brand_knowledge VALIDATE CONSTRAINT brand_knowledge_tag_eras_sourced;
+```
+
+Do NOT run that now — it will fail, and correctly.
+
+**Why the predicate is in a function.** Postgres rejects a subquery in a CHECK
+(`0A000`), and walking a jsonb array needs one. The first draft did it inline
+and `node scripts/verify.mjs --db` caught it on a from-zero re-apply.
+
+**Verified from zero on a throwaway stack**, not eyeballed.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — a new function.
+
+**Rollback** is dropping the constraint and the function. Nothing depends on
+either; the edge code degrades to treating every era as uncited, which is the
+state it is in today.
+
 ## 🔴 HELD: 00571_grade_confidence_label_fn.sql (US-2303 AC2 — one home for the confidence buckets)
 
 **Risk: LOW to apply, HIGH if the wrong revision had been edited — read the
@@ -402,7 +440,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564 through 00571 are held** — see the top of this file. Everything below it is applied:
+**00564 through 00572 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528

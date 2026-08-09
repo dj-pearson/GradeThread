@@ -33,6 +33,8 @@ const {
   MAX_ERAS_IN_PROMPT,
   normalizeTagEras,
   tagEraReferenceBlock,
+  isSourcedEra,
+  claimableEras,
 } = await import("../lib/tag-era.ts");
 
 const { acceptedTagFields, tagGroundTruthBlock, buildPersistedTagRead } =
@@ -354,4 +356,96 @@ Deno.test("a conflict does NOT change the grading prompt — it is review data o
   const block = tagGroundTruthBlock(accepted, era);
   assert(!block.includes("cannot both be right"));
   assert(!block.includes("Review"));
+});
+
+// ── US-2212 AC5: a dating claim must be citable before it can be sold ────────
+//
+// brand_knowledge carries source_url / confidence / verified on the ROW, so an
+// unsourced era inside an otherwise-verified brand was indistinguishable from a
+// cited one. Era IS the price on a vintage piece — the highest-liability
+// content in the KB — and the registered-number work already set the precedent:
+// an RN we cannot cite is invention, and so is a decade.
+
+Deno.test("US-2212 AC5: provenance needs BOTH a source and a confidence", () => {
+  // One without the other is not provenance. A URL with no confidence says
+  // where someone looked but not what they concluded; a confidence with no URL
+  // is a number with nothing behind it.
+  const base = { era: "blue bar", years: "1980s", description: "d" };
+  assert(isSourcedEra({ ...base, sourceUrl: "https://x", sourceConfidence: 0.8 }));
+  assert(!isSourcedEra({ ...base, sourceUrl: "https://x", sourceConfidence: null }));
+  assert(!isSourcedEra({ ...base, sourceUrl: null, sourceConfidence: 0.8 }));
+  assert(!isSourcedEra({ ...base, sourceUrl: null, sourceConfidence: null }));
+});
+
+Deno.test("US-2212 AC5: an absent source stays NULL, never a default", () => {
+  // A default would make every one of the ~220 legacy entries look cited, which
+  // is the exact confusion this AC exists to end.
+  const [e] = normalizeTagEras([
+    { era: "blue bar", years: "1980s", description: "d" },
+  ]);
+  assertEquals(e.sourceUrl, null);
+  assertEquals(e.sourceConfidence, null);
+});
+
+Deno.test("US-2212 AC5: provenance is carried through coercion and clamped", () => {
+  const [e] = normalizeTagEras([
+    {
+      era: "blue bar",
+      years: "1980s",
+      description: "d",
+      source_url: "  https://example.test/levis  ",
+      confidence: 1.4,
+    },
+  ]);
+  assertEquals(e.sourceUrl, "https://example.test/levis");
+  assertEquals(e.sourceConfidence, 1);
+});
+
+Deno.test("US-2212 AC5: claimableEras keeps only cited DATABLE entries", () => {
+  const eras = normalizeTagEras([
+    // Cited and datable — the only publishable one.
+    { era: "a", years: "1980s", description: "d", source_url: "https://x", confidence: 0.9 },
+    // Datable but uncited: readable as reference, not publishable.
+    { era: "b", years: "1990s", description: "d" },
+    // Cited but not a dating claim — a format note. Still not an era.
+    { era: "c", years: "all", description: "d", source_url: "https://x", confidence: 0.9 },
+  ]);
+  assertEquals(claimableEras(eras).map((e: { era: string }) => e.era), ["a"]);
+  // The REFERENCE list is deliberately wider: an uncited era still helps the
+  // model read the label, and nothing it produces is published on its own.
+  assertEquals(datingEras(eras).map((e: { era: string }) => e.era), ["a", "b"]);
+});
+
+Deno.test("US-2212 AC5: a match on an uncited era is RETURNED but marked unsourced", () => {
+  // Dropping it here would silently disable the AC4 era-vs-decoder consistency
+  // check on every legacy entry — a different feature switched off by a change
+  // about publishing. The caller decides; the flag makes it decide knowingly.
+  const eras = normalizeTagEras([
+    { era: "uncited", years: "1990s", description: "d" },
+  ]);
+  const m = matchTagEra(eras, "era_1", 0.9);
+  assert(m);
+  assertEquals(m!.era, "uncited");
+  assertEquals(m!.sourced, false);
+  assertEquals(m!.sourceUrl, null);
+});
+
+Deno.test("US-2212 AC5: a match on a cited era carries the URL a surface can print", () => {
+  const eras = normalizeTagEras([
+    { era: "cited", years: "1990s", description: "d", source_url: "https://x", confidence: 0.8 },
+  ]);
+  const m = matchTagEra(eras, "era_1", 0.9);
+  assert(m);
+  assertEquals(m!.sourced, true);
+  assertEquals(m!.sourceUrl, "https://x");
+});
+
+Deno.test("US-2212 AC5: provenance does not weaken the confidence bar", () => {
+  // The two thresholds are independent. A perfectly cited era still needs the
+  // model to be sure it MATCHED — citation says the fact is real, not that this
+  // garment is an instance of it.
+  const eras = normalizeTagEras([
+    { era: "cited", years: "1990s", description: "d", source_url: "https://x", confidence: 1 },
+  ]);
+  assertEquals(matchTagEra(eras, "era_1", ERA_MATCH_MIN_CONFIDENCE - 0.01), null);
 });

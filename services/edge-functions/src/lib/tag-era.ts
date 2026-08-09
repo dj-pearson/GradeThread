@@ -44,6 +44,22 @@ export interface TagEra {
   years: string;
   /** What the tag of this generation looks like. */
   description: string;
+  /**
+   * US-2212 AC5. Where this dating claim comes from, PER ENTRY.
+   *
+   * brand_knowledge carries source_url / confidence / verified on the ROW, so
+   * an unsourced era sitting inside an otherwise-verified brand was
+   * indistinguishable from a cited one. Era IS the price on a vintage piece —
+   * it is the highest-liability content in the knowledge base — so it gets the
+   * treatment the registered-number work chose: an RN we cannot cite is
+   * invention, and so is a decade.
+   *
+   * Null on every one of the ~220 entries seeded before this landed. See
+   * `isSourcedEra` for what that permits and what it refuses.
+   */
+  sourceUrl: string | null;
+  /** 0..1 confidence in the DATING CLAIM itself, not in a transcription. */
+  sourceConfidence: number | null;
 }
 
 /** A stable id the model returns instead of re-typing free text. */
@@ -69,7 +85,19 @@ export function normalizeTagEras(raw: unknown): TagEra[] {
       : "";
     const years = typeof o.years === "string" ? o.years.trim() : "";
     if (era.length === 0 || description.length === 0) continue;
-    out.push({ era, years, description });
+    // Absent provenance stays NULL rather than defaulting. A default here would
+    // make every legacy entry look cited, which is the exact confusion AC5
+    // exists to end.
+    const sourceUrl = typeof o.source_url === "string" && o.source_url.trim()
+      ? o.source_url.trim()
+      : null;
+    const rawConf = typeof o.confidence === "number"
+      ? o.confidence
+      : Number(o.confidence);
+    const sourceConfidence = Number.isFinite(rawConf)
+      ? Math.max(0, Math.min(1, rawConf))
+      : null;
+    out.push({ era, years, description, sourceUrl, sourceConfidence });
   }
   return out;
 }
@@ -121,6 +149,14 @@ export interface MatchedTagEra {
   years: string;
   description: string;
   confidence: number;
+  /**
+   * US-2212 AC5. False when the matched entry carries no per-entry provenance.
+   * The match is still returned — the era-vs-decoder consistency check (AC4) is
+   * an internal flag and works fine off an uncited era — but nothing may
+   * PUBLISH it. `sourceUrl` is what a surface cites.
+   */
+  sourced: boolean;
+  sourceUrl: string | null;
 }
 
 /**
@@ -131,6 +167,41 @@ export interface MatchedTagEra {
  * so it earns a stricter bar than the fields around it.
  */
 export const ERA_MATCH_MIN_CONFIDENCE = 0.7;
+
+/**
+ * Is this era citable? (US-2212 AC5)
+ *
+ * A dating claim needs BOTH a source and a stated confidence in the claim
+ * itself. One without the other is not provenance: a URL with no confidence
+ * says where someone looked but not what they concluded, and a confidence with
+ * no URL is a number with nothing behind it.
+ */
+export function isSourcedEra(era: TagEra): boolean {
+  return Boolean(era.sourceUrl) && typeof era.sourceConfidence === "number";
+}
+
+/**
+ * THE SPLIT THAT MAKES AC5 SHIPPABLE, rather than a switch that turns the
+ * feature off.
+ *
+ * AC5's words are about "an unsourced era claim on a PUBLIC CERTIFICATE". That
+ * is a statement about what we PUBLISH, not about what the model may read. Two
+ * different uses with two different liabilities:
+ *
+ *   REFERENCE  — the era list rendered into the tag-OCR call. Unsourced entries
+ *                stay, because they help the model read the label and nothing
+ *                they produce is published on their own.
+ *   CLAIM      — a matched era persisted and surfaced. Requires provenance,
+ *                because that is the thing a buyer reads and pays for.
+ *
+ * Requiring provenance for the reference block too would have silenced the
+ * whole feature — all ~220 seeded entries predate this — and called it a fix.
+ * Requiring it for the claim means the era can still be READ today and cannot
+ * be SOLD until someone cites it, which is what the AC actually asks.
+ */
+export function claimableEras(eras: TagEra[]): TagEra[] {
+  return datingEras(eras).filter(isSourcedEra);
+}
 
 /**
  * Resolve the model's returned id back to a seeded entry. Returns null for an
@@ -159,6 +230,12 @@ export function matchTagEra(
     years: hit.years,
     description: hit.description,
     confidence: Math.max(0, Math.min(1, conf)),
+    // Carried rather than filtered, so a caller has to DECIDE. Dropping the
+    // match here would silently disable the AC4 consistency check on every
+    // legacy entry, which is a different feature being switched off by a change
+    // about publishing.
+    sourced: isSourcedEra(hit),
+    sourceUrl: hit.sourceUrl,
   };
 }
 
@@ -245,7 +322,12 @@ export interface EraDecoderConflict {
 export const ERA_YEAR_TOLERANCE = 1;
 
 export function eraDecoderConflict(
-  era: MatchedTagEra | null,
+  // Structurally typed on the ONE field it reads, not on MatchedTagEra. US-2212
+  // AC5 added provenance to that shape, and this check does not care about it —
+  // an uncited era still cannot be from two decades at once. Narrowing the
+  // parameter says so, and stops a future provenance field from looking like it
+  // belongs in a consistency comparison.
+  era: Pick<MatchedTagEra, "era" | "years"> | null,
   decodedYear: number | null | undefined,
   currentYear: number,
 ): EraDecoderConflict | null {
