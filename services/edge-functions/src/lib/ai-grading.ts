@@ -1652,6 +1652,70 @@ export function selectImagesForAuthenticityReread(
 }
 
 /**
+ * Authenticity MACRO slots whose delivered image was measurably soft (US-2135
+ * AC2).
+ *
+ * ── WHY THIS IS A THIRD SELECTOR AND NOT THE DEFECT ZOOM ───────────────────
+ * The AC says "generalize the Forensic defect-zoom crop pipeline to
+ * authenticity regions". The defect zoom is the wrong parent: it exists because
+ * a sub-3mm hole on a WHOLE-GARMENT shot falls below a pixel after the vision
+ * API downscales, so it crops a bbox out of the original. A serial, a heat
+ * stamp, a corner — these are ALREADY dedicated close-ups. There is no bbox
+ * because the whole photo IS the region, which is exactly what the label
+ * re-read above says about itself. So this joins the re-read family, not the
+ * crop family, and it inherits the property that matters: same image, same
+ * prompt, so no prompt_version change and nothing to shadow or eval.
+ *
+ * ── THE SELECTOR IS A MEASUREMENT, NOT A MODEL OPINION ─────────────────────
+ * Its two siblings pick on what the first pass SAID (the label was illegible;
+ * the photo looked manipulated). This one picks on what was MEASURED before any
+ * model saw the image: submission_images.quality_score, the normalized 0..1
+ * sharpness computed client-side on the compressed bytes (US-2136).
+ *
+ * That is not merely available, it is the only signal that WORKS HERE. Keying
+ * off the authenticity verdict would mean waiting for the authenticity call,
+ * which runs in parallel with the per-image pass inside the memory gate — the
+ * re-read would have to be chained behind it, serialising two vision calls on
+ * the paid path. The score is already on the row before any of that starts.
+ *
+ * A NULL score does NOT select. Absent means "not measured" — an older client,
+ * a canvas that could not decode — and re-reading on unknown quality would
+ * spend a vision call per macro on every legacy submission for no stated
+ * reason. The gate only fires on evidence that the image was soft.
+ */
+export const MACRO_REREAD_MAX_QUALITY = 0.35;
+
+/** Slots whose whole frame is authenticity evidence. Mirrors MACRO_EVIDENCE. */
+const MACRO_REREAD_TYPES = new Set([
+  "serial",
+  "marking",
+  "surface",
+  "corner",
+  "sole",
+]);
+
+export function selectMacrosForReread(
+  images: readonly { image_type: string; quality_score?: number | null }[],
+  maxRereads = 2,
+): RereadCandidate[] {
+  const out: RereadCandidate[] = [];
+  const seen = new Set<string>();
+  for (const img of images) {
+    if (out.length >= maxRereads) break;
+    if (!MACRO_REREAD_TYPES.has(img.image_type)) continue;
+    if (seen.has(img.image_type)) continue;
+    const q = img.quality_score;
+    // typeof, not Number()+isFinite: Number(null) is 0 and finite, which would
+    // make every unmeasured image look maximally soft and select it.
+    if (typeof q !== "number" || !Number.isFinite(q)) continue;
+    if (q > MACRO_REREAD_MAX_QUALITY) continue;
+    seen.add(img.image_type);
+    out.push({ image_type: img.image_type });
+  }
+  return out;
+}
+
+/**
  * Merge a high-res authenticity re-read back. ONE-DIRECTIONAL by design — a
  * manipulation suspicion is sticky (a sharper read may only corroborate, never
  * launder a tampered photo clean), confidence takes the max, and tells are

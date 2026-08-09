@@ -11,6 +11,7 @@ import {
   selectDefectsForZoom,
   selectImagesForAuthenticityReread,
   selectLabelsForReread,
+  selectMacrosForReread,
   selectVerificationImages,
   PARTIAL_IMAGE_CONFIDENCE_CAP,
   type SettledImage,
@@ -216,6 +217,9 @@ interface ZoomImageRow {
   image_type: string;
   storage_path: string;
   original_storage_path?: string | null;
+  // US-2135 AC2: the measured 0..1 sharpness (US-2136, migration 00568). Null
+  // on any row written before that landed, and null never selects.
+  quality_score?: number | null;
 }
 
 /**
@@ -345,7 +349,16 @@ async function runRereadPass(
 ): Promise<PerImageAnalysis[]> {
   const labelCands = selectLabelsForReread(perImageResults);
   const authCands = selectImagesForAuthenticityReread(perImageResults);
-  if (labelCands.length === 0 && authCands.length === 0) return perImageResults;
+  // US-2135 AC2: a soft authenticity macro. Selected off the MEASURED sharpness
+  // on the row rather than off anything the first pass said — see
+  // selectMacrosForReread for why that is the only signal available here
+  // without serialising a second vision call on the paid path.
+  const macroCands = selectMacrosForReread(images);
+  if (
+    labelCands.length === 0 && authCands.length === 0 && macroCands.length === 0
+  ) {
+    return perImageResults;
+  }
 
   // image_type → best source (prefer the retained uncompressed original).
   const srcByType = new Map<string, string>();
@@ -418,6 +431,29 @@ async function runRereadPass(
     } catch (err) {
       console.error(
         `[Pipeline] authenticity re-read failed (${cand.image_type}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  // US-2135 AC2: soft authenticity macros. Merged through
+  // mergeAuthenticityReread, the SAME one-directional merge the flagged-photo
+  // path uses, and that is deliberate rather than convenient — a sharper look
+  // at a serial may corroborate a tell but must never launder one away. The
+  // grading invariant is "when in doubt, LESS confident, never more", and a
+  // re-read is exactly the moment someone would be tempted to relax it because
+  // the second look was better evidence. It is better evidence for FINDING
+  // something, not for clearing it.
+  //
+  // rereadImage is cached per image_type, so a macro that is both soft AND
+  // flagged as manipulated still costs one extra vision call, not two.
+  for (const cand of macroCands) {
+    try {
+      const rr = await rereadImage(cand.image_type);
+      const target = byType.get(cand.image_type);
+      if (rr && target) Object.assign(target, mergeAuthenticityReread(target, rr));
+    } catch (err) {
+      console.error(
+        `[Pipeline] macro re-read failed (${cand.image_type}):`,
         err instanceof Error ? err.message : String(err),
       );
     }
