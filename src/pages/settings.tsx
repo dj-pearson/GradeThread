@@ -959,9 +959,22 @@ export function SettingsPage() {
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <p className="text-sm font-medium">Enable AI enrichment</p>
+              {/* US-2442: this used to name a "listing-copy" button that does
+                  not exist on the web. It exists on iOS and the edge route is
+                  live, but no web surface has called it for some time — so the
+                  sentence was describing a control the reader could not find,
+                  which reads as the setting being broken rather than the copy
+                  being wrong.
+                  Named by what the web ACTUALLY has, and deliberately not
+                  exhaustively: the toggle gates every /api/flipdesk/ai/* route
+                  server-side (flipdesk-ai.ts checks ai_enrichment_enabled before
+                  any of them), so listing an incomplete set of buttons is what
+                  made this drift in the first place. Whether the web should
+                  regain a listing-copy button is US-2442 AC1 and is a product
+                  call, not a copy fix. */}
               <p className="text-xs text-muted-foreground">
-                When off, AI Fill and listing-copy buttons are disabled
-                account-wide.
+                When off, every AI feature is disabled account-wide — AI Fill,
+                the composer's rewrite tools, and photo analysis.
               </p>
             </div>
             <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} />
