@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00575_eyewear_brand_knowledge.sql (US-2221 AC3 — three decoders that pass the bar, and four that do not)
+## ✅ APPLIED: 00575_eyewear_brand_knowledge.sql (US-2221 AC3 — three decoders that pass the bar, and four that do not, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00574", applied: "00575", status: "ahead"}` — the database's own answer. The "ahead" is the running edge image predating the version bump and resolves on the next edge deploy.
 
 **Risk: LOW. It is three `insert ... on conflict do nothing` statements into
 reference tables.** No table, column, constraint, index, policy or function is
@@ -605,7 +607,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**NOTHING IS HELD.** 00564 through 00574 were applied to prod on 2026-08-09 and
+**NOTHING IS HELD.** 00564 through 00575 were applied to prod on 2026-08-09 and
 measured as they went; every section in this file is now APPLIED. Below the line
 is the older history:
 00542 through 00563 went to prod on 2026-08-08 and were
