@@ -10,6 +10,7 @@ code_refs:
   - supabase/migrations/00576_jewelry_brand_knowledge.sql
   - supabase/migrations/00581_tailoring_formalwear_brand_knowledge.sql
   - supabase/migrations/00582_western_brand_knowledge.sql
+  - supabase/migrations/00583_golf_brand_knowledge.sql
   - services/edge-functions/src/tests/headwear-content_test.ts
 reviewed: 2026-08-09
 tags: [brands, sizing, contract]
@@ -166,6 +167,20 @@ consistent across the retail channel but no maker publishes a numeric conversion
 so a chart would give them a precision the sourcing does not support. Directional
 guidance plus *measure the insole* is the honest form.
 
+### ⚠ And golf shoes use a DIFFERENT width alphabet
+
+Added with `00583`. Footwear width turned out not to be one system either:
+
+| category | letters |
+|---|---|
+| western boots (`00582`) | `B` · `D` · `EE` · `EEE` |
+| golf shoes (`00583`) | `N` · `M` · `W` · `XW` |
+
+Same idea, different alphabets. **A boot `EE` is not a golf `W`**, and nothing
+may convert between them — a test asserts no boot letter appears in the golf
+chart. Both are seeded as **ranks, not measurements**, because no maker publishes
+either width in inches.
+
 ## Why this is a contract and not a comment
 
 The tempting "cleanup" is to notice that two brands disagree and reconcile them.
@@ -183,3 +198,4 @@ hat size.
 - [[size-system-conversions]] — the neighbouring question: converting between size SYSTEMS (UK/IT/US), not between brands
 - [[small-leather-goods]] — a category where the number on the item means nothing at all
 - [[restricted-materials]] — the other thing a western boot listing must get right
+- [[the-graphic-is-not-the-brand]] — the other field these categories keep getting wrong
