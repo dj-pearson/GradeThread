@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00585_swim_brand_knowledge.sql (US-2220 — chlorine consumes the garment, invisibly)
+## ✅ APPLIED: 00585_swim_brand_knowledge.sql (US-2220 — chlorine consumes the garment, invisibly, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00583", applied: "00585", status: "ahead"}` — the database's own answer. 00584 and 00585 were applied together, so that one reading covers both.
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
 tables.** Nothing is created, altered, dropped, read or backfilled. No decoders,
@@ -32,7 +34,9 @@ commit with the manifest regenerated.
 ---
 
 
-## 🔴 HELD: 00584_snow_outerwear_brand_knowledge.sql (US-2220 — the spec is a new-garment claim, and what fails is invisible)
+## ✅ APPLIED: 00584_snow_outerwear_brand_knowledge.sql (US-2220 — the spec is a new-garment claim, and what fails is invisible, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00583", applied: "00585", status: "ahead"}` — the database's own answer. 00584 and 00585 were applied together, so that one reading covers both.
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
 tables.** Nothing is created, altered, dropped, read or backfilled. No decoders,
@@ -975,7 +979,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**NOTHING IS HELD.** 00564 through 00583 were applied to prod on 2026-08-09 and
+**NOTHING IS HELD.** 00564 through 00585 were applied to prod on 2026-08-09 and
 measured as they went; every section in this file is now APPLIED. Below the line
 is the older history:
 00542 through 00563 went to prod on 2026-08-08 and were
