@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⏸ HELD: 00563_prompt_block_versions.sql (US-2438 — a versioned seam for the grading user message)
+## ✅ APPLIED: 00563_prompt_block_versions.sql (US-2438 — a versioned seam for the grading user message, applied 2026-08-08 — MEASURED)
+
+**Applied and confirmed by measurement, not by report.** `GET https://functions.gradethread.com/health/ready` returns `schema: {expected: "00563", applied: "00563", status: "match"}` — the DB's own answer, read through the service-role client (US-1566), and the edge has already been redeployed on the matching build. Nothing below is outstanding; it is kept for the next reader.
 
 **Risk: LOW.** One new table, ONE RLS policy, three indexes. Nothing existing is
 altered, nothing is dropped, no row is rewritten, and no backfill runs. The table
@@ -46,16 +48,18 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**Everything below is applied.** 00542 through 00562 were applied to prod on 2026-08-08 and
+**Nothing is held.** 00542 through 00563 were applied to prod on 2026-08-08 and
 confirmed by the owner, and the measurement agrees: `/health/ready` on
-`functions.gradethread.com` reports `applied: 00562`. See the note under 00528
+`functions.gradethread.com` reports `applied: 00563`. See the note under 00528
 for how that is measured and why the measurement, not this file, is the
 authority whenever the two disagree.
 
-The running edge container still reports `expected: 00561` (`status: "ahead"`),
-because the image predates the commit that bumped `EXPECTED_SCHEMA_VERSION` to
-00562. DB-ahead-of-code is the safe direction — the boot guard refuses the
-reverse — so the next Coolify deploy comes up clean with nothing left to apply.
+The running edge container has since caught up: as of 2026-08-09 01:00 UTC it
+reports `expected: 00563` against `applied: 00563`, `status: "match"`. An earlier
+version of this paragraph recorded a `status: "ahead"` while the image lagged at
+00561; that is history now. DB-ahead-of-code remains the safe direction — the
+boot guard refuses the reverse — so a lag here is never an incident, only a
+pending deploy.
 
 ## ✅ APPLIED: 00562_grade_prompt_surface_hash.sql (US-2432 — say which prompt surface graded a row, applied 2026-08-08 — owner-confirmed)
 
