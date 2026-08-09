@@ -9,6 +9,12 @@ export type MeasurementGroup =
   | "outerwear"
   | "shoes"
   | "watch"
+  // US-2225 AC4. A bag is the one category whose defining dimension is DEPTH —
+  // a 30cm tote and a 30cm clutch are different objects, and neither the top
+  // nor the generic template has a field for it. Without this group a bag fell
+  // to `generic` (length + width, both optional), so the two numbers a buyer
+  // asks for first were not even offered.
+  | "bag"
   | "generic";
 
 export type MeasurementUnit = "length" | "shoe" | "mm";
@@ -59,6 +65,23 @@ export const MEASUREMENT_TEMPLATES: Record<
     { key: "lug_width", label: "Lug width", unit: "mm", required: false },
     { key: "band_length", label: "Band length", unit: "mm", required: false },
   ],
+  // US-2225 AC4. Width/height/depth are REQUIRED because a bag listed without
+  // all three is a bag a buyer cannot size, and every resale platform's bag
+  // form asks for exactly these.
+  //
+  // BOTH drops are offered, and that is the decision worth recording: a top-
+  // handle bag has no strap and a crossbody has no handles, so a single "strap
+  // drop" field would sit blank on half of all bags — and a blank measurement
+  // reads as "the seller did not measure it", not as "this bag does not have
+  // one". Two optional fields let the right one be filled and the wrong one be
+  // honestly empty.
+  bag: [
+    { key: "width", label: "Width (base)", unit: "length", required: true },
+    { key: "height", label: "Height", unit: "length", required: true },
+    { key: "depth", label: "Depth", unit: "length", required: true },
+    { key: "strap_drop", label: "Strap drop", unit: "length", required: false },
+    { key: "handle_drop", label: "Handle drop", unit: "length", required: false },
+  ],
   generic: [
     { key: "length", label: "Length", unit: "length", required: false },
     { key: "width", label: "Width", unit: "length", required: false },
@@ -71,6 +94,13 @@ export function measurementGroupFor(
 ): MeasurementGroup {
   const c = (category ?? "").toLowerCase();
   if (!c) return "generic";
+  // US-2225: bags are tested FIRST, deliberately. "boot bag", "shoe bag" and
+  // "cargo bag" all contain a keyword that a later branch claims, and every one
+  // of them is a bag — the noun that matters is the last one. Testing bags last
+  // would have routed a boot bag to the shoe template and asked the seller for
+  // an insole length.
+  if (/(bag|purse|tote|clutch|satchel|crossbody|backpack|rucksack|duffel|duffle|handbag|hobo|pouch|wallet|briefcase)/.test(c))
+    return "bag";
   if (/(shoe|sneaker|boot|sandal|footwear|loafer|mule|clog|slipper)/.test(c)) return "shoes";
   if (/watch/.test(c)) return "watch";
   if (/(dress|romper|jumpsuit|maxi|mini|midi)/.test(c)) return "dress";

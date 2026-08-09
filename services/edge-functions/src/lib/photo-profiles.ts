@@ -277,6 +277,14 @@ const BOOKS: PhotoProfile = {
 // under evidence about what came WITH the item, and the grader reads the two
 // differently.
 //
+// THE ROLE ORDER IS THE GALLERY ORDER — roles[] drives sort_order and index 0
+// is the eBay cover (vault/20-domain/listing-photos.md). Index 0 is still
+// `front`, so no bag's cover image moves. What DID move: the condition shots
+// (corners, handles, hardware, base) now rank ahead of the interior and the
+// date code. That is deliberate on a resale listing — a buyer scrolling wants
+// to see the corners before the serial tag, and the date code is the least
+// appealing photo on the page.
+//
 // Only front, back and the brand stamp stay REQUIRED. Making six slots required
 // would block a seller from advancing an item they have already photographed
 // well enough to list, which is a different question from whether the grade

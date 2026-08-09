@@ -11,7 +11,7 @@ code_refs:
   - src/lib/images.ts
   - src/lib/item-photo-url.ts
   - services/edge-functions/src/lib/item-photo-storage.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -45,8 +45,18 @@ index drives `sort_order`:
   cannot be reordered or dropped) and therefore a prod migration
 - iOS `PhotoSlotType.required` / `isRequired`, and `ItemWorkflow.hasRequiredPhotos`
 
-Since migration `00306`: **required = front + back only**; order is
-Front → Back → Tag → Detail → measurements → defect → extras → universal roles.
+Since migration `00306`: **required = front + back only** — for CLOTHING and
+for the DB view. That qualifier matters and this line lacked it (found 2026-08-09
+while adding bag slots): `photo-profiles.ts` is PER CATEGORY, and `bags` has
+required `marking` (the brand stamp) on top of front + back. So "front + back
+only" describes the clothing default and the `items_full.has_required_photos`
+column, not every category. Read `requiredPhotoTypesFor(category)` rather than
+this sentence when the answer has to be right.
+
+Order is Front → Back → Tag → Detail → measurements → defect → extras →
+universal roles for clothing; a category profile sets its own (US-2225 put the
+bag condition shots — corners, handles, hardware, base — ahead of the interior
+and the date code, keeping `front` at index 0 so no cover image moved).
 iOS deliberately splits `defaultSlots` (four visible) from `required` (two
 blocking) — visible and required are not the same list.
 

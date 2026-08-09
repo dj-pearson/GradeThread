@@ -76,6 +76,18 @@ Specs:
 
 {{grade}}
 Ships insured. Questions welcome.`,
+  bag: `{{brand}} {{title}}
+
+Color: {{color}}
+Material: {{material}}
+
+Condition: {{condition}}
+
+Measurements:
+{{measurements}}
+
+{{grade}}
+Comes from a smoke-free home. Ships boxed. Questions welcome.`,
   generic: `{{brand}} {{title}}
 
 Size: {{size}}

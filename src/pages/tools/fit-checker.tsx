@@ -53,6 +53,9 @@ const GARMENT_FIELDS: Record<MeasurementGroup, { key: string; label: string }[]>
   ],
   shoes: [],
   watch: [],
+  // US-2225: nothing to compare a bag against — the fit checker asks for body
+  // measurements, and a bag does not fit a body.
+  bag: [],
   generic: [],
 };
 
@@ -63,6 +66,7 @@ const BODY_FIELDS: Record<MeasurementGroup, string[]> = {
   dress: ["chest", "waist", "hips"],
   shoes: [],
   watch: [],
+  bag: [],
   generic: [],
 };
 

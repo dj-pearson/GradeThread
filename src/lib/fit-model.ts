@@ -79,6 +79,8 @@ const CHEST = (bands: CircBands): DimSpec => ({
 });
 
 const GROUP_DIMS: Record<MeasurementGroup, DimSpec[]> = {
+  // US-2225: bags have no body dimension to fit against — see `shoes`/`watch`.
+  bag: [],
   top: [
     CHEST(TOP_CHEST),
     { name: "shoulder", label: "Shoulder", garmentKeys: ["shoulder"], bodyKey: "shoulder", multiply: 1, bands: SHOULDER },
