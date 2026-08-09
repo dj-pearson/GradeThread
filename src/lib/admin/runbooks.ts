@@ -60,7 +60,12 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
-    reviewed: "2026-08-08",
+    // Re-read 2026-08-09 against the vault note. The only change since the last
+    // check was the cron COUNT in a parenthetical (75 → 76, the new
+    // expense-recurrence job). This distillation deliberately quotes no count —
+    // it points at Background Jobs for the live registry — so nothing here went
+    // stale. Bumped rather than edited.
+    reviewed: "2026-08-09",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -338,7 +343,12 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
-    reviewed: "2026-08-08",
+    // Re-read 2026-08-09. The vault note gained one generated table row
+    // (expense-recurrence) and its count line moved 75 → 76. §2 here says "all
+    // Coolify Scheduled Tasks exist ... re-add every task" and names no number,
+    // on purpose — the generated table is the source and it is one click away.
+    // Still accurate, so bumped rather than edited.
+    reviewed: "2026-08-09",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:
