@@ -11,6 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/rewards-tangible.ts
   - services/edge-functions/src/lib/rewards-loyalty.ts
   - services/edge-functions/src/lib/rewards-economics.ts
+  - services/edge-functions/src/lib/rewards-north-star.ts
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
   - services/edge-functions/src/lib/rewards-quests.ts
@@ -22,7 +23,7 @@ code_refs:
   - services/edge-functions/src/lib/buyer-grade-confirmation.ts
   - src/lib/buyer-rewards-summary.ts
   - src/lib/reward-celebrations.ts
-reviewed: 2026-08-07
+reviewed: 2026-08-09
 tags: [rewards, gamification, buyer, seller, contract]
 summary: There is ONE reward log for both the seller XP track and the buyer Trust Score; every award goes through grantReward with a dedupe key, and an event that consumes AI grading spend earns nothing unless the action was paid.
 ---
@@ -677,6 +678,43 @@ The catalog is inert policy until a call site spends it — the same trap as
    `src/tests/rewards-engine_test.ts`. A provider silently missing its grant is
    exactly the drift `grantMarketplaceConnectedReward` was extracted to prevent —
    five OAuth callbacks are not otherwise testable here.
+
+## What the north-star numbers mean (US-1915)
+
+Added 2026-08-09 with `lib/rewards-north-star.ts`. The mechanics shipped before
+any agreed way to tell dopamine from retention, so these four ratios are now
+**named and pinned in code** rather than re-derived per dashboard. The arithmetic
+is trivial; the definitions are the deliverable.
+
+| metric | numerator | **denominator** |
+|---|---|---|
+| Week-4 retention | active in days **21–27** | cohort members whose window has **closed** |
+| Grades per user | grades in window | users who **graded**, not users who exist |
+| Share K-factor | conversions | **sharers**, not all users |
+| Cost per retained user | **committed** grant spend | retained users |
+
+### The two decisions that make a number lie
+
+1. **An immature cohort is EXCLUDED, not counted as churned.** Someone who signed
+   up nine days ago has not failed week-4 retention; they have not reached it.
+   Counting them understates retention — and understates it *worst when growth is
+   fastest*, so the metric appears to fall while the product improves.
+   `weekFourRetention` returns `undecided` alongside the rate, because a
+   denominator that shrank for a good reason still has to be visible.
+2. **An empty denominator is `null`, never `0`.** "No retained users yet" and
+   "cost per retained user is $0" are opposite claims, and `Infinity` renders as
+   neither. Every function returns `null` and says so in its type.
+
+Three smaller ones worth keeping: day 28 belongs to week 5 (the window is
+half-open); an **expired or reversed grant is not money**, so only `granted` and
+`consumed` count as spend; and K is reported with **both components** — shares
+per sharer and conversions per share — because the same K arises from a loud weak
+loop and a quiet strong one, and the fix differs.
+
+> ⚠ **Cost per retained user is a ratio, not an attribution.** It divides spend
+> by retained users; it does not claim the spend caused the retention. The
+> control group already lives in `reward_nudge_sends.holdout` — use that before
+> drawing a causal conclusion.
 
 ## Related
 
