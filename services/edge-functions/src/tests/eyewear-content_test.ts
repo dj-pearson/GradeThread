@@ -44,6 +44,20 @@ const SQL = await Deno.readTextFile(
   ),
 );
 
+/**
+ * The migration's PROSE: comment markers stripped, whitespace collapsed.
+ *
+ * ⚠ PHRASE assertions read THIS; only statement shapes (`insert into …`) read
+ * raw `SQL`. Migration headers hard-wrap at ~79 columns, so any phrase worth
+ * asserting is one edit away from being split across two `--` lines — which
+ * broke a content test three times in one day, every time on a migration that
+ * was correct. Rewrapping a comment to satisfy a matcher makes the migration's
+ * formatting load-bearing; normalising here makes the test read what a human
+ * reads. PROSE is a superset of SQL, so this can only ever be more permissive.
+ */
+const PROSE = SQL.replace(/^\s*--\s?/gm, " ").replace(/\s+/g, " ");
+
+
 /** Every `pattern` literal the migration seeds, in file order. */
 function seededPatterns(): string[] {
   return [...SQL.matchAll(/^\s+'(\^\(\?<style>[^']+)',$/gm)].map((m) => m[1]);
@@ -163,7 +177,7 @@ Deno.test("US-2221: the size triplet is refused as a brand signal", () => {
     }
   }
   assert(
-    SQL.includes("INDUSTRY STANDARD"),
+    PROSE.includes("INDUSTRY STANDARD"),
     "the migration records WHY the size triplet cannot be a decoder",
   );
 });
@@ -177,7 +191,7 @@ Deno.test("US-2221: no size chart is seeded, and that is the correct answer", ()
     "the eyewear pack must seed no size chart — the frame carries its own measurements",
   );
   assert(
-    SQL.includes("NO brand_size_charts ROWS, DELIBERATELY"),
+    PROSE.includes("NO brand_size_charts ROWS, DELIBERATELY"),
     "the absence is recorded as a decision, not left to read as an omission",
   );
 });

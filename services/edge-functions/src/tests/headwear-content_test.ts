@@ -44,6 +44,20 @@ const MIGRATION = new URL(
 );
 const SQL = await Deno.readTextFile(MIGRATION);
 
+/**
+ * The migration's PROSE: comment markers stripped, whitespace collapsed.
+ *
+ * ⚠ PHRASE assertions read THIS; only statement shapes (`insert into …`) read
+ * raw `SQL`. Migration headers hard-wrap at ~79 columns, so any phrase worth
+ * asserting is one edit away from being split across two `--` lines — which
+ * broke a content test three times in one day, every time on a migration that
+ * was correct. Rewrapping a comment to satisfy a matcher makes the migration's
+ * formatting load-bearing; normalising here makes the test read what a human
+ * reads. PROSE is a superset of SQL, so this can only ever be more permissive.
+ */
+const PROSE = SQL.replace(/^\s*--\s?/gm, " ").replace(/\s+/g, " ");
+
+
 const GROUP = ["New Era", "Stetson", "Kangol", "Goorin Bros."];
 
 Deno.test("US-2221: the headwear aliases canonicalize", () => {
@@ -145,7 +159,7 @@ Deno.test("US-2221 AC2: the charts are in head circumference, not apparel units"
 
   // The LABELS are hat sizes and alpha bands, seeded as published.
   for (const label of ['"7 1/4"', '"7 3/8"', '"XXL"', '"OS (adjustable)"']) {
-    assert(SQL.includes(label), `the published label ${label} is seeded verbatim`);
+    assert(PROSE.includes(label), `the published label ${label} is seeded verbatim`);
   }
 });
 
@@ -186,11 +200,11 @@ Deno.test("US-2221: NO decoder is seeded, and the refusal is deliberate", () => 
   // And the reasoning has to survive in the file, because the next author will
   // re-derive it otherwise. Both grounds, not just one.
   assert(
-    SQL.includes("NAMES THE SILHOUETTE"),
+    PROSE.includes("NAMES THE SILHOUETTE"),
     "the migration records WHY 5950 is not a decoder",
   );
   assert(
-    SQL.includes("VISOR STICKER"),
+    PROSE.includes("VISOR STICKER"),
     "the migration records that the per-cap code is on the removable sticker",
   );
 });

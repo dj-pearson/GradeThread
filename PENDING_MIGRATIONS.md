@@ -1,5 +1,39 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00580_scrubs_uniform_brand_knowledge.sql (US-2220 — uniform is a category, not more apparel)
+
+**Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
+tables.** Nothing is created, altered, dropped, read or backfilled. No decoders,
+so nothing here can override an AI answer.
+
+**Apply order: AFTER 00579.** 00578, 00579 and 00580 are independent of each
+other and can all be applied in one sitting.
+
+**NOT push-blocking.** FIGS, Cherokee and WonderWink have always fallen through
+the resolver; the frontend reads none of it.
+
+**What it adds.** 3 brand rows, 4 style rows, 9 tells.
+
+**⚠ It also fixes a collision with a brand the KB already had.** Careismatic
+publishes DICKIES MEDICAL — the Dickies name under licence on scrubs — while
+`dickies` has pointed at the WORKWEAR house since 00389, whose pack and sizing
+are about work pants. Dickies Medical is now its own canonical rather than a
+fold, so a scrub top can never inherit the workwear chart. That change is in the
+edge code shipping with this migration, not in the SQL, so it takes effect on
+deploy regardless of when the rows land.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00580` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00580';` and the same for `brand_styles`.
+
+---
+
+
 ## 🔴 HELD: 00579_vintage_tee_blanks_brand_knowledge.sql (US-2220 AC4 — the first pack built on tag_eras, and the category that grades backwards)
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference

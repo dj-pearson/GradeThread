@@ -37,6 +37,20 @@ const SQL = await Deno.readTextFile(
   ),
 );
 
+/**
+ * The migration's PROSE: comment markers stripped, whitespace collapsed.
+ *
+ * ⚠ PHRASE assertions read THIS; only statement shapes (`insert into …`) read
+ * raw `SQL`. Migration headers hard-wrap at ~79 columns, so any phrase worth
+ * asserting is one edit away from being split across two `--` lines — which
+ * broke a content test three times in one day, every time on a migration that
+ * was correct. Rewrapping a comment to satisfy a matcher makes the migration's
+ * formatting load-bearing; normalising here makes the test read what a human
+ * reads. PROSE is a superset of SQL, so this can only ever be more permissive.
+ */
+const PROSE = SQL.replace(/^\s*--\s?/gm, " ").replace(/\s+/g, " ");
+
+
 Deno.test("US-2220: the blank-maker aliases canonicalize", () => {
   for (const brand of ["Screen Stars", "Brockum", "Giant", "Winterland"]) {
     assert(isKnownBrand(brand), `${brand} is a curated entry, not a passthrough`);
@@ -112,18 +126,18 @@ Deno.test("US-2220: the grading inversion is stated and points at the real defec
   // The most consequential fact in the pack. A vintage tee graded on crispness
   // reads a 9 as a 4.
   assert(
-    SQL.includes("THE WEAR IS THE PRODUCT"),
+    PROSE.includes("THE WEAR IS THE PRODUCT"),
     "the inversion is stated where a reader will hit it",
   );
   assert(
-    SQL.includes("THE THINNESS IS THE PRODUCT, NOT THE DAMAGE"),
+    PROSE.includes("THE THINNESS IS THE PRODUCT, NOT THE DAMAGE"),
     "and it is carried in a tell, not only in the header comment",
   );
   // Removing a signal without replacing it just leaves the grader blind, so the
   // pack must also name what genuinely IS a defect here.
   for (const real of ["holes", "stains", "collar"]) {
     assert(
-      SQL.toLowerCase().includes(real),
+      PROSE.toLowerCase().includes(real),
       `and it redirects to a real defect: ${real}`,
     );
   }
@@ -133,7 +147,7 @@ Deno.test("US-2220: a blank tag is a dating input, not a vintage switch", () => 
   // Modern and reissued blanks exist and reprints of 90s graphics are common.
   // Nothing here may flip a shirt into vintage grading on the collar alone.
   assert(
-    SQL.includes("A GIANT TAG DOES NOT MAKE A SHIRT VINTAGE"),
+    PROSE.includes("A GIANT TAG DOES NOT MAKE A SHIRT VINTAGE"),
     "the pack refuses to let a tag decide the category",
   );
 });
@@ -143,9 +157,9 @@ Deno.test("US-2220 AC5: RN 13765 is refused, and no decoder is seeded", () => {
     !/insert\s+into\s+public\.brand_style_codes/i.test(SQL),
     "no decoder — the RN belongs to the parent",
   );
-  assert(SQL.includes("RN 13765"), "the refusal names the actual number");
+  assert(PROSE.includes("RN 13765"), "the refusal names the actual number");
   assert(
-    SQL.includes("CANNOT ATTRIBUTE SCREEN STARS"),
+    PROSE.includes("CANNOT ATTRIBUTE SCREEN STARS"),
     "and states the conclusion rather than implying it",
   );
   // No size chart either, and for a reason specific to the category.

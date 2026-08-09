@@ -42,6 +42,20 @@ const SQL = await Deno.readTextFile(
   ),
 );
 
+/**
+ * The migration's PROSE: comment markers stripped, whitespace collapsed.
+ *
+ * ⚠ PHRASE assertions read THIS; only statement shapes (`insert into …`) read
+ * raw `SQL`. Migration headers hard-wrap at ~79 columns, so any phrase worth
+ * asserting is one edit away from being split across two `--` lines — which
+ * broke a content test three times in one day, every time on a migration that
+ * was correct. Rewrapping a comment to satisfy a matcher makes the migration's
+ * formatting load-bearing; normalising here makes the test read what a human
+ * reads. PROSE is a superset of SQL, so this can only ever be more permissive.
+ */
+const PROSE = SQL.replace(/^\s*--\s?/gm, " ").replace(/\s+/g, " ");
+
+
 Deno.test("US-2221: the jewelry aliases canonicalize", () => {
   for (const brand of ["Pandora", "Tiffany & Co.", "David Yurman", "James Avery"]) {
     assert(isKnownBrand(brand), `${brand} is a curated entry, not a passthrough`);
@@ -85,7 +99,7 @@ Deno.test("US-2221: neither a decoder nor a size chart is seeded", () => {
     "no size chart — a ring size is a standard, not a brand's label",
   );
   assert(
-    SQL.includes("ALREADY-RESOLVED PACK"),
+    PROSE.includes("ALREADY-RESOLVED PACK"),
     "the migration records WHY a maker's mark cannot be a decoder",
   );
 });
@@ -94,11 +108,11 @@ Deno.test("US-2221: the purity-stamp refusal is stated, not implied", () => {
   // The third instance of "stamped, regular, identifies nobody". Writing it down
   // is what turns an incident into a rule the next pack can apply.
   assert(
-    SQL.includes("IDENTIFY NOBODY"),
+    PROSE.includes("IDENTIFY NOBODY"),
     "the migration names the shape rather than just declining to seed",
   );
   for (const purity of ["925", "585", "750", "950"]) {
-    assert(SQL.includes(purity), `the refusal enumerates ${purity}`);
+    assert(PROSE.includes(purity), `the refusal enumerates ${purity}`);
   }
 });
 
@@ -121,11 +135,11 @@ Deno.test("US-2221: no tell claims a hallmark authenticates", () => {
 
   // And the pack states the rule itself, once, where a reader will hit it.
   assert(
-    SQL.includes("NEVER AUTO-AUTHENTICATE"),
+    PROSE.includes("NEVER AUTO-AUTHENTICATE"),
     "the pack carries the never-auto-authenticate rule explicitly",
   );
   assert(
-    SQL.includes("NECESSARY, NOT SUFFICIENT"),
+    PROSE.includes("NECESSARY, NOT SUFFICIENT"),
     "at least one tell is explicitly qualified as necessary-not-sufficient",
   );
 });

@@ -38,6 +38,20 @@ const SQL = await Deno.readTextFile(
   ),
 );
 
+/**
+ * The migration's PROSE: comment markers stripped, whitespace collapsed.
+ *
+ * ⚠ PHRASE assertions read THIS; only statement shapes (`insert into …`) read
+ * raw `SQL`. Migration headers hard-wrap at ~79 columns, so any phrase worth
+ * asserting is one edit away from being split across two `--` lines — which
+ * broke a content test three times in one day, every time on a migration that
+ * was correct. Rewrapping a comment to satisfy a matcher makes the migration's
+ * formatting load-bearing; normalising here makes the test read what a human
+ * reads. PROSE is a superset of SQL, so this can only ever be more permissive.
+ */
+const PROSE = SQL.replace(/^\s*--\s?/gm, " ").replace(/\s+/g, " ");
+
+
 Deno.test("US-2221: the SLG aliases canonicalize", () => {
   for (const brand of ["Bellroy", "The Ridge", "Secrid", "Bosca"]) {
     assert(isKnownBrand(brand), `${brand} is a curated entry, not a passthrough`);
@@ -75,12 +89,12 @@ Deno.test("US-2221: the metal wallets are not graded as leather", () => {
   // The pack's headline correction. A leather rubric applied to an aluminium
   // object invents defects that cannot exist and misses the ones that can.
   assert(
-    SQL.includes("IT IS NOT LEATHER"),
+    PROSE.includes("IT IS NOT LEATHER"),
     "The Ridge's row says so where a reader will hit it",
   );
   for (const material of ["aluminium", "titanium", "carbon fibre"]) {
     assert(
-      SQL.toLowerCase().includes(material.toLowerCase()),
+      PROSE.toLowerCase().includes(material.toLowerCase()),
       `the pack names ${material} as a body material`,
     );
   }
@@ -88,7 +102,7 @@ Deno.test("US-2221: the metal wallets are not graded as leather", () => {
   // correction actionable rather than merely a warning.
   for (const failure of ["anodising", "elastic", "mechanism"]) {
     assert(
-      SQL.toLowerCase().includes(failure),
+      PROSE.toLowerCase().includes(failure),
       `the pack names the real failure mode: ${failure}`,
     );
   }
@@ -98,7 +112,7 @@ Deno.test("US-2221: patina is recorded as design, not as a defect", () => {
   // Bosca's signature line is sold ON its patina. A tell that let this be graded
   // as soiling would mark the item down for doing its job.
   assert(
-    SQL.includes("PATINA ON OLD LEATHER IS THE PRODUCT, NOT WEAR"),
+    PROSE.includes("PATINA ON OLD LEATHER IS THE PRODUCT, NOT WEAR"),
     "the design-vs-defect call is stated, not implied",
   );
   // The tell must also say what SHOULD be graded, or it only removes a signal.
@@ -113,7 +127,7 @@ Deno.test("US-2221: the wallet-specific wear points are recorded", () => {
   // places carry nearly all of it, and the bill-compartment lining is the one
   // most often hidden in listing photos because nobody opens it.
   for (const point of ["SPINE", "CARD SLOTS", "CORNERS", "BILL COMPARTMENT"]) {
-    assert(SQL.includes(point), `the pack names the wear point: ${point}`);
+    assert(PROSE.includes(point), `the pack names the wear point: ${point}`);
   }
 });
 
@@ -123,11 +137,11 @@ Deno.test("US-2221: identifiability degrades with condition, and it is written d
   // no-name item — and a grader that does not know that will read an unmarked
   // wallet as unbranded.
   assert(
-    SQL.includes("IDENTIFIABILITY DEGRADES WITH CONDITION"),
+    PROSE.includes("IDENTIFIABILITY DEGRADES WITH CONDITION"),
     "the coupling is stated as the reason SLG is its own class",
   );
   assert(
-    SQL.includes("Absence of a mark is not evidence of a no-name wallet"),
+    PROSE.includes("Absence of a mark is not evidence of a no-name wallet"),
     "and the operational consequence is spelled out in a tell",
   );
 });
@@ -136,7 +150,7 @@ Deno.test("US-2221: a wallet does not inherit its house's bag grading", () => {
   // Coach, Louis Vuitton, Gucci, Dooney & Bourke and Fossil all have packs, all
   // written around BAGS. Their small leather goods sit on a different ladder.
   assert(
-    SQL.includes("A HOUSE'S WALLET IS NOT ITS BAG"),
+    PROSE.includes("A HOUSE'S WALLET IS NOT ITS BAG"),
     "the distinct-class rule is stated operationally, not just asserted",
   );
 });

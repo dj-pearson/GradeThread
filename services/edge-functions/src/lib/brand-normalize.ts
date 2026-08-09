@@ -1346,6 +1346,30 @@ const BRAND_ALIASES: Record<string, string> = {
   // ⚠ a bare "tultex" is DELIBERATELY ABSENT — Tultex is the PARENT that made
   // Giant, and it printed its own blanks under its own name. Folding it would be
   // the parent-attributes-a-sibling error the decoder bar refuses in code form.
+
+  // US-2220 scrubs / uniform group (migration 00580).
+  //
+  // ⚠ THE COLLISION IS WITH A BRAND THIS MAP ALREADY HAS. Careismatic publishes
+  // DICKIES MEDICAL in its portfolio — the Dickies name under licence on scrubs —
+  // while `dickies` has pointed at the WORKWEAR house since 00389, whose pack,
+  // tells and sizing are about work pants. Resolving a scrub top onto that pack
+  // would hand it the wrong chart. So Dickies Medical is its OWN canonical, not
+  // a fold: the Marc-by-Marc-Jacobs rule, a shared name is not a shared brand.
+  dickiesmedical: "Dickies Medical",
+  dickiesscrubs: "Dickies Medical",
+  figs: "FIGS",
+  wearfigs: "FIGS",
+  figsscrubs: "FIGS",
+  // ⚠ CHEROKEE IS KEYED LONG ON PURPOSE. A bare "cherokee" is a people and a
+  // place before it is a label, AND the name has been licensed across general
+  // apparel, so a scrub pack must not claim those garments. Only the medical
+  // forms resolve; a bare "cherokee" stays a passthrough.
+  cherokeeuniforms: "Cherokee Uniforms",
+  cherokeescrubs: "Cherokee Uniforms",
+  cherokeemedical: "Cherokee Uniforms",
+  wonderwink: "WonderWink",
+  winkscrubs: "WonderWink",
+  // ⚠ a bare "wink" is DELIBERATELY ABSENT — an ordinary English noun and verb.
 };
 
 /**
