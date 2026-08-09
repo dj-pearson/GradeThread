@@ -215,6 +215,106 @@ Deno.test("US-782: a STALE not-rolled-over read at the cap refuses without retry
   assertEquals(c.calls.reread, 0);
 });
 
+// ── runPaymentPrecedence's own orchestration ───────────────────────────────
+//
+// Reaching this function needs the service-role client, so these read it as
+// SOURCE. That is a weaker test than driving it, and it is chosen deliberately
+// over driving nothing: the properties below are money properties, one of them
+// has already been missed once by a hardening pass that was supposed to cover
+// it, and the alternative to a source scan here is no guard at all until the
+// whole function is extracted behind an IO seam.
+
+Deno.test("US-1638/US-2033: EVERY paid-flip is scoped to the charged account", () => {
+  // A submission id arrives from the request. Callers owner-verify first, so
+  // this is defense in depth — but the failure it guards is that user A's
+  // credits are DEBITED to mark user B's submission paid. That is a money bug,
+  // not a data bug, and the credits branch was MISSED by the US-1638 pass that
+  // added this scoping to the other two. Derived rather than counted by hand,
+  // so a fourth payment branch added later is covered on the day it lands.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grade-billing.ts", import.meta.url),
+  ).replace(/\r\n/g, "\n");
+
+  // The window has to clear the longest comment sitting between the `.update`
+  // and its terminating `;`. It was 400 first and matched only two of the three
+  // — the credits branch carries a six-line comment — which would have passed
+  // the scoping check by simply not looking at the branch that had the bug.
+  // Hence the count assertion below: a derivation that silently narrows is the
+  // failure mode, not a missing `.eq`.
+  const flips = [...src.matchAll(/\.update\(\{\s*payment_status:[\s\S]{0,900}?;/g)]
+    .map((m) => m[0]);
+  assert(
+    flips.length >= 3,
+    `only ${flips.length} payment_status flip(s) found — the derivation broke and ` +
+      `this test is asserting nothing`,
+  );
+  const unscoped = flips.filter((f) => !f.includes('.eq("user_id", userId)'));
+  assertEquals(
+    unscoped.length,
+    0,
+    "a payment_status flip is not scoped to the charged account, so a submission " +
+      "id from the request could mark ANOTHER tenant's submission paid:\n" +
+      unscoped.join("\n---\n"),
+  );
+});
+
+Deno.test("US-207: the precedence order is included → credits → checkout", () => {
+  // The order IS the pricing policy: included grades are already bought, credits
+  // were bought at a discount, and checkout is full price. Reordering it charges
+  // people who had already paid — and it would not fail any other test, because
+  // every individual branch would still work.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grade-billing.ts", import.meta.url),
+  );
+  const included = src.indexOf("─ (1) Try included grades");
+  const credits = src.indexOf("─ (2) Try credits ─");
+  const checkout = src.indexOf("─ (3) Checkout required ─");
+  assert(
+    included > -1 && credits > -1 && checkout > -1,
+    "a precedence stage marker is gone — the order can no longer be checked here",
+  );
+  assert(
+    included < credits && credits < checkout,
+    "payment precedence was reordered. Included grades are already paid for and " +
+      "credits were bought at a discount, so anything that runs before them " +
+      "charges a seller twice for the same grade.",
+  );
+});
+
+Deno.test("US-207: a credit debit that fails for any reason but INSUFFICIENT_CREDITS throws", () => {
+  // The fall-through to checkout is scoped to ONE error. Widening it to "any
+  // debit error falls through" would quietly charge a card whenever the ledger
+  // was unavailable — the user pays twice and the failure looks like a normal
+  // checkout. Narrow-and-throw is the safe direction.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grade-billing.ts", import.meta.url),
+  ).replace(/\s+/g, " ");
+  assert(
+    src.includes('if (!msg.includes("INSUFFICIENT_CREDITS")) { throw new Error(`DEBIT_FAILED:'),
+    "the credit-debit failure path no longer distinguishes INSUFFICIENT_CREDITS " +
+      "from a broken ledger, so a database blip now silently charges a card",
+  );
+});
+
+Deno.test("US-398: an included grant records a NULL balance, never a snapshot", () => {
+  // Both included branches insert a zero-delta ledger row with balance_after
+  // NULL. Snapshotting user.grade_credit_balance there was a non-atomic read
+  // that drifted whenever a concurrent debit landed between read and insert —
+  // and a balance column that is sometimes a stale guess is worse than one that
+  // is honestly absent, because reconciliation trusts it.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/grade-billing.ts", import.meta.url),
+  ).replace(/\s+/g, " ");
+  const grants = [...src.matchAll(/reason: "included_grant",[^}]*/g)].map((m) => m[0]);
+  assert(grants.length >= 2, `expected both included_grant rows, found ${grants.length}`);
+  for (const g of grants) {
+    assert(
+      g.includes("balance_after: null"),
+      "an included_grant row carries a balance snapshot again (US-398): " + g,
+    );
+  }
+});
+
 // ── The per-period cap snapshot (US-885) ───────────────────────────────────
 
 Deno.test("US-885: an admin cap edit never applies retroactively mid-period", () => {
