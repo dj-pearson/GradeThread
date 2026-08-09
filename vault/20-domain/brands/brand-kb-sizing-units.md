@@ -7,6 +7,7 @@ source_of_truth: vault
 code_refs:
   - supabase/migrations/00574_headwear_brand_knowledge.sql
   - supabase/migrations/00575_eyewear_brand_knowledge.sql
+  - supabase/migrations/00576_jewelry_brand_knowledge.sql
   - services/edge-functions/src/tests/headwear-content_test.ts
 reviewed: 2026-08-09
 tags: [brands, sizing, contract]
@@ -77,6 +78,12 @@ So: **a hat's size is a brand's label and cannot be converted; a frame's size is
 a measurement and needs no conversion.** The dividing question is not the
 category, it is whether the number on the item is a measurement or a name for
 one.
+
+Jewelry (`00576`) is the third data point and lands on the same side as eyewear:
+a US ring size is a standard, a bracelet is sold in centimetres, and neither is a
+brand's scheme. **No chart is seeded there either.** Three accessory categories,
+and only headwear needs charts — which is the evidence that this rule is about
+labels rather than about any particular kind of product.
 
 ## Why this is a contract and not a comment
 

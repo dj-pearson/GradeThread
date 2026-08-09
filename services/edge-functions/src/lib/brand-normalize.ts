@@ -1272,6 +1272,38 @@ const BRAND_ALIASES: Record<string, string> = {
   warbyparker: "Warby Parker",
   // ⚠ a bare "warby" is DELIBERATELY ABSENT — half a brand name is not a brand,
   // and the full form is what every tag and listing carries.
+
+  // US-2221 jewelry group (migration 00576). Also absent from the KB entirely.
+  //
+  // THE ORDINARY-WORD CHECK CAME OUT DIFFERENTLY FOR EACH OF THESE, so it is
+  // written down rather than waved at:
+  //
+  //   • "Pandora" IS an ordinary word (Pandora's box) and the canonical is the
+  //     bare word, so it is the one that could false-fire. It is NOT excluded:
+  //     the phrase is rare in resale copy while the brand is one of the most
+  //     common strings in jewelry listings, and nothing in the KB's own seeded
+  //     prose emits it in the other sense. The opposite balance to "New Era"
+  //     (00574), where the phrase is stock copy AND clusters in the brand's own
+  //     category. Revisit if it starts mis-branding.
+  //   • "Tiffany" is a GIVEN NAME and "Tiffany blue" is a live colour term — but
+  //     the CANONICAL is "Tiffany & Co.", and neither collision contains that
+  //     string, so detectBrandInText is safe without an exclusion. The bare
+  //     "tiffany" KEY is fine on the usual asymmetry: BRAND_ALIASES is an exact
+  //     whole-field lookup, so a brand field of literally "Tiffany" means the
+  //     jeweler.
+  pandora: "Pandora",
+  pandorajewelry: "Pandora",
+  pandorajewellery: "Pandora", // the British spelling, which Pandora itself uses
+  tiffany: "Tiffany & Co.",
+  tiffanyco: "Tiffany & Co.", // brandKey("Tiffany & Co.") strips the & and the .
+  tiffanyandco: "Tiffany & Co.", // the spelled-out form is a different key
+  davidyurman: "David Yurman",
+  yurman: "David Yurman", // a distinctive surname, safe as a whole-field key
+  jamesavery: "James Avery",
+  jamesaverycraftsman: "James Avery", // the early stamp, still on vintage pieces
+  // ⚠ a bare "avery" is DELIBERATELY ABSENT — a given name and a surname; only
+  // the full forms resolve. Same call as "carter" and "hanna".
+  // ⚠ a bare "james" is absurd and is likewise absent.
 };
 
 /**

@@ -1,5 +1,42 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00576_jewelry_brand_knowledge.sql (US-2221 — a mark that passes the bar and still is not a decoder)
+
+**Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
+tables.** No table, column, constraint, index, policy or function is created,
+altered or dropped. Nothing existing is read, rewritten or backfilled. The rows
+land in `brand_knowledge` and `brand_styles`, global operator tables with RLS
+enabled and zero policies.
+
+**Apply order: AFTER 00575.** No dependency, just NNNNN order.
+
+**NOT push-blocking, and nothing waits on it.** Pandora, Tiffany & Co., David
+Yurman and James Avery have always fallen through the resolver, so an old
+database under new code behaves as it does today. The frontend reads none of it.
+
+**No decoders and no size charts, both deliberate.** Nothing here can override an
+AI answer, which makes this the lowest-consequence of the three US-2221 packs —
+the opposite of 00575, which seeded decoder authority.
+
+**What it adds.** 4 brand rows, 5 style rows, 10 authentication tells, 2
+deliberately low-confidence dating claims.
+
+**⚠ The one thing to preserve if this is ever edited: NEVER AUTO-AUTHENTICATE.**
+A hallmark is a few characters struck into soft metal and is the first thing a
+counterfeiter copies. Every tell is phrased as necessary-and-not-sufficient, and
+a test fails any tell that claims a verdict.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00576` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00576';` and the same for `brand_styles`.
+
+---
+
 ## ✅ APPLIED: 00575_eyewear_brand_knowledge.sql (US-2221 AC3 — three decoders that pass the bar, and four that do not, applied 2026-08-09 — MEASURED)
 
 **Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00574", applied: "00575", status: "ahead"}` — the database's own answer. The "ahead" is the running edge image predating the version bump and resolves on the next edge deploy.

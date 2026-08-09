@@ -8,6 +8,7 @@ code_refs:
   - supabase/migrations/00460_luxury_outerwear_brand_knowledge.sql
   - supabase/migrations/00574_headwear_brand_knowledge.sql
   - supabase/migrations/00575_eyewear_brand_knowledge.sql
+  - supabase/migrations/00576_jewelry_brand_knowledge.sql
 reviewed: 2026-08-09
 tags: [brands, grading, decoder, contract]
 summary: A style code becomes a decoder only if it is tag-printed AND regular AND brand-unique in format; the third test is the one that fails, and failing it mints false positives.
@@ -45,6 +46,8 @@ from any tag that happens to carry a similar-shaped string.
 | Ray-Ban `RB3025` / Oakley `OO9102` / Persol `PO0714S` | ✓ | ✓ | ✓ | **Yes** — per-brand prefixes, despite one shared parent (see below) |
 | Ray-Ban `RX5154` / Oakley `OX8046` (optical) | ✓ | ✓ | **✗** | **No** — `RX` is the whole industry's word for a prescription |
 | Eyewear size triplet `58□14 135` | ✓ | ✓ | **✗** | **No** — an industry standard, so it identifies nobody |
+| Metal purity hallmark `925` / `750` | ✓ | ✓ | **✗** | **No** — on nearly all fine jewelry; a fact about the alloy |
+| Maker's marks `ALE`, `T&CO.`, `D.Y.` | ✓ | ✓ | ✓ | **No** — passes the bar and is still not a decoder (see below) |
 | Warby Parker `Percey` / `Durand` | ✓ | ✓ | **✗** | **No** — a bare surname; the Rag & Bone `Fit 2` refusal |
 
 ### The Reebok case is the clearest argument for the third test
@@ -144,6 +147,42 @@ Three properties made these the strongest decoders in the corpus:
   tag-printed and just as regular — and `RX` is the universal abbreviation for a
   prescription. It names the *category*. Losing the optical line is a real cost
   and it is correct: declining beats false-firing.
+
+### Passing the bar is still not enough: a decoder needs something LEFT TO SAY
+
+Added 2026-08-09 from the jewelry pack (`00576`, US-2221), which produced the
+first mark in the corpus that **passes all three tests and is still not seeded**.
+
+Pandora's `ALE` is the initials of Algot Enevoldsen, documented by Pandora
+itself. It is struck into the metal, it is on every genuine piece, and no other
+house uses it. Tag-printed ✓ regular ✓ brand-unique ✓ — and which entity does it
+name? Pandora, correctly. It passes the fourth question too.
+
+It gets no decoder anyway, because of *where decoders run*:
+
+> `decodeTagCode` runs specs **inside an already-resolved pack.** A decoder's job
+> is to pull a style, size or colorway out of a code once the brand is known.
+
+A maker's mark carries the brand *and nothing else*. By the time a spec could
+fire, its entire payload is the thing that selected the pack. There is no field
+left for it to fill.
+
+So the bar has an implicit fourth requirement that had never needed stating,
+because until now every candidate that passed also carried a model: **a decoder
+must recover something the pack does not already know.** Marks that only name the
+maker belong in `authentication_tells`.
+
+The same pack supplies the third instance of a different shape, which is now
+frequent enough to name: **stamped, perfectly regular, identifies nobody.**
+Eyewear's `58□14 135` size triplet was the second; the metal purity hallmark
+(`925`, `585`, `750`, `950`) is the third. Both are industry standards, which is
+exactly what makes them useless for attribution — universality is the opposite of
+brand-uniqueness.
+
+> ⚠ **Jewelry is where "never auto-authenticate" bites hardest.** A hallmark is a
+> few characters struck into soft metal and is the first thing a counterfeiter
+> copies. The honest asymmetry: a wrong or missing mark is evidence *against*; a
+> correct-looking one is not evidence *for*. See [[brand-kb-negative-findings]].
 
 ## What to do with a code that fails the bar
 
