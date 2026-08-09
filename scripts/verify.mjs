@@ -80,6 +80,13 @@ if (on("web")) {
   // wall of errors in a file you did not touch reads as "my change broke
   // something"; naming the cause first is the whole point of the ordering.
   run("web: no tracked-and-gitignored files", "node scripts/check-tracked-ignored.mjs");
+  // US-2444: the shape of supabase/migrations/ — no ignored paths, no duplicate
+  // versions, no unexplained gap. Filesystem + git only, so it runs in the web
+  // lane rather than the Docker-gated db one: the bug it was written for
+  // (00122, gitignored and never committed) is invisible to a lane that applies
+  // the files present, and would have gone unseen for another year behind a
+  // check most runs skip.
+  run("web: migrations lint", "node scripts/migrations-lint.mjs");
   run("web: script tests (prd-lint/digest)", "npm run test:scripts");
   run("web: eslint", "npm run lint");
   // US-1879: the browser extensions' zero-dep node tests (pure adapter helpers +

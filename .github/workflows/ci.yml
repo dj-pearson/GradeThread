@@ -165,6 +165,14 @@ jobs:
       - name: No tracked-and-gitignored files
         if: ${{ !cancelled() }}
         run: node scripts/check-tracked-ignored.mjs
+      # US-2444: structural checks on supabase/migrations/ — no ignored paths,
+      # no duplicate version prefixes, no unexplained gap in the sequence. Runs
+      # HERE and not in db-migrations.yml on purpose: that workflow is path-
+      # filtered to supabase/migrations/**, and the change that lost 00122 was a
+      # .gitignore edit, which would not have triggered it. Needs only git.
+      - name: Migrations lint
+        if: ${{ !cancelled() }}
+        run: node scripts/migrations-lint.mjs
       # US-2402: same gap again. The UI anti-pattern gate (US-2336) was a verify
       # lane only, so the hook was stricter than CI and a --no-verify push shed
       # it entirely — for a gate whose ENFORCED rules block on the tells the

@@ -92,7 +92,20 @@ IMG_5130.PNG
 # was not listed at all.
 supabase/.temp/
 supabase/.branches/
-supabase/migrations/00122_verified_storefront_listings.sql
+# NOTHING UNDER supabase/migrations/ MAY BE IGNORED — enforced by
+# scripts/migrations-lint.mjs (US-2444).
+#
+# 00122_verified_storefront_listings.sql was listed here and never committed, so
+# the sequence has a hole at exactly one number while the objects it creates are
+# live in production. Every other guard stayed green: db-migrations.yml only
+# proves the files PRESENT apply, the boot manifest starts at 00254, and the
+# tracked-and-ignored check (US-2437) looks for the opposite state. A migration
+# git refuses to see is a migration that exists on one machine.
+#
+# Removing the line does not restore the file — that needs the DDL read out of
+# the running database. It restores the ability to notice. If a copy exists in
+# someone's working tree it will now show as untracked, which is the point; the
+# pre-commit gitleaks hook is what stands between it and a committed secret.
 
 # Ralph graceful-stop flag (runtime, never committed)
 scripts/ralph/STOP
