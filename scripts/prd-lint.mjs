@@ -171,7 +171,21 @@ export function findUnresolvedDeferrals(stories) {
 const HELD_MARKER = /\bHELD\b|held migration|not pushed/i;
 // Five digits. An earlier hand-written sweep used 00[3-4][0-9]{3} — six — and
 // could never match 00345, so it reported zero and read as clean.
-const MIGRATION_ID = /\b(00\d{3})\b/g;
+//
+// NOT \b on the right, and that is the whole point. Underscore is a word
+// character, so \b never fires between "00573" and "_" — which means the most
+// natural way to name a migration in a note, its FILENAME
+// (00573_legal_acceptances_signup_confirmed.sql), was invisible to this check.
+// Found 2026-08-09 when US-2116 warned while holding 00573: the note named the
+// held migration by filename, the id never matched, so the "does this note name
+// anything genuinely unpushed?" escape hatch saw nothing to hold and cried wolf
+// on a correct freeze. The same blindness runs the other way and is worse — a
+// genuinely stale "00516_foo.sql (HELD)" would never have been reported at all.
+// So: not preceded by a word character (don't split 000355 mid-number), and not
+// followed by a DIGIT (a 6-digit name is not a 5-digit id). An underscore, a
+// colon or a period after the number is part of how migrations are written
+// about, not a reason to look away.
+const MIGRATION_ID = /(?<!\w)(00\d{3})(?!\d)/g;
 
 /**
  * Stories claiming a HELD migration that is already pushed.

@@ -290,6 +290,46 @@ describe("findStaleHeldMigrations", () => {
     ).toBe(1);
   });
 
+  it("matches an id written as a FILENAME, in both directions", () => {
+    // Underscore is a word character, so a \b on the right never fires between
+    // "00345" and "_" — and a filename is how migrations are actually named in
+    // notes. Both halves matter, so both are asserted here.
+    //
+    // MISS: a genuinely stale claim written as a filename went unreported.
+    expect(
+      findStaleHeldMigrations(
+        [story("US-X", "HELD: 00345_add_column.sql is committed locally")],
+        new Set(["00345"]),
+      ),
+    ).toEqual([{ id: "US-X", migrations: ["00345"] }]);
+    // FALSE POSITIVE: US-2116's real shape on 2026-08-09. The held migration is
+    // named by filename and so matched nothing, leaving only the pushed ids the
+    // note cites for context — which reads as "nothing left to hold".
+    expect(
+      findStaleHeldMigrations(
+        [
+          story(
+            "US-2116",
+            "00142:44 documents three values. HELD: 00573_legal_acceptances_signup_confirmed.sql fixes the comment.",
+          ),
+        ],
+        new Set(["00142"]),
+      ),
+    ).toEqual([]);
+  });
+
+  it("does not read a five-digit id out of a six-digit filename", () => {
+    // 000355_photo_types_v2 is a real filename (commit e4a44545 split three
+    // duplicate-prefix pairs). Widening the right edge must not start reading
+    // "00035" out of it — that id belongs to a different migration.
+    expect(
+      findStaleHeldMigrations(
+        [story("US-X", "HELD: 000355_photo_types_v2.sql")],
+        new Set(["00035"]),
+      ),
+    ).toEqual([]);
+  });
+
   it("skips stories with no HELD marker at all", () => {
     expect(findStaleHeldMigrations([story("US-Y", "migration 00345 shipped")], new Set(["00345"]))).toEqual([]);
   });
