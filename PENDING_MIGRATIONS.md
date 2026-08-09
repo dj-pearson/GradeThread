@@ -1,5 +1,36 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00584_snow_outerwear_brand_knowledge.sql (US-2220 — the spec is a new-garment claim, and what fails is invisible)
+
+**Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
+tables.** Nothing is created, altered, dropped, read or backfilled. No decoders,
+no size charts.
+
+**Apply order: AFTER 00583.** Independent of everything before it.
+
+**NOT push-blocking.** Burton, Spyder, Volcom and Obermeyer have always fallen
+through the resolver.
+
+**What it adds.** 4 brand rows, 4 style rows, 11 tells.
+
+**The point of the pack:** a snow jacket sells on two numbers (waterproofing in
+mm, breathability in grams) that describe it WHEN NEW and cannot be observed on
+a used garment. What actually fails splits in two — DWR wears off and is
+re-treatable (a consumable), while seam tape delaminates and cannot be restored
+(terminal). Same pair as golf's spikes and receptacles in 00583.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00584` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00584';` and the same for `brand_styles`.
+
+---
+
+
 ## ✅ APPLIED: 00583_golf_brand_knowledge.sql (US-2220 — the logo is part of the item, and it is not the brand, applied 2026-08-09 — MEASURED)
 
 **Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00582", applied: "00583", status: "ahead"}` — the database's own answer. The edge has also caught up to 00582 since the last batch, so the remaining gap is just this migration's own version bump.

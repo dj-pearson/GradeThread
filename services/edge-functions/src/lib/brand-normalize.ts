@@ -1419,6 +1419,20 @@ const BRAND_ALIASES: Record<string, string> = {
   // corporate outing — none of which is the MAKER. Folding one in would put a
   // course in the brand field, mis-file the item and break its comp set. The
   // logo is a separate fact; see migration 00583.
+
+  // US-2220 ski / snowboard group (migration 00584).
+  burton: "Burton",
+  burtonsnowboards: "Burton",
+  spyder: "Spyder",
+  spyderactive: "Spyder",
+  spyderski: "Spyder",
+  // ⚠ VOLCOM SPANS TWO CATEGORIES under one name — snow outerwear and ordinary
+  // skate/street apparel. The alias resolves the HOUSE; which guidance applies
+  // is a property of the GARMENT, not of the brand, and 00584 says so.
+  volcom: "Volcom",
+  volcomstone: "Volcom",
+  obermeyer: "Obermeyer",
+  sportobermeyer: "Obermeyer",
 };
 
 /**
