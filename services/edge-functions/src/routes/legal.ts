@@ -5,6 +5,10 @@ import {
   loadLegalVersionState,
   needsReacceptance,
 } from "../lib/legal-versions.ts";
+import {
+  decideSignupConsentEvidence,
+  SIGNUP_CONFIRMED_METHOD,
+} from "../lib/signup-consent-evidence.ts";
 
 // US-377 / US-904: ToS/Privacy clickwrap acceptance.
 //
@@ -80,6 +84,69 @@ legalRoutes.get("/status", async (c) => {
   });
 });
 
+// POST /api/legal/confirm-signup — US-2116 AC4. Append server-observed IP and
+// user-agent evidence beside an email-signup clickwrap, which the Postgres
+// trigger could not record because it has no request. Idempotent, and it
+// REFUSES rather than inventing a record when there is no clickwrap to
+// corroborate. The rules and the two shortcuts they rule out are in
+// lib/signup-consent-evidence.ts — read that before changing this.
+//
+// Deliberately not part of /accept: that endpoint stamps the CURRENT versions
+// and the users.*_accepted_version columns, both of which would be wrong here.
+legalRoutes.post("/confirm-signup", async (c) => {
+  const userId = c.get("userId");
+
+  const { data, error } = await supabaseAdmin
+    .from("legal_acceptances")
+    .select("method, tos_version, privacy_version, accepted_at")
+    .eq("user_id", userId)
+    .order("accepted_at", { ascending: true });
+  if (error) {
+    console.error("[legal/confirm-signup] read failed:", error.message);
+    return c.json({ error: "Failed to record acceptance." }, 500);
+  }
+
+  const decision = decideSignupConsentEvidence(data ?? []);
+  // Neither non-insert outcome is an error. A returning user and an OAuth user
+  // both land here on every sign-in, and answering 4xx would turn ordinary
+  // traffic into alert noise — which is how a genuine failure stops being read.
+  if (decision.action !== "insert") {
+    return c.json({ ok: true, recorded: false, reason: decision.reason });
+  }
+
+  const now = new Date().toISOString();
+  const { error: insErr } = await supabaseAdmin.from("legal_acceptances").insert({
+    user_id: userId,
+    // COPIED from the clickwrap row, never resolved fresh: the confirmation
+    // must name the documents that were actually accepted, not whatever is
+    // published by the time the user clicks the email link.
+    tos_version: decision.tosVersion,
+    privacy_version: decision.privacyVersion,
+    method: SIGNUP_CONFIRMED_METHOD,
+    user_agent: (c.req.header("user-agent") ?? "").slice(0, 500) || null,
+    ip_address: clientIp(c),
+    // When the SERVER observed this session — not when consent was given. The
+    // clickwrap row holds that, and conflating the two is what would make this
+    // row overstate what we know.
+    accepted_at: now,
+  });
+  if (insErr) {
+    console.error("[legal/confirm-signup] insert failed:", insErr.message);
+    return c.json({ error: "Failed to record acceptance." }, 500);
+  }
+
+  return c.json({
+    ok: true,
+    recorded: true,
+    confirmed: {
+      tos: decision.tosVersion,
+      privacy: decision.privacyVersion,
+      signupAt: decision.signupAcceptedAt,
+      observedAt: now,
+    },
+  });
+});
+
 // POST /api/legal/accept — record affirmative acceptance of the CURRENT
 // versions. Used by the dashboard legal gate (OAuth first-access capture +
 // re-acceptance on a version bump). Body: { method?: string }.
@@ -93,6 +160,15 @@ legalRoutes.post("/accept", async (c) => {
     body = {};
   }
   // Constrain the method to the known set; default to re-acceptance.
+  //
+  // ⚠ "signup_clickwrap" is in this allowlist and NOTHING sends it (checked
+  // across src/, ios/, android/ and extension-unified/). Do not reach for it to
+  // record an email signup: this handler stamps the CURRENT published versions
+  // and the users.*_accepted_version columns, so on a signup confirmed after a
+  // version bump it would record acceptance of a document the user never saw
+  // AND clear a re-acceptance prompt nobody answered. Use
+  // POST /api/legal/confirm-signup, which copies the versions off the trigger's
+  // own row (US-2116 AC4).
   const requested = typeof body.method === "string" ? body.method : "";
   const method =
     requested === "oauth_clickwrap" || requested === "signup_clickwrap"

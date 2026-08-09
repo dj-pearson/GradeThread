@@ -4,6 +4,7 @@ import { queryClient } from "@/lib/query-client";
 import { useAuthStore } from "@/stores/auth-store";
 import { redeemStoredAffiliateRef } from "@/lib/affiliate";
 import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
+import { confirmSignupConsentOnce } from "@/lib/signup-consent";
 import { initIdleLogout, clearIdleActivity } from "@/lib/idle-logout";
 import type {
   UserRow,
@@ -211,6 +212,16 @@ function initAuth() {
         if (!meta?.welcome_email_sent) {
           sendWelcomeEmailOnce(newSession.user.id);
         }
+        // US-2116 AC4: an email signup's consent row is written by a Postgres
+        // trigger, which has no request and therefore no IP or user-agent — so
+        // the highest-volume consent path carries the weakest evidence. This is
+        // the first moment the server can observe anything. Gated to the email
+        // provider (OAuth consent already goes through /api/legal/accept, which
+        // records both) and idempotent on the server.
+        confirmSignupConsentOnce(
+          newSession.user.id,
+          newSession.user.app_metadata?.provider,
+        );
       }
     } else {
       // SIGNED_OUT: sign-out is SPA navigation (no full reload), so the
