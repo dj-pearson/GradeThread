@@ -6,11 +6,11 @@ status: current
 source_of_truth: vault
 code_refs:
   - PENDING_MIGRATIONS.md
-reviewed: 2026-08-07
+reviewed: 2026-08-08
 tags: [ops, backlog, blockers]
 summary: Five external gates hold up most remaining stories. Each entry says what to do and exactly which stories it releases.
 ---
-# What blocks the backlog (as of 2026-07-19)
+# What blocks the backlog (gates 1-3 re-measured 2026-08-08)
 
 > [!info] How the loop now handles these
 > A gate listed here only stops the loop if its story's TITLE carries
@@ -31,6 +31,34 @@ the cross-cutting shape is invisible — you cannot see that one env var gates s
 stories by reading six separate notes.
 
 ---
+
+> [!success] Gate 1 is CLOSED and gates 2–3 have MOVED (measured 2026-08-08)
+> Read this before acting on anything below, because two of the five gates no
+> longer say what they said, and one of them moved without releasing what it was
+> supposed to release.
+>
+> **Gate 1 (Docker) — closed.** `npm run verify` ran all lanes today, and the
+> `db` lane is green: `supabase db start` applied the migrations and
+> `supabase db reset --no-seed` re-applied **every** migration from zero on a
+> fresh schema. That is a stronger check than the six-file table below asked
+> for — it covers all 563, not just 00480–00485. Nothing in the backlog is
+> waiting on Docker.
+>
+> **Gate 2 (no alert channel) — half closed.** `/health/ready` now reports
+> `alerting: "ok"`, so a channel IS configured. What remains is exactly the half
+> US-2003 AC1 always named and this note already warned about: *configuration is
+> not evidence.* Nobody has broken a target and watched a page land on a phone.
+>
+> **Gate 3 (no deploy) — the deploy HAPPENED and did NOT release US-2001.** The
+> edge is running `expected: 00563` against `applied: 00563`, so it is a current
+> build. But `/health/ready` still reports
+> `release: "unattributable: release="dev" — the image was built without a
+> GIT_SHA build arg"`. The gate said "deploy the edge" and someone did; the build
+> arg was still missing, so US-2001 AC2/AC3 and the Sentry-attribution half of
+> US-2003 are **not** released. This is the trap the note is for: a gate phrased
+> as an ACTION ("deploy") reads as closed the moment the action happens, even
+> when the CONDITION it stood for never changed. Phrase the remaining ones as
+> conditions — "a build whose `/health` reports a real SHA", not "a deploy".
 
 ## 1. Docker is down → six migrations are unverified
 

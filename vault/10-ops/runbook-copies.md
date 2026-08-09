@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-08-02
+reviewed: 2026-08-08
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
@@ -26,7 +26,7 @@ which turned out not to be a stray comment.
 |---|---|---|
 | 1 | Repo root — DEPLOY.md, ROLLBACK.md, INCIDENT_RESPONSE.md, BACKUPS.md, LAUNCH_CHECKLIST.md | The documents everyone assumes are canonical. *(The three doubled ones were merged into the vault by US-2049; DEPLOY/BACKUPS/LAUNCH_CHECKLIST move in US-2051.)* |
 | 2 | `docs/` | Second copies of INCIDENT_RESPONSE, KEY_ROTATION, DATA_RETENTION, at different lengths — **resolved 2026-07-19 by US-2049** |
-| 3 | **`src/lib/admin/runbooks.ts`** | A 378-line `RUNBOOKS` array (US-910), **shipped in the frontend bundle** |
+| 3 | **`src/lib/admin/runbooks.ts`** | A 418-line `RUNBOOKS` array (US-910), **shipped in the frontend bundle** |
 | 4 | **`services/edge-functions/src/lib/integrations-watchdog.ts`** | `KEY_ROTATION_REGISTRY` — the rotation **schedule** encoded as structured data (found 2026-07-19, US-2049) |
 
 Copy 3 is not a link to the markdown. It is operational prose hand-distilled into
