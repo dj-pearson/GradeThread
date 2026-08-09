@@ -98,7 +98,12 @@ supabase/migrations/00122_verified_storefront_listings.sql
 scripts/ralph/STOP
 ratio
 .claude/settings.local.json
-services/edge-functions/deno.lock
+# services/edge-functions/deno.lock was ignored here (US-2437 AC4). The line was
+# inert and wrong in both directions: the lockfile is TRACKED, so the ignore did
+# nothing, and it MUST stay tracked — US-517's `deno cache --frozen` gate exists
+# to fail the build when a resolved dependency drifts, and a frozen check with no
+# committed lockfile has nothing to freeze against. Removed rather than acted on:
+# the ignore was the bug, not the tracking.
 
 # Ralph per-iteration transient state (regenerated each loop)
 scripts/ralph/current-story.json

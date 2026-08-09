@@ -157,6 +157,14 @@ jobs:
       - name: Doc path refs
         if: ${{ !cancelled() }}
         run: node scripts/doc-refs.mjs
+      # US-2437: a file that is both tracked and gitignored. The ignore silently
+      # does nothing, so the file reads as modified in every working tree forever
+      # and each person who notices adds another dead ignore line — one path here
+      # had collected four. Cheap (one git call, no Docker, no network) and in CI
+      # as well as verify so a --no-verify push cannot shed it.
+      - name: No tracked-and-gitignored files
+        if: ${{ !cancelled() }}
+        run: node scripts/check-tracked-ignored.mjs
       # US-2402: same gap again. The UI anti-pattern gate (US-2336) was a verify
       # lane only, so the hook was stricter than CI and a --no-verify push shed
       # it entirely — for a gate whose ENFORCED rules block on the tells the

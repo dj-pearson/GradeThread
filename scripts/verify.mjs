@@ -73,6 +73,13 @@ if (on("web")) {
   // CLAUDE.md is read at the start of every session, so a path that has moved
   // costs every one of them. Cheap enough to sit beside prd-lint.
   run("web: doc path refs", "node scripts/doc-refs.mjs");
+  // US-2437: BEFORE eslint, deliberately. The bug that filed that story was
+  // eslint linting supabase/.temp/start-secrets/ — 189 errors in generated,
+  // minified code nobody wrote — which only appears once you run `supabase
+  // start`, i.e. only for the people following CLAUDE.md's full-stack lanes. A
+  // wall of errors in a file you did not touch reads as "my change broke
+  // something"; naming the cause first is the whole point of the ordering.
+  run("web: no tracked-and-gitignored files", "node scripts/check-tracked-ignored.mjs");
   run("web: script tests (prd-lint/digest)", "npm run test:scripts");
   run("web: eslint", "npm run lint");
   // US-1879: the browser extensions' zero-dep node tests (pure adapter helpers +
