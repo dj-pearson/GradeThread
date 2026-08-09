@@ -27,6 +27,26 @@ export default defineConfig({
     // scripts/lib/ci-env.ts is that single source and explains the history;
     // src/test/ci-env-parity.test.ts fails if a workflow drifts from it.
     env: { ...CI_VITE_ENV },
+    // 30s, not vitest's default 5s, because a large share of this suite is
+    // SOURCE-SCANNING GUARDS: tests that recursively read every file under
+    // src/, services/ and supabase/migrations/ to prove a rule holds across the
+    // tree (billing-source-constraint, legacy-user-plan-readers, the SEO route
+    // registry guards, and friends). Their cost is disk I/O over thousands of
+    // files, and it scales with how many OTHER test files are competing for the
+    // same disk — so they finish in ~1s alone and cross 5s in the full 300-file
+    // parallel run.
+    //
+    // That made the pre-push gate FLAKY IN THE WORST WAY: it failed with a
+    // timeout, not an assertion, and a DIFFERENT subset failed each run, so the
+    // red said nothing about the commit being pushed. Measured 2026-08-09 —
+    // three failures in one run, four in the next, all "Test timed out in
+    // 5000ms", every one of them green when run on its own.
+    //
+    // Deliberately 30s and not "off": a real hang still has to fail, and it
+    // still fails inside a minute. Raising the ceiling is the fix here rather
+    // than trimming the guards, because walking the whole tree IS the assertion
+    // — a guard that samples proves nothing.
+    testTimeout: 30_000,
     // US-519: coverage with a FAILING minimum threshold so coverage of the
     // tested modules can't silently erode. Thresholds sit a margin below the
     // current numbers so a genuine regression trips CI without flapping on a
