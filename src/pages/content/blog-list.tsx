@@ -143,7 +143,7 @@ export function BlogListPage() {
 
       <div className="flex gap-2">
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger aria-label="Filter posts by status" className="w-44">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
@@ -156,7 +156,7 @@ export function BlogListPage() {
           </SelectContent>
         </Select>
         <Select value={product} onValueChange={setProduct}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger aria-label="Filter posts by product" className="w-44">
             <SelectValue placeholder="All products" />
           </SelectTrigger>
           <SelectContent>

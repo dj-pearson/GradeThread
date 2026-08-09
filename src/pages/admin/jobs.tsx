@@ -231,7 +231,7 @@ export function AdminJobsPage() {
         <TabsContent value="jobs" className="space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <Select value={kind} onValueChange={(v) => setKind(v as JobKind | "all")}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger className="w-44" aria-label="Filter jobs by kind">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -243,6 +243,7 @@ export function AdminJobsPage() {
               </SelectContent>
             </Select>
             <input
+              aria-label="Filter jobs by status"
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value.trim())}
               placeholder="Status filter (e.g. failed)"

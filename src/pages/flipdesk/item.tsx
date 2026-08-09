@@ -796,6 +796,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
                 min={2}
                 max={20}
                 step={0.5}
+                aria-label="Promoted listing ad rate percent"
                 value={rate}
                 onChange={(e) => setRate(e.target.value)}
                 placeholder={String(promo?.rate_pct ?? promo?.suggested_rate_pct ?? 8)}
@@ -853,6 +854,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
                   min={5}
                   max={70}
                   step={5}
+                  aria-label="Sale discount percent"
                   value={salePct}
                   onChange={(e) => setSalePct(e.target.value)}
                   className="w-24"

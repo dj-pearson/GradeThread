@@ -549,7 +549,7 @@ export function AdminReviewsPage() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter reviews by confidence">
                 <SelectValue placeholder="Confidence" />
               </SelectTrigger>
               <SelectContent>
@@ -846,13 +846,14 @@ export function AdminReviewsPage() {
                     return (
                       <div key={key} className="grid grid-cols-12 items-center gap-2 sm:gap-3">
                         <div className="col-span-6 min-w-0 sm:col-span-5">
-                          <Label className="text-sm break-words">
+                          <Label className="text-sm break-words" htmlFor={`review-factor-${key}`}>
                             {meta.label} ({(meta.weight * 100).toFixed(0)}%)
                           </Label>
                           <p className="text-xs text-muted-foreground">AI: {aiScore.toFixed(1)}</p>
                         </div>
                         <div className="col-span-4 min-w-0 sm:col-span-4">
                           <Input
+                            id={`review-factor-${key}`}
                             type="number"
                             min={1}
                             max={10}

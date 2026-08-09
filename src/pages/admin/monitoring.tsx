@@ -699,7 +699,7 @@ export function AdminMonitoringPage() {
         <TabsContent value="abuse" className="space-y-4">
           <div className="flex flex-wrap gap-2">
             <Select value={typeFilter} onValueChange={setTypeFilter}>
-              <SelectTrigger className="w-52">
+              <SelectTrigger aria-label="Filter abuse events by type" className="w-52">
                 <SelectValue placeholder="All types" />
               </SelectTrigger>
               <SelectContent>
@@ -712,7 +712,7 @@ export function AdminMonitoringPage() {
               </SelectContent>
             </Select>
             <Select value={severityFilter} onValueChange={setSeverityFilter}>
-              <SelectTrigger className="w-40">
+              <SelectTrigger aria-label="Filter abuse events by severity" className="w-40">
                 <SelectValue placeholder="All severities" />
               </SelectTrigger>
               <SelectContent>

@@ -704,7 +704,7 @@ export function AdminDisputesPage() {
                 setPage(1);
               }}
             >
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter disputes by status">
                 <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
               <SelectContent>
@@ -1084,7 +1084,7 @@ export function AdminDisputesPage() {
                         return (
                           <div key={key} className="grid grid-cols-12 items-center gap-3">
                             <div className="col-span-5">
-                              <Label className="text-sm">
+                              <Label className="text-sm" htmlFor={`dispute-factor-${key}`}>
                                 {meta.label} ({(meta.weight * 100).toFixed(0)}%)
                               </Label>
                               <p className="text-xs text-muted-foreground">
@@ -1093,6 +1093,7 @@ export function AdminDisputesPage() {
                             </div>
                             <div className="col-span-4">
                               <Input
+                                id={`dispute-factor-${key}`}
                                 type="number"
                                 min={1}
                                 max={10}

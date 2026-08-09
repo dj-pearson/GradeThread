@@ -82,23 +82,36 @@ export function isLabelled(attrs, htmlForIds) {
   return htmlForIds.has(id[1]);
 }
 
-// KNOWN OVER-COUNT, measured 2026-08-03 and left alone deliberately.
-//
-// A control mentioned in a COMMENT is counted as a real one.
-// billing-actions-card.tsx has a doc comment reading
-// "ISO timestamp -> value for <input type=\"datetime-local\">" and this reports
-// it as an unlabelled input. Exactly one site today.
-//
-// Blanking comments before the scan was tried and REVERTED. `tagAttrs` finds a
-// tag's closing `>` by counting braces, and blanking changes that balance — the
-// blanked run started reporting photo-uploader's two hidden file inputs, which
-// are driven by a labelled button and are precisely the false positive this
-// script exists to avoid (it is one of the reasons jsx-a11y was rejected). A fix
-// that trades one wrong hit for two is not a fix.
-//
-// One phantom in ~150 is under the noise floor, and this number's job is to be
-// acted on: it is better slightly high and stable than adjusted by a change
-// whose side effects are not fully understood.
+/**
+ * Is the match at `i` inside a comment rather than in real JSX?
+ *
+ * THE KNOWN OVER-COUNT, FIXED (2026-08-09) — and the shape of the fix is the
+ * point. billing-actions-card.tsx carries a doc comment reading
+ * "ISO timestamp -> value for <input type=\"datetime-local\">", and this script
+ * counted it as an unlabelled input.
+ *
+ * A previous pass tried BLANKING comments before the scan and reverted it,
+ * correctly: `tagAttrs` finds a tag's closing `>` by counting braces, blanking
+ * changes that balance, and the blanked run started reporting photo-uploader's
+ * two hidden file inputs — driven by a labelled button, and precisely the false
+ * positive this script exists to avoid. That fix traded one wrong hit for two.
+ *
+ * This one cannot: it FILTERS MATCHES and never touches `src`, so every offset
+ * `tagAttrs` walks is the offset it always was. Same defect, opposite blast
+ * radius — worth remembering the next time a scan wants preprocessing.
+ */
+export function inComment(src, i) {
+  const lineStart = src.lastIndexOf("\n", i) + 1;
+  const line = src.slice(lineStart, i);
+  // A `//` earlier on the same line, but not one inside a string (a URL).
+  const slashes = line.indexOf("//");
+  if (slashes !== -1 && !/["'`]/.test(line.slice(slashes - 1, slashes))) return true;
+  // Inside a /* … */ block: the nearest opener before `i` has no closer between.
+  const open = src.lastIndexOf("/*", i);
+  if (open !== -1 && src.indexOf("*/", open) > i) return true;
+  return false;
+}
+
 export function auditFile(src) {
   const htmlForIds = new Set(
     [...src.matchAll(/htmlFor\s*=\s*["']([^"']+)["']/g)].map((m) => m[1]),
@@ -112,6 +125,7 @@ export function auditFile(src) {
   CONTROL.lastIndex = 0;
   for (const m of src.matchAll(CONTROL)) {
     if (wrappedAt.has(m.index)) continue;
+    if (inComment(src, m.index)) continue;
     const attrs = tagAttrs(src, m.index);
     if (!isLabelled(attrs, htmlForIds)) {
       unlabelled.push({

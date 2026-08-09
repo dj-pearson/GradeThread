@@ -390,7 +390,7 @@ export function TeamPage() {
                           onValueChange={(v) => updateRole(m.member_id, v as WorkspaceRole)}
                           disabled={pendingAction === `role:${m.member_id}`}
                         >
-                          <SelectTrigger className="w-44">
+                          <SelectTrigger aria-label={`Role for ${m.member_name || m.member_email}`} className="w-44">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
@@ -690,7 +690,7 @@ function WorkspaceMfaPolicyCard({ ownerId }: { ownerId: string | null }) {
           <>
             <div className="flex items-center gap-3">
               <Select value={value} onValueChange={save} disabled={loading || saving}>
-                <SelectTrigger className="w-64">
+                <SelectTrigger aria-label="Minimum role required to have two-factor authentication" className="w-64">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

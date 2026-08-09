@@ -55,7 +55,7 @@ export function ScheduleCard({
             stays in your browser's local time. */}
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
           <Select value={dropTimezone} onValueChange={setDropTimezone}>
-            <SelectTrigger className="h-8 w-[15rem] text-xs">
+            <SelectTrigger className="h-8 w-[15rem] text-xs" aria-label="Timezone for drop-time presets">
               <SelectValue placeholder="Timezone" />
             </SelectTrigger>
             <SelectContent>

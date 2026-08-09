@@ -287,7 +287,7 @@ export function AdminTaskBoardPage() {
         />
         {sections.length > 0 && (
           <Select value={sectionFilter} onValueChange={setSectionFilter}>
-            <SelectTrigger className="w-52">
+            <SelectTrigger className="w-52" aria-label="Filter tasks by section">
               <Filter className="mr-2 h-4 w-4" />
               <SelectValue placeholder="Section" />
             </SelectTrigger>
@@ -753,6 +753,7 @@ function TaskDetailDialog({
             )}
             <div className="flex items-start gap-2">
               <Textarea
+                aria-label="Add a comment"
                 value={commentText}
                 onChange={(e) => setCommentText(e.target.value)}
                 placeholder="Add a comment…"

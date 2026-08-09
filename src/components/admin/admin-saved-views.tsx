@@ -152,8 +152,9 @@ export function AdminSavedViews({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1">
-            <Label>Name</Label>
+            <Label htmlFor="asv-name">Name</Label>
             <Input
+              id="asv-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Open urgent tickets"

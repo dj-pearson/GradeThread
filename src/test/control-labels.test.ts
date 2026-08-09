@@ -22,13 +22,20 @@ import { resolve } from "node:path";
 import { auditFile, walk } from "../../scripts/audit-control-labels.mjs";
 
 /**
- * Controls with no resolvable accessible name, as of 2026-08-03.
+ * Controls with no resolvable accessible name, as of 2026-08-09.
  *
  * NOT a target to sit at — a ceiling that only ratchets down. Lower it whenever
  * a batch lands; never raise it. Raising it is the moment this test stops
  * meaning anything, so if you are about to, add the label instead.
+ *
+ * 361 → 74 → 32. The last drop is 42 controls labelled plus THREE PHANTOMS
+ * removed from the scanner: a control named inside a `//` or `/* *\/` comment
+ * was being counted as a real one. The scanner's own header recorded that as a
+ * deliberate over-count ("exactly one site today", 2026-08-03) — by today there
+ * were three, so it was growing rather than stable, and a baseline that can
+ * never reach zero is a baseline nobody finishes.
  */
-const BASELINE = 74;
+const BASELINE = 32;
 
 describe("form controls carry an accessible name (US-2335)", () => {
   const files = walk(resolve(process.cwd(), "src"));

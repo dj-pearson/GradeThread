@@ -579,9 +579,9 @@ function TaxPnlExportCard({
         {/* Filters */}
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
-            <Label className="text-xs">Category</Label>
+            <Label className="text-xs" htmlFor="tax-pnl-category">Category</Label>
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger>
+              <SelectTrigger id="tax-pnl-category">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -595,9 +595,9 @@ function TaxPnlExportCard({
             </Select>
           </div>
           <div className="space-y-1">
-            <Label className="text-xs">Brand</Label>
+            <Label className="text-xs" htmlFor="tax-pnl-brand">Brand</Label>
             <Select value={brand} onValueChange={setBrand}>
-              <SelectTrigger>
+              <SelectTrigger id="tax-pnl-brand">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

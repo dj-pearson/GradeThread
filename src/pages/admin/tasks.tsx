@@ -514,7 +514,7 @@ function ImportDialog({
         <div className="flex-1 space-y-3 overflow-y-auto px-1">
           <div className="flex flex-wrap items-center gap-2">
             <Select value={target} onValueChange={setTarget}>
-              <SelectTrigger className="w-64">
+              <SelectTrigger className="w-64" aria-label="Import into project">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -548,6 +548,7 @@ function ImportDialog({
           </div>
 
           <Textarea
+            aria-label="Markdown checklist to import"
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder={SAMPLE_MARKDOWN}

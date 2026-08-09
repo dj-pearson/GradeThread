@@ -134,9 +134,9 @@ function EditorDialog({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Variant</Label>
+              <Label htmlFor="a-variant">Variant</Label>
               <Select value={variant} onValueChange={(v) => setVariant(v as Variant)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="a-variant"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="info">Info</SelectItem>
                   <SelectItem value="success">Success</SelectItem>
@@ -146,9 +146,9 @@ function EditorDialog({
               </Select>
             </div>
             <div className="space-y-2">
-              <Label>Audience</Label>
+              <Label htmlFor="a-audience">Audience</Label>
               <Select value={segmentId} onValueChange={setSegmentId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="a-audience"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Everyone</SelectItem>
                   {segments.map((s) => (

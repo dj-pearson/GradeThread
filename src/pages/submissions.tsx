@@ -498,7 +498,7 @@ export function SubmissionsPage() {
                   setPage(0);
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Filter submissions by status">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -520,7 +520,7 @@ export function SubmissionsPage() {
                   setPage(0);
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger aria-label="Filter submissions by garment type">
                   <SelectValue placeholder="Garment Type" />
                 </SelectTrigger>
                 <SelectContent>

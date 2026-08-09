@@ -672,7 +672,7 @@ export function FlipdeskRepricingPage() {
             {selectedCount > 0 ? `${selectedCount} selected` : `${filtered.length} nudges`}
           </span>
           <Select value={reason} onValueChange={(v) => setReason(v as ReasonFilter)}>
-            <SelectTrigger className="h-8 w-40">
+            <SelectTrigger aria-label="Filter suggestions by reason" className="h-8 w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -685,7 +685,7 @@ export function FlipdeskRepricingPage() {
             </SelectContent>
           </Select>
           <Select value={sort} onValueChange={(v) => setSort(v as SortKey)}>
-            <SelectTrigger className="h-8 w-44">
+            <SelectTrigger aria-label="Sort suggestions by price change" className="h-8 w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

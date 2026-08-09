@@ -827,7 +827,7 @@ export function EbayCategoryPicker({
         ) : (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label>Search eBay categories</Label>
+              <Label htmlFor="category-search">Search eBay categories</Label>
               {categoryId && (
                 <Button
                   variant="ghost"
@@ -844,6 +844,7 @@ export function EbayCategoryPicker({
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                id="category-search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="e.g. men's blazer, women's silk blouse"

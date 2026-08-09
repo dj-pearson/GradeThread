@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +20,12 @@ export function ChipInput({
   onChange: (next: string[]) => void;
 }) {
   const [draft, setDraft] = useState("");
+  // US-2335: the visible <Label> was never linked to the input. useId rather
+  // than a literal because this component is rendered SEVERAL TIMES on one page
+  // (brands, sizes, and more in the buyer preferences editor) — a hardcoded id
+  // would collide, and a duplicate id makes htmlFor resolve to whichever input
+  // the browser saw first, which is worse than no label at all.
+  const inputId = useId();
 
   function add() {
     const v = draft.trim();
@@ -32,9 +38,10 @@ export function ChipInput({
 
   return (
     <div className="space-y-2">
-      <Label>{label}</Label>
+      <Label htmlFor={inputId}>{label}</Label>
       <div className="flex gap-2">
         <Input
+          id={inputId}
           value={draft}
           placeholder={placeholder}
           onChange={(e) => setDraft(e.target.value)}

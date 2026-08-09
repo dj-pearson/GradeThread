@@ -232,7 +232,7 @@ export function AdminKeywordResearchPage() {
               />
             </div>
             <Select value={theme} onValueChange={setTheme}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger aria-label="Filter keywords by theme" className="w-44">
                 <SelectValue placeholder="Theme" />
               </SelectTrigger>
               <SelectContent>
@@ -245,7 +245,7 @@ export function AdminKeywordResearchPage() {
               </SelectContent>
             </Select>
             <Select value={competition} onValueChange={setCompetition}>
-              <SelectTrigger className="w-44">
+              <SelectTrigger aria-label="Filter keywords by competition level" className="w-44">
                 <SelectValue placeholder="Competition" />
               </SelectTrigger>
               <SelectContent>

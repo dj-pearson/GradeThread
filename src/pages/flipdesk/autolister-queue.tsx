@@ -683,7 +683,7 @@ export function FlipdeskAutolisterQueuePage() {
                 onValueChange={(v) =>
                   setQueueFilter(v as "all" | "ready" | "review" | "failed")}
               >
-                <SelectTrigger className="h-9 w-[140px]">
+                <SelectTrigger aria-label="Filter drafts by status" className="h-9 w-[140px]">
                   <SelectValue placeholder="Filter" />
                 </SelectTrigger>
                 <SelectContent>
@@ -698,7 +698,7 @@ export function FlipdeskAutolisterQueuePage() {
                 onValueChange={(v) =>
                   setQueueSort(v as "confidence" | "price" | "status")}
               >
-                <SelectTrigger className="h-9 w-[150px]">
+                <SelectTrigger aria-label="Sort drafts" className="h-9 w-[150px]">
                   <SelectValue placeholder="Sort" />
                 </SelectTrigger>
                 <SelectContent>

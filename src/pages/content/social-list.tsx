@@ -52,7 +52,7 @@ export function SocialListPage() {
 
       <div className="flex gap-2">
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger aria-label="Filter social posts by status" className="w-44">
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
@@ -65,7 +65,7 @@ export function SocialListPage() {
           </SelectContent>
         </Select>
         <Select value={product} onValueChange={setProduct}>
-          <SelectTrigger className="w-44">
+          <SelectTrigger aria-label="Filter social posts by product" className="w-44">
             <SelectValue placeholder="All products" />
           </SelectTrigger>
           <SelectContent>

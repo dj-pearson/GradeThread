@@ -401,6 +401,7 @@ function ThresholdCard() {
       </CardHeader>
       <CardContent className="flex flex-wrap items-center gap-3">
         <Input
+          aria-label="Conflict email alert threshold"
           type="number"
           min={1}
           className="w-28"

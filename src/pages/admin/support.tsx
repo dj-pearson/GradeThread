@@ -260,7 +260,7 @@ export function AdminSupportPage() {
           </p>
         </div>
         <Select value={filter} onValueChange={(v) => setFilter(v as StatusFilter)}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-48" aria-label="Filter conversations by status">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -446,6 +446,7 @@ export function AdminSupportPage() {
                 {/* Reply + resolve controls */}
                 <div className="space-y-2 border-t p-4">
                   <Textarea
+                    aria-label="Reply to conversation"
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
                     placeholder="Reply as a human support agent…"
