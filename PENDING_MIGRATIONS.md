@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00574_headwear_brand_knowledge.sql (US-2221 — the KB learns to size a hat)
+## ✅ APPLIED: 00574_headwear_brand_knowledge.sql (US-2221 — the KB learns to size a hat, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00573", applied: "00574", status: "ahead"}` — the database's own answer. The running edge image predates the 00574 version bump, which is why it reads "ahead"; that is the safe direction and it resolves on the next edge deploy.
 
 **Risk: LOW. It is four `insert ... on conflict do nothing` statements into
 reference tables.** No table, column, constraint, index, policy or function is
@@ -560,8 +562,8 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**NOTHING IS HELD.** 00564 through 00573 were applied to prod on 2026-08-09 and
-measured the same hour; every section in this file is now APPLIED. Below the line
+**NOTHING IS HELD.** 00564 through 00574 were applied to prod on 2026-08-09 and
+measured as they went; every section in this file is now APPLIED. Below the line
 is the older history:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
