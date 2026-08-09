@@ -1247,6 +1247,31 @@ const BRAND_ALIASES: Record<string, string> = {
   goorin: "Goorin Bros.",
   goorinbros: "Goorin Bros.", // brandKey("Goorin Bros.") strips the period
   goorinbrothers: "Goorin Bros.", // the 1921-1949 registered form, still on labels
+
+  // US-2221 eyewear group (migration 00575). Also absent from the KB entirely.
+  //
+  // NONE of these four is added to DETECT_EXCLUDED_FROM_TEXT, and that was
+  // checked rather than assumed. "Oakley" is the only near-miss — it is a
+  // surname (Annie Oakley) and a California city — but the false positive is
+  // rare in clothing copy while the true positive is one of the most common
+  // eyewear strings there is, and nothing in the KB's own seeded prose emits it
+  // in the other sense. That is the opposite balance to "New Era" (00574),
+  // where the phrase is stock marketing copy AND clusters in the brand's own
+  // category. Revisit if western-wear listings start mis-branding.
+  rayban: "Ray-Ban", // brandKey("Ray-Ban") strips the hyphen
+  raybans: "Ray-Ban", // the plural is how sellers actually type it
+  raybansunglasses: "Ray-Ban",
+  // ⚠ a bare "ray" is DELIBERATELY ABSENT — a first name and an ordinary noun.
+  // ⚠ "RB" is DELIBERATELY ABSENT as an alias: it is the DECODER prefix, and a
+  // two-letter key is the worst possible false positive. The decoder recovers
+  // the brand from RB3025 inside an already-resolved pack; a bare "RB" in a
+  // brand field means nothing.
+  oakley: "Oakley",
+  oakleysunglasses: "Oakley",
+  persol: "Persol",
+  warbyparker: "Warby Parker",
+  // ⚠ a bare "warby" is DELIBERATELY ABSENT — half a brand name is not a brand,
+  // and the full form is what every tag and listing carries.
 };
 
 /**

@@ -6,6 +6,7 @@ status: current
 source_of_truth: vault
 code_refs:
   - supabase/migrations/00574_headwear_brand_knowledge.sql
+  - supabase/migrations/00575_eyewear_brand_knowledge.sql
   - services/edge-functions/src/tests/headwear-content_test.ts
 reviewed: 2026-08-09
 tags: [brands, sizing, contract]
@@ -54,6 +55,28 @@ Two corollaries that have already caught mistakes:
   a 9FIFTY snapback is published only as an overall span, so those charts are
   seeded as spans. Converting a snapback's `S-M` into a fitted 7 1/4 is inventing
   a measurement the maker never made.
+
+## The inverse case: eyewear needs no chart at all
+
+Added 2026-08-09 with the eyewear pack (`00575`). It is the same category of
+product — an accessory worn on the head — and it behaves the opposite way, which
+is what makes the rule above about *labels* rather than about hats.
+
+A frame carries its own measurements, imprinted on the inside of the temple:
+**lens width, bridge width, temple length, in millimetres** (`58□14 135`). That
+format is an industry standard, not a brand's scheme, so:
+
+- there is nothing to look up, and `00575` seeds **no size chart at all** — a
+  seeded one would be invented;
+- the numbers *are* comparable across brands, because they are measurements
+  rather than labels;
+- and for the same reason the triplet is **useless as brand evidence** — every
+  maker prints it. It is refused as a decoder in [[brand-kb-decoder-bar]].
+
+So: **a hat's size is a brand's label and cannot be converted; a frame's size is
+a measurement and needs no conversion.** The dividing question is not the
+category, it is whether the number on the item is a measurement or a name for
+one.
 
 ## Why this is a contract and not a comment
 

@@ -7,6 +7,7 @@ source_of_truth: vault
 code_refs:
   - supabase/migrations/00460_luxury_outerwear_brand_knowledge.sql
   - supabase/migrations/00574_headwear_brand_knowledge.sql
+  - supabase/migrations/00575_eyewear_brand_knowledge.sql
 reviewed: 2026-08-09
 tags: [brands, grading, decoder, contract]
 summary: A style code becomes a decoder only if it is tag-printed AND regular AND brand-unique in format; the third test is the one that fails, and failing it mints false positives.
@@ -41,6 +42,10 @@ from any tag that happens to carry a similar-shaped string.
 | Lee `101`, Chanel serial, Moncler serial, Balenciaga tab | ✓ | ✓ | **✗** | **No** — bare digit runs |
 | Canada Goose hologram number | ✓ | ✓ | **✗** | **No** — bare digit run, and not proof of anything |
 | New Era `5950` | ✓ | ✓ | **✗** | **No** — bare digit run, *and* it names the silhouette (see below) |
+| Ray-Ban `RB3025` / Oakley `OO9102` / Persol `PO0714S` | ✓ | ✓ | ✓ | **Yes** — per-brand prefixes, despite one shared parent (see below) |
+| Ray-Ban `RX5154` / Oakley `OX8046` (optical) | ✓ | ✓ | **✗** | **No** — `RX` is the whole industry's word for a prescription |
+| Eyewear size triplet `58□14 135` | ✓ | ✓ | **✗** | **No** — an industry standard, so it identifies nobody |
+| Warby Parker `Percey` / `Durand` | ✓ | ✓ | **✗** | **No** — a bare surname; the Rag & Bone `Fit 2` refusal |
 
 ### The Reebok case is the clearest argument for the third test
 
@@ -109,6 +114,36 @@ sticker**, which is removable by design — New Era does not sell replacements, 
 loose stickers circulate. The mark that identifies the unit is on the part that
 comes off before resale, exactly like a handbag hangtag. A sticker is not
 evidence about the cap under it.
+
+### A shared parent does not always sink a code — ask whose prefix it is
+
+Added 2026-08-09 from the eyewear pack (`00575`, US-2221 AC3), which is the
+counter-example to the URBN refusal and worth holding beside it.
+
+Ray-Ban, Oakley and Persol are all Luxottica brands. That is the same corporate
+shape as URBN's `OB######`, where a parent-wide identifier could not attribute a
+sibling — so the expectation going in was another refusal. **All three passed.**
+
+The difference is whose mark the prefix is. `OB` was URBN's, so it named the
+parent and could have spelled "Urban Outfitters" onto a Free People. `RB` is
+Ray-Ban's, `OO` is Oakley's, `PO` is Persol's; no sibling emits another's
+prefix. *The parent is shared; the identifier is not.*
+
+Three properties made these the strongest decoders in the corpus:
+
+- **The mark is on the frame, not on a tag.** The code is imprinted inside the
+  temple arm — Ray-Ban's own site states the format and the location. There is no
+  tag to cut and no hangtag to lose. That beats even 00468's Fossil case-back.
+- **The pattern is prefix-anchored**, which is the Fossil safety rule at a much
+  larger blast radius. Luxottica makes licensed frames for houses that are
+  *already canonical in this KB* (Prada `PR`, Versace `VE`, Michael Kors `MK`), so
+  a permissive `[A-Z]{2}\d{4}` would decode one and then spell "Ray-Ban" over a
+  correct answer with decoder authority. The anchors are asserted by running them
+  against those sibling codes, not by comment.
+- **The optical prefixes are refused.** `RX5154` and `OX8046` are just as
+  tag-printed and just as regular — and `RX` is the universal abbreviation for a
+  prescription. It names the *category*. Losing the optical line is a real cost
+  and it is correct: declining beats false-firing.
 
 ## What to do with a code that fails the bar
 

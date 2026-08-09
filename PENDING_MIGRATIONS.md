@@ -1,5 +1,48 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00575_eyewear_brand_knowledge.sql (US-2221 AC3 — three decoders that pass the bar, and four that do not)
+
+**Risk: LOW. It is three `insert ... on conflict do nothing` statements into
+reference tables.** No table, column, constraint, index, policy or function is
+created, altered or dropped. Nothing existing is read, rewritten or backfilled.
+The rows land in `brand_knowledge`, `brand_style_codes` and `brand_styles` —
+global operator tables with RLS enabled and zero policies, so only the edge
+service-role client sees them.
+
+**Apply order: AFTER 00574.** No dependency, just NNNNN order.
+
+**NOT push-blocking, and nothing waits on it.** Ray-Ban, Oakley, Persol and Warby
+Parker have always fallen through the resolver, so an old database under new code
+behaves as it does today: the in-code alias table shipping in the same commit
+resolves the brand, and the DB rows add the decoders and styles on top. The
+frontend reads none of it.
+
+**⚠ THIS PACK SEEDS DECODERS, WHICH IS THE ONE THING IN A BRAND PACK THAT CAN
+OVERRIDE A CORRECT ANSWER.** Decoder authority outranks the AI on conflict. Three
+are added — `^RB\d{4}$`, `^OO\d{4}$`, `^PO\d{4}[A-Z]{0,2}$` — and every one is
+PREFIX-ANCHORED on purpose. Ray-Ban, Oakley and Persol share one parent
+(Luxottica) which also makes licensed frames for houses already canonical in this
+KB, so a permissive two-letter pattern would decode a Prada or a Versace and spell
+"Ray-Ban" over it. The anchors are asserted by RUNNING them against those sibling
+codes in `eyewear-content_test.ts`, not by comment.
+
+**What it adds.** 4 brand rows, 3 decoders, 9 style rows. No size charts,
+deliberately: a frame's size is printed on the frame in millimetres, so there is
+nothing to look up and a chart would be invented. A test asserts that absence so
+it does not read as an omission.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00575` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00575';` and the same for `brand_style_codes` and `brand_styles`.
+Every row carries that marker.
+
+---
+
 ## ✅ APPLIED: 00574_headwear_brand_knowledge.sql (US-2221 — the KB learns to size a hat, applied 2026-08-09 — MEASURED)
 
 **Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00573", applied: "00574", status: "ahead"}` — the database's own answer. The running edge image predates the 00574 version bump, which is why it reads "ahead"; that is the safe direction and it resolves on the next edge deploy.

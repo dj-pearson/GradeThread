@@ -277,8 +277,23 @@ Deno.test("US-1984: MOTHER and FRAME are never minted out of prose", () => {
     null,
     "an ordinary-word brand is never guessed from prose",
   );
+  // ⚠ THIS FIXTURE CHANGED MEANING UNDER US-2221 (00575), and the change is the
+  // interesting part. It asserted `null` — but the string names Ray-Ban, and
+  // `null` was only correct because Ray-Ban was not yet in the KB. The property
+  // being tested was never "this string has no brand"; it was "the common noun
+  // `frame` does not mint FRAME". The assertion had quietly encoded an ABSENCE
+  // IN THE DATA as if it were a property of the code, so seeding an unrelated
+  // brand pack reddened it.
+  //
+  // Now asserted directly, in both directions: the real brand wins where there
+  // is one, and a genuinely brand-free string still yields nothing.
   assertEquals(
     detectBrandInText("Ray-Ban gold frame sunglasses"),
+    "Ray-Ban",
+    "the real brand in the string wins; 'frame' is a common noun here",
+  );
+  assertEquals(
+    detectBrandInText("gold frame sunglasses, unbranded, good condition"),
     null,
     "'frame' as a common noun must not mint FRAME",
   );
