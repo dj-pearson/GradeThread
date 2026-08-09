@@ -30,6 +30,7 @@
 // Pure — no network, no DB, no model.
 
 import type { AuthenticationTell } from "./brand-authenticity.ts";
+import { UNVERIFIED_SOURCE_PREFIX } from "./brand-authenticity.ts";
 
 /**
  * What a brand's tells can actually DO for a verdict.
@@ -40,7 +41,7 @@ import type { AuthenticationTell } from "./brand-authenticity.ts";
  *                 This is the state of every legacy-shaped pack row.
  *   actionable  — at least one tell carries a real category or a red flag.
  */
-export type TellCoverageLevel = "none" | "inert" | "actionable";
+export type TellCoverageLevel = "none" | "inert" | "unverified" | "actionable";
 
 /**
  * A tell is ACTIONABLE when it can move a verdict: it names a specific category
@@ -54,10 +55,38 @@ export function isActionableTell(tell: AuthenticationTell): boolean {
   return tell.category !== "other" || !!tell.redFlag;
 }
 
+/**
+ * Has a human confirmed this tell against a source? (US-2139 AC4)
+ *
+ * THE GAP THIS CLOSES. `isActionableTell` asks whether a tell CAN move a
+ * verdict — does it name a category, does it carry a red flag. It never asked
+ * whether anyone had checked that the tell is TRUE. So the three brands with
+ * structured tells classified as fully covered and took no confidence cap at
+ * all, even though every one of their seven tells is sourced to
+ * "seed:brand-authentication-tells (unverified — review in admin)". A paid
+ * authenticity verdict was riding at full confidence on unreviewed seed data.
+ *
+ * The rule is the `seed:` prefix, keyed on the exported constant rather than a
+ * re-typed literal. That is the convention brand-authenticity.ts already
+ * established, and the US-1715 verify queue's job is to REPLACE the source with
+ * a real citation — so "source still starts with seed:" means "no human has
+ * signed this off", which is exactly the question.
+ *
+ * A tell with NO source at all is also unverified. An unsourced claim is not
+ * better than a self-declared draft.
+ */
+export function isVerifiedTell(tell: AuthenticationTell): boolean {
+  const src = (tell.source ?? "").trim();
+  if (src.length === 0) return false;
+  return !src.startsWith(UNVERIFIED_SOURCE_PREFIX);
+}
+
 export interface TellCoverage {
   level: TellCoverageLevel;
   total: number;
   actionable: number;
+  /** US-2139 AC4: actionable tells a human has signed off against a source. */
+  verified: number;
   /** Distinct non-"other" categories represented. */
   categories: string[];
 }
@@ -66,6 +95,10 @@ export function classifyTellCoverage(
   tells: readonly AuthenticationTell[],
 ): TellCoverage {
   const actionable = tells.filter(isActionableTell);
+  // US-2139 AC4: actionable AND signed off by a human. Both conditions on the
+  // SAME tell — one verified descriptive note plus one unreviewed structured
+  // tell is not a brand we have verified criteria for.
+  const verified = actionable.filter(isVerifiedTell);
   const categories = [
     ...new Set(tells.map((t) => t.category).filter((c) => c !== "other")),
   ].sort();
@@ -73,8 +106,16 @@ export function classifyTellCoverage(
     ? "none"
     : actionable.length === 0
     ? "inert"
+    : verified.length === 0
+    ? "unverified"
     : "actionable";
-  return { level, total: tells.length, actionable: actionable.length, categories };
+  return {
+    level,
+    total: tells.length,
+    actionable: actionable.length,
+    verified: verified.length,
+    categories,
+  };
 }
 
 /**
@@ -88,10 +129,22 @@ export function classifyTellCoverage(
  */
 export const COVERAGE_CAP_NONE = 0.6;
 export const COVERAGE_CAP_INERT = 0.75;
+/**
+ * US-2139 AC4. Structured, checkable tells that nobody has verified.
+ *
+ * A BAND, NOT A MEASUREMENT — the same discipline the two caps above are
+ * written under. It sits between them and 1.0 because an unreviewed structured
+ * tell is genuinely more use than a descriptive note (a finding can still be
+ * attributed to a category) and genuinely less than a confirmed one (nobody has
+ * checked it is true). The golden set (US-2131) has not measured what that
+ * difference costs, so this does not pretend to know.
+ */
+export const COVERAGE_CAP_UNVERIFIED = 0.85;
 
 export function coverageConfidenceCap(level: TellCoverageLevel): number {
   if (level === "none") return COVERAGE_CAP_NONE;
   if (level === "inert") return COVERAGE_CAP_INERT;
+  if (level === "unverified") return COVERAGE_CAP_UNVERIFIED;
   return 1;
 }
 

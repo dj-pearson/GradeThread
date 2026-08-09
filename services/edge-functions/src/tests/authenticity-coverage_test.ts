@@ -36,6 +36,8 @@ const {
   COVERAGE_CAP_INERT,
   COVERAGE_CAP_NONE,
   isActionableTell,
+  isVerifiedTell,
+  COVERAGE_CAP_UNVERIFIED,
   purchaseDisclosure,
 } = await import("../lib/authenticity-coverage.ts");
 const { coerceTell, normalizeTells } = await import("../lib/brand-authenticity.ts");
@@ -54,6 +56,17 @@ const STRUCTURED = [
     check: "Inspect under good light.",
     redFlag: "Blurred or uneven letterforms.",
     confidence: 0.6,
+  },
+];
+
+// US-2139 AC4: the same tell, signed off against a real source. Everything
+// below that used to mean "real coverage" now uses this one — STRUCTURED is
+// unsourced, and unsourced is precisely the state of all seven seeded tells in
+// the corpus.
+const VERIFIED = [
+  {
+    ...STRUCTURED[0],
+    source: "https://example.test/brand-authentication-guide",
   },
 ];
 
@@ -76,7 +89,59 @@ Deno.test("US-2219: a legacy pack row is INERT — it cannot move a verdict", ()
 Deno.test("US-2219: a categorized tell is actionable", () => {
   const t = coerceTell(STRUCTURED[0])!;
   assertEquals(isActionableTell(t), true);
-  assertEquals(classifyTellCoverage([t]).level, "actionable");
+  // US-2139 AC4: ACTIONABLE is not the same as VERIFIED, and it used to be
+  // treated as if it were. Unsourced structured tells now stop one band short.
+  assertEquals(classifyTellCoverage([t]).level, "unverified");
+  assertEquals(classifyTellCoverage([coerceTell(VERIFIED[0])!]).level, "actionable");
+});
+
+// ── 1b. US-2139 AC4: verified is a separate question from actionable ───────
+
+Deno.test("US-2139 AC4: a seed-sourced tell is NOT verified", () => {
+  // The live defect this closes. All seven seeded tells carry
+  // "seed:brand-authentication-tells (unverified — review in admin)", so three
+  // brands were taking NO confidence cap on unreviewed data.
+  const seeded = coerceTell({
+    ...STRUCTURED[0],
+    source: "seed:brand-authentication-tells (unverified — review in admin)",
+  })!;
+  assertEquals(isActionableTell(seeded), true);
+  assertEquals(isVerifiedTell(seeded), false);
+  assertEquals(classifyTellCoverage([seeded]).level, "unverified");
+});
+
+Deno.test("US-2139 AC4: an UNSOURCED tell is not verified either", () => {
+  // An unsourced claim is not better than a self-declared draft.
+  assertEquals(isVerifiedTell(coerceTell(STRUCTURED[0])!), false);
+  assertEquals(isVerifiedTell(coerceTell({ ...STRUCTURED[0], source: "   " })!), false);
+});
+
+Deno.test("US-2139 AC4: the cap sits between inert and full, and only lowers", () => {
+  assert(COVERAGE_CAP_UNVERIFIED > COVERAGE_CAP_INERT);
+  assert(COVERAGE_CAP_UNVERIFIED < 1);
+  assertEquals(coverageConfidenceCap("unverified"), COVERAGE_CAP_UNVERIFIED);
+  assertEquals(coverageConfidenceCap("actionable"), 1);
+});
+
+Deno.test("US-2139 AC4: BOTH conditions must hold on the SAME tell", () => {
+  // One verified descriptive note plus one unreviewed structured tell is not a
+  // brand we have verified criteria for. Counting them separately would let a
+  // pack launder itself to full coverage with two half-qualifying entries.
+  const verifiedButInert = coerceTell({
+    claim: "x",
+    detail: "y",
+    source: "https://example.test/real",
+  })!;
+  const structuredButSeeded = coerceTell({
+    ...STRUCTURED[0],
+    source: "seed:whatever",
+  })!;
+  assertEquals(isVerifiedTell(verifiedButInert), true);
+  assertEquals(isActionableTell(verifiedButInert), false);
+  assertEquals(
+    classifyTellCoverage([verifiedButInert, structuredButSeeded]).level,
+    "unverified",
+  );
 });
 
 Deno.test("US-2219: a red flag alone makes an uncategorized tell actionable", () => {
@@ -97,9 +162,10 @@ Deno.test("US-2219: no tells at all is 'none', distinct from 'inert'", () => {
 });
 
 Deno.test("US-2219: coverage reports the categories it actually has", () => {
-  const c = classifyTellCoverage([coerceTell(STRUCTURED[0])!, ...normalizeTells(LEGACY)]);
+  const c = classifyTellCoverage([coerceTell(VERIFIED[0])!, ...normalizeTells(LEGACY)]);
   assertEquals(c.level, "actionable");
   assertEquals(c.actionable, 1);
+  assertEquals(c.verified, 1);
   assertEquals(c.total, 3);
   assertEquals(c.categories, ["stamp"]);
 });
@@ -118,7 +184,7 @@ Deno.test("US-2219: thin coverage is disclosed without accusing the item", () =>
 });
 
 Deno.test("US-2219: actionable coverage adds no limitation", () => {
-  assertEquals(coverageLimitation(classifyTellCoverage([coerceTell(STRUCTURED[0])!])), "");
+  assertEquals(coverageLimitation(classifyTellCoverage([coerceTell(VERIFIED[0])!])), "");
 });
 
 Deno.test("US-2219: a PAID offer for a thin brand carries a mandatory disclosure", () => {
@@ -127,7 +193,7 @@ Deno.test("US-2219: a PAID offer for a thin brand carries a mandatory disclosure
   assert(purchaseDisclosure(classifyTellCoverage([])) !== null);
   assert(purchaseDisclosure(classifyTellCoverage(normalizeTells(LEGACY))) !== null);
   // ...and none when the coverage is real.
-  assertEquals(purchaseDisclosure(classifyTellCoverage([coerceTell(STRUCTURED[0])!])), null);
+  assertEquals(purchaseDisclosure(classifyTellCoverage([coerceTell(VERIFIED[0])!])), null);
 });
 
 Deno.test("US-2219: the purchase disclosure says confidence is capped", () => {

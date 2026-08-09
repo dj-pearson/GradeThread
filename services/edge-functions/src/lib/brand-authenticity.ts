@@ -170,6 +170,17 @@ export function mergeTells(
 // Widely-documented, low-controversy tells as a STARTING POINT. Modest
 // confidence + a 'needs review' source so a reviewer verifies them via the admin
 // surface (the KB's AI-drafted-then-human-verified model). Keyed by brand_key.
+/**
+ * The `seed:` prefix is the convention that marks a tell as SEEDED BUT NOT YET
+ * REVIEWED. Exported (US-2139 AC4) because authenticity-coverage.ts now has to
+ * tell a verified tell from an unverified one, and keying that on a re-typed
+ * string literal is how the two drift apart.
+ *
+ * When the US-1715 admin verify queue confirms a tell, it must REPLACE this
+ * source with a real citation. A tell whose source still starts with `seed:`
+ * has not been through a human, whatever else is true of it.
+ */
+export const UNVERIFIED_SOURCE_PREFIX = "seed:";
 const REVIEW_SRC = "seed:brand-authentication-tells (unverified — review in admin)";
 
 export const CANONICAL_TELLS: Record<string, AuthenticationTell[]> = {
