@@ -57,6 +57,7 @@ const GARMENT_FIELDS: Record<MeasurementGroup, { key: string; label: string }[]>
   // for body measurements, and neither a bag nor a tie fits a body.
   bag: [],
   accessory: [],
+  headwear: [],
   generic: [],
 };
 
@@ -69,6 +70,7 @@ const BODY_FIELDS: Record<MeasurementGroup, string[]> = {
   watch: [],
   bag: [],
   accessory: [],
+  headwear: [],
   generic: [],
 };
 

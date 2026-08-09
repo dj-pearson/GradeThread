@@ -20,6 +20,9 @@ export type MeasurementGroup =
   // (length + width, both optional) — a belt listed without a wearable range is
   // a belt nobody can buy with confidence.
   | "accessory"
+  // US-2223 AC2. Hats are sold on head circumference; crown height and brim
+  // length are what separate two caps that both say 7 3/8.
+  | "headwear"
   | "generic";
 
 export type MeasurementUnit = "length" | "shoe" | "mm";
@@ -94,6 +97,16 @@ export const MEASUREMENT_TEMPLATES: Record<
   // `hole_span` is optional and belt-only, and it is first-to-last hole rather
   // than a hole COUNT: the count tells a buyer nothing without the spacing, and
   // the span is the number that answers "will this fit me".
+  // Circumference is the one that must be measured, and it is a LENGTH rather
+  // than a size: a fitted cap's "7 3/8" belongs in the item's size field, not
+  // here, because it is a size label and not something anyone put a tape to.
+  // Half of resale headwear is snapback or strapback and has no numeric size at
+  // all, so a size-only template would leave those unmeasurable.
+  headwear: [
+    { key: "circumference", label: "Head circumference (inside)", unit: "length", required: true },
+    { key: "crown_height", label: "Crown height", unit: "length", required: false },
+    { key: "brim_length", label: "Brim length", unit: "length", required: false },
+  ],
   accessory: [
     { key: "length", label: "Length", unit: "length", required: true },
     { key: "width", label: "Width", unit: "length", required: true },
@@ -122,6 +135,11 @@ export function measurementGroupFor(
   // and "belt" cannot be claimed by a later branch. `sock` is deliberately
   // ABSENT — socks are sold by size, not by measurement, and adding them here
   // would ask a seller to measure something nobody publishes.
+  // US-2223: before accessories, because "cap" and "hat" are the nouns here and
+  // a "bucket hat" must not be claimed by anything else. `visor` is included —
+  // it has a brim and a band and nothing else, which this template covers.
+  if (/(hat|cap|beanie|snapback|fitted|trucker|visor|fedora|beret|bucket.?hat|headwear|balaclava)/.test(c))
+    return "headwear";
   if (/(tie|necktie|bow.?tie|belt|scarf|scarves|glove|mitten|shawl|pocket.?square|cravat|ascot|suspender)/.test(c))
     return "accessory";
   if (/(shoe|sneaker|boot|sandal|footwear|loafer|mule|clog|slipper)/.test(c)) return "shoes";

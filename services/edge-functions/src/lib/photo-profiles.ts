@@ -322,6 +322,31 @@ const BAGS: PhotoProfile = {
 // The generic "Detail" slot stays and is relabelled to say what it is FOR here.
 // Leaving it as "Detail" next to two specific slots invites the seller to put
 // the edge shot in the wrong one.
+// US-2223 AC3. Grading a cap from front/back/label alone cannot see the
+// sweatband, which is where the wear is — the story's own words and the reason
+// this profile exists rather than falling through to the clothing default.
+//
+// `interior` IS the sweatband shot: it is the existing role for "turn it over
+// and show the inside", and inventing a `sweatband` storage type would need an
+// image_type enum migration for a photo the existing role already describes.
+// Its label says so, because "Interior" alone does not tell a seller to
+// photograph the one thing a buyer checks first.
+//
+// Inert alongside the rubric until item_category gains 'headwear'.
+const HEADWEAR: PhotoProfile = {
+  category: "headwear",
+  label: "Hats & caps",
+  roles: [
+    role("front", "Front", "Front panel and logo, straight on", true, "image"),
+    role("back", "Back", "Back panel and closure", true, "image"),
+    role("interior", "Sweatband", "Turn it over — the interior band, where wear shows first and every buyer looks", false, "layers"),
+    role("angle", "Crown & Brim", "Three-quarter view showing crown shape and brim curve together", false, "scan"),
+    role("detail", "Graphics", "Close on the embroidery or print", false, "search"),
+    role("tag", "Size / Brand Tag", "Interior size or brand label", false, "tag"),
+    DEFECT,
+  ],
+};
+
 const ACCESSORIES: PhotoProfile = {
   category: "accessories",
   label: "Accessories",
@@ -357,6 +382,7 @@ export const PHOTO_PROFILES: Record<string, PhotoProfile> = {
   electronics: ELECTRONICS,
   books: BOOKS,
   bags: BAGS,
+  headwear: HEADWEAR,
   accessories: ACCESSORIES,
   other: OTHER,
 };

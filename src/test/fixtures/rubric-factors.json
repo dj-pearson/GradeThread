@@ -21,6 +21,16 @@
     "src/lib/__tests__/rubrics.test.ts."
   ],
   "rubrics": {
+    "headwear": {
+      "label": "Hats & caps",
+      "factors": [
+        { "key": "crown_structure", "label": "Crown & Structure", "weight": 0.25 },
+        { "key": "brim", "label": "Brim", "weight": 0.25 },
+        { "key": "sweatband", "label": "Sweatband", "weight": 0.2 },
+        { "key": "fabric_graphics", "label": "Fabric & Graphics", "weight": 0.2 },
+        { "key": "hardware_closure", "label": "Hardware & Closure", "weight": 0.1 }
+      ]
+    },
     "accessories": {
       "label": "Ties, belts, scarves & gloves",
       "factors": [

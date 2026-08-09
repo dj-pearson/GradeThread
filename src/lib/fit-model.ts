@@ -86,6 +86,7 @@ const GROUP_DIMS: Record<MeasurementGroup, DimSpec[]> = {
   // from arithmetic nobody validated.
   bag: [],
   accessory: [],
+  headwear: [],
   top: [
     CHEST(TOP_CHEST),
     { name: "shoulder", label: "Shoulder", garmentKeys: ["shoulder"], bodyKey: "shoulder", multiply: 1, bands: SHOULDER },

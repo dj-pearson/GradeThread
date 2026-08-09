@@ -69,6 +69,19 @@ const CLOTHING_RUBRIC: Rubric = {
 
 export const RUBRICS: Record<string, Rubric> = {
   clothing: CLOTHING_RUBRIC,
+  // US-2223. Hats and caps. Inert until item_category gains 'headwear' — the
+  // weights' reasoning is in the server module. Pinned by the fixture.
+  headwear: {
+    key: "headwear",
+    label: "Hats & caps",
+    factors: [
+      { key: "crown_structure", label: "Crown & Structure", weight: 0.25 },
+      { key: "brim", label: "Brim", weight: 0.25 },
+      { key: "sweatband", label: "Sweatband", weight: 0.2 },
+      { key: "fabric_graphics", label: "Fabric & Graphics", weight: 0.2 },
+      { key: "hardware_closure", label: "Hardware & Closure", weight: 0.1 },
+    ],
+  },
   // US-2224. Ties, belts, scarves and gloves share one rubric; the decision and
   // its weakness are recorded in the server module. Pinned by the fixture.
   accessories: {

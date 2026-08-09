@@ -312,6 +312,11 @@ Deno.test("US-2225: a category with its own rubric has photo slots for its heavi
     // glove each fail FIRST, and none of it resolves in a full-length front
     // shot. material_condition (0.30) does read off front/back.
     accessories: ["detail_2"],
+    // US-2223: the sweatband is the story's whole point — "grading a cap from
+    // front/back/label alone cannot see the sweatband, which is where the wear
+    // is". `interior` is that shot. `angle` carries crown and brim together,
+    // which are the two heaviest factors and read badly from a flat front view.
+    headwear: ["interior", "angle"],
   };
   for (const [category, slots] of Object.entries(REQUIRE_SLOTS)) {
     const profile = PHOTO_PROFILES[category];

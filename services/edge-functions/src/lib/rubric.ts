@@ -322,9 +322,70 @@ const ACCESSORIES: Rubric = {
   },
 };
 
+// US-2223. Caps and hats. `hat` is a garment_category and routed into CLOTHING,
+// whose five factors reach none of the places a cap's condition actually lives.
+//
+// ── THE WEIGHTS SPLIT INTO TWO QUESTIONS ────────────────────────────────────
+// brim + crown together are half the score because together they answer "is
+// this still a hat" — a collapsed crown or a cracked brim insert is not
+// recoverable and the cap is worth its logo and nothing else. sweatband and
+// fabric answer "will someone wear it", which is the other half of a resale
+// decision and not the same question.
+//
+// The story calls the sweatband "the first thing to fail and the first thing a
+// buyer inspects", which argues for the top weight. It is 0.20, and the reason
+// is worth stating: it is the most COMMON failure, not the most terminal one. A
+// stained sweatband is close to permanent and will lose a sale, so it must
+// carry real weight — but a cap with a perfect crown and brim and a grim
+// sweatband is still a cap, while the reverse is not.
+//
+// ⚠ INERT UNTIL item_category GAINS 'headwear'. This registry is keyed by
+// item_category and that enum value does not exist yet (US-2223 AC6), so
+// rubricForKey() can never select this today — exactly like the non-clothing
+// rubrics are inert until US-1997 Phase 2. The enum widening is deferred with
+// US-2224's, to keep the held-migration queue from growing while it is
+// unapplied. Recorded here rather than only in a story note, because a future
+// reader will find this rubric before they find the note.
+const HEADWEAR: Rubric = {
+  key: "headwear",
+  label: "Hats & caps",
+  factors: [
+    { key: "crown_structure", label: "Crown & Structure", weight: 0.25, guidance: "Shape retention, panel creasing, crown collapse, buckram stiffness on a structured cap, dents on a felt hat." },
+    { key: "brim", label: "Brim", weight: 0.25, guidance: "Brim shape and whether its curve or flatness is as-made, cracking or delamination of the insert, fraying and wear along the edge." },
+    { key: "sweatband", label: "Sweatband", weight: 0.2, guidance: "The interior band: staining, salt lines, hardening, separation from the crown, odour. The first area to fail and the first a buyer turns the hat over to check." },
+    { key: "fabric_graphics", label: "Fabric & Graphics", weight: 0.2, guidance: "Panel fabric condition, embroidery integrity and pulls, print cracking, fading, moth damage on wool." },
+    { key: "hardware_closure", label: "Hardware & Closure", weight: 0.1, guidance: "Button, eyelets, snapback tab, strap and buckle, flexfit elastic. Score as unassessable rather than perfect when the style has none." },
+  ],
+  promptGuidance:
+    "Grade this hat's condition relative to its as-manufactured state. Turn it over: the sweatband is where the wear is, and a front-and-back pair of photos cannot show it. A flat brim on a flat-brim cap and a curved brim on a curved-brim cap are both as-made — do not read the intended shape as damage. Factory distressing on a vintage-styled cap is design, not wear.",
+  // Reconciled to the shared DefectType taxonomy — nothing invented.
+  defectRouting: {
+    // Salt lines and sweat staining on the band, and the front-panel marks the
+    // story names. Split rather than routed wholly to the band: a stain on a
+    // white front panel is the other place a cap dies.
+    stain: { sweatband: 0.6, fabric_graphics: 0.4 },
+    discoloration: { fabric_graphics: 0.6, sweatband: 0.4 },
+    fading: { fabric_graphics: 1.0 },
+    pilling: { fabric_graphics: 1.0 },
+    snag_pull: { fabric_graphics: 1.0 },
+    abrasion_thinning: { brim: 0.5, fabric_graphics: 0.5 },
+    rip_tear: { fabric_graphics: 0.6, brim: 0.4 },
+    hole_puncture: { fabric_graphics: 1.0 },
+    // The band separating from the crown is the canonical seam failure here.
+    seam_failure_unthreading: { sweatband: 0.5, crown_structure: 0.5 },
+    // A collapsed crown, a brim that has lost its curve, a stretched band.
+    stretched_misshapen: { crown_structure: 0.6, brim: 0.4 },
+    wrinkle_crease: { crown_structure: 0.6, brim: 0.4 },
+    broken_button: { hardware_closure: 1.0 },
+    missing_hardware: { hardware_closure: 1.0 },
+    odor_indicator: { sweatband: 1.0 },
+  },
+};
+
 export const RUBRICS: Record<string, Rubric> = {
   clothing: CLOTHING,
   accessories: ACCESSORIES,
+  headwear: HEADWEAR,
   sports_cards: SPORTS_CARDS,
   watches: WATCHES,
   shoes: SHOES,
@@ -338,6 +399,7 @@ export const NON_CLOTHING_RUBRIC_KEYS = [
   "shoes",
   "bags",
   "accessories",
+  "headwear",
 ] as const;
 
 /**

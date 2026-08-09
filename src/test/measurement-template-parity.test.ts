@@ -71,6 +71,42 @@ describe("US-2225 AC4: bags can actually be measured", () => {
   });
 });
 
+describe("US-2223 AC2: hats can be measured", () => {
+  it("requires the circumference and nothing else", () => {
+    const required = MEASUREMENT_TEMPLATES.headwear
+      .filter((f) => f.required)
+      .map((f) => f.key);
+    expect(required).toEqual(["circumference"]);
+  });
+
+  it("treats circumference as a LENGTH, not a size label", () => {
+    // "7 3/8" is a size label nobody put a tape to, and it belongs in the
+    // item's size field. Half of resale headwear is snapback or strapback with
+    // no numeric size at all, so a size-only template leaves those
+    // unmeasurable — which is why this is a length in inches or centimetres.
+    for (const f of MEASUREMENT_TEMPLATES.headwear) {
+      expect(f.unit, f.key).toBe("length");
+    }
+    expect(MEASUREMENT_TEMPLATES.headwear.map((f) => f.key))
+      .toEqual(["circumference", "crown_height", "brim_length"]);
+  });
+
+  it("routes the words sellers actually type, including visors", () => {
+    for (
+      const c of [
+        "hat", "cap", "beanie", "snapback", "trucker hat",
+        "bucket hat", "fedora", "beret", "visor",
+      ]
+    ) {
+      expect(measurementGroupFor(c), c).toBe("headwear");
+    }
+  });
+
+  it("still loses to bags, which own the noun", () => {
+    expect(measurementGroupFor("hat bag")).toBe("bag");
+  });
+});
+
 describe("US-2224 AC4: ties, belts, scarves and gloves can be measured", () => {
   it("requires the two numbers all four are sold on", () => {
     const required = MEASUREMENT_TEMPLATES.accessory

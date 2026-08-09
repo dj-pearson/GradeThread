@@ -76,6 +76,19 @@ Specs:
 
 {{grade}}
 Ships insured. Questions welcome.`,
+  headwear: `{{brand}} {{title}}
+
+Size: {{size}}
+Color: {{color}}
+Material: {{material}}
+
+Condition: {{condition}}
+
+Measurements:
+{{measurements}}
+
+{{grade}}
+Smoke-free home. Ships fast. Questions welcome.`,
   accessory: `{{brand}} {{title}}
 
 Color: {{color}}
