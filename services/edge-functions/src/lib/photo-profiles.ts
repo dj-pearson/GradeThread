@@ -308,14 +308,30 @@ const BAGS: PhotoProfile = {
   ],
 };
 
+// US-2224: two slots for where these items actually fail.
+//
+// edges_terminations carries 20% of the accessories grade and had no slot: a
+// tie's tipping and keeper, a belt's hole elongation and cut end, a scarf's
+// fringe, a glove's fingertips. None of those resolve in a full-length "front"
+// shot, so the grader was being asked to score an area the seller was never
+// asked to photograph — the same gap US-2225 found on bag corners.
+//
+// `interior` covers the reverse and the lining, which is where a tie's
+// interlining collapse and a glove's lining wear are visible at all.
+//
+// The generic "Detail" slot stays and is relabelled to say what it is FOR here.
+// Leaving it as "Detail" next to two specific slots invites the seller to put
+// the edge shot in the wrong one.
 const ACCESSORIES: PhotoProfile = {
   category: "accessories",
   label: "Accessories",
   roles: [
     role("front", "Front", "Main view in frame", true, "glasses"),
     role("back", "Back", "Reverse view", true, "glasses"),
+    role("detail_2", "Ends & Edges", "Tie tip and keeper, belt holes and cut end, scarf fringe, glove fingertips — this is where wear shows first", false, "scan"),
+    role("detail", "Hardware / Weave", "Buckle and prong, or a close-up of the weave and texture", false, "search"),
+    role("interior", "Reverse / Lining", "Back face or lining — interlining collapse and lining wear", false, "layers"),
     role("tag", "Brand Tag", "Brand / size tag or stamp", false, "tag"),
-    role("detail", "Detail", "Material, hardware, distinctive feature", false, "search"),
     DEFECT,
   ],
 };

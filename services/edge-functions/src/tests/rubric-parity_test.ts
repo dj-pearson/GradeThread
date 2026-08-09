@@ -308,6 +308,10 @@ Deno.test("US-2225: a category with its own rubric has photo slots for its heavi
     // corners_edges (0.30) needs the corner macro; exterior (0.20) is the front
     // and back shots, which every profile already requires.
     bags: ["corner"],
+    // US-2224: edges_terminations (0.20) is where a tie, a belt, a scarf and a
+    // glove each fail FIRST, and none of it resolves in a full-length front
+    // shot. material_condition (0.30) does read off front/back.
+    accessories: ["detail_2"],
   };
   for (const [category, slots] of Object.entries(REQUIRE_SLOTS)) {
     const profile = PHOTO_PROFILES[category];

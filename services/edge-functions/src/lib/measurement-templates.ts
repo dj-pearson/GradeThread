@@ -15,6 +15,11 @@ export type MeasurementGroup =
   // to `generic` (length + width, both optional), so the two numbers a buyer
   // asks for first were not even offered.
   | "bag"
+  // US-2224. Ties, belts, scarves and gloves are sold on two numbers and a
+  // belt on a third. They had no group at all, so they fell to `generic`
+  // (length + width, both optional) — a belt listed without a wearable range is
+  // a belt nobody can buy with confidence.
+  | "accessory"
   | "generic";
 
 export type MeasurementUnit = "length" | "shoe" | "mm";
@@ -82,6 +87,18 @@ export const MEASUREMENT_TEMPLATES: Record<
     { key: "strap_drop", label: "Strap drop", unit: "length", required: false },
     { key: "handle_drop", label: "Handle drop", unit: "length", required: false },
   ],
+  // Length and width are REQUIRED because every one of these four is sold on
+  // them: a tie's length and blade width, a belt's length and width, a scarf's
+  // two dimensions, a glove's length and palm width.
+  //
+  // `hole_span` is optional and belt-only, and it is first-to-last hole rather
+  // than a hole COUNT: the count tells a buyer nothing without the spacing, and
+  // the span is the number that answers "will this fit me".
+  accessory: [
+    { key: "length", label: "Length", unit: "length", required: true },
+    { key: "width", label: "Width", unit: "length", required: true },
+    { key: "hole_span", label: "First to last hole (belts)", unit: "length", required: false },
+  ],
   generic: [
     { key: "length", label: "Length", unit: "length", required: false },
     { key: "width", label: "Width", unit: "length", required: false },
@@ -101,6 +118,12 @@ export function measurementGroupFor(
   // an insole length.
   if (/(bag|purse|tote|clutch|satchel|crossbody|backpack|rucksack|duffel|duffle|handbag|hobo|pouch|wallet|briefcase)/.test(c))
     return "bag";
+  // US-2224: after bags (a "tie bag" is a bag) and before shoes, so "glove"
+  // and "belt" cannot be claimed by a later branch. `sock` is deliberately
+  // ABSENT — socks are sold by size, not by measurement, and adding them here
+  // would ask a seller to measure something nobody publishes.
+  if (/(tie|necktie|bow.?tie|belt|scarf|scarves|glove|mitten|shawl|pocket.?square|cravat|ascot|suspender)/.test(c))
+    return "accessory";
   if (/(shoe|sneaker|boot|sandal|footwear|loafer|mule|clog|slipper)/.test(c)) return "shoes";
   if (/watch/.test(c)) return "watch";
   if (/(dress|romper|jumpsuit|maxi|mini|midi)/.test(c)) return "dress";

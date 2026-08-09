@@ -79,8 +79,13 @@ const CHEST = (bands: CircBands): DimSpec => ({
 });
 
 const GROUP_DIMS: Record<MeasurementGroup, DimSpec[]> = {
-  // US-2225: bags have no body dimension to fit against — see `shoes`/`watch`.
+  // US-2225/US-2224: no body dimension to fit against — see `shoes`/`watch`.
+  // A belt is the one arguable case (it does have a wearable waist range) but
+  // that range is `hole_span` on the measurement template, not a garment-vs-body
+  // comparison, and inventing a band for it here would produce a fit verdict
+  // from arithmetic nobody validated.
   bag: [],
+  accessory: [],
   top: [
     CHEST(TOP_CHEST),
     { name: "shoulder", label: "Shoulder", garmentKeys: ["shoulder"], bodyKey: "shoulder", multiply: 1, bands: SHOULDER },

@@ -76,6 +76,18 @@ Specs:
 
 {{grade}}
 Ships insured. Questions welcome.`,
+  accessory: `{{brand}} {{title}}
+
+Color: {{color}}
+Material: {{material}}
+
+Condition: {{condition}}
+
+Measurements:
+{{measurements}}
+
+{{grade}}
+Smoke-free home. Ships fast. Questions welcome.`,
   bag: `{{brand}} {{title}}
 
 Color: {{color}}

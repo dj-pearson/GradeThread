@@ -21,6 +21,16 @@
     "src/lib/__tests__/rubrics.test.ts."
   ],
   "rubrics": {
+    "accessories": {
+      "label": "Ties, belts, scarves & gloves",
+      "factors": [
+        { "key": "material_condition", "label": "Material Condition", "weight": 0.3 },
+        { "key": "structure_shape", "label": "Structure & Shape", "weight": 0.25 },
+        { "key": "edges_terminations", "label": "Edges & Terminations", "weight": 0.2 },
+        { "key": "hardware_fastening", "label": "Hardware & Fastening", "weight": 0.15 },
+        { "key": "cleanliness", "label": "Cleanliness", "weight": 0.1 }
+      ]
+    },
     "bags": {
       "label": "Handbag & leather goods",
       "factors": [

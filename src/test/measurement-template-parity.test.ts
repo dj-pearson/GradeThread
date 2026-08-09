@@ -71,6 +71,46 @@ describe("US-2225 AC4: bags can actually be measured", () => {
   });
 });
 
+describe("US-2224 AC4: ties, belts, scarves and gloves can be measured", () => {
+  it("requires the two numbers all four are sold on", () => {
+    const required = MEASUREMENT_TEMPLATES.accessory
+      .filter((f) => f.required)
+      .map((f) => f.key);
+    expect(required).toEqual(["length", "width"]);
+  });
+
+  it("offers a belt's wearable range as a SPAN, not a hole count", () => {
+    // A hole count tells a buyer nothing without the spacing. First-to-last
+    // hole is the number that answers "will this fit me".
+    const span = MEASUREMENT_TEMPLATES.accessory.find((f) => f.key === "hole_span");
+    expect(span).toBeDefined();
+    expect(span!.required).toBe(false);
+    expect(span!.label.toLowerCase()).toContain("hole");
+  });
+
+  it("routes the four categories, and the words sellers actually type", () => {
+    for (
+      const c of [
+        "tie", "necktie", "bow tie", "belt", "scarf", "scarves",
+        "gloves", "mittens", "shawl", "pocket square", "suspenders",
+      ]
+    ) {
+      expect(measurementGroupFor(c), c).toBe("accessory");
+    }
+  });
+
+  it("does not claim socks", () => {
+    // Deliberately absent: socks sell by size, not by measurement, and asking
+    // a seller to measure one would ask for a number nobody publishes.
+    expect(measurementGroupFor("socks")).toBe("generic");
+  });
+
+  it("loses to bags, which is the right precedence", () => {
+    // A "tie bag" is a bag. Bags are tested first for exactly this reason.
+    expect(measurementGroupFor("tie bag")).toBe("bag");
+  });
+});
+
 describe("US-2225: routing a bag to the bag template", () => {
   it("recognises the words sellers actually use", () => {
     for (

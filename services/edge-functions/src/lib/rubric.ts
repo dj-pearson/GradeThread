@@ -257,8 +257,74 @@ const HANDBAGS: Rubric = {
   },
 };
 
+// US-2224. Ties, belts, scarves and gloves. `belt` and `scarf` were already
+// garment_category values with nowhere to route; neckwear was not representable
+// at all. All four graded through CLOTHING, which spends 25% on structural
+// integrity and 10% on odor — neither describes a tie that has lost its roll.
+//
+// ── ONE RUBRIC, NOT FOUR. THE DECISION AND WHY ──────────────────────────────
+// The story asked for this to be decided and recorded rather than defaulted, so:
+//
+// They share a failure GEOMETRY. Each is a long or flat piece of essentially
+// single-layer construction whose value dies at the edges and terminations —
+// a tie's tipping and keeper, a belt's holes and cut end, a scarf's fringe and
+// hem, a glove's fingertips and seams. That is one factor set, described four
+// ways, and the differences are all statements about what to LOOK at, which is
+// promptGuidance's job rather than a different weighting.
+//
+// The decisive argument is the golden set. Splitting into four rubrics means
+// four golden sets, each a handful of items, and a golden set that small cannot
+// gate anything — AC5 requires these prompts to clear an eval gate, so four
+// unusable gates is strictly worse than one usable one. Rubrics can be split
+// later off real correction data; they cannot be merged back once certificates
+// have rendered against different weights.
+//
+// THE HONEST WEAKNESS, stated rather than buried: `hardware_fastening` does not
+// apply to a scarf, which has none. That is not new — a t-shirt has no
+// functional elements either, and clothing has carried that 15% factor since
+// the start — but it does mean a scarf's overall is computed over a factor the
+// grader has to score on nothing. If the eval gate later shows scarves biased
+// by it, THAT is the evidence to split on, and it will be real evidence rather
+// than the taxonomy instinct being followed here.
+const ACCESSORIES: Rubric = {
+  key: "accessories",
+  label: "Ties, belts, scarves & gloves",
+  factors: [
+    { key: "material_condition", label: "Material Condition", weight: 0.3, guidance: "The face material: stains (effectively permanent on silk), cracking, pilling, pulls, thinning, colour loss." },
+    { key: "structure_shape", label: "Structure & Shape", weight: 0.25, guidance: "Whether it still sits right: a tie's roll and blade shape, a belt's straightness and lack of curl, a scarf's drape, a glove's finger shape. Interlining collapse counts here even when the face is perfect." },
+    { key: "edges_terminations", label: "Edges & Terminations", weight: 0.2, guidance: "Where these items fail first: tie tipping and keeper loop, belt hole elongation and cut end, scarf fringe and hem, glove fingertips and seam ends." },
+    { key: "hardware_fastening", label: "Hardware & Fastening", weight: 0.15, guidance: "Buckle, prong, snaps, clasps, zips. Score as unassessable rather than perfect when the item has none." },
+    { key: "cleanliness", label: "Cleanliness", weight: 0.1, guidance: "Soiling, odour, water marks. On silk and suede these are usually permanent — say so rather than implying they clean out." },
+  ],
+  promptGuidance:
+    "Grade this accessory's condition relative to its as-manufactured state. Judge it as the specific thing it is: a tie by its roll, blade shape, tipping and keeper; a belt by strap creasing, cracking, buckle and prong, and hole elongation; a scarf by fringe, pilling and pulls; a glove by fingertips, seams and lining. A tie that has lost its roll is damaged even with a perfect face. If the item has no hardware, say the factor is unassessable rather than scoring it as flawless.",
+  // Reconciled to the shared DefectType taxonomy — nothing invented, same
+  // discipline US-1997 applied after finding seven unreachable routings.
+  defectRouting: {
+    stain: { cleanliness: 0.6, material_condition: 0.4 },
+    discoloration: { material_condition: 0.7, cleanliness: 0.3 },
+    fading: { material_condition: 1.0 },
+    pilling: { material_condition: 1.0 },
+    snag_pull: { material_condition: 0.6, edges_terminations: 0.4 },
+    abrasion_thinning: { material_condition: 0.5, edges_terminations: 0.5 },
+    rip_tear: { edges_terminations: 0.6, material_condition: 0.4 },
+    hole_puncture: { material_condition: 0.6, edges_terminations: 0.4 },
+    // A belt's holes elongating IS seam-adjacent failure at a termination, and
+    // a tie's tipping unthreading is the canonical example of this defect here.
+    seam_failure_unthreading: { edges_terminations: 0.7, structure_shape: 0.3 },
+    // The roll collapsing, a belt curling, a glove losing its finger shape.
+    stretched_misshapen: { structure_shape: 1.0 },
+    wrinkle_crease: { structure_shape: 0.6, material_condition: 0.4 },
+    broken_button: { hardware_fastening: 1.0 },
+    broken_zipper: { hardware_fastening: 1.0 },
+    missing_hardware: { hardware_fastening: 1.0 },
+    odor_indicator: { cleanliness: 1.0 },
+  },
+};
+
 export const RUBRICS: Record<string, Rubric> = {
   clothing: CLOTHING,
+  accessories: ACCESSORIES,
   sports_cards: SPORTS_CARDS,
   watches: WATCHES,
   shoes: SHOES,
@@ -271,6 +337,7 @@ export const NON_CLOTHING_RUBRIC_KEYS = [
   "watches",
   "shoes",
   "bags",
+  "accessories",
 ] as const;
 
 /**

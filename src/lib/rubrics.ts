@@ -69,6 +69,19 @@ const CLOTHING_RUBRIC: Rubric = {
 
 export const RUBRICS: Record<string, Rubric> = {
   clothing: CLOTHING_RUBRIC,
+  // US-2224. Ties, belts, scarves and gloves share one rubric; the decision and
+  // its weakness are recorded in the server module. Pinned by the fixture.
+  accessories: {
+    key: "accessories",
+    label: "Ties, belts, scarves & gloves",
+    factors: [
+      { key: "material_condition", label: "Material Condition", weight: 0.3 },
+      { key: "structure_shape", label: "Structure & Shape", weight: 0.25 },
+      { key: "edges_terminations", label: "Edges & Terminations", weight: 0.2 },
+      { key: "hardware_fastening", label: "Hardware & Fastening", weight: 0.15 },
+      { key: "cleanliness", label: "Cleanliness", weight: 0.1 },
+    ],
+  },
   // US-2225. Mirrors the server rubric; the weights' reasoning lives there.
   // Pinned by src/test/fixtures/rubric-factors.json, asserted by both suites.
   bags: {
