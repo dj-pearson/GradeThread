@@ -244,7 +244,7 @@ export function AdminBulkPage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label>Operation</Label>
+              <Label htmlFor="bulk-operation">Operation</Label>
               <Select
                 value={op}
                 onValueChange={(v) => {
@@ -252,7 +252,7 @@ export function AdminBulkPage() {
                   resetResolution();
                 }}
               >
-                <SelectTrigger>
+                <SelectTrigger id="bulk-operation">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

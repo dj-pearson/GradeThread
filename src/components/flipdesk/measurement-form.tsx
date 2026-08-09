@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,6 +48,12 @@ export function MeasurementForm({
   const { unit, setUnit } = useMeasurementPrefs();
   const group = measurementGroupFor(category);
   const template = MEASUREMENT_TEMPLATES[group];
+  // US-2335: the per-field <Label> was never linked to its input. useId rather
+  // than a literal because this form renders on TWO surfaces (prep.tsx and the
+  // composer's measurements card) and could be mounted twice at once — and the
+  // key is per FIELD as well, so a shared id would make every label point at
+  // whichever input the browser saw first.
+  const fieldIdBase = useId();
 
   const requiredKeys = template.filter((f) => f.required).map((f) => f.key);
   const filledRequired = requiredKeys.filter(
@@ -131,7 +137,7 @@ export function MeasurementForm({
           const ai = aiMetaFor(field.key);
           return (
             <div key={field.key} className="space-y-1">
-              <Label className="flex items-center gap-1.5 text-xs">
+              <Label htmlFor={`${fieldIdBase}-${field.key}`} className="flex items-center gap-1.5 text-xs">
                 {field.label}
                 {field.required && (
                   <span className="text-destructive">*</span>
@@ -149,6 +155,7 @@ export function MeasurementForm({
               </Label>
               <div className="relative">
                 <Input
+                  id={`${fieldIdBase}-${field.key}`}
                   type="number"
                   inputMode="decimal"
                   value={values[field.key] ?? ""}

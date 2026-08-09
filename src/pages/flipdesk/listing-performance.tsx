@@ -498,6 +498,7 @@ export function FlipdeskListingPerformancePage(
                   setSearch(e.target.value);
                   setPage(0);
                 }}
+                aria-label="Search active listings by title"
                 placeholder="Search title…"
                 className="h-8 w-44"
               />

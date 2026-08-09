@@ -115,7 +115,8 @@ export function ReconcilePanel({ itemId, title }: Props) {
               </p>
               <div className="flex items-center gap-2">
                 <Input
-                  value={linkSku}
+                  aria-label="Existing SKU"
+          value={linkSku}
                   onChange={(e) => setLinkSku(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") void handleLink();

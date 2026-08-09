@@ -361,7 +361,8 @@ export function SupportTicketsPage() {
                   <Textarea
                     value={reply}
                     onChange={(e) => setReply(e.target.value)}
-                    placeholder="Add a reply…"
+                    aria-label="Reply to support"
+                placeholder="Add a reply…"
                     rows={3}
                     maxLength={4000}
                     disabled={acting}

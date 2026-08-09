@@ -364,6 +364,7 @@ function Editor({
           <Input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            aria-label="Post title"
             placeholder="Title…"
             className="h-12 text-xl font-semibold"
           />

@@ -388,7 +388,8 @@ export function SupportChatWidget() {
                 className="flex items-end gap-2"
               >
                 <Textarea
-                  value={input}
+                  aria-label="Message support"
+            value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {

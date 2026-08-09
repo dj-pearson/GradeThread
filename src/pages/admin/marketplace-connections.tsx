@@ -292,7 +292,7 @@ export function AdminMarketplaceConnectionsPage() {
               setPage(1);
             }}
           >
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-40" aria-label="Filter by connection health">
               <SelectValue placeholder="Filter health" />
             </SelectTrigger>
             <SelectContent>

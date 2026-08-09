@@ -401,8 +401,9 @@ export function AdminBrandKnowledgePage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <Label>Fields</Label>
+            <Label htmlFor="bk-fields">Fields</Label>
             <Textarea
+              id="bk-fields"
               className="min-h-[280px] font-mono text-xs"
               value={editJson}
               onChange={(e) => setEditJson(e.target.value)}

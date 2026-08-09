@@ -1011,7 +1011,7 @@ export function SettingsPage() {
                 the composer's rewrite tools, and photo analysis.
               </p>
             </div>
-            <Switch checked={aiEnabled} onCheckedChange={setAiEnabled} />
+            <Switch aria-label="Enable AI enrichment" checked={aiEnabled} onCheckedChange={setAiEnabled} />
           </div>
 
           {/* Custom monthly limit */}

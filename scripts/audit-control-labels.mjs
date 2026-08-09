@@ -75,6 +75,18 @@ export function isLabelled(attrs, htmlForIds) {
   if (/type\s*=\s*["']file["']/.test(attrs) && /\b(hidden|sr-only)\b/.test(attrs)) {
     return true;
   }
+  // A control that SPREADS PROPS may receive its name from the caller, and no
+  // amount of reading this file can tell. Same rule as the dynamic id below:
+  // assume labelled rather than accuse.
+  //
+  // The two sites this exists for are components/ui/input.tsx and
+  // components/ui/textarea.tsx — the shadcn PRIMITIVES. Their whole job is to
+  // forward `{...props}`, so every `aria-label` in this audit's fixes lands on
+  // them at runtime. Counting them meant the baseline could never reach zero
+  // and that two of the remaining "violations" were unfixable by construction:
+  // there is nothing to label, because the thing being labelled is every input
+  // in the app.
+  if (/\{\s*\.\.\.\s*\w+\s*\}/.test(attrs)) return true;
   // A dynamic id (id={foo}) cannot be resolved textually — assume labelled
   // rather than accuse.
   const id = /\bid\s*=\s*["']([^"']+)["']/.exec(attrs);

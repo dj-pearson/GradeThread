@@ -22,20 +22,29 @@ import { resolve } from "node:path";
 import { auditFile, walk } from "../../scripts/audit-control-labels.mjs";
 
 /**
- * Controls with no resolvable accessible name, as of 2026-08-09.
+ * Controls with no resolvable accessible name. **ZERO**, as of 2026-08-09.
  *
- * NOT a target to sit at — a ceiling that only ratchets down. Lower it whenever
- * a batch lands; never raise it. Raising it is the moment this test stops
- * meaning anything, so if you are about to, add the label instead.
+ * 361 → 74 → 32 → 0. It is no longer a ceiling to ratchet down; it is a floor,
+ * and the first violation to appear fails the build. DO NOT RAISE IT. If a new
+ * control has no name, name it — that is a one-line change, and the whole point
+ * of grinding this to zero was to make the next one impossible to ignore.
  *
- * 361 → 74 → 32. The last drop is 42 controls labelled plus THREE PHANTOMS
- * removed from the scanner: a control named inside a `//` or `/* *\/` comment
- * was being counted as a real one. The scanner's own header recorded that as a
- * deliberate over-count ("exactly one site today", 2026-08-03) — by today there
- * were three, so it was growing rather than stable, and a baseline that can
- * never reach zero is a baseline nobody finishes.
+ * Two of the last 32 were UNFIXABLE BY CONSTRUCTION and needed a scanner fix,
+ * not a label: components/ui/input.tsx and components/ui/textarea.tsx are the
+ * shadcn primitives, whose entire job is to forward `{...props}`. Every
+ * aria-label in this sweep lands on them at runtime. Three more were controls
+ * named inside COMMENTS. Both classes are now understood by the scanner rather
+ * than tolerated in the number — see audit-control-labels.mjs, which explains
+ * why one earlier attempt at the comment fix was correctly reverted and why
+ * this one is safe.
+ *
+ * What this still does NOT prove is AC4: nobody has driven these surfaces with
+ * an actual screen reader. A resolvable name is necessary and not sufficient —
+ * "Filter drafts by status" can be correct and still be announced at the wrong
+ * moment, or be one of nine identical-sounding controls on a page. Zero here
+ * means the floor is met, not that the experience is good.
  */
-const BASELINE = 32;
+const BASELINE = 0;
 
 describe("form controls carry an accessible name (US-2335)", () => {
   const files = walk(resolve(process.cwd(), "src"));

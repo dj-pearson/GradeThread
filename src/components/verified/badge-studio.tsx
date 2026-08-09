@@ -160,7 +160,7 @@ export function BadgeStudio({ handle }: { handle?: string | null }) {
                 value={sellerFormat}
                 onValueChange={(v) => setSellerFormat(v as SellerBadgeFormat)}
               >
-                <SelectTrigger className="h-8 w-40">
+                <SelectTrigger className="h-8 w-40" aria-label="Storefront badge format">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

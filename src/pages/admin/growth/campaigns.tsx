@@ -182,9 +182,9 @@ function ComposeDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-2">
-              <Label>Audience</Label>
+              <Label htmlFor="c-audience">Audience</Label>
               <Select value={segmentId} onValueChange={setSegmentId}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger id="c-audience"><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">Everyone</SelectItem>
                   {segments.map((s) => (

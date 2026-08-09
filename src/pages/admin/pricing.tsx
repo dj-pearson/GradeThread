@@ -208,6 +208,7 @@ function EditPlanDialog({
                 <div key={key} className="flex items-center justify-between rounded-md border px-3 py-2">
                   <span className="text-sm">{label}</span>
                   <Switch
+                    aria-label={label}
                     checked={flags[key] === true}
                     onCheckedChange={(v) => setFlags((f) => ({ ...f, [key]: v }))}
                   />

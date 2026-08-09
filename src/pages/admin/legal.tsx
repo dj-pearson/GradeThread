@@ -235,9 +235,9 @@ export function AdminLegalPage() {
           )}
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1">
-              <Label>Document</Label>
+              <Label htmlFor="legal-document">Document</Label>
               <Select value={kind} onValueChange={(v) => setKind(v as DocKind)}>
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-48" id="legal-document">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

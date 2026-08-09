@@ -3898,6 +3898,7 @@ export function FlipdeskAutolisterPage() {
                   value={g.name}
                   onChange={(e) => updateGroup(g.id, { name: e.target.value })}
                   className="h-8 max-w-xs"
+                  aria-label={`Item name for group ${g.name || row.index + 1}`}
                   placeholder="Item name"
                 />
                 <Input

@@ -489,6 +489,7 @@ export function AdminReliabilityPage() {
                               <Input
                                 className="w-24"
                                 inputMode="decimal"
+                                aria-label={`Blind grade 1 to 10 for ${q.brand || q.garment_category || "garment"}`}
                                 placeholder="1–10"
                                 value={scores[q.id] ?? ""}
                                 onChange={(e) =>

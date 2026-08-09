@@ -670,7 +670,7 @@ function SortablePhoto({
           value={photo.photo_type}
           onValueChange={(v) => onRetag(photo, v as FlipdeskPhotoType)}
         >
-          <SelectTrigger className="h-7 flex-1 text-xs">
+          <SelectTrigger className="h-7 flex-1 text-xs" aria-label="Photo type">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

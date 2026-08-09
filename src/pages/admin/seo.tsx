@@ -215,6 +215,7 @@ export function AdminSeoPage() {
             }}
           >
             <Input
+              aria-label="URL to submit to IndexNow"
               type="url"
               placeholder="https://gradethread.com/some/page"
               value={submitUrl}

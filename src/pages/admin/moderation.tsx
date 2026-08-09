@@ -1141,6 +1141,7 @@ function NotifyDialog({
           </DialogDescription>
         </DialogHeader>
         <textarea
+          aria-label="Moderation notice message"
           value={message}
           onChange={(e) => onMessage(e.target.value)}
           rows={4}

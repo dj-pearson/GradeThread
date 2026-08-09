@@ -542,14 +542,14 @@ function ConsignorEditDialog({
             </div>
             {state.id && (
               <div className="space-y-1">
-                <Label>Status</Label>
+                <Label htmlFor="c-status">Status</Label>
                 <Select
                   value={draft.status}
                   onValueChange={(v) =>
                     setDraft({ ...draft, status: v as ConsignorStatus })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="c-status">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

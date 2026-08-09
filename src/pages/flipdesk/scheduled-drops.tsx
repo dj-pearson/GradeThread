@@ -244,7 +244,7 @@ export function FlipdeskScheduledDropsPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={timeZone} onValueChange={setTimeZone}>
-                <SelectTrigger className="h-8 w-[15rem] text-xs">
+                <SelectTrigger className="h-8 w-[15rem] text-xs" aria-label="Time zone">
                   <SelectValue placeholder="Timezone" />
                 </SelectTrigger>
                 <SelectContent>

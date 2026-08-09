@@ -649,7 +649,7 @@ export function FlipdeskAutolisterDraftsPage() {
                 />
               </div>
               <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-                <SelectTrigger className="w-[150px]">
+                <SelectTrigger className="w-[150px]" aria-label="Sort drafts">
                   <SelectValue placeholder="Sort" />
                 </SelectTrigger>
                 <SelectContent>

@@ -194,7 +194,7 @@ function SeedDialog({
                 Disabled entries are skipped by the refresh job and never published.
               </p>
             </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} />
+            <Switch aria-label="Enabled" checked={enabled} onCheckedChange={setEnabled} />
           </div>
         </div>
 

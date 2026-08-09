@@ -1053,6 +1053,7 @@ function IssueDrawer({
                   issue.status === "draft" ||
                   issue.status === "ready_for_qa") && (
                   <Input
+                    aria-label="Block or reject reason"
                     placeholder="Reason (for block / reject)"
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}

@@ -310,7 +310,7 @@ export function AdminOpsDeadLettersPage() {
                   setPage(1);
                 }}
               >
-                <SelectTrigger className="w-[160px]">
+                <SelectTrigger className="w-[160px]" aria-label="Filter by provider">
                   <SelectValue placeholder="Provider" />
                 </SelectTrigger>
                 <SelectContent>

@@ -55,6 +55,7 @@ export function InlineCell({
     return (
       <input
         ref={inputRef}
+        aria-label="Edit value"
         type={type}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

@@ -246,7 +246,7 @@ export function AdminClaimsPage() {
               onChange={(e) => setSearch(e.target.value)}
             />
             <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Filter claims by status">
                 <SelectValue placeholder="All Statuses" />
               </SelectTrigger>
               <SelectContent>

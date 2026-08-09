@@ -306,8 +306,9 @@ export function FlipdeskPrepPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="max-w-[200px] space-y-1">
-            <Label>Target price</Label>
+            <Label htmlFor="prep-target-price">Target price</Label>
             <Input
+              id="prep-target-price"
               type="number"
               value={draft.targetPrice}
               onChange={(e) =>

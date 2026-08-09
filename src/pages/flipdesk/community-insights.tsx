@@ -155,7 +155,7 @@ export function FlipdeskCommunityInsightsPage(
       {(() => {
         const actions = (
           <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-            <SelectTrigger className="w-[160px]">
+            <SelectTrigger className="w-[160px]" aria-label="Time period">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

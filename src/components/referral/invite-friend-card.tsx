@@ -84,7 +84,7 @@ export function InviteFriendCard() {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="flex gap-2">
-          <Input readOnly value={shareLink} className="font-mono text-sm" />
+          <Input readOnly aria-label="Your referral link" value={shareLink} className="font-mono text-sm" />
           <Button onClick={copy} variant="outline" aria-label="Copy referral link">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </Button>
