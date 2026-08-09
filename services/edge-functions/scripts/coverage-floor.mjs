@@ -157,14 +157,19 @@ const MONEY_FLOORS = {
   "lib/admin-pack-refund.ts": 99,
   // US-2345 AC1: the CHARGING CHOKEPOINT. Every way the product takes money —
   // web, the FlipDesk bulk bridge, the batch worker, the public API — charges
-  // through runPaymentPrecedence in this file, and it had no test file at all.
-  // 23.5% line looks thin beside the two above and is honest: what is covered is
-  // claimIncludedGrade, the CAS race whose failure silently charges a user for a
-  // grade they had already bought. runPaymentPrecedence itself still drives the
-  // service-role client directly and wants the same extraction the two refunds
-  // got. Floored just below the measurement so the next untested branch added
-  // here drops it rather than riding the margin.
-  "lib/grade-billing.ts": 22,
+  // through this file. It had no test file at all; then it had 23.5% (the CAS
+  // race); the SEQUENCE has now moved to lib/grade-precedence.ts, leaving the IO
+  // adapter here at 31.2%. The rise is the adapter being reached by the sequence
+  // tests rather than new tests on the reads themselves, which is why the floor
+  // moves only to 30 — the remaining uncovered lines are the user read and the
+  // pricing lookups, and those still want a database.
+  "lib/grade-billing.ts": 30,
+  // The extracted sequence: 100% line, branch and function. Floored at 99 so a
+  // comment cannot fail the build while every executable branch stays covered.
+  // This is the charging chokepoint’s decision logic — branch order, the
+  // credit-race fall-through, the super-admin comp — and an uncovered branch
+  // here is a way to charge the wrong person.
+  "lib/grade-precedence.ts": 99,
   // Measured at 99.3% once the cap-snapshot rules got cases. resolveIncludedCap
   // is four lines and one of them is a `??` that must not become `||` — a
   // snapshot of 0 is a REAL cap, and `||` would silently restore the live one.

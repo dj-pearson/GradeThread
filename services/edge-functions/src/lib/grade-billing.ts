@@ -2,12 +2,14 @@ import { supabaseAdmin } from "./supabase.ts";
 import {
   effectivePlanFor,
   INCLUDED_STANDARD_PER_MONTH,
-  resolveIncludedCap,
-  suggestPackFrom,
   type GradeTier,
 } from "./grade-pricing.ts";
 import { type FlipdeskPlan, getGradePricing, getPlanMatrix } from "./pricing-config.ts";
 import { discountedCents, loadActiveDiscount } from "./rewards-tangible.ts";
+import {
+  performPaymentPrecedence,
+  type PrecedenceIO,
+} from "./grade-precedence.ts";
 
 // ── Canonical grade billing (US-207) ─────────────────────────────
 //
@@ -150,39 +152,16 @@ export async function runPaymentPrecedence(
     throw new Error(`USER_NOT_FOUND: ${userId}`);
   }
 
-  // Super-admin (platform owner) grades for free, with NO cap. This is the
-  // single charging chokepoint, so handling it here covers the web flow, the
-  // FlipDesk bulk bridge, and the public API at once. Scoped strictly to
-  // role = 'super_admin' — regular 'admin'/'reviewer' users pay normally.
-  // No counter increment, no credit debit; a zero-delta ledger row keeps the
-  // grade auditable. Mirror this in plan-gate's requireFlipdesk bypass so a
-  // pre-gate doesn't block before charging runs.
-  if (user.role === "super_admin") {
-    const now = new Date().toISOString();
-    await supabaseAdmin
-      .from("submissions")
-      .update({ payment_status: "included", paid_at: now })
-      .eq("id", submissionId)
-      // US-2033: scope the super-admin comp to the account being charged, for
-      // the same reason as the two branches below.
-      .eq("user_id", userId);
-    await supabaseAdmin.from("grade_credit_transactions").insert({
-      user_id: userId,
-      delta: 0,
-      reason: "included_grant",
-      balance_after: null,
-      submission_id: submissionId,
-      notes: "super_admin unlimited grade (uncapped, no charge)",
-    });
-    return {
-      paid: true,
-      method: "included",
-      newIncludedUsed: user.grades_used_this_month,
-    };
-  }
-
-  // Paused subscriptions, expired trials (US-383), AND past_due subs beyond the
-  // dunning grace window (US-395) fall back to Free caps.
+  // US-2345 AC1: the SEQUENCE — branch order, the tenant-scoped paid-flip, the
+  // credit-race fall-through and the checkout quote — lives in
+  // lib/grade-precedence.ts so every branch is reachable without a database.
+  // Everything below is the IO adapter binding it to the service-role client,
+  // and it is the ONLY place this path touches that client. A guard test pins
+  // that there is exactly one of each write.
+  //
+  // The inputs are resolved HERE rather than inside the sequence because both
+  // come from reads this function already made; the sequence owns the ORDER and
+  // the failure handling, not the derivation.
   const effectivePlan = effectivePlanFor(
     user.flipdesk_plan,
     user.subscription_status,
@@ -191,58 +170,78 @@ export async function runPaymentPrecedence(
     user.past_due_since,
   );
 
-  // US-885: tier prices, credit cost, and credit packs are now DB-driven
-  // (pricing_config) with the compiled constants as fallback. Loaded once per
-  // call (both reads are short-cached).
+  // US-885: tier prices, credit cost, and credit packs are DB-driven
+  // (pricing_config) with the compiled constants as fallback.
   const pricing = await getGradePricing();
 
-  // Roll over the included counter if we crossed the reset boundary. (Normal
-  // case is the invoice.payment_succeeded webhook resets it on cycle, but
-  // Free users have no invoice — they rely on this clock check.)
-  let includedUsed = user.grades_used_this_month;
-  const resetAt = new Date(user.grade_reset_at);
-  const rolledOver = resetAt <= new Date();
-  if (rolledOver) includedUsed = 0;
+  // Roll over the included counter if we crossed the reset boundary. The normal
+  // case is the invoice.payment_succeeded webhook resetting it on cycle, but
+  // Free users have no invoice — they rely on this clock check.
+  const rolledOver = new Date(user.grade_reset_at) <= new Date();
 
-  // US-885 (AC#2/#5): the included-grade cap is read from the live, operator-
-  // editable pricing_plans matrix (DB-backed, cached) — not the hardcoded
-  // INCLUDED_STANDARD_PER_MONTH map. The per-period SNAPSHOT
-  // (users.included_grades_this_period) governs the cap WITHIN a period so an
-  // admin edit never retroactively changes a period already in progress; the
-  // live cap applies from the next reset. INCLUDED_STANDARD_PER_MONTH remains the
-  // ultimate fallback (baked into FALLBACK_MATRIX) if the DB read fails.
+  // US-885 (AC#2/#5): the cap comes from the live, operator-editable plan
+  // matrix; the per-period snapshot then governs WITHIN a period so an admin
+  // edit never changes a period already in progress. INCLUDED_STANDARD_PER_MONTH
+  // is the ultimate fallback if the DB read fails.
   const planCfg = (await getPlanMatrix())[effectivePlan as FlipdeskPlan];
   const liveCap = planCfg?.includedStandardGradesPerMonth ??
     (INCLUDED_STANDARD_PER_MONTH[effectivePlan] ?? 0);
-  const includedCap = resolveIncludedCap(
-    user.included_grades_this_period,
-    liveCap,
+
+  const nextReset = new Date();
+  nextReset.setMonth(nextReset.getMonth() + 1);
+  nextReset.setDate(1);
+  nextReset.setHours(0, 0, 0, 0);
+
+  return await performPaymentPrecedence({
+    user: {
+      role: user.role,
+      grades_used_this_month: user.grades_used_this_month,
+      grade_credit_balance: user.grade_credit_balance,
+      included_grades_this_period: user.included_grades_this_period,
+    },
+    tier,
     rolledOver,
-  );
-
-  // ─ (1) Try included grades — Standard only, with bounded CAS retries (US-782) ─
-  if (tier === "standard" && includedUsed < includedCap) {
-    const nextReset = new Date();
-    nextReset.setMonth(nextReset.getMonth() + 1);
-    nextReset.setDate(1);
-    nextReset.setHours(0, 0, 0, 0);
-
-    const claim = await claimIncludedGrade(
-      user.grades_used_this_month,
-      rolledOver,
-      includedCap,
-      {
+    liveCap,
+    effectivePlan,
+    pricing: {
+      tierPriceCents: pricing.tiers[tier].priceCents,
+      tierCreditCost: pricing.tiers[tier].creditCost,
+      packs: pricing.packs,
+    },
+  }, <PrecedenceIO> {
+    markPaid: async (status) => {
+      await supabaseAdmin
+        .from("submissions")
+        .update({ payment_status: status, paid_at: new Date().toISOString() })
+        .eq("id", submissionId)
+        // US-1638/US-2033: scope the paid-flip to the account being CHARGED.
+        // Callers owner-verify first, so this is defense in depth — but the
+        // failure it guards is user A's credits being debited to mark user B's
+        // submission paid, which is a money bug rather than a data bug.
+        .eq("user_id", userId);
+    },
+    recordGrant: async (notes) => {
+      // Zero-delta audit row. US-398: balance_after is NULL because
+      // snapshotting the balance was a NON-atomic read that drifted if a
+      // concurrent debit landed between read and insert. An included grant does
+      // not move the balance, so there is nothing honest to record.
+      await supabaseAdmin.from("grade_credit_transactions").insert({
+        user_id: userId,
+        delta: 0,
+        reason: "included_grant",
+        balance_after: null,
+        submission_id: submissionId,
+        notes,
+      });
+    },
+    claimIncluded: (cap) =>
+      claimIncludedGrade(user.grades_used_this_month, rolledOver, cap, {
         casClaim: async (expectedDbUsed, didRollOver) => {
-          // Set to (rolledOver ? 0 : expectedDbUsed)+1, conditioned on the column
-          // still equalling expectedDbUsed (the optimistic compare).
           const updatePayload: Record<string, unknown> = {
             grades_used_this_month: (didRollOver ? 0 : expectedDbUsed) + 1,
-            // US-885 (AC#5): lock the per-period included-grade cap. On rollover
-            // (or the first claim of a period where it's still null) this captures
-            // the current live cap; a subsequent admin edit then only takes effect
-            // on the next reset, never retroactively. `includedCap` already
-            // resolved to liveCap on rollover / first claim.
-            included_grades_this_period: includedCap,
+            // US-885 (AC#5): lock the per-period cap on the first claim of a
+            // period, so a later admin edit applies from the next reset only.
+            included_grades_this_period: cap,
           };
           if (didRollOver) updatePayload.grade_reset_at = nextReset.toISOString();
           const { data, error } = await supabaseAdmin
@@ -266,104 +265,25 @@ export async function runPaymentPrecedence(
             rolledOver: new Date(row.grade_reset_at) <= new Date(),
           };
         },
-      },
-    );
-
-    if (claim.claimed) {
-      await supabaseAdmin
-        .from("submissions")
-        .update({ payment_status: "included", paid_at: new Date().toISOString() })
-        .eq("id", submissionId)
-        // US-1638: defense-in-depth at the charging chokepoint — every caller
-        // owner-verifies first, but scope the paid-flip to the charged account
-        // so a submissionId can never mark a DIFFERENT tenant's submission paid.
-        .eq("user_id", userId);
-      // Zero-delta audit row, balance unchanged. US-398: balance_after is NULL
-      // here — snapshotting user.grade_credit_balance was a NON-atomic read that
-      // could drift if a concurrent debit/grant landed between read and insert.
-      // The balance is unaffected by an included grant, so there is nothing to
-      // record; balance-changing rows still carry an atomic balance_after.
-      await supabaseAdmin.from("grade_credit_transactions").insert({
-        user_id: userId,
-        delta: 0,
-        reason: "included_grant",
-        balance_after: null,
-        submission_id: submissionId,
-        notes: `Included Standard grade #${claim.newUsed}/${includedCap} on ${effectivePlan}`,
-      });
-      return { paid: true, method: "included", newIncludedUsed: claim.newUsed };
-    }
-    // Included allowance genuinely exhausted (or retries spent) — fall through
-    // to credits.
-  }
-
-  // ─ (2) Try credits ─
-  const cost = pricing.tiers[tier].creditCost;
-  if (user.grade_credit_balance >= cost) {
-    const { data: newBalance, error: debitError } = await supabaseAdmin.rpc(
-      "debit_grade_credits",
-      {
-        p_user_id: userId,
-        p_credits: cost,
-        p_submission_id: submissionId,
-        p_notes: `${tier} grade — ${cost} credit${cost === 1 ? "" : "s"}`,
-        p_idempotency_key: idempotencyKey ?? null,
-      },
-    );
-
-    if (debitError) {
-      // INSUFFICIENT_CREDITS race — fall through to checkout.
-      const msg = (debitError.message ?? "").toString();
-      if (!msg.includes("INSUFFICIENT_CREDITS")) {
-        throw new Error(`DEBIT_FAILED: ${msg}`);
+      }),
+    debitCredits: async (cost) => {
+      const { data: newBalance, error } = await supabaseAdmin.rpc(
+        "debit_grade_credits",
+        {
+          p_user_id: userId,
+          p_credits: cost,
+          p_submission_id: submissionId,
+          p_notes: `${tier} grade — ${cost} credit${cost === 1 ? "" : "s"}`,
+          p_idempotency_key: idempotencyKey ?? null,
+        },
+      );
+      if (error) {
+        const msg = (error.message ?? "").toString();
+        return { ok: false, insufficient: msg.includes("INSUFFICIENT_CREDITS"), message: msg };
       }
-    } else {
-      await supabaseAdmin
-        .from("submissions")
-        .update({ payment_status: "credits", paid_at: new Date().toISOString() })
-        .eq("id", submissionId)
-        // US-2033: same scoping the included-grade flip above already carries
-        // (US-1638). This branch was missed in that hardening pass. Callers do
-        // owner-verify first, so this is defense-in-depth — but the failure it
-        // guards is that user A's credits get DEBITED to mark user B's
-        // submission paid, which is a money bug, not just a data bug.
-        .eq("user_id", userId);
-      return {
-        paid: true,
-        method: "credits",
-        newBalance:
-          typeof newBalance === "number"
-            ? newBalance
-            : user.grade_credit_balance - cost,
-      };
-    }
-  }
-
-  // ─ (3) Checkout required ─
-  //
-  // US-1853: a per-grade discount earned from a rewards milestone applies HERE,
-  // at the one charging chokepoint, so every entry point quotes the same number.
-  // It deliberately bites only on the money path: included grades are already
-  // free, and shaving the credit cost would make a discount worth less the more
-  // credits someone holds. The matching Stripe coupon is attached at checkout
-  // (payments.ts), so the charge equals this quote rather than merely resembling
-  // it. A failed lookup reads as "no discount" — full price, the safe direction.
-  const listPriceCents = pricing.tiers[tier].priceCents;
-  const discount = await loadActiveDiscount(userId, "per_grade_discount");
-  return {
-    paid: false,
-    checkoutRequired: true,
-    suggestedTier: tier,
-    suggestedPack: suggestPackFrom(pricing.packs, cost),
-    tierPriceCents: discount
-      ? discountedCents(listPriceCents, discount.percentOff)
-      : listPriceCents,
-    ...(discount
-      ? {
-          listPriceCents,
-          rewardDiscountPercent: discount.percentOff,
-          rewardMilestoneKey: discount.milestoneKey,
-        }
-      : {}),
-  };
+      return { ok: true, newBalance: typeof newBalance === "number" ? newBalance : null };
+    },
+    loadDiscount: () => loadActiveDiscount(userId, "per_grade_discount"),
+    discountedCents,
+  });
 }
