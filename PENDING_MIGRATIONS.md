@@ -1,6 +1,9 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00573_legal_acceptances_signup_confirmed.sql (US-2116 AC4 — the consent record says which row is which)
+## ✅ APPLIED: 00573_legal_acceptances_signup_confirmed.sql (US-2116 AC4 — the consent record says which row is which, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: NONE. It is one `COMMENT ON COLUMN`.** No table, column, constraint,
 index, policy or function is created, altered or dropped. Nothing is backfilled
@@ -38,7 +41,10 @@ comments, and no table, column or RPC changed.
 
 **Rollback** is restoring the previous comment text. Nothing depends on it.
 
-## 🔴 HELD: 00572_tag_eras_provenance.sql (US-2212 AC5 — an era we cannot cite is invention)
+## ✅ APPLIED: 00572_tag_eras_provenance.sql (US-2212 AC5 — an era we cannot cite is invention, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: LOW.** One IMMUTABLE function, one CHECK constraint added `NOT VALID`,
 two comments. No table rewritten, nothing backfilled, no existing row touched.
@@ -76,7 +82,10 @@ and `node scripts/verify.mjs --db` caught it on a from-zero re-apply.
 either; the edge code degrades to treating every era as uncited, which is the
 state it is in today.
 
-## 🔴 HELD: 00571_grade_confidence_label_fn.sql (US-2303 AC2 — one home for the confidence buckets)
+## ✅ APPLIED: 00571_grade_confidence_label_fn.sql (US-2303 AC2 — one home for the confidence buckets, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: LOW to apply, HIGH if the wrong revision had been edited — read the
 second paragraph.** Adds an IMMUTABLE `public.grade_confidence_label(numeric)`
@@ -117,7 +126,10 @@ rewriting them is the other way this could have gone wrong.
 **Rollback** is re-running 00534, which restores the inline CASE. The function
 can stay; nothing else calls it.
 
-## 🔴 HELD: 00570_headwear_neckwear_gloves_categories.sql (US-2223 + US-2224 — three taxonomy values)
+## ✅ APPLIED: 00570_headwear_neckwear_gloves_categories.sql (US-2223 + US-2224 — three taxonomy values, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: LOW.** Three `ALTER TYPE … ADD VALUE IF NOT EXISTS` and one type
 comment. No table touched, no backfill, nothing rewritten. `item_category`
@@ -164,7 +176,10 @@ requires rewriting every column that uses it. In practice the rollback is to
 leave the values in place (they are inert until something writes them) and roll
 the frontend back.
 
-## 🔴 HELD: 00569_community_benchmarks_filters.sql (US-2235 — filters on Community Insights)
+## ✅ APPLIED: 00569_community_benchmarks_filters.sql (US-2235 — filters on Community Insights, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: MEDIUM, and it is the DROP that carries it.** No table changes at all.
 It drops `community_benchmarks(date)` and recreates it with five extra filter
@@ -210,7 +225,10 @@ reloads. **This one is not optional.**
 old frontend works against it; the new one does not, so roll the frontend back
 too.
 
-## 🔴 HELD: 00568_submission_image_quality_score.sql (US-2136 AC4 — keep the measured photo quality)
+## ✅ APPLIED: 00568_submission_image_quality_score.sql (US-2136 AC4 — keep the measured photo quality, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: LOW.** One nullable column on `submission_images` plus a range CHECK. No
 backfill, no rewrite, no behaviour change until a client starts sending the
@@ -243,7 +261,10 @@ and selected by name through PostgREST.
 **Rollback** is dropping the column. The only loss is the measurements
 themselves, and every reader already handles their absence.
 
-## 🔴 HELD: 00567_users_shipping_pii_edge_only.sql (US-2417 — the seller's address stops being plaintext)
+## ✅ APPLIED: 00567_users_shipping_pii_edge_only.sql (US-2417 — the seller's address stops being plaintext, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: MEDIUM, and the ORDER matters more than the SQL does.** There is no DDL
 at all: one `CREATE OR REPLACE FUNCTION` narrowing the users self-update
@@ -287,7 +308,10 @@ it just is not protected yet.
 plaintext: the read path already tolerates a mixed table, so the only thing a
 rollback needs to restore is the write permission.
 
-## 🔴 HELD: 00566_per_image_shadow.sql (US-2443 — per-image prompt changes get a live-traffic comparison)
+## ✅ APPLIED: 00566_per_image_shadow.sql (US-2443 — per-image prompt changes get a live-traffic comparison, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: LOW, and it is INERT on arrival.** Six additive columns on
 `grading_shadow_results` and three on `ai_prompt_block_versions`, one index, two
@@ -334,7 +358,10 @@ default means nothing is spent.
 **Rollback** is dropping the nine columns. No data loss beyond shadow
 comparison rows, which are advisory analytics and never reach a seller.
 
-## 🔴 HELD: 00565_expense_recurrence.sql (US-2228 AC3 — an expense that repeats monthly)
+## ✅ APPLIED: 00565_expense_recurrence.sql (US-2228 AC3 — an expense that repeats monthly, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: LOW.** Two columns on `flipdesk_expenses` (one boolean with a `false`
 default, one nullable uuid), two partial indexes, one CHECK constraint. No
@@ -380,7 +407,10 @@ launch-checklist.md / deploy.md all regenerated.
 
 ---
 
-## 🔴 HELD: 00564_expense_receipts.sql (US-2228 AC2 — the receipt behind the number)
+## ✅ APPLIED: 00564_expense_receipts.sql (US-2228 AC2 — the receipt behind the number, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT, not by report.** `GET https://functions.gradethread.com/health/ready` returned `schema: {applied: "00573"}` on 2026-08-09 14:27 UTC — the database's own answer, read through the service-role client. 00564 through 00573 were applied together, so that single reading covers all ten. Nothing below is outstanding; it is kept for the next reader.
+
 
 **Risk: LOW.** Three nullable columns on `flipdesk_expenses` and one new PRIVATE
 storage bucket. No backfill, no constraint, no index, no default. Nothing
@@ -478,19 +508,21 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564 through 00573 are held** — see the top of this file. Everything below it is applied:
+**NOTHING IS HELD.** 00564 through 00573 were applied to prod on 2026-08-09 and
+measured the same hour; every section in this file is now APPLIED. Below the line
+is the older history:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528
 for how that is measured and why the measurement, not this file, is the
 authority whenever the two disagree.
 
-The running edge container has since caught up: as of 2026-08-09 01:00 UTC it
-reports `expected: 00563` against `applied: 00563`, `status: "match"`. An earlier
-version of this paragraph recorded a `status: "ahead"` while the image lagged at
-00561; that is history now. DB-ahead-of-code remains the safe direction — the
-boot guard refuses the reverse — so a lag here is never an incident, only a
-pending deploy.
+The running edge container lags the database again, and that is the expected
+state right after an apply: as of 2026-08-09 14:27 UTC it reports
+`expected: "00572"` against `applied: "00573"`, `status: "ahead"`. The image was
+built before the 00573 version bump, so it catches up on the next edge deploy.
+DB-ahead-of-code is the safe direction — the boot guard refuses the reverse — so
+a lag here is never an incident, only a pending deploy.
 
 ## ✅ APPLIED: 00562_grade_prompt_surface_hash.sql (US-2432 — say which prompt surface graded a row, applied 2026-08-08 — owner-confirmed)
 
