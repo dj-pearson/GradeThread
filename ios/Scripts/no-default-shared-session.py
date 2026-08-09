@@ -23,7 +23,10 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TARGET_DIRS = ["GradeThread", "ShareExtension", "GradeThreadWidget", "Shared"]
+# US-2342: the scan scope lives in one place now. See _scan_scope.py for why
+# no-bare-strings.py and check-ats.py deliberately do NOT import it.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _scan_scope import TARGET_DIRS  # noqa: E402
 
 # A default argument of `.shared` (or `URLSession.shared`) on a parameter typed
 # `URLSession`. Tolerates spacing variations:

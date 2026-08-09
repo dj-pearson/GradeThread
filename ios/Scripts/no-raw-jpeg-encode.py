@@ -38,7 +38,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-SCAN_DIRS = ["GradeThread", "ShareExtension", "Shared", "GradeThreadWidget"]
+# US-2342: this script had a FOURTH copy of the same list under a different
+# name, which is why the story's own audit counted three. Same omission, same
+# fix. It walks with pathlib rather than os.walk, so it needs os imported for
+# the path insert below.
+import os  # noqa: E402
+import sys  # noqa: E402
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _scan_scope import TARGET_DIRS as SCAN_DIRS  # noqa: E402
 
 ALLOWED = {
     "GradeThread/Capture/PhotoCompressor.swift",
