@@ -22,6 +22,8 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -42,6 +44,9 @@ import {
 import { TableLoadingSkeleton } from "@/components/ui/skeletons";
 import {
   fetchCommunityBenchmarks,
+  hasActiveFilters,
+  normalizeBenchmarkFilters,
+  type CommunityBenchmarkFilters,
   MIN_COHORT_SELLERS,
 } from "@/lib/community-benchmarks";
 import { deriveRecommendations } from "@/lib/community-recommendations";
@@ -106,6 +111,12 @@ export function FlipdeskCommunityInsightsPage(
 ) {
   const [preset, setPreset] = useState<Preset>("12mo");
   const periodStart = useMemo(() => presetStart(preset), [preset]);
+  // US-2235 AC1. Two pieces of state, not one, and the split is the point: the
+  // DRAFT is what the inputs hold while someone is typing, and `filters` is what
+  // has actually been submitted. Firing the query per keystroke would re-run a
+  // platform-wide aggregate over every reseller's inventory on every character.
+  const [draft, setDraft] = useState<CommunityBenchmarkFilters>({});
+  const [filters, setFilters] = useState<CommunityBenchmarkFilters>({});
   // US-2235: recommendations are dismissible + expandable beyond the preview.
   const [dismissedRecs, setDismissedRecs] = useState<Set<string>>(loadDismissedRecs);
   const [showAllRecs, setShowAllRecs] = useState(false);
@@ -119,11 +130,23 @@ export function FlipdeskCommunityInsightsPage(
     });
   }
 
+  // Normalized into the key as well as the call, so "Nike" and " nike " are one
+  // cache entry rather than two identical queries.
+  const activeFilters = useMemo(() => normalizeBenchmarkFilters(filters), [filters]);
   const { data, isLoading, isError, error } = useQuery({
-    queryKey: ["community-benchmarks", periodStart],
-    queryFn: () => fetchCommunityBenchmarks(periodStart),
+    queryKey: ["community-benchmarks", periodStart, activeFilters],
+    queryFn: () => fetchCommunityBenchmarks(periodStart, activeFilters),
     staleTime: 5 * 60 * 1000,
   });
+
+  const filtersActive = hasActiveFilters(activeFilters);
+  function applyFilters() {
+    setFilters(draft);
+  }
+  function clearFilters() {
+    setDraft({});
+    setFilters({});
+  }
 
   return (
     <div className="space-y-6">
@@ -151,6 +174,116 @@ export function FlipdeskCommunityInsightsPage(
             subtitle="Anonymized market signal from across the GradeThread reseller community."
             actions={actions}
           />
+        );
+      })()}
+
+      {/* US-2235 AC1: the filters. Submitted rather than live — see the state
+          split above. Every one of them narrows the cohort SERVER-side; there is
+          deliberately no client-side row filtering here, because hiding rows
+          would leave the medians computed over everyone. */}
+      <Card>
+        <CardContent className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="space-y-1.5">
+            <Label htmlFor="ci-brand" className="text-xs">Brand</Label>
+            <Input
+              id="ci-brand"
+              placeholder="Any brand"
+              value={draft.brand ?? ""}
+              onChange={(e) => setDraft((d) => ({ ...d, brand: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ci-category" className="text-xs">Category</Label>
+            <Input
+              id="ci-category"
+              placeholder="Any category"
+              value={draft.category ?? ""}
+              onChange={(e) => setDraft((d) => ({ ...d, category: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ci-size" className="text-xs">Size</Label>
+            <Input
+              id="ci-size"
+              placeholder="Any size"
+              value={draft.size ?? ""}
+              onChange={(e) => setDraft((d) => ({ ...d, size: e.target.value }))}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ci-price-min" className="text-xs">List price</Label>
+            <div className="flex items-center gap-2">
+              <Input
+                id="ci-price-min"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                placeholder="Min"
+                value={draft.priceMin ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    priceMin: e.target.value === "" ? null : Number(e.target.value),
+                  }))}
+                onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+              />
+              <span className="text-xs text-muted-foreground">to</span>
+              <Input
+                aria-label="Maximum list price"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                placeholder="Max"
+                value={draft.priceMax ?? ""}
+                onChange={(e) =>
+                  setDraft((d) => ({
+                    ...d,
+                    priceMax: e.target.value === "" ? null : Number(e.target.value),
+                  }))}
+                onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+              />
+            </div>
+          </div>
+          <div className="flex items-end gap-2">
+            <Button onClick={applyFilters} className="flex-1">Apply</Button>
+            {filtersActive ? (
+              <Button variant="ghost" onClick={clearFilters}>Clear</Button>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* US-2235 AC2: how many sellers are behind these numbers. The page showed
+          medians and percentiles with no sense of scale, so a figure from six
+          sellers read exactly like one from six hundred. */}
+      {(() => {
+        const cov = data?.meta.coverage;
+        const minSellers = data?.meta.minSellers ?? MIN_COHORT_SELLERS;
+        if (!cov) return null;
+        if (cov.belowFloor) {
+          return (
+            <div className="flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+              <Users className="mt-0.5 h-4 w-4 shrink-0" />
+              <p>
+                Fewer than {minSellers} sellers match this view, so the community
+                figures below are hidden. Widen the filters to see them.
+                {cov.totalSellers ? ` ${cov.totalSellers.toLocaleString()} sellers feed the full community view.` : ""}
+              </p>
+            </div>
+          );
+        }
+        return (
+          <div className="flex items-start gap-2 rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+            <Users className="mt-0.5 h-4 w-4 shrink-0" />
+            <p>
+              {filtersActive && cov.cohortSellers != null && cov.totalSellers != null
+                ? `${cov.cohortSellers.toLocaleString()} of ${cov.totalSellers.toLocaleString()} sellers match this view.`
+                : `${(cov.cohortSellers ?? cov.totalSellers ?? 0).toLocaleString()} sellers feed these numbers.`}
+            </p>
+          </div>
         );
       })()}
 

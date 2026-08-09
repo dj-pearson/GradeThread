@@ -1,5 +1,51 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00569_community_benchmarks_filters.sql (US-2235 — filters on Community Insights)
+
+**Risk: MEDIUM, and it is the DROP that carries it.** No table changes at all.
+It drops `community_benchmarks(date)` and recreates it with five extra filter
+parameters, all defaulting to null.
+
+**⚠️ PUSH-BLOCKING, and in the unusual direction: the SQL must go FIRST.** The
+new frontend calls the RPC with six named parameters. Against the old
+one-argument function that is a hard PostgREST error, so Community Insights
+would be blank for every seller between the push and the apply. The reverse
+(new function, old frontend) is completely fine — the extra params default to
+null and return exactly today's unfiltered snapshot.
+
+**Why it drops instead of overloading, since a DROP always reads alarming.**
+`CREATE OR REPLACE` cannot add parameters; it would create a SECOND function at
+a different arity. Both would then accept a single named `p_period_start` (the
+new one via its defaults), and PostgREST resolves by NAME — so every existing
+one-argument call would become ambiguous and fail at runtime, in production, on
+a path no local test covers. One function is the only safe end state.
+
+**There is a gap of milliseconds where the function does not exist** (between
+the DROP and the CREATE, inside the same transaction — the file is wrapped in
+`BEGIN;`/`COMMIT;`, so concurrent callers block rather than error). Apply it
+during a quiet moment anyway.
+
+**The privacy property, because this is the one to review.** Filtering is the
+classic way to break a k-anonymity guarantee: narrow until one seller is left,
+then read their numbers off the "aggregate". The filters apply to the BASE row
+set, so all fifteen existing `sellers >= min_sellers` guards re-evaluate against
+the filtered cohort and return nulls. The floor is unchanged — read from
+`system_settings.community_min_cohort_sellers`, hard-clamped to at least 5 in
+SQL. A guard test (`src/test/community-benchmarks-k-anonymity.test.ts`) fails
+the build if a filter ever moves downstream of the base CTE.
+
+**Verified on a throwaway stack**, not just eyeballed: `node scripts/verify.mjs
+--db` re-applied every migration from zero, so the SQL parses and the function
+creates.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — PostgREST caches
+function signatures, and it will keep rejecting the new parameters until it
+reloads. **This one is not optional.**
+
+**Rollback** is re-running 00241, which restores the one-argument function. The
+old frontend works against it; the new one does not, so roll the frontend back
+too.
+
 ## 🔴 HELD: 00568_submission_image_quality_score.sql (US-2136 AC4 — keep the measured photo quality)
 
 **Risk: LOW.** One nullable column on `submission_images` plus a range CHECK. No
@@ -268,7 +314,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564 through 00568 are held** — see the top of this file. Everything below it is applied:
+**00564 through 00569 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528

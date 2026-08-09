@@ -110,6 +110,16 @@ export type CommunityBenchmarks = {
     minSellers: number;
     periodStart: string | null;
     generatedAt: string;
+    // US-2235 AC1: echoed back by the RPC so the UI renders what the SERVER
+    // applied, not what it believes it asked for. Absent on a pre-00569 payload.
+    filters?: CommunityBenchmarkFilters;
+    // US-2235 AC2. Both counts are null below the k-anonymity floor — see
+    // `belowFloor` to tell "too few to show" apart from "nobody has sold yet".
+    coverage?: {
+      cohortSellers: number | null;
+      totalSellers: number | null;
+      belowFloor: boolean;
+    };
   };
   topBrands: BrandBenchmark[];
   categories: CategoryBenchmark[];
@@ -134,24 +144,92 @@ export type CommunityBenchmarks = {
 type RpcClient = {
   rpc: (
     fn: "community_benchmarks",
-    args: { p_period_start: string | null },
+    // US-2235: the five filter params are REQUIRED here even though the SQL
+    // defaults them, so a call site cannot silently omit one and get the
+    // unfiltered cohort back while believing it filtered. Pass null to mean
+    // "no filter" — that is what the RPC reads too.
+    args: {
+      p_period_start: string | null;
+      p_brand: string | null;
+      p_category: string | null;
+      p_size: string | null;
+      p_price_min: number | null;
+      p_price_max: number | null;
+    },
   ) => Promise<{
     data: CommunityBenchmarks | null;
     error: { message: string } | null;
   }>;
 };
 
+/** US-2235 AC1. Every field optional; all absent = the unfiltered snapshot. */
+export interface CommunityBenchmarkFilters {
+  brand?: string | null;
+  category?: string | null;
+  size?: string | null;
+  priceMin?: number | null;
+  priceMax?: number | null;
+}
+
+/**
+ * Normalize a filter set for the RPC.
+ *
+ * Blank strings become null rather than being sent through. An empty text input
+ * must mean "no filter", not "match the empty brand" — the RPC compares against
+ * a coalesced 'No brand' / 'Uncategorized', so an empty string would select a
+ * real and very wrong cohort.
+ *
+ * Pure + exported so the mapping is testable without a database.
+ */
+export function normalizeBenchmarkFilters(
+  f: CommunityBenchmarkFilters | undefined,
+): Required<CommunityBenchmarkFilters> {
+  const text = (v: string | null | undefined) => {
+    const s = typeof v === "string" ? v.trim() : "";
+    return s ? s : null;
+  };
+  const num = (v: number | null | undefined) =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  return {
+    brand: text(f?.brand),
+    category: text(f?.category),
+    size: text(f?.size),
+    priceMin: num(f?.priceMin),
+    priceMax: num(f?.priceMax),
+  };
+}
+
+/** True when any filter is actually narrowing the cohort. */
+export function hasActiveFilters(f: CommunityBenchmarkFilters | undefined): boolean {
+  const n = normalizeBenchmarkFilters(f);
+  return Object.values(n).some((v) => v !== null);
+}
+
 /**
  * Anonymized, platform-wide reseller benchmarks filtered to items listed/sold on
  * or after `periodStart` (yyyy-mm-dd, or null for all time). Trending categories
  * always use a fixed last-30d-vs-prior-30d window regardless of `periodStart`.
+ *
+ * US-2235: `filters` narrows the cohort SERVER-side (00569). That is the whole
+ * point — filtering client-side over the returned aggregates would hide rows
+ * without recomputing the medians behind them, so "Carhartt sell-through" would
+ * still be everyone's sell-through with the other brands' rows removed. The
+ * k-anonymity floor re-applies to the narrowed cohort, so a filter that isolates
+ * too few sellers returns nulls rather than their numbers.
  */
 export async function fetchCommunityBenchmarks(
   periodStart: string | null,
+  filters?: CommunityBenchmarkFilters,
 ): Promise<CommunityBenchmarks> {
   const client = supabase as unknown as RpcClient;
+  const f = normalizeBenchmarkFilters(filters);
   const { data, error } = await client.rpc("community_benchmarks", {
     p_period_start: periodStart,
+    p_brand: f.brand,
+    p_category: f.category,
+    p_size: f.size,
+    p_price_min: f.priceMin,
+    p_price_max: f.priceMax,
   });
   if (error) throw new Error(error.message);
   if (!data) throw new Error("No benchmark data returned");
