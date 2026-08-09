@@ -1,4 +1,5 @@
 import type { RewardsState } from "@/hooks/use-rewards";
+import type { AnalyticsEvent } from "@/lib/analytics-events";
 
 // US-1857: the celebration policy — pure, DOM-free and storage-injectable, so
 // the whole thing is unit-testable and the React layer only has to render what
@@ -463,9 +464,17 @@ export function writeCelebrationState(
 
 // ─── Analytics (US-1915 AC4) ────────────────────────────────────────────────
 
-/** One PostHog call, decided but not yet made. */
+/**
+ * One PostHog call, decided but not yet made.
+ *
+ * ⚠ `event` is `AnalyticsEvent`, NOT `string`. This function's whole job is to
+ * decide event names away from the component, so typing the field loosely would
+ * have moved the naming decision somewhere the US-2446 registry can't see it —
+ * the component would hand `track()` a plain `string` and the check would pass
+ * vacuously. It is typed here so a bad name fails at the point it is CHOSEN.
+ */
 export interface CelebrationAnalyticsEvent {
-  event: string;
+  event: AnalyticsEvent;
   props: Record<string, unknown>;
 }
 

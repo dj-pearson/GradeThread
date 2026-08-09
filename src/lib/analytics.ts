@@ -16,6 +16,10 @@
 // hardening it sends no PII/IP (see src/lib/sentry.ts), so it runs under
 // legitimate interest for security + reliability, which does not require consent.
 
+// TYPE-ONLY, deliberately. The registry's `AnalyticsEvent` union is built partly
+// from buyer-analytics.ts, which imports `track` from this file — a runtime
+// import back would close a module cycle at boot. Type-only imports erase.
+import type { AnalyticsEvent } from "./analytics-events";
 import { redactSensitiveUrl } from "./redact-url";
 
 declare global {
@@ -240,7 +244,7 @@ export function initAnalyticsFromStoredConsent() {
 // itself to window.posthog once analytics consent initializes it; before consent
 // (or in DEV, where capturing is opted out) this is a silent no-op. Never let
 // analytics throw into product code.
-export function track(event: string, props?: Record<string, unknown>): void {
+export function track(event: AnalyticsEvent, props?: Record<string, unknown>): void {
   try {
     window.posthog?.capture?.(event, props);
   } catch {

@@ -21,6 +21,9 @@
 // rather than being "tidied" into a new scheme.
 
 import { getConsent, track } from "./analytics";
+// TYPE-ONLY. analytics-events.ts imports the step types from THIS file, so a
+// runtime import in either direction would close a cycle. Both sides are erased.
+import type { BuyerFunnelEventName } from "./analytics-events";
 import { getStoredUtm, type StoredUtm } from "./ad-attribution";
 import { storedAffiliateRefCode } from "./affiliate";
 import { BUYER_PLANS, type BuyerPlanKey } from "./constants";
@@ -66,8 +69,21 @@ export function buyerFunnelStepIndex(step: BuyerFunnelStep | BuyerFunnelExit): n
   return i;
 }
 
-/** The PostHog event name for a funnel step. Preserves the US-1843 spellings. */
-export function buyerFunnelEventName(step: BuyerFunnelStep | BuyerFunnelExit): string {
+/**
+ * The PostHog event name for a funnel step. Preserves the US-1843 spellings.
+ *
+ * ⚠ The return type is the TEMPLATE LITERAL `BuyerFunnelEventName`, not `string`,
+ * and that is what lets this whole family pass the US-2446 registry. `track()`
+ * only accepts declared event names; a function returning plain `string` would
+ * have forced either a cast at the call site or widening `track()` back to
+ * `string` — and either one reopens the hole the registry exists to close. As a
+ * template type the union is still fully enumerable: add a step to
+ * `BUYER_FUNNEL_STEPS` and its event name becomes legal automatically, while a
+ * typo in a hand-written `buyer_funnel_*` literal is still rejected.
+ */
+export function buyerFunnelEventName(
+  step: BuyerFunnelStep | BuyerFunnelExit,
+): BuyerFunnelEventName {
   return `buyer_funnel_${step}`;
 }
 
