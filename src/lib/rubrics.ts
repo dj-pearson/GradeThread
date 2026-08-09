@@ -30,6 +30,32 @@ export interface Rubric {
   factors: RubricFactor[];
 }
 
+/**
+ * Rubrics whose items collide with the authenticity add-on (US-2225 AC3).
+ *
+ * Not a style note — a liability one. Every authentication tell pack we hold is
+ * for a bag brand (louisvuitton, coach, gucci), so on a handbag the condition
+ * grade and the authenticity verdict land on the SAME certificate. A buyer
+ * reading "9.2" beside a luxury logo will take it as a statement about whether
+ * the bag is real unless the page says it is not.
+ *
+ * Mirrors AUTHENTICITY_ADJACENT_RUBRIC_KEYS in the server rubric module.
+ */
+export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS: readonly string[] = ["handbags"];
+
+/**
+ * The fixed line that keeps a condition grade from reading as an authenticity
+ * claim. A constant, and never model-authored, for the same reason the
+ * authenticity limitations text is: the model must not be able to soften it.
+ */
+export const CONDITION_NOT_AUTHENTICITY_DISCLOSURE =
+  "This is a condition grade only. It is not an opinion on whether this item is authentic.";
+
+/** Does this rubric need the condition-vs-authenticity separation shown? */
+export function needsAuthenticitySeparation(rubricKey: string | null | undefined): boolean {
+  return !!rubricKey && AUTHENTICITY_ADJACENT_RUBRIC_KEYS.includes(rubricKey);
+}
+
 // Clothing = the existing 5 factors, derived from GRADE_FACTORS (zero drift).
 const CLOTHING_FACTORS: RubricFactor[] = (
   Object.entries(GRADE_FACTORS) as [GradeFactorKey, { label: string; weight: number }][]
@@ -43,6 +69,20 @@ const CLOTHING_RUBRIC: Rubric = {
 
 export const RUBRICS: Record<string, Rubric> = {
   clothing: CLOTHING_RUBRIC,
+  // US-2225. Mirrors the server rubric; the weights' reasoning lives there.
+  // Pinned by src/test/fixtures/rubric-factors.json, asserted by both suites.
+  handbags: {
+    key: "handbags",
+    label: "Handbag & leather goods",
+    factors: [
+      { key: "corners_edges", label: "Corners & Edges", weight: 0.3 },
+      { key: "exterior", label: "Exterior", weight: 0.2 },
+      { key: "handles_straps", label: "Handles & Straps", weight: 0.15 },
+      { key: "hardware", label: "Hardware", weight: 0.15 },
+      { key: "interior", label: "Interior", weight: 0.1 },
+      { key: "structure", label: "Structure", weight: 0.1 },
+    ],
+  },
   sports_cards: {
     key: "sports_cards",
     label: "Sports card",

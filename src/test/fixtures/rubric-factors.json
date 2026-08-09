@@ -21,6 +21,17 @@
     "src/lib/__tests__/rubrics.test.ts."
   ],
   "rubrics": {
+    "handbags": {
+      "label": "Handbag & leather goods",
+      "factors": [
+        { "key": "corners_edges", "label": "Corners & Edges", "weight": 0.3 },
+        { "key": "exterior", "label": "Exterior", "weight": 0.2 },
+        { "key": "handles_straps", "label": "Handles & Straps", "weight": 0.15 },
+        { "key": "hardware", "label": "Hardware", "weight": 0.15 },
+        { "key": "interior", "label": "Interior", "weight": 0.1 },
+        { "key": "structure", "label": "Structure", "weight": 0.1 }
+      ]
+    },
     "clothing": {
       "label": "Clothing",
       "factors": [

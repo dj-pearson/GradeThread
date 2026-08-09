@@ -41,7 +41,11 @@ import {
   getTierBadgeClasses,
   getProgressColor,
 } from "@/lib/constants";
-import { rubricForKey } from "@/lib/rubrics";
+import {
+  CONDITION_NOT_AUTHENTICITY_DISCLOSURE,
+  needsAuthenticitySeparation,
+  rubricForKey,
+} from "@/lib/rubrics";
 import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
 import { CoverageHeatmap } from "@/components/certificate/coverage-heatmap";
@@ -934,6 +938,18 @@ export function CertificatePage() {
             <CardTitle className="text-base">Factor Breakdown</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* US-2225 AC3. On a handbag the condition grade and the
+                authenticity add-on land on the same certificate — every tell
+                pack we hold is a bag brand — so a number beside a luxury logo
+                reads as a verdict on the logo unless this says otherwise. It
+                sits INSIDE the breakdown card, above the factors, rather than
+                in a footer: the separation has to be adjacent to the number it
+                qualifies, or it is a disclaimer nobody reaches. */}
+            {needsAuthenticitySeparation(activeRubric.key) && (
+              <p className="rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
+                {CONDITION_NOT_AUTHENTICITY_DISCLOSURE}
+              </p>
+            )}
             {factorScores.map(({ key, label, weight, score }) => {
               return (
                 <div key={key} className="space-y-1.5">

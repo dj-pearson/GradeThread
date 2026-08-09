@@ -28,6 +28,7 @@ import {
 } from "../_shared/blog-render";
 import { certNotFoundResponse } from "./cert-not-found";
 import { aiDisclosureNoticeHtml } from "../_shared/ai-disclosure";
+import { conditionAuthenticityNoticeHtml } from "../_shared/condition-authenticity";
 import { INTEGRITY_TIER_BASIS, LEVEL_FLAIR_BASIS } from "../_shared/status-basis";
 
 interface PublicCertificate {
@@ -200,8 +201,16 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     }</div>`
     : "";
 
+  // US-2225 AC3: the condition-vs-authenticity separation, rendered INSIDE the
+  // factor breakdown rather than in a footer — it has to sit beside the number
+  // it qualifies or it is a disclaimer nobody reaches. Empty string for every
+  // rubric that does not need one, so clothing certificates are byte-identical.
+  const conditionOnlyHtml = conditionAuthenticityNoticeHtml(
+    (cert as { rubric_key?: string | null }).rubric_key,
+  );
+
   // Factor breakdown as colored bars (was a plain table).
-  const factorsHtml = `<div class="cert-factors">${
+  const factorsHtml = `${conditionOnlyHtml}<div class="cert-factors">${
     FACTORS.map((f) => {
       const v = Number(cert[f.key]);
       const pct = Math.max(0, Math.min(100, v * 10));

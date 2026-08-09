@@ -194,15 +194,104 @@ const SHOES: Rubric = {
   },
 };
 
+// US-2225. A handbag is the highest price-per-item thing this system touches
+// and it currently grades through the CLOTHING rubric, which spends 30% of the
+// score on fabric condition and 10% on odor. Neither is what a bag is worth.
+//
+// ── WHY THE WEIGHTS ARE SHAPED LIKE THIS ────────────────────────────────────
+// Corners and edge paint carry the most weight because they are the first place
+// every buyer looks and the most expensive area to restore — a bag with perfect
+// panels and worn corners reads as used, and the reverse does not. Handles and
+// straps sit next to hardware rather than under "structure" because their
+// failure mode is chemical (vachetta darkening, edge-glazing cracking) rather
+// than structural, and they are replaceable at a known cost. Interior and
+// structure are last not because they do not matter but because they are the
+// two a buyer can least see in photographs, and a rubric should not weight
+// heavily what the evidence cannot support.
+//
+// ── THE SEPARATION THAT MATTERS MORE THAN THE WEIGHTS ────────────────────────
+// These are exactly the brands the authenticity add-on covers — every tell pack
+// we have (louisvuitton, coach, gucci) is a bag brand. So a bag is the one item
+// where a condition grade and an authenticity verdict land on the same
+// certificate, and a buyer reading "9.2" next to a Louis Vuitton logo will take
+// it as a statement about whether the bag is real unless we say otherwise.
+// promptGuidance below refuses that explicitly, and the certificate copy is
+// test-asserted separately (US-2225 AC3) — the prompt alone is not the guard,
+// because a prompt is a request and the rendered page is a claim.
+const HANDBAGS: Rubric = {
+  key: "handbags",
+  label: "Handbag & leather goods",
+  factors: [
+    { key: "corners_edges", label: "Corners & Edges", weight: 0.3, guidance: "Corner wear through to the substrate, edge-paint (glazing) cracking, chipping or loss along every seam and piping run." },
+    { key: "exterior", label: "Exterior", weight: 0.2, guidance: "Body panels: scuffs, scratches, water marks, stains, ink transfer, colour transfer from denim." },
+    { key: "handles_straps", label: "Handles & Straps", weight: 0.15, guidance: "Darkening and patina, cracking, stretch, stitching at the anchor points, strap-hole elongation." },
+    { key: "hardware", label: "Hardware", weight: 0.15, guidance: "Plating loss and tarnish, zipper pull action, clasp and lock function, feet wear, missing pieces." },
+    { key: "interior", label: "Interior", weight: 0.1, guidance: "Lining stains, pen marks, tears, pocket condition, residual odour." },
+    { key: "structure", label: "Structure", weight: 0.1, guidance: "Shape retention, base sag, slouch, corner collapse, panel creasing." },
+  ],
+  promptGuidance:
+    "Grade this bag's CONDITION only. Say nothing about whether it is authentic, and do not treat a brand marking, date code, serial or logo as evidence of condition either way — a separate system assesses authenticity and this grade must not imply it. Assess corners and edge paint first: they decide more of a bag's value than any panel. Honest patina on untreated leather is age, not damage; cracking, flaking and colour transfer are damage.",
+  // Reconciled to the shared DefectType taxonomy, like every rubric here —
+  // nothing invented. `pilling` and `snag_pull` are deliberately unrouted:
+  // they are textile failures with no leather equivalent, and mapping them
+  // anywhere would put a debit on a factor the defect cannot physically reach.
+  // They fall through to the first factor via routeDefectToRubricFactors, which
+  // is the documented behaviour rather than a gap.
+  defectRouting: {
+    abrasion_thinning: { corners_edges: 0.6, exterior: 0.4 },
+    // Vachetta darkening and edge-paint colour loss — the two most common
+    // findings on a used bag, and both read on handles and corners first.
+    discoloration: { handles_straps: 0.5, corners_edges: 0.3, exterior: 0.2 },
+    fading: { exterior: 0.6, handles_straps: 0.4 },
+    stain: { exterior: 0.5, interior: 0.5 },
+    rip_tear: { exterior: 0.5, interior: 0.5 },
+    hole_puncture: { exterior: 0.6, corners_edges: 0.4 },
+    seam_failure_unthreading: { structure: 0.5, handles_straps: 0.5 },
+    // A dead zipper is the single most quoted repair on a bag.
+    broken_zipper: { hardware: 1.0 },
+    broken_button: { hardware: 1.0 },
+    missing_hardware: { hardware: 1.0 },
+    stretched_misshapen: { structure: 0.6, handles_straps: 0.4 },
+    odor_indicator: { interior: 1.0 },
+    wrinkle_crease: { structure: 0.6, exterior: 0.4 },
+  },
+};
+
 export const RUBRICS: Record<string, Rubric> = {
   clothing: CLOTHING,
   sports_cards: SPORTS_CARDS,
   watches: WATCHES,
   shoes: SHOES,
+  handbags: HANDBAGS,
 };
 
 /** Item categories that have a dedicated non-clothing rubric ready to activate. */
-export const NON_CLOTHING_RUBRIC_KEYS = ["sports_cards", "watches", "shoes"] as const;
+export const NON_CLOTHING_RUBRIC_KEYS = [
+  "sports_cards",
+  "watches",
+  "shoes",
+  "handbags",
+] as const;
+
+/**
+ * Rubrics whose items collide with the authenticity add-on (US-2225 AC3).
+ *
+ * Not a style note — a liability one. Every authentication tell pack we hold is
+ * for a bag brand, so on a handbag the condition grade and the authenticity
+ * verdict render on the same certificate, and a number beside a luxury logo
+ * reads as a verdict on the logo unless the page says it is not. Anything that
+ * renders a grade for one of these must carry the separation; the rendered copy
+ * is asserted, not just the prompt that asks for it.
+ */
+export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS = ["handbags"] as const;
+
+/**
+ * The fixed line that keeps a condition grade from reading as an authenticity
+ * claim. A constant, never model-authored, for the same reason
+ * AUTHENTICITY_LIMITATIONS is: the model must not be able to soften it.
+ */
+export const CONDITION_NOT_AUTHENTICITY_DISCLOSURE =
+  "This is a condition grade only. It is not an opinion on whether this item is authentic.";
 
 /** Resolves the rubric for an item_category / rubric_key; clothing is the default. */
 export function rubricForKey(key: string | null | undefined): Rubric {
