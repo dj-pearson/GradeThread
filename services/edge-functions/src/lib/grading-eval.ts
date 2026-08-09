@@ -193,6 +193,32 @@ export async function runEval(
         `Prompt block version not found (or names an unknown block): ${blockCandidate.blockVersionId}`,
       );
     }
+    // US-2438 AC2 — THE REFUSAL THAT WAS DOCUMENTED AND NOT ENFORCED.
+    //
+    // compositeGrade() carries a comment saying a block override is
+    // "deliberately NOT accepted here yet". That decision was real and correct.
+    // It was also only ever written down: this function reads `blockRow.stage`
+    // and happily accepts a COMPOSITE block candidate, builds `blockOverride`
+    // from it, and then passes that override to analyzeImage ONLY — the
+    // per-image stage, whose prompt does not contain any composite block.
+    //
+    // So a composite block candidate ran the CHAMPION end to end and stamped the
+    // result into grading_eval_runs under the candidate's own label. Not a
+    // missing feature: a FALSE PASS, and the most expensive shape one can take
+    // — a gate reporting that an unmeasured change qualified.
+    //
+    // Refused here until compositeGrade takes the override, because the honest
+    // failure is loud. When it does, delete this block and thread `blockOverride`
+    // into the compositeGrade call below; the prompt builder already accepts it
+    // (buildCompositeUserPrompt's `blocks` parameter, US-2438 AC1).
+    if (blockRow.stage === "composite") {
+      throw new Error(
+        `Block version ${blockRow.version_name} is a COMPOSITE block, and the eval ` +
+          `gate cannot measure one yet: compositeGrade() does not accept a block ` +
+          `override, so this run would score the champion and report it as the ` +
+          `candidate. See US-2438 AC2. Per-image block candidates are supported.`,
+      );
+    }
     const text = (blockRow.block_text ?? "").trim();
     if (text.length === 0) {
       // An empty block_text means "the code default, under this version name" —

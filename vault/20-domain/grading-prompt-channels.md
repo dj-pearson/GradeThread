@@ -319,10 +319,36 @@ It is the only line in the prompt that restates the contract in
 product is sold on and has to be reviewable by itself, not buried in a 38-line
 schema diff.
 
-Composite blocks deliberately **do not** accept an eval candidate yet. The gate
+Composite blocks deliberately **do not** accept an eval candidate. The gate
 scores per-image block candidates; letting a composite block through without a
 composite shadow path would give it a route to "qualified" the per-image blocks
 do not have, and the two would then mean different things by *passed*.
+
+**That sentence was true as a decision and false as a description, for months
+(found 2026-08-09).** `compositeGrade()` refused the override, and said so in a
+comment — but `runEval` never checked. It read the candidate row's `stage`,
+accepted a composite block, built the override, and passed it to
+`analyzeImage` **only**, whose per-image prompt contains no composite block. So
+the run graded the CHAMPION end to end and wrote the result into
+`grading_eval_runs` under the candidate's own `block:…` label.
+
+Not a missing feature — a **false pass**, and the worst shape one: a gate whose
+whole job is to say "this was measured and it qualified" saying exactly that
+about a change that never ran. `grading-eval.ts` now refuses a composite block
+explicitly, before the first vision call, and
+`grading-eval-block-stage_test.ts` pins both halves — the refusal, and that
+per-image candidates still reach `analyzeImage`.
+
+The generalisable bit: **a decision recorded only as a comment is enforced
+nowhere.** The refusing file and the calling file were different files, each
+correct in isolation. Same lesson as the "no route does X" absence-claim in
+[[shipped-but-unwired]] — if it is load-bearing, pin it with a test.
+
+Half of the original reason is also now stale. US-2443 built a per-image shadow
+path, so a per-image block has all three legs. A composite block still has none:
+`grading-shadow.ts` compares two composite PROMPTS over reused per-image
+evidence and has no notion of a block. Giving composite blocks a shadow leg is
+what lifts the refusal.
 
 `runEval`'s `unversioned_surface.covered` is therefore a LIST of block keys, not
 a boolean. It stopped being the literal `false` the moment the registry could

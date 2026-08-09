@@ -2497,11 +2497,24 @@ export async function compositeGrade(
   // schema and the Rules block. Same registry, same resolver, same additive
   // guarantee: an empty registry returns {} and the three constants render.
   //
-  // A blockOverride is deliberately NOT accepted here yet. The eval gate scores
-  // per-image block candidates today; wiring a composite candidate without a
-  // composite shadow path (US-2438 AC2, which does not exist) would let a
-  // composite block reach the gate through a route the per-image blocks do not
-  // have, and the two would then mean different things by "qualified".
+  // A blockOverride is deliberately NOT accepted here yet, and the reason has
+  // CHANGED SHAPE since this was written — worth reading before acting on it.
+  //
+  // The original argument was "no composite shadow path exists (US-2438 AC2)".
+  // Half of that is now stale: US-2443 built a PER-IMAGE shadow path, so a
+  // per-image block candidate has all three legs (shadow, eval gate, canary).
+  // A COMPOSITE block still has none. grading-shadow.ts compares two composite
+  // PROMPTS over reused per-image evidence; it has no notion of a block, so
+  // there is nothing there for a composite block candidate to ride.
+  //
+  // The second half is the one that bites, and it was NOT enforced anywhere:
+  // runEval read the candidate's stage and accepted a composite block, then
+  // applied the override to the per-image call only — scoring the champion and
+  // stamping it under the candidate's name. grading-eval.ts now refuses that
+  // explicitly. Wiring the override here is what lifts the refusal; do both in
+  // one commit, and give composite blocks a shadow leg before calling them
+  // gate-qualified, or they reach "qualified" by a shorter road than per-image
+  // blocks and the word stops meaning one thing.
   const compositeBlocks = await resolvePromptBlocks(
     "composite",
     [
