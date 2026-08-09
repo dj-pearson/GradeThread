@@ -157,6 +157,17 @@ export function coverageConfidenceCap(level: TellCoverageLevel): number {
  */
 export function coverageLimitation(coverage: TellCoverage): string {
   if (coverage.level === "actionable") return "";
+  // US-2139 AC4 — ITS OWN WORDING, and this is a correction to the same day's
+  // work rather than a nicety. Adding the level without this branch let an
+  // unverified brand fall through to the INERT text below, which says our
+  // criteria "are descriptive notes rather than checkable tests". That is FALSE
+  // for this level: the criteria ARE checkable tests, nobody has confirmed them.
+  // A wrong explanation on a paid disclosure is worse than a vague one, because
+  // the buyer can act on it — they would conclude we hold no real tests for the
+  // brand when we hold untested ones.
+  if (coverage.level === "unverified") {
+    return " Our brand-specific criteria for this brand are checkable tests, but they have not yet been verified against a cited source, so findings are not attributed to confirmed markers. Confidence is capped accordingly. Treat it as a starting point for your own inspection.";
+  }
   if (coverage.level === "none") {
     return " We hold no brand-specific authentication criteria for this brand, so this assessment rests on general construction and finishing cues rather than on verified brand tells. Treat it as a starting point for your own inspection, not as a brand-specific authentication.";
   }
@@ -176,6 +187,11 @@ export function coverageLimitation(coverage: TellCoverage): string {
  */
 export function purchaseDisclosure(coverage: TellCoverage): string | null {
   if (coverage.level === "actionable") return null;
+  // Same correction as coverageLimitation above — see the comment there for why
+  // the fall-through was a wrong statement rather than a missing one.
+  if (coverage.level === "unverified") {
+    return "Our criteria for this brand are checkable but not yet verified against a cited source, so findings will not be tied to confirmed markers. Confidence is capped accordingly.";
+  }
   if (coverage.level === "none") {
     return "We hold no brand-specific authentication criteria for this brand yet. This add-on will assess general construction and finishing only, and its confidence is capped accordingly.";
   }

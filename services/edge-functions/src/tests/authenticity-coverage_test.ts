@@ -284,3 +284,60 @@ Deno.test("US-2219: every seeded pack payload is the legacy shape", async () => 
     "a structured payload appeared — update this test's floor rather than deleting it",
   );
 });
+
+// ── US-2139 AC4: the new level needs its OWN disclosure, not a fall-through ──
+//
+// Caught same-day, in the commit after the one that added the level. Without an
+// explicit branch an unverified brand fell through to the INERT wording, which
+// says our criteria "are descriptive notes rather than checkable tests" — FALSE
+// here: they are checkable tests nobody has confirmed. A wrong explanation on a
+// paid disclosure is worse than a vague one, because the buyer can act on it.
+
+Deno.test("US-2139 AC4: an unverified brand gets its own limitation wording", () => {
+  const seeded = coerceTell({ ...STRUCTURED[0], source: "seed:x" })!;
+  const cov = classifyTellCoverage([seeded]);
+  const inert = classifyTellCoverage(normalizeTells(LEGACY));
+  const text = coverageLimitation(cov);
+
+  assert(text.length > 0, "an unverified brand owes the buyer a disclosure");
+  // Not the inert text — that is the specific wrong statement.
+  assert(
+    text !== coverageLimitation(inert),
+    "unverified must not reuse the inert wording; the inert text claims our " +
+      "criteria are not checkable tests, and here they are",
+  );
+  assertStringIncludes(text, "not yet been verified");
+  // The house rule for every disclosure in this module: describe OUR gap, never
+  // the garment. A thin knowledge base does not make the item suspicious.
+  for (const word of ["counterfeit", "fake", "suspect", "inauthentic", "replica"]) {
+    assert(!text.toLowerCase().includes(word), `must not say "${word}"`);
+  }
+});
+
+Deno.test("US-2139 AC4: the purchase disclosure is distinct too", () => {
+  const seeded = coerceTell({ ...STRUCTURED[0], source: "seed:x" })!;
+  const cov = classifyTellCoverage([seeded]);
+  const d = purchaseDisclosure(cov);
+  assert(d !== null, "a paid offer on an unverified brand must disclose");
+  assert(d !== purchaseDisclosure(classifyTellCoverage(normalizeTells(LEGACY))));
+  assert(d !== purchaseDisclosure(classifyTellCoverage([])));
+});
+
+Deno.test("US-2139 AC4: every level except actionable owes a disclosure", () => {
+  // A cap with no disclosure is the shape this whole module exists to prevent —
+  // the buyer pays, the confidence is quietly lowered, and nothing says why.
+  const levels = [
+    classifyTellCoverage([]),
+    classifyTellCoverage(normalizeTells(LEGACY)),
+    classifyTellCoverage([coerceTell({ ...STRUCTURED[0], source: "seed:x" })!]),
+  ];
+  const seen = new Set<string>();
+  for (const cov of levels) {
+    assert(coverageLimitation(cov).length > 0, cov.level);
+    assert(purchaseDisclosure(cov) !== null, cov.level);
+    // And each one says something DIFFERENT — three identical texts would mean
+    // the levels are not really distinct to the person reading them.
+    seen.add(coverageLimitation(cov));
+  }
+  assertEquals(seen.size, 3);
+});
