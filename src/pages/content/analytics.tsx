@@ -15,7 +15,7 @@ import {
   useContentStats,
   useSendContentDigest,
 } from "@/hooks/use-content";
-import { PRODUCT_LABELS } from "@/lib/constants";
+import { PRODUCT_LABELS, SURFACE_LABELS } from "@/lib/constants";
 import { safeHref } from "@/lib/safe-url";
 
 // At-a-glance health for the content module. No external analytics —
@@ -235,8 +235,15 @@ export function ContentAnalyticsPage() {
                 const low = queued < 3;
                 return (
                   <tr key={`${surface}:${product}`} className="border-t">
-                    <td className="py-2 capitalize">
-                      {surface} · {PRODUCT_LABELS[product]}
+                    {/* US-2439: SURFACE_LABELS, not a raw value plus a CSS
+                        capitalize. The class was doing the label map's job for
+                        one half of this line while the other half used the real
+                        map — which is why the two drifted without looking
+                        broken. `capitalize` also only fixes the first letter,
+                        so it would render "Linkedin" for any future surface
+                        whose label is not a single plain word. */}
+                    <td className="py-2">
+                      {SURFACE_LABELS[surface]} · {PRODUCT_LABELS[product]}
                     </td>
                     <td className="py-2 text-right">
                       <Badge variant={low ? "destructive" : "secondary"}>

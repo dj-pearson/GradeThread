@@ -19,7 +19,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Sparkles, Plus, X, ArrowRight } from "lucide-react";
-import { PRODUCT_LABELS } from "@/lib/constants";
+import {
+  PRODUCT_LABELS,
+  SURFACE_LABELS,
+  TOPIC_STATUS_LABELS,
+} from "@/lib/constants";
 import type { ContentProduct, ContentSurface } from "@/types/database";
 import {
   useAddTopics,
@@ -113,8 +117,13 @@ function BankTab({
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-2">
         <div className="text-sm text-muted-foreground">
+          {/* US-2439: through TOPIC_STATUS_LABELS rather than prose, so the
+              vocabulary a user reads has ONE home. Lowercased here because it
+              is mid-sentence — the map owns the wording, the sentence owns the
+              casing, which is the split that lets a status be renamed once. */}
           <span className="font-medium text-foreground">{queuedCount}</span>{" "}
-          queued · {usedCount} used
+          {TOPIC_STATUS_LABELS.queued.toLowerCase()} · {usedCount}{" "}
+          {TOPIC_STATUS_LABELS.used.toLowerCase()}
         </div>
         <div className="flex gap-2">
           <AddTopicDialog surface={surface} product={product} />
@@ -145,7 +154,10 @@ function BankTab({
       ) : topics.length === 0 ? (
         <Card>
           <CardContent className="flex h-32 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
-            <span>No queued topics for {PRODUCT_LABELS[product]} {surface}.</span>
+            <span>
+              No queued topics for {PRODUCT_LABELS[product]}{" "}
+              {SURFACE_LABELS[surface]}.
+            </span>
             <span>Click "Research 10 more" to fill the bank.</span>
           </CardContent>
         </Card>
