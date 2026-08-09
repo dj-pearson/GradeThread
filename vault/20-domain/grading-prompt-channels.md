@@ -283,11 +283,22 @@ would be two things to remember, failing silently when one was forgotten.
 after. That is what let this ship without an eval run: it cannot change a prompt
 until somebody activates a row.
 
-**Coverage.** Five blocks: `garment_type_criteria` and `category_criteria` on the
-per-image stage, and `composite_factor_weights`, `composite_response_schema` and
-`composite_rules` on the composite. The composite three were extracted verbatim
-from the template literal — the surface hash was `baf5d4cb` before and after, and
-that is the proof, not the intent.
+**Coverage.** Seven blocks. Per-image: `garment_type_criteria`,
+`category_criteria`, `per_image_response_schema`, `per_image_rules`. Composite:
+`composite_factor_weights`, `composite_response_schema`, `composite_rules`. Every
+static block of both user messages now has an identity; what remains outside the
+registry is the *generated* context (baseline, fabric, tag), which is a different
+thing — those are already flag-gated because their cost is a database read or a
+vision call, not a string.
+
+All five tails were extracted verbatim. The surface hash was `baf5d4cb` before
+and `baf5d4cb` after every one of them, and that is the proof, not the intent.
+
+**Schema and rules are split, in both stages.** The rules are what an operator
+actually tunes — what counts as unassessable, how strict the manipulation check
+is — while the schema is the contract the parser depends on. One block would mean
+every rules tweak restates a ~55-line schema, which is the restating-an-invariant
+shape this whole registry exists to avoid.
 
 The factor-weights sentence is its **own** block rather than part of the schema.
 It is the only line in the prompt that restates the contract in

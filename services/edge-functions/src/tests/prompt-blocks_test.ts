@@ -677,6 +677,63 @@ Deno.test("US-2438 AC3: a candidate naming an unknown block is refused", () => {
   );
 });
 
+// ── AC1: the per-image tail now has identity too ───────────────────────────
+
+Deno.test("US-2438 AC1: each per-image block lands in its own slot", () => {
+  const out = buildUserPrompt("front", "tops", "jeans", [], "", {
+    per_image_response_schema: { text: "PI SCHEMA", versionName: "pis_v2" },
+    per_image_rules: { text: "PI RULES", versionName: "pir_v2" },
+  });
+  assert(out.includes("PI SCHEMA"));
+  assert(out.includes("PI RULES"));
+  // Replaced, not appended beside. Two response schemas in one prompt is the
+  // failure that reads as working until the model picks the wrong one.
+  assert(
+    !out.includes('"detected_issues"'),
+    "the code per-image schema survived the override",
+  );
+  assert(
+    out.indexOf("PI SCHEMA") < out.indexOf("PI RULES"),
+    "the per-image tail was reordered — rules qualify a schema, so they follow it",
+  );
+});
+
+Deno.test("US-2438 AC1: the DEFAULT per-image tail keeps its order", () => {
+  // The override test above cannot catch a reorder of the shipped template:
+  // swap the slots and the injected text swaps with them. Same blind spot the
+  // composite version had, found the same way — by mutating and watching
+  // nothing go red.
+  const out = buildUserPrompt("front", "tops", "jeans", [], "");
+  const schema = out.indexOf(
+    "Respond with a JSON object matching this exact schema:",
+  );
+  const rules = out.indexOf("\nRules:");
+  assert(schema > -1 && rules > -1, "a per-image block is missing entirely");
+  assert(
+    schema < rules,
+    "the shipped per-image tail was reordered. The Rules block qualifies every " +
+      "field of the schema, so arriving first it reads as rules about nothing.",
+  );
+});
+
+Deno.test("US-2438 AC1: the schema and the rules are SEPARATE blocks", () => {
+  // Deliberately split. The rules are what an operator tunes — what counts as
+  // unassessable, how strict the manipulation check is — while the schema is the
+  // contract the parser depends on. One block would mean every rules tweak
+  // restates a ~55-line schema, which is the restating-an-invariant shape this
+  // registry exists to avoid.
+  assert("per_image_response_schema" in PROMPT_BLOCK_KEYS);
+  assert("per_image_rules" in PROMPT_BLOCK_KEYS);
+  const rulesOnly = buildUserPrompt("front", "tops", "jeans", [], "", {
+    per_image_rules: { text: "ONLY RULES", versionName: "r_v2" },
+  });
+  assert(
+    rulesOnly.includes('"detected_issues"'),
+    "overriding the rules also replaced the schema, so the two cannot be " +
+      "versioned or reviewed apart",
+  );
+});
+
 // ── AC1: the composite tail now has identity ───────────────────────────────
 
 Deno.test("US-2438 AC1: an empty override map leaves the composite prompt byte-identical", () => {
@@ -718,7 +775,10 @@ Deno.test("US-2438 AC1: each composite block lands in its own slot", () => {
   // Overridden, not appended beside. Shipping both copies of a response schema
   // is the failure that reads as working right up until the model picks the
   // wrong one.
-  assert(!out.includes("Fabric 30%"), "the code factor-weights line survived the override");
+  assert(
+    !out.includes("Fabric 30%"),
+    "the code factor-weights line survived the override",
+  );
   assert(!out.includes("Rules:"), "the code Rules block survived the override");
   // Order preserved: weights, then schema, then rules.
   assert(
@@ -738,17 +798,28 @@ Deno.test("US-2438 AC1: the DEFAULT composite tail keeps its order too", () => {
   // The surface hash does not catch it either — it asserts the hash MOVES when
   // the prompt moves, not that it equals a pinned value, so a reorder just gives
   // a different-but-equally-valid hash.
-  const out = buildCompositeUserPrompt([], {
-    garment_type: "tops",
-    garment_category: "t-shirt",
-    brand: null,
-    title: "",
-    description: null,
-  }, "", "", "");
+  const out = buildCompositeUserPrompt(
+    [],
+    {
+      garment_type: "tops",
+      garment_category: "t-shirt",
+      brand: null,
+      title: "",
+      description: null,
+    },
+    "",
+    "",
+    "",
+  );
   const weights = out.indexOf("Apply the factor weights (Fabric 30%");
-  const schema = out.indexOf("Respond with a JSON object matching this exact schema:");
+  const schema = out.indexOf(
+    "Respond with a JSON object matching this exact schema:",
+  );
   const rules = out.indexOf("\nRules:");
-  assert(weights > -1 && schema > -1 && rules > -1, "a composite block is missing entirely");
+  assert(
+    weights > -1 && schema > -1 && rules > -1,
+    "a composite block is missing entirely",
+  );
   assert(
     weights < schema && schema < rules,
     "the shipped composite tail was reordered. The model is told to apply the " +
@@ -775,7 +846,9 @@ Deno.test("US-2438 AC1: the factor-weights line is its OWN block", () => {
     composite_response_schema: { text: "SCHEMA", versionName: "s_v2" },
   });
   assert(
-    schemaOnly.includes("Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%"),
+    schemaOnly.includes(
+      "Fabric 30%, Structural 25%, Cosmetic 20%, Functional 15%, Odor 10%",
+    ),
     "overriding the schema also replaced the weights, so the two cannot be " +
       "reviewed or versioned apart",
   );

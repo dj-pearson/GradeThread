@@ -94,6 +94,22 @@ export const PROMPT_BLOCK_KEYS = {
   garment_type_criteria: { stage: "per_image", scopeDimension: "garment_type" },
   /** CATEGORY CRITERIA in the per-image prompt. Scoped by garment_category. */
   category_criteria: { stage: "per_image", scopeDimension: "garment_category" },
+  /** The response schema the per-image call must return. */
+  per_image_response_schema: {
+    stage: "per_image",
+    scopeDimension: "garment_category",
+  },
+  /**
+   * The Rules block qualifying every field of that schema.
+   *
+   * Split from the schema on purpose. The rules are what an operator actually
+   * wants to tune — what counts as unassessable, how strict the manipulation
+   * check is — while the schema is the contract the parser depends on.
+   * Versioning them as one block would mean every rules tweak restates a
+   * ~55-line schema, which is the restating-an-invariant shape this registry
+   * exists to avoid.
+   */
+  per_image_rules: { stage: "per_image", scopeDimension: "garment_category" },
   /**
    * The one sentence that restates the factor weights.
    *
