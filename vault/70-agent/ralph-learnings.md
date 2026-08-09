@@ -27,21 +27,36 @@ memory — not a progress log (the harness records progress separately).
 ## Topic playbooks — read ON DEMAND, not every iteration
 
 This file is read on EVERY Ralph iteration, so it holds only what is
-cross-cutting. Three epic-specific bodies of knowledge were split out — nothing
-was deleted, and each is still the authoritative playbook for its surface. Read
-the matching file IN ADDITION to this one when your story touches it:
+cross-cutting. Seven epic- or surface-specific bodies of knowledge were split
+out — nothing was deleted, and each is still the authoritative playbook for its
+surface. Read the matching note IN ADDITION to this one when your story touches
+it:
 
-- `learnings/ios.md` — iOS / Swift (~314 lines). Any story touching `ios/`.
-- `learnings/brand-kb.md` — Brand Knowledge Base (~284 lines). Brand KB group
-  stories (US-1717…US-1733+) and `brand_knowledge`/`brand_styles`/
-  `brand_size_charts`/`brand_colorways`.
-- `learnings/email-marketing.md` — newsletter, broadcast, drip, SES (~350
-  lines). The US-911…US-946 family, send coordinator, suppression loop.
+- [[ralph-ios-log]] — iOS / Swift. Any story touching `ios/`.
+- [[ralph-android-log]] — Android / Kotlin. Any story touching `android/`.
+- [[ralph-brand-kb-log]] — Brand Knowledge Base. US-1717…US-1733+ and
+  `brand_knowledge`/`brand_styles`/`brand_size_charts`/`brand_colorways`.
+- [[ralph-email-marketing-log]] — newsletter, broadcast, drip, SES. The
+  US-911…US-946 family, send coordinator, suppression loop.
+- [[ralph-extension-log]] — the unified browser extension (US-1868…US-1912),
+  and the shape of an EPIC whose deliverable is a fence rather than a feature.
+- [[ralph-thrift-radar-log]] — Thrift Radar (US-1860…US-1867) and the
+  consequences of its location-privacy promise.
+- [[ralph-rewards-log]] — levels, seasons, quests and money-moving grants.
 
-Why: at 1308 lines this file cost every iteration the price of all three epics,
-which is how the 800-line warning in prd-lint had been firing unread. If you add
-a learning that only matters to ONE surface, put it in that surface's file.
+Why: at 1308 lines this file cost every iteration the price of three epics,
+which is how the 800-line warning in prd-lint had been firing unread. US-2445
+found it back at 892 and moved four more sections out. If you add a learning
+that only matters to ONE surface, put it in that surface's note.
 
+The earlier version of this list pointed at a `learnings/` SUBDIRECTORY that
+never existed — the three files landed as `ralph-*-log.md` right here in
+`70-agent/`. So the one hop this section promises was a dead end for anyone who
+took it literally, and nothing went red, because prose has no compiler.
+Wiki-links are used now because `vault-lint` resolves them, and
+`src/test/ralph-topic-logs-reachable.test.ts` checks the other direction — a log
+that no pointer names — plus the copy of this list in `scripts/ralph/CLAUDE.md`,
+which is not a vault note and had never been checked at all.
 
 ## Build / verify
 - `npm run build` does NOT run vitest — it only typechecks + builds. Run the
@@ -144,6 +159,13 @@ a learning that only matters to ONE surface, put it in that surface's file.
   yourself (the test compares VERBATIM). Both need SUPABASE_URL/
   SUPABASE_SERVICE_ROLE_KEY set or they die on the supabase.ts import.
 
+- The CRLF trap has a second, nastier form than the one above: a needle used to
+  SLICE (`src.indexOf("\n}\n")` to find a function's end) returns -1 on this
+  host, `slice(0, -1)` silently becomes "the rest of the file", and the guard
+  then asserts against code it never meant — passing or failing for reasons
+  unrelated to its subject. Normalize with `.replace(/\r\n/g, "\n")` at the read
+  rather than writing CRLF-tolerant needles one at a time.
+
 
 
 ## Agent cohabitation (co-running loops)
@@ -169,6 +191,22 @@ a learning that only matters to ONE surface, put it in that surface's file.
   already-ownership-verified parent row. Never update/delete/select-by-id from a
   request-body id without confirming ownership. See
   `services/edge-functions/src/tests/tenant-isolation_test.ts`.
+
+- A NEW `src/routes/admin-*.ts` file needs an entry in `lib/admin-scope-map.ts`
+  in the same commit or `admin-scope-coverage_test.ts` fails, and any
+  `c.json({ error: err.message })` — even for your OWN typed validation error —
+  fails `no-raw-db-error_test.ts` unless a `// safe-raw-error: <reason>` marker
+  sits on the SAME LINE (the scanner is line-local, so a comment above it does
+  nothing). US-1852 shipped admin-rewards.ts missing both, so those two tests
+  were red on `main` before US-1853; the migration manifest was stale for 00543
+  the same way (`node scripts/gen-migration-manifest.mjs` regenerates it).
+
+- A new edge lib that both imports `lib/supabase.ts` AND is imported by the
+  module it needs types from closes a MODULE CYCLE at boot. Break it with a
+  TYPE-only import (erased, no runtime edge) and pass the runtime value in as an
+  argument — US-1858's `loadUnitEconomics(userId, spend, monthStartIso)` rather
+  than importing `monthStartIso` back from rewards-tangible.ts. `deno check`
+  does not flag the cycle; it just becomes load-bearing.
 
 
 
@@ -208,42 +246,6 @@ a learning that only matters to ONE surface, put it in that surface's file.
   `platform_fields`. The frontend badge/indicator lives in
   `GradethreadListingCard` (item.tsx) + `src/lib/listing-origin.ts`; re-push reuses
   the `/revise` endpoint, which now clears `sync_drift` on success.
-
-
-
-## Android conversion backlog (US-1299…US-1396)
-- The Android client is REAL and this host CAN build it. `android/` is tracked
-  (100+ `*.kt`, Gradle wrapper, `android-ci.yml`) and the Windows loop host has
-  the toolchain (scoop temurin17-jdk + gradle; `local.properties` → `sdk.dir`).
-  US-1300+ stories ARE implementable and verifiable here — US-1321…US-1328 each
-  landed real `feat(android)` code. The "Device/Android-toolchain-gated" tag in
-  the story `notes` predates the scaffold and is NOT a reason to refuse a story.
-  (This supersedes the old "no `android/` dir, no SDK/Gradle" note, which was
-  true only before 2026-06 — do not restore it without re-checking `git ls-files
-  android`.)
-- Verify Android work from `android/` with
-  `./gradlew assembleDebug testDebugUnitTest lintDebug` (mirrors android-ci.yml).
-  The web steps (tsc/build:locked/vitest) NEVER exercise Kotlin, so they are not
-  sufficient evidence for these stories.
-- A build script that does not COMPILE hides every other defect behind it, and
-  the Kotlin DSL has one trap that produces exactly that: inside
-  `build.gradle.kts` the identifier `java` resolves to the JavaPluginExtension
-  accessor, so a fully-qualified `java.util.Base64` fails with `Unresolved
-  reference: util` and takes the WHOLE android module down. Import the class
-  instead. US-2150 found this on `main`, and behind it: 16 Kotlin errors (9 of
-  them `stringResource` inside a `Modifier.semantics { }` lambda, which is not a
-  composable scope — hoist it to a `val` above the call), 10 failing unit tests
-  and a lint error, none of which any lane could report while configuration was
-  broken. So: when an Android story's first build fails in CONFIGURATION, expect
-  the compile/test/lint state underneath to be unknown rather than green, and
-  budget for finding out.
-- `check-string-formats.py` counts a `stringResource(...)` call's arguments by
-  LINE, so a `//` comment written between the resource id and the arguments is
-  counted as an argument and the call is reported as passing more than the
-  resource declares. Put the explanation above the call, not inside it.
-- Still genuinely ungated-able: emulator/device-only ACs (e.g. US-1396
-  accessibility audit) presuppose a running app on a device. Don't fabricate an
-  audit/test result — leave a note and stop without emitting STORY_DONE.
 
 
 
@@ -328,6 +330,28 @@ a learning that only matters to ONE surface, put it in that surface's file.
   /grid /pipeline /listings /prep + /inventory/{grid,kanban,prep} routes are
   `InventoryModeRedirect`s. listings' tab-change effect must skip clearing the
   shared selection on mount (else a view switch wipes it).
+
+- Two vitest guards bite EVERY new admin dialog and are only caught by the full
+  suite: `control-labels.test.ts` (a shadcn `<SelectTrigger>` needs its own
+  `aria-label` — a sibling `<Label>` with no `htmlFor` does not bind to it, and
+  the test has a ratcheting baseline) and `dialog-dynamic-viewport.test.ts`
+  (`max-h-[85vh]` is refused; use `max-h-[calc(100dvh-2rem)]`).
+
+- A new public surface added to `functions/_shared/sitemap.ts` must derive its
+  `lastmod` from real data — `src/test/sitemap-lastmod.test.ts` (US-2100) scans
+  the SOURCE and fails any generator writing `lastmod: today()` that doesn't
+  route through `withHubLastmod`. For a surface with no content date (a ranking),
+  return the boundary of the window it covers from the API and use that; don't
+  re-derive a calendar in the sitemap. Also note `Object.fromEntries` backs a
+  `x in obj` guard with Object.prototype, so `isFoo("toString")` returns TRUE —
+  use a `Map` for a catalog lookup guard.
+
+- Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
+  `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
+  `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number
+  agreement, and they only run in the full suite. Renumber with a script that
+  ASSERTS each old string occurs exactly once — a hand pass is how the duplicate
+  "7" got in last time.
 
 
 
@@ -452,6 +476,14 @@ a learning that only matters to ONE surface, put it in that surface's file.
   re-picks the story every iteration; US-1997 cost three full runs that way.
   Never emit both tokens. Full contract: `scripts/ralph/CLAUDE.md`.
 
+- A story's `notes` can say "BLOCKED on US-XXXX" and be STALE — the blocker may
+  have shipped in a run since. US-1912 sat three passes on "AC4 blocked on
+  US-1849 (rewards engine not built)"; `rewards-engine.ts` + 00443/00538–00549
+  had all landed. Cost of checking is one `ls`/grep; cost of believing the note
+  is a whole iteration that lands nothing. Check the blocker's ARTIFACTS before
+  re-deferring, and note the prior pass may even have PRE-WIRED your surface for
+  you (US-1857's celebration snapshot already carried `integrityTier`, waiting).
+
 ## Native binaries in the edge image
 - Adding an apt package to `services/edge-functions/Dockerfile` (US-1762 added
   `ffmpeg`) is testable LOCALLY — Docker and trivy are both on this host, so run
@@ -530,6 +562,12 @@ a learning that only matters to ONE surface, put it in that surface's file.
   the RETIRED sentence cannot return, not just that the new one is present — a
   test checking only for new wording passes beside a reverted paragraph.
 
+- Adding a value to a Postgres ENUM (`abuse_signal_type`) is only half the work:
+  the edge filters on a hand-written `Set` of the same values (`SIGNAL_TYPES` in
+  admin-safety.ts) and the SPA has its own union type + label record. Miss either
+  and the new rows are silently filtered out of the console with nothing going
+  red. Also note a rollback past the migration re-arms that silence.
+
 ## Scaffolding modules
 - A module that is "shipped but not yet wired" is NOT thereby correct — nothing
   calls it, so nothing can produce a wrong answer from it, so no test has a
@@ -573,6 +611,19 @@ a learning that only matters to ONE surface, put it in that surface's file.
   gr.user_id does not exist`; JOIN submissions instead. (`listings`/`sales` DID
   gain `user_id` in 00146, so those are fine to scope directly.)
 
+- A CONFIG table with no owner column is INVISIBLE to `rls-guard_test.ts` —
+  discovery matches an owner column in the CREATE TABLE block, so a deny-all
+  config table passes by never being looked at, and a later commit could drop its
+  RLS with nothing going red. Register it in BOTH `SERVICE_ROLE_ONLY` and
+  `SERVICE_ONLY_FORCED`. Rule: [[service-role-tables]].
+
+- When a status field gains a DIRECTION (a tier, a rank, a level), every consumer
+  that was written as `next !== prev` becomes a bug the moment the value can go
+  DOWN — and it is a bug that reads as working: the string did change, so the
+  branch fires. US-1912's celebration would have thrown confetti at a demotion.
+  Compare RANK, and make "unknown" rank below everything real so a first value is
+  a promotion rather than a no-op. Rules: [[reward-ledger]].
+
 
 
 ## prd.json / Ralph workflow
@@ -604,283 +655,6 @@ a learning that only matters to ONE surface, put it in that surface's file.
     first instead of sweeping the tree (see GRAPHIFY_PILOT for auto-populating).
 
 
-
-## Reward levels & seasons
-- A seller's LEVEL derives from `user_reward_state.xp_peak`, never `xp_total`
-  (00542): XP is not debited, but the log CAN shrink (erasure, fraud reversal,
-  cascade), and deriving from the live total silently demotes people. Seller
-  surfaces show SEASON progress and never a streak — streaks exist only on the
-  buyer confirmation flow, with grace + freeze. Level perks are cosmetic and
-  have no paid path. Rules: [[reward-ledger]].
-
-- A CONFIG table with no owner column is INVISIBLE to `rls-guard_test.ts` —
-  discovery matches an owner column in the CREATE TABLE block, so a deny-all
-  config table passes by never being looked at, and a later commit could drop its
-  RLS with nothing going red. Register it in BOTH `SERVICE_ROLE_ONLY` and
-  `SERVICE_ONLY_FORCED`. Rule: [[service-role-tables]].
-- Two vitest guards bite EVERY new admin dialog and are only caught by the full
-  suite: `control-labels.test.ts` (a shadcn `<SelectTrigger>` needs its own
-  `aria-label` — a sibling `<Label>` with no `htmlFor` does not bind to it, and
-  the test has a ratcheting baseline) and `dialog-dynamic-viewport.test.ts`
-  (`max-h-[85vh]` is refused; use `max-h-[calc(100dvh-2rem)]`).
-
-- A NEW `src/routes/admin-*.ts` file needs an entry in `lib/admin-scope-map.ts`
-  in the same commit or `admin-scope-coverage_test.ts` fails, and any
-  `c.json({ error: err.message })` — even for your OWN typed validation error —
-  fails `no-raw-db-error_test.ts` unless a `// safe-raw-error: <reason>` marker
-  sits on the SAME LINE (the scanner is line-local, so a comment above it does
-  nothing). US-1852 shipped admin-rewards.ts missing both, so those two tests
-  were red on `main` before US-1853; the migration manifest was stale for 00543
-  the same way (`node scripts/gen-migration-manifest.mjs` regenerates it).
-
-- Adding an entry to `REWARD_XP_CATALOG` SILENTLY widens `QUEST_METRICS`, which
-  is derived from the catalog's keys — but the allowed quest metrics are ALSO a
-  CHECK in 00543, which the new key is not in. So an admin gets a validator that
-  passes and an insert that 23514s. Either exclude the new type in the
-  `QUEST_METRICS` filter (US-1854 did, for `share_milestone`) or widen the CHECK
-  in the same commit. No test catches the mismatch.
-
-- A new public surface added to `functions/_shared/sitemap.ts` must derive its
-  `lastmod` from real data — `src/test/sitemap-lastmod.test.ts` (US-2100) scans
-  the SOURCE and fails any generator writing `lastmod: today()` that doesn't
-  route through `withHubLastmod`. For a surface with no content date (a ranking),
-  return the boundary of the window it covers from the API and use that; don't
-  re-derive a calendar in the sitemap. Also note `Object.fromEntries` backs a
-  `x in obj` guard with Object.prototype, so `isFoo("toString")` returns TRUE —
-  use a `Map` for a catalog lookup guard.
-
-## Tangible rewards (money-moving grants)
-- XP is NEVER debited — milestones GRANT, they never charge (US-1853). The
-  catalog is the `reward_milestones` table (00544), not the compiled
-  `TANGIBLE_MILESTONES` list, which is only the fallback for a failed read; an
-  EMPTY read must NOT fall back, or the per-milestone disable switch is a lie. A
-  reward type with no entry in `FULFILLERS` can never be granted. Rules:
-  [[reward-ledger]].
-
-- A new edge lib that both imports `lib/supabase.ts` AND is imported by the
-  module it needs types from closes a MODULE CYCLE at boot. Break it with a
-  TYPE-only import (erased, no runtime edge) and pass the runtime value in as an
-  argument — US-1858's `loadUnitEconomics(userId, spend, monthStartIso)` rather
-  than importing `monthStartIso` back from rewards-tangible.ts. `deno check`
-  does not flag the cycle; it just becomes load-bearing.
-- Adding a value to a Postgres ENUM (`abuse_signal_type`) is only half the work:
-  the edge filters on a hand-written `Set` of the same values (`SIGNAL_TYPES` in
-  admin-safety.ts) and the SPA has its own union type + label record. Miss either
-  and the new rows are silently filtered out of the console with nothing going
-  red. Also note a rollback past the migration re-arms that silence.
-
-## Thrift Radar (US-1860…US-1867)
-- The Prospect scan endpoint carries NO location today, so Radar's first commit
-  is the one that adds a coordinate to a request that never had one — the toggle,
-  the consent copy and the "coordinates are discarded after venue resolution"
-  promise all have to land in that same change; there is no later point to
-  retrofit them quietly. Contributing and VIEWING are separate consents, the
-  k-floor is enforced server-side (empty response, not a redacted one), and the
-  personal layer is free and works at n=1. Rules: [[thrift-radar]].
-- US-1861 landed that first commit. Two transferable bits: (1) a privacy promise
-  is only as strong as the schema under it — state it as an absence the code
-  cannot restore (`radar_scan_events` has NO coordinate column, and the geohash
-  length is capped by a CHECK, not only by the config clamp), and test it as the
-  row's KEY SET (`assertEquals(Object.keys(row).sort(), [...])`), which fails when
-  someone adds the column back, unlike `assert(!row.lat)` which passes forever.
-  (2) Split the pure transforms (geohash, rotation, row builder) into a module
-  that imports NOTHING touching `lib/supabase.ts`, so its test needs no env dance.
-- The way to keep "no precise coordinate is stored" true while STILL storing a
-  place is to make the privacy property a consequence of the FUNCTION SIGNATURE,
-  not of discipline at the call site: US-1862's `candidateVenueDraft(cell)` takes
-  a geohash cell and has no coordinate parameter, so a venue centroid can only
-  ever be a cell centre — identical for everyone in the cell, therefore not a
-  record of where anyone stood. Pair it with a `centroid_source` column
-  (`cell`|`user`|`places`) so a later precise value has to declare itself, and
-  the guarantee stays checkable instead of remembered. Rules: [[thrift-radar]].
-- A table whose natural key is a GENERATED column (US-1863's
-  `radar_scan_history.place_key`) cannot be written with supabase-js
-  `.upsert(rows, { onConflict: "place_key,month_start" })` — the conflict target
-  has to be in the payload and a generated column may not be. Read the existing
-  rows for the keys you are about to write, then split into `.insert()` and
-  per-id `.update()`. Safe under a job lock (single runner); do NOT reach for the
-  generated column in an upsert and assume PostgREST will infer it.
-- A new `TEST_USER_A_*` env id that GATES a `tenant-isolation_test.ts` case must
-  ALSO be emitted by `services/edge-functions/scripts/seed-tenant-isolation-fixture.ts`
-  or classified in that file's `KNOWN_UNSEEDED` — a structural guard case parses
-  both files and fails otherwise, because a gated case that skips in CI reports
-  green while proving nothing. A plain-insert row (US-1864's `sources`) belongs in
-  the seed script, not in KNOWN_UNSEEDED. The guard also fails on a STALE
-  classification, so don't add one "just in case".
-- When a feature adds a SECOND write derived from an input an earlier consent
-  already justified (US-1864's private visit log off US-1861's coordinate), put
-  both writes in ONE function so the input is resolved once and its life stays in
-  one place — then give the two halves DIFFERENT gates inside it. The trap is the
-  side effects that look harmless: minting a shared `radar_venues` candidate off a
-  NON-contributor's fix is still a contribution, even though the row is a cell
-  centre and names nobody. Hence a read-only `matchScanVenue` beside the
-  create-and-bump `resolveScanVenue`. Rules: [[thrift-radar]].
-- The reflex answer to "put this on a map" is a map library, and on any surface
-  with a location-privacy promise that reflex is the bug: tile URLs ARE the
-  viewport, so Leaflet/MapLibre streams the user's neighbourhood to a third-party
-  CDN on every drag — leaking, from the display layer, exactly what the schema
-  below it was built to withhold. US-1865 drew an SVG from data already served
-  (Web Mercator + a graticule + a scale bar, `src/lib/radar-map.ts`): zero
-  dependencies, zero external requests, fully unit-testable. Reach for a tile map
-  only where the coordinate was never sensitive.
-- A per-venue/per-entity BREAKDOWN (US-1865's day-of-week histogram) belongs as a
-  COLUMN on the row that already clears the privacy floor, not as its own table
-  or a read-path query over the raw events. As a column it inherits the floor,
-  the recompute and the sweep for free; as anything else it needs a second copy
-  of each guard, and a copied privacy guard goes stale on one side. Corollary for
-  time-bucketed ones: bucket by the PLACE's approximate solar time
-  (`Math.round(lng/15)*60`), never UTC — UTC smears every American evening onto
-  the next day, and a real timezone lookup means sending the coordinate somewhere
-  to resolve it.
-- A permission's DECLARATIONS are prose, so a second surface using the same
-  sensor falsifies them in total silence — no test, no lint, no reviewer. US-1866
-  added a "stores near me" button to a location whose usage string, privacy
-  manifest, App Store labels and policy section all said "only if you turn on
-  contributions", and none of them went red. Amend all four IN THE SAME COMMIT,
-  and say whether the new use COLLECTS anything (that is what decides label row
-  vs. prose). Keep the amendment small by never prompting on appear and by
-  quantizing the fix into a bbox before it leaves the device — then the honest
-  sentence is short. Rule: [[thrift-radar]].
-- When a feature BLENDS two data sources and only one of them is denominated in
-  money, the tempting move is to invent an exchange rate (scans → dollars). Don't:
-  anchor every figure on the source that IS money — the user's own books — and let
-  the other be a bounded MULTIPLIER on it. US-1867 prices an unvisited store at the
-  reseller's own average profit per visit times what the network says about the
-  place, so the number is one they can check; and when they have no money history
-  at all, the whole plan reports `null` and ranks without dollars rather than
-  printing a plausible figure. A placeholder number reads as a finding.
-- Adding a SECTION to `src/pages/legal/privacy.tsx` means renumbering every later
-  `<h2>` AND every `<a href="#anchor">Section N</a>` in the body: two cases in
-  `privacy-extension.test.tsx` pin sequential numbering and anchor-to-number
-  agreement, and they only run in the full suite. Renumber with a script that
-  ASSERTS each old string occurs exactly once — a hand pass is how the duplicate
-  "7" got in last time.
-
-## An EPIC story whose fence is the whole deliverable
-- Some epics ship no code by AC — but their ACs are still RULES ("do not build
-  lending", "always label it an estimate"), and a rule that lives only in a story
-  is one the next author never reads. US-1868's deliverable was therefore the
-  fence itself: the refused vocabulary and the required disclosure as exported
-  constants, plus a guard that finds the surfaces by DISCOVERY (glob the path for
-  the feature word across src/, edge, functions/, ios/, android/) so a surface
-  that does not exist yet is already covered. Strip COMMENTS before scanning, or
-  the header comment declaring the rule trips it; strip IMPORT lines too, or a
-  file that imports the copy and renders nothing passes. Mutation-check both
-  halves — mine passed twice while broken before that. Rules: [[inventory-equity]].
-- A PATH-discovery fence also decides your FILE LAYOUT, and noticing that after
-  you have written four files is expensive: US-1871's iOS card keeps read models,
-  transport, store and views in ONE `InventoryEquityCard.swift`, because every
-  `.swift` the fence finds must RENDER the disclosure. Two rules follow for the
-  literal itself. It must be UNBROKEN in source — the guard normalizes whitespace
-  but not Swift's `+` concatenation or a `"""` line-continuation `\`, so a wrapped
-  literal reads as a paraphrase to the only thing that checks. And since the
-  identifier the guard also accepts appears in those files only inside `///`
-  comments (which it strips), the pass is the literal's — confirm that with a
-  one-character mutation rather than assuming it.
-
-- A CONDITIONAL AC ("delete X once Y reaches parity") is a gate, and a gate
-  written as prose rots in every copy at once. US-1872 AC5's gate lived as the
-  same sentence in five files — "parity is not reached (US-1880/1881/1882/1883
-  are open)" — and stayed there long after three of those shipped; nothing went
-  red, and the next reader re-derives the whole question. Fix: COMPUTE the half
-  that is a property of the code (`scripts/lib/extension-retirement-gate.cjs`
-  reads both manifests and diffs permissions/hosts/reach/files/icons), leave the
-  half no code can close as ONE operator flag, and guard BOTH DIRECTIONS — the
-  usual "not done early" assert plus "gate satisfied and the work still not
-  done" fails the build. Also: "which child stories are open" is a proxy, not
-  the gate — a story that makes the replacement BETTER than the thing it
-  replaces was never a parity blocker. Beware an assert message that calls
-  `regex.exec(src)[0]`: it is built even when the assertion passes, so it throws
-  on every file that is clean.
-
-- An AC that says "verified against the live site" is not blocked on its CODE,
-  only on its EVIDENCE — and two US-1880 passes stopped at "a human must do it"
-  without leaving that human anything to do it WITH. The completable half is the
-  MEASUREMENT: generate a DevTools snippet that inlines the shipped helper source
-  verbatim (`scripts/lib/adapter-verification.mjs` embeds image-utils.js), so what
-  the operator measures is what the extension does and no second implementation
-  can rot. Two rules the shape forces. Measure the OUTCOME, not the config — a
-  URL-upgrade rule that rewrote nothing looks perfect in JSON, so probe
-  `naturalWidth` on the upgraded URL; that is the only check the config cannot
-  satisfy by itself. And test generated browser text by EXECUTING it
-  (`new Function` + a selector-string→elements stub, no CSS engine needed) — a
-  verification tool nothing runs is one that reports PASS forever. Mutation-check
-  it with the old dead regex. Procedure: [[extension-adapter-verification]].
-- Careless detail that costs a debug cycle: a `String.raw` block holding generated
-  JS still ends at the first backtick and still interpolates `${}` — a prose
-  backtick in a comment inside it is a parse error at the CONSUMER, not the
-  definition.
-
-- "Chromium-compatible" and "same manifest" do NOT mean the same INSTALL: Chrome
-  grants `host_permissions` at install, Firefox withholds them until the person
-  opts in, so the identical zip ships a Firefox add-on where no content script
-  runs, nothing rejects, nothing logs, and the only reading available is that our
-  software is broken. Every guard in this repo executes the Chrome path, where
-  the probe answers granted forever — an ungranted state no test can reach is one
-  no test can catch, so drive it with a STUB api object rather than a browser
-  (US-1881). Three platform rules the fix cannot skip: `permissions.request()`
-  THROWS on Chrome for anything not in `optional_permissions` (so probe first,
-  and make the request reachable only from the state the probe ruled out); it is
-  refused outside a user gesture and an `await` before it ENDS that gesture (so
-  it is the first statement of the click handler, never after a check); and a
-  grant reaches only the next navigation, so reload the tab or the page they are
-  staring at stays as dead as before they said yes. Probes fail OPEN, requests
-  fail CLOSED — a false negative shows a working Chrome user a scary prompt for
-  access they already have. Same shape as the US-1967 capability probe.
-- Corollary: the *second* surface a permission feeds is the one that breaks
-  silently. Firefox has no `externally_connectable`, so sign-in rides
-  `gt-bridge.js` — an ordinary content script on gradethread.com — and an
-  ungranted site permission does not fail the sign-in, it HANGS it: the connect
-  page opens, mints the token, posts it, and nothing is listening.
-- When a story adds a SECOND transport/backend behind one call site, "the old one
-  still wins where it exists" is a preference nobody can see — it is a branch
-  order, and reordering it passes review, typecheck and every existing test.
-  US-1882 had only code-reading as evidence. Pin it as an outcome instead: assert
-  the OTHER transport was not ALSO used (`sendToLister` with a stubbed
-  `chrome.runtime` AND the bridge marker must post zero `__gtExtReq` envelopes) —
-  a page that used both would double-list and still resolve looking healthy, so
-  "the right one answered" is not the assertion you want. For the live half, a
-  DevTools tool that WRAPS the transports and then watches beats a checklist that
-  describes them: it observes the shipped code, so there is no second copy of the
-  preference to rot, and it can derive the expectation from what the browser
-  exposed (runtime present ⇒ must be used) rather than from the user agent — one
-  snippet, correct in both browsers. `scripts/transport-verify.mjs`, procedure in
-  `extension-unified/TESTING.md` §5c.
-
-- An AC deferred as "needs real-browser verification" is sometimes deferred
-  because the DESIGN made verification necessary. US-1884 AC4 (overlay hardened
-  against site CSS) sat open three passes on exactly that, and the answer was not
-  to schedule a browser: it was to mount the overlay in a SHADOW ROOT, which
-  makes the property a platform guarantee instead of a claim about what some
-  marketplace's stylesheet happens to contain. Per-element `all: unset` can never
-  be finished — a site `!important` still wins, and every future child is
-  unprotected until someone remembers. Before deferring for evidence, ask whether
-  the design can be changed so the property holds by construction. Two mechanics
-  the switch forces: a content script's manifest `"css"` injects into the
-  DOCUMENT and cannot cross a shadow boundary (so the sheet ships as a generated
-  string beside the .css, with a drift guard), and the HOST element — the one
-  node the page can still select — needs its layout as inline `!important`, `all`
-  first. Rules: [[extension-injected-ui-isolation]].
-
-- A story's `notes` can say "BLOCKED on US-XXXX" and be STALE — the blocker may
-  have shipped in a run since. US-1912 sat three passes on "AC4 blocked on
-  US-1849 (rewards engine not built)"; `rewards-engine.ts` + 00443/00538–00549
-  had all landed. Cost of checking is one `ls`/grep; cost of believing the note
-  is a whole iteration that lands nothing. Check the blocker's ARTIFACTS before
-  re-deferring, and note the prior pass may even have PRE-WIRED your surface for
-  you (US-1857's celebration snapshot already carried `integrityTier`, waiting).
-- When a status field gains a DIRECTION (a tier, a rank, a level), every consumer
-  that was written as `next !== prev` becomes a bug the moment the value can go
-  DOWN — and it is a bug that reads as working: the string did change, so the
-  branch fires. US-1912's celebration would have thrown confetti at a demotion.
-  Compare RANK, and make "unknown" rank below everything real so a first value is
-  a promotion rather than a no-op. Rules: [[reward-ledger]].
-- The CRLF trap has a second, nastier form than the one above: a needle used to
-  SLICE (`src.indexOf("\n}\n")` to find a function's end) returns -1 on this
-  host, `slice(0, -1)` silently becomes "the rest of the file", and the guard
-  then asserts against code it never meant — passing or failing for reasons
-  unrelated to its subject. Normalize with `.replace(/\r\n/g, "\n")` at the read
-  rather than writing CRLF-tolerant needles one at a time.
 
 ## Related
 

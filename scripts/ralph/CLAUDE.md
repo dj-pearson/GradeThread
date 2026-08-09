@@ -23,10 +23,15 @@ this repository.
    topic playbook (they were split out of LEARNINGS.md so their bulk isn't
    re-read every iteration — see the pointer section at the top of it):
    - `vault/70-agent/ralph-ios-log.md` — any story touching `ios/`
+   - `vault/70-agent/ralph-android-log.md` — any story touching `android/`
    - `vault/70-agent/ralph-brand-kb-log.md` — Brand KB group stories
      (US-1717…US-1733+) / the `brand_*` tables
    - `vault/70-agent/ralph-email-marketing-log.md` — newsletter, broadcast,
      drip, SES (the US-911…US-946 family)
+   - `vault/70-agent/ralph-extension-log.md` — `extension-unified/`, and any
+     EPIC whose ACs are RULES rather than code
+   - `vault/70-agent/ralph-thrift-radar-log.md` — Thrift Radar (US-1860…US-1867)
+   - `vault/70-agent/ralph-rewards-log.md` — levels, seasons, quests, grants
 3. Implement the story completely, satisfying every acceptance criterion.
 4. Verify your work (typecheck, build, tests — see "After coding").
 5. Commit your changes locally (do NOT push, do NOT edit `prd.json`).
