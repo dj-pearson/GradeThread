@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00582_western_brand_knowledge.sql (US-2220 — width is a size, and an exotic skin is a legal question)
+## ✅ APPLIED: 00582_western_brand_knowledge.sql (US-2220 — width is a size, and an exotic skin is a legal question, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00577", applied: "00582", status: "ahead"}` — the database's own answer. 00578 through 00582 were applied together, so that one reading covers all five. The "ahead" is the running edge image predating the version bumps; it resolves on the next edge deploy.
 
 **Risk: LOW. Three `insert ... on conflict do nothing` statements into reference
 tables.** Nothing is created, altered, dropped, read or backfilled. No decoders.
@@ -30,7 +32,9 @@ commit with the manifest regenerated.
 ---
 
 
-## 🔴 HELD: 00581_tailoring_formalwear_brand_knowledge.sql (US-2220 AC3 — a suit size is two garments and a subtraction)
+## ✅ APPLIED: 00581_tailoring_formalwear_brand_knowledge.sql (US-2220 AC3 — a suit size is two garments and a subtraction, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00577", applied: "00582", status: "ahead"}` — the database's own answer. 00578 through 00582 were applied together, so that one reading covers all five. The "ahead" is the running edge image predating the version bumps; it resolves on the next edge deploy.
 
 **Risk: LOW. Three `insert ... on conflict do nothing` statements into reference
 tables.** Nothing is created, altered, dropped, read or backfilled. No decoders.
@@ -63,7 +67,9 @@ commit with the manifest regenerated.
 ---
 
 
-## 🔴 HELD: 00580_scrubs_uniform_brand_knowledge.sql (US-2220 — uniform is a category, not more apparel)
+## ✅ APPLIED: 00580_scrubs_uniform_brand_knowledge.sql (US-2220 — uniform is a category, not more apparel, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00577", applied: "00582", status: "ahead"}` — the database's own answer. 00578 through 00582 were applied together, so that one reading covers all five. The "ahead" is the running edge image predating the version bumps; it resolves on the next edge deploy.
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
 tables.** Nothing is created, altered, dropped, read or backfilled. No decoders,
@@ -97,7 +103,9 @@ commit with the manifest regenerated.
 ---
 
 
-## 🔴 HELD: 00579_vintage_tee_blanks_brand_knowledge.sql (US-2220 AC4 — the first pack built on tag_eras, and the category that grades backwards)
+## ✅ APPLIED: 00579_vintage_tee_blanks_brand_knowledge.sql (US-2220 AC4 — the first pack built on tag_eras, and the category that grades backwards, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00577", applied: "00582", status: "ahead"}` — the database's own answer. 00578 through 00582 were applied together, so that one reading covers all five. The "ahead" is the running edge image predating the version bumps; it resolves on the next edge deploy.
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
 tables.** No table, column, constraint, index, policy or function is created,
@@ -137,7 +145,9 @@ commit with the manifest regenerated.
 ---
 
 
-## 🔴 HELD: 00578_brand_kb_provenance_required.sql (US-1996 AC5 — a brand fact must carry its source)
+## ✅ APPLIED: 00578_brand_kb_provenance_required.sql (US-1996 AC5 — a brand fact must carry its source, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00577", applied: "00582", status: "ahead"}` — the database's own answer. 00578 through 00582 were applied together, so that one reading covers all five. The "ahead" is the running edge image predating the version bumps; it resolves on the next edge deploy.
 
 **Risk: LOW.** One IMMUTABLE function and five CHECK constraints added
 `NOT VALID`. No table, column or index is created, altered or dropped, no row is
@@ -870,7 +880,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**NOTHING IS HELD.** 00564 through 00577 were applied to prod on 2026-08-09 and
+**NOTHING IS HELD.** 00564 through 00582 were applied to prod on 2026-08-09 and
 measured as they went; every section in this file is now APPLIED. Below the line
 is the older history:
 00542 through 00563 went to prod on 2026-08-08 and were
