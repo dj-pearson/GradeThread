@@ -220,6 +220,7 @@ import { warnAuthenticityGate } from "./lib/authenticity-eval.ts";
 import { buyerTrustRoutes } from "./routes/buyer-trust.ts";
 import { supportAssistantRoutes } from "./routes/support-assistant.ts";
 import { authMiddleware } from "./middleware/auth.ts";
+import { ebayAuthMiddleware } from "./middleware/ebay-auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { maintenanceGuard } from "./middleware/maintenance.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
@@ -430,66 +431,15 @@ app.use("/api/passport-identity/*", authMiddleware);
 // /oauth/refresh job (gated by FLIPDESK_INTERNAL_JOB_SECRET header).
 app.use("/api/flipdesk/demand", authMiddleware);
 app.use("/api/flipdesk/demand", workspaceMiddleware);
-app.use("/api/flipdesk/ebay/oauth/start", authMiddleware);
-app.use("/api/flipdesk/ebay/oauth/debug", authMiddleware);
-app.use("/api/flipdesk/ebay/disconnect", authMiddleware);
-app.use("/api/flipdesk/ebay/category/*", authMiddleware);
-app.use("/api/flipdesk/ebay/listings/*", authMiddleware);
-app.use("/api/flipdesk/ebay/payouts/*", authMiddleware);
-app.use("/api/flipdesk/ebay/comps", authMiddleware);
-app.use("/api/flipdesk/ebay/aspect-coverage", authMiddleware);
-app.use("/api/flipdesk/ebay/aspects/*", authMiddleware);
-app.use("/api/flipdesk/ebay/policies", authMiddleware);
-app.use("/api/flipdesk/ebay/policies/*", authMiddleware);
-// US-1623: these eBay sub-paths were missing from the per-path whitelist, so
-// authMiddleware never ran and the handlers (which read
-// workspaceOwnerId ?? userId) failed closed to 401 for signed-in sellers too.
-// Analytics, compliance, seller finances, catalog match/adopt, and promotions.
-app.use("/api/flipdesk/ebay/analytics/*", authMiddleware);
-app.use("/api/flipdesk/ebay/compliance/*", authMiddleware);
-app.use("/api/flipdesk/ebay/finances/*", authMiddleware);
-app.use("/api/flipdesk/ebay/catalog/*", authMiddleware);
-app.use("/api/flipdesk/ebay/promotions", authMiddleware);
-app.use("/api/flipdesk/ebay/promotions/*", authMiddleware);
-// US-561: Promoted Listings ad-rate suggestion + performance sync (the
-// /jobs/* promoted sync uses the job secret instead).
-app.use("/api/flipdesk/ebay/marketing/*", authMiddleware);
-// US-673: best offers + send-offer + buyer messages.
-app.use("/api/flipdesk/ebay/negotiation/*", authMiddleware);
-app.use("/api/flipdesk/ebay/messages", authMiddleware);
-app.use("/api/flipdesk/ebay/messages/*", authMiddleware);
-// Sync-run history (Reconciliation page) + order shipping/tracking upload
-// (US-1039) are user-initiated; they were missing from this whitelist so
-// userId was unset → handlers queried user_id="undefined" → 22P02 / 500.
-app.use("/api/flipdesk/ebay/sync-runs", authMiddleware);
-// US-2233: user-facing "Sync now" (POST /sync/performance/me). Same US-1623
-// allowlist trap — the cron sibling /sync/performance is job-secret and stays
-// self-authenticating, but the /me route reads workspaceOwnerId ?? userId from
-// the auth context, so without this entry authMiddleware never runs and every
-// signed-in seller's on-demand refresh fails closed to 401. Exact path (not a
-// wildcard) so it cannot swallow the job-secret /sync/performance cron. Caught
-// by ebay-auth-coverage_test.ts (US-2014).
-app.use("/api/flipdesk/ebay/sync/performance/me", authMiddleware);
-app.use("/api/flipdesk/ebay/orders/*", authMiddleware);
-// US-1978: eBay artifact cleanup (DELETE a stale unpublished offer / SKU). Same
-// US-1623 trap as the paths above — without a whitelist entry authMiddleware never
-// runs, the handler reads workspaceOwnerId ?? userId, and it fails closed to 401
-// for signed-in sellers. Caught by flipdesk-auth-coverage_test.ts.
-app.use("/api/flipdesk/ebay/offers/*", authMiddleware);
-// US-1979: seller program opt-in (OUT_OF_STOCK). Same US-1623 whitelist trap.
-app.use("/api/flipdesk/ebay/programs", authMiddleware);
-app.use("/api/flipdesk/ebay/programs/*", authMiddleware);
-app.use("/api/flipdesk/ebay/inventory-items/*", authMiddleware);
-// US-1043: returns + cancellations management (Post-Order API).
-app.use("/api/flipdesk/ebay/returns", authMiddleware);
-app.use("/api/flipdesk/ebay/returns/*", authMiddleware);
-app.use("/api/flipdesk/ebay/cancellations", authMiddleware);
-app.use("/api/flipdesk/ebay/cancellations/*", authMiddleware);
-// US-1047: leave buyer feedback after a sale.
-app.use("/api/flipdesk/ebay/feedback", authMiddleware);
-// US-1049: payment disputes (contest/accept).
-app.use("/api/flipdesk/ebay/payment-disputes", authMiddleware);
-app.use("/api/flipdesk/ebay/payment-disputes/*", authMiddleware);
+// eBay (US-2014 AC3): ONE deny-by-default mount, replacing the ~35 individual
+// path patterns that used to live here. flipdesk-ebay.ts declares 80+ routes;
+// under the old allowlist any route whose path was not named above shipped with
+// no auth at all, and five of them did (US-1623/US-1978/US-1979/US-2233 all record
+// the same trap). ebayAuthMiddleware runs authMiddleware for everything under the
+// prefix and consults ONE explicit skip-list — middleware/ebay-auth.ts
+// EBAY_SELF_AUTHENTICATING — for the OAuth callback and the four job-secret crons.
+// A new eBay route is now closed unless someone writes down why it is open.
+app.use("/api/flipdesk/ebay/*", ebayAuthMiddleware);
 // Shopify (US-599): everything authed EXCEPT /oauth/callback (Shopify
 // redirects the browser there unauthenticated; the `state` row identifies the
 // user and the request is HMAC-verified with our app secret).

@@ -38,6 +38,23 @@
 // free/starter plan the request is denied earlier with 402 (still a pass —
 // B never touches A's items).
 //
+// WHY /api/admin/* IS COVERED THINLY, ON PURPOSE (US-2014 AC2). The audit that
+// filed US-2014 listed 13 admin route groups with no case here, and that reads
+// like 13 holes. It is one hole, already plugged in a different place: every
+// /api/admin/* group sits behind adminAuthMiddleware (main.ts), so those routes
+// are AUTHORIZATION-gated rather than TENANT-gated. Their job is to cross tenant
+// lines — an admin console that could only see its own rows would be useless —
+// so "B cannot read A's row" is not the property to assert. The property is "a
+// non-admin cannot get in at all", and a handful of representative probes below
+// (abuse signals, rate-limit overrides, marketplace sync, support tickets) pin
+// it; adding the other nine would re-test adminAuthMiddleware, not the handlers.
+//
+// The consequence, stated plainly so nobody mistakes this for coverage: if
+// adminAuthMiddleware is ever removed from a group, these probes catch that
+// group and only that group. The guard that catches the OMISSION on a new admin
+// mount is flipdesk-auth-coverage_test.ts (US-1639), which fails the build when
+// an /api/* router ships with no auth posture at all.
+//
 // Run:  deno task test   (or: deno test --allow-net --allow-env)
 
 import { assert, assertEquals } from "@std/assert";

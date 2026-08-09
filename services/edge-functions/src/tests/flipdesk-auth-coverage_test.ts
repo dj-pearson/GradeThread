@@ -8,6 +8,12 @@
 // matching `app.use(..., authMiddleware)` line, shipping a fully unauthenticated
 // tenant endpoint. That already happened to `forecast` and `photo-profiles`.
 //
+// The eBay router is the ONE exception, as of US-2014 AC3: it grew to 80+ routes,
+// which made per-path allowlisting untenable, so it now has a single
+// `/api/flipdesk/ebay/*` mount plus a named skip-list (middleware/ebay-auth.ts).
+// Everything below counts `ebayAuthMiddleware` as auth, because it is
+// authMiddleware with an explicit, tested set of exemptions.
+//
 // This test fails the build if any mounted `/api/flipdesk/*` router has NO
 // authMiddleware registered under its prefix — the exact "forgot the auth line
 // entirely" mistake — unless the router is on the explicit PUBLIC allowlist.
@@ -37,10 +43,11 @@ const mounts = matchAll(
   /app\.route\(\s*"(\/api\/flipdesk\/[^"]+)"/g,
 );
 
-// Every path that has authMiddleware applied.
+// Every path that has authMiddleware applied. ebayAuthMiddleware (US-2014 AC3)
+// counts: it IS authMiddleware, wrapped so a named skip-list is the only way out.
 const authPaths = matchAll(
   mainSrc,
-  /app\.use\(\s*"(\/api\/flipdesk\/[^"]+)"\s*,\s*authMiddleware\s*\)/g,
+  /app\.use\(\s*"(\/api\/flipdesk\/[^"]+)"\s*,\s*(?:authMiddleware|ebayAuthMiddleware)\s*\)/g,
 ).map((p) => p.replace(/\/\*$/, "").replace(/\/$/, ""));
 
 Deno.test("every FlipDesk router mount has an auth posture (authed or explicitly public)", () => {
@@ -64,65 +71,27 @@ Deno.test("every FlipDesk router mount has an auth posture (authed or explicitly
   );
 });
 
-// US-1623: PATH-LEVEL coverage for the eBay router. The prefix-level guard above
-// passes as long as the router has SOME auth line — but eBay hosts ~20 sub-path
-// groups, and five (analytics, compliance, finances, catalog, promotions)
-// shipped with NO whitelist entry, so authMiddleware never ran and those
-// handlers (which read workspaceOwnerId ?? userId) failed closed to 401 even for
-// signed-in sellers. CI missed it because the prefix guard only needs one auth
-// line per router. This diffs EVERY declared user route against the whitelist.
-const ebaySrc = Deno.readTextFileSync(
-  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-);
-
-// eBay sub-paths that intentionally run WITHOUT user auth — kept explicit so a
-// new one is a conscious decision:
-//   crons authenticate via the job secret (mounted outside the authed group);
-//   the OAuth callback is a provider redirect keyed on the OAuth `state`, not a JWT.
-const EBAY_PUBLIC_OR_CRON_PREFIXES = ["/jobs/", "/sync/"];
-const EBAY_PUBLIC_OR_CRON_EXACT = new Set<string>([
-  "/oauth/callback", // eBay redirect — verified via OAuth state, not a JWT
-  "/oauth/refresh", // ebay-token-refresh cron (job secret)
-]);
-
-const ebayRoutePaths = matchAll(
-  ebaySrc,
-  /flipdeskEbayRoutes\.(?:get|post|put|delete)\(\s*"(\/[^"]+)"/g,
-).filter(
-  (p) =>
-    !EBAY_PUBLIC_OR_CRON_EXACT.has(p) &&
-    !EBAY_PUBLIC_OR_CRON_PREFIXES.some((c) => p.startsWith(c)),
-);
-
-const ebayAuthPrefixes = matchAll(
-  mainSrc,
-  /app\.use\(\s*"(\/api\/flipdesk\/ebay\/[^"]+)"\s*,\s*authMiddleware\s*\)/g,
-).map((p) => p.replace(/\/\*$/, "").replace(/\/$/, ""));
-
-Deno.test("every user-facing eBay route path has an authMiddleware whitelist entry (US-1623)", () => {
-  assert(ebayRoutePaths.length > 0, "expected eBay route definitions in flipdesk-ebay.ts");
-  assert(ebayAuthPrefixes.length > 0, "expected eBay authMiddleware lines in main.ts");
-
-  const uncovered: string[] = [];
-  for (const route of ebayRoutePaths) {
-    const full = `/api/flipdesk/ebay${route}`;
-    const covered = ebayAuthPrefixes.some(
-      (p) => full === p || full.startsWith(p + "/"),
-    );
-    if (!covered) uncovered.push(route);
-  }
-
-  assert(
-    uncovered.length === 0,
-    `These eBay routes have NO authMiddleware whitelist entry, so they 401 even for ` +
-      `signed-in sellers — add app.use("/api/flipdesk/ebay/<prefix>/*", authMiddleware) in ` +
-      `main.ts (or add to EBAY_PUBLIC_OR_CRON_* if genuinely public): ${uncovered.join(", ")}`,
-  );
-});
+// US-1623 PATH-LEVEL eBay coverage lived here until US-2014 AC3. It diffed every
+// declared eBay route against the ~35-entry per-path allowlist, because a route
+// outside that allowlist got no auth at all. The allowlist is gone: main.ts now
+// has ONE app.use("/api/flipdesk/ebay/*", ebayAuthMiddleware) and the only exit is
+// the named skip-list in middleware/ebay-auth.ts.
+//
+// The check was DELETED rather than updated because against a wildcard it can no
+// longer fail — every route starts with the prefix — and a test that cannot fail
+// reads like coverage while providing none. Its real property (an eBay route is
+// authed unless someone wrote down why not) is asserted more sharply in
+// ebay-auth-coverage_test.ts, which pins the exempt set to EXACTLY the skip-list
+// and drives the middleware for real.
+//
+// Worth recording: its own exemption list had the bug the inversion removes. It
+// treated "/sync/" as a PREFIX, so /sync/performance/me — a signed-in seller's
+// "Sync now" (US-2233) — was exempt from the coverage check by accident. The new
+// skip-list matches exact paths and has a case pinning that sibling.
 
 // ── US-1639: GENERALIZED deny-by-default guard (beyond /api/flipdesk/*) ───────
 //
-// The two guards above only cover the FlipDesk surface. The same "forgot the
+// The guard above only covers the FlipDesk surface. The same "forgot the
 // auth line entirely" mistake can happen on ANY new `/api/*` router (a fresh
 // `app.route(...)` with no matching auth `app.use`). This guard extends the
 // prefix-level check to EVERY `/api/*` router mount so a new tenant endpoint
@@ -161,7 +130,8 @@ const PUBLIC_API_ROUTERS = new Set<string>([
   "/api/campaign-track", // campaign tracking pixels
 ]);
 
-const AUTH_MW = "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware)";
+const AUTH_MW =
+  "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware|ebayAuthMiddleware)";
 
 const apiMounts = [
   ...new Set(

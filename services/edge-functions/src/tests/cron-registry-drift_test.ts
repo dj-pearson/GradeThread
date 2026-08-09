@@ -226,7 +226,13 @@ const ROUTE_FILES = [
 
 /** `app.use("<prefix>", authMiddleware)` prefixes, wildcards resolved. */
 function authPrefixes(main: string): string[] {
-  return [...main.matchAll(/app\.use\("([^"]+)",\s*authMiddleware\)/g)]
+  // ebayAuthMiddleware (US-2014 AC3) is authMiddleware plus a skip-list, so a
+  // path under its wildcard is behind auth exactly as before. Matching only the
+  // bare name would drop every eBay cron out of this check — silently, because
+  // "not behind auth" is a `continue` here, not a failure.
+  return [
+    ...main.matchAll(/app\.use\("([^"]+)",\s*(?:authMiddleware|ebayAuthMiddleware)\)/g),
+  ]
     .map((m) => m[1] ?? "")
     .filter(Boolean);
 }
