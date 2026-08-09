@@ -99,3 +99,5 @@ hat size.
 - [[brand-taxonomy-overview]] — why per-brand values live in the DB and per-corpus rules live here
 - [[brand-kb-decoder-bar]] — the same discipline applied to codes rather than sizes
 - [[brand-kb-negative-findings]] — traps recorded so they are not re-introduced
+- [[size-system-conversions]] — the neighbouring question: converting between size SYSTEMS (UK/IT/US), not between brands
+- [[small-leather-goods]] — a category where the number on the item means nothing at all

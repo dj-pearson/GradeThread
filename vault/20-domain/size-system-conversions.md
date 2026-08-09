@@ -88,5 +88,7 @@ prerequisite, not the deliverable.
 
 ## Related
 
+- [[brand-kb-sizing-units]] — the neighbouring question: the same system, but two brands printing different measurements under one label
+
 - [[brand-kb-decoder-bar]] — the discipline this note applies to sizing.
 - [[brand-kb-negative-findings]] — the other place absence is recorded as correct.
