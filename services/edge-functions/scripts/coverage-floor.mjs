@@ -155,6 +155,20 @@ const MONEY_FLOORS = {
   // This is the path that moves Stripe money AND claws credits back, so the gap
   // it closes is the half-completed refund the charge-refund lib cannot have.
   "lib/admin-pack-refund.ts": 99,
+  // US-2345 AC1: the CHARGING CHOKEPOINT. Every way the product takes money —
+  // web, the FlipDesk bulk bridge, the batch worker, the public API — charges
+  // through runPaymentPrecedence in this file, and it had no test file at all.
+  // 23.5% line looks thin beside the two above and is honest: what is covered is
+  // claimIncludedGrade, the CAS race whose failure silently charges a user for a
+  // grade they had already bought. runPaymentPrecedence itself still drives the
+  // service-role client directly and wants the same extraction the two refunds
+  // got. Floored just below the measurement so the next untested branch added
+  // here drops it rather than riding the margin.
+  "lib/grade-billing.ts": 22,
+  // Measured at 99.3% once the cap-snapshot rules got cases. resolveIncludedCap
+  // is four lines and one of them is a `??` that must not become `||` — a
+  // snapshot of 0 is a REAL cap, and `||` would silently restore the live one.
+  "lib/grade-pricing.ts": 98,
 };
 const MONEY_DEBT = new Set([
   // ~1,400 lines. The charge/refund path. AC1 of US-2345 owns this; the work is
