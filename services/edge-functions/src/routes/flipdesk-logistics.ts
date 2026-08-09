@@ -16,6 +16,7 @@ import {
   type ShippingRate,
 } from "../lib/ebay-logistics.ts";
 import { createShippingFulfillment } from "../lib/ebay-client.ts";
+import { decryptBusinessPhone, decryptShipFrom } from "../lib/user-shipping-pii.ts";
 
 // eBay shipping labels inside FlipDesk (US-2160).
 //
@@ -377,10 +378,29 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/rates", async (c) => {
       full_name: string | null;
     }
     | null;
+  // US-2417 AC1/AC6: both of these are now ciphertext bound to the owner, so the
+  // label path decrypts before it builds the address. A decrypt failure must NOT
+  // read as "no address" — that renders as the 409 below telling the seller to
+  // add one in Settings, where they would find it already filled in. Fail loud.
+  let shipFromRaw: unknown;
+  let phone: string | null;
+  try {
+    shipFromRaw = await decryptShipFrom(ownerId, u?.ship_from_address);
+    phone = await decryptBusinessPhone(ownerId, u?.business_phone ?? null);
+  } catch (err) {
+    console.error(
+      `[logistics] ship-from decrypt failed for ${ownerId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({
+      error: "Your ship-from address could not be unlocked. Support has been notified.",
+      code: "ship_from_locked",
+    }, 503);
+  }
   const shipFrom = toLogisticsAddress(
-    u?.ship_from_address,
+    shipFromRaw,
     u?.business_name ?? u?.full_name ?? null,
-    u?.business_phone ?? null,
+    phone,
   );
   if (!shipFrom) {
     // A 409, not a 500: nothing is broken, the seller just hasn't told us where

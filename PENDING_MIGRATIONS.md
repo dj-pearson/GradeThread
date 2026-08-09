@@ -1,5 +1,49 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00567_users_shipping_pii_edge_only.sql (US-2417 — the seller's address stops being plaintext)
+
+**Risk: MEDIUM, and the ORDER matters more than the SQL does.** There is no DDL
+at all: one `CREATE OR REPLACE FUNCTION` narrowing the users self-update
+allowlist, plus two column comments. `business_phone` is already text and
+`ship_from_address` is already jsonb — a jsonb column holds a JSON *string*
+scalar, so the AES-GCM envelope fits the existing column and no table is
+rewritten under a lock.
+
+**Apply order: AFTER 00566. THEN redeploy the edge. THEN push.** That order is
+not the usual boilerplate here, it is load-bearing:
+
+1. **Apply the SQL.** The moment it lands, a browser can no longer write those
+   two columns. The CURRENTLY DEPLOYED frontend still tries, so a seller saving
+   Business & shipping details in that window gets an error naming the column.
+   The window is minutes and nothing is corrupted; it is the cost of closing the
+   write path before the new frontend exists.
+2. **`NOTIFY pgrst, 'reload schema';`** — the function changed, not a table, but
+   the guard runs on every self-update and a stale plan is not worth the risk.
+3. **Redeploy the edge**, which brings up `PUT/GET /api/account/shipping-profile`.
+4. **Then push**, which auto-deploys the frontend onto that route.
+
+Pushing FIRST would deploy a frontend calling a route that does not exist yet —
+every Settings save 404s.
+
+**Run the backfill after the edge is up**, not before — it needs the same
+`EDGE_ENCRYPTION_KEY` the edge runs with:
+
+```
+deno run --allow-net --allow-env scripts/backfill-user-shipping-pii.ts          # dry run
+deno run --allow-net --allow-env scripts/backfill-user-shipping-pii.ts --apply
+```
+
+It is DRY-RUN BY DEFAULT, refuses to start without the key, and is safe to
+re-run: an already-encrypted value passes through rather than being double
+wrapped, which would be unrecoverable. **The read path tolerates both formats
+(AC4)**, so there is no deadline on running it — an un-backfilled row renders,
+it just is not protected yet.
+
+**Rollback** is restating the guard function with the two column names put back
+(00550's body) and leaving the ciphertext alone. Do NOT try to decrypt back to
+plaintext: the read path already tolerates a mixed table, so the only thing a
+rollback needs to restore is the write permission.
+
 ## 🔴 HELD: 00566_per_image_shadow.sql (US-2443 — per-image prompt changes get a live-traffic comparison)
 
 **Risk: LOW, and it is INERT on arrival.** Six additive columns on
@@ -191,7 +235,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564, 00565 and 00566 are held** — see the top of this file. Everything below it is applied:
+**00564, 00565, 00566 and 00567 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528

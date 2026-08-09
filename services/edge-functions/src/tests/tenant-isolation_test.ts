@@ -4655,3 +4655,64 @@ Deno.test({
     assertDenied(res.status, "POST expenses/:id/receipt as viewer");
   },
 });
+
+// ── US-2417 AC5: the shipping profile is the caller's own row, always ────────
+//
+// Same probe shape as the export above and for the same reason: the endpoint
+// takes no resource id, it acts on the caller, so assertDenied has nothing to
+// point at. The property is CONTAINMENT — B's GET must return B's profile, and
+// B's PUT must land on B's row.
+//
+// The workspace header is the specific thing being pinned. Every other route in
+// this suite resolves `workspaceOwnerId` so a member can act inside someone
+// else's workspace, and that is correct for inventory and listings. It would be
+// WRONG here: a viewer or a manager in A's workspace must not read A's home
+// address or overwrite A's phone number. So the route reads c.get("userId") and
+// not c.get("workspaceOwnerId"), and this case sends the header pointed at A to
+// prove the handler ignores it.
+Deno.test({
+  name: "B's shipping profile ignores an X-Workspace-Owner pointed at A",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_WORKSPACE_OWNER_ID"),
+  fn: async () => {
+    const aOwner = Deno.env.get("TEST_WORKSPACE_OWNER_ID")!;
+    const marker = `US-2417 probe ${aOwner.slice(0, 8)}`;
+
+    // B writes, while claiming to be acting inside A's workspace.
+    const put = await fetch(`${BASE}/api/account/shipping-profile`, {
+      method: "PUT",
+      headers: { ...authHeaders(B_JWT!), "X-Workspace-Owner": aOwner },
+      body: JSON.stringify({ business_name: marker }),
+    });
+    await put.body?.cancel();
+    assert(
+      put.status === 200 || put.status === 403,
+      `PUT shipping-profile returned ${put.status}; expected 200 (written to B) ` +
+        `or 403 (workspace write floor), never a write onto A`,
+    );
+    if (put.status !== 200) return;
+
+    // A reads their own. The marker must NOT be there — if it is, B's write
+    // followed the workspace header onto A's row.
+    const aRead = await fetch(`${BASE}/api/account/shipping-profile`, {
+      headers: authHeaders(A_JWT!),
+    });
+    assertEquals(aRead.status, 200, "A must be able to read A's own profile");
+    const aBody = await aRead.text();
+    assert(
+      !aBody.includes(marker),
+      "B's shipping-profile write landed on A's row — the handler is honouring " +
+        "X-Workspace-Owner, but this endpoint must be scoped to c.get('userId').",
+    );
+
+    // And B's own read reflects B's write, so the 200 above was a real write
+    // somewhere rather than a silent no-op that would pass the check above.
+    const bRead = await fetch(`${BASE}/api/account/shipping-profile`, {
+      headers: authHeaders(B_JWT!),
+    });
+    assertEquals(bRead.status, 200);
+    assert(
+      (await bRead.text()).includes(marker),
+      "B's shipping-profile write did not land on B's own row either",
+    );
+  },
+});

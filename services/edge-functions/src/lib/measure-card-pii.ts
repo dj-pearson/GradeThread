@@ -6,24 +6,22 @@
 // plaintext. A stolen database dump is the same event for both, and only one of
 // them is a place a person lives.
 //
-// ── WHY THIS TABLE AND NOT users.ship_from_address ──────────────────────────
+// ── WHY THIS TABLE SHIPPED FIRST, AND WHERE THE OTHER HALF LIVES ────────────
 // AC1 asks for the same treatment on users.ship_from_address and
-// users.business_phone. THAT IS NOT REACHABLE YET, and the reason is a fact
-// about the write path rather than a preference:
+// users.business_phone. That is user-shipping-pii.ts, and it landed a pass
+// later — deliberately, because it was not the crypto that was hard:
 //
-//   src/pages/settings.tsx:306 writes both columns with supabase-js DIRECTLY
-//   from the browser, under RLS, and 00526_users_self_update_allowlist.sql
-//   explicitly allowlists them. They are read the same way — settings.tsx,
-//   flipdesk/marketplaces.tsx and lib/account-export.ts all read them client
-//   side.
+//   settings.tsx wrote both columns with supabase-js DIRECTLY from the browser
+//   under RLS, and 00526_users_self_update_allowlist.sql explicitly allowlisted
+//   them. They were read the same way, in three places.
 //
-// EDGE_ENCRYPTION_KEY is an edge-only secret and must stay one. So encrypting
-// those two columns first requires moving that write and all three reads behind
-// an edge route. That is a real piece of work the story does not name, and
-// doing the crypto without it would lock the seller out of their own Settings
-// page. Recorded on US-2417 rather than half-done here.
+// EDGE_ENCRYPTION_KEY is an edge-only secret and must stay one, so encrypting
+// those two columns meant first moving that write and all three reads behind an
+// edge route (`/api/account/shipping-profile`) and then dropping both columns
+// from the allowlist (00567). Doing the crypto without that would have locked
+// the seller out of their own Settings page.
 //
-// measure_card_requests has no such problem: it is a deny-all operator table
+// measure_card_requests had no such problem: it is a deny-all operator table
 // (rls-guard_test.ts:181), written by exactly one edge route
 // (flipdesk-measure.ts POST /card-request) and read by exactly one
 // (admin-measure-cards.ts listRequests → the fulfilment CSV). Both sides

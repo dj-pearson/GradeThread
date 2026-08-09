@@ -1,4 +1,5 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,6 +26,11 @@ import {
   withPreferenceDefaults,
 } from "@/lib/notification-preferences";
 import { buildAccountExport } from "@/lib/account-export";
+import {
+  SHIPPING_PROFILE_QUERY_KEY,
+  fetchShippingProfile,
+  saveShippingProfile,
+} from "@/lib/shipping-profile";
 import { FLIPDESK_PLANS, flipdeskPlanForLegacy, type PlanKey } from "@/lib/constants";
 import { effectiveAiLimit as computeEffectiveAiLimit } from "@/lib/ai-limit";
 import {
@@ -136,18 +142,45 @@ export function SettingsPage() {
 
   // US-1442: reseller business + ship-from profile, entered once and reused
   // across marketplace/shipping flows.
-  const [businessName, setBusinessName] = useState(profile?.business_name ?? "");
-  const [businessPhone, setBusinessPhone] = useState(
-    profile?.business_phone ?? "",
-  );
-  const shipAddr = profile?.ship_from_address ?? null;
-  const [shipLine1, setShipLine1] = useState(shipAddr?.line1 ?? "");
-  const [shipLine2, setShipLine2] = useState(shipAddr?.line2 ?? "");
-  const [shipCity, setShipCity] = useState(shipAddr?.city ?? "");
-  const [shipState, setShipState] = useState(shipAddr?.state ?? "");
-  const [shipPostal, setShipPostal] = useState(shipAddr?.postal_code ?? "");
-  const [shipCountry, setShipCountry] = useState(shipAddr?.country ?? "US");
+  //
+  // US-2417: this NO LONGER reads `profile`. business_phone and
+  // ship_from_address are AES-GCM ciphertext on that row now, so the plaintext
+  // only exists behind /api/account/shipping-profile. The fields start empty and
+  // fill in when the query lands, which is why the effect below exists — a
+  // useState initialiser would capture the pre-fetch nulls forever.
+  const queryClient = useQueryClient();
+  const shippingQuery = useQuery({
+    queryKey: SHIPPING_PROFILE_QUERY_KEY,
+    queryFn: fetchShippingProfile,
+    enabled: Boolean(user),
+    staleTime: 5 * 60_000,
+  });
+  const [businessName, setBusinessName] = useState("");
+  const [businessPhone, setBusinessPhone] = useState("");
+  const [shipLine1, setShipLine1] = useState("");
+  const [shipLine2, setShipLine2] = useState("");
+  const [shipCity, setShipCity] = useState("");
+  const [shipState, setShipState] = useState("");
+  const [shipPostal, setShipPostal] = useState("");
+  const [shipCountry, setShipCountry] = useState("US");
   const [savingBusiness, setSavingBusiness] = useState(false);
+  // Seed the form ONCE per fetched profile. Keyed on dataUpdatedAt rather than
+  // on the object, so a background refetch that returns the same values does not
+  // stomp on whatever the seller is halfway through typing.
+  const seededAt = useRef<number | null>(null);
+  useEffect(() => {
+    const p = shippingQuery.data;
+    if (!p || seededAt.current === shippingQuery.dataUpdatedAt) return;
+    seededAt.current = shippingQuery.dataUpdatedAt;
+    setBusinessName(p.business_name ?? "");
+    setBusinessPhone(p.business_phone ?? "");
+    setShipLine1(p.ship_from_address?.line1 ?? "");
+    setShipLine2(p.ship_from_address?.line2 ?? "");
+    setShipCity(p.ship_from_address?.city ?? "");
+    setShipState(p.ship_from_address?.state ?? "");
+    setShipPostal(p.ship_from_address?.postal_code ?? "");
+    setShipCountry(p.ship_from_address?.country ?? "US");
+  }, [shippingQuery.data, shippingQuery.dataUpdatedAt]);
 
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -282,9 +315,15 @@ export function SettingsPage() {
     }
   }
 
-  // US-1442: persist the business + ship-from profile onto the user's own row
-  // (RLS-scoped). Stored as a jsonb address so a partial fill (e.g. just ZIP) is
-  // valid and can prefill the marketplace ship-from flows.
+  // US-1442: the business + ship-from profile, entered once and reused across
+  // the marketplace and shipping flows. A partial fill (just a ZIP) is valid.
+  //
+  // US-2417: this used to be a supabase-js update straight onto users. It cannot
+  // be any more — the phone and the address are encrypted with an edge-only key,
+  // and 00567 dropped both columns from the self-update allowlist, so a direct
+  // write now RAISES rather than quietly storing plaintext over the ciphertext.
+  // business_name rides along in the same request because one Save button should
+  // be one request.
   async function handleSaveBusiness() {
     if (!user) return;
     setSavingBusiness(true);
@@ -298,17 +337,12 @@ export function SettingsPage() {
         country: shipCountry.trim() || null,
       };
       const hasAddr = Object.values(addr).some((v) => v);
-      const updateData: UserUpdate = {
+      const saved = await saveShippingProfile({
         business_name: businessName.trim() || null,
         business_phone: businessPhone.trim() || null,
         ship_from_address: hasAddr ? addr : null,
-      };
-      const { error } = await supabase
-        .from("users")
-        .update(updateData as never)
-        .eq("id", user.id);
-      if (error) throw error;
-      await refreshProfile();
+      });
+      queryClient.setQueryData(SHIPPING_PROFILE_QUERY_KEY, saved);
       toast.success("Business & shipping details saved");
     } catch (err) {
       toast.error(

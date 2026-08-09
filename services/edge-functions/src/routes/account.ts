@@ -16,6 +16,14 @@ import {
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 import { fetchWithTimeout } from "../lib/circuit-breaker.ts";
 import { BUYER_PII_TABLES } from "../lib/buyer-pii.ts";
+import {
+  decryptBusinessPhone,
+  decryptShipFrom,
+  encryptBusinessPhone,
+  encryptShipFrom,
+  isEncrypted,
+  normalizeShipFrom,
+} from "../lib/user-shipping-pii.ts";
 
 // Account data portability (US-275 / GDPR + CCPA). Authed user exports a copy
 // of their own data. Mounted behind authMiddleware in main.ts, so c.var.userId
@@ -731,4 +739,139 @@ accountRoutes.post("/delete", async (c) => {
   }
 
   return c.json({ deleted: true });
+});
+
+// ── Business & shipping profile (US-2417 AC1) ────────────────────────────────
+//
+// WHY THIS EXISTS AT ALL, since settings.tsx wrote these three columns directly
+// with supabase-js for two years and it worked: `business_phone` and
+// `ship_from_address` are now AES-256-GCM ciphertext bound to the account owner
+// (user-shipping-pii.ts), and EDGE_ENCRYPTION_KEY is an edge-only secret that
+// has to stay one. A browser cannot encrypt or decrypt them, so the read and the
+// write both have to happen here. Migration 00567 drops both columns from the
+// users self-update allowlist so the old path fails loudly rather than writing
+// plaintext around the new one.
+//
+// `business_name` rides along even though it is NOT encrypted and is still
+// self-service. One form with one Save button should be one request; splitting
+// it would leave a half-saved card whenever the second write failed.
+//
+// Tenant scoping is `c.get("userId")` and NOT workspaceOwnerId, deliberately.
+// This is the caller's own account row — a workspace member acting inside
+// someone else's workspace must not read or rewrite the owner's home address.
+
+interface ShippingProfileBody {
+  business_name?: unknown;
+  business_phone?: unknown;
+  ship_from_address?: unknown;
+}
+
+// GET /api/account/shipping-profile — decrypted, for the caller's own row only.
+accountRoutes.get("/shipping-profile", async (c) => {
+  const userId = c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("users")
+    .select("business_name, business_phone, ship_from_address")
+    .eq("id", userId)
+    .maybeSingle();
+  if (error) {
+    console.error("[account/shipping-profile] load failed:", error.message);
+    return c.json({ error: "Failed to load your business details." }, 500);
+  }
+  const row = (data ?? {}) as {
+    business_name?: string | null;
+    business_phone?: string | null;
+    ship_from_address?: unknown;
+  };
+
+  try {
+    return c.json({
+      business_name: row.business_name ?? null,
+      business_phone: await decryptBusinessPhone(userId, row.business_phone),
+      ship_from_address: await decryptShipFrom(userId, row.ship_from_address),
+    });
+  } catch (err) {
+    // A decrypt failure here is a wrong key or a ciphertext that was moved
+    // between accounts. Neither is "you have no address" — answering 503 keeps
+    // the seller from re-typing details that are already stored, and keeps a
+    // key misconfiguration visible instead of silently emptying every profile.
+    console.error(
+      `[account/shipping-profile] decrypt failed for ${userId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({
+      error: "Your business details could not be unlocked. Support has been notified.",
+    }, 503);
+  }
+});
+
+// PUT /api/account/shipping-profile — encrypt, then write. One statement.
+accountRoutes.put("/shipping-profile", async (c) => {
+  const userId = c.get("userId");
+  let body: ShippingProfileBody;
+  try {
+    body = await c.req.json() as ShippingProfileBody;
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+
+  const name = typeof body.business_name === "string" ? body.business_name.trim() : "";
+  if (name.length > 200) {
+    return c.json({ error: "Business name is too long." }, 400);
+  }
+  const phone = typeof body.business_phone === "string" ? body.business_phone.trim() : "";
+  if (phone.length > 40) {
+    return c.json({ error: "Phone number is too long." }, 400);
+  }
+  // Reject an envelope arriving from the client. Nothing legitimate sends one,
+  // and accepting it would let a caller paste another account's ciphertext into
+  // their own row — where the AAD makes it undecryptable, so the damage is a
+  // permanently broken profile rather than a leak, but it is still not a state
+  // any real save can produce.
+  if (isEncrypted(phone)) {
+    return c.json({ error: "Invalid phone number." }, 400);
+  }
+  if (typeof body.ship_from_address === "string") {
+    return c.json({ error: "Invalid ship-from address." }, 400);
+  }
+
+  let update: Record<string, unknown>;
+  try {
+    // ENCRYPT BEFORE THE WRITE, never write-then-update. An insert of the
+    // plaintext followed by an update would leave the address readable in the
+    // WAL and in any replica that saw the first version, which is most of what
+    // a stolen-dump scenario actually covers.
+    update = {
+      business_name: name || null,
+      business_phone: await encryptBusinessPhone(userId, phone),
+      ship_from_address: await encryptShipFrom(userId, body.ship_from_address),
+    };
+  } catch (err) {
+    console.error(
+      `[account/shipping-profile] encrypt failed for ${userId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    // 503 and NOT a plaintext fallback. Storing the address unencrypted because
+    // the key was missing is the exact outcome this story exists to prevent.
+    return c.json({
+      error: "Your business details could not be saved securely. Support has been notified.",
+    }, 503);
+  }
+
+  const { error } = await supabaseAdmin
+    .from("users")
+    .update(update)
+    .eq("id", userId);
+  if (error) {
+    console.error("[account/shipping-profile] save failed:", error.message);
+    return c.json({ error: "Failed to save your business details." }, 500);
+  }
+
+  // Echo back what a GET would now return, so the client does not have to
+  // round-trip to render the saved state.
+  return c.json({
+    business_name: name || null,
+    business_phone: phone || null,
+    ship_from_address: normalizeShipFrom(body.ship_from_address),
+  });
 });

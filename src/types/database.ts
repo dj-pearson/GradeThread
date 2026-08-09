@@ -330,6 +330,15 @@ export interface ShipFromAddress {
   country?: string | null;
 }
 
+// US-2417: a column whose stored value is an AES-256-GCM envelope. It IS a
+// string at runtime, so it still logs and serializes, but the brand makes it
+// unassignable to a plain `string` parameter — so a value that has to be
+// decrypted first cannot be passed into a formatter, a phone link or a JSX
+// child by accident. Widen it deliberately (`String(x)`) only where the intent
+// really is to move the envelope around.
+declare const encryptedColumnBrand: unique symbol;
+export type EncryptedColumn = string & { readonly [encryptedColumnBrand]: true };
+
 export interface UserRow {
   id: string;
   email: string;
@@ -337,8 +346,18 @@ export interface UserRow {
   avatar_url: string | null;
   // US-1442: reseller business + ship-from profile (migration 00325).
   business_name: string | null;
-  business_phone: string | null;
-  ship_from_address: ShipFromAddress | null;
+  // ⚠ US-2417: THESE TWO ARE CIPHERTEXT ON THIS ROW. They are AES-256-GCM
+  // envelopes bound to `id`, and the key is edge-only, so the browser can
+  // neither read nor write them. Rendering one shows the seller "v2:AbC…".
+  //
+  // The plaintext lives behind GET /api/account/shipping-profile — use
+  // `fetchShippingProfile()` from @/lib/shipping-profile. The address is typed
+  // as an opaque string rather than as ShipFromAddress on purpose: reaching for
+  // `.line1` on it is exactly the mistake this change has to prevent, and a
+  // type error is a better teacher than a broken settings page. 00567 also
+  // dropped both from the users self-update allowlist, so a direct write raises.
+  business_phone: EncryptedColumn | null;
+  ship_from_address: EncryptedColumn | null;
   // 00432: seller Promoted-Listings defaults. promote_listings_by_default is the
   // off-by-default opt-in; a new/un-configured listing follows it. rate/mode are
   // fallbacks (null → category suggestion / 'cps').
@@ -2280,8 +2299,12 @@ export interface UserInsert {
   avatar_url?: string | null;
   // US-1442: reseller business + ship-from profile (migration 00325).
   business_name?: string | null;
-  business_phone?: string | null;
-  ship_from_address?: ShipFromAddress | null;
+  // US-2417: NOT writable from a client. 00567 removed both from the users
+  // self-update allowlist and only PUT /api/account/shipping-profile writes
+  // them, encrypted. They stay on the type because the edge's service-role
+  // client uses these shapes too; a browser write now RAISES.
+  business_phone?: EncryptedColumn | null;
+  ship_from_address?: EncryptedColumn | null;
   /** @deprecated kept for legacy compatibility; new code should not set this. */
   plan?: UserPlan;
   role?: UserRole;

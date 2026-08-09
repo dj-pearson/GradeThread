@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import { createZip, type ZipInputFile } from "./zip";
+import { fetchShippingProfile, type ShippingProfile } from "./shipping-profile";
 import type {
   SubmissionRow,
   GradeReportRow,
@@ -51,10 +52,33 @@ export async function buildAccountExport(
   const { data: profileRaw } = await supabase
     .from("users")
     .select(
-      "id, email, full_name, avatar_url, business_name, business_phone, ship_from_address, use_case, created_at, updated_at",
+      "id, email, full_name, avatar_url, business_name, use_case, created_at, updated_at",
     )
     .maybeSingle();
-  const profile = profileRaw ?? null;
+  // US-2417: business_phone and ship_from_address are NOT in the select above
+  // any more — they are AES-GCM ciphertext on that row and exporting the
+  // envelope would hand the person a string they cannot read while looking like
+  // compliance. The plaintext comes from the edge, which holds the key.
+  //
+  // Best-effort on purpose: a GDPR export must not fail wholesale because one
+  // optional field could not be unlocked. A failure exports the rest and marks
+  // these two null, which is honest — the alternative is no export at all.
+  let shipping: ShippingProfile | null = null;
+  try {
+    shipping = await fetchShippingProfile();
+  } catch (err) {
+    console.warn(
+      "[account-export] shipping profile unavailable:",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  const profile = profileRaw
+    ? {
+      ...(profileRaw as Record<string, unknown>),
+      business_phone: shipping?.business_phone ?? null,
+      ship_from_address: shipping?.ship_from_address ?? null,
+    }
+    : null;
 
   onProgress("Fetching submissions…", 8);
   const { data: submissionsRaw, error: subErr } = await supabase

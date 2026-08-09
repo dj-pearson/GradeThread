@@ -334,3 +334,42 @@ Deno.test("US-2160: order matching is exact, not fuzzy", () => {
   assert(!quoteCoversOrder(["12-3456-7890"], "12-3456"));
   assert(!quoteCoversOrder(["12-3456"], "12-3456-7890"));
 });
+
+// ── US-2417 AC6: the label path still gets a real address ───────────
+//
+// `users.ship_from_address` is now AES-GCM ciphertext, and the label quote is
+// the one edge consumer that reads it. If the decrypt is ever dropped from that
+// handler, `toLogisticsAddress` receives the envelope STRING instead of the
+// object — so the two cases below pin what happens next, because the difference
+// between them is the difference between a loud failure and a wrong package.
+
+Deno.test("US-2417: an undecrypted envelope yields NO address, never a partial one", () => {
+  // A string is not an object, so this returns null and the route answers its
+  // 409 "add your ship-from address in Settings". Wrong message, but the label
+  // is not bought — which is the correct direction to fail in.
+  assertEquals(
+    toLogisticsAddress("v2:test-k1:aBcD:eFgH", "Pearson Media", "8015551234"),
+    null,
+  );
+});
+
+Deno.test("US-2417: the label handler decrypts before it builds the address", () => {
+  // A source guard, because the failure above is silent in the happy path: a
+  // seller with no address and a seller whose address could not be decrypted
+  // both see the same 409, so nothing in a normal test run would notice the
+  // decrypt going missing.
+  const source = Deno.readTextFileSync(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  assert(
+    source.includes("decryptShipFrom(") && source.includes("decryptBusinessPhone("),
+    "flipdesk-logistics.ts must decrypt users.ship_from_address / business_phone " +
+      "(US-2417) before calling toLogisticsAddress",
+  );
+  // And it must not hand the raw column straight in — that is the exact edit
+  // this guard exists to catch.
+  assert(
+    !/toLogisticsAddress\(\s*u\?\.ship_from_address/.test(source),
+    "flipdesk-logistics.ts is passing the raw (encrypted) column to toLogisticsAddress",
+  );
+});
