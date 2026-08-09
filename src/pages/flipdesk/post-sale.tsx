@@ -19,6 +19,12 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import {
+  centsToEbayValue,
+  isFullRefund,
+  validateRefundAmount,
+} from "@/lib/refund-amount";
 import {
   Dialog,
   DialogContent,
@@ -35,6 +41,8 @@ import {
   useEbayAddDisputeEvidence,
   useEbayDecideReturn,
   useEbayPaymentDisputes,
+  useEbayIssueOrderRefund,
+  useEbayOrderTotal,
   useEbayRefundReturn,
   useEbayResolveDispute,
   useEbayReturns,
@@ -372,7 +380,16 @@ function ReturnsCard() {
   const visible = showClosed ? closedReturns : openReturns;
   const decide = useEbayDecideReturn();
   const refund = useEbayRefundReturn();
+  const partialRefund = useEbayIssueOrderRefund();
   const [busy, setBusy] = useState<string | null>(null);
+  // US-2227: which return's partial-refund row is open, and what is typed in it.
+  const [partialFor, setPartialFor] = useState<string | null>(null);
+  const [partialAmount, setPartialAmount] = useState("");
+  const partialOrderId = useMemo(
+    () => returns.find((r) => r.returnId === partialFor)?.orderId ?? null,
+    [returns, partialFor],
+  );
+  const { data: orderTotal } = useEbayOrderTotal(partialOrderId);
 
   async function decideReturn(r: EbayReturn, decision: "approve" | "decline") {
     if (decision === "approve") {
@@ -395,6 +412,53 @@ function ReturnsCard() {
       await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Action failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // US-2227 AC1/AC2. NOT the return route — that one calls eBay's Post-Order
+  // issue_refund, which carries no amount and refunds the return in full. The
+  // amount-carrying route is POST /orders/:orderId/refund (US-1978), which
+  // shipped with no frontend caller at all. See src/lib/refund-amount.ts.
+  async function issuePartialRefund(r: EbayReturn) {
+    if (!r.orderId) {
+      toast.error("This return has no order id, so we can't refund against it.");
+      return;
+    }
+    const v = validateRefundAmount(partialAmount, orderTotal ?? null);
+    if (!v.ok) {
+      toast.error(v.error ?? "Enter a valid refund amount.");
+      return;
+    }
+    // A full amount through this route refunds the buyer and leaves the return
+    // sitting OPEN — two different eBay conversations. Send the seller to the
+    // button that closes the case instead of quietly doing the wrong one.
+    if (isFullRefund(v.cents, orderTotal ?? null)) {
+      toast.error("That is the whole order — use Refund to close the return instead.");
+      return;
+    }
+    const ok = await confirm({
+      title: `Refund ${centsToEbayValue(v.cents)} to the buyer?`,
+      description:
+        "This sends a partial refund on eBay immediately and leaves the return open. This can't be undone.",
+      confirmLabel: "Send refund",
+      destructive: true,
+    });
+    if (!ok) return;
+    setBusy(`${r.returnId}:partial`);
+    try {
+      await partialRefund.mutateAsync({
+        orderId: r.orderId,
+        reason: "ITEM_NOT_AS_DESCRIBED",
+        amountValue: centsToEbayValue(v.cents),
+      });
+      toast.success(`Refunded ${centsToEbayValue(v.cents)}.`);
+      setPartialFor(null);
+      setPartialAmount("");
+      await qc.invalidateQueries({ queryKey: ["ebay_returns"] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Refund failed.");
     } finally {
       setBusy(null);
     }
@@ -510,7 +574,51 @@ function ReturnsCard() {
                   )}
                   Refund
                 </Button>
+                {/* US-2227: the keep-it discount. Separate from Refund because
+                    it is a different eBay call with a different outcome — this
+                    one leaves the return open. */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() => {
+                    setPartialAmount("");
+                    setPartialFor(partialFor === r.returnId ? null : r.returnId);
+                  }}
+                >
+                  Partial…
+                </Button>
               </div>
+              )}
+              {partialFor === r.returnId && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">
+                  <Label htmlFor={`partial-${r.returnId}`} className="text-xs">
+                    Refund amount
+                  </Label>
+                  <Input
+                    id={`partial-${r.returnId}`}
+                    className="h-8 w-28"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={partialAmount}
+                    onChange={(e) => setPartialAmount(e.target.value)}
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    {orderTotal != null
+                      ? `of ${orderTotal.toFixed(2)}`
+                      : "order total unavailable"}
+                  </span>
+                  <Button
+                    size="sm"
+                    disabled={!!busy}
+                    onClick={() => issuePartialRefund(r)}
+                  >
+                    {busy === `${r.returnId}:partial` ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    Send
+                  </Button>
+                </div>
               )}
             </div>
           ))

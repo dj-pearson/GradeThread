@@ -2925,3 +2925,63 @@ export function useEbayReprintLabel() {
     },
   });
 }
+
+// ── Partial refunds (US-2227) ───────────────────────────────────────
+//
+// POST /orders/:orderId/refund is the ONLY refund path that carries an amount.
+// The returns route (useEbayRefundReturn above) calls eBay's Post-Order
+// issue_refund, which takes a comment and nothing else — a return refund is for
+// the return's full value. See src/lib/refund-amount.ts for the full argument.
+//
+// This route shipped in US-1978 with no frontend caller at all, which is why a
+// seller wanting to offer "keep it, here's $10 back" had to push the buyer into
+// opening a return first — worse for both sides, and it drags the seller's
+// return metrics.
+
+/** The order total a partial refund is checked against. Null when unknown. */
+export function useEbayOrderTotal(orderId: string | null) {
+  return useQuery({
+    queryKey: ["ebay_order_total", orderId],
+    enabled: Boolean(orderId),
+    // RLS scopes `sales` to the caller, so this cannot read another tenant's
+    // order even though the id came off an eBay payload.
+    queryFn: async (): Promise<number | null> => {
+      const { data } = await supabase
+        .from("sales")
+        .select("sale_price")
+        .eq("platform_order_id", orderId as string)
+        .maybeSingle();
+      const price = (data as { sale_price?: number | null } | null)?.sale_price;
+      return typeof price === "number" && Number.isFinite(price) ? price : null;
+    },
+  });
+}
+
+export function useEbayIssueOrderRefund() {
+  return useMutation<
+    { ok: true; refund_id?: string },
+    Error,
+    { orderId: string; reason: string; amountValue: string; comment?: string }
+  >({
+    mutationFn: async ({ orderId, reason, amountValue, comment }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/orders/${encodeURIComponent(orderId)}/refund`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({
+            reason,
+            comment,
+            // eBay wants a decimal string; the currency rides with it because
+            // the route rejects an amount with no currency rather than assuming
+            // USD for a seller who is not selling in it.
+            amount: { currency: "USD", value: amountValue },
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Refund failed.");
+      return json;
+    },
+  });
+}
