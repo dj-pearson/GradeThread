@@ -113,6 +113,10 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "trial-expiry", label: "Trial-expiry downgrade", schedule: "15 0 * * *", category: "billing", endpoint: "/api/jobs/trial-expiry", recorded: true },
   // US-1112: consignor auto-payout sweep — pay each consignor their share when a consigned item sells.
   { name: "consignor-payouts", label: "Consignor auto-payouts", schedule: "*/30 * * * *", category: "flipdesk", endpoint: "/api/jobs/consignor-payouts", recorded: true },
+  // US-2228 AC3: copy each monthly recurring expense forward. Daily and early,
+  // so the entry is in the seller's books the morning it is due. Re-running is
+  // free — a partial unique index makes a duplicate month impossible.
+  { name: "expense-recurrence", label: "Recurring expense sweep", schedule: "20 5 * * *", category: "flipdesk", endpoint: "/api/jobs/expense-recurrence", recorded: true },
   // US-1295: affiliate auto-payout sweep — accrue affiliate conversions + pay eligible balances over Stripe Connect.
   { name: "affiliate-payouts", label: "Affiliate auto-payouts", schedule: "15 */6 * * *", category: "growth", endpoint: "/api/jobs/affiliate-payouts", recorded: true },
   { name: "agent-tick", label: "Agentic OS agent tick", schedule: "*/10 * * * *", category: "agents", endpoint: "/api/jobs/agent-tick", recorded: true },

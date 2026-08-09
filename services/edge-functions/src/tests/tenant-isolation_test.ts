@@ -118,6 +118,9 @@ const REQUIRED_RESOURCE_IDS = [
   "TEST_USER_A_CONFLICT_ID",
   "TEST_USER_A_RECONCILE_SESSION",
   "TEST_USER_A_CONSIGNOR_ID",
+  // US-2228: the receipt routes read from a PRIVATE bucket, so a skipped case
+  // here is an unverified path to another tenant's card tails.
+  "TEST_USER_A_EXPENSE_ID",
   // US-2039: the VIEWER fixture. Seven intra-workspace role cases — including
   // "viewer cannot pay for a grade (drains owner credits)" — gated on these and
   // skipped silently on every CI run because the seed script never emitted
@@ -4554,5 +4557,101 @@ Deno.test({
     });
     await res.body?.cancel();
     assertDenied(res.status, "POST radar/my-stores/link as viewer");
+  },
+});
+
+// US-2228: expense receipts. The bucket is PRIVATE and the objects are
+// receipts — card tails, billing addresses, sometimes a full name. Three routes
+// hang off one expense row, and all three resolve it the same way: load it
+// `.eq("user_id", ownerId)` BEFORE anything else. That ordering is the property
+// under test, not just the status code.
+const A_EXPENSE_ID = Deno.env.get("TEST_USER_A_EXPENSE_ID");
+
+Deno.test({
+  name: "US-2228: B cannot attach a receipt to A's expense",
+  ignore: !CONFIGURED || !A_EXPENSE_ID,
+  fn: async () => {
+    const form = new FormData();
+    form.append(
+      "receipt",
+      new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x34])], "r.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    const res = await fetch(
+      `${BASE}/api/flipdesk/expenses/${A_EXPENSE_ID}/receipt`,
+      // No Content-Type header — the browser/runtime sets the multipart boundary.
+      { method: "POST", headers: { Authorization: `Bearer ${B_JWT}` }, body: form },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST expenses/:id/receipt as B");
+  },
+});
+
+Deno.test({
+  name: "US-2228: B cannot mint a signed URL for A's receipt",
+  ignore: !CONFIGURED || !A_EXPENSE_ID,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/expenses/${A_EXPENSE_ID}/receipt`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const body = await res.text();
+    assertDenied(res.status, "GET expenses/:id/receipt as B");
+    // A signed URL needs no further auth to fetch, so a leaked one IS the leak.
+    assert(
+      !body.includes("token="),
+      "the denial body must not carry a signed-URL token",
+    );
+    // A foreign id and an unknown one must be indistinguishable, or the endpoint
+    // becomes a way to ask which expense ids exist in another tenant.
+    const fake = await fetch(
+      `${BASE}/api/flipdesk/expenses/00000000-0000-4000-8000-000000000000/receipt`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const fakeBody = await fake.text();
+    assertEquals([res.status, body], [fake.status, fakeBody]);
+  },
+});
+
+Deno.test({
+  name: "US-2228: B cannot delete A's receipt",
+  ignore: !CONFIGURED || !A_EXPENSE_ID,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/flipdesk/expenses/${A_EXPENSE_ID}/receipt`,
+      { method: "DELETE", headers: authHeaders(B_JWT!) },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "DELETE expenses/:id/receipt as B");
+  },
+});
+
+Deno.test({
+  // A viewer is read-only. Attaching a receipt writes a storage object into the
+  // OWNER's folder and rewrites three columns on the owner's bookkeeping row.
+  name: "US-2228: viewer cannot attach a receipt under the owner",
+  ignore: !VIEWER_READY || !A_EXPENSE_ID,
+  fn: async () => {
+    const form = new FormData();
+    form.append(
+      "receipt",
+      new File([new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])], "r.pdf", {
+        type: "application/pdf",
+      }),
+    );
+    const res = await fetch(
+      `${BASE}/api/flipdesk/expenses/${A_EXPENSE_ID}/receipt`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${VIEWER_JWT}`,
+          "X-Workspace-Owner": WS_OWNER!,
+        },
+        body: form,
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST expenses/:id/receipt as viewer");
   },
 });

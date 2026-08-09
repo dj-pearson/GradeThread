@@ -271,3 +271,86 @@ export function validateImageUpload(
     height: dims?.height ?? null,
   };
 }
+
+// ── Receipts (US-2228 AC2) ───────────────────────────────────────────────────
+//
+// An expense receipt is the one upload in the product that is legitimately a
+// PDF: half of what a seller gets emailed is a PDF invoice, and telling them to
+// screenshot it to attach it would be the app making its own problem theirs.
+//
+// This is a SEPARATE function rather than a flag on validateImageUpload, and
+// that is deliberate. validateImageUpload actively REJECTS a PDF by magic bytes
+// (looksLikeRejectedType), because everywhere else a PDF arriving where an image
+// was expected is an attack shape. Loosening it would have relaxed that rule for
+// garment photos, listing imagery and dispute evidence too, to serve one screen.
+//
+// ⚠ THE HONEST LIMITATION, stated because it is easy to assume otherwise: an
+// image receipt goes through stripImageMetadata like every other image, so EXIF
+// and GPS are gone. A PDF DOES NOT — its metadata (author, producer, sometimes a
+// local file path) is left intact, because stripping it needs a PDF parser we do
+// not have and will not hand-roll. That is acceptable HERE and nowhere else: the
+// object lands in a private bucket with no policies, is read only through a
+// signed URL issued after an ownership check, is never published, never attached
+// to a certificate and never sent to a model. A PDF must not be accepted into
+// any surface without those four properties.
+
+export type ReceiptKind = "image" | "pdf";
+
+export type ReceiptValidationResult =
+  | {
+    ok: true;
+    kind: ReceiptKind;
+    contentType: string;
+    ext: string;
+    /** Present for images only — PDFs are stored byte-for-byte. */
+    format: ImageFormat | null;
+  }
+  | { ok: false; reason: string };
+
+/** %PDF- at offset 0. The version digits after it vary and are not checked. */
+export function looksLikePdf(b: Uint8Array): boolean {
+  return b.length >= 5 && ascii(b, 0, 5) === "%PDF-";
+}
+
+export function validateReceiptUpload(
+  bytes: Uint8Array,
+  opts: ValidateOptions = {},
+): ReceiptValidationResult {
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+
+  if (bytes.length === 0) return { ok: false, reason: "Empty file" };
+  if (bytes.length > maxBytes) {
+    return {
+      ok: false,
+      reason: `File too large (${bytes.length} bytes; max ${maxBytes})`,
+    };
+  }
+
+  // PDF first: validateImageUpload would reject it, and its rejection message
+  // ("PDF uploads are not allowed") would be actively wrong on this screen.
+  if (looksLikePdf(bytes)) {
+    return {
+      ok: true,
+      kind: "pdf",
+      contentType: "application/pdf",
+      ext: "pdf",
+      format: null,
+    };
+  }
+
+  // No HEIC: the bucket's allowed_mime_types does not list it, so an accepted
+  // HEIC would fail at the storage layer with an error nobody can act on.
+  const image = validateImageUpload(bytes, {
+    ...opts,
+    allow: opts.allow ?? ["jpeg", "png", "webp"],
+  });
+  if (!image.ok) return image;
+
+  return {
+    ok: true,
+    kind: "image",
+    contentType: image.contentType,
+    ext: image.ext,
+    format: image.format,
+  };
+}

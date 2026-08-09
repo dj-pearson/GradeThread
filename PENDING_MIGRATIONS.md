@@ -1,5 +1,101 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00565_expense_recurrence.sql (US-2228 AC3 — an expense that repeats monthly)
+
+**Risk: LOW.** Two columns on `flipdesk_expenses` (one boolean with a `false`
+default, one nullable uuid), two partial indexes, one CHECK constraint. No
+backfill. Every existing row reads as "does not recur", which is what it was.
+
+**Apply AFTER 00564 and BEFORE the push.** `src/pages/flipdesk/expenses.tsx`
+writes `recurs_monthly` on every save — including the plain add-an-expense path
+— so once Cloudflare Pages auto-deploys, an insert against a database without
+the column fails with 42703 and the seller cannot log ANY expense. This one is
+push-blocking in a way 00564 is not.
+
+**The CHECK constraint is the runaway guard.** `NOT (recurs_monthly AND
+recurrence_source_id IS NOT NULL)` — a generated copy may never itself become a
+template. Without it, one bad write gives the next run a second series to
+extend, then four, and the table grows on its own.
+
+**The unique index is the idempotency guard**, and it is why the cron carries no
+"next occurrence" bookkeeping column. One entry per template per month, enforced
+by the database, so the job can re-run, catch up after an outage, or race a
+second instance and still converge.
+
+**`ON DELETE SET NULL`, not CASCADE, and this is the decision worth reading.**
+Deleting the template means "stop repeating this", NOT "erase the months it
+already covered". Those months were really paid. A cascade would silently
+rewrite a year of books from one Delete click.
+
+**A new cron ships with this: `expense-recurrence`, `20 5 * * *`,
+`POST /api/jobs/expense-recurrence`.** Add the Coolify scheduled task after the
+edge deploy — `CRON_SETUP.md` has the generated block. Until it is added the
+feature is inert: sellers can tick the box, and nothing copies forward.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — two new columns
+selected and written by name through PostgREST.
+
+**Rollback** is dropping the two columns (the indexes and constraint go with
+them) and removing the Coolify task. Generated entries stay as ordinary
+expenses, which is correct: they were real.
+
+**Verified:** `EXPECTED_SCHEMA_VERSION` bumped to `00565` in the same commit,
+manifest regenerated (310 footer-era migrations), self-record footer present,
+cron-registry drift guard green with COOLIFY.md / CRON_SETUP.md /
+launch-checklist.md / deploy.md all regenerated.
+
+---
+
+## 🔴 HELD: 00564_expense_receipts.sql (US-2228 AC2 — the receipt behind the number)
+
+**Risk: LOW.** Three nullable columns on `flipdesk_expenses` and one new PRIVATE
+storage bucket. No backfill, no constraint, no index, no default. Nothing
+existing is rewritten and no row changes. Old code that never mentions the
+columns keeps working.
+
+**Apply BEFORE the push, and the frontend is the reason.** `src/pages/flipdesk/
+expenses.tsx` reads `e.receipt_path` off every row it lists, and Cloudflare
+Pages auto-deploys on push. `select("*")` does not 42703 on a missing column —
+it just returns rows without it — so the clip icon would silently never appear
+and nobody would know why. The edge is the harder failure: `flipdesk-expenses.ts`
+SELECTs `receipt_path, receipt_mime` by name, which PostgREST answers with 42703
+until the columns exist.
+
+**The bucket is the part that matters.** `expense-receipts` is created with
+`public = false` and NO storage policies, i.e. deny-all to `anon` and
+`authenticated`. Both directions go through the edge service-role client, which
+does the ownership check itself. A receipt carries a card tail, a billing
+address, sometimes a full name — this is deliberately not `item-photos`, the one
+public bucket, whose contract is seller listing imagery only.
+
+**If you apply the columns but not the bucket, uploads fail closed** with a
+storage error and the row is left untouched (the route removes the orphan object
+on a failed link and never writes a path it did not upload). Nothing corrupts;
+the feature is simply unavailable.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — three new columns
+selected by name through PostgREST.
+
+**Rollback** is `DROP COLUMN receipt_path, receipt_mime, receipt_uploaded_at`
+plus `DELETE FROM storage.buckets WHERE id = 'expense-receipts'` (empty the
+objects first). The screen degrades to what it was: an expense list with no
+attachment.
+
+**PDFs are stored byte-for-byte and are NOT metadata-stripped.** There is no PDF
+parser in the edge, and `stripImageMetadata` only knows JPEG/PNG/WebP. That is
+acceptable only because the bucket is private, signed-URL-only (TTL 900s), never
+published, and never sent to a model — the same file the seller uploaded comes
+back to the seller and to nobody else. Image receipts ARE stripped, on the normal
+`validateImageUpload` → `stripImageMetadata` path.
+
+**Apply order.** Last, after 00563. It depends on nothing but the
+`flipdesk_expenses` table (00019) and `storage.buckets`.
+
+**Verified:** `EXPECTED_SCHEMA_VERSION` bumped to `00564` in the same commit,
+manifest regenerated, self-record footer present, full edge suite green.
+
+---
+
 ## ✅ APPLIED: 00563_prompt_block_versions.sql (US-2438 — a versioned seam for the grading user message, applied 2026-08-08 — MEASURED)
 
 **Applied and confirmed by measurement, not by report.** `GET https://functions.gradethread.com/health/ready` returns `schema: {expected: "00563", applied: "00563", status: "match"}` — the DB's own answer, read through the service-role client (US-1566), and the edge has already been redeployed on the matching build. Nothing below is outstanding; it is kept for the next reader.
@@ -48,7 +144,8 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**Nothing is held.** 00542 through 00563 were applied to prod on 2026-08-08 and
+**00564 and 00565 are held** — see the top of this file. Everything below it is applied:
+00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528
 for how that is measured and why the measurement, not this file, is the

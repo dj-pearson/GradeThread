@@ -42,7 +42,24 @@ const SCAN_ROOTS = [
 ];
 
 const MAX_TTL_SECONDS = 900;
-const PRIVATE_BUCKET = "submission-images";
+
+/**
+ * EVERY bucket created with `public = false`, not just the one CLAUDE.md names.
+ *
+ * This was a single string until US-2228 added `expense-receipts`, and a
+ * one-bucket guard would have let the new one through while still reporting a
+ * pass — the same blindness the resolveTtl note above describes, in a different
+ * place. The list is derived from the migrations: grep
+ * `INSERT INTO storage.buckets` and take every row whose `public` column is
+ * false. A NEW private bucket has to be added here; nothing detects the
+ * omission, which is why the derivation is written down.
+ */
+const PRIVATE_BUCKETS = [
+  "submission-images", // 00001 — grading photos, incl. labels (PII-bearing)
+  "compliance-exports", // 00225 — GDPR/CCPA data exports for one user
+  "authenticity-references", // 00500 — reference imagery, licence-restricted
+  "expense-receipts", // 00564 — card tails, billing addresses, full names
+];
 
 async function sourceFiles(dir: URL, acc: URL[] = []): Promise<URL[]> {
   const entries: Deno.DirEntry[] = [];
@@ -113,7 +130,7 @@ function topLevelArgs(argStr: string): string[] {
   return out;
 }
 
-Deno.test("US-276: submission-images is never read via getPublicUrl", async () => {
+Deno.test("US-276: no private bucket is read via getPublicUrl", async () => {
   const offenders: string[] = [];
   let scanned = 0;
 
@@ -121,15 +138,18 @@ Deno.test("US-276: submission-images is never read via getPublicUrl", async () =
     for (const url of await sourceFiles(new URL(root, REPO_ROOT))) {
       scanned++;
       const src = await Deno.readTextFile(url);
-      const re = new RegExp(
-        `from\\(\\s*["'\`]${PRIVATE_BUCKET}["'\`]\\s*\\)([\\s\\S]{0,160})`,
-        "g",
-      );
-      let m: RegExpExecArray | null;
-      while ((m = re.exec(src))) {
-        if (/getPublicUrl/.test(m[1]!)) {
-          const line = src.slice(0, m.index).split("\n").length;
-          offenders.push(`${url.pathname.split("/GradeThread/").pop()}:${line}`);
+      for (const bucket of PRIVATE_BUCKETS) {
+        const re = new RegExp(
+          `from\\(\\s*["'\`]${bucket}["'\`]\\s*\\)([\\s\\S]{0,160})`,
+          "g",
+        );
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(src))) {
+          if (/getPublicUrl/.test(m[1]!)) {
+            const line = src.slice(0, m.index).split("\n").length;
+            const rel = url.pathname.split("/GradeThread/").pop();
+            offenders.push(`${rel}:${line} — ${bucket}`);
+          }
         }
       }
     }
@@ -139,11 +159,11 @@ Deno.test("US-276: submission-images is never read via getPublicUrl", async () =
   assertEquals(
     offenders,
     [],
-    `submission-images is PRIVATE and holds grading photos including labels ` +
-      `(PII-bearing per CLAUDE.md). Read it with createSignedUrl (TTL <= ` +
-      `${MAX_TTL_SECONDS}s). getPublicUrl yields a link that does not resolve ` +
-      `today and becomes a live leak the moment the bucket's visibility ` +
-      `changes:\n` + offenders.join("\n"),
+    `These buckets are PRIVATE and hold PII — grading labels, data exports, ` +
+      `receipts. Read them with createSignedUrl (TTL <= ${MAX_TTL_SECONDS}s). ` +
+      `getPublicUrl yields a link that does not resolve today and becomes a ` +
+      `live leak the moment the bucket's visibility changes:\n` +
+      offenders.join("\n"),
   );
 });
 

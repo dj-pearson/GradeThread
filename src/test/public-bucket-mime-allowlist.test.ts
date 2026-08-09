@@ -75,6 +75,17 @@ const DECLARED_BUCKETS: Record<string, string> = {
   "authenticity-references":
     "PRIVATE. Brand reference imagery for authenticity checks (00500).",
   "content-videos": "PUBLIC. Marketing clips, admin-authored.",
+  "expense-receipts":
+    "PRIVATE. Bookkeeping receipts (US-2228) — card tails, billing addresses. " +
+    "No storage policies, so deny-all to anon and authenticated; the edge " +
+    "service-role client checks ownership and mints a <=900s signed URL. It is " +
+    "the only bucket admitting application/pdf, which is deliberate: a supplier " +
+    "invoice is normally a PDF, not a photo. That does not belong in " +
+    "EXECUTABLE_TYPES — a PDF's embedded script runs in the browser's sandboxed " +
+    "viewer, not in the storage origin, and the only person who can ever obtain " +
+    "a URL for one of these objects is the seller who uploaded it. The threat " +
+    "the list guards against is hosting active content FOR OTHERS, and a " +
+    "private, per-owner, signed-URL bucket cannot do that.",
   "compliance-exports":
     "PRIVATE, and the ONE bucket with no allow-list — deliberately. It has no " +
     "storage policies at all, so it is deny-all to anon and authenticated; " +

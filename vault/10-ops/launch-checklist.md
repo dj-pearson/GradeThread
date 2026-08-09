@@ -174,6 +174,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | email-retry | `*/5 * * * *` | `/api/jobs/email-retry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | equity-snapshot | `15 5 * * *` | `/api/jobs/equity-snapshot` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | exemplar-assembly | `0 12 * * 0` | `/api/jobs/exemplar-assembly` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
+| expense-recurrence | `20 5 * * *` | `/api/jobs/expense-recurrence` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | google-sheet-sync | `*/5 * * * *` | `/api/flipdesk/google/sync/push` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | googleplay-expiry-sweep | `50 1 * * *` | `/api/jobs/googleplay-expiry-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | grading-batch-reclaim | `*/5 * * * *` | `/api/jobs/grading-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
@@ -209,7 +210,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | thumbnail-backfill | `*/5 * * * *` | `/api/jobs/thumbnail-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | trial-expiry | `15 0 * * *` | `/api/jobs/trial-expiry` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 
-_75 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
+_76 scheduled jobs. Default healthy response: 200 `{"ok":true,...}` (idle runs report skipped/zero counts). Generated from `src/lib/cron-runs.ts` CRON_REGISTRY — do not hand-edit._
 <!-- cron-registry:end -->
 
 **One-off at launch (not scheduled):** POST `/api/jobs/cert-integrity-backfill`

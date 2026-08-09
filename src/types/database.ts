@@ -1993,6 +1993,17 @@ export interface ExpenseRow {
   spent_on: string;
   created_at: string;
   updated_at: string;
+  // US-2228 AC2. `receipt_path` is an object key in the PRIVATE expense-receipts
+  // bucket, never a URL — the browser cannot read it directly and must ask the
+  // edge for a signed URL, which it only issues after an ownership check.
+  receipt_path: string | null;
+  receipt_mime: string | null;
+  receipt_uploaded_at: string | null;
+  // US-2228 AC3. `recurs_monthly` is true on the TEMPLATE only; the entries the
+  // cron copies forward carry `recurrence_source_id` pointing back at it and
+  // never repeat themselves (the DB refuses that combination outright).
+  recurs_monthly: boolean;
+  recurrence_source_id: string | null;
 }
 
 export interface ExpenseInsert {
@@ -2001,6 +2012,7 @@ export interface ExpenseInsert {
   description?: string | null;
   amount: number;
   spent_on?: string;
+  recurs_monthly?: boolean;
 }
 
 export type ExpenseUpdate = Partial<

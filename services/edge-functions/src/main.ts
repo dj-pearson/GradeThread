@@ -54,6 +54,7 @@ import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
+import { flipdeskExpensesRoutes } from "./routes/flipdesk-expenses.ts";
 import { flipdeskConsignmentRoutes } from "./routes/flipdesk-consignment.ts";
 import {
   flipdeskPricingRoutes,
@@ -150,6 +151,7 @@ import { handleThumbnailBackfillCron } from "./routes/jobs-thumbnail-backfill.ts
 import { handleDurabilityAggregateCron } from "./routes/jobs-durability-aggregate.ts";
 import { handleRadarAggregateCron } from "./routes/jobs-radar-aggregate.ts";
 import { handleConsignorPayoutsCron } from "./routes/jobs-consignor-payouts.ts";
+import { handleExpenseRecurrenceCron } from "./routes/jobs-expense-recurrence.ts";
 import { handleAffiliatePayoutsCron } from "./routes/jobs-affiliate-payouts.ts";
 import { handleAgentTickCron } from "./routes/jobs-agent-tick.ts";
 import { handleAgentEvalCron } from "./routes/jobs-agent-eval.ts";
@@ -483,6 +485,10 @@ app.use("/api/flipdesk/product/*", authMiddleware);
 app.use("/api/flipdesk/templates/*", authMiddleware);
 app.use("/api/flipdesk/autolister/*", authMiddleware);
 app.use("/api/flipdesk/disclosure/*", authMiddleware);
+// US-2228: expense receipt upload/read/delete. Nothing else on the expenses
+// screen is an edge route — the direct supabase writes stay — but bytes must
+// be sniffed and stripped server-side, which a browser cannot do.
+app.use("/api/flipdesk/expenses/*", authMiddleware);
 // US-600: consignment mode — consignor portal, splits, payouts. All authed.
 app.use("/api/flipdesk/consignment/*", authMiddleware);
 app.use("/api/flipdesk/pricing/*", authMiddleware);
@@ -632,6 +638,7 @@ app.use("/api/flipdesk/google/sheet/*", workspaceMiddleware);
 app.use("/api/flipdesk/google/disconnect", workspaceMiddleware);
 app.use("/api/flipdesk/google/sync/now", workspaceMiddleware);
 app.use("/api/flipdesk/disclosure/*", workspaceMiddleware);
+app.use("/api/flipdesk/expenses/*", workspaceMiddleware);
 app.use("/api/flipdesk/consignment/*", workspaceMiddleware);
 app.use("/api/flipdesk/pricing/*", workspaceMiddleware);
 app.use("/api/flipdesk/automations/*", workspaceMiddleware);
@@ -906,6 +913,8 @@ app.use(
 );
 // Disclosure reads are cheap; the annotated-photo upload writes storage.
 app.use("/api/flipdesk/disclosure/*", rateLimiter(40, 60_000, "flipdesk-disclosure"));
+// One receipt per expense, attached once — a tighter cap than the photo routes.
+app.use("/api/flipdesk/expenses/*", rateLimiter(20, 60_000, "flipdesk-expenses"));
 // US-600: consignment CRUD + Stripe Connect onboarding/payout calls.
 app.use("/api/flipdesk/consignment/*", rateLimiter(30, 60_000, "flipdesk-consignment"));
 // A repricing scan fans out to one eBay Browse call per listing — cap tightly.
@@ -1125,6 +1134,7 @@ app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleSyncRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
+app.route("/api/flipdesk/expenses", flipdeskExpensesRoutes);
 app.route("/api/flipdesk/consignment", flipdeskConsignmentRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);
 app.route("/api/flipdesk/automations", flipdeskAutomationsRoutes);
@@ -1420,6 +1430,11 @@ app.post("/api/jobs/trial-expiry", (c) => handleTrialExpiryCron(c));
 // consigned item sells. OUTSIDE /api/* JWT groups; handler enforces the
 // internal-job-secret + reads the consignor_auto_payout_mode config flag.
 app.post("/api/jobs/consignor-payouts", (c) => handleConsignorPayoutsCron(c));
+// US-2228 AC3 recurring-expense sweep: copy each monthly template forward, one
+// entry per month, up to today. OUTSIDE /api/* JWT groups; handler enforces the
+// internal-job-secret. Idempotent by a partial unique index, so re-running it
+// (or racing it) cannot duplicate a month.
+app.post("/api/jobs/expense-recurrence", (c) => handleExpenseRecurrenceCron(c));
 // US-1295 affiliate auto-payout sweep: accrue affiliate conversions + pay each
 // affiliate their eligible balance over Stripe Connect. OUTSIDE /api/* JWT
 // groups; handler enforces the internal-job-secret + reads affiliate_payout_config.

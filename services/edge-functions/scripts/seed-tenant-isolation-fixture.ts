@@ -263,6 +263,16 @@ async function main(): Promise<void> {
     default_split_pct: 50,
   });
 
+  // US-2228: an operating expense owned by A. The receipt routes hang off this
+  // row, and a plain insert is enough — the denial comes from the ownership
+  // load, which runs before the body is read and does not care whether a
+  // receipt is attached.
+  out.TEST_USER_A_EXPENSE_ID = await insert("flipdesk_expenses", {
+    user_id: aId,
+    category: "other",
+    amount: 12.34,
+  });
+
   // US-2078: the plain-DB-row resources that gated cross-tenant cases but were
   // never emitted, so 26 cases skipped silently on every CI run. Each is a
   // minimal row OWNED BY A (or scoped to A's item), matching how the route
