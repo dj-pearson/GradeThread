@@ -52,7 +52,14 @@ export const GARMENT_CATEGORIES = [
   "hat",
   "bag",
   "belt",
+  // US-2224 (00570): neckwear and gloves had NO garment_category at all, so a
+  // tie could only be filed as "other" — which routes it into the clothing
+  // rubric, the exact thing the accessories rubric exists to stop.
+  // "neckwear" rather than "tie" because one rubric grades a bow tie, an ascot
+  // and a cravat, and a value named for one invites "other" for the rest.
   "scarf",
+  "neckwear",
+  "gloves",
   "other",
 ] as const;
 
@@ -1077,6 +1084,13 @@ export const ITEM_CATEGORIES = [
   "books",
   "bags",
   "accessories",
+  // US-2223 (00570): its own top level, NOT folded into accessories. A cap's
+  // condition lives in the crown, the brim and the sweatband; an accessory's
+  // lives in its material, edges and hardware. item_category is the dimension
+  // that picks the rubric, the photo profile and the measurement template, so
+  // filing headwear under accessories makes the headwear rubric unreachable
+  // while looking correct.
+  "headwear",
   "other",
 ] as const;
 
@@ -1097,6 +1111,7 @@ export const ITEM_CATEGORY_LABELS: Record<
   books: "Books",
   bags: "Bags",
   accessories: "Accessories",
+  headwear: "Hats & caps",
   other: "Other",
 };
 

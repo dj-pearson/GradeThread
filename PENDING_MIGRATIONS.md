@@ -1,5 +1,52 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00570_headwear_neckwear_gloves_categories.sql (US-2223 + US-2224 — three taxonomy values)
+
+**Risk: LOW.** Three `ALTER TYPE … ADD VALUE IF NOT EXISTS` and one type
+comment. No table touched, no backfill, nothing rewritten. `item_category`
+gains `headwear`; `garment_category` gains `neckwear` and `gloves`.
+
+**Apply order: AFTER 00569.** No dependency, just NNNNN order.
+
+**⚠️ PUSH-BLOCKING, and this is the classic case the held-migration rule exists
+for.** The FRONTEND reads these enums directly: `GARMENT_CATEGORIES` and
+`ITEM_CATEGORIES` in `src/lib/constants.ts` now list the new values, and both
+drive pickers that write straight to the database under RLS. If Cloudflare
+Pages deploys before the SQL applies, a seller who picks "Hats & caps" or
+"Neckwear" gets `invalid input value for enum` and the save fails. Apply first,
+then push.
+
+**No transaction wrapper, deliberately, and do not add one.** Postgres refuses
+to USE a new enum value in the same transaction that adds it. Nothing in this
+file uses one — but wrapping it would make the file unsafe to extend, and the
+next person appending an UPDATE would get an error that reads as a Postgres
+quirk rather than as their own edit.
+
+**Why headwear is its own item_category rather than living under
+`accessories`.** `item_category` is the dimension that selects the grading
+rubric, the photo profile AND the measurement template. A cap's condition lives
+in the crown, the brim and the sweatband; an accessory's lives in its material,
+its edges and its hardware. Filing headwear under accessories would have left
+the headwear rubric permanently unreachable while looking correct — the same
+class of silent deadness `rubric-parity_test.ts` was written to catch.
+
+**`neckwear`, not `tie`.** One rubric grades a bow tie, an ascot and a cravat;
+a value named for one of them invites a seller to pick "other" for the rest,
+which routes them straight back into the clothing rubric this work exists to get
+them out of.
+
+**Verified on a throwaway stack**, not eyeballed: `node scripts/verify.mjs --db`
+re-applied every migration from zero, so the SQL parses and the values land.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — PostgREST caches enum
+definitions and will reject the new values until it reloads.
+
+**Rollback is NOT clean, and that is worth knowing before applying.** Postgres
+cannot drop an enum value. Reverting means recreating the type without it, which
+requires rewriting every column that uses it. In practice the rollback is to
+leave the values in place (they are inert until something writes them) and roll
+the frontend back.
+
 ## 🔴 HELD: 00569_community_benchmarks_filters.sql (US-2235 — filters on Community Insights)
 
 **Risk: MEDIUM, and it is the DROP that carries it.** No table changes at all.
@@ -314,7 +361,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564 through 00569 are held** — see the top of this file. Everything below it is applied:
+**00564 through 00570 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528

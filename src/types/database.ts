@@ -33,7 +33,9 @@ export type GarmentCategory =
   | "t-shirt" | "shirt" | "blouse" | "sweater" | "hoodie"
   | "jacket" | "coat" | "jeans" | "pants" | "shorts"
   | "skirt" | "dress" | "sneakers" | "boots" | "sandals"
-  | "hat" | "bag" | "belt" | "scarf" | "other";
+  // US-2224 (00570): neckwear and gloves. See src/lib/constants.ts for why the
+  // value is "neckwear" and not "tie".
+  | "hat" | "bag" | "belt" | "scarf" | "neckwear" | "gloves" | "other";
 export type SubmissionStatus =
   | "pending"
   | "processing"
