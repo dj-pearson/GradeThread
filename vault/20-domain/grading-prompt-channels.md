@@ -13,12 +13,13 @@ code_refs:
   - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/grading-eval.ts
   - services/edge-functions/src/lib/grading-shadow.ts
+  - services/edge-functions/src/lib/grading-shadow-per-image.ts
   - services/edge-functions/src/lib/grading-pipeline.ts
   - supabase/migrations/00562_grade_prompt_surface_hash.sql
   - services/edge-functions/src/lib/prompt-blocks.ts
   - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
@@ -166,12 +167,24 @@ The consequences, verified 2026-08-08:
 | `ai_prompt_versions` override | yes | **no** — the row has one `prompt_text` |
 | Canary (`shouldUseCanary`) | yes | **no** — it picks between two system texts |
 | `runEval` golden-set gate | yes | **no** — both legs compile in the same block |
-| `grading-shadow.ts` | composite only | **no**, and there is no per-image shadow at all |
+| `grading-shadow.ts` | composite only | **no** — it reuses the champion's per-image analyses |
+| `grading-shadow-per-image.ts` | yes | **yes**, per block, since US-2443 |
 
 So editing a user-message block changes live grading on the next deploy with no
 gate available. That is why every one of them is **env-flag gated and additive**:
 the flag is the only substitute, and byte-identity when off is what makes it a
 real one.
+
+**US-2443 changed one cell of that table and nothing else.** A per-image block
+override can now be compared on live traffic, because
+`grading-shadow-per-image.ts` re-analyzes the same photos under the challenger
+block and re-composites. It does NOT make the eval gate cover the user message —
+`runEval` still compiles the same text into both legs — and it is **off by
+default**: it costs a vision call per photo plus one composite per sampled
+submission, so it does nothing at all unless
+`PER_IMAGE_SHADOW_DAILY_VISION_CAP` is set to a positive number AND a candidate
+row carries a non-zero `shadow_sample_rate` and `shadow_daily_cap`. Three
+deliberate switches, because a default here is a vision bill.
 
 ### What a flag carries, and what it does not
 
@@ -182,7 +195,7 @@ Worth stating flatly, because three flags in it is easy to read one as a gate:
 | Reversible without a deploy | **yes** | yes |
 | Cannot reach sellers unless someone decides | **yes** | yes |
 | Measured against a golden set before it serves | **no** | yes |
-| Compared on live traffic before it serves | **no** | composite only |
+| Compared on live traffic before it serves | **no** | yes, both stages (US-2443) |
 | Identifiable afterwards on a grade record | **no** | yes |
 
 A flag is a **switch**, not a gate. It answers "can we turn this off again?" and

@@ -1844,15 +1844,30 @@ adminGradingRoutes.get("/shadow/comparison", async (c) => {
   const days = Math.min(Math.max(Number(c.req.query("days")) || 30, 1), 365);
   const since = new Date(Date.now() - days * 86_400_000).toISOString();
 
-  const { data, error } = await supabaseAdmin
+  // US-2443: `stage` is optional and unset means BOTH, which is the honest
+  // default — a caller that does not know the column exists gets everything
+  // rather than a silently composite-only answer. The two stages are never
+  // aggregated by accident in practice because a candidate label belongs to one
+  // stage, but the filter is here for the case where a name is reused.
+  const stage = (c.req.query("stage") ?? "").trim();
+  if (stage && stage !== "per_image" && stage !== "composite") {
+    return c.json({ error: "stage must be per_image or composite" }, 400);
+  }
+
+  let q = supabaseAdmin
     .from("grading_shadow_results")
-    .select("score_delta, agreement, tags, shadow_overall_score, error")
+    .select(
+      "score_delta, agreement, tags, shadow_overall_score, error, " +
+        "tier_agreement, per_factor_deltas, vision_calls",
+    )
     .eq("shadow_prompt_version_name", version)
     .gte("created_at", since)
     .limit(10_000);
+  if (stage) q = q.eq("stage", stage);
+  const { data, error } = await q;
   if (error) return failSafe(c, 500, "Couldn't load the shadow comparison.", error, "admin.grading.shadow.comparison");
-  const summary = summarizeComparisons((data ?? []) as ShadowRow[]);
-  return c.json({ version, days, ...summary });
+  const summary = summarizeComparisons((data ?? []) as unknown as ShadowRow[]);
+  return c.json({ version, days, stage: stage || null, ...summary });
 });
 
 // GET /shadow/results?version=<name>&limit=<n> — recent shadow rows for
@@ -1866,11 +1881,20 @@ adminGradingRoutes.get("/shadow/results", async (c) => {
     .select(
       "id, submission_id, shadow_prompt_version_name, active_prompt_version_name, " +
         "active_overall_score, active_grade_tier, shadow_overall_score, shadow_grade_tier, " +
-        "score_delta, agreement, tags, error, created_at",
+        "score_delta, agreement, tags, error, created_at, " +
+        // US-2443: which stage the row came from, and what it cost. Without
+        // `stage` an admin eyeballing divergent rows cannot tell a per-image
+        // comparison from a composite one, and they mean different things.
+        "stage, tier_agreement, per_factor_deltas, images_analyzed, vision_calls",
     )
     .order("created_at", { ascending: false })
     .limit(limit);
   if (version) q = q.eq("shadow_prompt_version_name", version);
+  const stage = (c.req.query("stage") ?? "").trim();
+  if (stage && stage !== "per_image" && stage !== "composite") {
+    return c.json({ error: "stage must be per_image or composite" }, 400);
+  }
+  if (stage) q = q.eq("stage", stage);
   const { data, error } = await q;
   if (error) return failSafe(c, 500, "Couldn't load shadow results.", error, "admin.grading.shadow.results");
   return c.json({ results: data ?? [] });

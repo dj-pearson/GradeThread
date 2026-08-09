@@ -6,10 +6,11 @@ status: current
 source_of_truth: code
 code_refs:
   - src/test/public-bucket-mime-allowlist.test.ts
-  - services/edge-functions/src/lib/grading-pipeline.ts
+  - services/edge-functions/src/lib/grading-image-encoding.ts
   - services/edge-functions/src/lib/upload-validation.ts
+  - services/edge-functions/src/routes/flipdesk-expenses.ts
   - src/lib/media-intake.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 tags: [grading, uploads, images, gotcha]
 summary: A file's extension and its bytes disagree often enough to break grading — sniff the bytes on the way in and on the way out.
 ---
@@ -33,12 +34,18 @@ does this. One bad image fails its `analyzeImage` call, and since front/back/lab
 are required, **the whole grading fails and auto-refunds**. A single mislabelled
 file costs the seller their submission.
 
-`mediaTypeForVision(bytes, storagePath)` in `grading-pipeline.ts` sniffs via
-`sniffImageFormat` + `IMAGE_CONTENT_TYPE` (from `upload-validation.ts`) and is
-used at **both** download sites; `grading-eval.ts`'s `downloadCaseImage` does the
-same. `ai-authenticity.ts` trusts its data-URI prefix but is fed the pipeline's
-now-correct URIs, so it was fixed transitively. `ai-extract.ts` already sniffed —
-it is the pattern to copy.
+`mediaTypeForVision(bytes, storagePath)` sniffs via `sniffImageFormat` +
+`IMAGE_CONTENT_TYPE` (from `upload-validation.ts`). It lived in
+`grading-pipeline.ts` until **US-2443 moved it to
+`grading-image-encoding.ts`**, alongside `uint8ToBase64` and
+`downloadGradingImage`, because it had become three copies: the pipeline had
+one, `grading-eval.ts` had a byte-for-byte re-implementation inside
+`downloadCaseImage` held together only by a comment, and the per-image shadow
+path would have made a fourth. All three now call the one module;
+`grading-pipeline.ts` re-exports `mediaTypeForVision` so the existing test
+import still resolves. `ai-authenticity.ts` trusts its data-URI prefix but is
+fed the pipeline's now-correct URIs, so it was fixed transitively.
+`ai-extract.ts` already sniffed — it is the pattern to copy.
 
 Two things worth knowing:
 
@@ -95,9 +102,37 @@ The two server-side controls, in the order they fire:
    calls, and rejects a mismatch with 415. Every bucket carries one except
    `compliance-exports`, which has no storage policies at all and is therefore
    deny-all to users.
-2. **The edge upload path**, for `submission-images` only:
-   `validateImageUpload()` sniffs magic bytes and `stripImageMetadata()` drops
-   EXIF/GPS before `storage.upload()` (US-276).
+2. **The edge upload path**, on the two PRIVATE buckets that have one.
+   `submission-images`: `validateImageUpload()` sniffs magic bytes and
+   `stripImageMetadata()` drops EXIF/GPS before `storage.upload()` (US-276).
+   `expense-receipts`: `validateReceiptUpload()` does the same, with one
+   deliberate exception — see below (US-2228).
+
+### The one upload that is legitimately not an image (US-2228)
+
+`expense-receipts` is the only bucket admitting `application/pdf`, because half
+of what a seller gets emailed is a PDF invoice, and telling them to screenshot it
+would make the app's problem theirs.
+
+It is a **separate function, not a flag**, and that is the part to keep.
+`validateImageUpload()` still REJECTS a PDF by magic bytes, because everywhere
+else a PDF arriving where an image was expected is an attack shape. A flag would
+have loosened that for garment photos, listing imagery and dispute evidence too.
+`validateReceiptUpload()` checks `%PDF-` at offset 0 first, then falls through to
+`validateImageUpload()` restricted to jpeg/png/webp.
+
+`application/pdf` is deliberately NOT in the guard's `EXECUTABLE_TYPES`. A PDF's
+embedded script runs in the browser's sandboxed viewer, not in the storage
+origin; the bucket is private with no storage policies, and the only person who
+can get a URL is the seller who uploaded it, through a ≤900s signed URL issued
+after an ownership check. The threat the allow-lists guard is hosting active
+content FOR OTHERS, which a private per-owner bucket cannot do. **A PDF must not
+be accepted into any surface lacking those four properties.**
+
+**The honest limitation:** an image receipt goes through `stripImageMetadata`, so
+EXIF and GPS are gone. A PDF does NOT — author, producer, sometimes a local file
+path survive, because stripping them needs a PDF parser this repo does not have
+and will not hand-roll.
 
 The public buckets deliberately have **no magic-byte sniff**, and that is a
 decision rather than a gap. A file whose bytes lie under an honest

@@ -14,27 +14,29 @@
 // unit-tested in grading-shadow_test.ts; the orchestrator below is thin and
 // defensive (it must never throw into the pipeline).
 //
-// ⚠ THERE IS NO PER-IMAGE SHADOW PATH, AND THAT IS A DELIBERATE COST DECISION —
-// not an oversight, though it has read as one (US-2432).
+// ⚠ THIS FILE IS THE COMPOSITE STAGE ONLY. PER-IMAGE SHADOW LIVES IN
+// grading-shadow-per-image.ts (US-2443). "Shadow" does not mean both stages,
+// and reading this file alone will tell you per-image shadow does not exist —
+// it did not until US-2443, and this note used to say so at length.
 //
-// The candidate query below filters `.eq("stage", "composite")`. A per-image
-// shadow could not reuse anything: it would re-issue a VISION call per image
-// per candidate, so a 6-photo submission with two candidates costs 12 extra
-// vision calls instead of 2 cheap text ones. At that price it stops being
-// something you leave running on live traffic, which is the only property that
-// makes shadow useful — evidence from real garments rather than the golden set.
+// The candidate query below filters `.eq("stage", "composite")` and that is
+// still correct: this path reuses the champion's per-image analyses and re-runs
+// one cheap text call. The per-image path cannot reuse anything — it re-issues a
+// VISION call per photo plus a composite — so the two have different cost
+// shapes and different guardrails; grading_shadow_results.stage (added in
+// 00566) is what tells their rows apart.
 //
-// What the absence COSTS is worth naming so nobody rediscovers it the hard way:
-// a per-image prompt change has no live-traffic evidence path at all. It can be
-// eval-gated against the golden set and canaried, but never shadow-compared.
-// And a change to the per-image USER message — the category and type criteria —
-// cannot even be eval-gated, because runEval supplies the same compiled text to
-// both legs; see unversionedPromptSurface() in ai-grading.ts for the
-// fingerprint that at least makes that visible.
+// The costs are therefore NOT interchangeable, which is why they are two files:
+//   composite  — one text call per candidate; sample generously.
+//   per-image  — photos + 1 vision calls per candidate; OFF unless
+//                PER_IMAGE_SHADOW_DAILY_VISION_CAP is set, and single-digit
+//                percentage sampling even then.
 //
-// If per-image shadow is ever built, sample it FAR harder than the composite
-// path (a single-digit percentage of the composite rate) or the vision spend
-// will land before anyone reads the first comparison.
+// One limitation from the old note SURVIVES and is not fixed by US-2443: a
+// change to the per-image USER message still cannot be eval-gated, because
+// runEval supplies the same compiled text to both legs. See
+// unversionedPromptSurface() in ai-grading.ts for the fingerprint that at least
+// makes that visible.
 
 import { supabaseAdmin } from "./supabase.ts";
 import {
@@ -115,6 +117,11 @@ export interface ShadowRow {
   tags: string[];
   shadow_overall_score: number | null;
   error: string | null;
+  // US-2443. Optional because composite rows written before 00566 do not carry
+  // them; a row that lacks one is skipped, not counted as agreeing.
+  tier_agreement?: boolean | null;
+  per_factor_deltas?: Record<string, number> | null;
+  vision_calls?: number | null;
 }
 
 export interface ShadowTagStat {
@@ -132,6 +139,24 @@ export interface ShadowSummary {
   mean_delta: number | null;
   delta_histogram: Record<string, number>;
   per_tag: Record<string, ShadowTagStat>;
+  // US-2443 AC3. The score agreement rate above answers "did the number move";
+  // these answer the two questions a promotion decision actually turns on.
+  //
+  // tier_disagreement_rate: how often the two legs landed in different TIERS.
+  // That is the word on the certificate, so a 0.4 delta straddling a boundary
+  // is a visible change while a 0.5 delta inside one is not.
+  //
+  // mean_factor_deltas: the signed mean per factor. A candidate that shifts
+  // fabric_condition by 0.5 across the board is a systematic recalibration; one
+  // that moves odor_cleanliness on a handful of items is noise. The overall
+  // score cannot tell those apart, because fabric is weighted 30% and odor 10%,
+  // so the same factor move lands as 0.15 or 0.05.
+  tier_disagreement_rate: number | null;
+  /** Rows that carried a tier verdict — the denominator above, stated. */
+  tier_scored: number;
+  mean_factor_deltas: Record<string, number>;
+  /** Paid vision calls these rows cost. 0 for the composite stage. */
+  vision_calls: number;
 }
 
 function round2(n: number): number {
@@ -183,6 +208,30 @@ export function summarizeComparisons(rows: ShadowRow[]): ShadowSummary {
       tagAgg.set(t, e);
     }
   }
+  // US-2443 AC3. Both run over `rows`, not `scored`: tier_agreement and
+  // per_factor_deltas are null on an errored row, so those rows drop out by
+  // their own value rather than by a filter that could be relaxed later.
+  let tierScored = 0;
+  let tierDisagree = 0;
+  let visionCalls = 0;
+  const factorAgg = new Map<string, { sum: number; n: number }>();
+  for (const r of rows) {
+    visionCalls += r.vision_calls ?? 0;
+    if (typeof r.tier_agreement === "boolean") {
+      tierScored++;
+      if (!r.tier_agreement) tierDisagree++;
+    }
+    for (const [k, v] of Object.entries(r.per_factor_deltas ?? {})) {
+      if (typeof v !== "number" || !Number.isFinite(v)) continue;
+      const e = factorAgg.get(k) ?? { sum: 0, n: 0 };
+      e.sum += v;
+      e.n++;
+      factorAgg.set(k, e);
+    }
+  }
+  const mean_factor_deltas: Record<string, number> = {};
+  for (const [k, e] of factorAgg) mean_factor_deltas[k] = round2(e.sum / e.n);
+
   const per_tag: Record<string, ShadowTagStat> = {};
   for (const [t, e] of tagAgg) {
     per_tag[t] = {
@@ -200,6 +249,10 @@ export function summarizeComparisons(rows: ShadowRow[]): ShadowSummary {
     mean_delta: n ? round2(sumSigned / n) : null,
     delta_histogram: histogram,
     per_tag,
+    tier_disagreement_rate: tierScored ? round4(tierDisagree / tierScored) : null,
+    tier_scored: tierScored,
+    mean_factor_deltas,
+    vision_calls: visionCalls,
   };
 }
 

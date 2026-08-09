@@ -1,5 +1,52 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00566_per_image_shadow.sql (US-2443 — per-image prompt changes get a live-traffic comparison)
+
+**Risk: LOW, and it is INERT on arrival.** Six additive columns on
+`grading_shadow_results` and three on `ai_prompt_block_versions`, one index, two
+CHECK constraints. No backfill and no behaviour change: the new per-image shadow
+path is OFF unless `PER_IMAGE_SHADOW_DAILY_VISION_CAP` is set to a positive
+number, which it is not. Applying this migration alone changes nothing that runs.
+
+**Apply order: AFTER 00564 and 00565.** No dependency between them, just the
+NNNNN order the apply script uses.
+
+**NOT push-blocking, and that is the difference from 00565.** Nothing in the
+FRONTEND reads or writes any of these columns. The only readers are edge code
+(`grading-shadow-per-image.ts`, and the admin `/shadow/comparison` +
+`/shadow/results` endpoints, which now select `stage`, `tier_agreement`,
+`per_factor_deltas`, `images_analyzed`, `vision_calls`). Those endpoints are
+super-admin only, so the worst case if the edge deploys before the SQL applies
+is an admin panel error on the Shadow tab, not a seller unable to work.
+
+**`stage` defaults to `'composite'`, which is the correct backfill, not a
+convenience.** Every row that exists today was written by the composite-only
+path. A `NULL` default would have made "old row" and "unknown stage" the same
+value.
+
+**The cost columns are the point.** A composite shadow row is one cheap text
+call, so nobody ever counted them. A per-image row is one paid VISION call per
+photo plus one composite — six to eight for a normal submission. The daily
+ceiling is enforced as a SUM over `vision_calls`, so the number has to be on
+the row or the guardrail has nothing to read.
+
+**`shadow_sample_rate` and `shadow_daily_cap` on `ai_prompt_block_versions`
+default to 0 deliberately.** `ai_prompt_versions.shadow_daily_cap` defaults to
+200; this one defaults to 0, because inheriting a sampling default is how a
+vision bill arrives before anyone has read a comparison.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — nine new columns
+selected by name through PostgREST.
+
+**To actually turn it on afterwards** (three switches, all off today): set
+`PER_IMAGE_SHADOW_DAILY_VISION_CAP` on Coolify, then set a non-zero
+`shadow_sample_rate` AND `shadow_daily_cap` on the candidate row, and mark it
+`is_shadow = true` with `stage = 'per_image'`. Any one of those left at its
+default means nothing is spent.
+
+**Rollback** is dropping the nine columns. No data loss beyond shadow
+comparison rows, which are advisory analytics and never reach a seller.
+
 ## 🔴 HELD: 00565_expense_recurrence.sql (US-2228 AC3 — an expense that repeats monthly)
 
 **Risk: LOW.** Two columns on `flipdesk_expenses` (one boolean with a `false`
@@ -144,7 +191,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564 and 00565 are held** — see the top of this file. Everything below it is applied:
+**00564, 00565 and 00566 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528

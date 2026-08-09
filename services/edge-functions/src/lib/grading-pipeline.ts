@@ -42,6 +42,7 @@ import {
 } from "./ai-authenticity.ts";
 import { getEffectiveTellsForBrand } from "./brand-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
+import { runPerImageShadowGrades } from "./grading-shadow-per-image.ts";
 import { notifyWebhooks } from "./webhook-delivery.ts";
 import {
   sendGradeFinalizedEmail,
@@ -82,7 +83,10 @@ import {
 } from "./image-quality.ts";
 import { withImageBufferSlot } from "./grading-capacity.ts";
 import { grantReward, hasFullGradeCoverage } from "./rewards-engine.ts";
-import { sniffImageFormat, IMAGE_CONTENT_TYPE } from "./upload-validation.ts";
+import { mediaTypeForVision, uint8ToBase64 } from "./grading-image-encoding.ts";
+// Re-exported because grading-media-type_test.ts imports it from here and the
+// function is the same function; moving the home should not move the test.
+export { mediaTypeForVision };
 import { captureServer } from "./posthog.ts";
 import { emitEvent, firstOccurrenceKey } from "./user-events.ts";
 import { autoRefundPaidStripe } from "./grade-refund.ts";
@@ -147,43 +151,9 @@ import {
   verified360Boost,
 } from "./verified-360.ts";
 
-// Base64-encode a byte array in 32KB chunks. The naive char-by-char
-// `binary += String.fromCharCode(...)` loop is O(n²) on string growth and
-// slow for multi-MB photos; applying fromCharCode over the whole array at
-// once risks a call-stack overflow. Chunking avoids both.
-function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const CHUNK = 0x8000; // 32768
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)),
-    );
-  }
-  return btoa(binary);
-}
-
-// The Anthropic vision API sniffs the actual image bytes and 400s when the
-// declared media_type disagrees with them ("specified image/webp but the image
-// appears to be image/jpeg"). Storage paths lie: a `.webp`-named object can hold
-// JPEG bytes (e.g. a re-encoded/relabeled photo), which failed whole gradings.
-// Derive the media type from the MAGIC BYTES (the same sniffer the upload path
-// uses), falling back to the extension only when the bytes are unrecognized.
-export function mediaTypeForVision(bytes: Uint8Array, storagePath: string): string {
-  const sniffed = sniffImageFormat(bytes);
-  // Anthropic accepts jpeg/png/webp/gif; HEIC is unsupported (and the private
-  // grading bucket rejects it on upload), so treat a HEIC sniff as unknown and
-  // fall through — nothing good to declare, but this path shouldn't occur.
-  if (sniffed && sniffed !== "heic") return IMAGE_CONTENT_TYPE[sniffed];
-  const ext = storagePath.split(".").pop()?.toLowerCase() || "jpg";
-  const extMap: Record<string, string> = {
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    png: "image/png",
-    gif: "image/gif",
-    webp: "image/webp",
-  };
-  return extMap[ext] || "image/jpeg";
-}
+// uint8ToBase64 and mediaTypeForVision moved to grading-image-encoding.ts in
+// US-2443. They had already been copied once (into grading-eval.ts, under a
+// comment saying so) and the per-image shadow path would have made it a third.
 
 // US-1035: crop a normalized-bbox defect region from a full-res image, padded
 // for context and upscaled if tiny, so the vision model sees real detail on a
@@ -3060,6 +3030,41 @@ export async function processSubmission(submissionId: string) {
     }).catch((err) =>
       console.error(
         `[Pipeline] shadow grading error for submission ${submissionId}:`,
+        err instanceof Error ? err.message : String(err),
+      )
+    );
+
+    // US-2443: the PER-IMAGE half. Re-analyzes the same photos under a
+    // challenger per-image prompt (or block) and re-composites, so a per-image
+    // change finally has live-traffic evidence. Re-downloads the images: the
+    // base64 is long gone by now, on purpose (the buffer slot above scopes it),
+    // and threading it here would defeat that memory gate for every submission
+    // rather than the sampled few. OFF unless
+    // PER_IMAGE_SHADOW_DAILY_VISION_CAP is set — it costs a vision call per
+    // photo, not one cheap text call like the composite path above.
+    //
+    // Fire-and-forget, exactly like the call above, and this is the property
+    // AC2 names: the grade this seller receives is already written and the
+    // shadow leg is not awaited on ANY path. runPerImageShadowGrades also never
+    // throws; both halves are test-guarded (grading-shadow-per-image_test.ts,
+    // grading-shadow-isolation_test.ts).
+    void runPerImageShadowGrades({
+      submissionId,
+      userId: submission.user_id,
+      gradeReportId: gradeReport.id,
+      images: images.map((i) => ({
+        imageType: i.image_type,
+        storagePath: i.storage_path,
+      })),
+      garmentInfo,
+      styleHint,
+      activePromptVersion: compositeResult.prompt_version,
+      activeOverallScore: compositeResult.overall_score,
+      activeGradeTier: compositeResult.grade_tier,
+      activeFactorScores: compositeResult.factor_scores,
+    }).catch((err) =>
+      console.error(
+        `[Pipeline] per-image shadow error for submission ${submissionId}:`,
         err instanceof Error ? err.message : String(err),
       )
     );

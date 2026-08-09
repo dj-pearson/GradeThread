@@ -23,7 +23,7 @@ import {
 import { isAllowedGradingModel, servingModelForStage } from "./ai-config.ts";
 import { runListingEval } from "./listing-eval.ts";
 import { scoreToGradeTier } from "./human-review.ts";
-import { sniffImageFormat, IMAGE_CONTENT_TYPE } from "./upload-validation.ts";
+import { downloadGradingImage } from "./grading-image-encoding.ts";
 
 // ─── Eval harness + activation gate ─────────────────────────────────
 //
@@ -129,45 +129,22 @@ export interface EvalRunResult {
   };
 }
 
-// Chunked base64 (mirrors grading-pipeline.ts uint8ToBase64).
-function uint8ToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, Math.min(i + CHUNK, bytes.length)));
-  }
-  return btoa(binary);
-}
-
+/**
+ * Eval's wrapper around the shared downloader: a failed case is REPORTED, never
+ * thrown, so one unreadable photo drops that case instead of failing the run.
+ *
+ * The base64 + magic-byte logic used to be re-implemented here under a comment
+ * saying it mirrored grading-pipeline.ts. It now lives in
+ * grading-image-encoding.ts (US-2443) and there is one copy.
+ */
 export async function downloadCaseImage(
   storagePath: string,
 ): Promise<{ dataUri: string } | { error: string }> {
-  const { data, error } = await supabaseAdmin.storage
-    .from("submission-images")
-    .download(storagePath);
-  if (error || !data) {
-    return { error: `download failed: ${error?.message ?? "no body"}` };
+  try {
+    return { dataUri: await downloadGradingImage(storagePath) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
   }
-  const buf = await data.arrayBuffer();
-  const bytes = new Uint8Array(buf);
-  // Media type from magic bytes, not the extension — a `.webp` object holding
-  // JPEG bytes 400s the vision call (see mediaTypeForVision in grading-pipeline).
-  const sniffed = sniffImageFormat(bytes);
-  let media: string;
-  if (sniffed && sniffed !== "heic") {
-    media = IMAGE_CONTENT_TYPE[sniffed];
-  } else {
-    const ext = storagePath.split(".").pop()?.toLowerCase() || "jpg";
-    const mediaMap: Record<string, string> = {
-      jpg: "image/jpeg",
-      jpeg: "image/jpeg",
-      png: "image/png",
-      gif: "image/gif",
-      webp: "image/webp",
-    };
-    media = mediaMap[ext] || "image/jpeg";
-  }
-  return { dataUri: `data:${media};base64,${uint8ToBase64(bytes)}` };
 }
 
 /**

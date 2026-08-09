@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
@@ -19,7 +19,7 @@ contract note.
 | Host | System | Serves |
 |---|---|---|
 | `api.gradethread.com` | Supabase (self-hosted), fronted by Kong | **Only** Supabase routes — REST, auth, storage, realtime |
-| `functions.gradethread.com` | Deno/Hono edge service on Coolify | **All** Hono routes: `/api/grade/*`, `/api/payments/*`, `/api/webhooks/*`, `/api/flipdesk/*` |
+| `functions.gradethread.com` | Deno/Hono edge service on Coolify | **All** Hono routes: `/api/grade/*`, `/api/payments/*`, `/api/webhooks/*`, `/api/flipdesk/*`, `/api/jobs/*` (the crons) |
 
 ## The failure mode
 
