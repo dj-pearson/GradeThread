@@ -1,5 +1,45 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00579_vintage_tee_blanks_brand_knowledge.sql (US-2220 AC4 — the first pack built on tag_eras, and the category that grades backwards)
+
+**Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
+tables.** No table, column, constraint, index, policy or function is created,
+altered or dropped. Nothing existing is read, rewritten or backfilled. No
+decoders, so nothing here can override an AI answer.
+
+**Apply order: AFTER 00578.** 00578 and 00579 are independent and can be applied
+in one sitting — but note 00578's constraints DO apply to 00579's rows, and every
+one of them carries a source_url and a confidence, which the from-zero db lane
+proves by applying both in order.
+
+**NOT push-blocking.** Screen Stars, Brockum, Giant and Winterland have always
+fallen through the resolver; the frontend reads none of it.
+
+**What it adds.** 4 brand rows, 2 style rows, 6 tag_eras entries, 8 tells.
+
+**Why it is unlike every pack before it.** The four "brands" are not the brand on
+the shirt — a band tee's seller-facing brand is the BAND. These are the BLANK
+MAKERS whose tag is sewn into the collar, so the rows exist to DATE a shirt and
+never to price one.
+
+**⚠ And the category grades backwards.** Screen Stars blanks are 50/50
+cotton-poly: washing fades the cotton and spares the polyester, producing the
+thin, translucent, feather-soft shirt the category is bought FOR. A vintage tee
+graded on crispness reads a 9 as a 4. The tells say so and also name what IS a
+defect here — holes, stains, an illegible print, a dead collar.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00579` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00579';` and the same for `brand_styles`.
+
+---
+
+
 ## 🔴 HELD: 00578_brand_kb_provenance_required.sql (US-1996 AC5 — a brand fact must carry its source)
 
 **Risk: LOW.** One IMMUTABLE function and five CHECK constraints added

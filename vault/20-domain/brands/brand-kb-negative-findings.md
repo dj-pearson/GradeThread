@@ -8,6 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/registered-numbers.ts
   - services/edge-functions/src/lib/tag-era.ts
   - supabase/migrations/00572_tag_eras_provenance.sql
+  - supabase/migrations/00579_vintage_tee_blanks_brand_knowledge.sql
 reviewed: 2026-08-09
 tags: [brands, sourcing, authentication, contract]
 summary: Facts that look right and are wrong, plus the statutory reason a missing RN on a handbag is correct rather than suspicious.
@@ -33,6 +34,53 @@ The French maison's registrant would be S.A.S. Jean Cassegrain, which has **no
 RN**. A scraper that searched the register for "longchamp" and took the hit would
 seed an authoritative-looking lie. It is seeded as an explicit negative, and
 fixtured.
+
+## RN 13765 is real, is on the tag, and still cannot name Screen Stars
+
+Recorded 2026-08-09 with the vintage-tee pack (`00579`, US-2220). A third RN
+trap, and the first one where the number is **genuinely the brand's own tag**.
+
+RN 13765 is a real Registered Identification Number and it is printed on Screen
+Stars collar tags. It is refused anyway, because it belongs to the **parent** —
+Union Underwear / Fruit of the Loom — and FOTL's *generic* 1970s blanks carry the
+same RN under a completely different tag, which defunkd documents separately. A
+pattern over it would spell "Screen Stars" onto an unbranded Fruit of the Loom
+tee.
+
+Hold this beside the two RN entries around it, because the three fail
+differently:
+
+| | why it fails |
+|---|---|
+| RN 17257 (Longchamp) | right string, **wrong company** |
+| a missing RN on a handbag | **statutorily correct** absence, not a gap |
+| RN 13765 (Screen Stars) | right company, **wrong granularity** — it names the parent |
+
+The third is [[brand-kb-decoder-bar]]'s fourth question in RN form: *which entity
+does the identifier name?* A parent-wide identifier can never attribute a
+sibling, whether it is URBN's `OB######` style number or Fruit of the Loom's RN.
+
+> The category's other refusals are absences with reasons, not gaps: **no size
+> chart**, because four decades of washing destroyed the precision an alpha size
+> once had — measure the garment; and **no `brand_styles` rows** for Brockum,
+> Giant and Winterland, because a blank maker has no model identity. On a band
+> tee the model is the *band and the print*, which live on the item. That is the
+> Gildan/Hanes call in its sharpest form.
+
+### ⚠ And the category grades backwards
+
+Not a sourcing trap, but it belongs with them because it is the same kind of
+mistake — confidently applying a rule that does not hold here.
+
+Screen Stars blanks are 50/50 cotton-poly. Washing fades the cotton and spares
+the polyester, producing the thin, translucent, feather-soft shirt the category
+is bought **for**. Collectors pay a premium for precisely the state a condition
+rubric marks down.
+
+**A vintage tee graded on crispness reads a 9 as a 4.** The real defects are
+holes, stains, a print flaked to illegibility, and a collar with no recovery
+left. This is the Bosca patina call ([[small-leather-goods]]) with much higher
+stakes, because here it is not one line of the grade — it is most of it.
 
 ## A missing RN on a handbag is correct, not a red flag
 

@@ -1321,6 +1321,31 @@ const BRAND_ALIASES: Record<string, string> = {
   secrid: "Secrid",
   bosca: "Bosca",
   hugobosca: "Bosca", // the founder's name, as it appears on older marks
+
+  // US-2220 vintage / band-tee BLANK MAKERS (migration 00579). These are not the
+  // brand a seller means — that is the BAND. They are the tag sewn into the
+  // collar, and they exist here to DATE a shirt, never to price one.
+  //
+  // ⚠ "Giant" is the hazard and it needs BOTH halves of the usual treatment. As
+  // a canonical it is an ordinary English adjective that clothing copy emits
+  // constantly ("giant logo", "giant floral print"), and at 5 characters it
+  // would beat a real "Nike" (4) on longest-first ordering — so it goes into
+  // DETECT_EXCLUDED_FROM_TEXT. As an alias KEY it is kept, because a brand field
+  // of literally "giant" on a TEE means the blank; note the known collision that
+  // this accepts, the bicycle manufacturer of the same name, which is out of
+  // scope for a garment-grading corpus but is the reason this is written down.
+  screenstars: "Screen Stars",
+  screenstarsbest: "Screen Stars", // the sub-line resolves to the house
+  brockum: "Brockum",
+  brockumgroup: "Brockum",
+  giant: "Giant",
+  giantbytultex: "Giant", // the original branding
+  tultexgiant: "Giant",
+  winterland: "Winterland",
+  winterlandproductions: "Winterland",
+  // ⚠ a bare "tultex" is DELIBERATELY ABSENT — Tultex is the PARENT that made
+  // Giant, and it printed its own blanks under its own name. Folding it would be
+  // the parent-attributes-a-sibling error the decoder bar refuses in code form.
 };
 
 /**
@@ -1501,6 +1526,16 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // English, and Bosca's only collision is the founder's surname, which means
   // the same house.
   "The Ridge",
+  // US-2220 (00579). "Giant" is an ordinary English adjective and one clothing
+  // copy reaches for constantly — "giant logo", "giant floral print", "giant
+  // check". At 5 characters it beats a real "Nike" (4) on longest-first
+  // ordering, so a prose scan would mis-brand an ordinary tee onto a
+  // vintage-blank ladder. Reachable BY TAG, never guessed from prose.
+  //
+  // Screen Stars, Brockum and Winterland are NOT excluded — none is an ordinary
+  // word, and a prose mention of any of them in a listing genuinely does mean
+  // the blank.
+  "Giant",
 ]);
 
 /**

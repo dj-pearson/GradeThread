@@ -41,8 +41,18 @@ const { kb, st, missing, thin } = styleGaps(files);
  */
 const KNOWN_UNCOVERED = [
   "aeropostale",
+  // US-2220 (00579): three vintage-tee BLANK MAKERS. This is the Gildan/Hanes
+  // reason above, in its sharpest form rather than a new exemption — a blank
+  // maker HAS no model identity. On a band tee the model is the BAND and the
+  // PRINT, which live on the item and cannot be a row in brand_styles.
+  //
+  // Screen Stars is deliberately NOT in this list: it has documented sub-lines
+  // (Screen Stars Best, the 50/50 blank) and both are seeded, which is what the
+  // difference between "no styles exist" and "nobody seeded them" looks like.
+  "brockum",
   "carharttwip",
   "eddiebauer",
+  "giant",
   "gildan",
   "guess",
   "hanes",
@@ -50,6 +60,7 @@ const KNOWN_UNCOVERED = [
   "hollister",
   "nautica",
   "poloralphlauren",
+  "winterland",
 ] as const;
 
 Deno.test("US-2216: no NEW brand ships without at least one style row", () => {
