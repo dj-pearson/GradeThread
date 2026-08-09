@@ -55,7 +55,15 @@ const SQL = await Deno.readTextFile(
  * formatting load-bearing; normalising here makes the test read what a human
  * reads. PROSE is a superset of SQL, so this can only ever be more permissive.
  */
-const PROSE = SQL.replace(/^\s*--\s?/gm, " ").replace(/\s+/g, " ");
+// ⚠ The `''` step unescapes SQL's doubled apostrophe: inside a string literal
+// `STORY''S` is `STORY'S` in the database, so a matcher reading the raw file
+// sees neither form. Same class as the line-wrap problem — the file's ENCODING
+// is not its content. PROSE stays a superset of SQL, so this is only ever more
+// permissive.
+const PROSE = SQL
+  .replace(/^\s*--\s?/gm, " ")
+  .replace(/''/g, "'")
+  .replace(/\s+/g, " ");
 
 
 /** Every `pattern` literal the migration seeds, in file order. */

@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00583_golf_brand_knowledge.sql (US-2220 — the logo is part of the item, and it is not the brand)
+
+**Risk: LOW. Three `insert ... on conflict do nothing` statements into reference
+tables.** Nothing is created, altered, dropped, read or backfilled. No decoders.
+
+**Apply order: AFTER 00582.** Independent of everything before it.
+
+**NOT push-blocking.** FootJoy, Greyson, Callaway and Titleist have always
+fallen through the resolver.
+
+**What it adds.** 4 brand rows, 5 style rows, 1 width chart, 9 tells.
+
+**⚠ One row is a CORRECTION to the story's premise.** US-2220 lists Titleist as
+a golf apparel brand. It is an EQUIPMENT house — its own range is bags, headwear,
+travel gear, accessories and gloves, with no polos — so a Titleist item reaching
+a clothing grader is a cap or a glove. The row is deliberately thin and the
+thinness is the finding.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00583` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00583';` and the same for `brand_styles` and `brand_size_charts`.
+
+---
+
+
 ## ✅ APPLIED: 00582_western_brand_knowledge.sql (US-2220 — width is a size, and an exotic skin is a legal question, applied 2026-08-09 — MEASURED)
 
 **Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00577", applied: "00582", status: "ahead"}` — the database's own answer. 00578 through 00582 were applied together, so that one reading covers all five. The "ahead" is the running edge image predating the version bumps; it resolves on the next edge deploy.

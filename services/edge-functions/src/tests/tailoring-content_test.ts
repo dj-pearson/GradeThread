@@ -34,7 +34,15 @@ const SQL = await Deno.readTextFile(
 );
 
 /** See the note in scrubs-uniform-content_test.ts — phrase assertions read this. */
-const PROSE = SQL.replace(/^\s*--\s?/gm, " ").replace(/\s+/g, " ");
+// ⚠ The `''` step unescapes SQL's doubled apostrophe: inside a string literal
+// `STORY''S` is `STORY'S` in the database, so a matcher reading the raw file
+// sees neither form. Same class as the line-wrap problem — the file's ENCODING
+// is not its content. PROSE stays a superset of SQL, so this is only ever more
+// permissive.
+const PROSE = SQL
+  .replace(/^\s*--\s?/gm, " ")
+  .replace(/''/g, "'")
+  .replace(/\s+/g, " ");
 
 Deno.test("US-2220: the tailoring aliases canonicalize", () => {
   for (const brand of ["Suitsupply", "Hugo Boss", "Canali", "Jos. A. Bank"]) {

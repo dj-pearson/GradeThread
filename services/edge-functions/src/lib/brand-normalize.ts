@@ -1401,6 +1401,24 @@ const BRAND_ALIASES: Record<string, string> = {
   justin: "Justin Boots",
   lucchese: "Lucchese",
   luccheseboots: "Lucchese",
+
+  // US-2220 golf group (migration 00583).
+  footjoy: "FootJoy",
+  // ⚠ a bare "fj" IS mapped, because it is how the brand marks its own product
+  // and how sellers type it — but two letters are the worst possible free-text
+  // match, so the CANONICAL is the full name and prose detection never sees "FJ".
+  fj: "FootJoy",
+  greyson: "Greyson Clothiers",
+  greysonclothiers: "Greyson Clothiers",
+  callaway: "Callaway",
+  callawaygolf: "Callaway",
+  callawayapparel: "Callaway",
+  titleist: "Titleist",
+  // ⚠ NO course, club or tournament name is mapped here, and that is deliberate.
+  // A golf polo's chest logo is frequently Pebble Beach, a championship or a
+  // corporate outing — none of which is the MAKER. Folding one in would put a
+  // course in the brand field, mis-file the item and break its comp set. The
+  // logo is a separate fact; see migration 00583.
 };
 
 /**
