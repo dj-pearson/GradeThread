@@ -9,6 +9,7 @@ code_refs:
   - supabase/migrations/00575_eyewear_brand_knowledge.sql
   - supabase/migrations/00576_jewelry_brand_knowledge.sql
   - supabase/migrations/00581_tailoring_formalwear_brand_knowledge.sql
+  - supabase/migrations/00582_western_brand_knowledge.sql
   - services/edge-functions/src/tests/headwear-content_test.ts
 reviewed: 2026-08-09
 tags: [brands, sizing, contract]
@@ -132,6 +133,39 @@ The same fact from the other side is worth money: unused **inlay** (let-out room
 in the seams and waistband) is what lets the next owner have it fitted, so a suit
 that has never been altered is worth more than one that has.
 
+## Western boots: a second axis, and two brands that cancel out
+
+Added 2026-08-09 with `00582` (US-2220). Footwear resale normally ignores width —
+a sneaker is listed as "10" and nobody asks. **A western boot is sized on two
+axes**, and the second one is on the box:
+
+`B` narrow · `D` medium (the men's default) · `EE` wide · `EEE` extra wide
+(Justin prints `EEE` as `XW`).
+
+**A boot listed without its width has been half-sized**, and the buyer cannot
+infer it: a D and an EEE in the same length are different boots.
+
+The chart seeds the letters as a **rank, not a measurement** — no maker publishes
+the width in inches, and inventing one would be exactly the false precision this
+note exists to prevent.
+
+### ⚠ And the letter is brand-relative, in opposite directions
+
+| brand | length | width |
+|---|---|---|
+| **Ariat** | runs ~½ size **small** | fits **broad** |
+| **Lucchese** | runs ~½ size **large** | runs **narrow** — its D is reported to fit like another maker's B or C |
+
+Two houses, offsets pointing opposite ways. So a Lucchese D and an Ariat D are
+not the same width *and* the same printed length is two different boots. **A
+width letter must never be converted between brands** — the rule at the top of
+this note, arriving in footwear.
+
+Those offsets are seeded as **tells rather than charts**, deliberately: they are
+consistent across the retail channel but no maker publishes a numeric conversion,
+so a chart would give them a precision the sourcing does not support. Directional
+guidance plus *measure the insole* is the honest form.
+
 ## Why this is a contract and not a comment
 
 The tempting "cleanup" is to notice that two brands disagree and reconcile them.
@@ -148,3 +182,4 @@ hat size.
 - [[brand-kb-negative-findings]] — traps recorded so they are not re-introduced
 - [[size-system-conversions]] — the neighbouring question: converting between size SYSTEMS (UK/IT/US), not between brands
 - [[small-leather-goods]] — a category where the number on the item means nothing at all
+- [[restricted-materials]] — the other thing a western boot listing must get right

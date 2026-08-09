@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00582_western_brand_knowledge.sql (US-2220 — width is a size, and an exotic skin is a legal question)
+
+**Risk: LOW. Three `insert ... on conflict do nothing` statements into reference
+tables.** Nothing is created, altered, dropped, read or backfilled. No decoders.
+
+**Apply order: AFTER 00581.** 00578 through 00582 are all independent of each
+other and can be applied in one sitting.
+
+**NOT push-blocking.** Ariat, Justin and Lucchese have always fallen through the
+resolver.
+
+**What it adds.** 3 brand rows, 3 style rows, 1 width chart, 10 tells.
+
+**⚠ Stetson is NOT re-seeded.** The story names it as a western brand, but it is
+already a brand_knowledge row from 00574's headwear pack and its western hats are
+covered there. A test asserts this migration does not create a second row — the
+packs compose rather than overlap.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00582` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00582';` and the same for `brand_styles` and `brand_size_charts`.
+
+---
+
+
 ## 🔴 HELD: 00581_tailoring_formalwear_brand_knowledge.sql (US-2220 AC3 — a suit size is two garments and a subtraction)
 
 **Risk: LOW. Three `insert ... on conflict do nothing` statements into reference

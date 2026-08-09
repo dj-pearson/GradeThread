@@ -1387,6 +1387,20 @@ const BRAND_ALIASES: Record<string, string> = {
   josephabank: "Jos. A. Bank",
   josabanks: "Jos. A. Bank", // the plural sellers type
   // ⚠ a bare "bank" is DELIBERATELY ABSENT, which should not need saying.
+
+  // US-2220 western group (migration 00582). ⚠ STETSON IS NOT HERE — it is
+  // already a canonical from 00574's headwear pack, and its western hats are
+  // covered by that row. The packs compose rather than overlap.
+  ariat: "Ariat",
+  ariatinternational: "Ariat",
+  justinboots: "Justin Boots",
+  // ⚠ "justin" IS mapped as an exact whole-field key — a brand field of literally
+  // "justin" on a BOOT means the house — but it is a very common given name, so
+  // the CANONICAL is the long "Justin Boots" and prose detection therefore never
+  // fires on the bare first name. Same shape as the Hugo Boss call above.
+  justin: "Justin Boots",
+  lucchese: "Lucchese",
+  luccheseboots: "Lucchese",
 };
 
 /**
