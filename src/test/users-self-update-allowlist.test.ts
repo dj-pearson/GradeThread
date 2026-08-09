@@ -182,7 +182,19 @@ describe("users self-update allowlist (US-2283)", () => {
     expect(sql).toMatch(/auth\.role\(\) IS DISTINCT FROM 'authenticated'/);
   });
 
-  it("no browser or iOS write path targets a column the database will refuse", () => {
+  // 30s, not the 5s default. This case walks the WHOLE of src/ and ios/ and
+  // reads every file: 1,736 files and ~16 MB today, ~560ms of pure synchronous
+  // IO on an idle machine. Standalone it finishes in under a second, but under
+  // `vitest --coverage` with parallel workers competing for the same disk it
+  // exceeded 5s and failed a full `npm run verify` — a flake that reads as a
+  // real regression in a guard about database writes.
+  //
+  // The timeout is raised rather than the walk narrowed because the coverage IS
+  // the property: this asserts that NO client file anywhere writes a frozen
+  // column, and sampling a subdirectory would quietly stop being that. The cost
+  // grows with the repo, so a fixed 5s was always going to expire; what it
+  // measures is disk speed, not correctness.
+  it("no browser or iOS write path targets a column the database will refuse", { timeout: 30_000 }, () => {
     const files = [...walk("src", /\.tsx?$/), ...walk("ios", /\.swift$/)];
     const written = clientWrittenColumns(files, columns);
     const refused = [...written.entries()]

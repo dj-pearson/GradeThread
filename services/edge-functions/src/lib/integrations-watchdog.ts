@@ -15,7 +15,7 @@
 // this is a typed schedule, and neither derives cleanly from the other.
 //
 // @sourceNote vault/10-ops/key-rotation.md
-// @reviewed 2026-08-01
+// @reviewed 2026-08-08
 //
 // scripts/runbook-sync.mjs fails when that note has a commit newer than the date
 // above. Bumping it asserts a human re-read both — cadences here, procedure
@@ -25,11 +25,25 @@
 // defers the steps to the note).
 //
 // Re-verified 2026-08-01 after US-2284 added the Chrome Web Store extension
-// signing key to the note: the cadences above are unchanged, and the new key is
-// carried below as an event-driven entry. It is the first entry whose location
-// is neither `edge` nor `ci` — that is the point, since a leaked signing key is
+// signing key to the note: the cadences above are unchanged, and it is carried
+// below as an event-driven entry. It was the first entry whose location was
+// neither `edge` nor `ci` — that is the point, since a leaked signing key is
 // exactly the kind of secret an operator forgets precisely because no
 // deployment env holds it.
+//
+// Re-verified 2026-08-08 after US-2416 added backup encryption to the note. Two
+// rows were missing here, and the gap is the kind this array exists to close:
+// the watchdog computes the due/overdue calendar FROM this list, so a secret
+// that is in the procedure and not in the array is a secret nothing ever flags.
+// `BACKUP_AGE_*` matters most — it is SCHEDULED (1y), and it was the only
+// scheduled secret going unwatched. There are now three entries whose location
+// is neither `edge` nor `ci`, so that "first" observation above is history
+// rather than a current fact; it is kept because the reasoning still holds.
+//
+// Both new entries are listed even though the keys DO NOT EXIST IN PRODUCTION
+// YET (US-2416 built the mechanism; the keypair has not been created). Listing
+// them early is deliberate: this array is the operator's checklist, and a secret
+// that appears only once someone remembers to add it is the failure mode.
 //
 // The rotation SCHEDULE from vault/10-ops/key-rotation.md, checked in as structured data so
 // the agent can compute a due/overdue calendar. `cadence_days: null` = an
@@ -54,6 +68,8 @@ export const KEY_ROTATION_REGISTRY: readonly RotationEntry[] = [
   { secret: "UNSUBSCRIBE_SECRET", location: "edge", cadence_days: null, note: "On leak — rotating invalidates outstanding unsubscribe links (acceptable)." },
   { secret: "DEPLOY_REGISTRY_TOKENS", location: "ci", cadence_days: 90, note: "Deploy/registry tokens in GitHub Actions (US-522 inventory)." },
   { secret: "CHROME_EXTENSION_SIGNING_KEY", location: "chrome-web-store", cadence_days: null, note: "US-2284: leaked to git history 2026-07-13, untracked 2026-08-01 — rotation still OWED. Grants a store update every installed user auto-receives (see vault/10-ops/key-rotation.md)." },
+  { secret: "BACKUP_AGE_RECIPIENT / BACKUP_AGE_IDENTITY", location: "db-host", cadence_days: 365, note: "US-2416 backup encryption. Rotating is cheap; LOSING the identity destroys every backup encrypted under it, silently — nothing breaks, /health stays green, you find out at the only moment it matters. Keep the OLD identity for at least 30 days after rotating: offsite retention is 30 days, so deleting it on rotation day destroys most of the recovery window. NOT PROVISIONED YET." },
+  { secret: "RCLONE_CRYPT_PASSWORD / SALT", location: "db-host", cadence_days: null, note: "US-2416 storage-mirror encryption. Rotating is a RE-SEED, not a rotation: the existing mirror becomes unreadable and rclone re-uploads the whole volume as new objects. On leak only. NOT PROVISIONED YET." },
 ];
 
 // The warn window: a scheduled secret within this many days of its next due date

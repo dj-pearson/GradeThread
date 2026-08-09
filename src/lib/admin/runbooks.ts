@@ -60,7 +60,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
-    reviewed: "2026-08-01",
+    reviewed: "2026-08-08",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -151,7 +151,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "restore-drill",
     sourceNote: "vault/10-ops/backups.md",
-    reviewed: "2026-08-02",
+    reviewed: "2026-08-08",
     title: "Backup & restore drill",
     category: "Resilience",
     summary:
@@ -169,10 +169,14 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "> **Before trusting any recovery-point number: confirm the nightly cron is actually installed.** Everything below, and the RPO in the backups runbook, describes a mechanism that is verified to WORK. Whether anything RUNS it on a schedule in production has never been confirmed (US-2002). If it is not installed, the real exposure is not 24 hours of loss — it is total loss. On the DB host, `crontab -l` should list the backup line, and the offsite bucket should hold a dump from the last 24h WITH its `.sha256` beside it; a dump with no checksum is a backup nobody has proven readable.",
       "",
+      "> **The object must end in `.age`, and a bare `.dump` is a FAILURE, not a pass (US-2416).** Since backups are encrypted before they leave the host, the offsite names are `gradethread-<ts>.dump.age` and `gradethread-<ts>.dump.age.sha256`. Seeing `gradethread-<ts>.dump` with a checksum beside it looks exactly like success and is not: it means an older script version is still deployed and the nightly is shipping **plaintext** — a full dump of every user, address, grade and credit-ledger row, protected by nothing but the R2 credential. Check the extension before you tick this box.",
+      "",
+      "> **You cannot run this drill today, and that is expected.** `backup-postgres.sh` REFUSES to upload when `BACKUP_AGE_RECIPIENT` is unset, and the keypair has not been created yet (US-2416 built the mechanism; production has not moved). Create the keypair first — see the backups runbook — or the drill stops at step 1.",
+      "",
       "## Drill steps",
       "",
-      "1. **Take a fresh backup** of prod Postgres using the documented backup procedure. Note the timestamp and size.",
-      "2. **Restore into a throwaway target** (a scratch database / staging instance), never over prod.",
+      "1. **Take a fresh backup** of prod Postgres using the documented backup procedure. Note the timestamp and size. The artifact is encrypted on the host, so what lands offsite is `.age`.",
+      "2. **Restore into a throwaway target** (a scratch database / staging instance), never over prod. `restore-postgres.sh` verifies the checksum, then DECRYPTS, then restores — so you must point `BACKUP_AGE_IDENTITY` at the private key file first. **An age-encrypted dump without its identity is random bytes forever.** The identity needs at least two independent, durable homes, and neither of them may be the machine being backed up.",
       "3. **Verify integrity** — row counts on the high-value tables (users, submissions, grade_reports, listings, sales) are in the expected range, and a spot-checked certificate row resolves.",
       "4. **Time it.** Record how long the restore took end-to-end; that number is your real RTO.",
       "5. **Tear down** the throwaway target.",
@@ -334,7 +338,7 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
-    reviewed: "2026-08-02",
+    reviewed: "2026-08-08",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

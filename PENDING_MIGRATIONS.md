@@ -2,15 +2,27 @@
 
 ## ⏸ HELD: 00563_prompt_block_versions.sql (US-2438 — a versioned seam for the grading user message)
 
-**Risk: LOW.** One new table, four RLS policies, three indexes. Nothing existing
-is altered, nothing is dropped, no row is rewritten, and no backfill runs. The
-table ships EMPTY and stays empty until somebody inserts a row.
+**Risk: LOW.** One new table, ONE RLS policy, three indexes. Nothing existing is
+altered, nothing is dropped, no row is rewritten, and no backfill runs. The table
+ships EMPTY and stays empty until somebody inserts a row.
+
+**Admins can SELECT; nobody can write except the service role.** An earlier draft
+of this file said "four RLS policies" — that draft copied `ai_prompt_versions`'
+original 00003 grants, including admin INSERT/UPDATE/DELETE, which migration
+00510 had deliberately REVOKED (US-2348: those grants let the admin SPA write the
+table directly and so reach around the scope guard, the MFA step-up, the audit
+row and the eval gate). On a table holding live grading prompt text that would
+have let an admin with a revoked scope move every grade the platform issues. The
+file now creates the SELECT policy only, plus three `DROP POLICY IF EXISTS` lines
+so re-running the directory converges on that posture even if an intermediate
+draft was ever applied by hand.
 
 **An empty table is the no-op state, and that is measured.** The edge reads
-`ai_prompt_block_versions` on every per-image grading call; zero live rows
-resolves every prompt block to the code constant it has always used.
-`unversionedPromptSurfaceHash()` is `baf5d4cb` both before and after the change,
-so applying this migration cannot move a single grading prompt.
+`ai_prompt_block_versions` once per grading stage — per-image and composite —
+and zero live rows resolves every prompt block to the code constant it has always
+used. `unversionedPromptSurfaceHash()` is `baf5d4cb` both before and after every
+commit in this batch, so applying this migration cannot move a single grading
+prompt.
 
 **Apply order.** Last, after 00562. It depends on nothing but `is_admin()`,
 which has existed since 00003.
