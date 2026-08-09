@@ -1433,6 +1433,22 @@ const BRAND_ALIASES: Record<string, string> = {
   volcomstone: "Volcom",
   obermeyer: "Obermeyer",
   sportobermeyer: "Obermeyer",
+
+  // US-2220 swim group (migration 00585), the seventh and last category.
+  speedo: "Speedo",
+  // ⚠ "tyr" is three letters and would be a poor free-text match, but as an
+  // exact whole-field KEY it is safe — a brand field of literally "tyr" on
+  // swimwear means the house. The canonical stays "TYR" because that is what
+  // the label prints; it is short enough that prose detection is a real risk, so
+  // it goes into DETECT_EXCLUDED_FROM_TEXT below.
+  tyr: "TYR",
+  tyrsport: "TYR",
+  vilebrequin: "Vilebrequin",
+  andie: "Andie",
+  andieswim: "Andie",
+  // ⚠ NO print or seasonal-pattern name is mapped. Vilebrequin sells on prints
+  // and the print is a STYLE — putting one in the brand field is the same error
+  // as putting a golf course there. See the-graphic-is-not-the-brand.
 };
 
 /**
@@ -1633,6 +1649,13 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   //
   // Suitsupply, Canali and Jos. A. Bank need no exclusion — none is an ordinary
   // word, and "Canali" in prose genuinely means the house.
+  //
+  // US-2220 (00585). "TYR" is three letters and a Norse god, and short all-caps
+  // tokens turn up in ordinary listing copy as sizes, codes and initials.
+  // Reachable BY TAG — a brand field of literally "TYR" on swimwear means the
+  // house — but never guessed from prose. Speedo, Vilebrequin and Andie need no
+  // exclusion; none is an ordinary word.
+  "TYR",
 ]);
 
 /**

@@ -1,5 +1,37 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00585_swim_brand_knowledge.sql (US-2220 — chlorine consumes the garment, invisibly)
+
+**Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
+tables.** Nothing is created, altered, dropped, read or backfilled. No decoders,
+no size charts.
+
+**Apply order: AFTER 00584.** 00584 and 00585 are independent and can go
+together — they are the last two of the seven US-2220 packs.
+
+**NOT push-blocking.** Speedo, TYR, Vilebrequin and Andie have always fallen
+through the resolver.
+
+**What it adds.** 4 brand rows, 4 style rows, 9 tells. This is the SEVENTH and
+final category on US-2220 — applying it and 00584 closes the story.
+
+**The point of the pack:** chlorine attacks elastane first, so a competition suit
+loses recovery and goes translucent with no stain, tear or fade to grade. The
+best predictor of remaining life is the FIBRE CONTENT on the care label, which
+makes this the one category where the label beats the photographs.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00585` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00585';` and the same for `brand_styles`.
+
+---
+
+
 ## 🔴 HELD: 00584_snow_outerwear_brand_knowledge.sql (US-2220 — the spec is a new-garment claim, and what fails is invisible)
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference

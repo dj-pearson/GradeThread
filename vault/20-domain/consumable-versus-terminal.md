@@ -8,9 +8,10 @@ code_refs:
   - supabase/migrations/00582_western_brand_knowledge.sql
   - supabase/migrations/00583_golf_brand_knowledge.sql
   - supabase/migrations/00584_snow_outerwear_brand_knowledge.sql
+  - supabase/migrations/00585_swim_brand_knowledge.sql
 reviewed: 2026-08-09
 tags: [grading, condition, categories]
-summary: In several categories the visible wear is a part the next owner replaces for pennies, while the failure that actually ends the item is invisible — so the grade depends on knowing which one you are looking at.
+summary: In several categories the visible wear is a part the next owner replaces for pennies, while the failure that actually ends the item is invisible — and in swimwear there is no visible signal at all, so the care label beats the photographs.
 ---
 
 # The same photograph, a cheap fix or a dead item
@@ -48,6 +49,42 @@ difference is most of the price.
 3. **Say when it does not apply.** A spikeless golf shoe has no receptacles to
    strip; a Volcom t-shirt has no seam tape. Guidance that fires on the wrong
    garment is worse than none.
+
+## The limit case: swimwear, where there is no visible signal at all
+
+Added with `00585`. The three pairs above each have *something* to look at. Swim
+does not, and that makes it the sharpest version of the problem.
+
+**Chlorine attacks the elastane first.** The suit loses recovery, then sags and
+goes translucent — with no stain, no tear and no fade. A non-resistant suit can
+lose most of its tensile strength inside a few hundred hours of pool time, which
+for a swimmer training regularly is one season. **A competition suit can be
+functionally spent while photographing perfectly.**
+
+So there is no consumable half here. The whole failure is invisible, and the only
+usable predictor is somewhere unusual:
+
+> **The care label beats the photographs.** Fibre content ranks expected life and
+> it is printed: PBT/polyester blends last longest, polyester-spandex is close
+> behind, nylon-spandex breaks down fastest.
+
+That is the one category in the corpus where reading the composition *before*
+looking at the images is the correct order. The seeded tells also name what the
+failure looks like when it finally shows — no spring-back at the leg openings,
+see-through when stretched — because removing a signal without replacing it just
+leaves the grader blind.
+
+### And a gate that is not about condition at all
+
+Swim bottoms ship with a disposable **hygienic liner**, and return and
+consignment policies across the trade commonly require it intact with the
+original tags. Whether it is present can decide **whether the item may be listed**
+— before anyone discusses condition.
+
+The pack **records** the liner and **refuses to adjudicate** any particular
+marketplace's rule, because policies differ and change. Same discipline as the
+CITES tell in [[restricted-materials]]: flag it, name where the real answer
+lives, and do not answer it yourself.
 
 ## Related
 
