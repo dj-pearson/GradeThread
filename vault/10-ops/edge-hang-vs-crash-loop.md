@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/middleware/access-log.ts
 reviewed: 2026-08-09
 tags: [edge, incident, outage, ops]
-summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job.
+summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---
 
 # Edge hang versus edge crash-loop
@@ -66,6 +66,40 @@ unhealthy, capping the outage at ~60s.
 
 **The watchdog is a safety net, not a fix** — the spin itself is still unfixed.
 Do not let its existence retire this note.
+
+#### ⚠ 2026-08-09: it recurred, and the outage was far longer than 60s
+
+A second dated occurrence, recorded because the numbers do not match what the
+paragraph above promises. Measured from outside, against the public hostname —
+no host access was involved, so this is what a caller sees:
+
+| time (UTC) | observation |
+|---|---|
+| ~19:06 | `/health/ready` answers normally, `schema` reads `00577` |
+| 19:19 | first failure: request hangs to a 25s timeout, `http=000` |
+| 19:22 | `http=000` on `/health` **and** `/health/ready`; `gradethread.com` 200; `api.gradethread.com` 401 (i.e. answering) |
+| 19:27 | fast **503** with body exactly `no available server`, TCP+TLS in ~30ms |
+| 19:39 | back to 200, `schema` `00577` `match` |
+
+**Two things worth carrying forward.**
+
+1. **The early symptom was a TIMEOUT, not a 503.** The first probes returned
+   `http=000` after hanging for the full curl timeout; only later did it settle
+   into the clean fast 503 this note describes. So *"steady 503"* is the mature
+   signature, not the first one — a monitor that only alerts on 503 can miss the
+   opening minutes, and a human probing early sees a hang and may conclude the
+   whole host is gone.
+2. **The observed outage was at least ~8 minutes of confirmed failure**, inside a
+   window bounded by healthy reads ~33 minutes apart. That is well beyond the
+   ~60s the watchdog is supposed to cap it at. This note cannot say *why* — from
+   outside there is no way to tell whether the watchdog fired late, did not fire,
+   or is no longer installed, and **an operator should check that it is still
+   present and on cron** rather than assume the cap holds.
+
+The rest of the signature matched this note exactly: the marketing site and
+Supabase stayed up throughout, so the funnel looked alive while grading, payments
+and webhooks were dead — which is the failure mode the section above says cost
+four weeks the first time.
 
 ### Finding the culprit route
 
