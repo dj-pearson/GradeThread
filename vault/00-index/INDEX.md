@@ -31,7 +31,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 10-ops — operations and runbooks
 
-32 notes — see [[moc-ops]].
+31 notes — see [[moc-ops]].
 
 ## 20-domain — grading, measurement, contracts
 
@@ -73,7 +73,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 70-agent — how agents work here
 
-14 notes — see [[moc-agent]].
+15 notes — see [[moc-agent]].
 
 ## 90-archive — historical snapshots
 
