@@ -1,5 +1,46 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00571_grade_confidence_label_fn.sql (US-2303 AC2 — one home for the confidence buckets)
+
+**Risk: LOW to apply, HIGH if the wrong revision had been edited — read the
+second paragraph.** Adds an IMMUTABLE `public.grade_confidence_label(numeric)`
+and re-issues `public.public_grade_reports` to call it instead of re-deriving
+the four boundaries inline.
+
+**⚠️ THE STORY POINTED AT THE WRONG VIEW REVISION.** US-2303's note named 00356
+as the live one. Three revisions have landed since — 00530 (rubric factors),
+00532 (video grading), 00534 (live capture). Replacing 00356's body would have
+SILENTLY REMOVED `rubric_key`, `factor_scores`, `video_capture_verified` and
+`video_live_capture_verified` from the public certificate. `CREATE OR REPLACE
+VIEW` would not have complained: it refuses to DROP or reorder columns, and
+those four are at the END, so dropping them is exactly the shape it permits.
+This file is GENERATED from 00534's own text with one expression substituted, so
+the column list cannot drift from what is deployed.
+
+**Apply order: AFTER 00570.** No dependency, just NNNNN order.
+
+**NOT push-blocking.** No client reads the function; the view's output shape is
+unchanged, so an old frontend against the new view is byte-identical.
+
+**ONE DELIBERATE BEHAVIOUR CHANGE, and it is a fix.** The function is `STRICT`,
+so a NULL `confidence_score` now yields NULL. The old inline CASE returned
+`'reviewed'` for it — `NULL >= 0.9` is NULL, so every branch failed and it fell
+to `ELSE`. A grade with no confidence recorded is not the same as one that
+scored badly, and claiming "reviewed" on a public certificate for a row we never
+scored is a statement we cannot support. The client already treats a missing
+label as no badge.
+
+**Verified from zero on a throwaway stack**: `node scripts/verify.mjs --db`
+re-applied every migration. `src/test/confidence-label-view-parity.test.ts`
+fails the build if a seventeenth revision pastes the CASE back, and also asserts
+the historical revisions were left alone — applied migrations are immutable and
+rewriting them is the other way this could have gone wrong.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — the view was replaced.
+
+**Rollback** is re-running 00534, which restores the inline CASE. The function
+can stay; nothing else calls it.
+
 ## 🔴 HELD: 00570_headwear_neckwear_gloves_categories.sql (US-2223 + US-2224 — three taxonomy values)
 
 **Risk: LOW.** Three `ALTER TYPE … ADD VALUE IF NOT EXISTS` and one type
@@ -361,7 +402,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564 through 00570 are held** — see the top of this file. Everything below it is applied:
+**00564 through 00571 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528
