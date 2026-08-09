@@ -191,7 +191,29 @@ export function findStaleHeldMigrations(stories, pushedMigrationIds) {
   for (const s of stories ?? []) {
     const notes = typeof s?.notes === "string" ? s.notes : "";
     if (!HELD_MARKER.test(notes)) continue;
-    if (HELD_CORRECTED.test(notes)) continue;
+    // A CORRECTION ONLY CLEARS CLAIMS THAT CAME BEFORE IT.
+    //
+    // This used to test the whole notes string, so the first correction a story
+    // ever carried suppressed the warning permanently — including for a HELD
+    // claim written in a LATER segment. Found 2026-08-09 on US-2289: a
+    // 2026-08-02 segment carries "STATUS CORRECTION", and the 2026-08-03
+    // segment after it says "migration 00516 (HELD)" about a migration that is
+    // on origin/main and applied. The guard was silent, which is the one thing
+    // it exists not to be.
+    //
+    // Mirrors findUnresolvedDeferrals above, which already resolves by SEGMENT
+    // ORDER for exactly this reason. Notes are append-only, so position is
+    // meaningful: only a correction at or after the LAST held claim can be
+    // talking about it.
+    const heldSegments = notes.split(/\s\|\s/);
+    const lastHeld = heldSegments.reduce(
+      (acc, seg, i) => (HELD_MARKER.test(seg) ? i : acc),
+      -1,
+    );
+    const correctedAfter = heldSegments
+      .slice(Math.max(0, lastHeld))
+      .some((seg) => HELD_CORRECTED.test(seg));
+    if (correctedAfter) continue;
     const ids = [...new Set([...notes.matchAll(MIGRATION_ID)].map((m) => m[1]))];
     const pushed = ids.filter((id) => pushedMigrationIds.has(id)).sort();
     if (!pushed.length) continue;
