@@ -801,6 +801,11 @@ export interface SubmissionImageRow {
   // the private bucket, for server-side forensic/provenance use. Null unless
   // original retention is enabled. Never public, never served to buyers.
   original_storage_path?: string | null;
+  // US-2136 AC4: 0..1 sharpness measured client-side on the compressed bytes
+  // (macro-photo-quality.ts). NULL means NOT MEASURED — an older client or a
+  // canvas that could not decode — and readers must treat that as unknown, not
+  // as zero. Only meaningful for the macro slots.
+  quality_score?: number | null;
 }
 
 export interface GradeReportRow {

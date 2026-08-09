@@ -148,3 +148,34 @@ Deno.test("US-2417: a bare non-envelope string is treated as absent, not guessed
   // existed, so there is nothing to salvage and nothing to render.
   assertEquals(await decryptShipFrom(OWNER_A, "412 Wilder Street"), null);
 });
+
+// ── The reader guard: every select("*") on users is an export risk ───────────
+
+Deno.test("US-2417: the GDPR export decrypts the profile before serializing it", async () => {
+  // GET /api/account/export selects users.* — so the moment those two columns
+  // became envelopes, the export started handing people "v2:AbC…" where their
+  // own address should be. That is not an export, it is a receipt for one: the
+  // whole obligation is that the subject can READ what we hold.
+  //
+  // A source check because the failure is invisible in every other test. The
+  // export still returns 200, still contains a `profile` object, and still
+  // passes the containment case in tenant-isolation_test.ts — it is simply
+  // useless to the person who asked for it.
+  const source = await Deno.readTextFile(
+    new URL("../routes/account.ts", import.meta.url),
+  );
+  const exportStart = source.indexOf('accountRoutes.get("/export"');
+  assert(exportStart > -1, "the /export handler moved or was renamed");
+  const handler = source.slice(exportStart, source.indexOf("accountRoutes.", exportStart + 1));
+
+  assert(
+    handler.includes("decryptBusinessPhone(") && handler.includes("decryptShipFrom("),
+    "the /export handler must decrypt users.business_phone and " +
+      "users.ship_from_address before serializing the profile (US-2417)",
+  );
+  assert(
+    !handler.includes("JSON.stringify(profile.data"),
+    "the /export handler is serializing the RAW users row — that ships two " +
+      "AES-GCM envelopes to the subject instead of their address and phone",
+  );
+});

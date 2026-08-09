@@ -239,6 +239,33 @@ accountRoutes.get("/export", async (c) => {
 
   const submissionIds = (submissions.data ?? []).map((r) => (r as { id: string }).id);
 
+  // US-2417: `select("*")` above now pulls two AES-GCM envelopes. Handing a
+  // person "v2:AbC…" where their own address should be is not a GDPR export, it
+  // is a receipt for one — the whole obligation is that the subject can READ
+  // what we hold. So the profile is decrypted before it is serialized.
+  //
+  // Best-effort, and that direction is deliberate: an export must not fail
+  // wholesale because one optional field could not be unlocked. A failure
+  // exports everything else with these two nulled, which is honest; refusing
+  // the export would be worse for the person exercising the right.
+  let exportProfile = profile.data ?? null;
+  if (exportProfile) {
+    const p = exportProfile as Record<string, unknown>;
+    try {
+      exportProfile = {
+        ...p,
+        business_phone: await decryptBusinessPhone(userId, p.business_phone as string | null),
+        ship_from_address: await decryptShipFrom(userId, p.ship_from_address),
+      } as typeof exportProfile;
+    } catch (err) {
+      console.warn(
+        `[account/export] shipping PII decrypt failed for ${userId}:`,
+        err instanceof Error ? err.message : String(err),
+      );
+      exportProfile = { ...p, business_phone: null, ship_from_address: null } as typeof exportProfile;
+    }
+  }
+
   // US-2030: the three unbounded tables are now PAGED and STREAMED rather than
   // materialised. grade_reports/listings/sales are where a large seller's whole
   // commercial history lives, and select("*") with no bound on all three at once
@@ -266,7 +293,7 @@ accountRoutes.get("/export", async (c) => {
         push(
           `{"exported_at":${JSON.stringify(new Date().toISOString())},` +
             `"user_id":${JSON.stringify(userId)},` +
-            `"profile":${JSON.stringify(profile.data ?? null)},` +
+            `"profile":${JSON.stringify(exportProfile)},` +
             `"submissions":${JSON.stringify(submissions.data ?? [])},` +
             `"inventory_items":${JSON.stringify(inventory.data ?? [])},` +
             `"sources":${JSON.stringify(sources.data ?? [])},` +

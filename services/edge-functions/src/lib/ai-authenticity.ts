@@ -91,6 +91,48 @@ export const AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP = 0.5;
 // past assessments), not a refactor's to make. Recorded in US-2134.
 export const AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP = 0.7;
 
+// US-2136 AC4: a macro frame too soft to read is the same evidentiary situation
+// as no macro frame, and until now it got full credit purely because a file
+// existed in the slot.
+//
+// THE CAP IS CONTINUOUS, and that is the AC's actual requirement — "feed the
+// MEASURED quality into confidence rather than treating accepted/rejected as
+// binary". A second threshold would just have moved the cliff. Instead the cap
+// slides between two anchors that are both already justified elsewhere:
+//
+//   quality 0                  → AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP (0.7)
+//   quality >= FULL_CREDIT     → 1.0 (no cap)
+//   in between                 → linear
+//
+// The floor anchor is deliberately the NO-MACRO cap and not something harsher.
+// A bad photo is worth no more than no photo; it is not worth LESS. Capping
+// below 0.7 for a soft macro would punish the seller who tried, relative to the
+// seller who skipped the slot entirely, which is exactly backwards.
+//
+// FULL_CREDIT sits above the per-slot sharpness floors in
+// src/lib/macro-photo-quality.ts (0.30–0.35 for the authenticity slots), not at
+// them: the floor is the "obviously botched" line the capture warning uses, so
+// a photo that merely clears it is acceptable, not good. The band between the
+// floor and full credit is where the partial credit lives, and it is the whole
+// point of storing a number instead of a bit.
+export const AUTHENTICITY_MACRO_QUALITY_FULL_CREDIT = 0.5;
+
+/**
+ * Confidence cap earned by the best macro frame's measured quality. Pure.
+ *
+ * FAILS OPEN on null — "not measured" is not "bad". The score comes from a
+ * browser canvas that can legitimately fail, and from clients older than the
+ * column, so a cap that fired on a missing measurement would quietly downgrade
+ * verdicts for a reason that has nothing to do with the photo.
+ */
+export function macroQualityConfidenceCap(bestMacroQuality: number | null): number {
+  if (bestMacroQuality == null || !isFinite(bestMacroQuality)) return 1;
+  const q = Math.max(0, Math.min(1, bestMacroQuality));
+  if (q >= AUTHENTICITY_MACRO_QUALITY_FULL_CREDIT) return 1;
+  const floor = AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP;
+  return floor + (1 - floor) * (q / AUTHENTICITY_MACRO_QUALITY_FULL_CREDIT);
+}
+
 // US-1770 (AC2): a red-flag verdict, or a recognizable-brand verdict we're not
 // confident about, routes the grade to human review before it's finalized —
 // we don't publish an uncertain or contradicted authenticity read unchecked.
@@ -315,6 +357,10 @@ export function applyVerdictCap(
   // US-2134. Defaults TRUE so every existing caller keeps its exact behavior —
   // this cap only ever engages where the image set is actually known.
   hasMacroEvidence: boolean = true,
+  // US-2136 AC4: best measured quality across the macro frames, 0..1. NULL
+  // (the default) means not measured and applies NO cap, so every existing
+  // caller and every pre-00568 submission stays byte-identical.
+  bestMacroQuality: number | null = null,
 ): number {
   let c = Math.min(confidence, AUTHENTICITY_VERDICT_CONFIDENCE_CEILING);
   if (redFlagCount > 0 || inconsistentTellCount > 0) {
@@ -322,6 +368,11 @@ export function applyVerdictCap(
   }
   if (!hasMacroEvidence) {
     c = Math.min(c, AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP);
+  } else {
+    // Only when a macro IS present. With none, the harder cap above already
+    // applies and a quality number would be meaningless anyway — there is
+    // nothing to have measured.
+    c = Math.min(c, macroQualityConfidenceCap(bestMacroQuality));
   }
   return Number(Math.max(0, c).toFixed(2));
 }
@@ -334,6 +385,33 @@ export function applyVerdictCap(
  */
 export function hasMacroEvidence(imageTypes: readonly string[]): boolean {
   return imageTypes.some((t) => MACRO_EVIDENCE_TYPES.has(t));
+}
+
+/**
+ * Best measured quality across the MACRO frames, or null when none was
+ * measured. Pure + exported (US-2136 AC4).
+ *
+ * BEST, not average, and the difference matters. The verdict rests on the
+ * clearest look we got at a tell; a seller who supplied one crisp serial shot
+ * and one soft one has given us a readable serial, and averaging would punish
+ * them for the extra photo. Averaging would also make adding evidence
+ * risky — the wrong incentive for a feature whose whole problem is thin
+ * evidence.
+ *
+ * Only MACRO types count. A crisp full-garment shot says nothing about whether
+ * a date code could be read, which is the question this cap is about.
+ */
+export function bestMacroQuality(
+  images: readonly { imageType: string; qualityScore?: number | null }[],
+): number | null {
+  let best: number | null = null;
+  for (const img of images) {
+    if (!MACRO_EVIDENCE_TYPES.has(img.imageType)) continue;
+    const q = img.qualityScore;
+    if (typeof q !== "number" || !isFinite(q)) continue;
+    if (best === null || q > best) best = q;
+  }
+  return best;
 }
 
 // US-2134: appended to the standard disclosure when no macro frame was supplied,
@@ -465,6 +543,9 @@ export function normalizeAuthenticityAssessment(
   // the honest reading — but it would change their output, so the cap is only
   // applied when the caller opts in by passing `tells`. See below.
   tells?: readonly AuthenticationTell[],
+  // US-2136 AC4: best measured 0..1 quality across the macro frames. NULL (the
+  // default) is "not measured" and applies no cap — see macroQualityConfidenceCap.
+  bestMacroQuality: number | null = null,
 ): AuthenticityAssessment {
   const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
 
@@ -497,6 +578,7 @@ export function normalizeAuthenticityAssessment(
     redFlags.length,
     inconsistentTells,
     macroPresent,
+    bestMacroQuality,
   );
   const verdict = deriveVerdict(
     verdictConfidence,
@@ -581,7 +663,13 @@ export function authenticityNeedsReview(
  * best-effort and swallows the error so a flaky add-on never fails a paid grade).
  */
 export async function assessAuthenticity(
-  images: readonly { imageType: string; dataUri: string }[],
+  images: readonly {
+    imageType: string;
+    dataUri: string;
+    // US-2136 AC4: submission_images.quality_score, 0..1. Absent/null means the
+    // client could not measure it (or predates 00568) and applies NO cap.
+    qualityScore?: number | null;
+  }[],
   garmentInfo: GarmentInfo,
   context: {
     tells?: readonly AuthenticationTell[];
@@ -673,6 +761,10 @@ export async function assessAuthenticity(
     verifiability,
     // US-2219: what the brand's tells could do for the verdict at all.
     tells,
+    // US-2136 AC4: measured on the SELECTED frames for the same reason the
+    // types are — a macro dropped by the MAX_AUTHENTICITY_IMAGES cap did not
+    // inform the verdict, so its sharpness cannot license confidence in it.
+    bestMacroQuality(selected),
   );
   assessment.usage = toAiTokenUsage(model, response.usage);
   return assessment;

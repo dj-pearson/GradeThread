@@ -436,10 +436,17 @@ gradeRoutes.post("/submit", async (c) => {
   // US-1283: per-image capture_source ('in_app_camera' = device-attested live
   // capture, else library/null), aligned to imageFiles by push order.
   const imageCaptureSource: (string | null)[] = [];
+  // US-2136 AC4: per-image 0..1 macro sharpness, measured client-side on the
+  // COMPRESSED bytes (macro-photo-quality.ts). Aligned to imageFiles by push
+  // order, exactly like the arrays above. Null means "not measured" — an older
+  // client, or a canvas that could not decode — and readers must treat that as
+  // unknown rather than as zero.
+  const imageQualityScore: (number | null)[] = [];
   const allEntries = formData.getAll("images");
   const allTypes = formData.getAll("image_types");
   const allExif = formData.getAll("exif_metadata");
   const allCaptureSources = formData.getAll("capture_sources");
+  const allQualityScores = formData.getAll("quality_scores");
   // US-339: optional uncompressed originals, sent (in image order) only when
   // the client opted in. Consumed only if RETAIN_ORIGINAL_IMAGES is set.
   const allOriginals = formData.getAll("original_images");
@@ -466,6 +473,16 @@ gradeRoutes.post("/submit", async (c) => {
         const src = allCaptureSources[i];
         imageCaptureSource.push(
           typeof src === "string" && src.trim() ? src.trim() : null,
+        );
+        // Clamp rather than reject: the column carries a CHECK, and a client
+        // bug that sends 1.4 should degrade to "as good as it gets" instead of
+        // failing an otherwise-valid submission over a number nobody typed.
+        const rawQuality = allQualityScores[i];
+        const parsedQuality = typeof rawQuality === "string" && rawQuality.trim()
+          ? Number(rawQuality)
+          : Number.NaN;
+        imageQualityScore.push(
+          Number.isFinite(parsedQuality) ? Math.max(0, Math.min(1, parsedQuality)) : null,
         );
       }
     }
@@ -830,6 +847,7 @@ gradeRoutes.post("/submit", async (c) => {
     exif: Record<string, unknown> | null;
     original_storage_path: string | null;
     capture_source: string | null;
+    quality_score: number | null;
   }> = [];
 
   for (let i = 0; i < imageFiles.length; i++) {
@@ -917,6 +935,7 @@ gradeRoutes.post("/submit", async (c) => {
       exif: imageExif[i] ?? null,
       original_storage_path: originalStoragePath,
       capture_source: imageCaptureSource[i] ?? null,
+      quality_score: imageQualityScore[i] ?? null,
     });
   }
 
@@ -1053,6 +1072,12 @@ gradeRoutes.post("/submit", async (c) => {
         exif: null,
         original_storage_path: null,
         capture_source: VIDEO_FRAME_CAPTURE_SOURCE,
+        // US-2136 AC4: NULL, not zero, and not measured server-side. A video
+        // frame never went through the browser capture gate, so we have not
+        // looked at its sharpness — and "unknown" is the value that applies no
+        // confidence cap. Writing 0 here would claim we measured it and found
+        // it unreadable, which would silently cap every video-graded item.
+        quality_score: null,
       });
     }
 

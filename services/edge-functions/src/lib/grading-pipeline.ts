@@ -1269,7 +1269,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, storage_path, display_order, phash, exif, original_storage_path, capture_source")
+      .select("id, image_type, storage_path, display_order, phash, exif, original_storage_path, capture_source, quality_score")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -1457,6 +1457,10 @@ export async function processSubmission(submissionId: string) {
         return {
           imageType: image.image_type,
           dataUri: `data:${mediaType};base64,${base64}`,
+          // US-2136 AC4: carried alongside the bytes so the authenticity pass can
+          // cap on the macro frames' MEASURED sharpness rather than on the mere
+          // presence of a file in the slot. Null on any pre-00568 row.
+          qualityScore: typeof image.quality_score === "number" ? image.quality_score : null,
         };
       });
 
@@ -1490,7 +1494,11 @@ export async function processSubmission(submissionId: string) {
       // resolves to null so a flaky add-on never fails the paid grade.
       const authPromise: Promise<AuthenticityAssessment | null> = wantAuthenticity
         ? assessAuthenticity(
-            imageData.map((img) => ({ imageType: img.imageType, dataUri: img.dataUri })),
+            imageData.map((img) => ({
+              imageType: img.imageType,
+              dataUri: img.dataUri,
+              qualityScore: img.qualityScore,
+            })),
             authenticityGarmentInfo,
             { tells: authenticityTells, references: authenticityReferences },
           ).catch((err) => {

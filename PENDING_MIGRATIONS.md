@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00568_submission_image_quality_score.sql (US-2136 AC4 — keep the measured photo quality)
+
+**Risk: LOW.** One nullable column on `submission_images` plus a range CHECK. No
+backfill, no rewrite, no behaviour change until a client starts sending the
+value.
+
+**Apply order: AFTER 00567.** No dependency, just the NNNNN order.
+
+**NOT push-blocking, but it IS write-blocking in one direction, so apply it
+first anyway.** The frontend sends a new `quality_scores` FormData field and the
+edge writes `quality_score` on every submission image. If the edge deploys
+before the column exists, EVERY photo submission fails on the insert — the whole
+grade, not just the metadata. Applying the SQL first makes that window
+impossible. The reverse (column exists, old edge) is completely inert.
+
+**NULL is a real value here, not a gap to backfill.** The score is measured in a
+browser canvas that can legitimately fail, and older clients do not send one at
+all. Every reader treats NULL as "not measured" and applies NO confidence cap.
+Backfilling zeros would be actively wrong: zero means "we looked and it is
+unreadable", which caps authenticity confidence on items nobody ever measured.
+
+**What it turns on.** `applyVerdictCap` now slides the authenticity confidence
+ceiling between `AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP` (0.7) at quality 0 and no
+cap at quality 0.5, using the best macro frame's measured sharpness. Before
+this, a macro too soft to read a serial earned exactly the same confidence as a
+crisp one. Pre-migration rows carry NULL and are unaffected.
+
+**Run `NOTIFY pgrst, 'reload schema';`** after applying — a new column written
+and selected by name through PostgREST.
+
+**Rollback** is dropping the column. The only loss is the measurements
+themselves, and every reader already handles their absence.
+
 ## 🔴 HELD: 00567_users_shipping_pii_edge_only.sql (US-2417 — the seller's address stops being plaintext)
 
 **Risk: MEDIUM, and the ORDER matters more than the SQL does.** There is no DDL
@@ -235,7 +268,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**00564, 00565, 00566 and 00567 are held** — see the top of this file. Everything below it is applied:
+**00564 through 00568 are held** — see the top of this file. Everything below it is applied:
 00542 through 00563 went to prod on 2026-08-08 and were
 confirmed by the owner, and the measurement agrees: `/health/ready` on
 `functions.gradethread.com` reports `applied: 00563`. See the note under 00528

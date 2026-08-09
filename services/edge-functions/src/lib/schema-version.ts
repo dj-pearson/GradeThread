@@ -37,7 +37,7 @@ import { edgeEnv } from "./env.ts";
 import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00567_users_shipping_pii_edge_only.sql)
+// supabase/migrations/. (00568_submission_image_quality_score.sql)
 //
 // ⚠ 00527 IS SKIPPED HERE ON PURPOSE. 00527_revoke_public_function_execute.sql
 // carries a .BLOCKED suffix (US-2403: denying a function to a supautils hint
@@ -49,7 +49,7 @@ import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 // git history, no branch). Reusing that number would let the boot guard read
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
-export const EXPECTED_SCHEMA_VERSION = "00567";
+export const EXPECTED_SCHEMA_VERSION = "00568";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

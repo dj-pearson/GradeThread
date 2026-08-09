@@ -18,6 +18,10 @@ const {
   AUTHENTICITY_NO_MACRO_LIMITATION,
   AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP,
   AUTHENTICITY_PROMPT_VERSION,
+  AUTHENTICITY_MACRO_QUALITY_FULL_CREDIT,
+  macroQualityConfidenceCap,
+  bestMacroQuality,
+  applyVerdictCap: applyVerdictCapFn,
 } = await import("../lib/ai-authenticity.ts");
 
 // ── US-2134: macro evidence gates how confident the verdict may be ──────────
@@ -303,4 +307,119 @@ Deno.test("authenticityNeedsReview: no recognizable brand → nothing to review"
     authenticityNeedsReview({ verdict: "inconclusive", verdict_confidence: 0.3, brand_assessed: null }),
     false,
   );
+});
+
+// ── US-2136 AC4: the macro's MEASURED quality, not just its presence ─────────
+//
+// The gate that produced this number has existed since US-2136 shipped; the
+// number died in the browser. So a macro frame too soft to read a serial got
+// exactly the same confidence as a crisp one, purely because a file existed in
+// the slot. These cases pin the continuous cap that closes that.
+
+Deno.test("macroQualityConfidenceCap: not measured applies NO cap", () => {
+  // The single most important case. The score comes from a browser canvas that
+  // can fail, and from clients older than migration 00568. A cap that fired on
+  // a missing measurement would downgrade verdicts for a reason that has
+  // nothing to do with the photograph.
+  assertEquals(macroQualityConfidenceCap(null), 1);
+  assertEquals(macroQualityConfidenceCap(Number.NaN), 1);
+  assertEquals(macroQualityConfidenceCap(Infinity), 1);
+});
+
+Deno.test("macroQualityConfidenceCap: a worthless macro is capped like NO macro, never worse", () => {
+  // The floor anchor is deliberately the no-macro cap. A bad photo is worth no
+  // more than no photo; it is not worth LESS. Capping below would punish the
+  // seller who tried relative to the one who skipped the slot.
+  assertEquals(macroQualityConfidenceCap(0), AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP);
+  assert(macroQualityConfidenceCap(0.01) >= AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP);
+  // Out of range clamps rather than extrapolating past the anchors.
+  assertEquals(macroQualityConfidenceCap(-5), AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP);
+  assertEquals(macroQualityConfidenceCap(99), 1);
+});
+
+Deno.test("macroQualityConfidenceCap: full credit at the threshold and above", () => {
+  assertEquals(macroQualityConfidenceCap(AUTHENTICITY_MACRO_QUALITY_FULL_CREDIT), 1);
+  assertEquals(macroQualityConfidenceCap(0.9), 1);
+});
+
+Deno.test("macroQualityConfidenceCap: CONTINUOUS between the anchors, not a second cliff", () => {
+  // This is the AC's actual requirement — feed the measured quality in rather
+  // than swapping one threshold for two. Strict monotonicity is the property
+  // that distinguishes the two designs, so assert it rather than any one value.
+  const half = macroQualityConfidenceCap(AUTHENTICITY_MACRO_QUALITY_FULL_CREDIT / 2);
+  assert(half > AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP && half < 1, `midpoint was ${half}`);
+  let prev = -1;
+  for (let q = 0; q <= AUTHENTICITY_MACRO_QUALITY_FULL_CREDIT; q += 0.05) {
+    const cap = macroQualityConfidenceCap(q);
+    assert(cap > prev, `cap must rise with quality; ${q} gave ${cap} after ${prev}`);
+    prev = cap;
+  }
+});
+
+Deno.test("bestMacroQuality: BEST across macro frames, and macro frames only", () => {
+  // Best, not average: the verdict rests on the clearest look we got at a tell.
+  // Averaging would punish a seller for supplying an extra, softer photo, which
+  // is precisely the wrong incentive for a feature whose problem is thin
+  // evidence.
+  assertEquals(
+    bestMacroQuality([
+      { imageType: "serial", qualityScore: 0.2 },
+      { imageType: "marking", qualityScore: 0.7 },
+    ]),
+    0.7,
+  );
+  // A crisp full-garment shot says nothing about whether a date code is legible.
+  assertEquals(
+    bestMacroQuality([
+      { imageType: "front", qualityScore: 0.95 },
+      { imageType: "serial", qualityScore: 0.1 },
+    ]),
+    0.1,
+  );
+  // Nothing measured, or nothing macro — both are "unknown", not zero.
+  assertEquals(bestMacroQuality([{ imageType: "front", qualityScore: 0.9 }]), null);
+  assertEquals(bestMacroQuality([{ imageType: "serial", qualityScore: null }]), null);
+  assertEquals(bestMacroQuality([{ imageType: "serial" }]), null);
+  assertEquals(bestMacroQuality([]), null);
+});
+
+Deno.test("applyVerdictCap: a soft macro lands between the no-macro cap and the ceiling", () => {
+  const soft = applyVerdictCapFn(0.95, 0, 0, true, 0.1);
+  assert(
+    soft > AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP && soft < 0.9,
+    `expected a partial cap, got ${soft}`,
+  );
+  // A crisp macro is untouched by this cap — the 0.9 photo-only ceiling still
+  // applies, and nothing here may RAISE confidence.
+  assertEquals(applyVerdictCapFn(0.95, 0, 0, true, 0.8), 0.9);
+});
+
+Deno.test("applyVerdictCap: quality defaults to null, so every existing caller is byte-identical", () => {
+  // The additive-feature rule: with the argument omitted the output must equal
+  // what it was before this change, on every combination that already existed.
+  for (const conf of [0.2, 0.5, 0.95]) {
+    for (const flags of [0, 1]) {
+      for (const macro of [true, false]) {
+        assertEquals(
+          applyVerdictCapFn(conf, flags, 0, macro),
+          applyVerdictCapFn(conf, flags, 0, macro, null),
+        );
+      }
+    }
+  }
+});
+
+Deno.test("applyVerdictCap: with NO macro the quality argument changes nothing", () => {
+  // There is nothing to have measured, and the harder no-macro cap already
+  // applies. A quality number arriving anyway must not soften it.
+  assertEquals(
+    applyVerdictCapFn(0.95, 0, 0, false, 0.9),
+    AUTHENTICITY_NO_MACRO_CONFIDENCE_CAP,
+  );
+});
+
+Deno.test("applyVerdictCap: a contradiction still wins over a good macro", () => {
+  // Caps compose by MIN (grading-engine contract). A crisp photo of a red flag
+  // is not a reason for confidence.
+  assertEquals(applyVerdictCapFn(0.95, 1, 0, true, 0.9), 0.5);
 });

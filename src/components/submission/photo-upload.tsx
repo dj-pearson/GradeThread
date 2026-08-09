@@ -37,6 +37,10 @@ export interface PhotoUploadItem {
   // it for forensic/provenance retention (gated). The compressed `file` is what
   // the fast grading path uses.
   originalFile?: File;
+  // US-2136 AC4: 0..1 measured sharpness of the COMPRESSED bytes, or null when
+  // it could not be measured. Sent with the upload so authenticity confidence
+  // can read a MEASURE instead of "a file exists in the macro slot".
+  qualityScore?: number | null;
 }
 
 type SlotGroup = "required" | "more" | "measurements" | "defects";
@@ -303,6 +307,8 @@ interface SlotState {
   phash?: string;
   exif?: ImageExifMetadata | null;
   originalFile?: File;
+  // US-2136 AC4: the assessment's continuous score, kept on pass AND fail.
+  qualityScore?: number | null;
 }
 
 const DEFAULT_SLOT_STATE: SlotState = {
@@ -377,6 +383,7 @@ export function PhotoUpload({
             phash: state.phash,
             exif: state.exif,
             originalFile: state.originalFile,
+            qualityScore: state.qualityScore ?? null,
           });
         }
       }
@@ -481,6 +488,7 @@ export function PhotoUpload({
             phash: compressed.phash,
             exif,
             originalFile: file,
+            qualityScore: macro.score,
           });
           emitChange(next);
           return next;

@@ -817,6 +817,14 @@ export function NewSubmissionPage() {
           "exif_metadata",
           photo.exif ? JSON.stringify(photo.exif) : ""
         );
+        // US-2136 AC4: the measured 0..1 macro sharpness. "" for an unmeasured
+        // photo — the server reads that as unknown, and unknown applies no
+        // confidence cap. Sending 0 instead would claim we looked and found it
+        // unreadable, which is a different and much worse statement.
+        formData.append(
+          "quality_scores",
+          typeof photo.qualityScore === "number" ? String(photo.qualityScore) : ""
+        );
       }
 
       // US-339: optional original-image retention for server-side forensic /
