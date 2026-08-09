@@ -28,6 +28,10 @@ function pct(c: Cap): number {
   return c.used / Math.max(c.limit, 1);
 }
 
+// US-2441: colour stops, not thresholds — see the identical note in
+// components/billing/usage-meter.tsx. The 0.8 paints a bar; SOFT_WARN_PCT in the
+// edge's plan-gate.ts is the threshold that actually warns. Matching values,
+// unrelated jobs.
 function colorClass(p: number): string {
   if (p >= 1.0) return "bg-brand-red";
   if (p >= 0.8) return "bg-red-400";

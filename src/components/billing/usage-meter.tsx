@@ -26,6 +26,17 @@ export interface UsageMeterProps {
   hideWhenUnlimited?: boolean;
 }
 
+// US-2441: these are COLOUR STOPS, not thresholds. The 0.8 here paints a bar
+// red; it fires no toast, sends no header and gates nothing. The soft-warning
+// threshold that does all three is SOFT_WARN_PCT in the edge's plan-gate.ts,
+// which decides whether a response carries `X-Plan-Warning: CAP_80`.
+//
+// The two numbers matching today is a coincidence worth naming, because it made
+// an audit read three copies of one threshold where there is one threshold and
+// two ramps. Do NOT wire them together: a shared constant would couple a paint
+// decision to a billing rule, and US-2441 AC2 forbids exactly that — a fourth
+// copy with a nicer name is worse than an honest literal. If the warn point ever
+// moves, this ramp does not have to follow it.
 function colorClass(pct: number): string {
   if (pct >= 1.0) return "bg-brand-red";
   if (pct >= 0.8) return "bg-red-500";

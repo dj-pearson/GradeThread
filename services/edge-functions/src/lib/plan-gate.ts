@@ -78,6 +78,17 @@ const PLAN_RANK: Record<FlipdeskPlan, number> = {
   free: 0, starter: 1, pro: 2, business: 3,
 };
 
+// US-2441: THE soft-warning threshold, and the only one. It decides whether a
+// response carries `X-Plan-Warning: CAP_80`, which is what drives the toast.
+//
+// The web meters (components/billing/usage-meter.tsx and
+// components/dashboard/sidebar-usage-widget.tsx) also contain a 0.8, and an
+// audit once read that as three copies of one number. They are colour stops in a
+// four-step ramp — they paint a bar and gate nothing. Deliberately NOT shared:
+// coupling a paint decision to a billing rule would mean a palette change had to
+// clear a billing review, and moving this number should not require touching a
+// stylesheet. If they ever need to agree, the client should learn the point from
+// the response rather than restate the constant.
 const SOFT_WARN_PCT = 0.8;
 
 // ── Public API ───────────────────────────────────────────────────
