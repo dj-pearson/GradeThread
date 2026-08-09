@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyCelebrationLimits,
+  celebrationAnalyticsEvents,
   CELEBRATION_POLICY,
   celebrationStateKey,
   detectCelebrations,
@@ -319,5 +320,63 @@ describe("persistence", () => {
     const back = readCelebrationState("user-a", store);
     expect(back.snapshot).toBeNull();
     expect(back.log).toEqual(EMPTY_CELEBRATION_LOG);
+  });
+});
+
+// ─── US-1915 AC4: the analytics decision ────────────────────────────────────
+//
+// Extracted from the component deliberately. The render path is a useEffect and
+// this repo's reward component tests use renderToStaticMarkup, which never runs
+// effects — so an inline decision there is one no test can reach.
+describe("US-1915 AC4: celebrationAnalyticsEvents", () => {
+  const ev = (kind: string, tier: "celebrate" | "quiet" = "celebrate") =>
+    ({ kind, tier } as unknown as CelebrationEvent);
+
+  it("names the event for what the client OBSERVED, not for the grant", () => {
+    // The grant happened on the edge and is already in reputation_events, which
+    // is the source of truth for whether it occurred. A client-side
+    // "reward_granted" would double-count across tabs and refreshes, and would
+    // miss entirely for a user who never comes back.
+    const out = celebrationAnalyticsEvents([ev("level_up")], [ev("level_up")]);
+    expect(out.map((e) => e.event)).toEqual(["reward_celebration_shown"]);
+    expect(out.map((e) => e.event)).not.toContain("reward_granted");
+  });
+
+  it("carries the mechanic and the tier, which is what makes lift measurable", () => {
+    const out = celebrationAnalyticsEvents([ev("badge_earned", "quiet")], [ev("badge_earned", "quiet")]);
+    expect(out[0]!.props).toEqual({ kind: "badge_earned", tier: "quiet" });
+  });
+
+  it("⚠ emits a SUPPRESSED event when the cap drops moments", () => {
+    // The measurement nobody would think to collect. Without it, a mechanic
+    // whose moments are permanently suppressed looks identical to one that never
+    // triggers — and telling those apart is the whole point of the story.
+    const detected = [ev("level_up"), ev("streak_extended"), ev("badge_earned")];
+    const out = celebrationAnalyticsEvents(detected, [detected[0]!]);
+    expect(out[0]!.event).toBe("reward_celebration_suppressed");
+    expect(out[0]!.props).toEqual({
+      detected: 3,
+      shown: 1,
+      kinds: ["level_up", "streak_extended", "badge_earned"],
+    });
+    expect(out.slice(1).map((e) => e.event)).toEqual(["reward_celebration_shown"]);
+  });
+
+  it("stays silent when the cap suppressed everything AND nothing was detected", () => {
+    expect(celebrationAnalyticsEvents([], [])).toEqual([]);
+  });
+
+  it("reports a total suppression — the user saw nothing at all", () => {
+    const out = celebrationAnalyticsEvents([ev("level_up")], []);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.event).toBe("reward_celebration_suppressed");
+    expect(out[0]!.props).toMatchObject({ detected: 1, shown: 0 });
+  });
+
+  it("emits no suppression event when nothing was dropped", () => {
+    const two = [ev("level_up"), ev("badge_earned")];
+    const out = celebrationAnalyticsEvents(two, two);
+    expect(out.every((e) => e.event === "reward_celebration_shown")).toBe(true);
+    expect(out).toHaveLength(2);
   });
 });

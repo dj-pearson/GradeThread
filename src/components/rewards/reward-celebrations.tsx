@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { track } from "@/lib/analytics";
 import { useAuth } from "@/hooks/use-auth";
 import { useRewards } from "@/hooks/use-rewards";
 import type { RewardsState } from "@/hooks/use-rewards";
 import {
   applyCelebrationLimits,
+  celebrationAnalyticsEvents,
   detectCelebrations,
   prefersReducedMotion,
   readCelebrationState,
@@ -105,6 +107,12 @@ export function RewardCelebrations() {
     // Persist BEFORE rendering: the snapshot has to advance even when the cap
     // suppressed everything, or the same suppressed moments queue up forever.
     writeCelebrationState(userId, { snapshot: next, log });
+
+    // US-1915 AC4. WHICH events to emit is a pure decision and lives in
+    // lib/reward-celebrations.ts — this is a useEffect, and the repo's reward
+    // component tests render with renderToStaticMarkup, which never runs
+    // effects. A decision left inline here is one no test can reach.
+    for (const a of celebrationAnalyticsEvents(events, show)) track(a.event, a.props);
     if (show.length === 0) return;
 
     for (const event of show) announce(event);

@@ -461,6 +461,60 @@ export function writeCelebrationState(
   store.set(celebrationStateKey(userId), JSON.stringify(state));
 }
 
+// ─── Analytics (US-1915 AC4) ────────────────────────────────────────────────
+
+/** One PostHog call, decided but not yet made. */
+export interface CelebrationAnalyticsEvent {
+  event: string;
+  props: Record<string, unknown>;
+}
+
+/**
+ * Which analytics events a celebration render should emit.
+ *
+ * PURE ON PURPOSE. The component that owns this decision lives inside a
+ * `useEffect`, and the repo's reward component tests render with
+ * `renderToStaticMarkup`, which never runs effects — so a decision left inline
+ * there is a decision no test can reach. Extracting it is not ceremony; it is
+ * the difference between an assertion and a hope.
+ *
+ * ⚠ THE NAMES DESCRIBE WHAT THE CLIENT OBSERVED, NOT WHAT HAPPENED. A grant
+ * occurs on the edge and is recorded in `reputation_events`, which is the source
+ * of truth for whether it occurred. A client-side `reward_granted` would
+ * double-count across tabs and refreshes and would miss entirely for a user who
+ * never comes back, so what is emitted is `reward_celebration_shown` — the
+ * seeing, not the granting.
+ *
+ * ⚠ AND SUPPRESSION IS ITSELF A MEASUREMENT, which is the event nobody would
+ * think to collect. When detection fires and the limiter drops everything, the
+ * user experienced no celebration at all — and without this, a mechanic whose
+ * moments are permanently suppressed looks identical to one that never
+ * triggers. Telling those apart is the whole point of US-1915.
+ */
+export function celebrationAnalyticsEvents(
+  detected: readonly CelebrationEvent[],
+  shown: readonly CelebrationEvent[],
+): CelebrationAnalyticsEvent[] {
+  const out: CelebrationAnalyticsEvent[] = [];
+  if (detected.length > shown.length) {
+    out.push({
+      event: "reward_celebration_suppressed",
+      props: {
+        detected: detected.length,
+        shown: shown.length,
+        kinds: detected.map((e) => e.kind),
+      },
+    });
+  }
+  for (const e of shown) {
+    out.push({
+      event: "reward_celebration_shown",
+      props: { kind: e.kind, tier: e.tier },
+    });
+  }
+  return out;
+}
+
 // ─── Motion ─────────────────────────────────────────────────────────────────
 
 /**
