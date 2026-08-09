@@ -1,5 +1,54 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00578_brand_kb_provenance_required.sql (US-1996 AC5 — a brand fact must carry its source)
+
+**Risk: LOW.** One IMMUTABLE function and five CHECK constraints added
+`NOT VALID`. No table, column or index is created, altered or dropped, no row is
+read, rewritten or deleted, and no backfill runs.
+
+**Apply order: AFTER 00577.** Depends on nothing but the five brand-KB tables,
+which have existed since 00389.
+
+**NOT VALID IS THE DESIGN, and it is what makes this safe to apply blind.** A
+plain CHECK would refuse to apply if ANY existing row lacks provenance — and 11
+do, in `brand_size_charts`, seeded deliberately by 00498 (its own header says the
+in-code chart seed carried no per-chart provenance to copy). More importantly,
+prod also holds rows written by the admin curation surface, which permitted a
+null confidence until the commit shipping this file. So a VALID constraint could
+pass every local check and still fail against production. NOT VALID enforces on
+every INSERT and UPDATE from now on and leaves existing rows alone.
+
+**Measured on a from-zero throwaway stack** — this is the count US-1996 AC5 asked
+for, taken against what the migrations actually seed:
+
+| table | rows | missing provenance |
+|---|---|---|
+| brand_knowledge | 204 | 0 |
+| brand_styles | 735 | 0 |
+| brand_style_codes | 30 | 0 |
+| brand_colorways | 159 | 0 |
+| brand_size_charts | 316 | **11** |
+
+**PROVEN AGAINST A RUNNING DATABASE, not inferred:** an unsourced INSERT into
+`brand_knowledge` is refused by name, a sourced one succeeds, and the 11 legacy
+rows still read.
+
+**NOT push-blocking.** The edge code shipping alongside it refuses a null
+confidence and a blank source_url in `buildPatch` before the DB ever sees them,
+so an old database under new code is strictly safer, not broken.
+
+**The residual operator action, and it is small:** count prod's own rows, then
+`ALTER TABLE public.brand_knowledge VALIDATE CONSTRAINT brand_knowledge_sourced;`
+(and the same per table) to enforce retroactively. That command is the definition
+of done for the backfill and is deliberately NOT run here.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed.
+
+**Rollback** is `ALTER TABLE public.<t> DROP CONSTRAINT <t>_sourced;` for each of
+the five, then `DROP FUNCTION public.brand_fact_is_sourced(text, numeric);`.
+
+---
+
 ## ✅ APPLIED: 00577_small_leather_goods_brand_knowledge.sql (US-2221 — a wallet is not a bag, and half of them are not leather, applied 2026-08-09 — MEASURED)
 
 **Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00575", applied: "00577", status: "ahead"}` — the database's own answer. 00576 and 00577 were applied together, so that one reading covers both. The "ahead" is the running edge image predating the version bump and resolves on the next edge deploy.

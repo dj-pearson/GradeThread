@@ -161,12 +161,35 @@ export function buildPatch(
   for (const [key, value] of Object.entries(body)) {
     if (!allowed.includes(key)) continue; // silently drop non-editable keys
     if (key === "confidence") {
-      if (value === null) { patch.confidence = null; continue; }
+      // US-1996 AC5: a NULL confidence is no longer writable. This branch used
+      // to pass `null` straight through, which is how the "every fact carries
+      // source_url + confidence" claim in US-1716 AC4 became a convention
+      // instead of a rule — the columns are nullable in 00389 and nothing
+      // upstream said no. Migration 00578 now enforces it in the database, so
+      // leaving this open would only convert a clean 400 into a constraint
+      // violation surfacing as a 500.
+      //
+      // Note what is NOT required: a HIGH confidence. 0 is a legitimate value
+      // and 00576 deliberately seeds dating claims at 0.4. The requirement is
+      // that somebody said how sure they were.
+      if (value === null) {
+        return { error: "confidence is required — a fact with no confidence is not a fact" };
+      }
       const n = Number(value);
       if (!Number.isFinite(n) || n < 0 || n > 1) {
         return { error: "confidence must be a number in [0,1]" };
       }
       patch.confidence = n;
+      continue;
+    }
+    if (key === "source_url") {
+      // US-1996 AC5, the other half of the same rule. Blank is what the DB
+      // constraint refuses, so refuse it here where the error can say why.
+      // `seed:<file>.ts` is an accepted form — it names a real, readable origin.
+      if (typeof value !== "string" || value.trim() === "") {
+        return { error: "source_url is required — say where the fact came from" };
+      }
+      patch.source_url = value.trim();
       continue;
     }
     if (key === "verified") {

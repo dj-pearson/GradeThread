@@ -47,10 +47,45 @@ Deno.test("validates confidence is a number in [0,1]", () => {
   assertEquals(ok(buildPatch("brand_knowledge", { confidence: 0.8 })).confidence, 0.8);
   assertEquals(ok(buildPatch("brand_knowledge", { confidence: 0 })).confidence, 0);
   assertEquals(ok(buildPatch("brand_knowledge", { confidence: 1 })).confidence, 1);
-  assertEquals(ok(buildPatch("brand_knowledge", { confidence: null })).confidence, null);
   assert(err(buildPatch("brand_knowledge", { confidence: 1.5 })).includes("confidence"));
   assert(err(buildPatch("brand_knowledge", { confidence: -1 })).includes("confidence"));
   assert(err(buildPatch("brand_knowledge", { confidence: "high" })).includes("confidence"));
+});
+
+Deno.test("US-1996 AC5: a NULL confidence is no longer writable", () => {
+  // ⚠ THIS ASSERTION USED TO SAY THE OPPOSITE — `confidence: null` was passed
+  // straight through, and that is how US-1716 AC4's claim that provenance is
+  // "schema-enforced" became a convention rather than a rule. 00389 declares
+  // both columns NULLABLE and nothing upstream said no. Migration 00578 now
+  // enforces it in the database, so accepting a null here would only turn a
+  // clean 400 into a constraint violation surfacing as a 500.
+  assert(
+    err(buildPatch("brand_knowledge", { confidence: null })).includes("required"),
+    "a null confidence is rejected with a reason",
+  );
+  // 0 is still perfectly legal. The requirement is that somebody SAID how sure
+  // they were, not that they were sure — 00576 seeds dating claims at 0.4.
+  assertEquals(ok(buildPatch("brand_knowledge", { confidence: 0 })).confidence, 0);
+});
+
+Deno.test("US-1996 AC5: a blank source_url is rejected where the error can explain", () => {
+  // The DB constraint refuses a blank, so refusing it here keeps the message
+  // useful. `seed:<file>.ts` is deliberately accepted — it names a real origin.
+  for (const blank of ["", "   ", null, 42]) {
+    assert(
+      err(buildPatch("brand_knowledge", { source_url: blank })).includes("source_url"),
+      `${JSON.stringify(blank)} is not a source`,
+    );
+  }
+  assertEquals(
+    ok(buildPatch("brand_knowledge", { source_url: "  https://example.com/x  " })).source_url,
+    "https://example.com/x",
+    "and a real one is trimmed rather than stored with whitespace",
+  );
+  assertEquals(
+    ok(buildPatch("brand_knowledge", { source_url: "seed:sizing-charts.ts" })).source_url,
+    "seed:sizing-charts.ts",
+  );
 });
 
 Deno.test("verified must be a boolean", () => {
