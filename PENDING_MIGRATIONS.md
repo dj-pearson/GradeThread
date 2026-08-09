@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00577_small_leather_goods_brand_knowledge.sql (US-2221 — a wallet is not a bag, and half of them are not leather)
+## ✅ APPLIED: 00577_small_leather_goods_brand_knowledge.sql (US-2221 — a wallet is not a bag, and half of them are not leather, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00575", applied: "00577", status: "ahead"}` — the database's own answer. 00576 and 00577 were applied together, so that one reading covers both. The "ahead" is the running edge image predating the version bump and resolves on the next edge deploy.
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
 tables.** No table, column, constraint, index, policy or function is created,
@@ -36,7 +38,9 @@ commit with the manifest regenerated.
 
 ---
 
-## 🔴 HELD: 00576_jewelry_brand_knowledge.sql (US-2221 — a mark that passes the bar and still is not a decoder)
+## ✅ APPLIED: 00576_jewelry_brand_knowledge.sql (US-2221 — a mark that passes the bar and still is not a decoder, applied 2026-08-09 — MEASURED)
+
+**Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00575", applied: "00577", status: "ahead"}` — the database's own answer. 00576 and 00577 were applied together, so that one reading covers both. The "ahead" is the running edge image predating the version bump and resolves on the next edge deploy.
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
 tables.** No table, column, constraint, index, policy or function is created,
@@ -680,7 +684,7 @@ references it and the edge falls back to code defaults the moment it is gone.
 
 ---
 
-**NOTHING IS HELD.** 00564 through 00575 were applied to prod on 2026-08-09 and
+**NOTHING IS HELD.** 00564 through 00577 were applied to prod on 2026-08-09 and
 measured as they went; every section in this file is now APPLIED. Below the line
 is the older history:
 00542 through 00563 went to prod on 2026-08-08 and were
