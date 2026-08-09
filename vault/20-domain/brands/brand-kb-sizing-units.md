@@ -8,6 +8,7 @@ code_refs:
   - supabase/migrations/00574_headwear_brand_knowledge.sql
   - supabase/migrations/00575_eyewear_brand_knowledge.sql
   - supabase/migrations/00576_jewelry_brand_knowledge.sql
+  - supabase/migrations/00581_tailoring_formalwear_brand_knowledge.sql
   - services/edge-functions/src/tests/headwear-content_test.ts
 reviewed: 2026-08-09
 tags: [brands, sizing, contract]
@@ -84,6 +85,52 @@ a US ring size is a standard, a bracelet is sold in centimetres, and neither is 
 brand's scheme. **No chart is seeded there either.** Three accessory categories,
 and only headwear needs charts — which is the evidence that this rule is about
 labels rather than about any particular kind of product.
+
+## Tailoring: one category, three systems, and a subtraction
+
+Added 2026-08-09 with `00581` (US-2220 AC3). The strongest case in the corpus for
+the rule at the top of this note, because tailoring does not have *a* sizing
+system — it has three at once, and one of them is not on the label at all.
+
+> **A suit size is two garments and a subtraction.**
+
+`40R` is a 40-inch **jacket chest** in **Regular** length. It says nothing about
+the trouser waist. That comes from the **drop** — jacket chest minus trouser
+waist — and the drop is a property of the **maker's cut**:
+
+| drop | 40 chest → trouser waist | who it is cut for |
+|---|---|---|
+| 4-drop | 36 | fuller build |
+| **6-drop** | **34** | the US off-the-rack default |
+| 8-drop | 32 | athletic build |
+
+So the same printed `40R` is a 32, a 34 or a 36 waist depending on who made it.
+**A listing that gives the label without the measured waist has not given the
+trouser size.**
+
+The **length letter** is a third axis and it moves length and sleeve, *never*
+chest: a 40S, 40R and 40L all fit a 40-inch chest, with L adding roughly 1.5
+inches of jacket length and sleeve over R. And a **dress shirt** is neck × sleeve
+in half-inch neck increments — a fourth shape again, which collapsing to alpha
+destroys.
+
+Three charts are seeded for this reason, under the generic key
+`tailoringmenswear`. That is a deliberate exception to "keyed by brand": the
+chest run and the drop arithmetic are an **industry convention** rather than any
+house's label, unlike hat sizes where two makers genuinely print different inches
+for the same printed size. `00389`'s own `genericmensalpha` keys are the
+precedent. A house that departs from the convention gets its own chart, which
+overrides.
+
+### ⚠ And in this category the label is often a lie
+
+Tailored clothing is altered — waist suppressed, sleeves shortened, trousers
+hemmed — and **the tag never changes**. So tailoring depends on measurement more
+than any category here.
+
+The same fact from the other side is worth money: unused **inlay** (let-out room
+in the seams and waistband) is what lets the next owner have it fitted, so a suit
+that has never been altered is worth more than one that has.
 
 ## Why this is a contract and not a comment
 

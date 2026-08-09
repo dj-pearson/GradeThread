@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00581_tailoring_formalwear_brand_knowledge.sql (US-2220 AC3 — a suit size is two garments and a subtraction)
+
+**Risk: LOW. Three `insert ... on conflict do nothing` statements into reference
+tables.** Nothing is created, altered, dropped, read or backfilled. No decoders.
+
+**Apply order: AFTER 00580.** 00578 through 00581 are all independent of each
+other and can be applied in one sitting.
+
+**NOT push-blocking.** Suitsupply, Hugo Boss, Canali and Jos. A. Bank have always
+fallen through the resolver.
+
+**What it adds.** 4 brand rows, 6 style rows, 11 tells, and — unlike the three
+packs before it — THREE SIZE CHARTS, because tailoring has three sizing systems
+at once and AC3 exists to stop them being flattened into an alpha size.
+
+**⚠ The charts are seeded under a GENERIC key (`tailoringmenswear`) with no
+brand_knowledge row.** That is deliberate and precedented: 00389 already does it
+for `genericmensalpha` and friends. The chest run and the drop arithmetic are an
+industry CONVENTION rather than a house's label, which is the opposite of the
+headwear case where two makers print different inches for the same size.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00581` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00581';` and the same for `brand_styles` and `brand_size_charts`.
+
+---
+
+
 ## 🔴 HELD: 00580_scrubs_uniform_brand_knowledge.sql (US-2220 — uniform is a category, not more apparel)
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference

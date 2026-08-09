@@ -1370,6 +1370,23 @@ const BRAND_ALIASES: Record<string, string> = {
   wonderwink: "WonderWink",
   winkscrubs: "WonderWink",
   // ⚠ a bare "wink" is DELIBERATELY ABSENT — an ordinary English noun and verb.
+
+  // US-2220 tailoring / formalwear group (migration 00581). Selected on resale
+  // volume, per AC2, with the justification in the migration header.
+  suitsupply: "Suitsupply",
+  hugoboss: "Hugo Boss",
+  bosshugoboss: "Hugo Boss",
+  // ⚠ "boss" IS kept as an exact whole-field key — a brand field of literally
+  // "boss" on a suit means the house — but "Boss" is an ordinary English noun,
+  // so the CANONICAL goes into DETECT_EXCLUDED_FROM_TEXT. This is the documented
+  // asymmetry: an ordinary-word KEY is safe because the map is a whole-field
+  // lookup; an ordinary-word VALUE scanned over prose is not.
+  boss: "Hugo Boss",
+  canali: "Canali",
+  josabank: "Jos. A. Bank", // brandKey strips the periods and spaces
+  josephabank: "Jos. A. Bank",
+  josabanks: "Jos. A. Bank", // the plural sellers type
+  // ⚠ a bare "bank" is DELIBERATELY ABSENT, which should not need saying.
 };
 
 /**
@@ -1560,6 +1577,16 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // word, and a prose mention of any of them in a listing genuinely does mean
   // the blank.
   "Giant",
+  // US-2220 (00581). "Hugo Boss" is safe as a canonical — nobody writes that
+  // phrase by accident — so it is NOT here. The hazard is the SHORT form, and
+  // the short form is not a canonical either; it is only an alias key, which is
+  // a whole-field lookup and therefore safe. Listed anyway as a NEGATIVE note
+  // so the next author does not "helpfully" shorten the canonical to "BOSS":
+  // "boss" is an ordinary English noun and would fire on any listing that used
+  // it. If the canonical is ever shortened, add it to this set in the same edit.
+  //
+  // Suitsupply, Canali and Jos. A. Bank need no exclusion — none is an ordinary
+  // word, and "Canali" in prose genuinely means the house.
 ]);
 
 /**
