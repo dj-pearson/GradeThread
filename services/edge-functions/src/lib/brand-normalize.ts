@@ -1304,6 +1304,23 @@ const BRAND_ALIASES: Record<string, string> = {
   // ⚠ a bare "avery" is DELIBERATELY ABSENT — a given name and a surname; only
   // the full forms resolve. Same call as "carter" and "hanna".
   // ⚠ a bare "james" is absurd and is likewise absent.
+
+  // US-2221 small-leather-goods group (migration 00577), the last of the four.
+  //
+  // ⚠ "Ridge" IS AN ORDINARY WORD and this one DOES need the exclusion, which is
+  // why the canonical is the long form. "ridge" turns up in ordinary garment
+  // copy — a ridged knit, a mountain ridge on a graphic tee, Blue Ridge on a
+  // souvenir sweatshirt — and it would beat a real "Nike" (4) on length. The
+  // canonical is therefore "The Ridge", and even that is excluded from prose
+  // detection below, because "the ridge" is a phrase before it is a brand.
+  // Reachable BY TAG as always.
+  ridge: "The Ridge",
+  ridgewallet: "The Ridge",
+  theridge: "The Ridge", // brandKey("The Ridge") keeps the leading "the"
+  bellroy: "Bellroy",
+  secrid: "Secrid",
+  bosca: "Bosca",
+  hugobosca: "Bosca", // the founder's name, as it appears on older marks
 };
 
 /**
@@ -1473,6 +1490,17 @@ const DETECT_EXCLUDED_FROM_TEXT: ReadonlySet<string> = new Set([
   // Stetson, Kangol and Goorin Bros. are NOT excluded: none is an ordinary word,
   // and losing prose detection for them would cost real recall for nothing.
   "New Era",
+  // US-2221 (00577). "The Ridge" is a PHRASE before it is a brand — a trail, a
+  // mountain, a neighbourhood, a Blue Ridge souvenir sweatshirt — and at 9
+  // characters it would beat a real "Nike" (4) in the same title. The bare
+  // "ridge" is already kept out of the canonical for the same reason; excluding
+  // the long form closes the other half. Reachable BY TAG, never guessed from
+  // prose. Verified by mutation in small-leather-goods-content_test.ts.
+  //
+  // Bellroy, Secrid and Bosca are NOT excluded — none is an ordinary word in
+  // English, and Bosca's only collision is the founder's surname, which means
+  // the same house.
+  "The Ridge",
 ]);
 
 /**

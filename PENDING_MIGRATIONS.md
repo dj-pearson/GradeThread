@@ -1,5 +1,41 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00577_small_leather_goods_brand_knowledge.sql (US-2221 — a wallet is not a bag, and half of them are not leather)
+
+**Risk: LOW. Two `insert ... on conflict do nothing` statements into reference
+tables.** No table, column, constraint, index, policy or function is created,
+altered or dropped. Nothing existing is read, rewritten or backfilled. No
+decoders, so nothing here can override an AI answer.
+
+**Apply order: AFTER 00576.** No dependency, just NNNNN order. 00576 and 00577
+are independent of each other and can be applied in one sitting.
+
+**NOT push-blocking, and nothing waits on it.** Bellroy, The Ridge, Secrid and
+Bosca have always fallen through the resolver; an old database under new code
+behaves as it does today.
+
+**What it adds.** 4 brand rows, 6 style rows, 10 authentication tells. It closes
+US-2221 AC1 — the fourth and last accessory pack.
+
+**Why it is a distinct class and not four more rows:** a wallet has no care
+label, no hangtag and no creed patch, so its only mark is an emboss on the panel
+the hand grips — meaning IDENTIFIABILITY DEGRADES WITH CONDITION, a coupling that
+exists nowhere else in this KB. And the category's name lies: The Ridge is
+aluminium/titanium/carbon fibre and Secrid's Cardprotector is anodised aluminium,
+so a leather rubric invents defects that cannot exist and misses the ones that
+can.
+
+**Verified from zero on a throwaway stack** (`node scripts/verify.mjs --db`),
+applied and re-applied. `EXPECTED_SCHEMA_VERSION` bumped to `00577` in the same
+commit with the manifest regenerated.
+
+**No `NOTIFY pgrst` needed** — no table, column or RPC changed, only rows.
+
+**Rollback** is `delete from public.brand_knowledge where updated_by =
+'migration:00577';` and the same for `brand_styles`.
+
+---
+
 ## 🔴 HELD: 00576_jewelry_brand_knowledge.sql (US-2221 — a mark that passes the bar and still is not a decoder)
 
 **Risk: LOW. Two `insert ... on conflict do nothing` statements into reference

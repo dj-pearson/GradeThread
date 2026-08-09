@@ -332,5 +332,6 @@ export const EXPECTED_MIGRATIONS: readonly string[] = [
   "00573",
   "00574",
   "00575",
-  "00576"
+  "00576",
+  "00577"
 ] as const;
