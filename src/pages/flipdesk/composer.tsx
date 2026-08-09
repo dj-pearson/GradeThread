@@ -1497,8 +1497,20 @@ export function FlipdeskComposerPage({
         .eq("id", item.id);
       // US-2249: the SKU rides the main save now, so the main save is where a
       // duplicate-SKU collision has to offer the merge.
+      //
+      // US-2445: hand the merge this save ITSELF as the retry. The update above
+      // rolled back and the listing write below never ran, so everything the
+      // seller edited — the listing title included — is only in the form. The
+      // merge frees the SKU and then calls this function again, which is the one
+      // recovery that cannot fall behind the columns it has to restore.
       if (sErr) {
-        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
+        if (
+          await skuMerge.offerSkuMerge(sErr, storageSku, {
+            pendingItemPatch: itemPatch,
+            retrySave: saveDraft,
+          })
+        )
+          return null;
         throw sErr;
       }
 
@@ -1513,13 +1525,33 @@ export function FlipdeskComposerPage({
       // the seller cannot see.
       const titlePatch = titleSyncPatchFor(false);
 
-      if (item.listing_id) {
+      // US-2445: `item` can be a render behind on the post-merge retry. The SKU
+      // merge re-points the absorbed record's listings onto THIS item, so an
+      // item that had no listing when the save first ran may own one by the time
+      // it runs again. Trusting the closed-over null here would take the insert
+      // branch and create a SECOND listings row — the exact orphaning the
+      // comment above describes, reached by a path that did not exist when it
+      // was written. Resolve it from the table instead.
+      let targetListingId = item.listing_id;
+      if (!targetListingId) {
+        const { data: adopted } = await supabase
+          .from("listings")
+          .select("id")
+          .eq("inventory_item_id", item.id)
+          .eq("platform", "ebay")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        targetListingId = (adopted as { id: string } | null)?.id ?? null;
+      }
+
+      if (targetListingId) {
         const { error } = await supabase
           .from("listings")
           .update({ ...payload, ...titlePatch } as never)
-          .eq("id", item.listing_id);
+          .eq("id", targetListingId);
         if (error) throw error;
-        listingId = item.listing_id;
+        listingId = targetListingId;
       } else {
         const { data: created, error } = await supabase
           .from("listings")
@@ -1532,7 +1564,9 @@ export function FlipdeskComposerPage({
       }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
-      await qc.invalidateQueries({ queryKey: ["listing", item.listing_id] });
+      // The row we actually wrote, which on a post-merge retry is not
+      // necessarily the one this render knew about.
+      await qc.invalidateQueries({ queryKey: ["listing", listingId] });
       await qc.invalidateQueries({
         queryKey: ["inventory_item_ebay", item.id],
       });
@@ -1542,7 +1576,7 @@ export function FlipdeskComposerPage({
         ...syncCascadedCategory(itemPatch),
         ...adoptSyncedTitle(titlePatch),
       });
-      toast.success(item.listing_id ? "Saved." : "Draft saved.");
+      toast.success(targetListingId ? "Saved." : "Draft saved.");
       return listingId;
     } catch (err) {
       toast.error(`Save failed: ${errorMessage(err)}`);
@@ -1869,7 +1903,17 @@ export function FlipdeskComposerPage({
         .update(itemPatch as never)
         .eq("id", item.id);
       if (sErr) {
-        if (await skuMerge.offerSkuMerge(sErr, storageSku)) return null;
+        // US-2445: same recovery as the draft path. This one matters more — a
+        // LIVE listing whose title edit is dropped goes on to be pushed to eBay
+        // by handleResubmitClick, so buyers keep reading the old words and the
+        // synced sheet agrees with them.
+        if (
+          await skuMerge.offerSkuMerge(sErr, storageSku, {
+            pendingItemPatch: itemPatch,
+            retrySave: saveLiveListing,
+          })
+        )
+          return null;
         throw sErr;
       }
       // US-1995: isLive, so the substitution lands but the listing is flagged
@@ -2927,13 +2971,10 @@ export function FlipdeskComposerPage({
           existing={skuMerge.mergeState.existing}
           merging={skuMerge.merging}
           onCancel={skuMerge.cancelMerge}
-          onConfirm={(overrides) =>
-            void skuMerge.confirmMerge(overrides, {
-              // The rolled-back save never committed these.
-              location_bin: storageLocation.trim() || null,
-              container: storageContainer.trim() || null,
-            })
-          }
+          // US-2445: no hand-listed extraPatch. The save that collided is
+          // re-run in full after the merge, so every column it was writing is
+          // restored — this used to name two of them and drop the rest.
+          onConfirm={(overrides) => void skuMerge.confirmMerge(overrides)}
         />
       )}
     </div>
