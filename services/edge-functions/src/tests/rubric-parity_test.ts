@@ -18,6 +18,7 @@ import {
   rubricWeightSum,
 } from "../lib/rubric.ts";
 import { coerceDefectType, DEFECT_TYPES } from "../lib/defect-weighting.ts";
+import { PHOTO_PROFILES } from "../lib/photo-profiles.ts";
 import {
   computeWeightedOverall,
   type FactorScores as ColumnFactorScores,
@@ -272,3 +273,53 @@ for (const [i, c] of WEIGHTED_FIXTURE.cases.entries()) {
     assertEquals(viaRubric, c.expected_overall);
   });
 }
+
+// ── US-2225: a rubric key that no item can ever carry is a dead rubric ───────
+//
+// THIS IS THE GUARD THAT WAS MISSING. The handbag rubric shipped keyed
+// "handbags" while the item_category enum (00230) spells it "bags", so
+// rubricForKey(item_category) would have fallen through to CLOTHING forever —
+// a bag graded on fabric condition at 30%, which is the exact bug the story
+// exists to fix, reintroduced by the fix. Nothing failed: the rubric existed,
+// the parity fixture passed, and the certificate rendered clothing factors.
+//
+// The photo-profile table is the right thing to check against because its keys
+// ARE the item_category vocabulary — it is the one place in the edge service
+// that enumerates them.
+
+Deno.test("US-2225: every rubric key is a real item_category", () => {
+  for (const key of Object.keys(RUBRICS)) {
+    assert(
+      key in PHOTO_PROFILES,
+      `rubric "${key}" matches no item_category. rubricForKey() is called with ` +
+        `an item_category, so this rubric can never be selected and every item ` +
+        `it was written for silently grades as clothing.`,
+    );
+  }
+});
+
+Deno.test("US-2225: a category with its own rubric has photo slots for its heaviest factors", () => {
+  // A rubric that weights an area it never asks the seller to photograph is
+  // asking the grader to judge from evidence that does not exist. Checked for
+  // the top TWO factors rather than all of them: the tail factors are often
+  // legitimately read off the main shots (a bag's structure shows in the front
+  // photo), but the heaviest one cannot be.
+  const REQUIRE_SLOTS: Record<string, string[]> = {
+    // corners_edges (0.30) needs the corner macro; exterior (0.20) is the front
+    // and back shots, which every profile already requires.
+    bags: ["corner"],
+  };
+  for (const [category, slots] of Object.entries(REQUIRE_SLOTS)) {
+    const profile = PHOTO_PROFILES[category];
+    assert(profile, `no photo profile for ${category}`);
+    const have = new Set(profile.roles.map((r) => r.type as string));
+    for (const slot of slots) {
+      assert(
+        have.has(slot),
+        `${category} weights a factor that needs the "${slot}" photo slot, and ` +
+          `the profile does not offer one — the seller is never asked for the ` +
+          `evidence the grade depends on most.`,
+      );
+    }
+  }
+});

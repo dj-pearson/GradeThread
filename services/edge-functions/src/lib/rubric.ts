@@ -219,7 +219,7 @@ const SHOES: Rubric = {
 // test-asserted separately (US-2225 AC3) — the prompt alone is not the guard,
 // because a prompt is a request and the rendered page is a claim.
 const HANDBAGS: Rubric = {
-  key: "handbags",
+  key: "bags",
   label: "Handbag & leather goods",
   factors: [
     { key: "corners_edges", label: "Corners & Edges", weight: 0.3, guidance: "Corner wear through to the substrate, edge-paint (glazing) cracking, chipping or loss along every seam and piping run." },
@@ -262,7 +262,7 @@ export const RUBRICS: Record<string, Rubric> = {
   sports_cards: SPORTS_CARDS,
   watches: WATCHES,
   shoes: SHOES,
-  handbags: HANDBAGS,
+  bags: HANDBAGS,
 };
 
 /** Item categories that have a dedicated non-clothing rubric ready to activate. */
@@ -270,7 +270,7 @@ export const NON_CLOTHING_RUBRIC_KEYS = [
   "sports_cards",
   "watches",
   "shoes",
-  "handbags",
+  "bags",
 ] as const;
 
 /**
@@ -283,7 +283,7 @@ export const NON_CLOTHING_RUBRIC_KEYS = [
  * renders a grade for one of these must carry the separation; the rendered copy
  * is asserted, not just the prompt that asks for it.
  */
-export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS = ["handbags"] as const;
+export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS = ["bags"] as const;
 
 /**
  * The fixed line that keeps a condition grade from reading as an authenticity

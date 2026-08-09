@@ -252,6 +252,36 @@ const BOOKS: PhotoProfile = {
   ],
 };
 
+// US-2225 AC2: the slots a bag's GRADE actually turns on.
+//
+// The old profile asked for front, back, brand stamp, serial, interior, one
+// catch-all "Hardware" detail and extras. That set was built for LISTING a bag
+// and for authenticating one; it never asked for the two areas the bags rubric
+// weights most heavily. Corners and edge paint carry 30% of the score and had
+// no slot at all, so the grader was being asked to judge them from a full-front
+// shot that physically cannot resolve corner wear — and the seller was never
+// told to photograph them.
+//
+// The three additions map onto rubric factors one-for-one:
+//   corner  → corners_edges (0.30)  the single heaviest factor
+//   surface → structure     (0.10)  the base, where sag and corner collapse show
+//   detail_2 → handles_straps (0.15) darkening and cracking at the anchor points
+//
+// `corner` and `surface` are existing storage roles from 00230, not new ones,
+// and `corner` already carries an 800px floor plus the 0.30 sharpness gate in
+// macro-photo-quality.ts — so it is treated as a macro slot the moment it is
+// offered, with no further wiring.
+//
+// HANDLES USE detail_2, NOT accessory. `accessory` means the dust bag and the
+// papers; putting a handle close-up there would file evidence about the item
+// under evidence about what came WITH the item, and the grader reads the two
+// differently.
+//
+// Only front, back and the brand stamp stay REQUIRED. Making six slots required
+// would block a seller from advancing an item they have already photographed
+// well enough to list, which is a different question from whether the grade
+// will be confident — image-quality.ts already caps confidence on a thin set,
+// which is the right instrument for "we could not see the corners".
 const BAGS: PhotoProfile = {
   category: "bags",
   label: "Bags",
@@ -259,9 +289,12 @@ const BAGS: PhotoProfile = {
     role("front", "Front", "Full front, upright", true, "shopping-bag"),
     role("back", "Back", "Full back", true, "shopping-bag"),
     role("marking", "Brand Stamp", "Heat stamp / logo plate", true, "stamp"),
-    role("serial", "Date / Serial Code", "Date code or serial tag", false, "hash"),
+    role("corner", "Corners & Edges", "Close on one bottom corner and the edge paint — the heaviest part of the grade", false, "scan"),
+    role("detail_2", "Handles & Straps", "Handle wrap and strap anchor points, close enough to see darkening or cracking", false, "search"),
+    role("detail", "Hardware", "Zippers, clasps, feet — close enough to see plating wear", false, "search"),
+    role("surface", "Base", "The bottom of the bag, flat on, showing sag and corner collapse", false, "layout-grid"),
     role("interior", "Interior", "Lining, pockets, interior tags", false, "layers"),
-    role("detail", "Hardware", "Zippers, clasps, feet, handles", false, "search"),
+    role("serial", "Date / Serial Code", "Date code or serial tag", false, "hash"),
     role("accessory", "Dust Bag / Extras", "Dust bag, strap, papers", false, "package"),
     DEFECT,
   ],

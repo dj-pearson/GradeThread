@@ -945,7 +945,7 @@ export function CertificatePage() {
                 sits INSIDE the breakdown card, above the factors, rather than
                 in a footer: the separation has to be adjacent to the number it
                 qualifies, or it is a disclaimer nobody reaches. */}
-            {needsAuthenticitySeparation(activeRubric.key) && (
+            {needsAuthenticitySeparation(gradeReport.rubric_key) && (
               <p className="rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
                 {CONDITION_NOT_AUTHENTICITY_DISCLOSURE}
               </p>

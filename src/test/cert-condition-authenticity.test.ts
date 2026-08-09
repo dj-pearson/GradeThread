@@ -51,8 +51,8 @@ describe("US-2225 AC3: the separation exists and says the right thing", () => {
   });
 
   it("covers handbags — the rubric the authenticity packs actually target", () => {
-    expect(spaNeeds("handbags")).toBe(true);
-    expect(ssrNeeds("handbags")).toBe(true);
+    expect(spaNeeds("bags")).toBe(true);
+    expect(ssrNeeds("bags")).toBe(true);
   });
 
   it("does NOT fire for clothing, so existing certificates are unchanged", () => {
@@ -70,7 +70,7 @@ describe("US-2225 AC3: the separation exists and says the right thing", () => {
 
 describe("US-2225 AC3: it is rendered, not merely defined", () => {
   it("the SSR page emits the notice for a handbag certificate", () => {
-    const html = conditionAuthenticityNoticeHtml("handbags");
+    const html = conditionAuthenticityNoticeHtml("bags");
     expect(html).toContain("condition grade only");
     expect(html).toContain("authentic");
   });
@@ -95,15 +95,33 @@ describe("US-2225 AC3: it is rendered, not merely defined", () => {
     const cardStart = CERT_SPA.indexOf("Factor Breakdown");
     expect(cardStart).toBeGreaterThan(-1);
     const card = CERT_SPA.slice(cardStart, cardStart + 1600);
-    expect(card).toContain("needsAuthenticitySeparation(activeRubric.key)");
     expect(card).toContain("CONDITION_NOT_AUTHENTICITY_DISCLOSURE");
+  });
+
+  it("both surfaces key the notice on rubric_key ALONE, not on the resolved rubric", () => {
+    // The SPA's activeRubric only becomes "bags" when BOTH factor_scores and
+    // rubric_key are present — the breakdown deliberately falls back to
+    // clothing otherwise, so it can render the typed columns. Keying the
+    // DISCLAIMER on that would drop it on exactly the bag whose factor JSON did
+    // not land, while the SSR page (which keys on rubric_key) still showed it.
+    // That SPA-vs-SSR divergence is the failure class
+    // vault/20-domain/public-certificate-read-paths.md was written about.
+    //
+    // rubric_key alone is also the correct condition on its own terms: a bag
+    // graded off the typed columns is still a bag.
+    const cardStart = CERT_SPA.indexOf("Factor Breakdown");
+    const card = CERT_SPA.slice(cardStart, cardStart + 1800);
+    expect(card).toContain("needsAuthenticitySeparation(gradeReport.rubric_key)");
+    expect(card).not.toContain("needsAuthenticitySeparation(activeRubric");
+    expect(CERT_SSR).toContain("conditionAuthenticityNoticeHtml(");
+    expect(CERT_SSR).toContain("rubric_key");
   });
 });
 
 describe("US-2225 AC1: the handbags rubric is real and coherent", () => {
   it("exists on the client with weights summing to exactly 1", () => {
-    const r = rubricForKey("handbags");
-    expect(r.key).toBe("handbags");
+    const r = rubricForKey("bags");
+    expect(r.key).toBe("bags");
     const total = r.factors.reduce((s, f) => s + f.weight, 0);
     // Float-safe: 0.3 + 0.2 + 0.15 + 0.15 + 0.1 + 0.1 does not land on 1
     // exactly in IEEE 754, and a strict equality here would be a test that
@@ -116,7 +134,7 @@ describe("US-2225 AC1: the handbags rubric is real and coherent", () => {
     // area and the most expensive to restore, so it must outweigh every other
     // factor. A rubric that spread the weight evenly would be the clothing
     // problem in new clothes.
-    const r = rubricForKey("handbags");
+    const r = rubricForKey("bags");
     const sorted = [...r.factors].sort((a, b) => b.weight - a.weight);
     expect(sorted[0]!.key).toBe("corners_edges");
     expect(sorted[0]!.weight).toBeGreaterThan(sorted[1]!.weight);

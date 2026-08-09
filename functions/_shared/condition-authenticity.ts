@@ -23,7 +23,7 @@
 import { escape } from "./blog-render";
 
 /** Rubrics whose items collide with the authenticity add-on. */
-export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS: readonly string[] = ["handbags"];
+export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS: readonly string[] = ["bags"];
 
 /**
  * The fixed separation line. Never model-authored — like the AI disclosure, the

@@ -21,7 +21,7 @@
     "src/lib/__tests__/rubrics.test.ts."
   ],
   "rubrics": {
-    "handbags": {
+    "bags": {
       "label": "Handbag & leather goods",
       "factors": [
         { "key": "corners_edges", "label": "Corners & Edges", "weight": 0.3 },

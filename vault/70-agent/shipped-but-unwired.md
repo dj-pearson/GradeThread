@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/reconcile-fields.ts
   - services/edge-functions/src/lib/rubric.ts
   - src/test/no-dead-column-writes.test.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, and one was assumed correct because being unwired hid a broken table — telling the shapes apart is the point.
 ---
@@ -187,6 +187,22 @@ and every split sums to 1.0 over its own rubric's factors. The card/watch
 vocabulary with no honest taxonomy equivalent was **not** faked; extending
 `DefectType` is a prompt change (the vision model is given the enum), so it
 goes through the eval gate in Phase 2.
+
+**2026-08-09 — a fifth rubric, and a second way to be dead.** US-2225 added
+a `bags` rubric and it shipped keyed `handbags`. The `item_category` enum
+(00230) spells it `bags`, and `rubricForKey()` is called with an item_category,
+so that rubric could never have been selected — every handbag would have kept
+grading as clothing, which is the exact bug the story existed to fix,
+reintroduced by the fix. Nothing failed: the rubric existed, the parity fixture
+passed, the certificate rendered clothing factors.
+
+That is a DIFFERENT deadness from the one this page catalogues. The
+import-graph audit finds modules nothing imports; this module IS imported, and
+the dead thing was a KEY inside a lookup table. No import graph can see that.
+The guard is now `rubric-parity_test.ts`: every key in `RUBRICS` must exist in
+`PHOTO_PROFILES`, whose keys ARE the item_category vocabulary. Generalisable —
+when reachability depends on a string matching a value declared somewhere else,
+pin the two together, because both halves look correct in isolation.
 
 Still unwired into the pipeline, still correct that it is. See
 [[blocked-work-gates]] for what Phase 2 is actually waiting on.

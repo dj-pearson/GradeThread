@@ -41,7 +41,7 @@ export interface Rubric {
  *
  * Mirrors AUTHENTICITY_ADJACENT_RUBRIC_KEYS in the server rubric module.
  */
-export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS: readonly string[] = ["handbags"];
+export const AUTHENTICITY_ADJACENT_RUBRIC_KEYS: readonly string[] = ["bags"];
 
 /**
  * The fixed line that keeps a condition grade from reading as an authenticity
@@ -71,8 +71,8 @@ export const RUBRICS: Record<string, Rubric> = {
   clothing: CLOTHING_RUBRIC,
   // US-2225. Mirrors the server rubric; the weights' reasoning lives there.
   // Pinned by src/test/fixtures/rubric-factors.json, asserted by both suites.
-  handbags: {
-    key: "handbags",
+  bags: {
+    key: "bags",
     label: "Handbag & leather goods",
     factors: [
       { key: "corners_edges", label: "Corners & Edges", weight: 0.3 },
