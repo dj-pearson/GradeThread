@@ -36,7 +36,8 @@ export type MarketplacePlatform =
   | "shopify"
   | "etsy"
   | "whatnot"
-  | "vinted";
+  | "vinted"
+  | "facebook";
 
 // How a listing actually reaches the platform.
 //   api       — official write API (push) available
@@ -387,6 +388,39 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
     sourceNote:
       "Vinted seller UI (2026-06): title ~60, description ~3000, up to 20 photos, own catalog tree, 5-step condition. No public API — extension/manual only. VERIFY.",
   },
+  // US-2480. Marketplace's condition list is the shortest of any channel we
+  // support — five values, and "New" means unused rather than new-with-tags, so
+  // the bucket map below deliberately collapses both NEW_* buckets onto it
+  // rather than inventing a distinction Facebook does not have.
+  facebook: {
+    platform: "facebook",
+    label: "Facebook Marketplace",
+    pushMechanism: "extension", // No public write API — Lister extension (US-2480)
+    titleMaxLength: 100,
+    descriptionMaxLength: 5000,
+    maxPhotos: 20,
+    conditions: [
+      { value: "New", label: "New" },
+      { value: "Used - like new", label: "Used · like new" },
+      { value: "Used - good", label: "Used · good" },
+      { value: "Used - fair", label: "Used · fair" },
+    ],
+    tags: { max: 20, required: false, help: "Product tags aid Marketplace search" },
+    usesOwnTaxonomy: true, // Marketplace category tree
+    brandAllowList: false,
+    fields: [
+      TITLE(100),
+      DESCRIPTION(5000),
+      { key: "category", label: "Category", required: true },
+      { key: "condition", label: "Condition", required: true },
+      { key: "price", label: "Price", required: true },
+      { key: "brand", label: "Brand", required: false },
+      { key: "size", label: "Size", required: false },
+      { key: "color", label: "Color", required: false },
+    ],
+    sourceNote:
+      "Facebook Marketplace create-item dialog (2026-08): title ~100, description ~5000, up to 20 photos, own category tree, 4-step condition with no new-with-tags distinction. No public write API — extension/manual only. VERIFY.",
+  },
 };
 
 /** All specced platforms. */
@@ -500,6 +534,19 @@ const CONDITION_BY_BUCKET: Record<
     GOOD: "Good",
     ACCEPTABLE: "Satisfactory",
     POOR: "Satisfactory",
+  },
+  // US-2480: Marketplace has no new-with-tags value, so both NEW_* buckets map
+  // to "New". Mapping NEW_WITHOUT_TAGS to "Used - like new" would be the more
+  // literal reading and the wrong one — an unworn garment listed as used prices
+  // itself down for no reason.
+  facebook: {
+    NEW_WITH_TAGS: "New",
+    NEW_WITHOUT_TAGS: "New",
+    EXCELLENT: "Used - like new",
+    VERY_GOOD: "Used - good",
+    GOOD: "Used - good",
+    ACCEPTABLE: "Used - fair",
+    POOR: "Used - fair",
   },
 };
 

@@ -70,7 +70,8 @@ research/            buyer overlay  (selectors.js, image-utils.js, condition-for
                      `node scripts/gen-extension-overlay-css.mjs` and is what the
                      shadow roots adopt — the manifest injects no document CSS.
 compare.html/js/css  the side-by-side view for the pinned tray (US-2240)
-lister/              seller Lister  (selectors.js, lister-guard.js, common.js, poshmark/mercari/grailed.js)
+lister/              seller Lister  (selectors.js, lister-guard.js, common.js, job-store.js,
+                     poshmark/mercari/grailed/vinted/facebook.js)
 icons/               shared icon set
 test/                zero-dep node guards (run in verify:web via scripts/test-extensions.mjs)
 ```
@@ -106,6 +107,50 @@ The popup's **Sign in** button opens `gradethread.com/connect-extension?ext=<id>
 to launch this flow. *(The `/connect-extension` frontend page is the remaining
 half — it mints the token and posts `GT_SET_TOKEN` back. The extension side is
 complete.)*
+
+## Why the Lister runs in your browser at all
+
+Recorded once, in
+[`vault/60-decisions/adr-no-server-side-marketplace-automation.md`](../vault/60-decisions/adr-no-server-side-marketplace-automation.md)
+(US-2476): GradeThread's servers never hold a marketplace password or session
+cookie for a no-API channel, and GradeThread never solves a CAPTCHA. The ADR
+also states what that costs — your desktop browser has to be open, which
+US-2481's mobile queue softens rather than removes. Adding a new channel follows
+[`vault/30-platform/closing-a-coverage-gap.md`](../vault/30-platform/closing-a-coverage-gap.md).
+
+## Lister rollout — which channels actually run
+
+Listing flows ship one marketplace at a time. `enabled` in `lister/selectors.js`
+is the switch, and it is **not** the same question as the channel's tier in
+`src/lib/constants.ts`: the tier says how a channel is reached, `enabled` says
+whether the flow runs today. They used to disagree silently, which is how three
+channels advertised "Connect via browser extension" while every attempt reported
+"list manually for now". `MARKETPLACE_EXTENSION_FLOW` now mirrors this column and
+`marketplace-mechanism.test.ts` fails the build if the two drift.
+
+| Phase | Marketplace | Status | Notes |
+|---|---|---|---|
+| 1 | Poshmark | **Enabled** | Verified 2026-06-13 |
+| 2 | Mercari | Awaiting live verification | Selectors written; the React SPA rewrites field ids often, so re-check before enabling |
+| 3 | Grailed | Awaiting live verification | Selectors written |
+| 4 | Vinted (US-2479) | Awaiting live verification | 22 country domains; an uncovered locale reports "list manually" rather than guessing |
+| 5 | Facebook Marketplace (US-2480) | Awaiting live verification | ARIA-anchored selectors — Marketplace's class names are hashed and churn every deploy |
+
+A disabled target reports a clear "list manually for now" message instead of
+guessing at the form. When a flow succeeds, GradeThread writes one `listings` row
+(`platform=…`, `listing_url`) so the item shows as cross-listed.
+
+**Enabling a channel needs a human with a logged-in account** — the sell form is
+behind auth everywhere, so this is the one step CI cannot do. Run:
+
+```bash
+node scripts/verify-lister-selectors.mjs --checklist mercari   # what to check
+node scripts/verify-lister-selectors.mjs                       # the invariants gate
+```
+
+The gate refuses `enabled: true` with a null `lastVerified` or a `-draft`
+version, so a flow cannot claim a verification that never happened. Full process:
+[`vault/30-platform/closing-a-coverage-gap.md`](../vault/30-platform/closing-a-coverage-gap.md).
 
 ## Privacy posture (rewritten for the merged permission set — US-1872 AC4)
 

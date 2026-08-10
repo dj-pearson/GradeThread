@@ -30,11 +30,15 @@
 A Chrome (Manifest V3) extension that lists your FlipDesk drafts to
 **Poshmark, Mercari, and Grailed** from **your own logged-in browser session**.
 
-None of those three marketplaces has a developer *write* API, and server-side
-automation (driving them from GradeThread's servers with stored cookies) is a
-ban + legal risk (ToS, CFAA/DMCA — see `vault/60-decisions/adr-poshmark-via-extension.md`
-and US-715). The user-side extension is the model Vendoo / List Perfectly use
-and is the only realistic path for these channels.
+None of those three marketplaces has a developer *write* API. **Why we reach
+them from your browser instead of from our servers — and the two lines we will
+not cross — is one decision, recorded once:**
+[`vault/60-decisions/adr-no-server-side-marketplace-automation.md`](../vault/60-decisions/adr-no-server-side-marketplace-automation.md)
+(US-2476), which extends the original per-marketplace call in
+[`adr-poshmark-via-extension.md`](../vault/60-decisions/adr-poshmark-via-extension.md)
+(US-715). The process for adding a channel lives in
+[`vault/30-platform/closing-a-coverage-gap.md`](../vault/30-platform/closing-a-coverage-gap.md).
+Don't restate the reasoning here — a second copy is a copy that goes stale.
 
 ## Privacy guarantee (and how it's enforced)
 
@@ -67,11 +71,16 @@ create (the same clickwrap pattern as US-377). Acceptance is stored locally
 
 Listing flows ship one marketplace at a time (`enabled` flag in `selectors.js`):
 
+This folder is DEPRECATED and carries only the three original channels. The
+shipping rollout table — including Vinted and Facebook Marketplace, which are
+never coming here — lives in
+[`extension-unified/README.md`](../extension-unified/README.md).
+
 | Phase | Marketplace | Status |
 |-------|-------------|--------|
 | 1 | Poshmark | **Enabled** |
-| 2 | Mercari  | Coming soon (selectors flagged off) |
-| 3 | Grailed  | Coming soon (selectors flagged off) |
+| 2 | Mercari  | Awaiting live verification (selectors flagged off) |
+| 3 | Grailed  | Awaiting live verification (selectors flagged off) |
 
 A disabled target reports a clear "list manually for now" message instead of
 guessing at the form. When a flow succeeds, GradeThread writes one `listings`

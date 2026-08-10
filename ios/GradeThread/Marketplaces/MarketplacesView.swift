@@ -171,6 +171,58 @@ struct MarketplacesView: View {
         let tier: ChannelTier
     }
 
+    // US-2475: per-channel automation risk disclosure.
+    //
+    // MIRRORS `marketplaceDisclosureFor` in src/lib/constants.ts — the web copy
+    // is the source, this is the hand-mirror (same pattern as ChannelTier.badge
+    // mirroring MARKETPLACE_TIER_LABEL). Change the TypeScript first; a
+    // difference in wording between the two clients is the bug this exists to
+    // prevent, because a seller who reads one and acts on the other has been
+    // told two different things about who is responsible for their account.
+    //
+    // Bright lines behind the extension wording:
+    // vault/60-decisions/adr-no-server-side-marketplace-automation.md.
+    private enum ChannelDisclosure {
+        static func facts(for channel: MarketplaceChannel) -> [String] {
+            let label = channel.label
+            var facts: [String]
+            switch channel.tier {
+            case .api:
+                facts = [
+                    "GradeThread connects to \(label) through its authorized developer API, under \(label)'s own developer terms.",
+                    "You grant access by signing in on \(label) itself. GradeThread holds a revocable access token, never your password.",
+                    "\(label) sees GradeThread as the registered application it approved, so this is a sanctioned integration rather than automation of your session.",
+                ]
+            case .listingKit:
+                facts = [
+                    "\(label)'s terms restrict third-party automation. Plenty of sellers use tools like this one, and \(label) can still limit an account it decides is automated.",
+                    "The actions run in your own browser, in the \(label) tab you are already signed in to. Nothing about \(label) runs on GradeThread's servers.",
+                    "GradeThread's servers never receive your \(label) password or session cookie.",
+                    "Your account, your responsibility. If \(label) limits it, GradeThread cannot appeal on your behalf.",
+                ]
+            case .comingSoon:
+                facts = [
+                    "GradeThread does not connect to \(label). Nothing is automated and nothing about your \(label) account is linked.",
+                ]
+            }
+            if let note = note(for: channel.id) { facts.append(note) }
+            return facts
+        }
+
+        private static func note(for id: String) -> String? {
+            switch id {
+            case "poshmark":
+                return "Sharing, following and sending offers are capped and metered, and the extension shows how much of today's cap you have used. Going past what Poshmark tolerates puts a closet in share jail, where shares stop reaching buyers."
+            case "vinted":
+                return "Vinted is EU-first. The flow runs on the country domains the extension covers and reports \u{201C}list manually\u{201D} on any other rather than guessing at a form it has not seen."
+            case "facebook":
+                return "Meta's platform terms restrict automated interaction with Marketplace. The flow only ever touches the listing form in your own signed-in session."
+            default:
+                return nil
+            }
+        }
+    }
+
     private static let phasedChannels: [MarketplaceChannel] = [
         .init(id: "shopify", label: "Shopify", systemImage: "cart", tier: .api),
         .init(id: "poshmark", label: "Poshmark", systemImage: "bag", tier: .listingKit),
@@ -193,29 +245,46 @@ struct MarketplacesView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
             ForEach(Self.phasedChannels) { channel in
-                HStack(spacing: 12) {
-                    Image(systemName: channel.systemImage)
-                        .scaledIconFont(size: 18, maxSize: 28)  // US-1411
-                        .foregroundStyle(.secondary)
-                        .frame(width: 36, height: 36)
-                        .background(Color.secondary.opacity(0.12))
-                        .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
-                    Text(channel.label)
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.primary)
-                    Spacer()
-                    Text(channel.tier.badge)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Color.brandNavy)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color.brandNavy.opacity(0.12))
-                        .clipShape(Capsule())
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 12) {
+                        Image(systemName: channel.systemImage)
+                            .scaledIconFont(size: 18, maxSize: 28)  // US-1411
+                            .foregroundStyle(.secondary)
+                            .frame(width: 36, height: 36)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
+                        Text(channel.label)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Text(channel.tier.badge)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.brandNavy)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color.brandNavy.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    // US-2475: the risk statement is on the screen, not in a
+                    // README. Collapsed by default so the list stays readable,
+                    // but it is one tap away and it is never absent.
+                    DisclosureGroup("What this does, and what it risks") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(ChannelDisclosure.facts(for: channel), id: \.self) { fact in
+                                Text("• \(fact)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                        }
+                        .padding(.top, 6)
+                    }
+                    .font(.caption.weight(.medium))
+                    .tint(Color.brandNavy)
                 }
                 .padding(12)
                 .cardStyle(.flush)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("\(channel.label), \(channel.tier.badge)")
+                .accessibilityHint("\(channel.label), \(channel.tier.badge)")
             }
         }
     }

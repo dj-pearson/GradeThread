@@ -10,6 +10,9 @@ import {
   MARKETPLACE_MECHANISM,
   MARKETPLACE_TIER,
   MARKETPLACE_TIER_LABEL,
+  MARKETPLACE_EXTENSION_FLOW,
+  MARKETPLACE_FLOW_LABEL,
+  marketplaceDisclosureFor,
 } from "@/lib/constants";
 
 // US-717: the composer + Marketplaces UI read MARKETPLACE_MECHANISM to show each
@@ -165,6 +168,160 @@ describe("MARKETPLACE_TIER (US-718)", () => {
       if (tier === "api" || tier === "api_pending") expect(mech).toBe("api");
       if (tier === "extension") expect(mech).toBe("extension");
       if (tier === "coming_soon") expect(mech).toBe("none");
+    }
+  });
+});
+
+// US-2477..US-2480: the flow-status constant must match the extension's own
+// `enabled` flags.
+//
+// THE DEFECT THIS CATCHES. MARKETPLACE_TIER said "Connect via browser
+// extension" for Mercari, Grailed and Vinted while all three sat at
+// `enabled: false` in the extension's selectors — so the UI advertised a
+// capability that reported "list manually for now" on every attempt, and
+// nothing in the repo tied the two facts together. The frontend cannot import
+// an extension content script, so the file is parsed instead. Same technique as
+// the adapter-stub check above, and for the same reason: the claim is verified
+// against the thing that implements it, not against another constant that can
+// drift alongside it.
+describe("extension flow status matches the shipped selectors (US-2477..US-2480)", () => {
+  const SELECTORS_PATH = resolve(
+    process.cwd(),
+    "extension-unified/lister/selectors.js",
+  );
+
+  /** Evaluate the bundled selectors file and hand back its config object. */
+  function loadSelectors(): Record<string, { enabled: boolean; lastVerified: string | null }> {
+    const src = readFileSync(SELECTORS_PATH, "utf8");
+    const ctx: Record<string, unknown> = {};
+    // The file assigns to `self`; give it one and read the global back.
+    new Function("self", `${src}; return self.GT_LISTER_SELECTORS;`)(ctx);
+    return ctx.GT_LISTER_SELECTORS as ReturnType<typeof loadSelectors>;
+  }
+
+  const selectors = loadSelectors();
+
+  /** The entry for a channel, or a diagnosis of why it isn't there. */
+  function entry(p: string) {
+    const e = selectors[p];
+    if (!e) throw new Error(`extension-unified/lister/selectors.js has no "${p}" entry`);
+    return e;
+  }
+
+  it("every extension channel has a selectors entry", () => {
+    for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
+      expect(
+        selectors[p],
+        `${p} is advertised as an extension channel but has no entry in ` +
+          `extension-unified/lister/selectors.js — the seller would get ` +
+          `"unsupported marketplace" from a channel the UI offered them`,
+      ).toBeDefined();
+    }
+  });
+
+  it("'live' means enabled in the extension, and 'verifying' means not", () => {
+    for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
+      const expected = entry(p).enabled ? "live" : "verifying";
+      expect(
+        MARKETPLACE_EXTENSION_FLOW[p],
+        `MARKETPLACE_EXTENSION_FLOW.${p} says "${MARKETPLACE_EXTENSION_FLOW[p]}" but ` +
+          `selectors.js has enabled: ${entry(p).enabled}. Flipping a channel on ` +
+          `is both edits or neither.`,
+      ).toBe(expected);
+    }
+  });
+
+  it("an enabled flow has a verification date", () => {
+    // `enabled: true` with `lastVerified: null` is the specific lie this blocks:
+    // it claims a human checked the live sell form when nobody did, and the
+    // failure shows up as a half-filled form on a seller's real listing.
+    for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
+      if (!entry(p).enabled) continue;
+      expect(
+        entry(p).lastVerified,
+        `${p} is enabled but lastVerified is null — enable a flow only after ` +
+          `re-checking every required selector against the live sell form`,
+      ).toBeTruthy();
+    }
+  });
+
+  it("every flow status has a label", () => {
+    for (const p of EXTENSION_CROSS_LISTING_PLATFORMS) {
+      expect(MARKETPLACE_FLOW_LABEL[MARKETPLACE_EXTENSION_FLOW[p]]).toBeTruthy();
+    }
+  });
+});
+
+// US-2475: every channel must carry an on-screen automation risk disclosure.
+//
+// This is the guard the story exists for. The failure mode it blocks is not
+// "the copy is bad" — it is a platform being added to MARKETPLACE_MECHANISM,
+// shipped to the Marketplaces screen, and telling the seller nothing about
+// where the automation runs or whose account is on the line. That is a thing a
+// seller finds out about afterwards, which is too late to be a decision.
+describe("per-channel automation risk disclosure (US-2475)", () => {
+  it("every mechanism key has disclosure copy", () => {
+    for (const p of LISTING_PLATFORMS) {
+      const d = marketplaceDisclosureFor(p);
+      expect(d.title, `${p} has no disclosure title`).toBeTruthy();
+      expect(d.facts.length, `${p} has no disclosure facts`).toBeGreaterThan(0);
+      for (const fact of d.facts) {
+        expect(fact.length, `${p} has an empty disclosure fact`).toBeGreaterThan(20);
+        // A leaked placeholder means the substitution missed a channel, which
+        // would ship "{label}'s terms restrict…" to a real seller.
+        expect(fact, `${p} disclosure still contains a raw placeholder`).not.toContain(
+          "{label}",
+        );
+      }
+    }
+  });
+
+  it("extension channels state all four required facts", () => {
+    // The four are: the terms restrict third-party automation; it runs in the
+    // seller's own browser/session; our servers never get the password or
+    // cookie; the seller owns the account. Asserted by meaning-bearing phrase
+    // rather than by index, so reordering the bullets is allowed and dropping
+    // one is not.
+    const REQUIRED = [
+      /terms restrict third-party automation/i,
+      /your own browser/i,
+      /never receive your .* password or session cookie/i,
+      /your account, your responsibility/i,
+    ];
+    const extensionChannels = LISTING_PLATFORMS.filter(
+      (p) => MARKETPLACE_MECHANISM[p] === "extension",
+    );
+    expect(extensionChannels.length).toBeGreaterThan(0);
+    for (const p of extensionChannels) {
+      const blob = marketplaceDisclosureFor(p).facts.join(" ");
+      for (const rule of REQUIRED) {
+        expect(blob, `${p} disclosure is missing: ${rule}`).toMatch(rule);
+      }
+    }
+  });
+
+  it("API channels name the developer terms and link to /trademarks", () => {
+    const apiChannels = LISTING_PLATFORMS.filter(
+      (p) => MARKETPLACE_MECHANISM[p] === "api",
+    );
+    expect(apiChannels.length).toBeGreaterThan(0);
+    for (const p of apiChannels) {
+      const d = marketplaceDisclosureFor(p);
+      expect(d.facts.join(" "), `${p} does not name the developer terms`).toMatch(
+        /authorized developer API/i,
+      );
+      expect(d.href, `${p} does not link to the trademark page`).toBe("/trademarks");
+    }
+  });
+
+  it("no channel claims server-side automation for an extension mechanism", () => {
+    // The US-2476 bright line, asserted against the copy a seller actually
+    // reads: an extension channel may never be described as running anywhere
+    // but the seller's own browser.
+    for (const p of LISTING_PLATFORMS) {
+      if (MARKETPLACE_MECHANISM[p] !== "extension") continue;
+      const blob = marketplaceDisclosureFor(p).facts.join(" ");
+      expect(blob).toMatch(/nothing about .* runs on GradeThread's servers/i);
     }
   });
 });

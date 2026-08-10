@@ -98,6 +98,15 @@ const SUPPORTED_LISTER = {
   poshmark: "Poshmark",
   mercari: "Mercari",
   grailed: "Grailed",
+  // US-2479 / US-2480. A platform listed here is one the extension will ACCEPT a
+  // job for — whether the flow actually runs is `enabled` in selectors.js, and a
+  // disabled flow reports "list manually for now" naming the platform. That is a
+  // better answer than the one these two used to get, which was the generic
+  // "Invalid or unsupported listing payload" from isValidPayload: the SaaS
+  // already advertised Vinted as an extension channel, so a seller clicking it
+  // was told their own request was malformed.
+  vinted: "Vinted",
+  facebook: "Facebook Marketplace",
 };
 
 // ── per-install instance id (research quota key) ──────────────────────────
@@ -994,9 +1003,33 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   if (isDelist) {
     url = payload.listingUrl;
   } else {
-    url = self.GT_LISTER_GUARD.newListingUrlFor(self.GT_LISTER_SELECTORS, payload.platform);
+    // US-2479: locale-aware for the multi-domain platforms (Vinted), unchanged
+    // for everything else. `payload.locale` is a KEY looked up in the bundled
+    // config, never a URL — AC1 above still holds in full.
+    url = self.GT_LISTER_GUARD.newListingUrlForLocale(
+      self.GT_LISTER_SELECTORS,
+      payload.platform,
+      payload.locale,
+    );
     if (!url) {
-      sendResponse({ ok: false, error: "Unsupported marketplace." });
+      // Distinguish the two ways this fails, because they need different things
+      // from the seller. An uncovered locale is not a broken extension — it is a
+      // country we have not verified the form on, and saying so (with the list of
+      // ones we have) is the fail-loud contract rather than opening a tab on a
+      // Vinted the seller has no account on.
+      const covered = self.GT_LISTER_GUARD.localesFor(
+        self.GT_LISTER_SELECTORS,
+        payload.platform,
+      );
+      sendResponse({
+        ok: false,
+        manual: true,
+        error: covered.length > 0 && payload.locale
+          ? "GradeThread doesn't cover " + String(payload.locale).slice(0, 40) +
+            " yet — please list manually there. Covered right now: " +
+            covered.join(", ") + "."
+          : "Unsupported marketplace.",
+      });
       return;
     }
   }

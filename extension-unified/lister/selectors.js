@@ -145,6 +145,157 @@ const GT_LISTER_SELECTORS = {
       },
     },
   },
+
+  // ── Vinted — PHASE 4 (US-2479, not yet enabled) ───────────────────────
+  //
+  // Vinted is EU-first and runs ~20 COUNTRY DOMAINS with the same app on each.
+  // That is the whole complication: `newListingUrl` is one string everywhere
+  // else, and here it depends on which Vinted the seller's account lives on.
+  //
+  // The answer is `locales` — a map of covered host → its new-listing URL — and
+  // NOT "take the domain from the job payload". The whole point of
+  // lister-guard's newListingUrlFor is that the navigation target comes from
+  // this bundled config and never from a message, so an XSS on a gradethread.com
+  // tab cannot steer the extension anywhere. A locale KEY from the payload is
+  // fine; a URL is not. An uncovered locale resolves to null and the seller is
+  // told to list manually, naming the domain — never a guess at a form on a
+  // domain we have not verified (US-2479 AC2).
+  vinted: {
+    enabled: false,
+    version: "2026.08.0-draft",
+    lastVerified: null,
+    // The default target when the job names no locale. vinted.com is the
+    // smallest of these markets, but defaulting to a European one would silently
+    // send US sellers somewhere their account does not exist.
+    newListingUrl: "https://www.vinted.com/items/new",
+    locales: {
+      "vinted.com": "https://www.vinted.com/items/new",
+      "vinted.co.uk": "https://www.vinted.co.uk/items/new",
+      "vinted.fr": "https://www.vinted.fr/items/new",
+      "vinted.de": "https://www.vinted.de/items/new",
+      "vinted.es": "https://www.vinted.es/items/new",
+      "vinted.it": "https://www.vinted.it/items/new",
+      "vinted.nl": "https://www.vinted.nl/items/new",
+      "vinted.pl": "https://www.vinted.pl/items/new",
+      "vinted.be": "https://www.vinted.be/items/new",
+      "vinted.at": "https://www.vinted.at/items/new",
+      "vinted.cz": "https://www.vinted.cz/items/new",
+      "vinted.sk": "https://www.vinted.sk/items/new",
+      "vinted.lt": "https://www.vinted.lt/items/new",
+      "vinted.pt": "https://www.vinted.pt/items/new",
+      "vinted.se": "https://www.vinted.se/items/new",
+      "vinted.ro": "https://www.vinted.ro/items/new",
+      "vinted.hu": "https://www.vinted.hu/items/new",
+      "vinted.lu": "https://www.vinted.lu/items/new",
+      "vinted.hr": "https://www.vinted.hr/items/new",
+      "vinted.gr": "https://www.vinted.gr/items/new",
+      "vinted.dk": "https://www.vinted.dk/items/new",
+      "vinted.fi": "https://www.vinted.fi/items/new",
+    },
+    // Every host a Vinted listing URL may live on — the delist guard's allowlist.
+    // Derived from the same set as `locales` and kept identical by
+    // test/vinted-locales.test.cjs, so a locale can never be listable-but-not-
+    // delistable (which would leave a live listing after a sale elsewhere).
+    hosts: [
+      "vinted.com", "vinted.co.uk", "vinted.fr", "vinted.de", "vinted.es",
+      "vinted.it", "vinted.nl", "vinted.pl", "vinted.be", "vinted.at",
+      "vinted.cz", "vinted.sk", "vinted.lt", "vinted.pt", "vinted.se",
+      "vinted.ro", "vinted.hu", "vinted.lu", "vinted.hr", "vinted.gr",
+      "vinted.dk", "vinted.fi",
+    ],
+    login: { urlPattern: "vinted\\.[a-z.]+/(member/general/login|signup)" },
+    // Vinted item URLs are /items/<id>-<slug> on every locale. Anchored so the
+    // /items/new page we opened cannot match itself.
+    liveListingUrlPattern: "^https://[^/]*vinted\\.[a-z.]+/items/\\d+",
+    required: ["title", "description", "price", "submit"],
+    fields: {
+      title: 'input#title, input[name="title"], input[data-testid="item-title--input"]',
+      description:
+        'textarea#description, textarea[name="description"], textarea[data-testid="item-description--input"]',
+      price: 'input#price, input[name="price"], input[data-testid="item-price--input"]',
+      photoInput: 'input[type="file"][accept*="image"]',
+    },
+    submit:
+      'button[data-testid="upload-form-save-button"], button#upload-form-save-button, button[type="submit"]',
+    delist: {
+      enabled: false,
+      version: "2026.08.0-draft",
+      lastVerified: null,
+      // Pre-interaction selectors only (see the Poshmark note) — `remove` lives
+      // inside the item's action menu and does not exist until it is opened.
+      required: ["menu"],
+      menu:
+        'button[data-testid="item-action-menu"], button[aria-label*="More"], button.item-actions',
+      remove: '[data-testid="item-delete"], button[data-testid="delete-item"], a[href*="delete"]',
+      confirm:
+        'button[data-testid="modal-confirm-button"], button[data-testid="item-delete-confirm"], button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        gone: 'button[data-testid="item-action-menu"], button.item-actions',
+        toast: '[data-testid="notification"], [role="alert"]',
+      },
+    },
+  },
+
+  // ── Facebook Marketplace — PHASE 5 (US-2480, not yet enabled) ─────────
+  //
+  // The highest-traffic channel and the hardest to keep working. Marketplace's
+  // markup is machine-generated: class names are hashed and change on every
+  // deploy, so a class selector here is worthless within days. Everything below
+  // is anchored on ARIA and roles — the attributes Meta's own accessibility
+  // requirements stop them from churning — and the flow's fail-loud abort matters
+  // more here than anywhere else, because this is the form most likely to have
+  // moved since the last verification.
+  //
+  // Marketplace is also the one channel where "just submit it" is wrong: the
+  // create flow is a multi-step dialog with a required category and condition,
+  // so the seller finishes it. We prefill what is unambiguous and stop.
+  facebook: {
+    enabled: false,
+    version: "2026.08.0-draft",
+    lastVerified: null,
+    newListingUrl: "https://www.facebook.com/marketplace/create/item",
+    hosts: ["facebook.com", "fb.com"],
+    login: { urlPattern: "facebook\\.com/(login|checkpoint|recover)" },
+    // A live Marketplace listing is /marketplace/item/<numeric id>. Anchored so
+    // /marketplace/create/item can never match itself.
+    liveListingUrlPattern: "^https://[^/]*facebook\\.com/marketplace/item/\\d+",
+    required: ["title", "price", "submit"],
+    fields: {
+      // Marketplace labels its inputs rather than naming them; aria-label is the
+      // only stable handle. Multiple spellings because the label text is
+      // localised and Meta A/B-tests the wording.
+      title:
+        'input[aria-label="Title"], input[aria-label*="Title"], label[aria-label="Title"] input',
+      price:
+        'input[aria-label="Price"], input[aria-label*="Price"], label[aria-label="Price"] input',
+      description:
+        'textarea[aria-label="Description"], textarea[aria-label*="Description"], label[aria-label="Description"] textarea',
+      photoInput: 'input[type="file"][accept*="image"]',
+    },
+    // "Next" on the first step of the create dialog, not a final publish — the
+    // seller picks category/condition and publishes. Deliberate: auto-publishing
+    // an incomplete Marketplace listing gets it removed and the account flagged.
+    submit:
+      'div[aria-label="Next"][role="button"], div[aria-label="Publish"][role="button"], button[type="submit"]',
+    delist: {
+      enabled: false,
+      version: "2026.08.0-draft",
+      lastVerified: null,
+      required: ["menu"],
+      menu:
+        'div[aria-label="More options"][role="button"], div[aria-label*="More"][role="button"], [aria-label="Actions for this listing"]',
+      remove:
+        'div[role="menuitem"][aria-label*="Delete"], div[role="menuitem"][aria-label*="Remove"]',
+      confirm:
+        'div[aria-label="Delete"][role="button"], div[aria-label="Confirm"][role="button"], button[type="submit"]',
+      verify: {
+        urlChanged: true,
+        gone: 'div[aria-label="More options"][role="button"]',
+        toast: '[role="alert"], [aria-live="assertive"]',
+      },
+    },
+  },
 };
 
 // Expose to the other content scripts in this isolated world.
