@@ -179,6 +179,46 @@ const matchNone = () => false;
   }
 }
 
+// ── 9. The popup actually SHOWS it ────────────────────────────────────────
+//
+// THE BUG THIS CAUGHT. The block first shipped nested inside #sellerSection,
+// and renderProbe() was only called from the caps.sellerEnabled branch. So the
+// one tool for diagnosing a broken extension was invisible to anyone without a
+// resolved paid FlipDesk plan — and, worse, invisible whenever the entitlements
+// fetch failed, since that path fail-safes to anonymous and hides the whole
+// seller section. It was reported as "the selectors action does not show".
+//
+// It is a diagnostic over our own bundled config. It grants nothing and reveals
+// no seller data, so there was never anything for a plan gate to protect.
+{
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+
+  const sellerStart = html.indexOf('id="sellerSection"');
+  const sellerEnd = html.indexOf("</section>", sellerStart);
+  const probeAt = html.indexOf('id="probeBlock"');
+
+  assert.ok(probeAt !== -1, "popup.html must contain the probe block");
+  assert.ok(
+    !(sellerStart < probeAt && probeAt < sellerEnd),
+    "#probeBlock is nested inside #sellerSection, which is hidden without an " +
+      "active paid FlipDesk plan — and is also hidden whenever the entitlements " +
+      "fetch fails. A diagnostic must not vanish in the situation you would open " +
+      "it. Keep it top-level.",
+  );
+
+  // And the render call must not sit inside the entitled branch either.
+  const renderIdx = js.indexOf("void renderProbe()");
+  assert.ok(renderIdx !== -1, "popup.js must call renderProbe()");
+  const sellerFnStart = js.indexOf("function renderSellerSections(");
+  const sellerFnEnd = js.indexOf("\n}", sellerFnStart);
+  assert.ok(
+    !(sellerFnStart !== -1 && sellerFnStart < renderIdx && renderIdx < sellerFnEnd),
+    "renderProbe() is called from renderSellerSections, so it only runs for a " +
+      "seller-entitled account. Call it unconditionally at init.",
+  );
+}
+
 console.log(
   "✓ selector-probe: report carries no page content, post-interaction controls " +
     "are not counted as failures, all 5 platforms probe clean, invalid selectors " +

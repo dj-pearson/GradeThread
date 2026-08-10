@@ -875,7 +875,6 @@ function renderSellerSections(caps) {
     renderPendingDelists(caps);
     renderConsent();
     void renderEngagement();
-    void renderProbe(); // US-2484
   } else if (caps && caps.authenticated) {
     // Signed in but no active FlipDesk plan → honest upsell, not a dead section.
     seller.hidden = true;
@@ -967,6 +966,15 @@ function applyCapabilities(caps) {
   wireEngagement(); // US-2482
   wireProbe();      // US-2484
   wireHistoryTabs();
+  // US-2484: rendered UNCONDITIONALLY, not from renderSellerSections.
+  //
+  // It is a diagnostic — it runs our own bundled selectors against the page
+  // already open and reports which resolve. It shows no seller data and grants
+  // nothing, so a plan gate bought nothing. It cost something real, though: the
+  // seller section hides whenever the entitlements fetch fails (that path
+  // fail-safes to anonymous), so the tool for debugging a broken extension
+  // disappeared in exactly the situation you would open it.
+  void renderProbe();
   renderCompareLink();
   // Render research immediately (works offline / anonymous), then fold in the
   // account-driven sections once entitlements resolve.
