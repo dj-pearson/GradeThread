@@ -815,7 +815,7 @@ async function applyMatch(
     if (!liveListingId || !isEbayConfigured()) return false;
     const { data: photoRows } = await supabaseAdmin
       .from("item_photos")
-      .select("photo_url, photo_type, sort_order")
+      .select("photo_url, photo_type, photo_role, sort_order")
       .eq("inventory_item_id", listing.inventory_item_id)
       .order("sort_order", { ascending: true })
       .limit(10);

@@ -100,7 +100,7 @@ async function loadOwnedDepopListing(
 async function resolveImageUrls(itemId: string, maxPhotos: number): Promise<string[]> {
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
-    .select("storage_path, photo_url, sort_order, photo_type")
+    .select("storage_path, photo_url, sort_order, photo_type, photo_role")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   const urls: string[] = [];

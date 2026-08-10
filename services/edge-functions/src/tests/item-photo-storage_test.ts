@@ -402,6 +402,50 @@ Deno.test("US-1571: measurement (MeasureCard) photos are excluded like internal"
   assertEquals(bucketForItemPhoto("measurement"), ITEM_PHOTOS_BUCKET);
 });
 
+// US-2462: migration 00587 rewrites measurement_chest → (measurement, 'chest').
+// 'measurement' is on NON_LISTABLE_PHOTO_TYPES, so without a role-aware rule
+// that backfill would have pulled every seller's tape photos out of their live
+// listings — silently, because nothing errors when a photo is merely filtered.
+Deno.test("US-2462: a measurement WITH a role is a tape photo and still lists", () => {
+  // The card frame: a branded foreign object, never lists. This is also the
+  // shape of every pre-00587 row, so history is preserved by the NULL case.
+  assert(isNonListableItemPhoto("measurement", null));
+  assert(isNonListableItemPhoto("measurement", undefined));
+  assert(isNonListableItemPhoto("measurement"));
+
+  // The tape close-ups, post-backfill. These are what measurement_chest and
+  // friends became, and they were listable before.
+  assert(!isNonListableItemPhoto("measurement", "chest"));
+  assert(!isNonListableItemPhoto("measurement", "inseam"));
+
+  // A role changes nothing for any other type — 'internal' is unconditional.
+  assert(isNonListableItemPhoto("internal", "fabric"));
+  assert(!isNonListableItemPhoto("detail", "fabric"));
+  assert(!isNonListableItemPhoto("front", null));
+
+  const rows = [
+    { id: "a", photo_type: "front", photo_role: null },
+    { id: "b", photo_type: "measurement", photo_role: null }, // card frame
+    { id: "c", photo_type: "measurement", photo_role: "chest" }, // tape shot
+    { id: "d", photo_type: "internal", photo_role: null },
+    { id: "e", photo_type: "detail", photo_role: "fabric" },
+  ];
+  assertEquals(filterListablePhotos(rows).map((r) => r.id), ["a", "c", "e"]);
+});
+
+// The trap this pins: `photo_role` absent from a SELECT reads as undefined,
+// which is indistinguishable from a NULL role, which means "card frame". So a
+// query that forgets the column drops the seller's tape photos and reports
+// nothing. Every call site was updated in the same commit; this is the guard
+// that explains why if one is ever added back.
+Deno.test("US-2462: a row missing photo_role is treated as the card frame", () => {
+  const rows = [
+    { id: "a", photo_type: "front" },
+    { id: "b", photo_type: "measurement" },
+  ];
+  assertEquals(filterListablePhotos(rows).map((r) => r.id), ["a"]);
+});
+
 // Every path that publishes an item photo to a PUBLIC destination must exclude
 // the sensitive types. The private-bucket source is only half the protection:
 // downloadItemPhoto deliberately resolves across BOTH buckets, so any consumer

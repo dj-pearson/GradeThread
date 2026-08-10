@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2461",
+  "nextId": "US-2470",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1871,6 +1871,142 @@
       ],
       "priority": 1991,
       "notes": "2026-08-10 AC1, AC2 and AC3 DONE. AC4 and AC5 stay open by design - one needs a product decision, the other a migration - and they are named here so the sweep that found them is not lost. GET /users/:id/payments now returns buyerSubscription beside subscription. Before this, an agent opening a Guard or Connoisseur subscriber saw subscription: null and had no way to tell whether they were subscribed, to what, or when it renewed. WHY IT WENT UNNOTICED, and it is the interesting part: the CHARGES were fine. They are listed customer-wide and both products ride one Stripe customer, so the money half of a support conversation worked - an agent could see the payments and refund them - while the state half was blank. A gap that only breaks half of a workflow is a gap nobody reports, because the half that works is the half people call about. AC2 IS ADDITIVE ON PURPOSE. `subscription` keeps its exact meaning, the SELLER subscription, so the admin UI and every other consumer are untouched. Repurposing it to 'whichever they have' would have been fewer lines and would have repeated the exact conflation US-2457 spent two commits undoing. The no-customer early return carries buyerSubscription: null too, so a caller never gets undefined on one path and null on the other - a test pins that, because it is the kind of asymmetry that shows up as a crash six months later. AC3: each subscription is retrieved by its OWN stored id. Listing the customer and choosing is precisely what let the reconciliation resync adopt the buyer subscription into the seller columns; the two ids are recorded separately so nobody has to guess, and a test fails if this route ever calls subscriptions.list. BOTH SUMMARIES GO THROUGH ONE SHARED SHAPE, extracted rather than copied. The agent is comparing one against the other, and two hand-written shapes drift - the drift shows up as a field present for sellers and missing for buyers, which reads as 'the buyer has no renewal date' rather than as a bug. SIX SABOTAGE MUTATIONS, each reddening its own case: the buyer field dropped from the response, buyer_subscription_id dropped from the SELECT, the seller field repurposed, the early return forgetting the new field, the buyer sub picked off the customer list, and the shared summary losing the renewal date. ONE ASSERTION WAS TOO LOOSE AND SABOTAGE CAUGHT IT - the fourth time today for this exact shape. I checked that buyer_subscription_id appears in the ROUTE; it also appears in the retrieve below, so dropping it from the SELECT stayed green. An unselected column is undefined, the retrieve is skipped, and the agent sees the same blank as before with no error anywhere. Now scoped to the select list itself. AC4 OPEN - a product decision, not a build. Whether support may CANCEL or CHANGE a buyer subscription is a write against a customer's money, and a buyer comp additionally needs a buyer equivalent of subscription_status='comp', which today is a seller-only enum value. AC5 OPEN - needs a migration. Buyer past-due accounts cannot enter the operator dunning queue: the panel filters users.subscription_status, and there is no buyer_past_due_since column, so the US-395 grace clock has no buyer equivalent to sort by. VERIFIED: deno check clean on admin-billing.ts; deno lint clean across 1495 files; admin-buyer-visibility_test.ts 4 passed (new); full edge suite 6508 passed / 0 failed / 176 ignored (up 4). | 2026-08-10 (second pass) I SHIPPED THE API FIELD AND NOTHING RENDERED IT. Correcting my own instance of the exact failure this session keeps finding in other people's work. The previous commit added buyerSubscription to GET /users/:id/payments and stopped. src/components/admin/billing-actions-card.tsx - the only consumer - typed and rendered `subscription` alone, so support still saw nothing for a buyer subscriber. A field with no surface is invisible to tsc, to lint, and to every test that exercises the route directly, which is precisely how US-2145's contest endpoint sat unreachable behind a missing button and how confirm-signup corroborated a row that was never written. FIXED: both subscriptions now render, each through one shared SubscriptionSummary block and each LABELLED by product. The label is a required prop rather than defaulted - two subscriptions can be on screen at once and the agent is about to act on whichever they believe they are looking at, so an unlabelled one is worse than none. A test asserts the render, the label, and that both go through the shared block, so a field cannot appear for the seller and not the buyer. ⚠ AND A GENUINELY SURPRISING SIDE EFFECT, worth recording because nothing warns you about it. Extracting the shared mapper as a top-level `function` in admin-billing.ts made THREE UNRELATED ROUTES fail the US-2355 audit-policy guard - /pending-refunds/:id/resolve, /webhook-dead-letters/:id/resolve and the reconciliation resync all reported as writing no audit row. They audit fine. scripts/audit-admin-mutations.mjs classifies a route by appending the body of any TOP-LEVEL DECLARATION it references, and declarations() slices each declaration's body from itself to THE NEXT DECLARATION IN THE FILE. Adding one anywhere moves those boundaries, so a purely presentational helper silently changed the audit classification of routes it has nothing to do with. RESOLVED BY MOVING THE MAPPER TO lib/admin-subscription-summary.ts, with the reason in its header so nobody moves it back for tidiness. That is the right home anyway - it is a pure Stripe-to-view mapper with no route concerns - but the forcing reason is the classifier, and a future reader would never guess it. I DID NOT WEAKEN THE CLASSIFIER, which was the tempting alternative: its slicing model is genuinely fragile, but loosening a guard that decides 'is this admin action audited' to unblock a cosmetic refactor is the worst possible trade. Recorded here instead; if it bites again it deserves its own story rather than an exemption. THREE SABOTAGE MUTATIONS, each reddening the render guard: the buyer block never rendered (the state I shipped an hour ago), the labels dropped so an agent cannot tell the two apart, and the buyer block hand-written instead of sharing the seller's. VERIFIED: npx tsc -b clean; eslint 0 errors / 13 warnings; ui:check 0 blocking; deno lint clean across 1496 files; admin-buyer-visibility_test.ts 5 passed (1 new); admin-audit-policy.test.ts 6 passed (restored); full edge suite 6509 passed / 0 failed; full web suite 3937 passed / 0 failed across 322 files."
+    },
+    {
+      "id": "US-2461",
+      "priority": 40,
+      "passes": false,
+      "title": "Photo tags epic - category-aware tag list with a role qualifier",
+      "description": "As a reseller, I want the photo tag list to reflect what I am actually photographing, so a t-shirt never offers me an inseam measurement slot and a suit set has enough tags for both pieces. Umbrella for US-2462..US-2469.",
+      "acceptanceCriteria": [
+        "The tag vocabulary splits into a small storage TYPE (flipdesk_photo_type) plus an open-text ROLE qualifier (item_photos.photo_role); new sub-roles ship as data, never as an enum migration",
+        "Numbered slots (tag_2, detail_2, detail_3, detail_4) and the five measurement_* types are retired from every picker; existing rows keep working and are backfilled to type+role",
+        "The clothing profile sub-selects by garment group (top / bottom / dress / outerwear / suit) instead of being one flat list, so measurement roles match the measurement template for that garment",
+        "Every retag picker shows 'Suggested for this item' in capture order, then 'All types' A-Z; nothing is hidden, only demoted",
+        "Web, iOS and Android all read the same server-authoritative profile table; no client hardcodes the per-category list"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Origin: user report 2026-08-10 - 'tags are tough to navigate and our scenarios are not there'. Concrete failing case: a suit set (blazer + dress pants) needs chest/length/shoulder/sleeve AND waist/inseam, plus a size tag per piece; today there are 2 tag slots, 4 detail slots, and 5 fixed measurement tags with no shoulder. Design decision (user, Option B): ONE qualifier column beats ~18 new enum values."
+    },
+    {
+      "id": "US-2462",
+      "priority": 41,
+      "passes": true,
+      "title": "Photo role qualifier: item_photos.photo_role column + on_hanger/set_pair types",
+      "description": "As the platform, we want a nullable photo_role qualifier on item_photos plus the two genuinely-new storage types, so the tag vocabulary can grow without an enum migration per sub-role.",
+      "acceptanceCriteria": [
+        "Migration adds item_photos.photo_role text NULL with NO check constraint (open vocabulary is the point) and an index on (inventory_item_id, photo_type, photo_role)",
+        "Migration adds exactly two flipdesk_photo_type values: on_hanger, set_pair - every other proposed role maps onto an existing type",
+        "Backfill is idempotent: tag_2 -> (tag, role NULL), detail_2/3/4 -> (detail, role NULL), measurement_chest/waist/length/sleeve/inseam -> (measurement, role '<key>'), sort_order preserved verbatim",
+        "US-1108 triple honored: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
+        "Retired enum values are NOT dropped (Postgres cannot remove enum values without a type rebuild); they are removed from the pickers only"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). HELD MIGRATION - do not push until Dj applies it to prod. Duplicate photo_type rows are already legal and already happen: iOS defect1/2/3 all write server type 'defect' (PhotoSlotType.swift serverPhotoType). The only unique index on item_photos is (inventory_item_id, storage_path) from 00120, which dedupes by FILE not by type. | DONE 2026-08-10: Migration 00587 applied to prod 2026-08-10. photo_role text NULL (no CHECK), on_hanger + set_pair enum values, idempotent backfill of tag_2/detail_2-4/measurement_*. Found and fixed in the same commit: measurement is on NON_LISTABLE_PHOTO_TYPES but measurement_chest was listable, so the rule became role-aware (NULL role = MeasureCard frame, any role = tape photo). 10 select() sites gained photo_role; a guard test pins that a missing column reads as the card frame."
+    },
+    {
+      "id": "US-2463",
+      "priority": 42,
+      "passes": true,
+      "title": "Photo role vocabulary module, mirrored web + edge with a parity test",
+      "description": "As a developer, I want one definition of the role vocabulary and its labels, mirrored on web and edge with a parity test, so the two halves cannot drift.",
+      "acceptanceCriteria": [
+        "Tag roles: brand, size, care, made_in - 'made_in' is the union/made-in label vintage buyers date a garment by, and had no slot at all before",
+        "Detail roles: fabric, hem, hardware, pocket, print, collar",
+        "Presentation types: flatlay, on_hanger, on_model, set_pair",
+        "Measurement roles are DERIVED from MEASUREMENT_TEMPLATES for the garment group, not hand-listed, so a new measurement field gets a photo slot for free",
+        "A parity test asserts the web and edge role tables are identical, in the shape of src/test/measurement-template-parity.test.ts"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). The profiles ALREADY do this informally by hijacking numbered slots: bags label detail_2 'Handles & Straps', accessories label detail_2 'Ends & Edges', headwear labels interior 'Sweatband'. Retagging one of those in the flat web dropdown shows 'Detail 2', which is the bug this formalizes away. | DONE 2026-08-10: src/lib/photo-roles.ts + edge mirror, pinned by src/test/photo-roles-parity.test.ts (15 tests). Tag roles brand/size/care/made_in, detail roles fabric/hem/hardware/pocket/print/collar, per-group extras (bag handles+base, accessory ends_edges, shoes insole, suit size_alt). Measurement roles DERIVED from MEASUREMENT_TEMPLATES."
+    },
+    {
+      "id": "US-2464",
+      "priority": 43,
+      "passes": true,
+      "title": "measurementGroupFor: fix the dress-compound bug and add a suit group",
+      "description": "As a reseller, I want dress pants to be measured as pants, so the form asks for waist and inseam instead of bust and hip.",
+      "acceptanceCriteria": [
+        "'dress pants', 'dress trousers', 'dress slacks', 'dress shorts' resolve to bottom, not dress",
+        "'dress shirt' resolves to top, not dress - same compound bug, opposite direction",
+        "New 'suit' measurement group: chest, length (labelled 'Jacket length'), shoulder, sleeve, waist, inseam, rise - matches suit, tuxedo, tux, pantsuit, two-piece; must NOT match swimsuit, jumpsuit, tracksuit, sweatsuit, bodysuit, wetsuit, snowsuit",
+        "Common garments that fell to 'generic' are routed: coveralls/overalls/tracksuit/pajamas/scrubs -> suit, robe/kimono -> outerwear, swim trunks/board shorts -> bottom, swimsuit/bikini -> dress",
+        "Edge mirror updated in lockstep and the existing measurement-template parity test still passes"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Verified against the live regex 2026-08-10: 'dress pants' -> dress, 'dress shirt' -> dress, 'suit' -> generic, 'tuxedo' -> generic, plus swimsuit/overalls/coveralls/tracksuit/pajamas/robe/scrubs/bikini all -> generic. The dress branch is tested before both bottom and top, so any 'dress <noun>' compound is captured by it. | DONE 2026-08-10: dress pants -> bottom and dress shirt -> top via a compound guard rather than a branch reorder (a reorder would have broken shirtdress). New suit group: chest/length/shoulder/sleeve/waist/inseam/rise, reusing the outerwear and bottom keys so listing templates and eBay specifics already understand it. Routed coveralls/overalls/tracksuit/pajamas/scrubs -> suit, robe/kimono/poncho -> outerwear, swim trunks -> bottom, swimsuit/bikini -> dress. suit added to DESCRIPTION_TEMPLATES, GROUP_DIMS, and the fit-checker maps. 27 tests."
+    },
+    {
+      "id": "US-2465",
+      "priority": 44,
+      "passes": true,
+      "title": "Photo profiles sub-select by garment group for clothing",
+      "description": "As a reseller photographing a t-shirt, I do not want an inseam measurement slot; photographing a blazer, I do want a shoulder slot.",
+      "acceptanceCriteria": [
+        "getPhotoProfile takes (itemCategory, garmentCategory) and, for item_category 'clothing', sub-selects a profile by measurementGroupFor(garmentCategory)",
+        "PhotoRole gains an optional role field; slot identity becomes type+role everywhere (required checks, dedupe, ordering, uploader slots)",
+        "Clothing sub-profiles top / bottom / dress / outerwear / suit each offer only their own measurement roles",
+        "The suit profile offers 3 tag roles (brand, jacket size, pant size) and both jacket and pant measurement roles - the case that failed before",
+        "GET /api/flipdesk/photo-profiles serves the sub-profiles; a null/unknown garment keeps today's clothing behavior exactly",
+        "requiredPhotoTypesFor is unchanged in effect: front + back stay the only clothing requirements"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). The role order IS the gallery order and index 0 is the eBay cover (vault/20-domain/listing-photos.md). front must stay index 0 in every sub-profile or covers move on existing items. | DONE 2026-08-10: getPhotoProfile(category, garment) sub-selects clothing:top/bottom/dress/outerwear/suit via measurementGroupFor. PhotoRole gained an optional role; uploader slots key off (type, role). ALSO fixed a pre-existing miswiring: items_full has no item_category column, so the composer had always passed the free-text garment word into a lookup expecting the enum — every non-clothing profile was being missed unless the seller typed the enum value verbatim. The resolver now bridges both taxonomies (GROUP_TO_CATEGORY)."
+    },
+    {
+      "id": "US-2466",
+      "priority": 45,
+      "passes": true,
+      "title": "Web retag picker: suggested-then-A-Z, with role sub-picker",
+      "description": "As a reseller, I want the tag dropdown to show what fits this item first, so I stop scrolling a flat list of 28.",
+      "acceptanceCriteria": [
+        "photo-manager.tsx renders 'Suggested for <garment>' (profile order) then 'All types' (A-Z), matching what iOS PhotoManagerView already does",
+        "Picking a type that has roles reveals the role choice; picking a type without roles sets photo_role NULL",
+        "Retired values (tag_2, detail_2/3/4, measurement_*) never appear as choices; a photo already on one displays its legacy label until retagged",
+        "reconcile.tsx and autolister.tsx pickers use the same grouped component - no third hand-rolled list",
+        "photo-uploader.tsx capture slots key off type+role so a suit can hold three tag slots at once",
+        "npm run ui:check stays at zero findings"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Today's flat list: photo-manager.tsx:668 maps FLIPDESK_PHOTO_TYPES directly. reconcile.tsx:1261 and autolister.tsx:209 each hand-roll their own variant. | DONE 2026-08-10: New src/components/flipdesk/photo-tag-select.tsx: Suggested (profile order) then All types (A-Z). Retired types never offered; a photo still on one shows its old label marked \"(old tag)\" so it is never blank. persistRetag now always writes photo_role, including null, so a stale role cannot survive a retag. ui:check still 0."
+    },
+    {
+      "id": "US-2467",
+      "priority": 46,
+      "passes": true,
+      "title": "Grading and AI prompts read photo roles, not numbered slots",
+      "description": "As a seller, I want the fabric-close-up confidence check to look for an actual fabric photo, so four photos of buttons stop passing it.",
+      "acceptanceCriteria": [
+        "FABRIC_CLOSEUP_PHOTO_TYPES is replaced by a role test: a detail photo with photo_role 'fabric' satisfies the check; the four numbered detail slots no longer do on their own",
+        "Legacy rows with NULL role keep the old behavior so no historical item regresses or is retro-capped",
+        "macro-photo-quality.ts resolution and sharpness floors move from per-numbered-slot to per-role",
+        "ai-grading.ts, ai-authenticity.ts and ai-extract.ts prompt hints name roles instead of detail_2/detail_3/detail_4/tag_2",
+        "The shared grading-readiness fixture (src/test/fixtures/grading-readiness-cases.json) gains role cases and client/edge parity still holds"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Live behavior today: FABRIC_CLOSEUP_PHOTO_TYPES = [detail, detail_2, detail_3, detail_4], so ANY detail satisfies the fabric check and dodges NO_FABRIC_CLOSEUP_CONFIDENCE_CAP (0.6, ai-grading.ts:2119). This is a correctness win, not just cleanup. | DONE 2026-08-10: hasFabricCloseup() replaces the any-detail-slot test on BOTH sides, mirrored verbatim and pinned by 5 new shared-fixture cases. Real bug fixed: FABRIC_CLOSEUP_PHOTO_TYPES was [detail, detail_2..4], so four photos of buttons satisfied the fabric check and dodged NO_FABRIC_CLOSEUP_CONFIDENCE_CAP (0.6) on a factor worth 30% of the score. Legacy NULL-role rows keep the old benefit of the doubt, so no historical item is retro-capped."
+    },
+    {
+      "id": "US-2468",
+      "priority": 47,
+      "passes": false,
+      "title": "iOS: roles in the capture strip and the retag menu",
+      "description": "As an iOS seller, I want the same category-aware tags the web has.",
+      "acceptanceCriteria": [
+        "FlipdeskPhotoType gains the role qualifier; PhotoSlotType slots key off type+role",
+        "The 'Add more' menu (PhotoIntakeView) becomes profile-driven instead of using the static PhotoSlotType.extras/.measurements groups",
+        "PhotoManagerView's existing Suggested/All-types menu picks a role when the type has one",
+        "Upload writes photo_role; the PhotoIntakeTests count assertion (currently FlipdeskPhotoType.all.count == 28) is updated to the new vocabulary",
+        "Sort order still derives from the profile so galleries match web"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). iOS is the closest to correct already - PhotoManagerView.swift:174 has Suggested/All-types today. Cannot be built or tested on Windows; iOS CI on macOS runners is the gate."
+    },
+    {
+      "id": "US-2469",
+      "priority": 48,
+      "passes": false,
+      "title": "Android: wire the unused PhotoProfileStore and add a retag menu",
+      "description": "As an Android seller, I want a retag menu at all, and tag names in English.",
+      "acceptanceCriteria": [
+        "PhotoProfileStore.profileFor is called from the capture flow - today it has ZERO production call sites, only its own file and PhotoProfileTest",
+        "ItemPhotosSection gains a retag menu with the same Suggested / All-types grouping as web and iOS",
+        "PhotoTile stops rendering raw snake_case (ItemPhotosSection.kt:250 shows measurement_chest) and uses the profile label",
+        "PhotoOrdering required/cover rules key off type+role"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Verified 2026-08-10: PhotoProfileStore/profileFor are dead code on Android, and the only DropdownMenu in ItemPhotosSection is an item overflow (duplicate / share cert / delete), not a retag."
     }
   ]
 }

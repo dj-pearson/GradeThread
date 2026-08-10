@@ -198,10 +198,15 @@ export async function persistRetag(
   client: PhotoMutationClient,
   photo: Pick<ItemPhotoRow, "id">,
   photoType: FlipdeskPhotoType,
+  // US-2462: written on EVERY retag, including when it is null. Leaving it out
+  // when the new type takes no qualifier would keep the previous role on the
+  // row — a "Fabric close-up" retagged to "Front" would stay role='fabric', and
+  // the grading fabric check would still count it.
+  photoRole: string | null = null,
 ): Promise<void> {
   const { error } = await client
     .from("item_photos")
-    .update({ photo_type: photoType } as never)
+    .update({ photo_type: photoType, photo_role: photoRole } as never)
     .eq("id", photo.id);
   if (error) throw error;
 }

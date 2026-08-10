@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import type { MutableRefObject } from "react";
-import type { ItemCategory, ItemFullRow, ItemPhotoRow } from "@/types/database";
+import type { ItemFullRow, ItemPhotoRow } from "@/types/database";
 export interface PhotosCardProps {
   /** Needed for the grade copy, category and certificate link. */
   item: ItemFullRow;
@@ -46,15 +46,21 @@ export function PhotosCard({
             and click-to-view — identical to the item page, so the
             drafts flow never sends the seller elsewhere for photo
             work. The star keeps the composer's primary-photo pick. */}
+        {/* US-2465: `items_full` has no item_category column, so `item.category`
+            is the free-text GARMENT word ("blazer", "dress pants") — which is
+            exactly what picks the clothing sub-profile. Passing it as `garment`
+            says so, instead of casting it to a type it has never held. */}
         <PhotoUploader
           itemId={item.id}
           currentStatus={item.status}
-          category={item.category as ItemCategory | null}
+          category={null}
+          garment={item.category}
         />
         <PhotoManager
           itemId={item.id}
           liveListingId={liveListingId}
           dirtyRef={photosDirtyRef}
+          garment={item.category}
           primaryPhotoId={primaryPhoto?.id ?? null}
           onPickPrimary={setPrimaryPhotoId}
         />

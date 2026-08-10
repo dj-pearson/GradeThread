@@ -56,6 +56,24 @@ Measurements (laid flat):
 
 {{grade}}
 Smoke-free home. Ships fast. Questions welcome.`,
+  // US-2464. The one template that says "two pieces" out loud. A suit buyer's
+  // first question is whether the jacket and trousers are the same suit, so the
+  // sold-as-a-set line is the body copy, not a nicety.
+  suit: `{{brand}} {{title}}
+
+Size: {{size}}
+Color: {{color}}
+Material: {{material}}
+
+Condition: {{condition}}
+
+Sold as a two-piece set — jacket and trousers together.
+
+Measurements (each piece laid flat):
+{{measurements}}
+
+{{grade}}
+Smoke-free home. Ships fast. Questions welcome.`,
   shoes: `{{brand}} {{title}}
 
 Size: {{size}}

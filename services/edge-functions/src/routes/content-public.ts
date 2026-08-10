@@ -1985,7 +1985,7 @@ async function loadStorefrontListings(
   if (itemIds.length > 0) {
     const { data: photos } = await supabaseAdmin
       .from("item_photos")
-      .select("id, inventory_item_id, photo_url, thumbnail_url, photo_type, sort_order")
+      .select("id, inventory_item_id, photo_url, thumbnail_url, photo_type, photo_role, sort_order")
       .in("inventory_item_id", itemIds)
       .order("sort_order", { ascending: true });
     // US-1549: 'internal' photos (price tags, receipts) never appear on the
@@ -1996,6 +1996,8 @@ async function loadStorefrontListings(
       photo_url: string;
       thumbnail_url: string | null;
       photo_type: string | null;
+      // US-2462: declared so the select above cannot lose it silently.
+      photo_role: string | null;
     }>)) {
       const url = p.thumbnail_url ?? p.photo_url;
       photoById.set(p.id, url);

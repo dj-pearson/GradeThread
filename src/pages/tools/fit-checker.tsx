@@ -27,6 +27,8 @@ const GROUPS: { value: MeasurementGroup; label: string }[] = [
   { value: "bottom", label: "Bottom / pants" },
   { value: "dress", label: "Dress" },
   { value: "outerwear", label: "Outerwear / jacket" },
+  // US-2464: a suit set checks the jacket and the trousers in one pass.
+  { value: "suit", label: "Suit set" },
 ];
 
 // Garment flat-lay inputs shown per group (fit-relevant keys the engine compares).
@@ -51,6 +53,14 @@ const GARMENT_FIELDS: Record<MeasurementGroup, { key: string; label: string }[]>
     { key: "waist", label: "Waist (flat)" },
     { key: "hip", label: "Hip (flat)" },
   ],
+  suit: [
+    { key: "chest", label: "Jacket chest — pit to pit (flat)" },
+    { key: "shoulder", label: "Jacket shoulder (flat)" },
+    { key: "sleeve", label: "Jacket sleeve length" },
+    { key: "waist", label: "Pant waist (flat)" },
+    { key: "hip", label: "Pant hip (flat)" },
+    { key: "inseam", label: "Pant inseam" },
+  ],
   shoes: [],
   watch: [],
   // US-2225/US-2224: nothing to compare these against — the fit checker asks
@@ -66,6 +76,7 @@ const BODY_FIELDS: Record<MeasurementGroup, string[]> = {
   outerwear: ["chest", "shoulder", "sleeve"],
   bottom: ["waist", "hips", "inseam"],
   dress: ["chest", "waist", "hips"],
+  suit: ["chest", "shoulder", "sleeve", "waist", "hips", "inseam"],
   shoes: [],
   watch: [],
   bag: [],

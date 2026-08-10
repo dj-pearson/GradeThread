@@ -1150,7 +1150,13 @@ export const FLIPDESK_PHOTO_TYPES = [
   "detail_4",
   "interior",
   "flatlay",
+  // US-2462 (migration 00587): the two roles the epic added that had no
+  // existing type to reuse. Placed with the other presentation shots so the
+  // gallery order stays Front → Back → Tag → Detail → measurements → defects →
+  // context → universal.
+  "on_hanger",
   "on_model",
+  "set_pair",
   // US-1577 (migration 00350): GENERATED card-free annotated measurements
   // photo (unbranded lines + inch labels). Listing-ELIGIBLE, never primary;
   // regenerating replaces the previous render.
@@ -1244,7 +1250,9 @@ export const PHOTO_TYPE_LABELS: Record<
   interior: "Interior / Lining",
   defect: "Defect",
   flatlay: "Flat lay",
+  on_hanger: "On hanger",
   on_model: "On model",
+  set_pair: "Set / pair",
   angle: "Angle / Profile",
   sole: "Sole",
   marking: "Markings / Hallmark",
@@ -1269,7 +1277,17 @@ export const PHOTO_TYPE_LABELS: Record<
 // clients use this to keep previews honest about what will actually publish.
 export const NON_LISTABLE_PHOTO_TYPES = ["internal", "measurement"] as const;
 
-export function isNonListablePhotoType(t?: string | null): boolean {
+// US-2462: role-aware, mirroring the edge's isNonListableItemPhoto. A
+// 'measurement' with NO role is the MeasureCard calibration frame and never
+// lists (a branded card in a listing photo); a 'measurement' WITH a role is a
+// tape close-up, which is what `measurement_chest` used to be and which sellers
+// publish deliberately. Pre-00587 rows have a NULL role, so the old behavior is
+// preserved exactly.
+export function isNonListablePhotoType(
+  t?: string | null,
+  role?: string | null,
+): boolean {
+  if ((t ?? "") === "measurement") return !role;
   return (NON_LISTABLE_PHOTO_TYPES as readonly string[]).includes(t ?? "");
 }
 

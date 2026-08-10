@@ -1,5 +1,66 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ✅ APPLIED: 00587_item_photo_role_qualifier.sql (US-2462 — photo tags split into a type plus an open-text role, applied 2026-08-10 by Dj)
+
+**Applied to prod before the push, per the standing held-migration rule. The
+notes below are kept as the record of what was applied and what to watch.**
+
+**Risk: MEDIUM-LOW for the schema, MEDIUM for the backfill.** The schema half is
+additive and dull: two `ALTER TYPE … ADD VALUE IF NOT EXISTS`, one
+`ADD COLUMN IF NOT EXISTS photo_role text` with no constraint and no default,
+one `CREATE INDEX IF NOT EXISTS`. Nothing is dropped or narrowed and the whole
+file is idempotent.
+
+The backfill is the part to read twice. It **rewrites existing rows**:
+`tag_2 → tag`, `detail_2/3/4 → detail`, and each `measurement_<key>` →
+`(measurement, photo_role '<key>')`. `sort_order` is never touched, so no
+gallery reorders and no eBay cover image moves. It is idempotent because after
+the first pass no row matches a retired type. **It is not reversible by re-running
+anything** — the old `detail_3` labelling is gone once applied, which is the
+intent (that label never meant anything) but is worth knowing before you run it.
+
+**⚠ THE ONE THING THAT COULD BITE, and it is already handled in code — verify
+the deploy order anyway.** `measurement` is on `NON_LISTABLE_PHOTO_TYPES`
+(the MeasureCard frame is a branded object and never publishes) whereas
+`measurement_chest` was listable. So the backfill moves rows from a listable
+type onto a non-listable one. The same commit makes that rule role-aware:
+`measurement` + NULL role = card frame (not listable), `measurement` + a role =
+tape photo (listable). **If the SQL is applied while the OLD edge build is still
+running, every seller's tape-measure photos drop out of their listing photo
+sets until the edge redeploys.** That is a temporary, self-healing state — no
+data is lost and republishing restores them — but it is visible.
+
+So for this one, apply in this order and do not leave a long gap:
+
+```bash
+# 1. Apply. All migrations are idempotent; only 00587 does anything new.
+SUPABASE_DB_URL="postgres://…@host:5432/postgres" ./scripts/apply-prod-migrations.sh
+
+# 2. A column was added, so PostgREST must reload or every photo_role read is a
+#    400 "column item_photos.photo_role does not exist".
+psql "$SUPABASE_DB_URL" -c "NOTIFY pgrst, 'reload schema';"
+
+# 3. Redeploy the edge on Coolify RIGHT AWAY — this closes the listable-photo
+#    window described above.
+
+# 4. Confirm the database's own answer, not the repo's.
+curl -s https://functions.gradethread.com/health/ready | jq .schema
+#    expect: applied "00587" (status "ok" or "ahead")
+```
+
+**Apply order: AFTER 00586.** No dependency on it beyond sequence.
+
+**Frontend timing.** The web client reads `photo_role` the moment Cloudflare
+Pages auto-deploys on push. Step 2 must have happened first or the composer's
+photo queries 400.
+
+**Verified locally:** `deno check src/main.ts` clean, `deno test` on
+`item-photo-storage_test.ts` + `schema-version_test.ts` green (34 passed),
+`npx tsc -b` clean, manifest regenerated. **The SQL itself has NOT been run
+against a Postgres on this machine** — check Docker and run
+`node scripts/verify.mjs --db` if you want it proven on a fresh schema before
+touching prod.
+
 ## ⛔ HELD: 00586_handle_new_user_restore_legal_acceptance.sql (US-2017 — the signup clickwrap has not been recorded since 00303)
 
 **PUSH-BLOCKING. Apply this SQL before the branch is pushed.**

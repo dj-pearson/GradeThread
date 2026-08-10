@@ -60,8 +60,32 @@ describe("PhotoManager mutation seams (US-1567)", () => {
     const { client, calls } = mockClient();
     await persistRetag(client, { id: "p1" }, "back");
     expect(calls).toEqual([
-      { kind: "update", table: "item_photos", patch: { photo_type: "back" }, id: "p1" },
+      {
+        kind: "update",
+        table: "item_photos",
+        // US-2462: photo_role is written on EVERY retag, including as null.
+        patch: { photo_type: "back", photo_role: null },
+        id: "p1",
+      },
     ]);
+  });
+
+  it("retag CLEARS a stale role when the new type takes none", async () => {
+    // The bug this prevents: a photo tagged "Fabric close-up"
+    // (detail, role 'fabric') retagged to "Front" would keep role='fabric' if
+    // the update omitted the column — and the grading fabric check counts
+    // role='fabric', so a front shot would go on satisfying it (US-2467).
+    const { client, calls } = mockClient();
+    await persistRetag(client, { id: "p1" }, "front", null);
+    expect(calls[0]).toMatchObject({ patch: { photo_type: "front", photo_role: null } });
+  });
+
+  it("retag writes the role when the new type takes one", async () => {
+    const { client, calls } = mockClient();
+    await persistRetag(client, { id: "p1" }, "detail", "fabric");
+    expect(calls[0]).toMatchObject({
+      patch: { photo_type: "detail", photo_role: "fabric" },
+    });
   });
 
   it("retag surfaces a server error instead of silently succeeding", async () => {

@@ -41,6 +41,46 @@ export interface GradingReadiness {
 export const FABRIC_CLOSEUP_WARNING =
   "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot.";
 
+/**
+ * US-2467: does this photo set contain an actual fabric close-up?
+ *
+ * Before roles this could only ask "is any Detail slot filled", so four photos
+ * of buttons passed the check and dodged NO_FABRIC_CLOSEUP_CONFIDENCE_CAP,
+ * while one perfect fabric macro tagged "Detail 3" only counted by luck. The
+ * fabric_condition factor is 30% of the score, so that was a real accuracy hole
+ * rather than a tidiness problem.
+ *
+ * `have` may hold bare types ("detail") and/or role-qualified slots
+ * ("detail:fabric", and "detail:" for a detail with NO role). The three cases,
+ * in order:
+ *
+ *   1. An explicit fabric close-up. Always counts.
+ *   2. An explicitly UNQUALIFIED detail. Counts, because the seller never said
+ *      what it was and it may well be the weave — the same benefit of the doubt
+ *      the old rule gave, deliberately preserved so no historical item is
+ *      retro-capped.
+ *   3. A caller that knows nothing about roles (a legacy row set, the shared
+ *      fixture, or an older client) — recognised by there being detail photos
+ *      but no qualified slot among them. Falls back to the old behavior.
+ *
+ * What no longer counts: a detail set where EVERY photo is qualified as
+ * something that is not fabric. That is the case the old rule got wrong.
+ */
+export function hasFabricCloseup(have: Set<string>): boolean {
+  if (have.has("detail:fabric")) return true;
+  if (have.has("detail:")) return true;
+
+  const details = [...have].filter(
+    (s) =>
+      s === "detail" ||
+      s.startsWith("detail:") ||
+      (FABRIC_CLOSEUP_PHOTO_TYPES as readonly string[]).includes(s),
+  );
+  if (details.length === 0) return false;
+  const qualified = details.filter((s) => s.startsWith("detail:") && s !== "detail:");
+  return qualified.length === 0;
+}
+
 export function previewGradingReadiness(
   input: GradingReadinessInput,
 ): GradingReadiness {
@@ -63,7 +103,7 @@ export function previewGradingReadiness(
     blockers.push(`Missing required photos: ${missingPhotos.join(", ")}`);
   }
 
-  if (!FABRIC_CLOSEUP_PHOTO_TYPES.some((t) => have.has(t))) {
+  if (!hasFabricCloseup(have)) {
     warnings.push(FABRIC_CLOSEUP_WARNING);
   }
 

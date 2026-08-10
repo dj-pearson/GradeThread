@@ -180,6 +180,48 @@ export const FABRIC_CLOSEUP_WARNING =
  * The blocker strings are user-facing copy; the web card also regex-matches
  * them (`onlyGarmentBlocks`), so changing one is a cross-project change.
  */
+/**
+ * US-2467: does this photo set contain an actual fabric close-up?
+ *
+ * VERBATIM behavioural mirror of `hasFabricCloseup` in
+ * src/lib/grading-readiness.ts — the shared fixture
+ * (src/test/fixtures/grading-readiness-cases.json) asserts both sides agree.
+ *
+ * Before roles this could only ask "is any Detail slot filled", so four photos
+ * of buttons passed and dodged NO_FABRIC_CLOSEUP_CONFIDENCE_CAP while a real
+ * fabric macro tagged "Detail 3" counted only by luck. fabric_condition is 30%
+ * of the score, so this was an accuracy hole, not a tidiness one.
+ *
+ * `have` may hold bare types ("detail") and/or role-qualified slots
+ * ("detail:fabric", and "detail:" for a detail carrying NO role):
+ *
+ *   1. An explicit fabric close-up always counts.
+ *   2. An explicitly unqualified detail counts — the seller never said what it
+ *      was and it may be the weave. Deliberately the same benefit of the doubt
+ *      the old rule gave, so no historical item is retro-capped.
+ *   3. A role-blind caller (legacy rows, the fixture, an older client) is
+ *      recognised by having details but no qualified slot, and keeps the old
+ *      behavior.
+ *
+ * Only one case changes: a detail set where EVERY photo is qualified as
+ * something other than fabric no longer counts. That is the case the old rule
+ * got wrong.
+ */
+export function hasFabricCloseup(have: Set<string>): boolean {
+  if (have.has("detail:fabric")) return true;
+  if (have.has("detail:")) return true;
+
+  const details = [...have].filter(
+    (s) =>
+      s === "detail" ||
+      s.startsWith("detail:") ||
+      (FABRIC_CLOSEUP_PHOTO_TYPES as readonly string[]).includes(s),
+  );
+  if (details.length === 0) return false;
+  const qualified = details.filter((s) => s.startsWith("detail:") && s !== "detail:");
+  return qualified.length === 0;
+}
+
 export function gradingReadinessBlockers(input: {
   garment_type: string | null | undefined;
   garment_category: string | null | undefined;
@@ -206,7 +248,7 @@ export function gradingReadinessBlockers(input: {
   // A WARNING, not a blocker (owner's call, 2026-08-03). It still tells the
   // seller what they give up, because the consequence is real and they should
   // learn it BEFORE they submit, not from a slower grade afterwards.
-  if (!FABRIC_CLOSEUP_PHOTO_TYPES.some((t) => have.has(t))) {
+  if (!hasFabricCloseup(have)) {
     warnings.push(FABRIC_CLOSEUP_WARNING);
   }
 
@@ -317,20 +359,31 @@ async function buildValidation(
   const { data: photosRaw } = ownedItemIds.length
     ? await supabaseAdmin
         .from("item_photos")
-        .select("inventory_item_id, photo_type")
+        .select("inventory_item_id, photo_type, photo_role")
         .in("inventory_item_id", ownedItemIds)
-    : { data: [] as Array<{ inventory_item_id: string; photo_type: string }> };
+    : {
+      data: [] as Array<
+        { inventory_item_id: string; photo_type: string; photo_role: string | null }
+      >,
+    };
   const photoTypesByItem = new Map<string, Set<string>>();
   for (const p of (photosRaw ?? []) as Array<{
     inventory_item_id: string;
     photo_type: string;
+    photo_role: string | null;
   }>) {
     let s = photoTypesByItem.get(p.inventory_item_id);
     if (!s) {
       s = new Set();
       photoTypesByItem.set(p.inventory_item_id, s);
     }
+    // US-2467: BOTH the bare type and the role-qualified slot. The bare type
+    // keeps the required-photo checks working (a tag is a tag whatever role it
+    // carries); the qualified slot is what lets the fabric check tell a weave
+    // close-up from a button close-up. A role-less photo contributes
+    // "<type>:" so "unqualified" is distinguishable from "unknown".
     s.add(p.photo_type);
+    s.add(`${p.photo_type}:${p.photo_role ?? ""}`);
   }
 
   const items: ValidatedItem[] = inputs.map((input) => {

@@ -16,7 +16,6 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
-import { PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { usePhotoProfile } from "@/lib/photo-profiles";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
@@ -63,6 +62,7 @@ export function PhotoUploader({
   itemId,
   currentStatus,
   category,
+  garment,
   onChange,
 }: {
   itemId: string;
@@ -74,6 +74,12 @@ export function PhotoUploader({
    */
   category?: ItemCategory | null;
   /**
+   * US-2465: the free-text `inventory_items.category` ("blazer", "dress
+   * pants"). Only consulted for clothing, where item_category alone is too
+   * coarse — it is what decides whether an inseam slot belongs on screen.
+   */
+  garment?: string | null;
+  /**
    * Fired after the item's photo set actually changes (a successful upload,
    * delete, or in-place edit). Lets a host (e.g. the AutoLister cockpit dialog)
    * know it should re-run photo QA / refresh indicators only when something
@@ -84,7 +90,7 @@ export function PhotoUploader({
   const user = useAuthStore((s) => s.user);
   const { workspaceOwnerId } = useWorkspace();
   const qc = useQueryClient();
-  const [uploading, setUploading] = useState<FlipdeskPhotoType | null>(null);
+  const [uploading, setUploading] = useState<string | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<ItemPhotoRow | null>(null);
   // Bulk-add progress: {done,total} while a multi-select batch is uploading,
   // null otherwise. Drives the button label/spinner and disables re-picking.
@@ -95,12 +101,10 @@ export function PhotoUploader({
 
   // Category-driven photo slots. Required roles gate the "photographed" status;
   // optional roles are extra coverage. Both come from the (cached) profile.
-  const profile = usePhotoProfile(category ?? null);
+  const profile = usePhotoProfile(category ?? null, garment);
   const requiredRoles = profile.roles.filter((r) => r.required);
   const optionalRoles = profile.roles.filter((r) => !r.required);
   const requiredTypes = requiredRoles.map((r) => r.type);
-  const labelFor = (t: FlipdeskPhotoType): string =>
-    profile.roles.find((r) => r.type === t)?.label ?? PHOTO_TYPE_LABELS[t];
 
   const { data: photos = [], isLoading } = useQuery({
     queryKey: ["item_photos", itemId],
@@ -115,6 +119,20 @@ export function PhotoUploader({
     },
   });
 
+  // US-2465: slot identity is (type, role), not type alone. Without the role
+  // half, a suit's three tag slots would all show the same photo and a
+  // "Measure: Chest" upload would fill the "Measure: Waist" tile too.
+  const slotKey = (t: string, role?: string | null) =>
+    role ? `${t}:${role}` : t;
+
+  const bySlot = (r: { type: FlipdeskPhotoType; role?: string }) =>
+    photos.filter(
+      (p) => p.photo_type === r.type && (p.photo_role ?? null) === (r.role ?? null),
+    );
+
+  // The required GATE is still per type, not per slot: `front` and `back` are
+  // the only required roles and neither takes a qualifier, so "has a front" is
+  // the right question and a role-blind count is the right instrument.
   const byType = (t: FlipdeskPhotoType) =>
     photos.filter((p) => p.photo_type === t);
 
@@ -127,6 +145,7 @@ export function PhotoUploader({
     picked: File,
     photoType: FlipdeskPhotoType,
     sortOrder: number,
+    photoRole?: string | null,
   ): Promise<{
     originalSize: number;
     storedSize: number;
@@ -245,6 +264,9 @@ export function PhotoUploader({
       photo_url: pub.publicUrl,
       storage_path: path,
       photo_type: photoType,
+      // US-2462: the qualifier saying what this photo shows. NULL for a slot
+      // that takes none — see src/lib/photo-roles.ts.
+      photo_role: photoRole ?? null,
       // Canonical default order: Front → Back → Tag → Detail … so the
       // listing's photo order (and eBay cover) is sensible without any
       // manual drag. A later reorder densifies sort_order and wins.
@@ -287,14 +309,19 @@ export function PhotoUploader({
     onChange?.();
   }
 
-  async function upload(picked: File, photoType: FlipdeskPhotoType) {
+  async function upload(
+    picked: File,
+    slot: { type: FlipdeskPhotoType; role?: string; label: string },
+  ) {
     if (!user) return;
-    setUploading(photoType);
+    const photoType = slot.type;
+    setUploading(slotKey(photoType, slot.role));
     try {
       const { originalSize, storedSize, macro } = await processAndUpload(
         picked,
         photoType,
         nextUploadSortOrder(photos, photoType),
+        slot.role,
       );
       await afterPhotosChanged([photoType]);
       const savedPct = ((1 - storedSize / originalSize) * 100).toFixed(0);
@@ -302,7 +329,7 @@ export function PhotoUploader({
         storedSize < originalSize && originalSize > 100 * 1024
           ? ` (−${savedPct}%, ${(originalSize / 1024 / 1024).toFixed(1)}MB → ${(storedSize / 1024 / 1024).toFixed(1)}MB)`
           : "";
-      toast.success(`${labelFor(photoType)} photo uploaded${sizeNote}.`);
+      toast.success(`${slot.label} photo uploaded${sizeNote}.`);
       // Separate toast, not appended to the success line: the upload DID
       // succeed, and the nudge is a different message with a different action.
       if (macro.message) toast.warning(macro.message);
@@ -511,13 +538,13 @@ export function PhotoUploader({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {requiredRoles.map((r) => (
             <PhotoSlot
-              key={r.type}
+              key={slotKey(r.type, r.role)}
               label={r.label}
               hint={r.hint}
               photoType={r.type}
-              photos={byType(r.type)}
-              uploading={uploading === r.type}
-              onUpload={(f) => upload(f, r.type)}
+              photos={bySlot(r)}
+              uploading={uploading === slotKey(r.type, r.role)}
+              onUpload={(f) => upload(f, r)}
               onRemove={remove}
               onEdit={setEditingPhoto}
               required
@@ -533,13 +560,13 @@ export function PhotoUploader({
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {optionalRoles.map((r) => (
             <PhotoSlot
-              key={r.type}
+              key={slotKey(r.type, r.role)}
               label={r.label}
               hint={r.hint}
               photoType={r.type}
-              photos={byType(r.type)}
-              uploading={uploading === r.type}
-              onUpload={(f) => upload(f, r.type)}
+              photos={bySlot(r)}
+              uploading={uploading === slotKey(r.type, r.role)}
+              onUpload={(f) => upload(f, r)}
               onRemove={remove}
               onEdit={setEditingPhoto}
             />

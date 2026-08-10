@@ -6,17 +6,79 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/constants.ts
+  - src/lib/photo-roles.ts
   - services/edge-functions/src/lib/photo-profiles.ts
   - src/components/flipdesk/photo-manager.tsx
   - src/lib/images.ts
   - src/lib/item-photo-url.ts
   - services/edge-functions/src/lib/item-photo-storage.ts
-reviewed: 2026-08-09
+  - supabase/migrations/00587_item_photo_role_qualifier.sql
+reviewed: 2026-08-10
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
 
 # Listing photos — order, required set, and how edits reach eBay
+
+## A tag is a TYPE plus a ROLE (US-2462, migration 00587)
+
+The stored tag has two parts, and knowing which part carries the meaning is the
+difference between reading this system and fighting it.
+
+- **`photo_type`** — the `flipdesk_photo_type` enum. Small, stable, and the
+  thing everything downstream switches on. Postgres cannot remove an enum value,
+  so this list only ever grows and every addition is permanent.
+- **`photo_role`** — `item_photos.photo_role`, plain text with **no CHECK
+  constraint, deliberately**. It says what the photo actually shows: `fabric` on
+  a detail, `size` on a tag, `inseam` on a measurement. The vocabulary lives in
+  `src/lib/photo-roles.ts` (mirrored to the edge, pinned by
+  `src/test/photo-roles-parity.test.ts`), so **a new role costs no migration**.
+
+Before this split the type carried both jobs, which is where `tag_2`,
+`detail_2..4` and the five fixed `measurement_*` values came from. That capped a
+two-piece suit at two tag slots, put six near-identical entries in a 28-item
+picker, and made "add a shoulder measurement slot" a schema change.
+
+> **The profiles were already doing this informally.** `photo-profiles.ts`
+> labels `detail_2` as "Handles & Straps" for bags and "Ends & Edges" for
+> accessories, and `interior` as "Sweatband" for headwear. The meaning was
+> always per-category; it just had nowhere to live, so retagging one of those in
+> the web picker showed "Detail 2".
+
+**Retired, not removed.** `tag_2`, `detail_2/3/4` and `measurement_*` are still
+legal enum values and always will be. 00587 rewrites existing rows onto
+`(type, role)` and the pickers stop offering them —
+`RETIRED_PHOTO_TYPES` in `photo-roles.ts` is the map, and it is shared by the
+migration and the UI so the two cannot disagree about what `measurement_chest`
+meant.
+
+> [!warning] `measurement` + NULL role is not the same photo as `measurement` + a role
+> `measurement` is on `NON_LISTABLE_PHOTO_TYPES` because it means the MeasureCard
+> calibration frame — a branded foreign object that must never publish. But
+> `measurement_chest` was a tape close-up, and those **are** listable and sellers
+> publish them on purpose. Since 00587 folds the second into the first, the rule
+> is role-aware: **NULL role ⇒ card frame ⇒ never lists; any role ⇒ tape photo ⇒
+> lists.** Pre-00587 rows have a NULL role, so history is preserved exactly.
+>
+> The trap: `photo_role` missing from a `select()` reads as `undefined`, which is
+> indistinguishable from NULL, which means "card frame". A query that forgets the
+> column silently drops the seller's tape photos from their listing and reports
+> nothing. Every call site feeding `filterListablePhotos` selects it; there is a
+> guard test for the shape in `item-photo-storage_test.ts`.
+
+## Which garment, not just which category (US-2465)
+
+Photo profiles are keyed by `item_category` (clothing, shoes, bags…), which is
+too coarse for clothing: one flat CLOTHING profile offered a t-shirt an inseam
+slot and never offered a blazer a shoulder. For `clothing`, the profile now
+sub-selects by `measurementGroupFor(item.category)` — the same free-text garment
+mapping the measurement FORM has always used (`src/lib/measurement-templates.ts`),
+so the photo slots and the measurement fields agree by construction rather than
+by somebody remembering both.
+
+Measurement roles are **derived** from `MEASUREMENT_TEMPLATES`, never hand
+listed. Adding a measurement field gets it a photo slot for free, in every
+client.
 
 ## Two levers, each duplicated across surfaces
 

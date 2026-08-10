@@ -7,6 +7,11 @@ export type MeasurementGroup =
   | "bottom"
   | "dress"
   | "outerwear"
+  // US-2464. A suit, tuxedo or coverall is the one garment that is measured as
+  // a TOP and a BOTTOM at the same time. Before this group it fell to `generic`
+  // (length + width, both optional), so the seven numbers a suit is actually
+  // bought on were not offered at all and the photo tags had nowhere to hang.
+  | "suit"
   | "shoes"
   | "watch"
   // US-2225 AC4. A bag is the one category whose defining dimension is DEPTH —
@@ -64,6 +69,30 @@ export const MEASUREMENT_TEMPLATES: Record<
     { key: "shoulder", label: "Shoulder", unit: "length", required: false },
     { key: "sleeve", label: "Sleeve", unit: "length", required: false },
   ],
+  // US-2464. The jacket half reuses the `outerwear` keys and the pant half
+  // reuses the `bottom` keys, deliberately: a suit's jacket chest IS a chest,
+  // and every downstream consumer (listing templates, eBay item specifics, the
+  // fit widget) already knows those keys. Inventing `jacket_chest` would have
+  // made a suit invisible to all of them.
+  //
+  // Only the LABELS disambiguate, because on a two-piece the seller is holding
+  // two garments and "Waist" alone is genuinely ambiguous between the jacket's
+  // waist and the trouser's. `length` is labelled "Jacket length" for the same
+  // reason.
+  //
+  // Chest, jacket length, waist and inseam are required; a suit listed without
+  // all four cannot be sized by a buyer. Shoulder, sleeve and rise are optional
+  // because a seller who measures them is tailoring-literate and the ones who
+  // are not should still be able to advance the item.
+  suit: [
+    { key: "chest", label: "Jacket chest (pit to pit)", unit: "length", required: true },
+    { key: "length", label: "Jacket length", unit: "length", required: true },
+    { key: "shoulder", label: "Jacket shoulder", unit: "length", required: false },
+    { key: "sleeve", label: "Jacket sleeve", unit: "length", required: false },
+    { key: "waist", label: "Pant waist (flat)", unit: "length", required: true },
+    { key: "inseam", label: "Pant inseam", unit: "length", required: true },
+    { key: "rise", label: "Pant front rise", unit: "length", required: false },
+  ],
   shoes: [
     { key: "size_us", label: "US size", unit: "shoe", required: true },
     { key: "insole", label: "Insole length", unit: "length", required: false },
@@ -118,6 +147,31 @@ export const MEASUREMENT_TEMPLATES: Record<
   ],
 };
 
+// US-2464. "dress" is a noun AND a modifier, and the modifier sense is more
+// common in resale than the garment sense. Because the dress branch is tested
+// before both `bottom` and `top`, every one of these compounds was being
+// measured as a dress: "dress pants" was asked for a bust and never for an
+// inseam, and "dress shirt" was asked for a hip.
+//
+// Matching the compound and REFUSING the dress branch (rather than reordering
+// the branches) is what keeps "sundress" and "shirtdress" correct — those are
+// genuine dresses whose names contain another garment's noun, and any reorder
+// that fixed "dress shirt" would have broken "shirtdress".
+const DRESS_MODIFIER =
+  /dress\s*-?\s*(shirt|blouse|pant|trouser|slack|short|skirt|sock|shoe|boot|belt|tie|watch|coat|jacket|blazer|vest|suit|uniform)/;
+
+// US-2464. A suit set is measured as a top AND a bottom. The exclusions are the
+// words that merely CONTAIN "suit" without being a two-piece: a swimsuit and a
+// bodysuit are single garments, and a jumpsuit is measured like a dress.
+// Tracksuits and sweatsuits are deliberately NOT excluded — they are two
+// pieces and a buyer needs both sets of numbers.
+const NOT_A_SUIT_SET = /(swim|jump|body|cat|snow|wet|rain|play)suit/;
+const SUIT_SET =
+  /(pant.?suit|suit|tuxedo|\btux\b|two.?piece|three.?piece|coverall|overall|scrub|pajama|pyjama)/;
+// "Suit pants" sold on their own are a bottom, not a set. `pantsuit` is safe
+// here: it is "pant" then "suit", so it never matches "suit" then "pant".
+const SUIT_SINGLE_BOTTOM = /(suit|tuxedo|tux)\s*-?\s*(pant|trouser|slack|short|skirt)/;
+
 // Map a free-form category/garment string to a measurement group.
 export function measurementGroupFor(
   category: string | null | undefined,
@@ -144,10 +198,24 @@ export function measurementGroupFor(
     return "accessory";
   if (/(shoe|sneaker|boot|sandal|footwear|loafer|mule|clog|slipper)/.test(c)) return "shoes";
   if (/watch/.test(c)) return "watch";
-  if (/(dress|romper|jumpsuit|maxi|mini|midi)/.test(c)) return "dress";
-  if (/(jacket|coat|outerwear|blazer|parka|windbreaker|overcoat|anorak|bomber|vest|gilet|fleece|cardigan)/.test(c))
+  // US-2464: swimwear joins the dress template — a one-piece, bikini or tankini
+  // is sold on bust/waist/hip, the same three numbers, and fell to `generic`
+  // (length + width) before.
+  if (
+    !DRESS_MODIFIER.test(c) &&
+    /(dress|romper|jumpsuit|maxi|mini|midi|swimsuit|bikini|tankini|monokini|one.?piece)/.test(c)
+  )
+    return "dress";
+  // US-2464: robes and kimonos are open-front layers measured exactly like a
+  // coat, and had no branch at all.
+  if (/(jacket|coat|outerwear|blazer|parka|windbreaker|overcoat|anorak|bomber|vest|gilet|fleece|cardigan|robe|kimono|poncho|cape)/.test(c))
     return "outerwear";
-  if (/(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo)/.test(c))
+  // US-2464: AFTER outerwear so a standalone "suit jacket" stays outerwear, and
+  // BEFORE bottom so "pantsuit" is not claimed by the `pant` keyword.
+  if (SUIT_SET.test(c) && !NOT_A_SUIT_SET.test(c) && !SUIT_SINGLE_BOTTOM.test(c))
+    return "suit";
+  // US-2464: `trunk` added for swim trunks — board shorts already matched.
+  if (/(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo|trunk|slack)/.test(c))
     return "bottom";
   if (/(shirt|tee|t-shirt|top|blouse|sweater|hoodie|sweatshirt|tank|polo|jersey|henley|pullover|crewneck|longsleeve|long.sleeve|rugby|button.down|button.up|oxford|flannel|thermal)/.test(c))
     return "top";

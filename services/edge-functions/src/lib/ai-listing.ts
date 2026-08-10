@@ -1428,7 +1428,7 @@ const MAX_TAG_OCR_PHOTOS = 4;
 async function loadItemPhotoUrls(itemId: string): Promise<ListingGenPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
-    .select("photo_type, storage_path, sort_order, photo_url")
+    .select("photo_type, photo_role, storage_path, sort_order, photo_url")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   // US-1549: 'internal' photos (price tags, receipts) are seller-reference

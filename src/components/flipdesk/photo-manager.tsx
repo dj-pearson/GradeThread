@@ -31,21 +31,17 @@ import {
   SunMedium,
 } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import {
-  FLIPDESK_PHOTO_TYPES,
-  PHOTO_TYPE_LABELS,
   isNonListablePhotoType,
   isSensitivePhotoType,
 } from "@/lib/constants";
+import {
+  PhotoTagSelect,
+  photoTagLabel,
+} from "@/components/flipdesk/photo-tag-select";
+import { usePhotoProfile, type PhotoProfile } from "@/lib/photo-profiles";
 import { firstPhotoNudge } from "@/lib/photo-standards";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { BulkToneDialog } from "@/components/flipdesk/bulk-tone-dialog";
@@ -97,6 +93,10 @@ interface PhotoManagerProps {
    *  unmount auto-sync from double-pushing the same change. When omitted, an
    *  internal ref is used and edits sync only on unmount. */
   dirtyRef?: MutableRefObject<boolean>;
+  /** US-2465: the free-text garment word ("blazer", "dress pants"), used to
+   *  pick the suggested tag set. items_full has no item_category column, so
+   *  this is the only category signal the composer actually has. */
+  garment?: string | null;
   /** US-1567: optional primary-photo picker (the composer's star). When both
    *  are provided each tile shows a star button; the highlighted star marks
    *  the current primary. Omit for surfaces where position 0 is the cover. */
@@ -108,9 +108,13 @@ export function PhotoManager({
   itemId,
   liveListingId,
   dirtyRef,
+  garment,
   primaryPhotoId,
   onPickPrimary,
 }: PhotoManagerProps) {
+  // US-2465: the garment word picks the suggested tag set. Non-clothing items
+  // resolve through the same call — see usePhotoProfile.
+  const profile = usePhotoProfile(null, garment);
   const qc = useQueryClient();
   const [order, setOrder] = useState<ItemPhotoRow[]>([]);
   // US-1567: click a thumbnail to view the full-size photo.
@@ -334,10 +338,14 @@ export function PhotoManager({
     editingPhoto && editingRecipe ? editingPhoto : null,
   );
 
-  async function retag(photo: ItemPhotoRow, photoType: FlipdeskPhotoType) {
+  async function retag(
+    photo: ItemPhotoRow,
+    photoType: FlipdeskPhotoType,
+    photoRole: string | null,
+  ) {
     photosDirtyRef.current = true;
     try {
-      await persistRetag(supabase, photo, photoType);
+      await persistRetag(supabase, photo, photoType, photoRole);
       await invalidatePhotos();
       // US-2407: retagging changes the LABEL, never where the bytes live. A
       // phone-captured close-up called "Front" is still in the private bucket
@@ -429,6 +437,8 @@ export function PhotoManager({
                 key={photo.id}
                 photo={photo}
                 gradingInFlight={gradingInFlight}
+                garment={garment}
+                profile={profile}
                 onRetag={retag}
                 onRemove={remove}
                 onEdit={setEditingPhoto}
@@ -453,13 +463,15 @@ export function PhotoManager({
       >
         <DialogContent className="max-w-4xl p-2">
           <DialogTitle className="sr-only">
-            {viewingPhoto ? PHOTO_TYPE_LABELS[viewingPhoto.photo_type] : "Photo"}
+            {viewingPhoto
+              ? photoTagLabel(viewingPhoto.photo_type, viewingPhoto.photo_role, garment)
+              : "Photo"}
           </DialogTitle>
           {viewingPhoto && (
             <ItemPhotoImg
               photo={viewingPhoto}
               full
-              alt={PHOTO_TYPE_LABELS[viewingPhoto.photo_type]}
+              alt={photoTagLabel(viewingPhoto.photo_type, viewingPhoto.photo_role, garment)}
               className="max-h-[80dvh] w-full rounded object-contain"
             />
           )}
@@ -522,6 +534,8 @@ export function PhotoManager({
 function SortablePhoto({
   photo,
   gradingInFlight,
+  garment,
+  profile,
   onRetag,
   onRemove,
   onEdit,
@@ -534,7 +548,9 @@ function SortablePhoto({
 }: {
   photo: ItemPhotoRow;
   gradingInFlight: boolean;
-  onRetag: (photo: ItemPhotoRow, t: FlipdeskPhotoType) => void;
+  garment?: string | null;
+  profile?: PhotoProfile;
+  onRetag: (photo: ItemPhotoRow, t: FlipdeskPhotoType, role: string | null) => void;
   onRemove: (photo: ItemPhotoRow) => void;
   onEdit: (photo: ItemPhotoRow) => void;
   onRemoveBg: (photo: ItemPhotoRow) => void;
@@ -585,7 +601,7 @@ function SortablePhoto({
         >
           <ItemPhotoImg
             photo={photo}
-            alt={PHOTO_TYPE_LABELS[photo.photo_type]}
+            alt={photoTagLabel(photo.photo_type, photo.photo_role, garment)}
             loading="lazy"
             decoding="async"
             className="h-full w-full object-cover"
@@ -666,21 +682,14 @@ function SortablePhoto({
         </p>
       )}
       <div className="flex items-center gap-1 p-1">
-        <Select
-          value={photo.photo_type}
-          onValueChange={(v) => onRetag(photo, v as FlipdeskPhotoType)}
-        >
-          <SelectTrigger className="h-7 flex-1 text-xs" aria-label="Photo type">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {FLIPDESK_PHOTO_TYPES.map((t) => (
-              <SelectItem key={t} value={t} className="text-xs">
-                {PHOTO_TYPE_LABELS[t]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <PhotoTagSelect
+          photoType={photo.photo_type}
+          photoRole={photo.photo_role}
+          garment={garment}
+          profile={profile}
+          onChange={(t, role) => onRetag(photo, t, role)}
+          className="h-7 flex-1 text-xs"
+        />
         <button
           type="button"
           onClick={() => !deleteBlocked && onRemove(photo)}

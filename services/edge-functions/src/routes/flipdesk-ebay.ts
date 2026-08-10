@@ -6023,7 +6023,7 @@ async function reviseOneListing(
 
     const { data: photoRows } = await supabaseAdmin
       .from("item_photos")
-      .select("storage_path, photo_url, photo_type, sort_order")
+      .select("storage_path, photo_url, photo_type, photo_role, sort_order")
       .eq("inventory_item_id", itemId)
       .order("sort_order", { ascending: true });
     // US-1549: 'internal' photos (price tags, receipts) never go to eBay.
@@ -8708,7 +8708,7 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
       if (itemIds.length > 0) {
         const { data: photoRows } = await supabaseAdmin
           .from("item_photos")
-          .select("inventory_item_id, storage_path, photo_url, photo_type, sort_order")
+          .select("inventory_item_id, storage_path, photo_url, photo_type, photo_role, sort_order")
           .in("inventory_item_id", itemIds)
           .order("sort_order", { ascending: true });
         for (
@@ -9890,7 +9890,7 @@ export async function resyncGradeToLiveListing(
 
   const { data: photoRows } = await supabaseAdmin
     .from("item_photos")
-    .select("storage_path, photo_url, photo_type, sort_order")
+    .select("storage_path, photo_url, photo_type, photo_role, sort_order")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
   // US-1549: 'internal' photos (price tags, receipts) never go to eBay.
@@ -10156,7 +10156,7 @@ export async function assemblePublishContext(
     .from("item_photos")
     // US-1896: width/height feed the picture-standards preflight (dimensions),
     // photo_type feeds the hero-thumbnail nudge.
-    .select("id, storage_path, photo_url, photo_type, sort_order, width, height")
+    .select("id, storage_path, photo_url, photo_type, photo_role, sort_order, width, height")
     .eq("inventory_item_id", itemId)
     .order("sort_order", { ascending: true });
 
@@ -10168,6 +10168,8 @@ export async function assemblePublishContext(
     storage_path: string | null;
     photo_url: string | null;
     photo_type: string | null;
+    // US-2462: declared so the select above cannot lose it silently.
+    photo_role: string | null;
     sort_order: number;
     width: number | null;
     height: number | null;

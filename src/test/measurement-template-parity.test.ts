@@ -177,3 +177,104 @@ describe("US-2225: routing a bag to the bag template", () => {
     expect(measurementGroupFor(null)).toBe("generic");
   });
 });
+
+describe("US-2464 AC1/AC2: 'dress' is a modifier more often than a noun", () => {
+  // The bug this pins: the dress branch is tested BEFORE both `bottom` and
+  // `top`, so every "dress <noun>" compound was measured as a dress. A seller
+  // listing dress pants was asked for a bust and never once for an inseam —
+  // which is the exact complaint that opened this epic.
+  it("routes dress bottoms to the bottom template", () => {
+    for (const c of ["dress pants", "dress trousers", "dress slacks", "dress shorts"]) {
+      expect(measurementGroupFor(c), c).toBe("bottom");
+    }
+  });
+
+  it("routes a dress shirt to the top template", () => {
+    // Same bug, opposite direction, and the reason the fix is a compound guard
+    // rather than a branch reorder.
+    for (const c of ["dress shirt", "Dress Shirts", "dress blouse"]) {
+      expect(measurementGroupFor(c), c).toBe("top");
+    }
+  });
+
+  it("still routes an actual dress to the dress template", () => {
+    for (const c of ["dress", "sundress", "shirtdress", "maxi dress", "romper", "jumpsuit"]) {
+      expect(measurementGroupFor(c), c).toBe("dress");
+    }
+  });
+
+  it("keeps the compounds an earlier branch already owned", () => {
+    // These never hit the dress branch — they are claimed before it — and the
+    // guard must not change that.
+    expect(measurementGroupFor("dress shoes")).toBe("shoes");
+    expect(measurementGroupFor("dress belt")).toBe("accessory");
+    expect(measurementGroupFor("dress coat")).toBe("outerwear");
+  });
+});
+
+describe("US-2464 AC3: a suit set is measured as a top AND a bottom", () => {
+  it("offers both halves, with the four a buyer cannot size without required", () => {
+    const required = MEASUREMENT_TEMPLATES.suit.filter((f) => f.required).map((f) => f.key);
+    expect(required).toEqual(["chest", "length", "waist", "inseam"]);
+    expect(MEASUREMENT_TEMPLATES.suit.map((f) => f.key))
+      .toEqual(["chest", "length", "shoulder", "sleeve", "waist", "inseam", "rise"]);
+  });
+
+  it("reuses the outerwear and bottom keys rather than inventing new ones", () => {
+    // A suit's jacket chest IS a chest. Inventing `jacket_chest` would make a
+    // suit invisible to the listing description, the eBay specifics sync and
+    // the fit widget, all of which already know these keys.
+    const suitKeys = new Set(MEASUREMENT_TEMPLATES.suit.map((f) => f.key));
+    for (const f of MEASUREMENT_TEMPLATES.outerwear) expect(suitKeys).toContain(f.key);
+    for (const k of ["waist", "inseam", "rise"]) expect(suitKeys).toContain(k);
+  });
+
+  it("labels every field with which piece it belongs to", () => {
+    // On a two-piece the seller is holding two garments, and "Waist" alone is
+    // genuinely ambiguous between the jacket's and the trouser's.
+    for (const f of MEASUREMENT_TEMPLATES.suit) {
+      expect(f.label.toLowerCase(), f.key).toMatch(/jacket|pant/);
+    }
+  });
+
+  it("routes the words sellers actually type", () => {
+    for (
+      const c of [
+        "suit", "Suit Set", "two piece suit", "three-piece suit", "tuxedo",
+        "pantsuit", "coveralls", "overalls", "tracksuit", "sweatsuit",
+        "pajamas", "scrubs",
+      ]
+    ) {
+      expect(measurementGroupFor(c), c).toBe("suit");
+    }
+  });
+
+  it("does not claim words that merely contain 'suit'", () => {
+    // A swimsuit and a bodysuit are single garments; a jumpsuit is measured
+    // like a dress. Tracksuits and sweatsuits are NOT excluded — they are two
+    // pieces and a buyer needs both sets of numbers.
+    expect(measurementGroupFor("swimsuit")).toBe("dress");
+    expect(measurementGroupFor("jumpsuit")).toBe("dress");
+    expect(measurementGroupFor("wetsuit")).toBe("generic");
+  });
+
+  it("yields to a single named piece", () => {
+    // A standalone suit jacket is outerwear and suit pants are a bottom. Only
+    // the set gets both halves.
+    expect(measurementGroupFor("suit jacket")).toBe("outerwear");
+    expect(measurementGroupFor("suit pants")).toBe("bottom");
+    expect(measurementGroupFor("tuxedo trousers")).toBe("bottom");
+  });
+});
+
+describe("US-2464 AC4: the garments that used to fall to 'generic'", () => {
+  it("routes swimwear and open-front layers", () => {
+    expect(measurementGroupFor("bikini")).toBe("dress");
+    expect(measurementGroupFor("one piece swimsuit")).toBe("dress");
+    expect(measurementGroupFor("swim trunks")).toBe("bottom");
+    expect(measurementGroupFor("board shorts")).toBe("bottom");
+    expect(measurementGroupFor("bathrobe")).toBe("outerwear");
+    expect(measurementGroupFor("kimono")).toBe("outerwear");
+    expect(measurementGroupFor("poncho")).toBe("outerwear");
+  });
+});

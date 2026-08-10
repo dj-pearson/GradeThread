@@ -102,6 +102,22 @@ const GROUP_DIMS: Record<MeasurementGroup, DimSpec[]> = {
     { name: "hips", label: "Hips", garmentKeys: ["hip"], bodyKey: "hips", multiply: 2, bands: HIPS },
     { name: "inseam", label: "Inseam", garmentKeys: ["inseam"], bodyKey: "inseam", multiply: 1, bands: INSEAM },
   ],
+  // US-2464. A suit is the only group that fits a body in two places at once,
+  // so it is the union of the outerwear and bottom dimensions. The jacket half
+  // uses OUTER_CHEST rather than TOP_CHEST because a suit jacket is worn over a
+  // shirt and its ease bands are a coat's, not a tee's.
+  //
+  // The labels are prefixed because a suit fit report showing "Waist" and
+  // "Chest" side by side reads as one garment; a buyer needs to know which
+  // number belongs to which piece before deciding it fits.
+  suit: [
+    { ...CHEST(OUTER_CHEST), label: "Jacket chest" },
+    { name: "shoulder", label: "Jacket shoulder", garmentKeys: ["shoulder"], bodyKey: "shoulder", multiply: 1, bands: SHOULDER },
+    { name: "sleeve", label: "Jacket sleeve", garmentKeys: ["sleeve"], bodyKey: "sleeve", multiply: 1, bands: SLEEVE },
+    { name: "waist", label: "Pant waist", garmentKeys: ["waist"], bodyKey: "waist", multiply: 2, bands: WAIST },
+    { name: "hips", label: "Pant hips", garmentKeys: ["hip"], bodyKey: "hips", multiply: 2, bands: HIPS },
+    { name: "inseam", label: "Pant inseam", garmentKeys: ["inseam"], bodyKey: "inseam", multiply: 1, bands: INSEAM },
+  ],
   dress: [
     CHEST(DRESS_CHEST),
     { name: "waist", label: "Waist", garmentKeys: ["waist"], bodyKey: "waist", multiply: 2, bands: WAIST },

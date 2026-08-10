@@ -311,7 +311,13 @@ Deno.test("US-2225: a category with its own rubric has photo slots for its heavi
     // US-2224: edges_terminations (0.20) is where a tie, a belt, a scarf and a
     // glove each fail FIRST, and none of it resolves in a full-length front
     // shot. material_condition (0.30) does read off front/back.
-    accessories: ["detail_2"],
+    //
+    // US-2462: this slot used to be spelled `detail_2` — a numbered slot doing
+    // a named slot's job, which is exactly what the role qualifier replaced. It
+    // is now (detail, role 'ends_edges'), and asserting the PAIR is what keeps
+    // this test meaningful: a bare `detail` would pass while offering the
+    // seller nothing that says "photograph the tip and the keeper".
+    accessories: ["detail:ends_edges"],
     // US-2223: the sweatband is the story's whole point — "grading a cap from
     // front/back/label alone cannot see the sweatband, which is where the wear
     // is". `interior` is that shot. `angle` carries crown and brim together,
@@ -321,7 +327,14 @@ Deno.test("US-2225: a category with its own rubric has photo slots for its heavi
   for (const [category, slots] of Object.entries(REQUIRE_SLOTS)) {
     const profile = PHOTO_PROFILES[category];
     assert(profile, `no photo profile for ${category}`);
-    const have = new Set(profile.roles.map((r) => r.type as string));
+    // Slot identity is (type, role) since US-2462, so index both spellings: a
+    // slot with no qualifier answers to its bare type, one with a qualifier
+    // answers to "type:role".
+    const have = new Set(
+      profile.roles.flatMap((r) =>
+        r.role ? [`${r.type}:${r.role}`] : [r.type as string]
+      ),
+    );
     for (const slot of slots) {
       assert(
         have.has(slot),

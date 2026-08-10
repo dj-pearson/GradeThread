@@ -197,6 +197,11 @@ export type ItemCategory =
   | "books"
   | "bags"
   | "accessories"
+  // Migration 00570 added this to the item_category enum and to
+  // ITEM_CATEGORIES, but never to this union — so `headwear` typechecked as an
+  // invalid ItemCategory everywhere it was compared. Found and fixed while
+  // wiring US-2465's per-category profile lookup.
+  | "headwear"
   | "other";
 export type FlipdeskPhotoType =
   | "front"
@@ -233,7 +238,12 @@ export type FlipdeskPhotoType =
   | "measurement_overlay"
   // US-1549 (migration 00340): seller-reference only — never sent to eBay,
   // never fed to AI, never shown on public surfaces.
-  | "internal";
+  | "internal"
+  // US-2462 (migration 00587): the two roles in the new vocabulary that had no
+  // existing type to reuse. Everything else the epic added is an existing type
+  // plus an `photo_role` qualifier — see src/lib/photo-roles.ts.
+  | "on_hanger"
+  | "set_pair";
 export type ListingStatus = "draft" | "active" | "ended" | "sold" | "relisted";
 export type GradingSubmissionTier = "standard" | "premium" | "express";
 export type PayoutImportMethod = "csv_upload" | "api_sync";
@@ -1617,6 +1627,11 @@ export interface ItemPhotoRow {
   photo_url: string;
   storage_path: string | null;
   photo_type: FlipdeskPhotoType;
+  // US-2462 (migration 00587): open-text qualifier saying what the photo shows
+  // — 'fabric' on a detail, 'size' on a tag, 'inseam' on a measurement. NULL
+  // means no qualifier. Deliberately unconstrained in the DB; the vocabulary
+  // lives in src/lib/photo-roles.ts so a new role costs no migration.
+  photo_role: string | null;
   sort_order: number;
   used_for_grading: boolean;
   ebay_uploaded: boolean;

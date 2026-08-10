@@ -32,19 +32,38 @@ export const NON_LISTABLE_PHOTO_TYPES = new Set<string>([
   "measurement",
 ]);
 
-export function isNonListableItemPhoto(photoType?: string | null): boolean {
+// US-2462. 'measurement' now covers two different photos and only one of them
+// is unlistable, so the rule had to learn about the role qualifier.
+//
+//   measurement + NULL role  = the MeasureCard calibration frame. The card is a
+//                              branded foreign object; it never lists. This is
+//                              also what every pre-00587 row looks like, so the
+//                              NULL case preserves history exactly.
+//   measurement + a role     = a tape close-up ("Measure: Chest"). These used to
+//                              be stored as `measurement_chest` and friends,
+//                              which were LISTABLE and which sellers publish on
+//                              purpose.
+//
+// Migration 00587 rewrites measurement_chest → (measurement, 'chest'), so
+// WITHOUT this branch that backfill would have quietly pulled tape photos out
+// of every live listing.
+export function isNonListableItemPhoto(
+  photoType?: string | null,
+  photoRole?: string | null,
+): boolean {
+  if ((photoType ?? "") === "measurement") return !photoRole;
   return NON_LISTABLE_PHOTO_TYPES.has(photoType ?? "");
 }
 
 /**
- * Drop 'internal' + 'measurement' photos from a selection headed to eBay, an
+ * Drop 'internal' + the MeasureCard frame from a selection headed to eBay, an
  * AI pass, or a public surface. Pure; rows without a photo_type pass through
  * unchanged.
  */
-export function filterListablePhotos<T extends { photo_type?: string | null }>(
-  rows: T[],
-): T[] {
-  return rows.filter((r) => !isNonListableItemPhoto(r.photo_type));
+export function filterListablePhotos<
+  T extends { photo_type?: string | null; photo_role?: string | null },
+>(rows: T[]): T[] {
+  return rows.filter((r) => !isNonListableItemPhoto(r.photo_type, r.photo_role));
 }
 
 export const ITEM_PHOTOS_BUCKET = "item-photos";
@@ -97,6 +116,11 @@ export const AI_PHOTO_SIGNED_URL_TTL_SECONDS = 600;
 export interface ItemPhotoUrlRow {
   storage_path?: string | null;
   photo_type?: string | null;
+  // US-2462. Every query feeding filterListablePhotos MUST select this: an
+  // absent field reads as NULL, and a NULL role on a 'measurement' row means
+  // "the MeasureCard frame", so forgetting it silently drops the seller's tape
+  // photos from a listing instead of raising anything.
+  photo_role?: string | null;
   photo_url?: string | null;
 }
 

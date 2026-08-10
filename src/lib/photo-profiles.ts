@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { measurementGroupFor } from "@/lib/measurement-templates";
 import type { FlipdeskPhotoType } from "@/types/database";
 
 // Client mirror of the server-authoritative photo profiles
@@ -11,6 +12,12 @@ import type { FlipdeskPhotoType } from "@/types/database";
 
 export interface PhotoRole {
   type: FlipdeskPhotoType;
+  /**
+   * US-2465: the `item_photos.photo_role` qualifier this slot writes, or
+   * undefined for a slot that takes none. Slot identity is (type, role) — that
+   * is what lets a suit hold three separate `tag` slots.
+   */
+  role?: string;
   label: string;
   hint: string;
   required: boolean;
@@ -25,21 +32,25 @@ export interface PhotoProfile {
 
 // Bundled fallback: the clothing profile (preserves historical behavior) plus a
 // generic profile for anything else, used only until the server table loads.
+// US-2465: the fallback now speaks the (type, role) vocabulary too. It is only
+// on screen until the server table loads, so it stays short — but it must not
+// offer a RETIRED type, or a seller can create a `detail_3` in the one second
+// before the fetch resolves.
 const CLOTHING_FALLBACK: PhotoProfile = {
   category: "clothing",
   label: "Clothing",
   roles: [
     { type: "front", label: "Front", hint: "Lay flat, full front in frame", required: true, icon: "shirt" },
     { type: "back", label: "Back", hint: "Same crop as the front shot", required: true, icon: "shirt" },
-    { type: "tag", label: "Garment Tag", hint: "Care + size label, close enough to read (skip if the tag is missing)", required: false, icon: "tag" },
-    { type: "detail", label: "Detail", hint: "Texture, weave, or a distinctive feature", required: false, icon: "search" },
+    { type: "tag", role: "brand", label: "Brand label", hint: "The maker's logo or wordmark", required: false, icon: "tag" },
+    { type: "tag", role: "size", label: "Size tag", hint: "The size itself, close enough to read", required: false, icon: "tag" },
+    { type: "tag", role: "care", label: "Care & fabric", hint: "The care label with the fibre content", required: false, icon: "tag" },
+    { type: "detail", role: "fabric", label: "Fabric close-up", hint: "Fill the frame with the weave or knit", required: false, icon: "search" },
+    { type: "detail", role: "hardware", label: "Hardware", hint: "Zip pull, buttons, rivets or snaps", required: false, icon: "search" },
     { type: "defect", label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle" },
-    { type: "tag_2", label: "Garment Tag 2", hint: "Second tag — brand stamp or care label", required: false, icon: "tag" },
-    { type: "detail_2", label: "Detail 2", hint: "Another close-up", required: false, icon: "search" },
-    { type: "detail_3", label: "Detail 3", hint: "Another close-up", required: false, icon: "search" },
-    { type: "detail_4", label: "Detail 4", hint: "Another close-up", required: false, icon: "search" },
     { type: "interior", label: "Interior / Lining", hint: "Inside-out: lining, seams, interior tags", required: false, icon: "layers" },
     { type: "flatlay", label: "Flat lay", hint: "Styled flat lay for the listing gallery", required: false, icon: "layout-grid" },
+    { type: "on_hanger", label: "On hanger", hint: "Hung straight on, showing how it drapes", required: false, icon: "shirt" },
     { type: "on_model", label: "On model", hint: "Worn on a model or mannequin", required: false, icon: "user" },
   ],
 };
@@ -53,6 +64,16 @@ const GENERIC_FALLBACK: PhotoProfile = {
     { type: "detail", label: "Detail", hint: "Distinguishing detail or label", required: false, icon: "search" },
     { type: "defect", label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle" },
   ],
+};
+
+// Mirror of the edge's GROUP_TO_CATEGORY: the join between the measurement
+// group taxonomy and the item_category taxonomy.
+const GROUP_TO_CATEGORY: Record<string, string> = {
+  shoes: "shoes",
+  watch: "watches",
+  bag: "bags",
+  accessory: "accessories",
+  headwear: "headwear",
 };
 
 function fallbackProfile(category: string | null | undefined): PhotoProfile {
@@ -76,15 +97,33 @@ function usePhotoProfiles() {
 }
 
 /**
- * Resolves the photo profile for an item_category. Returns the server profile
- * once loaded, otherwise a sensible bundled fallback, so callers can render
- * slots immediately and refine when the fetch resolves.
+ * Resolves the photo profile for an item. Returns the server profile once
+ * loaded, otherwise a sensible bundled fallback, so callers can render slots
+ * immediately and refine when the fetch resolves.
+ *
+ * `category` is the item_category enum. `garment` is the free-text
+ * `inventory_items.category` ("blazer", "dress pants") and is only consulted
+ * for clothing, where item_category alone is too coarse to know whether an
+ * inseam slot belongs on screen (US-2465).
+ *
+ * The lookup mirrors the edge's `getPhotoProfile` exactly: non-clothing goes
+ * straight to its category profile; clothing resolves a garment group and looks
+ * for `clothing:<group>`, falling back to the flat `clothing` profile when the
+ * garment word is unrecognised.
  */
-export function usePhotoProfile(category: string | null | undefined): PhotoProfile {
+export function usePhotoProfile(
+  category: string | null | undefined,
+  garment?: string | null,
+): PhotoProfile {
   const { data } = usePhotoProfiles();
-  if (data) {
-    if (category && data[category]) return data[category];
-    return data.clothing ?? fallbackProfile(category);
-  }
-  return fallbackProfile(category);
+  if (!data) return fallbackProfile(category);
+
+  if (category && category !== "clothing" && data[category]) return data[category];
+  // `items_full` has no item_category column, so this hook is often handed the
+  // free-text garment word. Resolving a group from whichever string arrived
+  // makes both call shapes correct — see the edge's getPhotoProfile.
+  const group = measurementGroupFor(garment ?? category);
+  const byGroup = GROUP_TO_CATEGORY[group];
+  if (byGroup && data[byGroup]) return data[byGroup];
+  return data[`clothing:${group}`] ?? data.clothing ?? fallbackProfile(category);
 }

@@ -14,6 +14,12 @@
 // storage vocabulary small (relabel generic slots; add universal roles in
 // migration 00230) instead of exploding the enum per category.
 
+import {
+  measurementGroupFor,
+  type MeasurementGroup,
+} from "./measurement-templates.ts";
+import { measurementRolesFor } from "./photo-roles.ts";
+
 export type PhotoStorageType =
   // Existing flipdesk_photo_type values, reused as the storage vocabulary.
   | "front"
@@ -43,11 +49,21 @@ export type PhotoStorageType =
   | "accessory"
   | "certificate"
   | "corner"
-  | "surface";
+  | "surface"
+  // US-2462 (migration 00587): the two roles that had no existing type to reuse.
+  | "on_hanger"
+  | "set_pair";
 
 export interface PhotoRole {
   /** Physical item_photos.photo_type value this slot writes. */
   type: PhotoStorageType;
+  /**
+   * US-2465. The `item_photos.photo_role` qualifier this slot writes, or
+   * undefined for a slot that takes none. Slot identity is (type, role): that
+   * is what lets a suit hold three separate `tag` slots instead of needing a
+   * `tag_2` and a `tag_3` in the enum.
+   */
+  role?: string;
   /** Category-specific display label, e.g. "Dial / Face", "Front of card". */
   label: string;
   /** One-line capture guidance shown under/next to the slot. */
@@ -76,8 +92,11 @@ function role(
   hint: string,
   required: boolean,
   icon: string,
+  qualifier?: string,
 ): PhotoRole {
-  return { type, label, hint, required, icon };
+  return qualifier === undefined
+    ? { type, label, hint, required, icon }
+    : { type, label, hint, required, icon, role: qualifier };
 }
 
 const DEFECT = role(
@@ -88,72 +107,155 @@ const DEFECT = role(
   "alert-triangle",
 );
 
+// ── Clothing, by garment group (US-2465) ────────────────────────────────────
+// One flat CLOTHING profile could not be right for all of clothing: it offered
+// a t-shirt an inseam slot and never offered a blazer a shoulder. The garment
+// group comes from `measurementGroupFor(item.category)` — the SAME free-text
+// mapping the measurement form has always used — so the photo slots and the
+// measurement fields agree by construction rather than by somebody remembering
+// to update both.
+//
+// `front` stays at index 0 in every sub-profile. The role order IS the gallery
+// order and index 0 is the eBay cover, so anything else would move covers on
+// items that already exist.
+
+const CLOTHING_TAGS: PhotoRole[] = [
+  role("tag", "Brand label", "The maker's logo or wordmark — usually a separate neck or waistband tag", false, "tag", "brand"),
+  role("tag", "Size tag", "The size itself, close enough to read without zooming", false, "tag", "size"),
+  role("tag", "Care & fabric", "The care label with the fibre content — the question buyers ask most", false, "tag", "care"),
+];
+
+const CLOTHING_DETAILS: PhotoRole[] = [
+  // `fabric` is load-bearing beyond the picker: the grading confidence cap asks
+  // whether a fabric close-up exists (US-2467), and before roles it could only
+  // approximate that by asking whether ANY numbered detail slot was filled.
+  role("detail", "Fabric close-up", "Fill the frame with the weave or knit, in even light", false, "search", "fabric"),
+  role("detail", "Hardware", "Zip pull, buttons, rivets or snaps — show plating wear honestly", false, "search", "hardware"),
+  role("detail", "Print or graphic", "The graphic straight on, close enough to show any cracking", false, "search", "print"),
+];
+
+/** The MeasureCard calibration frame. Never lists — the card is branded. */
+const MEASURE_CARD = role(
+  "measurement",
+  "Measurement card",
+  "Whole garment flat with the MeasureCard BESIDE it — all 4 squares visible, shot top-down",
+  false,
+  "ruler",
+);
+
+/** Tape close-ups, one per field on this garment's measurement template. */
+function measurementSlots(group: MeasurementGroup): PhotoRole[] {
+  return measurementRolesFor(group).map((r) =>
+    role("measurement", `Measure: ${r.label}`, r.hint, false, "ruler", r.key)
+  );
+}
+
+// The tail every clothing sub-profile shares: context shots, then the
+// authenticity macros. Deliberately all optional — a condition grade must never
+// fail because an authenticity slot was skipped, and most sellers are not
+// running the add-on (US-2134).
+const CLOTHING_TAIL: PhotoRole[] = [
+  role("interior", "Interior / Lining", "Inside-out: lining, seams, interior tags", false, "layers"),
+  role("detail", "Hem & stitching", "A hem or seam up close — single stitching is a dating tell on vintage", false, "search", "hem"),
+  role("detail", "Collar or cuff", "Collar and cuffs — the first place a shirt shows its age", false, "search", "collar"),
+  role("detail", "Pocket", "Pocket opening and the corners, where tearing starts", false, "search", "pocket"),
+  role("tag", "Made in / union label", "Origin, union or RN label — this is what dates a vintage piece", false, "tag", "made_in"),
+  role("serial", "Serial / Date code", "Fill the frame with the code — get close, hold steady, avoid glare", false, "hash"),
+  role("marking", "Brand stamp / Hardware", "Close-up of an embossed logo, engraved zipper pull, rivet or button", false, "stamp"),
+  role("flatlay", "Flat lay", "Styled flat lay for the listing gallery", false, "layout-grid"),
+  role("on_hanger", "On hanger", "Hung straight on, showing how it drapes", false, "shirt"),
+  role("on_model", "On model", "Worn on a model or mannequin", false, "user"),
+];
+
+/**
+ * Build a clothing sub-profile. The shape is identical across groups; only the
+ * front/back guidance and the derived measurement slots differ.
+ */
+function clothingProfile(
+  group: MeasurementGroup,
+  category: string,
+  label: string,
+  frontHint: string,
+  backHint: string,
+  extra: PhotoRole[] = [],
+): PhotoProfile {
+  return {
+    category,
+    label,
+    roles: [
+      role("front", "Front", frontHint, true, "shirt"),
+      role("back", "Back", backHint, true, "shirt"),
+      ...CLOTHING_TAGS,
+      ...CLOTHING_DETAILS,
+      MEASURE_CARD,
+      ...measurementSlots(group),
+      DEFECT,
+      ...extra,
+      ...CLOTHING_TAIL,
+    ],
+  };
+}
+
+const CLOTHING_TOP = clothingProfile(
+  "top", "clothing:top", "Tops",
+  "Lay flat, full front in frame",
+  "Same crop as the front shot",
+);
+
+const CLOTHING_BOTTOM = clothingProfile(
+  "bottom", "clothing:bottom", "Bottoms",
+  "Lay flat, waistband to hem, front facing up",
+  "Flip it over — same crop, back pockets visible",
+  [role("detail", "Waistband & closure", "Button, zip and belt loops close up", false, "search", "hardware")],
+);
+
+const CLOTHING_DRESS = clothingProfile(
+  "dress", "clothing:dress", "Dresses",
+  "Lay flat or hang straight, full length in frame",
+  "Same crop as the front — show the zip or closure",
+);
+
+const CLOTHING_OUTERWEAR = clothingProfile(
+  "outerwear", "clothing:outerwear", "Outerwear",
+  "Lay flat, buttoned or zipped, full front in frame",
+  "Same crop as the front shot",
+  [role("detail", "Lining & label", "Open it — the inner lining and the brand label together", false, "search", "hem")],
+);
+
+// The case that failed before this epic and the reason it exists. A two-piece
+// needs a size tag PER PIECE, both sets of measurements, and a shot of the two
+// together — none of which fitted in two tag slots and five fixed measurement
+// types.
+const CLOTHING_SUIT = clothingProfile(
+  "suit", "clothing:suit", "Suit sets",
+  "Jacket laid flat, buttoned, full front in frame",
+  "Jacket back — same crop, showing the vents",
+  [
+    role("set_pair", "Both pieces", "Jacket and trousers together in one frame — proves they are the same suit", false, "layers"),
+    // Deliberately NOT a second `front`. `front` takes no role qualifier, so two
+    // front slots would be indistinguishable in storage — and `front` is the
+    // cover pick, so a trouser shot could end up as the eBay main image.
+    role("flatlay", "Trousers", "Trousers laid flat, waistband to hem", false, "layout-grid", "trousers"),
+    role("tag", "Trouser size tag", "The trousers' own size label — a suit is two sizes, not one", false, "tag", "size_alt"),
+  ],
+);
+
 // ── Per-category profiles ───────────────────────────────────────────────────
 // `default` is the clothing profile so a null/unknown category keeps today's
 // behavior exactly (front/back/tag/detail required).
-const CLOTHING: PhotoProfile = {
-  category: "clothing",
-  label: "Clothing",
-  // Canonical order: Front → Back → Tag → Detail → measurements → defect →
-  // extras. Only Front + Back are required; Tag + Detail stay as default
-  // capture slots but are optional, since garments like Lululemon frequently
-  // ship with the size label cut off (no readable tag exists to photograph).
-  roles: [
-    role("front", "Front", "Lay flat, full front in frame", true, "shirt"),
-    role("back", "Back", "Same crop as the front shot", true, "shirt"),
-    role("tag", "Garment Tag", "Care + size label, close enough to read (skip if the tag is missing)", false, "tag"),
-    role("detail", "Detail", "Texture, weave, or a distinctive feature", false, "search"),
-    // US-1571: the MeasureCard calibration frame the photo-measurement
-    // pipeline reads. Never listed / never fed to generation AI (edge
-    // filterListablePhotos) — this slot exists so tagging surfaces show the
-    // capture guidance.
-    role(
-      "measurement",
-      "Measurement card",
-      "Whole garment flat with the MeasureCard BESIDE it — all 4 squares visible, shot top-down",
-      false,
-      "ruler",
-    ),
-    role("measurement_chest", "Measure: Chest / Bust", "Tape across the chest, garment flat, pit to pit", false, "ruler"),
-    role("measurement_waist", "Measure: Waist", "Tape across the waistband, garment flat", false, "ruler"),
-    role("measurement_length", "Measure: Length", "Tape top to hem, garment flat", false, "ruler"),
-    role("measurement_sleeve", "Measure: Sleeve", "Tape shoulder seam to cuff", false, "ruler"),
-    role("measurement_inseam", "Measure: Inseam", "Tape crotch seam to hem", false, "ruler"),
-    DEFECT,
-    role("tag_2", "Garment Tag 2", "Second tag — brand stamp or care label", false, "tag"),
-    role("detail_2", "Detail 2", "Another close-up: hardware, stitching, print", false, "search"),
-    role("detail_3", "Detail 3", "Another close-up", false, "search"),
-    role("detail_4", "Detail 4", "Another close-up", false, "search"),
-    role("interior", "Interior / Lining", "Inside-out: lining, seams, interior tags", false, "layers"),
-    // US-2134: authenticity macro evidence. The authenticity pass asks the model
-    // about date codes, stamps and hardware engraving, but until now a CLOTHING
-    // seller was never offered a slot to photograph any of it — `serial` and
-    // `marking` existed (migration 00230) and were surfaced only for non-clothing
-    // profiles. So the prompt requested evidence the capture flow never collected.
-    //
-    // Deliberately OPTIONAL: a condition grade must never fail because an
-    // authenticity slot was skipped, and most sellers are not running the add-on.
-    // The hints are written for macro capture specifically — fill the frame and
-    // brace the phone — because these tells are only legible at close range and
-    // an unusably distant shot is worse than no shot (it looks like evidence).
-    role(
-      "serial",
-      "Serial / Date code",
-      "Fill the frame with the code — get close, hold steady, avoid glare",
-      false,
-      "hash",
-    ),
-    role(
-      "marking",
-      "Brand stamp / Hardware",
-      "Close-up of an embossed logo, engraved zipper pull, rivet or button",
-      false,
-      "stamp",
-    ),
-    role("flatlay", "Flat lay", "Styled flat lay for the listing gallery", false, "layout-grid"),
-    role("on_model", "On model", "Worn on a model or mannequin", false, "user"),
-  ],
-};
+// The fallback for CLOTHING whose garment word we do not recognise. It uses the
+// SUIT template deliberately: that is the superset of the top and bottom
+// measurements, so an unknown garment is offered chest, length, shoulder,
+// sleeve, waist, inseam and rise — a strict superset of the five fixed
+// measurement slots the old flat profile offered. Narrowing an unknown garment
+// to one half would hide the slot a seller needs and give them no way back.
+const CLOTHING: PhotoProfile = clothingProfile(
+  "suit",
+  "clothing",
+  "Clothing",
+  "Lay flat, full front in frame",
+  "Same crop as the front shot",
+);
 
 const SHOES: PhotoProfile = {
   category: "shoes",
@@ -298,7 +400,7 @@ const BAGS: PhotoProfile = {
     role("back", "Back", "Full back", true, "shopping-bag"),
     role("marking", "Brand Stamp", "Heat stamp / logo plate", true, "stamp"),
     role("corner", "Corners & Edges", "Close on one bottom corner and the edge paint — the heaviest part of the grade", false, "scan"),
-    role("detail_2", "Handles & Straps", "Handle wrap and strap anchor points, close enough to see darkening or cracking", false, "search"),
+    role("detail", "Handles & Straps", "Handle wrap and strap anchor points, close enough to see darkening or cracking", false, "search", "handles"),
     role("detail", "Hardware", "Zippers, clasps, feet — close enough to see plating wear", false, "search"),
     role("surface", "Base", "The bottom of the bag, flat on, showing sag and corner collapse", false, "layout-grid"),
     role("interior", "Interior", "Lining, pockets, interior tags", false, "layers"),
@@ -353,7 +455,7 @@ const ACCESSORIES: PhotoProfile = {
   roles: [
     role("front", "Front", "Main view in frame", true, "glasses"),
     role("back", "Back", "Reverse view", true, "glasses"),
-    role("detail_2", "Ends & Edges", "Tie tip and keeper, belt holes and cut end, scarf fringe, glove fingertips — this is where wear shows first", false, "scan"),
+    role("detail", "Ends & Edges", "Tie tip and keeper, belt holes and cut end, scarf fringe, glove fingertips — this is where wear shows first", false, "scan", "ends_edges"),
     role("detail", "Hardware / Weave", "Buckle and prong, or a close-up of the weave and texture", false, "search"),
     role("interior", "Reverse / Lining", "Back face or lining — interlining collapse and lining wear", false, "layers"),
     role("tag", "Brand Tag", "Brand / size tag or stamp", false, "tag"),
@@ -374,6 +476,11 @@ const OTHER: PhotoProfile = {
 
 export const PHOTO_PROFILES: Record<string, PhotoProfile> = {
   clothing: CLOTHING,
+  "clothing:top": CLOTHING_TOP,
+  "clothing:bottom": CLOTHING_BOTTOM,
+  "clothing:dress": CLOTHING_DRESS,
+  "clothing:outerwear": CLOTHING_OUTERWEAR,
+  "clothing:suit": CLOTHING_SUIT,
   shoes: SHOES,
   watches: WATCHES,
   jewelry: JEWELRY,
@@ -387,19 +494,70 @@ export const PHOTO_PROFILES: Record<string, PhotoProfile> = {
   other: OTHER,
 };
 
+// US-2465: the clothing sub-profiles, keyed by garment group. Served alongside
+// the item_category profiles under `clothing:<group>` keys so a client that
+// only knows about item_category still gets a valid table.
+export const CLOTHING_SUB_PROFILES: Record<string, PhotoProfile> = {
+  top: CLOTHING_TOP,
+  bottom: CLOTHING_BOTTOM,
+  dress: CLOTHING_DRESS,
+  outerwear: CLOTHING_OUTERWEAR,
+  suit: CLOTHING_SUIT,
+};
+
 // A null/unknown category keeps the historical clothing behavior.
 export const DEFAULT_PROFILE: PhotoProfile = CLOTHING;
 
-export function getPhotoProfile(category: string | null | undefined): PhotoProfile {
-  if (!category) return DEFAULT_PROFILE;
-  return PHOTO_PROFILES[category] ?? DEFAULT_PROFILE;
+/**
+ * Resolve the photo profile for an item.
+ *
+ * `category` is the item_category enum (clothing, shoes, bags…). `garment` is
+ * the free-text `inventory_items.category` ("blazer", "dress pants") and is only
+ * consulted for clothing, where item_category alone is too coarse: it is the
+ * difference between offering a t-shirt an inseam slot and not.
+ *
+ * A garment that does not map to a sub-profile — an unrecognised word, or a
+ * group like `accessory` that has its own item_category profile — falls back to
+ * the flat CLOTHING profile, which is exactly the pre-US-2465 behavior.
+ */
+// Garment groups that already have a dedicated item_category profile. The
+// measurement groups and the item_category enum are two different taxonomies
+// that happen to overlap here, and this is the join between them.
+const GROUP_TO_CATEGORY: Record<string, string> = {
+  shoes: "shoes",
+  watch: "watches",
+  bag: "bags",
+  accessory: "accessories",
+  headwear: "headwear",
+};
+
+export function getPhotoProfile(
+  category: string | null | undefined,
+  garment?: string | null,
+): PhotoProfile {
+  // An explicit, known item_category wins outright.
+  if (category && category !== "clothing" && PHOTO_PROFILES[category]) {
+    return PHOTO_PROFILES[category];
+  }
+  // Falling back to `category` here is not sloppiness — it is the fix for a
+  // real miswiring. `items_full` exposes only the free-text `category`; it has
+  // no `item_category` column, so the web composer has always passed the
+  // GARMENT word ("sneakers", "blazer") into this lookup. That silently missed
+  // every non-clothing profile unless the seller happened to type the enum
+  // value verbatim. Resolving a garment group from whichever string we were
+  // given makes both call shapes correct.
+  const group = measurementGroupFor(garment ?? category);
+  const byGroup = GROUP_TO_CATEGORY[group];
+  if (byGroup && PHOTO_PROFILES[byGroup]) return PHOTO_PROFILES[byGroup];
+  return CLOTHING_SUB_PROFILES[group] ?? DEFAULT_PROFILE;
 }
 
 /** Required storage photo types for a category (drives the "photographed" gate). */
 export function requiredPhotoTypesFor(
   category: string | null | undefined,
+  garment?: string | null,
 ): PhotoStorageType[] {
-  return getPhotoProfile(category)
+  return getPhotoProfile(category, garment)
     .roles.filter((r) => r.required)
     .map((r) => r.type);
 }

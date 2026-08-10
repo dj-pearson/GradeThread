@@ -300,6 +300,109 @@
           "tag"
         ]
       }
+    },
+    {
+      "name": "US-2467: an explicit fabric close-up satisfies the check",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "Levi 501",
+        "photoTypes": [
+          "front",
+          "back",
+          "tag",
+          "detail",
+          "detail:fabric"
+        ]
+      },
+      "expected": {
+        "blockers": [],
+        "warnings": [],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "US-2467: details qualified as anything BUT fabric no longer satisfy it",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "Levi 501",
+        "photoTypes": [
+          "front",
+          "back",
+          "tag",
+          "detail",
+          "detail:hardware",
+          "detail:print"
+        ]
+      },
+      "expected": {
+        "blockers": [],
+        "warnings": [
+          "No fabric close-up, so a person will check this grade before it is final. Add a detail photo of the weave/knit or a seam for a faster, more certain grade. This isn't a defect shot."
+        ],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "US-2467: an unqualified detail still satisfies it (no item is retro-capped)",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "Levi 501",
+        "photoTypes": [
+          "front",
+          "back",
+          "tag",
+          "detail",
+          "detail:"
+        ]
+      },
+      "expected": {
+        "blockers": [],
+        "warnings": [],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "US-2467: a role-blind caller keeps the old behavior",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "Levi 501",
+        "photoTypes": [
+          "front",
+          "back",
+          "tag",
+          "detail_3"
+        ]
+      },
+      "expected": {
+        "blockers": [],
+        "warnings": [],
+        "missingPhotos": []
+      }
+    },
+    {
+      "name": "US-2467: a role-qualified tag still counts as a tag",
+      "input": {
+        "garment_type": "jeans",
+        "garment_category": "denim",
+        "title": "Levi 501",
+        "photoTypes": [
+          "front",
+          "back",
+          "tag",
+          "tag:size",
+          "detail",
+          "detail:fabric"
+        ]
+      },
+      "expected": {
+        "blockers": [],
+        "warnings": [],
+        "missingPhotos": []
+      }
     }
   ]
 }
