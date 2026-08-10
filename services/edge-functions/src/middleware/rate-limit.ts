@@ -67,19 +67,53 @@ const defaultIncrement: RateLimitIncrementer = async (
 // distributed store is unreachable (US-354). It is per-replica (not shared), so
 // it is a DEGRADED ceiling, not the real distributed budget — but it keeps an
 // abusable unauthenticated route from going UNLIMITED during a counter-store
-// outage. Pruned lazily: when the window rolls over, the previous window's keys
-// are dropped so the map can't grow without bound.
-const localFallback = new Map<string, number>();
-let localFallbackWindow = "";
+// outage.
+//
+// US-2448: each bucket carries its OWN window. The previous shape kept one
+// module-level window string and cleared the ENTIRE map whenever it changed, so
+// any bucket rolling over reset every other bucket's counter. That is inert
+// while every mount shares the 60s window (they all do today, verified), but it
+// is a silent hazard the moment one does not — and inside a single `deno test`
+// process it let one test file zero another's fallback counter mid-run.
+interface LocalBucket {
+  window: string;
+  count: number;
+}
+const localFallback = new Map<string, LocalBucket>();
+
+// Entries are only ever created during a counter-store outage, but a long
+// outage spread across many subjects must not grow the map without bound. Swept
+// lazily and only when it gets large, so the common path stays O(1).
+const LOCAL_FALLBACK_MAX_KEYS = 10_000;
 
 function localIncrement(bucketKey: string, windowStartIso: string): number {
-  if (windowStartIso !== localFallbackWindow) {
-    localFallback.clear();
-    localFallbackWindow = windowStartIso;
+  const existing = localFallback.get(bucketKey);
+  if (existing && existing.window === windowStartIso) {
+    existing.count += 1;
+    return existing.count;
   }
-  const next = (localFallback.get(bucketKey) ?? 0) + 1;
-  localFallback.set(bucketKey, next);
-  return next;
+  if (!existing && localFallback.size >= LOCAL_FALLBACK_MAX_KEYS) {
+    // Stale windows first — those counters are expired, so dropping them is
+    // free. If the map is still full, every entry is live in the current
+    // window, and something has to give: evict oldest-inserted (Map preserves
+    // insertion order) rather than clearing wholesale, so at most a handful of
+    // counters reset instead of all of them.
+    for (const [k, v] of localFallback) {
+      if (v.window !== windowStartIso) localFallback.delete(k);
+    }
+    for (const k of localFallback.keys()) {
+      if (localFallback.size < LOCAL_FALLBACK_MAX_KEYS) break;
+      localFallback.delete(k);
+    }
+  }
+  localFallback.set(bucketKey, { window: windowStartIso, count: 1 });
+  return 1;
+}
+
+// Test-only reset so a suite can prove fallback behaviour from a known state
+// without depending on which test file ran first in the same deno process.
+export function __resetLocalFallbackForTest(): void {
+  localFallback.clear();
 }
 
 // Constant-time string compare for the CF origin secret, so a timing side
@@ -179,11 +213,20 @@ export function rateLimiter(
     // Injectable so the override path is unit-testable without a database;
     // defaults to the live in-process cache (lib/rate-limit-overrides.ts).
     overrideResolver?: (subjectUserId: string) => RateLimitOverride | null;
+    // US-2448: injectable clock, defaulting to the real one — production
+    // behaviour is unchanged and no mount passes it. It exists because the
+    // fixed window is derived from the wall clock, so a test that spends a full
+    // budget was a coin flip: if a real minute boundary fell mid-run the window
+    // rolled, the counter reset, and the over-budget request was allowed. That
+    // is CORRECT for a fixed window and wrong for a test, so the test pins the
+    // clock instead of hoping the boundary misses it.
+    now?: () => number;
   } = {},
 ) {
   const methodFilter = opts.methods?.map((m) => m.toUpperCase());
   const failClosed = opts.failClosed === true;
   const resolveOverride = opts.overrideResolver ?? getRateLimitOverrideSync;
+  const now = opts.now ?? (() => Date.now());
   return createMiddleware<RateLimitEnv>(async (c, next) => {
     // Not one of the methods this limiter governs → leave it for whatever else
     // is mounted on this path.
@@ -239,7 +282,7 @@ export function rateLimiter(
         if (override.mode === "block") {
           const retryAfter = Math.max(
             1,
-            Math.ceil((Date.parse(override.expiresAt) - Date.now()) / 1000),
+            Math.ceil((Date.parse(override.expiresAt) - now()) / 1000),
           );
           c.header("Retry-After", String(retryAfter));
           c.header("X-RateLimit-Limit", "0");
@@ -255,7 +298,7 @@ export function rateLimiter(
     }
 
     const bucketKey = `${scope}|${subject}`;
-    const windowStart = new Date(Math.floor(Date.now() / windowMs) * windowMs);
+    const windowStart = new Date(Math.floor(now() / windowMs) * windowMs);
     const windowStartIso = windowStart.toISOString();
 
     let count: number;
@@ -287,7 +330,7 @@ export function rateLimiter(
     c.header("X-RateLimit-Reset", String(resetAtSec));
 
     if (count > limit) {
-      const retryAfter = Math.max(1, resetAtSec - Math.ceil(Date.now() / 1000));
+      const retryAfter = Math.max(1, resetAtSec - Math.ceil(now() / 1000));
       c.header("Retry-After", String(retryAfter));
       // US-508/US-800: surface throttling so abuse and undersized limits are
       // visible in the metrics stream (tagged by scope, no PII).

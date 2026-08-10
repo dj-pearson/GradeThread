@@ -16,6 +16,7 @@ import {
   apiV1WriteLimit,
 } from "../middleware/api-v1-rate.ts";
 import {
+  __resetLocalFallbackForTest,
   rateLimiter,
   type RateLimitIncrementer,
 } from "../middleware/rate-limit.ts";
@@ -116,12 +117,25 @@ async function invoke(
   return { rec, nexted };
 }
 
-function writeLimiter(store: RateLimitIncrementer) {
-  return rateLimiter(apiV1WriteLimit, 60_000, "api-v1-write", store, {
+// US-2448: the limiter derives its fixed window from a clock, so every test
+// that spends a WHOLE budget pins that clock. Left on the wall clock, a real
+// minute boundary landing mid-run rolls the window, resets the counter and lets
+// the over-budget request through — correct for a fixed window, fatal for a
+// test. This instant is deliberately 5ms BEFORE a boundary: it is the worst
+// case for the old wall-clock code and a non-event once the clock is injected.
+const NEAR_BOUNDARY = Date.parse("2026-08-09T12:00:59.995Z");
+const WINDOW_MS = 60_000;
+
+function writeLimiter(
+  store: RateLimitIncrementer,
+  now: () => number = () => NEAR_BOUNDARY,
+) {
+  return rateLimiter(apiV1WriteLimit, WINDOW_MS, "api-v1-write", store, {
     methods: ["POST", "PATCH", "PUT", "DELETE"],
     subject: apiV1Subject,
     failClosed: true,
     errorBody: apiV1RateLimitBody,
+    now,
   });
 }
 
@@ -159,6 +173,7 @@ Deno.test("two keys held by the same user keep independent budgets", async () =>
 });
 
 Deno.test("fail-closed: a counter-store outage still limits the paid API", async () => {
+  __resetLocalFallbackForTest();
   const mw = writeLimiter(throwingStore);
   const budget = API_RATE_TIERS.business.write;
   const vars = { apiKeyId: "k-fc", userId: "u", apiKeyPlan: "business" };
@@ -168,4 +183,100 @@ Deno.test("fail-closed: a counter-store outage still limits the paid API", async
   }
   const over = await invoke(mw, vars);
   assertEquals(over.rec.status, 429);
+});
+
+// ── US-2448: the flake, reproduced and then pinned ─────────────────
+//
+// The bug was never in the limiter — it was the test trusting the wall clock.
+// This reproduces the exact mechanism on a clock the test drives, so the coin
+// flip becomes two deterministic assertions instead of a rare red run.
+Deno.test("US-2448 repro: a window boundary mid-budget is what let the over-budget request through", async () => {
+  const budget = API_RATE_TIERS.business.write;
+  const vars = { apiKeyId: "k-straddle", userId: "u", apiKeyPlan: "business" };
+
+  // (a) The boundary DOES fall mid-run — the counter legitimately resets and
+  // the over-budget request is allowed. This is the flaky outcome, on demand.
+  __resetLocalFallbackForTest();
+  let clock = NEAR_BOUNDARY;
+  const straddling = writeLimiter(throwingStore, () => clock);
+  for (let i = 0; i < budget; i++) {
+    assert((await invoke(straddling, vars)).nexted, `request ${i + 1} should pass`);
+  }
+  clock = NEAR_BOUNDARY + 10; // crosses 12:01:00 → new window
+  const afterRollover = await invoke(straddling, vars);
+  assert(
+    afterRollover.nexted,
+    "a fixed window that has rolled over must reset the counter — this is the " +
+      "correct behaviour the old test was gambling against",
+  );
+
+  // (b) The same run on a pinned clock. No boundary can occur, so the
+  // over-budget request is refused every time, not merely usually.
+  __resetLocalFallbackForTest();
+  const pinned = writeLimiter(throwingStore);
+  for (let i = 0; i < budget; i++) {
+    assert((await invoke(pinned, vars)).nexted, `pinned request ${i + 1} should pass`);
+  }
+  assertEquals((await invoke(pinned, vars)).rec.status, 429);
+});
+
+// Proves the injected clock is actually USED rather than accepted and ignored —
+// without this, (b) above would still pass on the old wall-clock code whenever
+// the boundary happened to miss, which is precisely the flaky test it replaces.
+Deno.test("US-2448: the window is derived from the injected clock, not the wall clock", async () => {
+  __resetLocalFallbackForTest();
+  const mw = writeLimiter(memoryStore());
+  const r = await invoke(mw, { apiKeyId: "k-clock", userId: "u", apiKeyPlan: "business" });
+  // NEAR_BOUNDARY sits in the 12:00:00 window, so the reset is 12:01:00.
+  const expectedWindowStart = Math.floor(NEAR_BOUNDARY / WINDOW_MS) * WINDOW_MS;
+  assertEquals(
+    r.rec.headers["X-RateLimit-Reset"],
+    String(Math.ceil((expectedWindowStart + WINDOW_MS) / 1000)),
+  );
+  assertEquals(
+    new Date(expectedWindowStart).toISOString(),
+    "2026-08-09T12:00:00.000Z",
+  );
+});
+
+// AC3: the process-local fallback used to keep ONE module-level window and
+// clear the WHOLE map on any change, so a bucket on a different window cadence
+// silently zeroed everyone else's counter. Every mount ships a 60s window today
+// so this was never live in production, but it made the fallback counter
+// order-dependent across test files sharing one deno process — and it would
+// become a real hole the day a mount picks a different window.
+Deno.test("US-2448: one bucket rolling its window does not reset another bucket's fallback count", async () => {
+  __resetLocalFallbackForTest();
+  // Mid-window, NOT NEAR_BOUNDARY: this test advances the clock a few seconds,
+  // and starting 5ms before a boundary would roll bucket A's own 60s window
+  // too, so the assertion would pass or fail for the wrong reason.
+  const MID_WINDOW = Date.parse("2026-08-09T12:00:30.000Z");
+  let clock = MID_WINDOW;
+  const vars = { apiKeyId: "k-slow", userId: "u", apiKeyPlan: "business" };
+  const budget = API_RATE_TIERS.business.write;
+
+  // Bucket A: the 60s api-v1 write limiter, driven to exactly its budget.
+  const slow = writeLimiter(throwingStore, () => clock);
+  for (let i = 0; i < budget; i++) {
+    assert((await invoke(slow, vars)).nexted, `A request ${i + 1} should pass`);
+  }
+
+  // Bucket B: a 1s window on the same replica, rolled over twice. Under the old
+  // shape each roll called localFallback.clear() and wiped bucket A with it.
+  const fast = rateLimiter(5, 1_000, "fast-scope", throwingStore, {
+    methods: ["POST"],
+    subject: () => "apikey:k-fast",
+    failClosed: true,
+    now: () => clock,
+  });
+  await invoke(fast, vars);
+  clock += 1_100;
+  await invoke(fast, vars);
+  clock += 1_100;
+  await invoke(fast, vars);
+
+  // Bucket A is still inside its own 60s window (only ~2.2s elapsed), so its
+  // budget must still be spent and the next request refused.
+  clock = MID_WINDOW + 2_500;
+  assertEquals((await invoke(slow, vars)).rec.status, 429);
 });
