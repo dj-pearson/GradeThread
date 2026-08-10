@@ -187,6 +187,12 @@ function printChecklist(platform, cfg) {
   line(`    3. Paste the report. It runs every selector below and names the`);
   line(`       misses, and it contains no page content.`);
   line();
+  line(`    For a control that only appears AFTER a click — the delist menu's`);
+  line(`    Delete, a success toast — open it first, then tick "I have already`);
+  line(`    opened the menu" before checking. Without that box the report says`);
+  line(`    only "missing, as expected" and tells you nothing about the control`);
+  line(`    you are looking straight at.`);
+  line();
   line(`  The manual checklist follows, for when the popup cannot reach the page`);
   line(`  (a tab loaded before the extension was installed) or you want to see`);
   line(`  exactly what is being asked for.`);

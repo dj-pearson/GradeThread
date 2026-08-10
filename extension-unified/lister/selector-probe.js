@@ -222,11 +222,30 @@
     // Candidates are collected ONLY for the kinds a required selector missed.
     // A clean flow adds nothing to the report, and a flow blocked on one text
     // input does not list every button on the page.
+    // US-2485 round four: DEEP mode widens the sweep to every miss, not just
+    // the required ones.
+    //
+    // The sweep normally fires on a missing REQUIRED selector, and a control
+    // that only exists after a click is by definition not required — so the
+    // two selectors we most needed described were the two the report could
+    // never describe. A seller sat on Mercari's open menu looking at its Delete
+    // button, and on a Poshmark closet with the "Shared" banner still on
+    // screen, and both reports came back saying only "missing, as expected".
+    //
+    // It is opt-in because the default reading is right: on an untouched page
+    // those controls SHOULD be missing, and sweeping for them every time would
+    // dress a clean report up as a broken one. The checkbox is the seller
+    // saying the click already happened.
+    var deep = Boolean(ctx && ctx.deep);
+    var wanted = deep
+      ? entries.filter(function (e) { return !e.found; })
+      : missingRequired;
+
     var candidates = null;
     var collect = ctx && ctx.candidates;
-    if (typeof collect === "function" && missingRequired.length > 0) {
+    if (typeof collect === "function" && wanted.length > 0) {
       candidates = {};
-      var kinds = missingRequired.map(function (e) { return candidateKind(e.selector); });
+      var kinds = wanted.map(function (e) { return candidateKind(e.selector); });
 
       // US-2485 round three: a `button` sweep is not enough for a MENU.
       //
@@ -267,6 +286,7 @@
       // config rides along in ctx rather than being guessed at from the flow.
       page: pageCheck((ctx && ctx.platformCfg) || cfg, flow, pageCtx),
       candidates: candidates,
+      deep: deep,
     };
   }
 
@@ -350,7 +370,9 @@
         var kinds = Object.keys(f.candidates);
         var any = kinds.some(function (k) { return f.candidates[k].length > 0; });
         if (any) {
-          lines.push("  what IS on the page (attribute signatures, no typed values):");
+          lines.push(f.deep
+            ? "  what IS on the page RIGHT NOW, menu/dialog included (attributes only):"
+            : "  what IS on the page (attribute signatures, no typed values):");
           kinds.forEach(function (k) {
             var list = f.candidates[k];
             if (!list.length) return;

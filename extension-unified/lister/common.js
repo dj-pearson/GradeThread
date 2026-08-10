@@ -676,6 +676,8 @@
             origin: location.origin,
             path: location.pathname,
             candidates: probeCandidates,
+            // Set by the popup's "I have already opened the menu" checkbox.
+            deep: Boolean(msg.deep),
             at: new Date().toISOString().slice(0, 10),
           },
         );

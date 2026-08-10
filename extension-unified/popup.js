@@ -803,10 +803,10 @@ async function renderProbe() {
 }
 
 /** Ask the content script for a report. Null when it is not in the tab. */
-async function askProbe(tabId, platform) {
+async function askProbe(tabId, platform, deep) {
   try {
     return await Promise.resolve(
-      ext.tabs.sendMessage(Number(tabId), { type: "GT_LISTER_PROBE", platform }),
+      ext.tabs.sendMessage(Number(tabId), { type: "GT_LISTER_PROBE", platform, deep: Boolean(deep) }),
     );
   } catch (_e) {
     // The content script is not in this tab: the page loaded before the
@@ -845,7 +845,14 @@ function wireProbe() {
     verdict.textContent = "Checking…";
     verdict.dataset.state = "";
 
-    let res = await askProbe(block.dataset.tabId, block.dataset.platform);
+    // US-2485 round four: a control that only exists after a click never
+    // reached the candidate sweep, because that sweep fires on a missing
+    // REQUIRED selector and post-interaction controls are not required. So a
+    // seller could be looking straight at Mercari's Delete button, or a
+    // Poshmark "Shared" toast, and the report would learn nothing from either.
+    // The checkbox is the seller telling us the click already happened.
+    const deep = Boolean(document.getElementById("probeDeep")?.checked);
+    let res = await askProbe(block.dataset.tabId, block.dataset.platform, deep);
 
     // US-2485: "reload it and try again" was a correct instruction and a bad
     // one. A tab open since before the extension updated is the NORMAL state
@@ -862,7 +869,7 @@ function wireProbe() {
         // The content script registers its listener at document_idle, which is
         // slightly after "complete" on a heavy SPA.
         await new Promise((r) => setTimeout(r, 600));
-        res = await askProbe(block.dataset.tabId, block.dataset.platform);
+        res = await askProbe(block.dataset.tabId, block.dataset.platform, deep);
       } catch (_e) {
         res = null;
       }
