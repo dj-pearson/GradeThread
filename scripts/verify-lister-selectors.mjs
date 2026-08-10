@@ -173,6 +173,16 @@ function printChecklist(platform, cfg) {
   line();
   line(`  You need a logged-in ${platform} account. This cannot be done from CI.`);
   line();
+  line(`  FASTEST PATH (US-2484) — you probably do not need this checklist:`);
+  line(`    1. Open the sell form below in a browser with the extension installed.`);
+  line(`    2. Open the GradeThread popup and click "Check selectors".`);
+  line(`    3. Paste the report. It runs every selector below and names the`);
+  line(`       misses, and it contains no page content.`);
+  line();
+  line(`  The manual checklist follows, for when the popup cannot reach the page`);
+  line(`  (a tab loaded before the extension was installed) or you want to see`);
+  line(`  exactly what is being asked for.`);
+  line();
   line(`  1. Open the sell form:`);
   if (cfg.locales) {
     line(`       ${Object.keys(cfg.locales).length} locales covered. Check the one your account is on:`);

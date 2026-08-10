@@ -174,7 +174,18 @@ guessing at the form. When a flow succeeds, GradeThread writes one `listings` ro
 (`platform=…`, `listing_url`) so the item shows as cross-listed.
 
 **Enabling a channel needs a human with a logged-in account** — the sell form is
-behind auth everywhere, so this is the one step CI cannot do. Run:
+behind auth everywhere, so this is the one step CI cannot do.
+
+**The fast way (US-2484).** Open the marketplace's sell form in a browser with
+this extension installed, open the popup, and click **Check selectors**. It runs
+every selector for that platform's list, delist and engage flows against the
+live page and hands back a report naming any misses. The report carries the
+host, the selector version and per-selector verdicts — and no page content and
+no full URL, because it is written to be pasted somewhere. Controls that only
+appear after a click are labelled, so an untouched page still reads clean.
+
+The manual path, for when the popup cannot reach the page (a tab that loaded
+before the extension was installed) or you want to see what is being asked for:
 
 ```bash
 node scripts/verify-lister-selectors.mjs --checklist mercari   # what to check

@@ -169,6 +169,27 @@
              which is not the same thing to agree to as sharing five thousand
              times a day. Rolling them together would opt sellers into this with
              a checkbox they ticked for cross-listing. -->
+        <!-- US-2484: the one-click selector check. Only shown on a marketplace
+             tab the Lister knows about — see renderProbe. Turns "verify the
+             selectors against the live form" from a devtools session into a
+             button and a paste. -->
+        <div class="pop-probe" id="probeBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Check this page</span>
+            <span class="pop-lastjob-when" id="probeHost"></span>
+          </div>
+          <p class="pop-probe-lead" id="probeLead">
+            Open the marketplace’s sell form, then check whether GradeThread’s
+            selectors still find every field. No page content is included.
+          </p>
+          <button class="pop-cta" id="probeRun" type="button">Check selectors</button>
+          <p class="pop-probe-verdict" id="probeVerdict" hidden></p>
+          <pre class="pop-probe-out" id="probeOut" hidden></pre>
+          <button class="pop-linkbtn" id="probeCopy" type="button" hidden>
+            Copy report
+          </button>
+        </div>
+
         <div class="pop-engage" id="engageBlock" hidden>
           <div class="pop-lastjob-head">
             <span class="pop-lastjob-label">Poshmark sharing</span>

@@ -166,6 +166,7 @@
       "js": [
         "lister/selectors.js",
         "lister/common.js",
+        "lister/selector-probe.js",
         "lister/poshmark.js",
         "lister/poshmark-engage.js"
       ],
@@ -179,6 +180,7 @@
       "js": [
         "lister/selectors.js",
         "lister/common.js",
+        "lister/selector-probe.js",
         "lister/mercari.js"
       ],
       "run_at": "document_idle"
@@ -191,6 +193,7 @@
       "js": [
         "lister/selectors.js",
         "lister/common.js",
+        "lister/selector-probe.js",
         "lister/grailed.js"
       ],
       "run_at": "document_idle"
@@ -223,6 +226,7 @@
       "js": [
         "lister/selectors.js",
         "lister/common.js",
+        "lister/selector-probe.js",
         "lister/vinted.js"
       ],
       "run_at": "document_idle"
@@ -235,6 +239,7 @@
       "js": [
         "lister/selectors.js",
         "lister/common.js",
+        "lister/selector-probe.js",
         "lister/facebook.js"
       ],
       "run_at": "document_idle"

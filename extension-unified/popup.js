@@ -751,6 +751,119 @@ function wireEngagement() {
   });
 }
 
+// ── US-2484: the one-click selector check ───────────────────────────────────
+//
+// Enabling a channel needs a human on the live sell form, because every one of
+// them is behind a login. This is that step without the devtools session: ask
+// the content script to run every selector, show the verdict, and hand over a
+// pasteable report.
+//
+// Only appears on a tab the Lister actually has a config for. Offering it on
+// an arbitrary page would produce a confusing "no selectors bundled" report.
+const PROBE_HOSTS = {
+  poshmark: /(^|\.)poshmark\.(com|ca)$/i,
+  mercari: /(^|\.)mercari\.com$/i,
+  grailed: /(^|\.)grailed\.com$/i,
+  vinted: /(^|\.)vinted\.[a-z.]+$/i,
+  facebook: /(^|\.)facebook\.com$/i,
+};
+
+/** The lister platform for a tab's host, or null when it is not one of ours. */
+function probePlatformForHost(host) {
+  if (!host) return null;
+  for (const [platform, re] of Object.entries(PROBE_HOSTS)) {
+    if (re.test(host)) return platform;
+  }
+  return null;
+}
+
+let probeText = "";
+
+async function renderProbe() {
+  const block = document.getElementById("probeBlock");
+  if (!block) return;
+  let tab = null;
+  try {
+    const tabs = await Promise.resolve(ext.tabs.query({ active: true, currentWindow: true }));
+    tab = (tabs && tabs[0]) || null;
+  } catch (_e) { /* no tabs permission — leave it hidden */ }
+
+  const host = tab && tab.url ? (() => {
+    try { return new URL(tab.url).host; } catch (_e) { return null; }
+  })() : null;
+  const platform = probePlatformForHost(host);
+  if (!platform) {
+    block.hidden = true;
+    return;
+  }
+  block.hidden = false;
+  document.getElementById("probeHost").textContent = host;
+  block.dataset.platform = platform;
+  block.dataset.tabId = String(tab.id);
+}
+
+function wireProbe() {
+  const run = document.getElementById("probeRun");
+  const copy = document.getElementById("probeCopy");
+  if (!run || !copy) return;
+
+  run.addEventListener("click", async () => {
+    const block = document.getElementById("probeBlock");
+    const verdict = document.getElementById("probeVerdict");
+    const out = document.getElementById("probeOut");
+    run.disabled = true;
+    verdict.hidden = false;
+    verdict.textContent = "Checking…";
+    verdict.dataset.state = "";
+
+    let res = null;
+    try {
+      res = await Promise.resolve(
+        ext.tabs.sendMessage(Number(block.dataset.tabId), {
+          type: "GT_LISTER_PROBE",
+          platform: block.dataset.platform,
+        }),
+      );
+    } catch (_e) {
+      // The content script is not in this tab: either the page loaded before
+      // the extension was installed, or it is a marketplace page the manifest
+      // does not match. Reloading is the honest instruction.
+      res = null;
+    }
+    run.disabled = false;
+
+    if (!res || !res.ok) {
+      verdict.textContent =
+        "Couldn't reach the page. Reload it and try again — the extension has " +
+        "to be installed before the tab loads.";
+      verdict.dataset.state = "bad";
+      out.hidden = true;
+      copy.hidden = true;
+      return;
+    }
+
+    probeText = res.text || "";
+    verdict.textContent = res.clean
+      ? "Every required selector resolves on this page."
+      : "Some required selectors are missing — the report says which.";
+    verdict.dataset.state = res.clean ? "good" : "bad";
+    out.textContent = probeText;
+    out.hidden = false;
+    copy.hidden = false;
+  });
+
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(probeText);
+      copy.textContent = "Copied";
+      setTimeout(() => { copy.textContent = "Copy report"; }, 1500);
+    } catch (_e) {
+      // Clipboard blocked — the report is on screen and selectable anyway.
+      copy.textContent = "Select the text above to copy";
+    }
+  });
+}
+
 function renderSellerSections(caps) {
   const seller = document.getElementById("sellerSection");
   const locked = document.getElementById("sellerLockedSection");
@@ -762,6 +875,7 @@ function renderSellerSections(caps) {
     renderPendingDelists(caps);
     renderConsent();
     void renderEngagement();
+    void renderProbe(); // US-2484
   } else if (caps && caps.authenticated) {
     // Signed in but no active FlipDesk plan → honest upsell, not a dead section.
     seller.hidden = true;
@@ -851,6 +965,7 @@ function applyCapabilities(caps) {
   wireAccount();
   wireConsent();
   wireEngagement(); // US-2482
+  wireProbe();      // US-2484
   wireHistoryTabs();
   renderCompareLink();
   // Render research immediately (works offline / anonymous), then fold in the

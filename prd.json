@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2484",
+  "nextId": "US-2485",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2099,6 +2099,24 @@
         "US-2472"
       ],
       "notes": "IN PROGRESS 2026-08-10: all the safety machinery is built and held by extension-unified/test/engagement.test.cjs. lister/engagement.js is a pure state machine (no chrome.*, no DOM, no network — asserted against its own source). 5000 shares/day default, 9000 absolute (below the ~9500 tolerance edge; the gap is the margin), clamped on every READ rather than only where the UI writes. Randomized pacing with a floor that can be raised and never lowered — the test caught a real NaN-rand bug that would have turned the floor into a click storm. A SEPARATE versioned clickwrap from the Lister one, checked before EVERY action so a revocation, a lowered cap or a second tab takes effect mid-run. Human checks pause and are never answered, asserted against the source of every engagement file for solver-service names. Counters in chrome.storage.local only; the popup meter names share jail; marketplaces.tsx carries the same statement on the web. BLOCKED ON A HUMAN: the poshmark.engage selectors need checking against a live closet page before enabled:true. Run: node scripts/verify-lister-selectors.mjs --checklist poshmark."
+    },
+    {
+      "id": "US-2484",
+      "passes": false,
+      "title": "One-click selector check in the extension popup",
+      "description": "As the GradeThread team, we want a seller (or ourselves) to verify a marketplace's selectors from the extension popup on the live sell form, so that enabling a channel stops costing a devtools session per selector and the five written-but-switched-off channels can actually be turned on.",
+      "acceptanceCriteria": [
+        "A 'Check selectors' control appears in the popup ONLY on a tab whose host matches a bundled lister platform; on any other page it is hidden rather than reporting 'no selectors bundled'",
+        "Clicking it runs every selector for that platform's list, delist and engage flows against the live DOM and reports, per selector, whether it resolved",
+        "The report contains NO page content and NO full URL — only the platform, flow, selector version, lastVerified, enabled state, the page HOST, and per-selector key/verdict/selector-string. Held by extension-unified/test/selector-probe.test.cjs",
+        "A control that only exists after an interaction (delist `remove`/`confirm`, engage `shareToFollowers`) is labelled as such and does NOT count as a failure on an untouched page",
+        "An invalid selector in our own config is REPORTED as invalid rather than throwing and killing the check",
+        "The report is copyable in one click, and readable enough to paste into a chat or an issue without editing",
+        "scripts/verify-lister-selectors.mjs --checklist names this as the fast path, so the two never disagree about how verification is done",
+        "The pure report builder has no DOM, no chrome.* and no network — the matcher is injected, so the whole thing is testable with zero dependencies"
+      ],
+      "priority": 34,
+      "notes": "DONE 2026-08-10: built because five channels (US-2477 Mercari, US-2478 Grailed, US-2479 Vinted, US-2480 Facebook, US-2482 Poshmark engagement) are complete except for one live-browser verification each, and the manual path was a printed checklist plus a dozen querySelector calls in devtools — per channel, and again every time a marketplace moves its form (the selectors file says assume monthly for Mercari). lister/selector-probe.js is the pure report builder (matcher injected); common.js GT.registerProbe supplies document.querySelector and answers GT_LISTER_PROBE; each platform script registers itself; the popup shows the verdict plus a Copy report button. The privacy constraint is the load-bearing one and is tested: the report is written to be PASTED, so it carries the host but never the full URL (which leaks an item id and often a seller handle) and never page content."
     }
   ]
 }
