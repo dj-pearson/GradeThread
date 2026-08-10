@@ -13,6 +13,8 @@ code_refs:
   - services/edge-functions/src/lib/rewards-economics.ts
   - services/edge-functions/src/lib/rewards-north-star.ts
   - src/lib/reward-share.ts
+  - services/edge-functions/src/lib/rewards-mechanic-switch.ts
+  - services/edge-functions/src/lib/rewards-north-star-report.ts
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
   - services/edge-functions/src/lib/rewards-quests.ts
@@ -711,6 +713,32 @@ half-open); an **expired or reversed grant is not money**, so only `granted` and
 `consumed` count as spend; and K is reported with **both components** — shares
 per sharer and conversions per share — because the same K arises from a loud weak
 loop and a quiet strong one, and the fix differs.
+
+### The per-mechanic switch (US-1915)
+
+`grantReward()` checks `rewards.disabled_mechanics` — a `system_settings` list of
+`RewardEventType` names — and no-ops for anything in it. One check at the one
+primitive every mechanic calls, so a new mechanic is covered the day it is
+written.
+
+Three things about it that are easy to get backwards:
+
+- **It fails OPEN**, the opposite of `rewards_tangible`. That flag fails closed
+  because failing open pays out real money during an outage. This one fails open
+  because a settings read that hiccups would otherwise freeze the whole
+  progression system silently, with no error raised anywhere.
+- **A disabled mechanic is a no-op, not an error.** Every caller is a side effect
+  of something the user was actually doing — finishing a grade, connecting a
+  marketplace. Throwing would turn "we chose not to award XP" into a failed
+  grade.
+- ⚠ **Re-enabling does NOT backfill, and must not.** While off, no
+  `reputation_events` row is written and state is recomputed from that log, so
+  the XP never existed rather than being hidden. Backfilling would dump a lump of
+  accrued XP at exactly the moment an operator is trying to read the effect of
+  turning the mechanic back on. It is an experiment control, not a pause button.
+
+No migration: a `system_settings` key that has never been written returns its
+fallback, and the fallback is the empty list — which is today's behaviour.
 
 ### Where the share half of K comes from
 

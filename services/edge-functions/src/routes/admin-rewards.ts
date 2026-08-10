@@ -33,12 +33,13 @@ import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireScope } from "../lib/scope-guard.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import { QUEST_METRICS, isQuestMetric } from "../lib/rewards-quests.ts";
-import { QUEST_XP_MAX } from "../lib/rewards-engine.ts";
+import { QUEST_XP_MAX, REWARD_XP_CATALOG } from "../lib/rewards-engine.ts";
 import { BADGE_CATALOG } from "../lib/rewards-badges.ts";
 import { SEASON_GOALS } from "../lib/rewards-seasons.ts";
 import { bustSettingCache, getSetting } from "../lib/system-settings.ts";
 import { clearFeatureFlagCache } from "../lib/feature-flags.ts";
 import { rewardsNorthStarReport } from "../lib/rewards-north-star-report.ts";
+import { DISABLED_MECHANICS_KEY, disabledMechanics } from "../lib/rewards-mechanic-switch.ts";
 import { WEEK_FOUR_END_DAY } from "../lib/rewards-north-star.ts";
 import { getStripe } from "../lib/stripe-client.ts";
 import {
@@ -1660,6 +1661,89 @@ async function loadNorthStar(days: number, nowMs: number) {
     }),
   };
 }
+
+// GET /api/admin/rewards/mechanics — US-1915 AC3, the per-mechanic switchboard.
+//
+// Lists every mechanic `grantReward` knows about and whether it is currently
+// switched off. The list comes from REWARD_XP_CATALOG rather than a hand-kept
+// copy, so a mechanic added tomorrow appears here without anyone remembering to
+// register it — the failure this console must not have is a mechanic running
+// with no way to stop it.
+adminRewardsRoutes.get("/mechanics", async (c) => {
+  const disabled = await disabledMechanics();
+  return c.json({
+    mechanics: Object.keys(REWARD_XP_CATALOG).sort().map((key) => ({
+      key,
+      enabled: !disabled.has(key),
+      xp: REWARD_XP_CATALOG[key as keyof typeof REWARD_XP_CATALOG],
+    })),
+    // Stated in the payload so a console cannot present this as a pause button.
+    re_enable_backfills: false,
+  });
+});
+
+// POST /api/admin/rewards/mechanics — flip one mechanic.
+//
+// Step-up + audit-logged, matching the US-1858 payout switch: this changes what
+// the product does for every user within the settings cache TTL, with no deploy
+// and no review, so it gets the same ceremony as the money switch.
+adminRewardsRoutes.post("/mechanics", async (c) => {
+  const blocked = requireStepUp(c);
+  if (blocked) return blocked;
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const key = typeof body.key === "string" ? body.key.trim() : "";
+  if (!key || !(key in REWARD_XP_CATALOG)) {
+    // Refuse an unknown name rather than storing it. A typo'd mechanic would sit
+    // in the list disabling nothing, and read as "that mechanic is off".
+    return c.json({ error: "Unknown reward mechanic." }, 400); // safe-raw-error: typed copy
+  }
+  if (typeof body.enabled !== "boolean") {
+    return c.json({ error: "Send enabled: true or false." }, 400); // safe-raw-error: typed copy
+  }
+
+  const disabled = await disabledMechanics();
+  if (body.enabled) disabled.delete(key);
+  else disabled.add(key);
+  const next = [...disabled].sort();
+
+  const { error } = await supabaseAdmin
+    .from("system_settings")
+    .upsert(
+      {
+        key: DISABLED_MECHANICS_KEY,
+        value: next,
+        value_type: "json",
+        category: "rewards",
+        updated_by: c.get("userId"),
+        updated_at: new Date().toISOString(),
+      } as never,
+      { onConflict: "key" },
+    );
+  if (error) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't change the mechanic switch.",
+      error,
+      "admin.rewards.mechanics.set",
+    );
+  }
+  bustSettingCache(DISABLED_MECHANICS_KEY);
+
+  await writeAuditLog(c, {
+    action: body.enabled ? "rewards.mechanic.enable" : "rewards.mechanic.disable",
+    targetType: "reward_mechanic",
+    targetId: key,
+    details: { enabled: body.enabled, disabled_after: next },
+  });
+  return c.json({ key, enabled: body.enabled, disabled: next });
+});
 
 adminRewardsRoutes.get("/north-star", async (c) => {
   try {

@@ -13,6 +13,8 @@ import { emitReputationEvent } from "./buyer-trust-score.ts";
 import { awardBadges } from "./rewards-badges.ts";
 import { grantTangibleRewards } from "./rewards-tangible.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { disabledMechanics } from "./rewards-mechanic-switch.ts";
+import { logEvent } from "./observability.ts";
 
 // Reward-only event types (added to the reputation_events CHECK in 00443). The
 // trust scorer ignores these; the XP catalog scores them.
@@ -327,6 +329,21 @@ export async function grantReward(
   eventType: RewardEventType,
   opts: GrantRewardOptions = {},
 ): Promise<RewardState | null> {
+  // US-1915 AC3: the per-mechanic kill-switch, checked HERE because this is the
+  // one primitive every rewardable source calls — nine mechanics are covered by
+  // one check, and a tenth is covered the day it is written.
+  //
+  // ⚠ A DISABLED MECHANIC IS A NO-OP, NOT AN ERROR. Every caller of this
+  // function is a side-effect on the back of some other action — finishing a
+  // grade, connecting a marketplace, someone clicking a badge. Throwing would
+  // turn "we chose not to award XP" into a failure of the thing the user was
+  // actually doing. It returns the user's current state instead, which is the
+  // truth: nothing about their rewards changed.
+  if ((await disabledMechanics()).has(eventType)) {
+    logEvent("info", "reward.mechanic_disabled", { eventType });
+    return await readRewardState(userId);
+  }
+
   // Replay short-circuit. The emit below is already idempotent, but everything
   // AFTER it (full event reload, badge re-award, tangible-reward evaluation) is
   // not free — and some sources replay hard: a badge image is re-served on every

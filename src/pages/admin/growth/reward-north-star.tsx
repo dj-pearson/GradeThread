@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Info, TriangleAlert } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-1915 AC3: the rewards north-star surface.
@@ -19,8 +21,11 @@ import { edgeFetch } from "@/lib/edge-fetch";
 // opposite claims. A dashboard that prints 0 for both is the specific way this
 // page could do more harm than having no page — someone would quote the zero.
 //
-// Nothing here is editable. This is a measurement surface; the controls live on
-// Reward Economics (the payout switch) and Quests (the per-quest switch).
+// The ONE control here is the per-mechanic switchboard at the bottom, and it is
+// here rather than on Reward Economics because the reason to flip it is
+// something you just read in the numbers above. The money switch stays on
+// Reward Economics and the per-quest switch on Quests: those answer "stop the
+// spend" and "retire this quest", which are not this page's question.
 
 interface Retention {
   eligible: number;
@@ -65,7 +70,24 @@ interface NorthStarResponse {
   };
 }
 
+interface Mechanic {
+  key: string;
+  enabled: boolean;
+  xp: number;
+}
+
+interface MechanicsResponse {
+  mechanics: Mechanic[];
+  re_enable_backfills: boolean;
+}
+
 const WINDOWS = [30, 60, 90, 180] as const;
+
+/** `quest_completed` → `Quest completed`. The wire name stays visible below it. */
+function mechanicLabel(key: string): string {
+  const words = key.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 /** A rate as a percentage, or an em dash. Never "0%" for "we don't know". */
 function pct(rate: number | null): string {
@@ -98,6 +120,91 @@ function Metric(
         <p className="mt-1 text-3xl font-semibold tabular-nums">{value}</p>
         <p className="mt-1 text-sm text-muted-foreground">{denominator}</p>
         {note ? <p className="mt-2 text-xs text-muted-foreground">{note}</p> : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * The per-mechanic switchboard (US-1915 AC3).
+ *
+ * It sits on THIS page rather than on Reward Economics on purpose: the reason to
+ * turn a mechanic off is something you just read in the numbers above, and a
+ * switch on a different screen is one an operator flips without the evidence in
+ * front of them.
+ */
+function MechanicSwitchboard() {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<MechanicsResponse>({
+    queryKey: ["admin-reward-mechanics"],
+    queryFn: async () => {
+      const res = await edgeFetch("/api/admin/rewards/mechanics");
+      if (!res.ok) throw new Error("Failed to load reward mechanics");
+      return res.json();
+    },
+  });
+
+  const toggle = useMutation({
+    mutationFn: async (m: Mechanic) => {
+      const res = await edgeFetch("/api/admin/rewards/mechanics", {
+        method: "POST",
+        body: JSON.stringify({ key: m.key, enabled: !m.enabled }),
+      });
+      if (!res.ok) throw new Error("Failed to change the switch");
+      return res.json();
+    },
+    onSuccess: (_d, m) => {
+      toast.success(`${mechanicLabel(m.key)} ${m.enabled ? "switched off" : "switched on"}`);
+      void qc.invalidateQueries({ queryKey: ["admin-reward-mechanics"] });
+    },
+    onError: () => toast.error("Couldn't change that switch."),
+  });
+
+  if (isLoading) return <Skeleton className="h-48 w-full" />;
+  if (!data) return null;
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 p-5">
+        <div>
+          <h2 className="text-base font-semibold">Mechanics</h2>
+          <p className="text-sm text-muted-foreground">
+            Switch one mechanic off and watch the numbers above. Takes effect
+            within the settings cache TTL, no deploy.
+          </p>
+        </div>
+
+        {/* Stated before the switches, not after. Someone reaching for these is
+            about to run an experiment, and "it will pay out the backlog when I
+            turn it back on" is the assumption that would ruin the reading. */}
+        <div className="flex gap-3 rounded-xl bg-amber-500/10 p-4 text-sm">
+          <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <p className="text-amber-900 dark:text-amber-200">
+            Switching a mechanic off stops its events being written, so the XP is
+            not deferred — it never happens. Turning it back on resumes new grants
+            and does not backfill the gap. This is an experiment control, not a
+            pause button.
+          </p>
+        </div>
+
+        <ul className="divide-y">
+          {data.mechanics.map((m) => (
+            <li key={m.key} className="flex items-center justify-between gap-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{mechanicLabel(m.key)}</p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {m.key} · {m.xp} XP
+                </p>
+              </div>
+              <Switch
+                checked={m.enabled}
+                disabled={toggle.isPending}
+                onCheckedChange={() => toggle.mutate(m)}
+                aria-label={`${m.enabled ? "Switch off" : "Switch on"} ${mechanicLabel(m.key)}`}
+              />
+            </li>
+          ))}
+        </ul>
       </CardContent>
     </Card>
   );
@@ -257,6 +364,8 @@ export function GrowthRewardNorthStarPage() {
             </div>
           </>
         )}
+
+      <MechanicSwitchboard />
     </div>
   );
 }
