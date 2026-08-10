@@ -24,6 +24,27 @@
 // into the form. A seller pasting this is not pasting their listing. That is a
 // deliberate constraint and selector-probe.test.cjs holds it.
 //
+// TWO THINGS THE FIRST ROUND OF REPORTS PROVED WERE MISSING (US-2485).
+//
+//  1. A MISS is only evidence if the seller was on the right page, and the
+//     report could not say which page they were on — host alone does not
+//     distinguish mercari.com/sell from mercari.com. Three of the first five
+//     reports were "everything missing", which reads as a broken channel and is
+//     far more likely to be the wrong tab. So each flow now states whether the
+//     page LOOKS like the one it tests, derived from the bundled config, and
+//     names the page to open when it does not. It compares paths and reports a
+//     verdict — the path itself never appears.
+//
+//  2. A MISS told us a selector broke but nothing about what replaced it, so
+//     every fix was a guess followed by another round-trip. When a REQUIRED
+//     selector misses, the report now lists the candidate controls actually on
+//     the page, as attribute signatures. Attribute NAMES and values from our
+//     allowlist only (name, id, type, role, aria-label, placeholder, and the
+//     data-test* family), plus a button's own label text — all of it site UI
+//     chrome, none of it what the seller typed. Field values are never read.
+
+
+//
 // Pure by construction: `matches` is injected, so this file has no DOM, no
 // chrome.* and no network, and the tests exercise every branch without a
 // browser.
@@ -79,6 +100,82 @@
   }
 
   /**
+   * Which kind of control a selector is looking for.
+   *
+   * Used only to decide which candidates to show beside a MISS: offering every
+   * button on a Poshmark page as a replacement for `title` would bury the two
+   * lines that matter. Read off the selector string rather than the key name,
+   * because the key is ours and the selector is what has to match the page.
+   */
+  function candidateKind(selector) {
+    var s = String(selector || "").toLowerCase();
+    if (s.indexOf("textarea") !== -1) return "textarea";
+    if (s.indexOf("type=\"file\"") !== -1 || s.indexOf("type='file'") !== -1) return "file";
+    if (s.indexOf("select") === 0 || s.indexOf(" select") !== -1) return "select";
+    if (s.indexOf("button") !== -1 || s.indexOf("[role=\"button\"]") !== -1) return "button";
+    if (s.indexOf("input") !== -1) return "input";
+    return "any";
+  }
+
+  /** Strip a full URL down to its path, so a locale host never leaks in. */
+  function pathOf(url) {
+    var s = String(url || "");
+    var m = /^https?:\/\/[^/]+(\/[^?#]*)/.exec(s);
+    if (m) return m[1];
+    return s.indexOf("/") === 0 ? s.split("?")[0].split("#")[0] : null;
+  }
+
+  function samePath(a, b) {
+    if (!a || !b) return false;
+    var x = a.replace(/\/+$/, "");
+    var y = b.replace(/\/+$/, "");
+    return x === y || x.indexOf(y + "/") === 0;
+  }
+
+  /**
+   * Is this the page the flow is meant to be checked on?
+   *
+   * Returns `null` for "cannot tell" — no path was supplied, or the config
+   * carries no pattern for that flow — and a null verdict prints nothing. A
+   * guess here would be worse than silence: it would either dismiss a real
+   * break as a wrong tab, or send someone hunting a selector on a page that
+   * never had it.
+   */
+  function pageCheck(cfg, flow, ctx) {
+    var path = ctx && ctx.path;
+    var out = { onExpectedPage: null, open: null, what: null };
+    if (!path || !cfg) return out;
+
+    if (flow === "list") {
+      out.what = "the new-listing form";
+      var urls = [];
+      if (cfg.locales) {
+        Object.keys(cfg.locales).forEach(function (k) { urls.push(cfg.locales[k]); });
+      }
+      if (cfg.newListingUrl) urls.push(cfg.newListingUrl);
+      if (urls.length === 0) return out;
+      out.open = cfg.newListingUrl || urls[0];
+      out.onExpectedPage = urls.some(function (u) { return samePath(path, pathOf(u)); });
+      return out;
+    }
+
+    var pattern = flow === "engage"
+      ? (cfg.closetUrlPattern || null)
+      : (cfg.liveListingUrlPattern || null);
+    out.what = flow === "engage" ? "your own closet" : "one of your own live listings";
+    if (!pattern || !ctx.origin) return out;
+    try {
+      // These patterns are anchored at `^https://`, so they are matched against
+      // origin + path. The query string is left off on purpose: it is the part
+      // that carries referral and session-shaped junk, and no pattern needs it.
+      out.onExpectedPage = new RegExp(pattern, "i").test(String(ctx.origin) + path);
+    } catch (_err) {
+      out.onExpectedPage = null;
+    }
+    return out;
+  }
+
+  /**
    * Run one flow's selectors through `matches` and score the result.
    *
    * `matches(selector)` returns true when the page has at least one element for
@@ -86,7 +183,7 @@
    * caller decides how to look (querySelector, a shadow-root walk, whatever a
    * future marketplace forces on us).
    */
-  function probeFlow(cfg, flow, matches) {
+  function probeFlow(cfg, flow, matches, ctx) {
     var entries = selectorsFor(cfg, flow).map(function (e) {
       var found = false;
       try {
@@ -113,6 +210,25 @@
       return !e.required && !e.found && !e.postInteraction;
     });
 
+    // Candidates are collected ONLY for the kinds a required selector missed.
+    // A clean flow adds nothing to the report, and a flow blocked on one text
+    // input does not list every button on the page.
+    var candidates = null;
+    var collect = ctx && ctx.candidates;
+    if (typeof collect === "function" && missingRequired.length > 0) {
+      candidates = {};
+      missingRequired.forEach(function (e) {
+        var kind = candidateKind(e.selector);
+        if (candidates[kind]) return;
+        try {
+          var found = collect(kind);
+          candidates[kind] = Array.isArray(found) ? found.map(String) : [];
+        } catch (_err) {
+          candidates[kind] = [];
+        }
+      });
+    }
+
     return {
       flow: flow,
       enabled: Boolean(cfg && cfg.enabled),
@@ -122,6 +238,11 @@
       ok: missingRequired.length === 0,
       missingRequired: missingRequired.map(function (e) { return e.key; }),
       missingOptional: missingOptional.map(function (e) { return e.key; }),
+      // The URL patterns live on the PLATFORM config, not the flow config —
+      // `delist` and `engage` are handed their own sub-object — so the platform
+      // config rides along in ctx rather than being guessed at from the flow.
+      page: pageCheck((ctx && ctx.platformCfg) || cfg, flow, ctx),
+      candidates: candidates,
     };
   }
 
@@ -141,9 +262,13 @@
         flows: [],
       };
     }
-    var flows = [probeFlow(cfg, "list", matches)];
-    if (cfg.delist) flows.push(probeFlow(cfg.delist, "delist", matches));
-    if (cfg.engage) flows.push(probeFlow(cfg.engage, "engage", matches));
+    var flowCtx = {};
+    Object.keys(ctx || {}).forEach(function (k) { flowCtx[k] = ctx[k]; });
+    flowCtx.platformCfg = cfg;
+
+    var flows = [probeFlow(cfg, "list", matches, flowCtx)];
+    if (cfg.delist) flows.push(probeFlow(cfg.delist, "delist", matches, flowCtx));
+    if (cfg.engage) flows.push(probeFlow(cfg.engage, "engage", matches, flowCtx));
     return {
       platform: platform,
       host: (ctx && ctx.host) || null,
@@ -163,11 +288,24 @@
       return lines.join("\n");
     }
 
+    var wrongPage = false;
+
     report.flows.forEach(function (f) {
       lines.push("");
       lines.push("[" + f.flow + "]  selector v" + f.version +
         "  enabled=" + f.enabled +
         "  lastVerified=" + (f.lastVerified || "never"));
+
+      // Stated FIRST, because it changes how every line under it reads.
+      var page = f.page || {};
+      if (page.onExpectedPage === true) {
+        lines.push("  page: yes, this is " + page.what);
+      } else if (page.onExpectedPage === false) {
+        wrongPage = true;
+        lines.push("  page: NO — this is not " + page.what + ", so the misses below");
+        lines.push("        prove nothing. Open " + (page.open || page.what) + " and re-run.");
+      }
+
       f.entries.forEach(function (e) {
         var mark = e.found ? "ok  " : (e.required ? "MISS" : "--  ");
         var tags = [];
@@ -181,12 +319,32 @@
       lines.push("  => " + (f.ok
         ? "every required selector resolves"
         : "BLOCKED, missing required: " + f.missingRequired.join(", ")));
+
+      // Only worth printing when the seller is on the right page — otherwise
+      // these are the controls of some other page entirely.
+      if (f.candidates && page.onExpectedPage !== false) {
+        var kinds = Object.keys(f.candidates);
+        var any = kinds.some(function (k) { return f.candidates[k].length > 0; });
+        if (any) {
+          lines.push("  what IS on the page (attribute signatures, no typed values):");
+          kinds.forEach(function (k) {
+            var list = f.candidates[k];
+            if (!list.length) return;
+            lines.push("    [" + k + "]");
+            list.forEach(function (sig) { lines.push("      " + sig); });
+          });
+        }
+      }
     });
 
     lines.push("");
     lines.push("Controls marked \"appears after a click\" are expected to be");
     lines.push("missing on a page where nothing has been opened yet.");
-    lines.push("No page content is included in this report.");
+    if (wrongPage) {
+      lines.push("At least one flow was checked on the wrong page — see \"page: NO\" above.");
+    }
+    lines.push("No listing content is included: element attributes and button");
+    lines.push("labels only, never a field's value.");
     return lines.join("\n");
   }
 
@@ -198,6 +356,8 @@
 
   root.GT_SELECTOR_PROBE = {
     selectorsFor: selectorsFor,
+    candidateKind: candidateKind,
+    pageCheck: pageCheck,
     probeFlow: probeFlow,
     buildProbeReport: buildProbeReport,
     formatProbeReport: formatProbeReport,

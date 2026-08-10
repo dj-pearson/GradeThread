@@ -97,6 +97,23 @@ the date you checked, and flip `enabled: true`.
 `scripts/verify-lister-selectors.mjs` prints the checklist for a platform and
 refuses to pass a platform that is `enabled: true` with `lastVerified: null`.
 
+The fast path is the popup's **Check selectors** button (US-2484), which runs
+the same selectors against the live DOM and prints a report to paste back.
+
+> [!warning] Each flow has its OWN page, and a report from the wrong one proves nothing
+> This is the single way the verification goes wrong, and it produced three
+> misleading reports out of the first five (2026-08-10). `list` must be run on
+> the sell form, `delist` on one of your **own live listings**, and `engage`
+> (Poshmark) on your **own closet**. Run on the home page, every selector misses
+> and the channel reads dead.
+>
+> A report from the sell form therefore verifies `list` **only**. The `delist`
+> section of that same report is not evidence — and a channel enabled for
+> listing without a verified delist is the oversell in Step 5, arrived at from
+> the other direction. Since US-2485 the report states which page it was run on
+> and names the one to open instead, so the mistake is visible in the paste
+> rather than in a fix that does not work.
+
 ## Step 5 — add the delist path
 
 Two places, or the channel oversells:

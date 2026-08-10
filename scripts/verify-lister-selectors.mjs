@@ -173,6 +173,14 @@ function printChecklist(platform, cfg) {
   line();
   line(`  You need a logged-in ${platform} account. This cannot be done from CI.`);
   line();
+  line(`  EACH FLOW HAS ITS OWN PAGE, and a report from the wrong one proves`);
+  line(`  nothing — every selector misses and the channel reads dead:`);
+  line(`     list    → the sell form`);
+  line(`     delist  → one of YOUR OWN live listings`);
+  if (cfg.engage) line(`     engage  → YOUR OWN closet`);
+  line(`  So a report from the sell form verifies \`list\` ONLY. Run it again on`);
+  line(`  a live listing before trusting the delist half.`);
+  line();
   line(`  FASTEST PATH (US-2484) — you probably do not need this checklist:`);
   line(`    1. Open the sell form below in a browser with the extension installed.`);
   line(`    2. Open the GradeThread popup and click "Check selectors".`);
