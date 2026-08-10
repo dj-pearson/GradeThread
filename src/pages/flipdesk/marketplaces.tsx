@@ -53,7 +53,14 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { SHIPPING_PROFILE_QUERY_KEY, fetchShippingProfile } from "@/lib/shipping-profile";
-import { MARKETPLACE_LABELS, MARKETPLACE_TIER } from "@/lib/constants";
+import {
+  MARKETPLACE_EXTENSION_FLOW,
+  MARKETPLACE_FLOW_LABEL,
+  MARKETPLACE_LABELS,
+  MARKETPLACE_TIER,
+  MARKETPLACE_TIER_LABEL,
+  marketplaceDisclosureFor,
+} from "@/lib/constants";
 import {
   useCreateEbayLocation,
   useDisconnectEbay,
@@ -75,6 +82,11 @@ import {
   useSyncShopify,
 } from "@/hooks/use-shopify";
 import { safeHref } from "@/lib/safe-url";
+import {
+  QUEUED_NOTICE,
+  useCancelExtensionWork,
+  useExtensionQueue,
+} from "@/hooks/use-extension-queue";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -83,6 +95,9 @@ import { safeHref } from "@/lib/safe-url";
 //   extension   — list from your own logged-in tab via the Lister extension.
 //   api_pending — connector built, awaiting platform approval (Depop).
 //   coming_soon — no integration yet.
+const API_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
+  (k) => MARKETPLACE_TIER[k as keyof typeof MARKETPLACE_TIER] === "api",
+) as (keyof typeof MARKETPLACE_TIER)[];
 const EXTENSION_CHANNELS = Object.keys(MARKETPLACE_TIER).filter(
   (k) => MARKETPLACE_TIER[k as keyof typeof MARKETPLACE_TIER] === "extension",
 ) as (keyof typeof MARKETPLACE_TIER)[];
@@ -996,6 +1011,167 @@ function PromotedListingsSection() {
   );
 }
 
+// US-2475: the per-channel risk block.
+//
+// One component for every marketplace, with the CONTENT resolved from
+// MARKETPLACE_MECHANISM (via marketplaceDisclosureFor) rather than written per
+// platform here. That is deliberate: a hand-written block per channel is a block
+// that gets forgotten for channel number six, which is how a seller discovers
+// the terms-of-service position after their account is limited instead of
+// before. Adding a platform without disclosure copy fails the unit test rather
+// than shipping quietly.
+function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) {
+  const d = marketplaceDisclosureFor(platform);
+  const tier = MARKETPLACE_TIER[platform];
+  // US-2477..US-2480: the tier badge says HOW a channel is reached. It has never
+  // said whether the flow is switched on, and for three channels the answer was
+  // "no" while the badge read "Connect via browser extension". Say both.
+  const flow =
+    MARKETPLACE_EXTENSION_FLOW[
+      platform as keyof typeof MARKETPLACE_EXTENSION_FLOW
+    ];
+  return (
+    <div className="rounded-lg border p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-sm font-medium">{MARKETPLACE_LABELS[platform]}</span>
+        <span className="flex flex-wrap items-center gap-1.5">
+          {flow && (
+            <Badge
+              variant={flow === "live" ? "secondary" : "outline"}
+              className="text-[10px]"
+            >
+              {MARKETPLACE_FLOW_LABEL[flow]}
+            </Badge>
+          )}
+          <Badge variant="outline" className="text-[10px]">
+            {MARKETPLACE_TIER_LABEL[tier]}
+          </Badge>
+        </span>
+      </div>
+      <p className="mt-1 text-xs font-medium text-foreground/80">{d.title}</p>
+      <ul className="mt-2 space-y-1.5">
+        {d.facts.map((fact) => (
+          <li
+            key={fact}
+            className="flex gap-2 text-xs leading-relaxed text-muted-foreground"
+          >
+            <Circle
+              aria-hidden="true"
+              className="mt-1.5 h-1 w-1 flex-shrink-0 fill-current"
+            />
+            <span>{fact}</span>
+          </li>
+        ))}
+      </ul>
+      {d.href && (
+        <Link
+          to={d.href}
+          className="mt-2 inline-block text-xs font-medium text-brand-navy underline underline-offset-2"
+        >
+          {d.hrefLabel ?? "Read more"}
+        </Link>
+      )}
+    </div>
+  );
+}
+
+// US-2481: work queued from a phone, waiting for this desktop.
+//
+// The honest counterpart to the queue itself. Nifty's pitch is that your work
+// runs whether or not your browser is open; ours is that it runs in YOUR
+// browser, which means there is a wait — and the only way that is a feature
+// rather than a disappointment is if the wait is stated rather than discovered.
+//
+// The second list is the one that earns its place: work that expired undrained.
+// A seller who believes a delist is still pending is a seller heading for a
+// double sale, so an item that never ran surfaces here instead of aging out in
+// silence (US-2481 AC6, the same rule as the US-2165 delist marker).
+function ExtensionQueueSection() {
+  const { data, isLoading } = useExtensionQueue();
+  const cancel = useCancelExtensionWork();
+
+  const pending = data?.pending ?? [];
+  const needsAttention = data?.needsAttention ?? [];
+  if (isLoading || (pending.length === 0 && needsAttention.length === 0)) return null;
+
+  const describe = (kind: string, platform: string) => {
+    const label = MARKETPLACE_LABELS[platform as keyof typeof MARKETPLACE_LABELS] ?? platform;
+    if (kind === "delist") return `End the ${label} listing`;
+    if (kind === "share") return `Share your ${label} closet`;
+    return `List to ${label}`;
+  };
+
+  return (
+    <section>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Queued for your desktop
+      </h2>
+
+      {pending.length > 0 && (
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">{QUEUED_NOTICE}</p>
+          <ul className="mt-3 space-y-2">
+            {pending.map((job) => (
+              <li
+                key={job.id}
+                className="flex flex-wrap items-center justify-between gap-2 text-sm"
+              >
+                <span className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">
+                    {describe(job.kind, job.platform)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    queued {formatAgo(job.created_at)}
+                    {job.source !== "web" ? " from your phone" : ""}
+                  </span>
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={cancel.isPending}
+                  onClick={() => {
+                    cancel.mutate(job.id, {
+                      onSuccess: () => toast.success("Removed from the queue."),
+                      onError: (e) => toast.error(e.message),
+                    });
+                  }}
+                >
+                  Cancel
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {needsAttention.length > 0 && (
+        <div className="mt-2 rounded-lg border border-dashed p-3">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle className="h-4 w-4 text-brand-red-text" />
+            Didn&apos;t run
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            These waited for a desktop browser that never opened, or failed when
+            they ran. Nothing happened on the marketplace — do it there yourself,
+            or queue it again.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {needsAttention.map((job) => (
+              <li key={job.id} className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {describe(job.kind, job.platform)}
+                </span>
+                {job.result?.error ? ` — ${job.result.error}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function FlipdeskMarketplacesPage() {
   const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
@@ -1319,34 +1495,53 @@ export function FlipdeskMarketplacesPage() {
           API, so they're listed from the seller's own logged-in tab via the
           GradeThread Lister browser extension (US-716). Presented honestly as a
           real, available capability — not "coming soon". */}
+      {/* US-2481: what your phone queued and this desktop has not run yet. */}
+      <ExtensionQueueSection />
+
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Connect via browser extension
         </h2>
-        <div className="rounded-lg border p-3">
-          <div className="flex items-start gap-3">
-            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-navy/10 text-brand-navy">
-              <Puzzle className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                {EXTENSION_CHANNELS.map((m) => (
-                  <span key={m} className="text-sm font-medium">
-                    {MARKETPLACE_LABELS[m]}
-                  </span>
-                ))}
-                <Badge variant="secondary" className="text-[10px]">
-                  GradeThread Lister
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                These platforms have no public listing API. Install the
-                GradeThread Lister browser extension and cross-list a finished
-                draft straight from your own logged-in tab — title, photos,
-                price and the grade badge are filled in for you.
-              </p>
-            </div>
+        <div className="mb-3 flex items-start gap-3 rounded-lg border p-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-brand-navy/10 text-brand-navy">
+            <Puzzle className="h-4 w-4" />
           </div>
+          <div className="min-w-0 space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium">GradeThread Lister</span>
+              <Badge variant="secondary" className="text-[10px]">
+                Your browser
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              These platforms have no public listing API. Install the
+              GradeThread Lister browser extension and cross-list a finished
+              draft straight from your own logged-in tab — title, photos, price
+              and the grade badge are filled in for you. Each channel below
+              states what that means for your account.
+            </p>
+          </div>
+        </div>
+        {/* US-2475: one risk block per channel, driven by MARKETPLACE_MECHANISM. */}
+        <div className="space-y-2">
+          {EXTENSION_CHANNELS.map((m) => (
+            <ChannelRisk key={m} platform={m} />
+          ))}
+        </div>
+      </section>
+
+      {/* US-2475: the same disclosure for the API-tier channels — a sanctioned
+          developer connection is a different risk position from browser
+          automation, and a seller comparing the two should be able to read both
+          in the same words. */}
+      <section>
+        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          How your API connections work
+        </h2>
+        <div className="space-y-2">
+          {API_CHANNELS.map((m) => (
+            <ChannelRisk key={m} platform={m} />
+          ))}
         </div>
       </section>
 
@@ -1359,17 +1554,32 @@ export function FlipdeskMarketplacesPage() {
         </h2>
         <div className="space-y-2">
           {PENDING_CHANNELS.map((m) => (
-            <div
-              key={m}
-              className="flex items-center justify-between gap-3 rounded-lg border border-dashed p-3 text-sm"
-            >
-              <span className="flex items-center gap-2 font-medium">
-                <Clock className="h-4 w-4 text-muted-foreground" />
-                {MARKETPLACE_LABELS[m]}
-              </span>
-              <Badge variant="outline" className="text-[10px]">
-                API ready · pending {MARKETPLACE_LABELS[m]} approval
-              </Badge>
+            <div key={m} className="rounded-lg border border-dashed p-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-2 font-medium">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  {MARKETPLACE_LABELS[m]}
+                </span>
+                <Badge variant="outline" className="text-[10px]">
+                  API ready · pending {MARKETPLACE_LABELS[m]} approval
+                </Badge>
+              </div>
+              {/* US-2475: the connector is built, so the disclosure that will
+                  apply the moment it is switched on is stated now, not later. */}
+              <ul className="mt-2 space-y-1.5">
+                {marketplaceDisclosureFor(m).facts.map((fact) => (
+                  <li
+                    key={fact}
+                    className="flex gap-2 text-xs leading-relaxed text-muted-foreground"
+                  >
+                    <Circle
+                      aria-hidden="true"
+                      className="mt-1.5 h-1 w-1 flex-shrink-0 fill-current"
+                    />
+                    <span>{fact}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
           ))}
           {COMING_SOON_CHANNELS.length > 0 && (

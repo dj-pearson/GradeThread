@@ -1,5 +1,52 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⛔ HELD: 00588_extension_work_queue.sql (US-2481 — queue extension work from mobile, drain it on the desktop)
+
+**Risk: LOW.** One new table, four RLS policies, two indexes, one `updated_at`
+trigger. Nothing existing is touched — no column added to a live table, no
+backfill, no enum change, nothing dropped or narrowed. The whole file is
+idempotent (`CREATE TABLE IF NOT EXISTS`, `DROP POLICY IF EXISTS` before each
+`CREATE POLICY`, `DROP TRIGGER IF EXISTS` before the trigger).
+
+**What it adds.** `public.extension_work_queue` — the server-side record of
+extension work a seller queued from their phone, which the desktop Lister drains
+the next time the browser opens. It stores WHAT to do (an item id, a platform, a
+locale key) and never a marketplace credential. Plus one small IMMUTABLE helper,
+`public.jsonb_has_credential_key(jsonb)`, which backs the
+`extension_work_queue_no_credentials` CHECK: it walks the payload to any depth
+and refuses a `password` / `cookie` / `session` / `token`-shaped key. That is the
+bright line from
+`vault/60-decisions/adr-no-server-side-marketplace-automation.md` written as SQL.
+
+**⚠ THE ONE THING TO WATCH, and it is the ordinary new-table one.** The frontend
+half deploys the moment this branch is pushed (Cloudflare Pages auto-deploy), and
+the Marketplaces screen calls `GET /api/flipdesk/extension-queue` on load. That
+route is NEW, so until the edge redeploys the old container 404s it regardless of
+what the database says — the "Queued for your desktop" section renders empty, the
+rest of the page is unaffected, and no data is at risk.
+
+**It heals at step 3 (the Coolify redeploy), not at step 2.** The `NOTIFY` in
+step 2 fixes PostgREST's view of the new table; it does not teach the running
+edge build about a route it does not have. Do all three, in order, without a long
+gap.
+
+Apply order: AFTER 00586 (no dependency beyond sequence).
+
+```bash
+# 1. Apply. All migrations are idempotent; only 00586 and 00588 do anything new.
+SUPABASE_DB_URL="postgres://…@host:5432/postgres" ./scripts/apply-prod-migrations.sh
+
+# 2. A NEW TABLE was created, so PostgREST must reload or every queue read is a
+#    404 "relation public.extension_work_queue does not exist".
+psql "$SUPABASE_DB_URL" -c "NOTIFY pgrst, 'reload schema';"
+
+# 3. Redeploy the edge on Coolify. Its boot guard now expects 00588.
+#    expect: applied "00588" (status "ok" or "ahead")
+
+# 4. THEN OK the push.
+```
+
+
 ## ✅ APPLIED: 00587_item_photo_role_qualifier.sql (US-2462 — photo tags split into a type plus an open-text role, applied 2026-08-10 by Dj)
 
 **Applied to prod before the push, per the standing held-migration rule. The

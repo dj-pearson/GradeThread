@@ -184,6 +184,59 @@ fun MarketplacesScreen(
             viewModel.load()
         }
 
+        // US-2481: extension work this phone queued that the desktop has not
+        // run yet. Placed above the listings because it answers the question a
+        // seller actually opens this screen with after queuing something at a
+        // thrift store — "did that happen?" — and the honest answer is "not
+        // until your browser opens."
+        if (state.queuePending.isNotEmpty() || state.queueNeedsAttention.isNotEmpty()) {
+            Text(
+                stringResource(R.string.marketplaces_queued_for_desktop),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = Spacing.sm),
+            )
+            if (state.queuePending.isNotEmpty()) {
+                // The sentence comes from the repository layer, shared verbatim
+                // with web and iOS, so no platform can soften it into something
+                // that reads like the work is already done.
+                Text(
+                    QUEUED_NOTICE,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                state.queuePending.forEach { job ->
+                    Row(
+                        Modifier.fillMaxWidth().padding(top = Spacing.xs),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            viewModel.describeQueued(job),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { viewModel.cancelQueued(job.id) }) {
+                            Text(stringResource(R.string.marketplaces_cancel))
+                        }
+                    }
+                }
+            }
+            if (state.queueNeedsAttention.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.marketplaces_queue_didnt_run),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = Spacing.xs),
+                )
+                state.queueNeedsAttention.forEach { job ->
+                    Text(
+                        "• " + viewModel.describeQueued(job),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         // US-1351: the listings the pull merged. Weighted + lazy so a seller
         // with a few hundred live listings scrolls them instead of composing
         // every card into a Column that can't scroll.

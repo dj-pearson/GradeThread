@@ -321,6 +321,26 @@ export function formatMarketplacesCap(cap: number): string {
   return String(cap);
 }
 
+// US-2483: how many listings a tier covers, as a shopper reads it.
+//
+// WHY THIS IS ITS OWN FUNCTION AND ITS OWN LINE ON THE PRICING PAGE. Every
+// competitor a reseller is comparing us against — Crosslist, Vendoo, List
+// Perfectly — prices by LISTING VOLUME. It is the first number they look for
+// and the axis they compare on. GradeThread priced by AI actions and left the
+// listing number buried in a features bullet, so the one figure a shopper came
+// for was the one they had to hunt for.
+//
+// The number is `activeListingCap`, which is what the edge actually enforces
+// (plan-gate.ts), tied to it by plan-limits-parity.test.ts. It is deliberately
+// NOT a separate marketing figure — an allowance the server does not grant is
+// the advertised-vs-enforced defect US-2123 found on the iOS paywall.
+//
+// -1 is unlimited, and it says "Unlimited" rather than inventing a cap.
+export function formatListingAllowance(cap: number): string {
+  if (cap === -1) return "Unlimited";
+  return cap.toLocaleString();
+}
+
 // eBay Sell API condition enum values with buyer-friendly labels. Mirrors
 // EBAY_CONDITION_VALUES in services/edge-functions/src/lib/ai-listing.ts.
 // Shared by the listing composer and the AutoLister bulk editor.
@@ -1471,7 +1491,11 @@ export const MARKETPLACE_MECHANISM: Record<
   mercari: "extension",
   grailed: "extension",
   vinted: "extension",
-  facebook: "none",
+  // US-2480: was "none". Facebook Marketplace is the highest-traffic local
+  // channel and both Crosslist and Vendoo support it, so "no integration" was
+  // the coverage gap rather than an honest classification — there is a content
+  // script (extension-unified/lister/facebook.js) and a delist path now.
+  facebook: "extension",
   offerup: "none",
   other: "none",
 };
@@ -1508,9 +1532,49 @@ export const MARKETPLACE_TIER: Record<
   mercari: "extension",
   grailed: "extension",
   vinted: "extension",
-  facebook: "coming_soon",
+  // US-2480: moved from coming_soon in lockstep with MARKETPLACE_MECHANISM
+  // above, keeping the tier↔mechanism consistency rule intact. Whether the flow
+  // is switched ON is MARKETPLACE_EXTENSION_FLOW below — tier says how a channel
+  // is reached, not whether its selectors are verified.
+  facebook: "extension",
   offerup: "coming_soon",
   other: "coming_soon",
+};
+
+// ─── US-2477..US-2480: is an extension channel's flow actually switched on? ──
+//
+// MARKETPLACE_TIER answers "how is this channel reached". It does NOT answer
+// "does the flow run today", and conflating the two is how Mercari, Grailed and
+// Vinted spent months rendering "Connect via browser extension" in the UI while
+// their selectors sat at `enabled: false` and every attempt reported "list
+// manually for now". A seller reading the badge had no way to know.
+//
+//   "live"      — selectors verified against the live sell form, flow enabled.
+//   "verifying" — the content script and selectors exist, but no one has
+//                 re-checked them against the real form yet, so the flow
+//                 deliberately degrades to the manual message rather than
+//                 half-filling a form it has not seen.
+//
+// THIS MUST MATCH `enabled` IN extension-unified/lister/selectors.js. It is not
+// derived from it, because the frontend cannot import an extension content
+// script — so marketplace-mechanism.test.ts parses that file and fails the build
+// if the two disagree. Flipping a channel on is therefore exactly two edits:
+// `enabled: true` + `lastVerified` there, and "live" here.
+export type MarketplaceFlowStatus = "live" | "verifying";
+export const MARKETPLACE_EXTENSION_FLOW: Record<
+  (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number],
+  MarketplaceFlowStatus
+> = {
+  poshmark: "live",
+  mercari: "verifying",
+  grailed: "verifying",
+  vinted: "verifying",
+  facebook: "verifying",
+};
+
+export const MARKETPLACE_FLOW_LABEL: Record<MarketplaceFlowStatus, string> = {
+  live: "Ready to list",
+  verifying: "Checking the form — list manually for now",
 };
 
 // Short, human-facing label for each tier — used by the Marketplaces UI badges
@@ -1521,6 +1585,104 @@ export const MARKETPLACE_TIER_LABEL: Record<MarketplaceTier, string> = {
   extension: "Connect via browser extension",
   coming_soon: "Coming soon",
 };
+
+// ─── US-2475: per-channel automation risk disclosure ────────────────────────
+//
+// A seller deciding whether to switch on cross-listing for a channel needs three
+// answers BEFORE the first run, not after their account gets limited: what the
+// automation does, WHERE it runs, and what the terms-of-service risk is.
+//
+// The structure is driven by MARKETPLACE_MECHANISM, never hand-written per
+// platform — that is the whole point. A new marketplace inherits the correct
+// disclosure the moment it is classified, and the completeness test in
+// marketplace-mechanism.test.ts fails the build if a platform somehow has none.
+// Hand-writing a block per platform is how one platform ends up shipping without
+// one, which is exactly the failure this constant exists to make impossible.
+//
+// This is the SINGLE source of the wording. iOS mirrors it by hand in
+// ios/GradeThread/Marketplaces/MarketplacesView.swift (same pattern as
+// MARKETPLACE_TIER_LABEL) so both clients say the same thing. Change it here
+// first; the Swift copy carries a pointer back to this constant.
+//
+// Bright lines behind the extension wording:
+// vault/60-decisions/adr-no-server-side-marketplace-automation.md (US-2476).
+export interface MarketplaceDisclosure {
+  /** Block heading. Answers "where does this run" in four words. */
+  title: string;
+  /** The facts, one per bullet. Order is deliberate: risk first, then who owns it. */
+  facts: readonly string[];
+  /** Optional deep link — /trademarks for the licensed-API channels. */
+  href?: string;
+  hrefLabel?: string;
+}
+
+// The per-mechanism base. `{label}` is substituted with the marketplace's name
+// by marketplaceDisclosureFor() so the copy reads naturally per channel without
+// becoming a per-channel string that can drift.
+const MECHANISM_DISCLOSURE: Record<MarketplaceMechanism, MarketplaceDisclosure> = {
+  extension: {
+    title: "Runs in your browser, not on our servers",
+    facts: [
+      // The four facts US-2475 requires, in this order.
+      "{label}'s terms restrict third-party automation. Plenty of sellers use tools like this one, and {label} can still limit an account it decides is automated.",
+      "The actions run in your own browser, in the {label} tab you are already signed in to. Nothing about {label} runs on GradeThread's servers.",
+      "GradeThread's servers never receive your {label} password or session cookie. The extension has no permission to read a cookie on any site, so it could not send one even if it tried.",
+      "Your account, your responsibility. If {label} limits it, GradeThread cannot appeal on your behalf.",
+    ],
+  },
+  api: {
+    title: "An authorized developer connection",
+    facts: [
+      "GradeThread connects to {label} through its authorized developer API, under {label}'s own developer terms.",
+      "You grant access by signing in on {label} itself. GradeThread holds a revocable access token, never your password.",
+      "{label} sees GradeThread as the registered application it approved, so this is a sanctioned integration rather than automation of your session.",
+    ],
+    href: "/trademarks",
+    hrefLabel: "Trademarks and API attribution",
+  },
+  none: {
+    title: "No integration yet",
+    facts: [
+      "GradeThread does not connect to {label}. Nothing is automated and nothing about your {label} account is linked.",
+      "You can still copy a finished draft's fields across by hand from the item page.",
+    ],
+  },
+};
+
+// Per-platform additions. These are APPENDED to the mechanism's facts — they
+// never replace them, so a platform can add what is specific to it without being
+// able to drop one of the four extension facts.
+const MARKETPLACE_DISCLOSURE_NOTE: Partial<
+  Record<(typeof LISTING_PLATFORMS)[number], string>
+> = {
+  // US-2482: engagement automation is a bigger ask than listing, so it gets its
+  // own sentence rather than hiding inside the generic extension wording.
+  poshmark:
+    "Sharing, following and sending offers are capped and metered, and the extension shows how much of today's cap you have used. Going past what Poshmark tolerates puts a closet in share jail, where shares stop reaching buyers.",
+  // US-2479: Vinted is EU-first, and this is also the one place we have coverage
+  // a competitor structurally cannot match.
+  vinted:
+    "Vinted is EU-first. The flow runs on the country domains the extension covers and reports “list manually” on any other rather than guessing at a form it has not seen. Crosslist does not serve EU customers at all.",
+  // US-2480: Meta's terms are stricter than the generic case and Marketplace
+  // form churn is the highest of any channel we support.
+  facebook:
+    "Meta's platform terms restrict automated interaction with Marketplace. The flow only ever touches the listing form in your own signed-in session, and it stops and asks you to finish by hand whenever the form has changed.",
+};
+
+// Resolve the disclosure a channel actually shows. Substitutes the marketplace
+// label into the mechanism copy and appends the platform note if there is one.
+export function marketplaceDisclosureFor(
+  platform: (typeof LISTING_PLATFORMS)[number],
+): MarketplaceDisclosure {
+  const base = MECHANISM_DISCLOSURE[MARKETPLACE_MECHANISM[platform]];
+  const label = MARKETPLACE_LABELS[platform];
+  const note = MARKETPLACE_DISCLOSURE_NOTE[platform];
+  const facts = base.facts.map((f) => f.split("{label}").join(label));
+  return {
+    ...base,
+    facts: note ? [...facts, note] : facts,
+  };
+}
 
 // Cross-listable platforms fanned out server-side via POST /cross-push (the
 // US-708 adapter registry). Order = composer display order.
@@ -1541,6 +1703,7 @@ export const EXTENSION_CROSS_LISTING_PLATFORMS = [
   "mercari",
   "grailed",
   "vinted",
+  "facebook", // US-2480
 ] as const satisfies readonly (typeof LISTING_PLATFORMS)[number][];
 export type ExtensionCrossListingPlatform =
   (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number];

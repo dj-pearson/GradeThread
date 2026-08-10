@@ -54,13 +54,16 @@ describe("registry integrity", () => {
   });
 
   it("getMarketplaceSpec returns undefined for unspecced platforms", () => {
-    expect(getMarketplaceSpec("facebook")).toBeUndefined();
+    // US-2480: this used to name facebook, which now HAS a spec — it moved to
+    // the extension tier with a content script behind it. OfferUp is the
+    // remaining example of a channel we name in the UI and cannot list to.
+    expect(getMarketplaceSpec("offerup")).toBeUndefined();
     expect(getMarketplaceSpec("ebay")?.platform).toBe("ebay");
   });
 
   it("manualKitPlatforms are the non-API platforms", () => {
     expect(manualKitPlatforms().sort()).toEqual(
-      ["grailed", "mercari", "poshmark", "vinted"].sort(),
+      ["facebook", "grailed", "mercari", "poshmark", "vinted"].sort(),
     );
   });
 });

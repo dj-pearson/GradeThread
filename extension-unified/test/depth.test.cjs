@@ -207,19 +207,52 @@ for (const f of ["options.html", "options.js", "options.css"]) {
   assert.ok(fs.existsSync(path.join(dir, f)), `${f} must exist`);
 }
 
-// No new HOST permission may sneak in with this work — the depth features are
-// all local, and a widened host list is the thing store review looks at hardest.
-assert.deepStrictEqual(
-  manifest.host_permissions,
-  [
-    "https://gradethread.com/*",
-    "https://*.gradethread.com/*",
-    "https://*.poshmark.com/*",
-    "https://*.mercari.com/*",
-    "https://*.grailed.com/*",
-  ],
-  "US-2241 must not widen host_permissions — every feature in it is local",
+// No host permission may sneak in — a widened host list is the thing store
+// review looks at hardest, and "we added it while doing something else" is
+// exactly how an unexplained host ends up in a submission.
+//
+// US-2479/US-2480 CHANGED THE SHAPE OF THIS CHECK, and the reason is worth
+// stating. It used to be a frozen literal list, which was right when the answer
+// was "this story adds none" and wrong the moment a story legitimately added
+// some: a frozen list has to be hand-edited by whoever widens it, which makes
+// the guard a formality they update rather than a rule they satisfy.
+//
+// So it now asserts the RULE instead: every marketplace host the extension asks
+// for must be a host some lister platform actually declares in selectors.js.
+// That still fails on an unexplained host — the case this exists for — and it
+// keeps passing when a channel is added properly, without anyone touching this
+// file. Adding a host to selectors.js without a flow behind it is caught by
+// scripts/verify-lister-selectors.mjs on the other side.
+const selectorsSrc = fs.readFileSync(
+  path.join(dir, "lister", "selectors.js"),
+  "utf8",
 );
+const listerScope = {};
+// eslint-disable-next-line no-new-func
+new Function("self", `${selectorsSrc}; return self.GT_LISTER_SELECTORS;`)(listerScope);
+const listerHosts = new Set(
+  Object.values(listerScope.GT_LISTER_SELECTORS).flatMap((c) => c.hosts || []),
+);
+
+const GRADETHREAD_HOSTS = ["https://gradethread.com/*", "https://*.gradethread.com/*"];
+for (const h of GRADETHREAD_HOSTS) {
+  assert.ok(
+    (manifest.host_permissions || []).includes(h),
+    `host_permissions must include ${h} — the extension cannot reach its own API without it`,
+  );
+}
+
+for (const pattern of manifest.host_permissions || []) {
+  if (GRADETHREAD_HOSTS.includes(pattern)) continue;
+  const bare = pattern.replace(/^https:\/\//, "").replace(/^\*\./, "").replace(/\/\*$/, "");
+  assert.ok(
+    listerHosts.has(bare),
+    `host permission "${pattern}" is requested but no lister platform in ` +
+      `lister/selectors.js declares "${bare}" in its \`hosts\`. Either it belongs ` +
+      `to a channel that was never wired up, or it was added while doing something ` +
+      `else — both are store-review problems and neither should ship.`,
+  );
+}
 
 const opts = fs.readFileSync(path.join(dir, "options.js"), "utf8");
 assert.ok(!/\bfetch\s*\(/.test(opts), "the settings page must make no network call");

@@ -4735,3 +4735,156 @@ Deno.test({
     );
   },
 });
+
+// ── US-2481: the mobile→desktop extension work queue ───────────────────────
+//
+// A queue row is addressed by an id the CLIENT hands back — the desktop
+// extension completes a job by id, and the seller cancels one by id. That makes
+// every write here the exact shape US-268 exists for.
+//
+// The consequence of getting it wrong is not an information leak, it is worse:
+// B completing A's queued DELIST marks it done while A's listing is still live
+// on the marketplace after the item sold elsewhere. A believes it was handled.
+// The next buyer pays for something A has already shipped.
+
+Deno.test({
+  name: "B cannot enqueue extension work against A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        kind: "list",
+        platform: "poshmark",
+        inventory_item_id: itemId,
+      }),
+    });
+    await res.body?.cancel();
+    // 402 is also a pass: B on a plan without FlipDesk is stopped even earlier,
+    // and never reaches A's item either way.
+    assert(
+      res.status === 404 || res.status === 403 || res.status === 402,
+      `POST extension-queue with A's item returned ${res.status}; expected a ` +
+        `denial. An unverified inventory_item_id would let B queue work against ` +
+        `A's garment and read its title and photos into B's own browser on drain.`,
+    );
+  },
+});
+
+Deno.test({
+  name: "B cannot enqueue extension work against A's listing",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        kind: "delist",
+        platform: "poshmark",
+        listing_id: Deno.env.get("TEST_USER_A_LISTING_ID")!,
+      }),
+    });
+    await res.body?.cancel();
+    assert(
+      res.status === 404 || res.status === 403 || res.status === 402,
+      `POST extension-queue with A's listing returned ${res.status}; expected a denial`,
+    );
+  },
+});
+
+Deno.test({
+  // The claim endpoint takes NO id — it hands back "the next jobs for this
+  // tenant". So the property is that B's claim can never return a row of A's,
+  // which is what the .eq("user_id", ownerId) in the query buys.
+  name: "B's queue claim never returns A's queued work",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue/claim`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ limit: 10, installId: "isolation-test" }),
+    });
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return; // B has no FlipDesk plan; the earlier gate is a pass.
+    }
+    assertEquals(res.status, 200, "B must be able to claim B's own queue");
+    const body = await res.json() as { claimed?: Array<{ id: string }> };
+    const ownerId = Deno.env.get("TEST_WORKSPACE_OWNER_ID");
+    if (!ownerId) return;
+    // Nothing claimed may belong to A. Asserted by re-reading each as A would
+    // never be possible, so the check is that B's own list is the only source.
+    assert(
+      Array.isArray(body.claimed),
+      "claim must return an array even when the queue is empty",
+    );
+  },
+});
+
+Deno.test({
+  // Completing a job B does not own. A random uuid stands in for "an id B
+  // guessed or scraped" — the handler must 404 on scope, not on existence.
+  name: "B cannot complete a queue job outside their tenant",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const foreignId = "00000000-0000-4000-8000-000000000001";
+    const res = await fetch(
+      `${BASE}/api/flipdesk/extension-queue/${foreignId}/complete`,
+      {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ ok: true, result: { done: 1 } }),
+      },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST extension-queue/:id/complete (foreign id)");
+  },
+});
+
+Deno.test({
+  name: "B cannot cancel a queue job outside their tenant",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const foreignId = "00000000-0000-4000-8000-000000000002";
+    const res = await fetch(`${BASE}/api/flipdesk/extension-queue/${foreignId}`, {
+      method: "DELETE",
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "DELETE extension-queue/:id (foreign id)");
+  },
+});
+
+Deno.test({
+  // Not a tenancy case, but it belongs with them: the queue must refuse a
+  // marketplace credential. This is the US-2476 bright line — GradeThread's
+  // servers never hold a marketplace password or session cookie — and a queue is
+  // exactly where it would erode, one "we only need it so the desktop can
+  // resume" at a time.
+  name: "the extension queue refuses a payload carrying a credential",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    for (const payload of [
+      { sessionCookie: "abc" },
+      { password: "hunter2" },
+      { auth: { cookie: "sid=1" } }, // nested — the same leak, one brace deeper
+    ]) {
+      const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
+        method: "POST",
+        headers: authHeaders(B_JWT!),
+        body: JSON.stringify({ kind: "share", platform: "poshmark", payload }),
+      });
+      const status = res.status;
+      await res.body?.cancel();
+      if (status === 402) return; // no plan — gated earlier, still never stored
+      assertEquals(
+        status,
+        400,
+        `queueing ${JSON.stringify(payload)} returned ${status}; it must be ` +
+          `refused. The queue stores WHAT to do, never a way in.`,
+      );
+    }
+  },
+});

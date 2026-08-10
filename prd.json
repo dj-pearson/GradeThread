@@ -1960,7 +1960,8 @@
       "priority": 31,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "BLOCKED ON OPERATOR 2026-08-10: no code change is possible until Depop partner approval is confirmed and DEPOP_ENABLED plus the OAuth creds are set as Coolify Shared Variables. Once set, the code half is two edits in one commit: MARKETPLACE_TIER.depop api_pending -> api, and depop added to LIVE_CROSS_LISTING_PLATFORMS (marketplace-mechanism.test.ts asserts the pair)."
     },
     {
       "id": "US-2474",
@@ -1978,11 +1979,12 @@
       "priority": 32,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "BLOCKED ON OPERATOR 2026-08-10: needs the Etsy app keystring and ETSY_ENABLED set in Coolify. The code half is then MARKETPLACE_TIER.etsy -> api, etsy into LIVE_CROSS_LISTING_PLATFORMS, and moving Etsy on src/pages/legal/trademarks.tsx from the named-but-not-integrated section into the licensed-API section, all in one commit."
     },
     {
       "id": "US-2475",
-      "passes": false,
+      "passes": true,
       "title": "Per-channel automation risk disclosure on the Marketplaces screen and in the extension",
       "description": "As a FlipDesk seller, I want each marketplace to tell me plainly what the automation does, where it runs, and what the terms-of-service risk is, so that I can decide with real information instead of finding out after my account is limited.",
       "acceptanceCriteria": [
@@ -1996,11 +1998,12 @@
       "priority": 33,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "DONE 2026-08-10: MARKETPLACE_DISCLOSURE resolved from MARKETPLACE_MECHANISM via marketplaceDisclosureFor() in src/lib/constants.ts — structure driven by mechanism, never hand-written per platform, with per-platform notes APPENDED so a channel can add its own point but cannot drop one of the four required facts. Rendered per channel on marketplaces.tsx (extension, API and api_pending sections) and mirrored on iOS in MarketplacesView.swift. marketplace-mechanism.test.ts asserts every mechanism key has copy, the four extension facts by meaning-bearing phrase, the /trademarks link on API channels, and that no extension channel claims server-side automation. ui:check 0 blocking."
     },
     {
       "id": "US-2476",
-      "passes": false,
+      "passes": true,
       "title": "ADR + vault note: no server-side marketplace automation, and the process for closing a coverage gap",
       "description": "As the GradeThread team, we want the decision to refuse cloud-run marketplace automation written down with its reasoning and its competitive cost, so that a future contributor under pressure to match Nifty's feature list cannot quietly reverse it.",
       "acceptanceCriteria": [
@@ -2014,7 +2017,8 @@
       "priority": 34,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "DONE 2026-08-10: ADR at vault/60-decisions/adr-no-server-side-marketplace-automation.md records the three competitor models (Crosslist extension+API, Vendoo extension, Nifty cloud sessions), names the two bright lines (no stored marketplace credential or session cookie; no CAPTCHA solved or outsourced) and STATES THE COST — the desktop browser must be open, which US-2481 softens rather than removes. Companion runbook vault/30-platform/closing-a-coverage-gap.md holds the eight-step gap-closing process in the order that makes a half-finished channel impossible to ship. Both linked from INDEX; vault:index + vault:lint --strict pass. extension/README.md and extension-unified/README.md now LINK to the ADR instead of restating it."
     },
     {
       "id": "US-2477",
@@ -2033,7 +2037,8 @@
       "priority": 35,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "IN PROGRESS 2026-08-10: everything except the flip is done. Mercari delist hosts now covered by src/test/lister-guard.test.ts against the SHIPPED selectors (not a mock); legacy-parity green; extension-unified README rollout table added; MARKETPLACE_EXTENSION_FLOW mirrors the extension enabled flag with a lockstep test, so the UI no longer reads 'Connect via browser extension' for a flow that reports 'list manually'. BLOCKED ON A HUMAN: enabling requires loading the live Mercari sell form with a logged-in account, which is behind auth — CI and an agent cannot reach it. Run: node scripts/verify-lister-selectors.mjs --checklist mercari, check each selector, then flip enabled:true + lastVerified + MARKETPLACE_EXTENSION_FLOW.mercari=live. The gate refuses enabled:true with a null lastVerified or a -draft version."
     },
     {
       "id": "US-2478",
@@ -2051,7 +2056,8 @@
       "priority": 36,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "IN PROGRESS 2026-08-10: same state as US-2477. Grailed hosts, guard coverage, parity and README done; the enable itself needs a logged-in human against the live Grailed sell form. Run: node scripts/verify-lister-selectors.mjs --checklist grailed."
     },
     {
       "id": "US-2479",
@@ -2069,7 +2075,8 @@
       "priority": 37,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "IN PROGRESS 2026-08-10: extension-unified/lister/vinted.js content script plus versioned selectors with a 22-locale map. lister-guard.newListingUrlForLocale resolves a locale KEY from the bundled config (never a URL from a message, so the US-1876 rule holds) and an uncovered locale reports list-manually naming the domain. vinted added to EXTENSION_DELIST_PLATFORMS — it was resolving to 'unsupported', leaving a live listing after a sale elsewhere, while already advertised as tier extension. manifest hosts, content script and test/vinted-locales.test.cjs keep locales/hosts/manifest in lockstep. Disclosure copy notes the EU-first position and that Crosslist serves no EU customers. BLOCKED ON A HUMAN for the enable: live Vinted sell form, logged in."
     },
     {
       "id": "US-2480",
@@ -2087,7 +2094,8 @@
       "priority": 38,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "IN PROGRESS 2026-08-10: extension-unified/lister/facebook.js with ARIA-anchored selectors (Marketplace class names are hashed and churn every deploy); submit is Next, not publish, because auto-publishing with a guessed category gets a listing removed and an account flagged. MARKETPLACE_MECHANISM.facebook and MARKETPLACE_TIER.facebook both moved to extension in one commit; facebook added to EXTENSION_DELIST_PLATFORMS, LISTER_EXTENSION_PLATFORMS, EXTENSION_CROSS_LISTING_PLATFORMS and marketplace-specs (spec + condition bucket map, edge mirror synced). manifest host_permissions + content script added, and depth.test.cjs's host guard now DERIVES its allowlist from selectors.js instead of a frozen literal. Disclosure copy notes Meta's platform terms. BLOCKED ON A HUMAN for the enable."
     },
     {
       "id": "US-2481",
@@ -2106,7 +2114,8 @@
       "priority": 40,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "IN PROGRESS 2026-08-10: code complete, migration HELD. supabase/migrations/00588_extension_work_queue.sql plus EXPECTED_SCHEMA_VERSION 00588, manifest regen and self-record footer; verified against a real Postgres 16 (applies twice cleanly; 17 credential cases pass, including nested, snake_case, uppercase and renamed-suffix keys, with sessionCount and cookieJarBrand still allowed). The no-credential CHECK is backed by an IMMUTABLE jsonb_has_credential_key() that walks to any depth — the first version used payload ?| ARRAY[...], which is top-level and case-sensitive only and was weaker than its own comment. Edge route /api/flipdesk/extension-queue (enqueue, read, claim, complete, cancel) tenant-scoped throughout with five cases in tenant-isolation_test.ts. The extension drains ONE job at a time via job-store planDrain (covered in lister-jobs.test.cjs), reports expired rows rather than dropping them, and posts results back to the queue row. Web hook + Marketplaces section, iOS ExtensionQueueService + section, Android ExtensionQueueRepository + section, all sharing QUEUED_NOTICE verbatim. REMAINING: apply 00588 to prod per PENDING_MIGRATIONS.md (it heals at the edge redeploy, not at the PostgREST reload, because the route is new), then verify an end-to-end enqueue from a device build."
     },
     {
       "id": "US-2482",
@@ -2126,11 +2135,12 @@
       "priority": 39,
       "dependsOn": [
         "US-2472"
-      ]
+      ],
+      "notes": "IN PROGRESS 2026-08-10: all the safety machinery is built and held by extension-unified/test/engagement.test.cjs. lister/engagement.js is a pure state machine (no chrome.*, no DOM, no network — asserted against its own source). 5000 shares/day default, 9000 absolute (below the ~9500 tolerance edge; the gap is the margin), clamped on every READ rather than only where the UI writes. Randomized pacing with a floor that can be raised and never lowered — the test caught a real NaN-rand bug that would have turned the floor into a click storm. A SEPARATE versioned clickwrap from the Lister one, checked before EVERY action so a revocation, a lowered cap or a second tab takes effect mid-run. Human checks pause and are never answered, asserted against the source of every engagement file for solver-service names. Counters in chrome.storage.local only; the popup meter names share jail; marketplaces.tsx carries the same statement on the web. BLOCKED ON A HUMAN: the poshmark.engage selectors need checking against a live closet page before enabled:true. Run: node scripts/verify-lister-selectors.mjs --checklist poshmark."
     },
     {
       "id": "US-2483",
-      "passes": false,
+      "passes": true,
       "title": "FlipDesk plan tiers show a listing allowance so sellers can compare us to Crosslist and Vendoo",
       "description": "As a reseller comparing crosslisting tools, I want each FlipDesk tier to state how many listings it covers, so that I can compare GradeThread to competitors who all price by listing volume instead of by AI actions.",
       "acceptanceCriteria": [
@@ -2139,7 +2149,8 @@
         "vault/50-business/pricing.md is updated in the same commit, since it is the source of truth for the US-200 pricing ACs",
         "If a tier is genuinely unlimited, it says unlimited rather than inventing a cap"
       ],
-      "priority": 210
+      "priority": 210,
+      "notes": "DONE 2026-08-10: formatListingAllowance() in src/lib/constants.ts, sourced from activeListingCap — what plan-gate.ts actually enforces, already tied to the edge by plan-limits-parity.test.ts, so no second marketing figure can exist. Rendered as its own line on /pricing and in flipdesk-plan-comparison.tsx through the one formatter. Business reads Unlimited rather than an invented ceiling. New test pins the hand-written features bullet to the enforced cap. vault/50-business/pricing.md updated in the same commit with why the allowance moved, plus the Crosslist and Nifty rows the competitor table was missing."
     }
   ]
 }

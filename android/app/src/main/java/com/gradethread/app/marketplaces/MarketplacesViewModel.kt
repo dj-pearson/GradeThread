@@ -23,6 +23,8 @@ import javax.inject.Inject
 class MarketplacesViewModel @Inject constructor(
     private val repository: MarketplaceConnectionRepository,
     private val ebaySync: EbaySyncService,
+    // US-2481: extension work this phone queued for the seller's desktop.
+    private val extensionQueue: ExtensionQueueRepository,
     db: GradeThreadDb,
 ) : ViewModel() {
 
@@ -68,6 +70,18 @@ class MarketplacesViewModel @Inject constructor(
         val pendingConsentUrl: String? = null,
         /** US-1351: a listing pull is in flight. */
         val syncing: Boolean = false,
+        /**
+         * US-2481: extension work queued from this phone, still waiting for a
+         * desktop browser to open.
+         */
+        val queuePending: List<ExtensionQueueItem> = emptyList(),
+        /**
+         * Queued work that expired undrained or failed when it ran. Held apart
+         * from [queuePending] on purpose: showing it as "still coming" is the
+         * silence this queue would otherwise reintroduce, and for a delist that
+         * silence becomes a double sale.
+         */
+        val queueNeedsAttention: List<ExtensionQueueItem> = emptyList(),
     ) {
         val hasPrimary: Boolean get() = connections.any { it.isPrimary }
 
@@ -96,7 +110,37 @@ class MarketplacesViewModel @Inject constructor(
             _state.value = _state.value.copy(loading = true)
             _state.value = _state.value.copy(connections = repository.list(), loading = false)
         }
+        refreshQueue()
     }
+
+    /**
+     * US-2481: read the queue on every load rather than caching it.
+     *
+     * This is the screen a seller opens to ask "did the thing I queued at the
+     * thrift store run yet". A stale answer to that question is the wrong
+     * answer, and a failed read is not worth an error banner — the queue is
+     * server-side state and the next load picks it up.
+     */
+    fun refreshQueue() {
+        viewModelScope.launch {
+            val snapshot = runCatching { extensionQueue.snapshot() }.getOrNull() ?: return@launch
+            _state.value = _state.value.copy(
+                queuePending = snapshot.pending,
+                queueNeedsAttention = snapshot.needsAttention,
+            )
+        }
+    }
+
+    /** Remove a queued job the seller no longer wants run on their desktop. */
+    fun cancelQueued(id: String) {
+        viewModelScope.launch {
+            runCatching { extensionQueue.cancel(id) }
+            refreshQueue()
+        }
+    }
+
+    /** How one queued job reads in the list. */
+    fun describeQueued(item: ExtensionQueueItem): String = describeQueuedWork(item)
 
     fun connect() {
         if (_state.value.connecting) return

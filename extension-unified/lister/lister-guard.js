@@ -73,6 +73,46 @@
     });
   }
 
+  // US-2479: the LOCALE-aware form of newListingUrlFor.
+  //
+  // Vinted runs the same app on ~20 country domains, so "the new-listing URL"
+  // is not one string. The seller's account lives on exactly one of them, and
+  // sending them to a Vinted they have no account on is worse than doing
+  // nothing: they land on a login wall for a country they cannot sign into.
+  //
+  // The rule that matters is unchanged from AC1 above — the URL we navigate to
+  // is ALWAYS a value from the bundled config. What the caller supplies is a
+  // locale KEY, which is only ever used to look one up. A payload that names an
+  // uncovered locale (or smuggles in a URL) resolves to null, and the caller
+  // reports "list manually" naming the domain rather than guessing at a form on
+  // a domain nobody has verified.
+  //
+  // A platform with no `locales` map ignores the key entirely and behaves
+  // exactly as before.
+  function newListingUrlForLocale(selectors, platform, locale) {
+    const cfg = selectors && selectors[platform];
+    const locales = cfg && cfg.locales;
+    if (!locales) return newListingUrlFor(selectors, platform);
+    // No locale asked for → the platform's stated default.
+    if (typeof locale !== "string" || locale === "") {
+      return newListingUrlFor(selectors, platform);
+    }
+    // Normalise the two shapes a caller might reasonably send: a bare host
+    // ("vinted.fr") or a host with a www prefix. Anything else is not a locale
+    // key and must not be coerced into one.
+    const key = locale.toLowerCase().replace(/^www\./, "");
+    if (!Object.prototype.hasOwnProperty.call(locales, key)) return null;
+    const url = locales[key];
+    return typeof url === "string" && /^https:\/\//.test(url) ? url : null;
+  }
+
+  /** The locale keys a platform covers (empty for a single-domain platform). */
+  function localesFor(selectors, platform) {
+    const cfg = selectors && selectors[platform];
+    const locales = cfg && cfg.locales;
+    return locales ? Object.keys(locales) : [];
+  }
+
   // US-1877 (AC1): is this URL a LIVE listing on `platform`?
   //
   // Used to detect that the seller actually submitted the form we prefilled — the
@@ -109,6 +149,8 @@
     senderHost: senderHost,
     isOriginAllowed: isOriginAllowed,
     newListingUrlFor: newListingUrlFor,
+    newListingUrlForLocale: newListingUrlForLocale,
+    localesFor: localesFor,
     isAllowedDelistUrl: isAllowedDelistUrl,
     isLiveListingUrl: isLiveListingUrl,
   };
