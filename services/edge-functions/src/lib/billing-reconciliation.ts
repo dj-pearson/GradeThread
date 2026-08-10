@@ -32,6 +32,36 @@ export interface LatestSubscriptionEvent {
   rawStatus: string | null; // raw_payload->>'status' (the raw Stripe sub status)
 }
 
+/**
+ * The prefix that marks an audit row as being about the BUYER subscription.
+ *
+ * US-2457. `flipdesk_subscription_events` is the audit table for BOTH products
+ * — App Store and Play rows have always been namespaced (`appstore.`,
+ * `googleplay.`) — but the buyer rows added on 2026-08-10 carried the raw
+ * Stripe event type, so a buyer's cancellation was byte-identical to a seller's
+ * in the only columns `reconciliation_candidates` returns.
+ *
+ * That matters because the candidate query is `distinct on (user_id)` with no
+ * product filter: the newest row wins. So a seller in good standing who
+ * cancelled their BUYER subscription would have their latest event derive to
+ * `{canceled, free}`, be compared against their live FlipDesk state, and be
+ * flagged `status_divergence` — and the operator remedy for that flag is a
+ * resync that can overwrite `flipdesk_subscription_id` with the buyer
+ * subscription's id. A false flag on this queue is not noise; it is a loaded
+ * destructive action.
+ */
+export const BUYER_EVENT_PREFIX = "buyer.";
+
+/** Namespace an event type as belonging to the buyer product. */
+export function buyerEventType(stripeEventType: string): string {
+  return `${BUYER_EVENT_PREFIX}${stripeEventType}`;
+}
+
+/** True when this audit row is about the buyer subscription, not the seller's. */
+export function isBuyerProductEvent(eventType: string): boolean {
+  return eventType.startsWith(BUYER_EVENT_PREFIX);
+}
+
 export interface ExpectedState {
   status: SubscriptionStatus | null;
   plan: string | null;
@@ -127,6 +157,26 @@ export function detectDivergence(
       statusDiverged: false,
       planDiverged: false,
       expected: deriveExpectedState(ev),
+      reasons: [],
+    };
+  }
+
+  // US-2457: a BUYER event says nothing about the seller subscription this
+  // function compares. Cancelling a Guard plan does not cancel a FlipDesk one,
+  // and reading it as though it did produces a confident, wrong flag on a queue
+  // whose remedy is destructive.
+  //
+  // Skipped rather than reconciled: the buyer product has no cached columns in
+  // CachedSubscriptionState to compare against, so there is nothing honest to
+  // say here. Buyer reconciliation is its own job and is not built (see the
+  // 2026-08-10 sweep on US-2457) — a gap, but a silent one, which is strictly
+  // better than a wrong flag that invites an operator to act.
+  if (isBuyerProductEvent(ev.eventType)) {
+    return {
+      diverged: false,
+      statusDiverged: false,
+      planDiverged: false,
+      expected: { status: null, plan: null },
       reasons: [],
     };
   }

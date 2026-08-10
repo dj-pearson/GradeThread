@@ -19,6 +19,7 @@ import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 import { loadActiveDiscount } from "../lib/rewards-tangible.ts";
 import { sanitizeReportedDisclosureVersion } from "../lib/disclosure-versions.ts";
 import { renewalNoticeCopy } from "../lib/renewal-notice-copy.ts";
+import { buyerEventType } from "../lib/billing-reconciliation.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -754,7 +755,13 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
         .from("flipdesk_subscription_events")
         .insert({
           user_id: userId,
-          event_type: "in_place_change_confirmed",
+          // US-2457: namespaced like every other buyer row. This one is benign
+          // today — "in_place_change_confirmed" is not in deriveExpectedState's
+          // vocabulary, so it derives a null status and flags nothing — but it
+          // still DISPLACES the seller's genuine latest event in the
+          // distinct-on-user candidate query, which silently stops reconciling
+          // that seller until their next event.
+          event_type: buyerEventType("in_place_change_confirmed"),
           raw_payload: {
             product: "buyer",
             from_buyer_plan: (user as { buyer_plan?: string | null }).buyer_plan ?? null,

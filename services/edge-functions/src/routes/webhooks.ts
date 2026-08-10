@@ -36,6 +36,7 @@ import { recordWebhookDeadLetter } from "../lib/webhook-dead-letter.ts";
 import { captureException } from "../lib/observability.ts";
 import { emitOpsEvent } from "../lib/ops-events.ts";
 import { recordAgreedTerms } from "../lib/agreed-terms.ts";
+import { buyerEventType } from "../lib/billing-reconciliation.ts";
 import { safeSendEmail, userDisplayName } from "../lib/email-helpers.ts";
 import { notifyPlanDowngrade } from "../lib/plan-change-notify.ts";
 import { applySesFeedback } from "../lib/email-suppression.ts";
@@ -1001,7 +1002,9 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
     // sent when the cancellation was scheduled.
     await recordEvent(
       user.id,
-      event.type,
+      // US-2457: namespaced, or the reconciler reads a buyer cancellation as a
+      // seller one and flags a healthy FlipDesk account for a destructive resync.
+      buyerEventType(event.type),
       event.id,
       // Typed public.flipdesk_plan; the buyer tier rides in the payload.
       user.flipdesk_plan,
@@ -1106,9 +1109,13 @@ async function sendBuyerRenewalReceipt(
   // this whole class of buyer-only omission invisible. Plan columns stay the
   // user's real flipdesk_plan — they are typed public.flipdesk_plan and a buyer
   // tier raises 22P02 — with the buyer detail in the jsonb payload.
+  //
+  // US-2457: namespaced. invoice.payment_succeeded derives to {active, toPlan},
+  // so an un-namespaced buyer renewal would assert a live FlipDesk plan for
+  // someone who may hold none.
   await recordEvent(
     user.id,
-    event.type,
+    buyerEventType(event.type),
     event.id,
     user.flipdesk_plan,
     user.flipdesk_plan,
@@ -1164,7 +1171,10 @@ async function sendBuyerBillingProblem(
 
   await recordEvent(
     user.id,
-    event.type,
+    // US-2457: namespaced. This one was the sharpest — invoice.payment_failed
+    // derives to {past_due, toPlan}, so an un-namespaced buyer row would put a
+    // seller in good standing into the operator dunning queue.
+    buyerEventType(event.type),
     event.id,
     // Typed public.flipdesk_plan, so a buyer tier cannot go here — the buyer
     // detail rides in the jsonb payload instead.
@@ -2621,7 +2631,9 @@ async function handleInvoiceUpcoming(event: Stripe.Event) {
 
   await recordEvent(
     user.id,
-    event.type,
+    // US-2457: a buyer row must be namespaced or the reconciler reads it as a
+    // seller signal — see BUYER_EVENT_PREFIX.
+    isBuyer ? buyerEventType(event.type) : event.type,
     event.id,
     // The plan columns are typed public.flipdesk_plan, so a buyer tier cannot
     // go in them (the same enum trap as US-2118's consent artifact). These stay
