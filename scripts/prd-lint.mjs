@@ -168,7 +168,28 @@ export function findUnresolvedDeferrals(stories) {
 // origin/main, so quoting them cannot re-trigger the warning. Reading version
 // NUMBERS out of notes had exactly that failure, reclassifying corrected
 // stories as pending because the correction mentioned 00475/00476.
-const HELD_MARKER = /\bHELD\b|held migration|not pushed/i;
+// ⚠ THE BARE TOKEN IS CASE-SENSITIVE ON PURPOSE, and it was not until 2026-08-09.
+//
+// This was `/\bHELD\b|held migration|not pushed/i` — one case-insensitive regex —
+// so the word "held" ANYWHERE in a note was read as a held-migration claim. It
+// fired on a US-2138 note containing the phrase "SERVER-held facts", which is
+// about trust boundaries and has nothing to do with migrations, and reported the
+// story as telling readers the branch was frozen.
+//
+// A false alarm is not a harmless one here: this warning exists because a stale
+// freeze claim cost real sessions, and a guard that cries wolf on ordinary
+// English is how people learn to scroll past it. "HELD" in caps is the marker
+// convention these notes actually use; the lowercase phrases are matched only in
+// forms that unambiguously name a migration.
+const HELD_TOKEN = /\bHELD\b/; // no /i — the uppercase marker, not the word
+// `migration ... is held` allows the id to sit between the two words, which is
+// how it is actually written ("migration 00345 is held until applied"). Bounded
+// and stopped at a sentence/segment break so it cannot reach across into an
+// unrelated clause.
+const HELD_PHRASE = /held migration|not pushed|migration\b[^.|]{0,40}\bis held\b/i;
+const HELD_MARKER = {
+  test: (s) => HELD_TOKEN.test(s) || HELD_PHRASE.test(s),
+};
 // Five digits. An earlier hand-written sweep used 00[3-4][0-9]{3} — six — and
 // could never match 00345, so it reported zero and read as clean.
 //

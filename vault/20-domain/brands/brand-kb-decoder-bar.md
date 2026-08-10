@@ -9,6 +9,8 @@ code_refs:
   - supabase/migrations/00574_headwear_brand_knowledge.sql
   - supabase/migrations/00575_eyewear_brand_knowledge.sql
   - supabase/migrations/00576_jewelry_brand_knowledge.sql
+  - services/edge-functions/src/lib/brand-decoders.ts
+  - services/edge-functions/src/lib/ai-authenticity.ts
 reviewed: 2026-08-09
 tags: [brands, grading, decoder, contract]
 summary: A style code becomes a decoder only if it is tag-printed AND regular AND brand-unique in format; the third test is the one that fails, and failing it mints false positives.
@@ -195,6 +197,40 @@ Rag & Bone's men's denim runs `Fit 1`–`Fit 4`, printed on the tag and genuinel
 regular, but "Fit 2" would false-recover the brand from any tag using those two
 words. Carry it into the title; require a Rag & Bone tag before treating it as
 brand evidence.
+
+## A decoder CONTRADICTION now caps the authenticity verdict (US-2138)
+
+A decode that is *impossible* — a code dating to the future — no longer only
+logs. `grading-pipeline.ts` runs `crossCheckDecodeResult` over the decode and
+caps `verdict_confidence` through `applyDecoderContradictionCap`.
+
+**It is a cap, not prompt context, and that is the whole point.** Feeding the
+contradiction into the prompt would ask the model to *weigh* a fact, and a model
+can talk itself out of one. A cap composes as a `min` and cannot be argued with.
+It also costs nothing in the prompt lifecycle: no flag, no `prompt_version`
+suffix, no shadow/eval/canary, because no prompt text changes.
+
+> [!warning] Only `flag` severity may cap, and that is an injection defence
+> `crossCheckDecodeResult` produces two classes. `date_in_future` and
+> `date_before_brand` are **`flag`** — derived from the code plus server-held
+> facts. `year_mismatch`, `gender_mismatch` and `style_code_mismatch` are
+> **`warn`** — each compares the decode against what the *listing* claims, i.e.
+> against seller-supplied text.
+>
+> Capping on a `warn` would let a seller move their own authenticity verdict by
+> typing a wrong year into their listing, which US-346 forbids. The pipeline
+> therefore passes **no claim context at all** and counts only `flag`. Both
+> halves are test-guarded, and they fail for different reasons on purpose.
+
+**Only `date_in_future` can fire today.** `date_before_brand` needs a founding
+year and `BrandKnowledgePack` has no such field. That is stated rather than
+stubbed: adding it is a KB change — a column plus sourced per-brand values under
+the [[brand-kb-provenance]] rule — and inventing a year would manufacture the
+contradiction the cap then punishes.
+
+The unused `DECODER_CROSS_CHECKS` prompt block in `ai-authenticity.ts` is
+deliberately left in place for a future signal that genuinely needs to be
+reasoned about rather than enforced.
 
 ## Related
 

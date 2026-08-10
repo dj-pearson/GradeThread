@@ -378,6 +378,54 @@ export function applyVerdictCap(
 }
 
 /**
+ * US-2138: cap the verdict on a DETERMINISTIC decoder contradiction.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * WHY THIS IS A CAP AND NOT PROMPT CONTEXT. The story's AC6 requires that a
+ * contradiction from a deterministic decoder DOMINATE model optimism. Putting
+ * the contradiction in the prompt asks the model to WEIGH it, which is the thing
+ * that requirement forbids — a model can talk itself out of a fact. A cap
+ * enforces it. (The decision, with the ordering evidence behind it, is recorded
+ * in US-2138's notes; the unused DECODER_CROSS_CHECKS prompt block stays where
+ * it is for a future signal that genuinely needs to be reasoned about.)
+ *
+ * ⚠ ONLY `flag` SEVERITY MAY CAP, AND THAT IS AN INJECTION-DEFENCE RULE (US-346),
+ * not a severity preference. crossCheckDecodeResult produces two classes:
+ *
+ *   flag — `date_in_future`, `date_before_brand`. Derived from the CODE plus
+ *          server-held facts (the current year, the brand's founding year).
+ *   warn — `year_mismatch`, `gender_mismatch`, `style_code_mismatch`. Each
+ *          compares the decode against what the LISTING claims, i.e. against
+ *          seller-supplied text.
+ *
+ * Capping on a `warn` would let a seller move their own authenticity verdict by
+ * typing a wrong year into their listing. Untrusted input must never move a
+ * score, so the caller passes no claim context at all and only `flag` counts
+ * reach here — belt and braces, because either alone would be enough and both
+ * are cheap.
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * Composes as a min and never raises, like every other cap in this file. Pure.
+ *
+ * NOTE ON THE US-2299 CEILING RULE: a new GRADING confidence cap must also lower
+ * the reported ceiling, because provenance boosts are applied afterwards and a
+ * value-only cap gets silently lifted back over it. There is no equivalent boost
+ * path for `verdict_confidence` — it is written once from applyVerdictCap and is
+ * read-only thereafter — so no ceiling is needed here. If a verdict-confidence
+ * boost is ever introduced, this cap needs a ceiling on the same day.
+ */
+export function applyDecoderContradictionCap(
+  confidence: number,
+  decoderFlagCount: number,
+): number {
+  if (decoderFlagCount <= 0) return confidence;
+  return Number(
+    Math.max(0, Math.min(confidence, AUTHENTICITY_CONTRADICTION_CONFIDENCE_CAP))
+      .toFixed(2),
+  );
+}
+
+/**
  * Did the seller supply at least one macro authenticity frame? Pure + exported.
  *
  * Absence is not neutral: it means the tells the prompt asks about were never

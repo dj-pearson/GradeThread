@@ -230,6 +230,47 @@ describe("findStaleHeldMigrations", () => {
     expect(hits).toEqual([{ id: "US-1421", migrations: ["00345"] }]);
   });
 
+  it("does NOT fire on the ordinary English word 'held'", () => {
+    // Regression, 2026-08-09. The marker was one case-insensitive regex, so any
+    // note containing "held" read as a held-migration claim. It fired on a
+    // US-2138 note about "SERVER-held facts" — a trust-boundary phrase with no
+    // migration meaning — while that note also happened to mention 00578.
+    //
+    // This matters more than the noise: the warning exists because a stale
+    // freeze claim cost real sessions, and a guard that cries wolf on ordinary
+    // English teaches people to scroll past it.
+    const innocent = [
+      "date_before_brand derives from SERVER-held facts, not seller text",
+      "the seller-held belief about 00578 is irrelevant",
+      "we withheld the change",
+    ];
+    for (const notes of innocent) {
+      expect(
+        findStaleHeldMigrations([story("US-2138", notes)], new Set(["00578"])),
+        `"${notes}" must not read as a held-migration claim`,
+      ).toEqual([]);
+    }
+  });
+
+  it("still catches a lowercase claim that genuinely names a migration", () => {
+    // The fix narrows the BARE token to uppercase; it must not narrow the
+    // phrases, or a real hold written in lowercase would slip through.
+    for (const notes of [
+      "00345 is a held migration, do not push",
+      // The id sits BETWEEN the two words, which is how a hold is really
+      // written. A literal "migration is held" pattern would miss this, and the
+      // first draft of this test asserted a string with no id in it at all —
+      // which returned [] correctly, because there was no migration to name.
+      "migration 00345 is held until it is applied",
+      "00345 is not pushed yet",
+    ]) {
+      expect(
+        findStaleHeldMigrations([story("US-1421", notes)], new Set(["00345"])),
+        `"${notes}" is a real hold and must still be flagged`,
+      ).toEqual([{ id: "US-1421", migrations: ["00345"] }]);
+    }
+  });
+
   it("ignores a genuinely pending migration", () => {
     // 00475/00476 are not on origin/main, so a hold on them is real.
     expect(

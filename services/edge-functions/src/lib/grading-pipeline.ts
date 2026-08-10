@@ -37,6 +37,7 @@ import { reconcileNeedsReview } from "./ai-config.ts";
 import { gradingUsageFeature } from "./video-grading-cost.ts";
 import { getSetting } from "./system-settings.ts";
 import {
+  applyDecoderContradictionCap,
   assessAuthenticity,
   authenticityNeedsReview,
   type AuthenticityAssessment,
@@ -130,7 +131,7 @@ import {
   resolveBrandKnowledgePack,
   type BrandKnowledgePack,
 } from "./brand-knowledge.ts";
-import { decodeTagCode } from "./brand-decoders.ts";
+import { crossCheckDecodeResult, decodeTagCode } from "./brand-decoders.ts";
 import { getAuthenticityReferences } from "./authenticity-references.ts";
 import { brandKey } from "./brand-normalize.ts";
 import { estimateSize, type SizeEstimate } from "./ai-size-estimate.ts";
@@ -1637,7 +1638,12 @@ export async function processSubmission(submissionId: string) {
     });
 
     const settledImages: SettledImage[] = bufferResult.settledImages;
-    const authenticityAssessment: AuthenticityAssessment | null =
+    // US-2138: `let`, not `const`, because a deterministic decoder contradiction
+    // caps this AFTER the tag code has been decoded further down. The decode
+    // cannot happen earlier — authPromise and tagPromise are awaited together,
+    // so the style code does not exist while the assessment is being produced.
+    // Every consumer of this binding is below the cap site.
+    let authenticityAssessment: AuthenticityAssessment | null =
       bufferResult.authenticityAssessment;
     const tagOcr: TagOcrResult | null = bufferResult.tagOcr;
     const sizeEstimate: SizeEstimate | null = bufferResult.sizeEstimate;
@@ -1676,7 +1682,15 @@ export async function processSubmission(submissionId: string) {
     // (a relabelled or franken-tagged garment) is at least as likely as the
     // guilty one, and nothing here can tell them apart.
     let eraConflict: EraDecoderConflict | null = null;
-    if (matchedEra && brandPack) {
+    // US-2138: the decode is hoisted out of the `matchedEra` guard. It used to
+    // sit inside it because its only consumer was the era comparison — but a
+    // decoder CONTRADICTION (a code dating to the future, or to before the brand
+    // existed) is impossible regardless of whether a tag era also matched, and
+    // leaving the decode behind that guard would have silently scoped the new
+    // cross-check to the subset of items that happen to match an era.
+    // decodeTagCode is pure, so hoisting changes nothing about eraConflict.
+    let decoderFlagCount = 0;
+    if (brandPack) {
       try {
         const styleCode = acceptedTag.find((a) => a.field === "style_code")?.value;
         if (styleCode) {
@@ -1686,11 +1700,36 @@ export async function processSubmission(submissionId: string) {
             decoderSpecsFromPack(brandPack),
           );
           const decodedYear = decoded?.year ? Number(decoded.year) : null;
-          eraConflict = eraDecoderConflict(
-            matchedEra,
-            Number.isFinite(decodedYear) ? decodedYear : null,
-            new Date().getUTCFullYear(),
-          );
+
+          // ⚠ NO CLAIM CONTEXT IS PASSED, and that is the injection defence
+          // (US-346) rather than an omission. crossCheckDecodeResult's
+          // claimedYear / claimedGender / claimedStyleCode compare the decode
+          // against SELLER-SUPPLIED listing text, and each produces `warn`.
+          // Feeding them would let a seller move their own authenticity verdict
+          // by typing a wrong year into their listing. Only the server-held
+          // facts are passed, and those are exactly the ones that produce the
+          // `flag` severity the cap acts on.
+          //
+          // ONLY `date_in_future` CAN FIRE TODAY. The other flag check,
+          // `date_before_brand`, needs brandFoundedYear — and BrandKnowledgePack
+          // has no founding-year field, so there is nothing honest to pass.
+          // Stated rather than stubbed: adding it is a brand-KB change (a column
+          // plus sourced per-brand values under the 00578 provenance rule), not
+          // a wiring one, and inventing a year here would manufacture the
+          // contradiction the cap then punishes.
+          if (decoded) {
+            decoderFlagCount = crossCheckDecodeResult(decoded, {
+              currentYear: new Date().getUTCFullYear(),
+            }).filter((i) => i.severity === "flag").length;
+          }
+
+          eraConflict = matchedEra
+            ? eraDecoderConflict(
+              matchedEra,
+              Number.isFinite(decodedYear) ? decodedYear : null,
+              new Date().getUTCFullYear(),
+            )
+            : null;
           if (eraConflict) {
             console.warn(
               `[Pipeline] tag-era conflict on submission ${submissionId}: ${eraConflict.message}`,
@@ -1708,6 +1747,34 @@ export async function processSubmission(submissionId: string) {
           `[Pipeline] tag-era decoder cross-check failed for submission ${submissionId}:`,
           err instanceof Error ? err.message : String(err),
         );
+      }
+    }
+
+    // US-2138 AC6: a deterministic contradiction DOMINATES model optimism.
+    //
+    // The decoder said the code is impossible. That is a fact about the code,
+    // not a reading of a photograph, so it caps the verdict rather than being
+    // offered to the model as something to weigh. Composes as a min and never
+    // raises — applyDecoderContradictionCap owns that and explains why only
+    // `flag` severity is allowed to reach it.
+    if (authenticityAssessment && decoderFlagCount > 0) {
+      const before = authenticityAssessment.verdict_confidence;
+      const after = applyDecoderContradictionCap(before, decoderFlagCount);
+      if (after < before) {
+        authenticityAssessment = {
+          ...authenticityAssessment,
+          verdict_confidence: after,
+        };
+        console.warn(
+          `[Pipeline] decoder contradiction on submission ${submissionId}: ` +
+            `verdict confidence ${before} -> ${after} (${decoderFlagCount} flag(s))`,
+        );
+        void captureServer("grading-engine", "grading.decoder_contradiction", {
+          submission_id: submissionId,
+          flag_count: decoderFlagCount,
+          verdict_confidence_before: before,
+          verdict_confidence_after: after,
+        });
       }
     }
 
