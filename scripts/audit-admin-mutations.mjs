@@ -102,16 +102,116 @@ function strip(src) {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/[^\n]*/g, "$1");
 }
 
-function declarations(code) {
+/**
+ * Top-level declarations, name → body, BRACE-MATCHED.
+ *
+ * It used to slice each declaration from itself to the NEXT declaration, and in
+ * a route file that is not the body — everything in between, including whole
+ * route handlers, landed inside it. Measured on 2026-08-10: 48 declarations
+ * across the admin route files had slices containing `writeAuditLog(` while
+ * their real bodies did not, several of them one-line constants. `UUID_RE` in
+ * admin-users.ts is 33 bytes and its slice was 15 KB.
+ *
+ * Both directions of that are bad, and both were observed:
+ *
+ *  • FALSE AUDITED — a route referencing such a constant (every `:id` route
+ *    references UUID_RE) gets the oversized slice appended by expand(), and any
+ *    audit call inside it makes the route read as audited. That is a security
+ *    guard reporting "fine" about something it never checked.
+ *  • FALSE UNAUDITED — adding ONE declaration to a route file moves every
+ *    boundary after it. US-2458 added a presentational helper to
+ *    admin-billing.ts and three unrelated routes began reporting as writing no
+ *    audit row. They audit fine; the slice had moved under them.
+ *
+ * A declaration ends at the `}` that closes its first `{` at depth 0, or at the
+ * first `;` if it never opens one (a constant, a type alias, a regex literal).
+ */
+export function declarations(code) {
   const re =
     /(?:^|\n)(?:export\s+)?(?:async\s+)?(?:function\s+([A-Za-z0-9_$]+)\s*\(|const\s+([A-Za-z0-9_$]+)\s*=)/g;
-  const hits = [...code.matchAll(re)];
   const out = new Map();
-  for (const [i, m] of hits.entries()) {
+  for (const m of code.matchAll(re)) {
     const name = m[1] ?? m[2];
-    out.set(name, code.slice(m.index, hits[i + 1]?.index ?? code.length));
+    let depth = 0;
+    let opened = false;
+    let end = code.length;
+    for (let i = m.index; i < code.length; i++) {
+      const ch = code[i];
+
+      // Skip string and template literals whole. A brace inside one is text.
+      if (ch === '"' || ch === "'" || ch === "`") {
+        i = skipQuoted(code, i);
+        continue;
+      }
+      // …and regex literals, which is not a nicety: UUID_RE in admin-users.ts
+      // is `/^[0-9a-f-]{36}$/`, and counting the `{36}` as a block closed the
+      // declaration mid-pattern. That errs toward under-attributing (a route
+      // reads as UNAUDITED), which is the safe direction and still wrong.
+      if (ch === "/" && startsRegex(code, i)) {
+        i = skipRegex(code, i);
+        continue;
+      }
+
+      if (ch === "{") {
+        depth++;
+        opened = true;
+      } else if (ch === "}") {
+        depth--;
+        if (opened && depth === 0) {
+          end = i + 1;
+          break;
+        }
+      } else if (ch === ";" && !opened) {
+        end = i + 1;
+        break;
+      }
+    }
+    out.set(name, code.slice(m.index, end));
   }
   return out;
+}
+
+/** Index of the closing quote for the literal opening at `start`. */
+function skipQuoted(code, start) {
+  const quote = code[start];
+  for (let i = start + 1; i < code.length; i++) {
+    if (code[i] === "\\") i++;
+    else if (code[i] === quote) return i;
+  }
+  return code.length;
+}
+
+/**
+ * Is the `/` at `i` the start of a regex literal rather than division?
+ *
+ * Decided by the previous non-space character: after a value (identifier,
+ * closing bracket, number) a slash divides; after `=`, `(`, `,`, `:`, `[`,
+ * `!`, `&`, `|`, `?`, `{`, `;` or `return` it opens a pattern. Crude, and
+ * sufficient here — these files are declarations and route handlers, not
+ * arithmetic.
+ */
+function startsRegex(code, i) {
+  if (code[i + 1] === "/" || code[i + 1] === "*") return false; // a comment
+  for (let j = i - 1; j >= 0; j--) {
+    const c = code[j];
+    if (c === " " || c === "\t" || c === "\n" || c === "\r") continue;
+    return "=(,:[!&|?{;".includes(c);
+  }
+  return true;
+}
+
+/** Index of the closing `/` for the regex opening at `start`. */
+function skipRegex(code, start) {
+  let inClass = false;
+  for (let i = start + 1; i < code.length; i++) {
+    const c = code[i];
+    if (c === "\\") i++;
+    else if (c === "[") inClass = true;
+    else if (c === "]") inClass = false;
+    else if (c === "\n") return i; // unterminated — do not run away
+    else if (c === "/" && !inClass) return i;
+  }
+  return code.length;
 }
 
 /** Names that count as "writes an audit row" in this file. */

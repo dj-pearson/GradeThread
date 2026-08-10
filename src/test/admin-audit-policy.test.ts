@@ -73,6 +73,27 @@ const EXEMPT: Record<string, string> = {
   "admin-newsletter.ts POST /issues/:id/preview":
     "renders a preview and writes nothing durable; sending is a separate route " +
     "and that one audits",
+  // ── Surfaced 2026-08-10 by the classifier fix. All four are POSTs that WRITE
+  // NOTHING — they take a request body and compute an answer — which is the
+  // same category as the four entries around them, and the existing rule is
+  // that a log full of "someone previewed a thing" is a log nobody reads.
+  // Verified individually rather than assumed from the read-only column: the
+  // column is only trustworthy now that the slicer stopped appending unrelated
+  // code, so this is the first run where it could be believed.
+  "admin-ads.ts POST /generate":
+    "generates ad copy suggestions and returns them; nothing is persisted until " +
+    "a separate route acts on one, and that route audits",
+  "admin-bulk.ts POST /resolve":
+    "takes a list of ids/emails and answers which exist — a lookup with a body " +
+    "because the list is too long for a query string. It reads users and writes " +
+    "nothing; the bulk ACTIONS are separate routes",
+  "admin-drip.ts POST /campaigns/:campaign/simulate":
+    "simulates a drip campaign against a cohort and returns what WOULD send. " +
+    "Sending is a different route and it audits",
+  "admin-flags.ts POST /preview":
+    "evaluates a feature-flag rollout against a sample and returns the buckets. " +
+    "Changing a flag is PUT /:key, which audits",
+
   "admin-ads.ts POST /analyze":
     "runs the REPORT-ONLY Claude analysis and stores recommendations. It never " +
     "touches Google Ads — applying a recommendation does, and " +
@@ -136,6 +157,47 @@ const OPEN: Record<string, string> = {
     "row names its rater, so it is attributable; whether an ADMIN submitting " +
     "study ratings belongs in the central log is a call about how much the " +
     "study is treated as evidence",
+
+  // ── Surfaced 2026-08-10 when the classifier stopped over-attributing.
+  //
+  // These were all reported as AUDITED and none of them are. The old
+  // declaration slicer ran each top-level declaration to the next one, so a
+  // route referencing any constant in the file inherited a slice containing
+  // some OTHER route's audit call. 48 declarations across the admin files had
+  // that property. These six are the routes it actually masked.
+  //
+  // Filed OPEN rather than EXEMPT deliberately: each one writes, and "an agent
+  // never decided this was fine, a parsing accident decided it" is not the same
+  // as a decision. They need a real ruling, not my guess at one.
+  "admin-ads.ts POST /themes/:id/archive":
+    "flips a creative theme inactive with no audit row and no ads_change_audit " +
+    "entry either — unlike the recommendation routes above, which at least land " +
+    "in the domain trail. Low stakes (internal marketing config) but it is a " +
+    "silent write by an admin, and it was only ever 'covered' by accident",
+  "admin-grading.ts POST /review/:id/release":
+    "releases a claimed human review back to the queue. Claim (line 3089) and " +
+    "approve (3172) both audit; release, between them, does not — which reads " +
+    "like an omission rather than a decision. It touches a customer's grade " +
+    "workflow, and 'who let this one go, and when' is exactly the question a " +
+    "review-queue dispute asks",
+  "admin-newsletter.ts POST /deliverability/enforce":
+    "writes an ops_events row and flips a settings value, so it is recorded — " +
+    "in the same per-feature-trail shape the ads routes above are OPEN for. " +
+    "Same question, same answer needed: is a domain trail part of the audit " +
+    "story or not",
+  "admin-tasks.ts POST /tasks":
+    "creates an internal task with no audit row. The DELETE routes in this file " +
+    "audit (lines 137, 216, 282) and the creates and updates do not, which looks " +
+    "like a deliberate 'destruction is what needs a trail' rule — but nothing " +
+    "says so, and the classifier's accident is why nobody had to state it",
+  "admin-tasks.ts PATCH /tasks/:id":
+    "same file, same asymmetry: updates are unaudited while deletes are audited. " +
+    "If the rule is 'only destruction needs a trail', say it once here and these " +
+    "become EXEMPT",
+  "admin-tasks.ts POST /import":
+    "bulk-inserts tasks. The same rule question as the two above, with more rows " +
+    "per action and therefore a bigger gap if the answer is that creates should " +
+    "be audited",
 };
 
 describe("US-2355 AC1: admin mutations are all accounted for", () => {
