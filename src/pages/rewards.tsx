@@ -200,7 +200,7 @@ export function RewardsPage() {
                   key: String(level.level),
                   title: `GradeThread level ${level.level}`,
                   text: `Level ${level.level} — ${level.tier.name} — grading condition on GradeThread.`,
-                });
+                }, "rewards_page");
               }}
             >
               <Share2 className="mr-1.5 h-3.5 w-3.5" />

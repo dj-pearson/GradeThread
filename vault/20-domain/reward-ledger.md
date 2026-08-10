@@ -12,6 +12,7 @@ code_refs:
   - services/edge-functions/src/lib/rewards-loyalty.ts
   - services/edge-functions/src/lib/rewards-economics.ts
   - services/edge-functions/src/lib/rewards-north-star.ts
+  - src/lib/reward-share.ts
   - services/edge-functions/src/lib/rewards-levels.ts
   - services/edge-functions/src/lib/rewards-seasons.ts
   - services/edge-functions/src/lib/rewards-quests.ts
@@ -710,6 +711,33 @@ half-open); an **expired or reversed grant is not money**, so only `granted` and
 `consumed` count as spend; and K is reported with **both components** — shares
 per sharer and conversions per share — because the same K arises from a loud weak
 loop and a quiet strong one, and the fix differs.
+
+### Where the share half of K comes from
+
+The two halves of K are measured in **different systems**, and mixing them up
+gives a number that is wrong in a way nothing flags:
+
+- **Conversions** — `verified_share` in `reputation_events`, written by the edge
+  when someone actually clicks an embedded badge. Server-side is the only option:
+  the badge lives on *someone else's website*, where our app is not running.
+- **Shares** — `reward_card_share` in PostHog, emitted by
+  `src/lib/reward-share.ts`. Client-side is the only option: nothing reaches a
+  server when a user copies a link.
+
+⚠ **`reward_card_share_dismissed` is a separate event and must never be counted
+as a share.** An abandoned share sheet inflates the K numerator if folded in, and
+— more importantly — an abandoned sheet is *indistinguishable from never opening
+one* if it is not recorded at all. Those two call for opposite fixes: a better
+card versus a better prompt.
+
+A `failed` share emits nothing. It is a clipboard or browser error, not a user
+decision, and filing it under either name asserts an intent that never happened.
+
+The instrumentation lives **inside `shareRewardCard()`**, not at its call sites.
+It had three call sites and all three discarded the result, so the share step was
+unmeasured entirely — while `shareOrCopy`'s own doc said the result was returned
+"so callers can fire analytics". Measuring in the shared function means a fourth
+call site is born tracked; at the call sites it would be born silent.
 
 > ⚠ **Cost per retained user is a ratio, not an attribution.** It divides spend
 > by retained users; it does not claim the spend caused the retention. The

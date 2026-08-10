@@ -78,6 +78,10 @@ export const ANALYTICS_EVENTS = {
     "The client DISPLAYED a reward moment — not the grant, which lives on the edge.",
   "reward_celebration_suppressed":
     "Reward moments were detected and the rate limiter dropped them, so the user saw nothing.",
+  "reward_card_share":
+    "A badge or level card was actually shared or copied — the client half of the K-factor numerator.",
+  "reward_card_share_dismissed":
+    "The share sheet for a reward card was opened and backed out of, which is NOT a share.",
 
   // ── Cross-surface nudges ──────────────────────────────────────────────────
   "cross_surface_nudge_shown": "A cross-surface nudge was rendered.",

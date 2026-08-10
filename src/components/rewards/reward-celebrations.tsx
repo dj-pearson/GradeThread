@@ -62,7 +62,7 @@ function announce(event: CelebrationEvent): void {
         // the card image is public and anonymous, so pressing it publishes the
         // achievement, never the account.
         onClick: () => {
-          void shareRewardCard(event.share!);
+          void shareRewardCard(event.share!, "celebration");
         },
       }
     : undefined;

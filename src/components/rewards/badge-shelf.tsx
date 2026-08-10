@@ -85,7 +85,7 @@ function BadgeMedal({ badge, size = "md" }: { badge: RewardBadge; size?: "sm" | 
           key: badge.key,
           title: `GradeThread badge: ${badge.name}`,
           text: `Earned the ${badge.name} badge on GradeThread.`,
-        });
+        }, "badge_shelf");
       }}
       title={`${badge.description}${when ? ` Earned ${when}.` : ""}`}
       aria-label={`Share the ${badge.name} badge — ${tier}. ${badge.description}`}
