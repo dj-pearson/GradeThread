@@ -55,6 +55,7 @@ New here? Read [[CONTRACT]] before adding a note.
 - [[newsletter-tuning]] — runbook — Cadence, segmentation and the levers that move open and click rates.
 - [[passport-forecast]] — reference — Volume and revenue projection for the passport surface.
 - [[pricing]] — contract — The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
+- [[subscription-copy-review-register]] — contract — Every place GradeThread tells a customer about a recurring charge or its ending, who drafted the wording, and whether counsel has seen it.
 - [[subscription-unit-economics]] — reference — Cost per tier at realistic and worst-case utilization, and why the AI-action caps sit where they do.
 
 ## 60-decisions — ADRs
