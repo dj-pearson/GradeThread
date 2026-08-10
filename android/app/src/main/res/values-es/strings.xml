@@ -478,6 +478,9 @@
     <string name="marketplaces_automations">Automatizaciones</string>
     <string name="marketplaces_refresh">Actualizar</string>
     <string name="marketplaces_listings">Anuncios</string>
+    <!-- US-2481: trabajo en cola desde el teléfono, ejecutado en el escritorio. -->
+    <string name="marketplaces_queued_for_desktop">En cola para tu escritorio</string>
+    <string name="marketplaces_queue_didnt_run">No se ejecutaron: estaban esperando un navegador de escritorio que nunca se abrió, o fallaron al ejecutarse. No pasó nada en el mercado.</string>
     <string name="marketplaces_no_listings_cached_yet_sync">Aún no hay anuncios guardados. Sincroniza para traer los que están activos en eBay.</string>
     <string name="marketplaces_rename_this_account">Cambia el nombre de esta cuenta</string>
     <string name="marketplaces_label">Etiqueta</string>

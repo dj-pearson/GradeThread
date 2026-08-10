@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
-import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { resolveSellerEntitlement } from "../lib/buyer-entitlements.ts";
 import {
   CREDENTIAL_KEYS,
   EXTENSION_QUEUE_KINDS,
@@ -61,6 +61,51 @@ const SELECT_COLS =
   "source, claimed_at, completed_at, result, expires_at, created_at";
 
 /**
+ * May this account queue extension work?
+ *
+ * Reuses `resolveSellerEntitlement` — the SAME resolution behind the
+ * extension's `lister` capability — rather than a plan check invented here.
+ * Two different answers to "may this account cross-list" is how a free account
+ * ends up filling a queue that never drains: the enqueue succeeds, the desktop
+ * refuses every row, and the seller is told nothing.
+ *
+ * Returns a discriminated result rather than throwing so the caller can return
+ * the 402 body verbatim — the frontend's upgrade dialog reads it.
+ */
+async function sellerGate(
+  ownerId: string,
+): Promise<{ ok: true } | { ok: false; response: Response }> {
+  const { data } = await supabaseAdmin
+    .from("users")
+    .select("flipdesk_plan, subscription_status, trial_ends_at, past_due_since")
+    .eq("id", ownerId)
+    .maybeSingle();
+
+  const entitlement = resolveSellerEntitlement({
+    flipdeskPlan: data?.flipdesk_plan ?? null,
+    flipdeskStatus: data?.subscription_status ?? null,
+    trialEndsAt: data?.trial_ends_at ?? null,
+    pastDueSince: data?.past_due_since ?? null,
+  });
+  if (entitlement.sellerEnabled) return { ok: true };
+
+  return {
+    ok: false,
+    response: new Response(
+      JSON.stringify({
+        error: "FEATURE_LOCKED",
+        feature: "lister",
+        plan: entitlement.flipdeskPlan,
+        message:
+          "Queueing cross-listing work for your desktop is a FlipDesk seller " +
+          "feature — upgrade your GradeThread plan to enable it.",
+      }),
+      { status: 402, headers: { "content-type": "application/json" } },
+    ),
+  };
+}
+
+/**
  * Flip anything past its window to 'expired', for this tenant only.
  *
  * US-2481 AC6: work that is never drained must SURFACE, not sit. This runs on
@@ -88,8 +133,19 @@ async function expireStale(ownerId: string, nowIso: string): Promise<void> {
 //
 // Called from iOS, Android and the web dashboard. The desktop does NOT have to
 // be awake; that is the entire point.
-flipdeskExtensionQueueRoutes.post("/", requireFlipdesk(), async (c) => {
+flipdeskExtensionQueueRoutes.post("/", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  // The queue may only hold work the extension is actually allowed to RUN.
+  //
+  // resolveSellerEntitlement is the same function behind the extension's
+  // `lister` capability, which is deliberate: gating the two differently is how
+  // a free account fills a queue that silently never drains, and a job that
+  // never runs and never says so is the failure mode this whole feature is
+  // arranged to avoid.
+  const gate = await sellerGate(ownerId);
+  if (!gate.ok) return gate.response;
+
   const body = await c.req.json().catch(() => null);
   if (!body || typeof body !== "object") {
     return c.json({ error: "Invalid request body." }, 400);
@@ -226,7 +282,7 @@ flipdeskExtensionQueueRoutes.get("/", async (c) => {
     return failSafe(c, 500, "Could not load the queue.", error, "flipdesk.queue.list");
   }
 
-  const rows = (data ?? []) as QueueRow[];
+  const rows = (data ?? []) as unknown as QueueRow[];
   return c.json({
     pending: rows.filter((r) => r.status === "queued" || r.status === "claimed"),
     // Surfaced separately so a client cannot render them as "still coming".
@@ -265,7 +321,7 @@ flipdeskExtensionQueueRoutes.post("/claim", async (c) => {
     return failSafe(c, 500, "Could not read the queue.", readError, "flipdesk.queue.claim");
   }
 
-  const rows = (available ?? []) as QueueRow[];
+  const rows = (available ?? []) as unknown as QueueRow[];
   if (rows.length === 0) return c.json({ claimed: [] });
 
   const ids = rows.map((r) => r.id);

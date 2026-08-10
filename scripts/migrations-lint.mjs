@@ -64,13 +64,6 @@ export const SIX_DIGIT_BY_DESIGN = new Set([
 export const KNOWN_GAPS = new Map([
   ["00011", "never authored — no file in any commit (`git log --all` empty)."],
   ["00014", "never authored — no file in any commit."],
-  [
-    "00122",
-    "THE BUG THIS LINT WAS WRITTEN FOR (US-2444). verified_storefront_listings " +
-      "was gitignored and never committed; the objects exist in prod. Removing " +
-      "this entry needs the DDL read out of the running database, not " +
-      "reconstructed from the feature commit — that shows what it EXPECTED.",
-  ],
   ["00479", "never authored — no file in any commit."],
   [
     "00527",
