@@ -17,6 +17,7 @@ import {
   mapSubscriptionInterval,
   mapSubscriptionStatus,
   mapSubscriptionToFlipdeskPlan,
+  subscriptionIsBuyer,
 } from "./webhooks.ts";
 import { sendAdminMessageEmail } from "../lib/email.ts";
 import { performPackRefund, type RevokeResult } from "../lib/admin-pack-refund.ts";
@@ -1495,17 +1496,37 @@ interface ResyncUserRow {
   past_due_since: string | null;
 }
 
-// Pick the most relevant subscription from a customer's list: a live one
+// Pick the most relevant SELLER subscription from a customer's list: a live one
 // (active/trialing/past_due/paused) wins; otherwise the most recently created.
+//
+// US-2457 AC5: THE BUYER FILTER IS THE LOAD-BEARING PART. The buyer and seller
+// subscriptions ride the SAME Stripe customer (payments.ts binds both to one),
+// and this list was unfiltered — so for a buyer-only account, or a seller whose
+// own subscription had lapsed, it would return the BUYER subscription and the
+// resync below would write its id into `flipdesk_subscription_id`, its status
+// into `subscription_status`, and `mapSubscriptionToFlipdeskPlan(buyerSub) ??
+// "free"` into `flipdesk_plan`. The row then claims an active subscription on a
+// free plan, pointing at the buyer's.
+//
+// The second-order damage is the expensive one: POST /users/:id/change-plan
+// acts on `flipdesk_subscription_id`, so an admin changing that person's
+// FlipDesk plan afterwards would push a FlipDesk price onto their Guard or
+// Connoisseur subscription — a real charge, on the wrong product, initiated by
+// support trying to help.
+//
+// Returning null when every candidate is a buyer subscription is correct and
+// deliberate: the caller then records "no seller subscription", which is the
+// truth, rather than borrowing the other product's.
 function pickRelevantSubscription(
   subs: Stripe.Subscription[],
 ): Stripe.Subscription | null {
-  if (subs.length === 0) return null;
-  const live = subs.find((s) =>
+  const sellerSubs = subs.filter((s) => !subscriptionIsBuyer(s));
+  if (sellerSubs.length === 0) return null;
+  const live = sellerSubs.find((s) =>
     ["active", "trialing", "past_due", "unpaid", "paused"].includes(s.status)
   );
   if (live) return live;
-  return [...subs].sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0] ?? null;
+  return [...sellerSubs].sort((a, b) => (b.created ?? 0) - (a.created ?? 0))[0] ?? null;
 }
 
 // POST /billing/reconciliation/users/:id/resync — pull live Stripe state and
@@ -1543,6 +1564,12 @@ adminBillingRoutes.post("/billing/reconciliation/users/:id/resync", requireScope
         sub = await stripe.subscriptions.retrieve(user.flipdesk_subscription_id, {
           expand: ["items.data.price"],
         });
+        // US-2457 AC5, the repair half: if the stored id ALREADY points at the
+        // buyer subscription — which an earlier unfiltered resync could have
+        // written — do not compound it by resyncing the seller columns from the
+        // buyer's state. Fall through to the customer lookup, which now returns
+        // only seller subscriptions, so this run corrects the row instead.
+        if (sub && subscriptionIsBuyer(sub)) sub = null;
       } catch {
         sub = null; // deleted / not found → fall through to customer lookup
       }
