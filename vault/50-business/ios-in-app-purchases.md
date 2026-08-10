@@ -6,8 +6,9 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/routes/appstore.ts
+  - services/edge-functions/src/lib/appstore/precedence.ts
   - services/edge-functions/src/lib/appstore/products.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-10
 tags: [ios, billing, app-store, monetization]
 summary: StoreKit purchases reconcile into the same user columns as Stripe, and the one App Review rejection was about discoverability rather than configuration.
 ---
@@ -66,8 +67,21 @@ sandbox and a real device. Before any real testing, in App Store Connect:
   [[env-reference]].
 
 Deferred: an App Store Server API client for status re-fetch and webhook user
-resolution, and a cross-processor double-subscription reconciliation job — a user
-who subscribes on both web and iOS is currently only caught by hand.
+resolution.
+
+> [!note] Double-subscription is now blocked at PURCHASE time (US-2456)
+> This used to read "a user who subscribes on both web and iOS is currently only
+> caught by hand." That is no longer true. Every subscription-creating path
+> refuses when another processor already entitles the same product —
+> `lib/appstore/precedence.ts` holds the rules for both column families, and a
+> test discovers the purchase paths from the source so a new one cannot ship
+> ungated. Reconciliation AFTER the fact is still absent, so a subscription
+> started outside those paths would go unnoticed; what changed is that the
+> ordinary way in is closed.
+>
+> The buyer product was the hole: every guard read the seller columns, so a
+> buyer with a live App Store or Play subscription could start a Stripe one on
+> top. Apple's half of that double charge is not refundable from here.
 
 ## Related
 
