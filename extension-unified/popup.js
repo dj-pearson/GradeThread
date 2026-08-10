@@ -664,6 +664,93 @@ function wireConsent() {
   });
 }
 
+// ── US-2482: Poshmark engagement — the meter and its own clickwrap ──────────
+//
+// The state lives in the BACKGROUND, not here. The popup asks for it and renders
+// it. That is deliberate: the caps and the consent record are enforced where the
+// runs are gated, and a popup that kept its own copy would eventually disagree
+// with the thing doing the enforcing — and the seller would believe the popup.
+async function renderEngagement() {
+  const block = document.getElementById("engageBlock");
+  if (!block) return;
+
+  let state = null;
+  try {
+    state = await Promise.resolve(ext.runtime.sendMessage({ type: "GT_ENGAGE_STATE" }));
+  } catch (_e) { /* worker asleep — leave the block hidden rather than guess */ }
+  if (!state || !state.ok) {
+    block.hidden = true;
+    return;
+  }
+  block.hidden = false;
+
+  const status = document.getElementById("engageStatus");
+  const consent = document.getElementById("engageConsent");
+  const revoke = document.getElementById("engageRevoke");
+  const termsList = document.getElementById("engageTerms");
+
+  if (state.accepted) {
+    status.textContent = "On";
+    consent.hidden = true;
+    revoke.hidden = false;
+  } else {
+    status.textContent = "Off";
+    consent.hidden = false;
+    revoke.hidden = true;
+    // Rendered from the background's copy of the terms rather than written into
+    // this markup, so there is exactly one place the four statements live and a
+    // test can assert none of them went missing.
+    termsList.textContent = "";
+    for (const term of state.terms || []) {
+      const li = document.createElement("li");
+      li.textContent = term;
+      termsList.appendChild(li);
+    }
+  }
+
+  // The meter renders whether or not sharing is on — a seller deciding whether
+  // to accept should be able to see the limit they would be agreeing to.
+  const m = state.meter;
+  const meter = document.getElementById("engageMeter");
+  if (m) {
+    meter.hidden = false;
+    document.getElementById("engageMeterLabel").textContent = m.label;
+    document.getElementById("engageMeterPct").textContent = m.pct + "%";
+    const fill = document.getElementById("engageMeterFill");
+    fill.style.width = Math.max(2, m.pct) + "%";
+    fill.dataset.state = m.atCap ? "full" : m.pct >= 80 ? "near" : "ok";
+    document.getElementById("engageMeterNote").textContent = m.note || "";
+  } else {
+    meter.hidden = true;
+  }
+}
+
+function wireEngagement() {
+  const check = document.getElementById("engageCheck");
+  const accept = document.getElementById("engageAccept");
+  const revoke = document.getElementById("engageRevoke");
+  if (!check || !accept || !revoke) return;
+
+  check.addEventListener("change", () => {
+    accept.disabled = !check.checked;
+  });
+  accept.addEventListener("click", async () => {
+    if (!check.checked) return;
+    try {
+      await Promise.resolve(ext.runtime.sendMessage({ type: "GT_ENGAGE_ACCEPT" }));
+    } catch (_e) { /* the render below will show it did not take */ }
+    check.checked = false;
+    accept.disabled = true;
+    await renderEngagement();
+  });
+  revoke.addEventListener("click", async () => {
+    try {
+      await Promise.resolve(ext.runtime.sendMessage({ type: "GT_ENGAGE_REVOKE" }));
+    } catch (_e) { /* same */ }
+    await renderEngagement();
+  });
+}
+
 function renderSellerSections(caps) {
   const seller = document.getElementById("sellerSection");
   const locked = document.getElementById("sellerLockedSection");
@@ -674,6 +761,7 @@ function renderSellerSections(caps) {
     renderLastJob();
     renderPendingDelists(caps);
     renderConsent();
+    void renderEngagement();
   } else if (caps && caps.authenticated) {
     // Signed in but no active FlipDesk plan → honest upsell, not a dead section.
     seller.hidden = true;
@@ -762,6 +850,7 @@ function applyCapabilities(caps) {
   });
   wireAccount();
   wireConsent();
+  wireEngagement(); // US-2482
   wireHistoryTabs();
   renderCompareLink();
   // Render research immediately (works offline / anonymous), then fold in the

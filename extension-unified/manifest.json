@@ -62,6 +62,7 @@
       "lister/selectors.js",
       "lister/lister-guard.js",
       "lister/job-store.js",
+      "lister/engagement.js",
       "registry.js",
       "research/seller-memory.js",
       "research/compare-tray.js",
@@ -165,7 +166,8 @@
       "js": [
         "lister/selectors.js",
         "lister/common.js",
-        "lister/poshmark.js"
+        "lister/poshmark.js",
+        "lister/poshmark-engage.js"
       ],
       "run_at": "document_idle"
     },

@@ -224,7 +224,8 @@ listing and ask for a condition read — and it can be switched off in the popup
 The extension does both jobs behind one role-aware popup:
 • Condition Check (all users, free): an AI condition read on a supported resale listing — score, over-grading flag, price fairness, and photo-request hints.
 • Lister (FlipDesk sellers): one-click cross-posting of drafts into a supported marketplace's new-listing form, prefilled in your own logged-in tab.
-Versioned Lister consent and full Firefox support.
+• Seller engagement (FlipDesk sellers, opt-in): repeats a seller's own share, follow and offer actions in their own logged-in tab, behind a separate consent, a daily limit the seller cannot raise, and randomized pacing. It stops and hands the tab back whenever the site asks for a human check — it never answers one.
+Versioned consent for both seller features, and full Firefox support.
 ```
 
 > Firefox floor is 140.0 (desktop) / 142.0 (Android): the versions that support

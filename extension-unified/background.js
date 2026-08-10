@@ -39,6 +39,7 @@ if (typeof importScripts === "function") {
     "lister/selectors.js",
     "lister/lister-guard.js",
     "lister/job-store.js",
+    "lister/engagement.js",
     "registry.js",
     "research/seller-memory.js",
     "research/compare-tray.js",
@@ -935,6 +936,28 @@ function isValidDelistPayload(p) {
   );
 }
 
+// US-2482: everything the engagement gate needs, read fresh.
+//
+// Read on EVERY gate call rather than cached, because the three things it holds
+// are exactly the three that must not go stale mid-run: a revoked consent, a
+// lowered cap, and a counter another tab just incremented. All three live in
+// storage.LOCAL and never leave the device — GradeThread's servers see run
+// counts at most, and never a Poshmark page, handle or cookie.
+async function readEngageState() {
+  const out = await ext.storage.local.get([
+    "engageClickwrap",
+    "engageSettings",
+    "engageCounters",
+  ]);
+  const settings = self.GT_ENGAGE.clampSettings(out && out.engageSettings);
+  const counters = self.GT_ENGAGE.rollCounters(
+    out && out.engageCounters,
+    Date.now(),
+    new Date().getTimezoneOffset(),
+  );
+  return { clickwrap: (out && out.engageClickwrap) || null, settings, counters };
+}
+
 async function tosAccepted() {
   const out = await ext.storage.local.get("tosAcceptedAt");
   return Boolean(out && out.tosAcceptedAt);
@@ -1227,6 +1250,95 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     // eslint-disable-next-line no-console
     console.debug("[GradeThread Lister][content]", msg.message);
     return false;
+  }
+
+  // ── US-2482: Poshmark engagement (share / follow / send offer) ───────────
+  //
+  // The worker owns storage and therefore owns the caps, the counters and the
+  // consent record. The content script owns the DOM. That split is the whole
+  // safety design: a marketplace page cannot raise a cap or forge a consent,
+  // because it never holds either — it asks, per action, and is told yes or no.
+  if (msg.type === "GT_ENGAGE_GATE") {
+    (async () => {
+      const state = await readEngageState();
+      const decision = self.GT_ENGAGE.gate({
+        action: msg.action,
+        sellerAllowed: await sellerAllowed(),
+        clickwrap: state.clickwrap,
+        settings: state.settings,
+        counters: state.counters,
+        now: Date.now(),
+        tzOffsetMinutes: new Date().getTimezoneOffset(),
+        humanCheck: msg.humanCheck === true,
+      });
+      // The pacing delay rides along with the decision so the page never holds
+      // the floor. A content script that computed its own delay could be made to
+      // compute zero.
+      sendResponse(
+        decision.ok
+          ? Object.assign({}, decision, {
+              nextDelayMs: self.GT_ENGAGE.nextDelayMs(state.settings),
+            })
+          : decision,
+      );
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_RECORD") {
+    (async () => {
+      const state = await readEngageState();
+      const counters = self.GT_ENGAGE.recordAction(state.counters, msg.action, msg.count);
+      await ext.storage.local.set({ engageCounters: counters });
+      sendResponse({ ok: true, meter: self.GT_ENGAGE.meter(counters, state.settings, msg.action) });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_STATE") {
+    (async () => {
+      const state = await readEngageState();
+      sendResponse({
+        ok: true,
+        accepted: self.GT_ENGAGE.isClickwrapAccepted(state.clickwrap),
+        clickwrapVersion: self.GT_ENGAGE.CLICKWRAP_VERSION,
+        terms: self.GT_ENGAGE.CLICKWRAP_TERMS,
+        settings: state.settings,
+        counters: state.counters,
+        meter: self.GT_ENGAGE.meter(state.counters, state.settings, "share"),
+        sellerAllowed: await sellerAllowed(),
+      });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_ACCEPT") {
+    (async () => {
+      await ext.storage.local.set({
+        engageClickwrap: self.GT_ENGAGE.acceptClickwrap(new Date().toISOString()),
+      });
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_REVOKE") {
+    (async () => {
+      await ext.storage.local.remove("engageClickwrap");
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_SETTINGS") {
+    (async () => {
+      // Clamped on the way IN as well as on every read. Storing an unclamped
+      // value would leave a number in storage that looks like a granted request.
+      const settings = self.GT_ENGAGE.clampSettings(msg.settings);
+      await ext.storage.local.set({ engageSettings: settings });
+      sendResponse({ ok: true, settings: settings });
+    })();
+    return true;
   }
 
   // AC1: served from storage.session, so a content script that asks AFTER the

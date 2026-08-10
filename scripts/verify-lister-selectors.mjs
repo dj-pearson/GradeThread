@@ -74,6 +74,12 @@ function checkFlow(platform, flow, kind) {
     if (!(flow.required || []).includes("menu")) {
       fail(`${where}: must require "menu" — it is the one control that exists pre-interaction, and probing nothing means guessing.`);
     }
+  } else if (kind === "engage") {
+    for (const key of flow.required || []) {
+      if (!flow[key]) {
+        fail(`${where}: required selector "${key}" has no definition, so the probe can never satisfy it.`);
+      }
+    }
   } else {
     for (const key of flow.required || []) {
       const sel = key === "submit" ? flow.submit : (flow.fields || {})[key];
@@ -141,6 +147,22 @@ function checkPlatform(platform, cfg) {
 
   checkFlow(platform, cfg, "list");
   if (cfg.delist) checkFlow(platform, cfg.delist, "delist");
+
+  // US-2482: the engagement flow gets the same enable discipline as listing —
+  // and one extra rule. Sharing runs thousands of times against a live closet,
+  // so a stale selector here does not fail once, it fails in a loop, and a loop
+  // of failed clicks is the single behaviour most likely to get an account
+  // flagged. The caps and consent gate live in lister/engagement.js and are held
+  // by test/engagement.test.cjs; this only checks the DOM contract.
+  if (cfg.engage) {
+    checkFlow(platform, cfg.engage, "engage");
+    if (!cfg.engage.humanCheck) {
+      fail(`${platform}.engage: no \`humanCheck\` selector. The run is supposed to PAUSE when the marketplace asks for a human — without a detector it keeps clicking into the wall instead, and GradeThread never answers one (US-2482 AC2).`);
+    }
+    if (!cfg.engage.actionConfirmed) {
+      fail(`${platform}.engage: no \`actionConfirmed\` selector. Without positive confirmation the run counts actions it never performed, and the meter tells the seller they are safe while the real total runs ahead.`);
+    }
+  }
 }
 
 function printChecklist(platform, cfg) {
@@ -172,6 +194,19 @@ function printChecklist(platform, cfg) {
   if (optional.length) {
     line(`     Optional (a miss degrades that one field, it does not abort):`);
     for (const key of optional) line(`       [${key}] ${cfg.fields[key]}`);
+    line();
+  }
+  if (cfg.engage) {
+    line(`  ENGAGEMENT (US-2482) — check on your own closet page:`);
+    line(`       [shareButton]      ${cfg.engage.shareButton}`);
+    line(`       [shareToFollowers] ${cfg.engage.shareToFollowers}   (inside the share modal)`);
+    line(`       [followButton]     ${cfg.engage.followButton}`);
+    line(`       [offerButton]      ${cfg.engage.offerButton}`);
+    line(`       [actionConfirmed]  ${cfg.engage.actionConfirmed}    (after ONE manual share)`);
+    line();
+    line(`     Share ONE listing by hand and confirm [actionConfirmed] appears.`);
+    line(`     If it does not, the run counts actions it never performed and the`);
+    line(`     meter under-reports — which is worse than no meter at all.`);
     line();
   }
   if (cfg.delist) {

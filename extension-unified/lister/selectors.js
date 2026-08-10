@@ -73,6 +73,60 @@ const GT_LISTER_SELECTORS = {
         toast: '[data-test="toast-success"], .toast--success, [role="alert"].success',
       },
     },
+
+    // ── Engagement automation (US-2482) ────────────────────────────────────
+    //
+    // Share / follow / send-offer, run in the seller's own closet tab. The caps,
+    // pacing and consent gate are NOT here — they are in lister/engagement.js as
+    // a pure state machine with its own tests, because those are the parts that
+    // can cost a seller their closet and they must be impossible to remove by
+    // editing a selector file.
+    //
+    // What IS here is the DOM, and one selector matters more than the others:
+    // `humanCheck`. When Poshmark asks for a human check, the run pauses and the
+    // seller finishes it. GradeThread does not answer it, does not route it to a
+    // solving service, and does not retry around it — that is a bright line in
+    // vault/60-decisions/adr-no-server-side-marketplace-automation.md §3.2, and
+    // it holds even though this runs in the seller's own browser.
+    engage: {
+      enabled: false,
+      version: "2026.08.0-draft",
+      lastVerified: null,
+      // The closet page a share run walks. Locale-free; Poshmark redirects an
+      // unauthenticated visitor to login, which isLoginWall catches.
+      closetUrlPattern: "^https://[^/]*poshmark\\.(com|ca)/closet/",
+      required: ["shareButton"],
+      // Each listing tile's share control. Opens a small modal offering "To My
+      // Followers" and "To a Party".
+      shareButton:
+        '[data-et-name="share"], button.share-grey, .tile__social-actions button[aria-label*="Share"]',
+      // Inside that modal — the only target we ever click. Sharing to a party is
+      // deliberately not automated: parties are themed and time-boxed, and a bot
+      // sharing the wrong catalogue into one is the most visible thing a closet
+      // can do.
+      shareToFollowers:
+        '[data-et-name="share_to_followers"], .share-modal a[href*="followers"], button[aria-label*="My Followers"]',
+      followButton:
+        '[data-et-name="follow"], button.btn--follow, button[aria-label^="Follow"]',
+      // "Offer to Likers" on a listing the seller owns.
+      offerButton:
+        '[data-et-name="offer_to_likers"], button[aria-label*="Offer to Likers"]',
+      offerPriceInput:
+        'input[data-test="offer-price"], input[name="offerPrice"]',
+      offerSubmit:
+        'button[data-test="offer-submit"], button[data-et-name="submit_offer"]',
+      // Poshmark's own confirmation that one action landed. Without a positive
+      // signal the run would count actions it never performed, and the meter
+      // would tell the seller they were safe while the real total ran ahead.
+      actionConfirmed:
+        '[data-test="toast-success"], .toast--success, [data-et-name="shared"]',
+      // The pause signal. Broad on purpose — a missed human check means we keep
+      // clicking into a wall, which is the single behaviour most likely to get a
+      // closet flagged. A FALSE positive just pauses a run the seller resumes.
+      humanCheck:
+        'iframe[src*="recaptcha"], iframe[src*="hcaptcha"], iframe[title*="challenge"], ' +
+        '[data-test="captcha"], [id*="px-captcha"], [class*="captcha"]',
+    },
   },
 
   // ── Mercari — PHASE 2 (not yet enabled) ───────────────────────────────
