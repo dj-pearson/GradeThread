@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/crypto-aes.ts
   - services/edge-functions/src/lib/token-refresh-race.ts
   - services/edge-functions/src/lib/rewards-engine.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-09
 tags: [marketplaces, oauth, contract, security]
 summary: Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 ---
@@ -93,6 +93,14 @@ helper dedupes on `<marketplace>:<account>` and is best-effort: a grant failure
 is swallowed and logged, because a rewards outage must never fail an OAuth
 callback. `rewards-engine_test.ts` source-scans all five clients (ebay, depop,
 etsy, shopify, whatnot) and fails if one stops granting.
+
+> [!note] "Exactly once" has a second exception since US-1915
+> `grantReward` now checks the per-mechanic kill-switch first, so an operator
+> who has switched `marketplace_connected` off makes the grant a **no-op** — not
+> an error, and not a deferral. Nothing is queued and re-enabling does not
+> backfill, because no `reputation_events` row was ever written. The connector
+> side of this contract is unchanged: it still calls the helper on the INSERT
+> path only, and still swallows failures. See [[reward-ledger]].
 
 ## Per-marketplace deltas
 
