@@ -247,6 +247,33 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
     }
     const update = computeBuyerUserUpdate({ mapping, txn, action: "sub_active", now: Date.now() });
     await applyBuyerSubscription(userId, update);
+    // US-2116 AC6 / US-2117: this branch returned BEFORE both records below, so
+    // an App Store BUYER purchase left no audit row and no agreed-terms row,
+    // while an App Store SELLER purchase got both and a Stripe buyer purchase
+    // got the agreement. Three populations, two answers to "what did this user
+    // agree to?", and the guard in agreed-terms_test.ts passed throughout
+    // because it asked whether this FILE calls recordPlatformAgreement, not
+    // whether each product path does.
+    //
+    // from_plan/to_plan are NULL rather than the user's FlipDesk plan: those
+    // columns are typed public.flipdesk_plan (00037) and this event changed no
+    // FlipDesk plan. Saying "null" is true; repeating their seller tier would
+    // imply a transition that did not happen. The buyer tiers go in raw_payload.
+    await recordAppstoreEvent(userId, "verify", txn.transactionId, null, null, {
+      product: "buyer",
+      product_id: txn.productId,
+      from_buyer_plan: (user as { buyer_plan?: string | null }).buyer_plan ?? null,
+      to_buyer_plan: update.buyer_plan,
+    });
+    if (update.buyer_plan && update.buyer_plan !== "free") {
+      await recordPlatformAgreement({
+        userId,
+        plan: update.buyer_plan,
+        interval: update.buyer_interval,
+        source: "appstore",
+        externalId: txn.transactionId,
+      });
+    }
     return c.json({
       product: "buyer",
       plan: update.buyer_plan,

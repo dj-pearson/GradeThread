@@ -294,4 +294,58 @@ Deno.test("US-2116: both platform purchase paths record an agreement", async () 
   assert(/recordPlatformAgreement\(/.test(play), "play RTDN reverify must record");
   assert(/source: "appstore"/.test(appstore));
   assert(/source: "google_play"/.test(play));
+
+  // ⚠ THE ASSERTIONS ABOVE ASK WHETHER THE FILE CALLS IT, NOT WHETHER EACH
+  // PRODUCT PATH DOES, and that difference hid a real gap until 2026-08-10:
+  // appstore.ts sells TWO products, and its buyer_subscription branch returned
+  // before both the audit row and the agreement. The seller branch a few lines
+  // below satisfied every check here, so an App Store buyer had no record of
+  // what they agreed to while an App Store seller and a Stripe buyer both did.
+  //
+  // Per-branch now. Each product's grant must be followed, inside its own
+  // branch, by the agreement.
+  const branches = [
+    { label: "appstore buyer", start: 'if (mapping.kind === "buyer_subscription")', plan: "update.buyer_plan" },
+    { label: "appstore seller", start: 'if (mapping.kind === "subscription")', plan: "update.flipdesk_plan" },
+  ];
+  for (const b of branches) {
+    const at = appstore.indexOf(b.start);
+    assert(at > -1, `${b.label}: branch not found — restructured?`);
+    // Brace-matched, NOT sliced to the first `return c.json(`. The buyer branch
+    // returns a 409 early when a Stripe subscription is already active, so
+    // stopping at the first return cuts the slice before the grant — which made
+    // this assertion fail against correct code and would have been "fixed" by
+    // weakening it back to a file-wide check.
+    const open = appstore.indexOf("{", at);
+    let depth = 0;
+    let close = appstore.length;
+    for (let i = open; i < appstore.length; i++) {
+      if (appstore[i] === "{") depth++;
+      else if (appstore[i] === "}" && --depth === 0) {
+        close = i;
+        break;
+      }
+    }
+    const body = appstore.slice(at, close);
+    assert(
+      body.includes("recordPlatformAgreement("),
+      `${b.label}: the grant happens and no agreement is recorded. "What did ` +
+        'this user agree to?" must be answerable for every product this route sells.',
+    );
+    // Scoped to the AGREEMENT CALL, not the branch. The branch also returns
+    // `plan: update.buyer_plan` in its JSON response, so a branch-wide check
+    // stayed green when the agreement itself was switched to the seller plan —
+    // which is the version that files a record naming a plan the buyer never
+    // bought.
+    const call = body.slice(body.indexOf("recordPlatformAgreement("));
+    const args = call.slice(0, call.indexOf("});") + 3);
+    assert(
+      args.includes(`plan: ${b.plan}`),
+      `${b.label}: the agreement must name ${b.plan}, not the other product's plan`,
+    );
+    assert(
+      body.includes("recordAppstoreEvent("),
+      `${b.label}: the grant must leave an audit row`,
+    );
+  }
 });
