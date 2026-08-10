@@ -8,7 +8,8 @@
 //
 //   deno test --allow-env src/tests/renewal-reminder_test.ts
 
-import { assert } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
+import { renewalNoticeCopy } from "../lib/renewal-notice-copy.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -53,5 +54,101 @@ Deno.test("US-2119: handleInvoiceUpcoming sends via the transactional sender, no
   assert(
     /case "invoice\.upcoming":/.test(src),
     "invoice.upcoming must be dispatched (not fall through to log-and-drop)",
+  );
+});
+
+// ── The buyer product (US-2119, second pass) ────────────────────────────────
+
+Deno.test("US-2119: the notice names the product being charged and links to the page that cancels it", () => {
+  const site = "https://gradethread.com";
+  const seller = renewalNoticeCopy("flipdesk", site);
+  const buyer = renewalNoticeCopy("buyer", site);
+
+  assertEquals(seller.productName, "FlipDesk");
+  assertEquals(seller.manageUrl, "https://gradethread.com/dashboard/billing");
+  assertEquals(buyer.productName, "GradeThread");
+  assertEquals(buyer.manageUrl, "https://gradethread.com/buyer/billing");
+
+  // BOTH must differ. A half-copied branch — right name, seller's billing page —
+  // produces a notice that reads correctly and sends the reader somewhere that
+  // cannot cancel the thing they are about to be charged for.
+  assert(seller.productName !== buyer.productName, "the product name must differ");
+  assert(seller.manageUrl !== buyer.manageUrl, "the manage URL must differ");
+  // A trailing slash on SITE_URL must not produce a double slash in a link the
+  // recipient is being asked to click under time pressure.
+  assertEquals(renewalNoticeCopy("buyer", site + "/").manageUrl, buyer.manageUrl);
+});
+
+Deno.test("US-2119: the template interpolates the product copy instead of hardcoding one product", async () => {
+  const src = await Deno.readTextFile(new URL("../lib/email.ts", import.meta.url));
+  const start = src.indexOf("export async function sendRenewalReminderEmail");
+  assert(start > -1, "sendRenewalReminderEmail not found — renamed?");
+  const body = src.slice(start, src.indexOf("\n}", start));
+
+  assert(
+    body.includes("renewalNoticeCopy("),
+    "the template must resolve its product copy through renewalNoticeCopy, so " +
+      "the tested values are the sent values",
+  );
+  // The literals it used to carry. Either one surviving means a buyer receives
+  // a notice for a product they do not have.
+  for (const literal of ["FlipDesk ${", "/dashboard/billing"]) {
+    assert(
+      !body.includes(literal),
+      `sendRenewalReminderEmail still hardcodes ${JSON.stringify(literal)}`,
+    );
+  }
+});
+
+Deno.test("US-2119: every buyer skip in the Stripe webhooks says where the buyer path went", async () => {
+  // THE GUARD FOR THE DEFECT ITSELF. handleInvoiceUpcoming carried
+  // `if (invoiceIsBuyer(invoice)) return;`, copied from three handlers where it
+  // is CORRECT — those do seller cycle resets and dunning, and the buyer
+  // equivalent arrives on customer.subscription.updated. This handler only
+  // sends a notice, and nothing else sends one, so the same line meant a buyer
+  // on an ANNUAL plan was charged with no prior contact at all.
+  //
+  // A skip is not wrong; an UNEXPLAINED skip is. Each one must name where the
+  // buyer is served instead, in the comment lines just above it — so the next
+  // person who copies the line has to answer the question that was skipped
+  // here.
+  const src = await Deno.readTextFile(
+    new URL("../routes/webhooks.ts", import.meta.url),
+  );
+  const lines = src.split(/\r?\n/);
+  let checked = 0;
+  for (let i = 0; i < lines.length; i++) {
+    if (!/if \(invoiceIsBuyer\(invoice\)\) return;/.test(lines[i]!)) continue;
+    checked++;
+    const preamble = lines.slice(Math.max(0, i - 6), i).join(" ");
+    assert(
+      /subscription\.updated/.test(preamble),
+      `webhooks.ts:${i + 1} skips buyer invoices without naming where the buyer ` +
+        "path is served instead. If the answer is 'nowhere', the skip is a " +
+        "silently-missing notice, not a routing decision.",
+    );
+  }
+  assert(checked >= 3, `expected the known buyer skips, found ${checked}`);
+
+  // And the notice handler must not have one at all.
+  const upcoming = src.slice(src.indexOf("async function handleInvoiceUpcoming"));
+  const body = upcoming.slice(0, upcoming.indexOf("\n}"));
+  assert(
+    !/if \(invoiceIsBuyer\(invoice\)\) return;/.test(body),
+    "handleInvoiceUpcoming must NOT skip buyer invoices — it is the only place " +
+      "an advance renewal notice is sent, so skipping means no notice exists",
+  );
+  // Scoped to the EMAIL call, not the whole handler. The same expression also
+  // appears in the recordEvent payload a few lines above, so a handler-wide
+  // check stayed green when the email argument alone was pinned to "flipdesk" —
+  // which is the version that sends a buyer the wrong notice.
+  const emailCall = body.slice(body.indexOf("sendRenewalReminderEmail("));
+  assert(emailCall.length > 0, "the reminder send was not found in the handler");
+  assert(
+    /product: isBuyer \? "buyer" : "flipdesk"/.test(
+      emailCall.slice(0, emailCall.indexOf("}),")),
+    ),
+    "the EMAIL must be told which product is renewing — a constant here sends " +
+      "buyers a notice naming FlipDesk and linking to the seller billing page",
   );
 });

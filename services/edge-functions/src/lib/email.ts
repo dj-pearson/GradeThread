@@ -24,6 +24,7 @@ import {
   unsubscribeMailto,
 } from "./email-transport.ts";
 import { htmlToPlainText, sendViaSesApi } from "./ses-api.ts";
+import { renewalNoticeCopy } from "./renewal-notice-copy.ts";
 import {
   EMAIL_BRAND,
   EMAIL_CANVAS,
@@ -2882,6 +2883,16 @@ interface RenewalReminderData {
   /** ISO date the card will actually be charged. */
   renewsAt: string;
   interval: "monthly" | "yearly";
+  /**
+   * Which subscription is renewing. REQUIRED, with no default, deliberately.
+   *
+   * A default would have been "flipdesk" and every buyer would have received a
+   * notice naming a product they do not have, with a link to a billing page
+   * that does not manage their subscription. A notice a subscriber cannot act
+   * on is not much better than no notice, and this is the one email whose only
+   * purpose is the action.
+   */
+  product: "flipdesk" | "buyer";
 }
 
 export async function sendRenewalReminderEmail(
@@ -2890,13 +2901,16 @@ export async function sendRenewalReminderEmail(
 ): Promise<boolean> {
   const when = formatDate(data.renewsAt);
   const cadence = data.interval === "yearly" ? "annual" : "monthly";
+  // Which product is renewing, and the page that can cancel it. Shared with the
+  // tests rather than branched inline — see lib/renewal-notice-copy.ts.
+  const { productName, manageUrl } = renewalNoticeCopy(data.product, SITE_URL);
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
       Your ${escapeHtml(cadence)} plan renews on ${escapeHtml(when)}
     </h2>
     <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
       Hi ${escapeHtml(data.userName)}, this is a heads-up that your
-      <strong>FlipDesk ${escapeHtml(data.plan)}</strong> subscription renews on
+      <strong>${escapeHtml(productName)} ${escapeHtml(data.plan)}</strong> subscription renews on
       <strong>${escapeHtml(when)}</strong> and your card will be charged
       <strong>${dollars(data.amountCents)}</strong>.
     </p>
@@ -2905,11 +2919,11 @@ export async function sendRenewalReminderEmail(
       can cancel any time before that date and keep your plan through the end of
       the current period — there's no cancellation fee and no need to contact us.
     </p>
-    ${ctaButton("Manage subscription", `${SITE_URL}/dashboard/billing`)}
+    ${ctaButton("Manage subscription", manageUrl)}
   `;
   return await sendEmail({
     to,
-    subject: `Your FlipDesk ${data.plan} plan renews ${when} (${dollars(data.amountCents)})`,
+    subject: `Your ${productName} ${data.plan} plan renews ${when} (${dollars(data.amountCents)})`,
     html: emailLayout(content),
     // TRANSACTIONAL (US-2119 AC3). This must never route through the drip /
     // marketing engine, where an opt-out, a suppression entry or a frequency cap

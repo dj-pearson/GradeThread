@@ -2310,7 +2310,18 @@ async function handleInvoiceUpcoming(event: Stripe.Event) {
     ? invoice.customer
     : (invoice.customer as Stripe.Customer | null)?.id;
   if (!customerId) return;
-  if (invoiceIsBuyer(invoice)) return;
+  // US-2119: NO invoiceIsBuyer SKIP HERE, and that is the point.
+  //
+  // The other three handlers skip a buyer invoice because the buyer equivalent
+  // of their work arrives on customer.subscription.updated — the seller cycle
+  // resets, the dunning transition and the payment-failed email all have a
+  // buyer path elsewhere. This handler has none. It only sends a notice, and
+  // nothing else sends one, so skipping the buyer here meant a buyer on an
+  // ANNUAL plan was charged a full year's fee with no prior contact at all:
+  // exactly the defect this story is named for, still live on the other
+  // product. Same shape as the US-2118 confirmation gate, which also shipped
+  // for FlipDesk only.
+  const isBuyer = invoiceIsBuyer(invoice);
 
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
@@ -2327,23 +2338,35 @@ async function handleInvoiceUpcoming(event: Stripe.Event) {
       ? "yearly"
       : "monthly";
 
+  // A buyer whose subscription lapsed to free has nothing renewing; the invoice
+  // would be for a plan they no longer hold, and naming "Free" in a charge
+  // notice is worse than staying quiet.
+  const buyerPlan = (user as { buyer_plan?: string | null }).buyer_plan ?? "free";
+  if (isBuyer && buyerPlan === "free") return;
+
   await recordEvent(
     user.id,
     event.type,
     event.id,
+    // The plan columns are typed public.flipdesk_plan, so a buyer tier cannot
+    // go in them (the same enum trap as US-2118's consent artifact). These stay
+    // the user's real FlipDesk plan — a true statement either way — and the
+    // buyer detail goes in the payload, which is jsonb.
     user.flipdesk_plan,
     user.flipdesk_plan,
     {
       invoice_id: invoice.id,
       amount_due: invoice.amount_due,
       renews_at: new Date(renewsAtSec * 1000).toISOString(),
+      product: isBuyer ? "buyer" : "flipdesk",
+      ...(isBuyer ? { buyer_plan: buyerPlan } : {}),
     },
     interval,
   );
 
   if (user.email) {
-    const planLabel = user.flipdesk_plan.charAt(0).toUpperCase() +
-      user.flipdesk_plan.slice(1);
+    const rawPlan = isBuyer ? buyerPlan : user.flipdesk_plan;
+    const planLabel = rawPlan.charAt(0).toUpperCase() + rawPlan.slice(1);
     safeSendEmail(
       sendRenewalReminderEmail(user.email, {
         userName: userDisplayName(user.email, user.full_name),
@@ -2351,6 +2374,7 @@ async function handleInvoiceUpcoming(event: Stripe.Event) {
         amountCents: invoice.amount_due ?? 0,
         renewsAt: new Date(renewsAtSec * 1000).toISOString(),
         interval,
+        product: isBuyer ? "buyer" : "flipdesk",
       }),
       "subscription_renewal_reminder",
     );
