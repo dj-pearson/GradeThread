@@ -194,7 +194,9 @@ export function measurementGroupFor(
   // it has a brim and a band and nothing else, which this template covers.
   if (/(hat|cap|beanie|snapback|fitted|trucker|visor|fedora|beret|bucket.?hat|headwear|balaclava)/.test(c))
     return "headwear";
-  if (/(tie|necktie|bow.?tie|belt|scarf|scarves|glove|mitten|shawl|pocket.?square|cravat|ascot|suspender)/.test(c))
+  // US-2468: `accessor` catches the coarse GARMENT_TYPES value "accessories",
+  // which iOS stores in garment_type and which resolved to `generic` before.
+  if (/(tie|necktie|bow.?tie|belt|scarf|scarves|glove|mitten|shawl|pocket.?square|cravat|ascot|suspender|accessor)/.test(c))
     return "accessory";
   if (/(shoe|sneaker|boot|sandal|footwear|loafer|mule|clog|slipper)/.test(c)) return "shoes";
   if (/watch/.test(c)) return "watch";
@@ -215,7 +217,8 @@ export function measurementGroupFor(
   if (SUIT_SET.test(c) && !NOT_A_SUIT_SET.test(c) && !SUIT_SINGLE_BOTTOM.test(c))
     return "suit";
   // US-2464: `trunk` added for swim trunks — board shorts already matched.
-  if (/(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo|trunk|slack)/.test(c))
+  // US-2468: `bottom` catches the coarse GARMENT_TYPES value "bottoms".
+  if (/(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo|trunk|slack|bottom)/.test(c))
     return "bottom";
   if (/(shirt|tee|t-shirt|top|blouse|sweater|hoodie|sweatshirt|tank|polo|jersey|henley|pullover|crewneck|longsleeve|long.sleeve|rugby|button.down|button.up|oxford|flannel|thermal)/.test(c))
     return "top";

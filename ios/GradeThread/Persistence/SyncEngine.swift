@@ -728,6 +728,10 @@ actor SyncEngine {
         let id: String
         let inventory_item_id: String
         let photo_type: String
+        // US-2468 (migration 00587). Optional so an app build newer than the DB
+        // still decodes: PostgREST omits a column it does not know about, and a
+        // non-optional here would fail the WHOLE photo pull, not just this field.
+        let photo_role: String?
         let photo_url: String
         let thumbnail_url: String?
         let storage_path: String?
@@ -1124,7 +1128,7 @@ actor SyncEngine {
         "id,user_id,title,brand,sku,size,color,material,status,item_category,garment_type,garment_category,description,style,sourced_by,acquired_date,container,comp_set,source_id,location_bin,consignor_id,consignment_split_pct,target_price,acquired_price,grade_value,grade_label,certificate_url,grade_report_id,condition_notes,measurements,created_at,updated_at"
 
     private static let photoColumns =
-        "id,inventory_item_id,photo_type,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at,updated_at"
+        "id,inventory_item_id,photo_type,photo_role,photo_url,thumbnail_url,storage_path,sort_order,bytes,created_at,updated_at"
 
     private static let saleColumns =
         "id,inventory_item_id,sale_price,platform_fees,payment_processing_fees,shipping_collected,shipping_cost,grading_cost,other_costs,tax,net_profit,status,sale_date,buyer_username,created_at,updated_at"
@@ -1644,6 +1648,10 @@ actor SyncEngine {
             let storage_path: String
             let local_file_url: String
             let photo_id: String?
+            // US-2468: the role qualifier, carried through the offline queue so a
+            // replayed upload lands with the same meaning it was captured with.
+            // Optional for payloads queued before this shipped.
+            let photo_role: String?
             // US-289: capture-time + reconcile session carried through the
             // offline queue so a retried upload doesn't lose them.
             let captured_at: String?
@@ -1706,6 +1714,7 @@ actor SyncEngine {
             "bytes": .integer(bytes ?? 0),
         ]
         if let photoId = p.photo_id { row["id"] = .string(photoId) }
+        if let photoRole = p.photo_role { row["photo_role"] = .string(photoRole) }
         // US-289: preserve capture-time + reconcile session through replay.
         if let capturedAt = p.captured_at { row["captured_at"] = .string(capturedAt) }
         // US-1547: preserve the provenance filename through replay.

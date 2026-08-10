@@ -15,6 +15,11 @@ import Observation
 public struct PhotoRole: Decodable, Hashable {
     /// Physical `item_photos.photo_type` value this slot writes.
     public let type: String
+    /// US-2468 (migration 00587): the `item_photos.photo_role` qualifier this
+    /// slot writes, or nil for a slot that takes none. Slot identity is
+    /// (type, role) — that is what lets a suit hold three separate `tag` slots
+    /// instead of needing a `tag_2` and a `tag_3` in the enum.
+    public let role: String?
     /// Category-specific display label, e.g. "Dial / Face", "Front of card".
     public let label: String
     /// One-line capture guidance.
@@ -59,17 +64,32 @@ public struct PhotoProfile: Decodable, Hashable, Identifiable {
         roles.first { $0.type == serverType }
     }
 
+    /// US-2468: the role definition for a stored (type, role) PAIR. Prefer this
+    /// over ``role(forServerType:)`` whenever the caller has both halves — a
+    /// suit profile has three `tag` slots and the type alone picks the wrong
+    /// one two times out of three.
+    public func role(forServerType serverType: String, photoRole: String?) -> PhotoRole? {
+        roles.first { $0.type == serverType && $0.role == photoRole }
+            ?? roles.first { $0.type == serverType && $0.role == nil }
+    }
+
+    /// Stable identity for a slot: "type" or "type:role".
+    public static func slotKey(_ type: String, _ role: String?) -> String {
+        guard let role, !role.isEmpty else { return type }
+        return "\(type):\(role)"
+    }
+
     // MARK: - Bundled fallback
 
     public static let clothingFallback = PhotoProfile(
         category: "clothing",
         label: "Clothing",
         roles: [
-            PhotoRole(type: "front", label: "Front", hint: "Lay flat, full front in frame", required: true, icon: "shirt"),
-            PhotoRole(type: "back", label: "Back", hint: "Same crop as the front shot", required: true, icon: "shirt"),
-            PhotoRole(type: "tag", label: "Garment Tag", hint: "Care + size label, close enough to read", required: true, icon: "tag"),
-            PhotoRole(type: "detail", label: "Detail", hint: "Texture, weave, or a distinctive feature", required: true, icon: "search"),
-            PhotoRole(type: "defect", label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle"),
+            PhotoRole(type: "front", role: nil, label: "Front", hint: "Lay flat, full front in frame", required: true, icon: "shirt"),
+            PhotoRole(type: "back", role: nil, label: "Back", hint: "Same crop as the front shot", required: true, icon: "shirt"),
+            PhotoRole(type: "tag", role: nil, label: "Garment Tag", hint: "Care + size label, close enough to read", required: true, icon: "tag"),
+            PhotoRole(type: "detail", role: nil, label: "Detail", hint: "Texture, weave, or a distinctive feature", required: true, icon: "search"),
+            PhotoRole(type: "defect", role: nil, label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle"),
         ]
     )
 
@@ -77,10 +97,10 @@ public struct PhotoProfile: Decodable, Hashable, Identifiable {
         category: "other",
         label: "Other",
         roles: [
-            PhotoRole(type: "front", label: "Front", hint: "Main view in frame", required: true, icon: "image"),
-            PhotoRole(type: "back", label: "Back", hint: "Reverse view", required: true, icon: "image"),
-            PhotoRole(type: "detail", label: "Detail", hint: "Distinguishing detail or label", required: false, icon: "search"),
-            PhotoRole(type: "defect", label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle"),
+            PhotoRole(type: "front", role: nil, label: "Front", hint: "Main view in frame", required: true, icon: "image"),
+            PhotoRole(type: "back", role: nil, label: "Back", hint: "Reverse view", required: true, icon: "image"),
+            PhotoRole(type: "detail", role: nil, label: "Detail", hint: "Distinguishing detail or label", required: false, icon: "search"),
+            PhotoRole(type: "defect", role: nil, label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle"),
         ]
     )
 
@@ -108,6 +128,28 @@ public final class PhotoProfileStore {
             return match
         }
         return profiles["clothing"] ?? PhotoProfile.clothingFallback
+    }
+
+    /// US-2468: resolves the profile for an item, consulting the free-text
+    /// GARMENT word ("blazer", "dress pants") as well as the item_category.
+    ///
+    /// Mirrors `getPhotoProfile(category, garment)` on the edge, including its
+    /// fallback: when no usable item_category is given, the garment word is
+    /// used to resolve a group and that group is mapped back to an
+    /// item_category profile where one exists. That matters because
+    /// `items_full` has no item_category column at all, so the free-text word
+    /// is often the only category signal a caller actually has.
+    public func profile(for category: String?, garment: String?) -> PhotoProfile {
+        if let category, category != "clothing", let match = profiles[category] {
+            return match
+        }
+        let group = GarmentGroup.from(garment ?? category)
+        if let key = group.itemCategoryProfileKey, let match = profiles[key] {
+            return match
+        }
+        return profiles[group.clothingProfileKey]
+            ?? profiles["clothing"]
+            ?? PhotoProfile.clothingFallback
     }
 
     /// Loads the table from the edge once. Safe to call repeatedly.

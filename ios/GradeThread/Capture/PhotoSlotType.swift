@@ -258,7 +258,10 @@ public enum FlipdeskPhotoType {
         "measurement_sleeve", "measurement_inseam",
         "defect",
         "tag_2", "detail_2", "detail_3", "detail_4",
-        "interior", "flatlay", "on_model",
+        "interior", "flatlay",
+        // US-2468 (migration 00587): the two types the role epic added that had
+        // no existing type to reuse.
+        "on_hanger", "on_model", "set_pair",
         "angle", "sole", "marking", "serial", "accessory",
         "certificate", "corner", "surface",
         // US-1549: seller-reference only (price tag paid, receipt). Stays with
@@ -272,9 +275,38 @@ public enum FlipdeskPhotoType {
     /// enforces at publish; this keeps iOS listing surfaces honest too.
     public static let nonListable: Set<String> = ["internal", "measurement"]
 
+    /// US-2468: retired types. Still legal values forever — Postgres cannot
+    /// drop an enum value and historical rows point at them — but never offered
+    /// as a NEW choice. Migration 00587 rewrote existing rows onto the (type,
+    /// role) pairs below; the map stays so a row that has not been rewritten
+    /// yet can still be labelled.
+    public static let retired: [String: (type: String, role: String?)] = [
+        "tag_2": ("tag", nil),
+        "detail_2": ("detail", nil),
+        "detail_3": ("detail", nil),
+        "detail_4": ("detail", nil),
+        "measurement_chest": ("measurement", "chest"),
+        "measurement_waist": ("measurement", "waist"),
+        "measurement_length": ("measurement", "length"),
+        "measurement_sleeve": ("measurement", "sleeve"),
+        "measurement_inseam": ("measurement", "inseam"),
+    ]
+
+    public static func isRetired(_ serverType: String) -> Bool {
+        retired[serverType] != nil
+    }
+
     /// True when a server `photo_type` never publishes to a marketplace.
-    public static func isNonListable(_ serverType: String) -> Bool {
-        nonListable.contains(serverType)
+    ///
+    /// US-2468: role-aware, mirroring the edge's `isNonListableItemPhoto`.
+    /// `measurement` now covers two different photos and only one is unlistable:
+    /// a NULL role is the MeasureCard calibration frame (a branded foreign
+    /// object, never lists), while any role is a tape close-up — what
+    /// `measurement_chest` used to be, and something sellers publish on purpose.
+    /// Pre-00587 rows have a nil role, so the old behavior is preserved exactly.
+    public static func isNonListable(_ serverType: String, role: String? = nil) -> Bool {
+        if serverType == "measurement" { return role == nil || role?.isEmpty == true }
+        return nonListable.contains(serverType)
     }
 
     /// Human label for a server `photo_type` string. Unknown values fall back
@@ -310,10 +342,84 @@ public enum FlipdeskPhotoType {
         case "measurement_sleeve": return "Measure: Sleeve"
         case "measurement_inseam": return "Measure: Inseam"
         case "internal": return "Internal (not listed)"
+        case "on_hanger": return "On hanger"
+        case "set_pair":  return "Set / pair"
         default:
             return serverType
                 .replacingOccurrences(of: "_", with: " ")
                 .capitalized
+        }
+    }
+
+    /// US-2468: the label for a stored (type, role) PAIR.
+    ///
+    /// The role is what carries the meaning now, so a bare type label is the
+    /// FALLBACK rather than the answer: a `detail` with role 'fabric' is a
+    /// "Fabric close-up", not "Detail 1". `profile` supplies the
+    /// category-specific wording when one is loaded — the same reason the web
+    /// picker prefers the profile's label ("Sweatband" on a hat, not
+    /// "Interior / Lining").
+    public static func label(
+        for serverType: String,
+        role: String?,
+        profile: PhotoProfile? = nil
+    ) -> String {
+        if let match = profile?.role(forServerType: serverType, photoRole: role),
+           match.role == role {
+            return match.label
+        }
+        if let role, !role.isEmpty {
+            return PhotoRoleVocabulary.label(type: serverType, role: role)
+                ?? label(for: serverType)
+        }
+        return label(for: serverType)
+    }
+}
+
+/// US-2468: the role half of the tag vocabulary — the iOS mirror of
+/// src/lib/photo-roles.ts.
+///
+/// Only the LABELS live here. The authoritative per-garment role LISTS come
+/// from the profile table the edge serves, so a new role ships without an App
+/// Store release; this table exists so a role that arrives before the app knows
+/// about it still renders as words rather than as `made_in`.
+public enum PhotoRoleVocabulary {
+    public static let tagRoles: [(key: String, label: String)] = [
+        ("brand", "Brand label"),
+        ("size", "Size tag"),
+        ("care", "Care & fabric"),
+        ("made_in", "Made in / union label"),
+        ("size_alt", "Trouser size tag"),
+    ]
+
+    public static let detailRoles: [(key: String, label: String)] = [
+        ("fabric", "Fabric close-up"),
+        ("hem", "Hem & stitching"),
+        ("hardware", "Hardware"),
+        ("pocket", "Pocket"),
+        ("print", "Print or graphic"),
+        ("collar", "Collar or cuff"),
+        ("handles", "Handles & straps"),
+        ("base", "Base"),
+        ("ends_edges", "Ends & edges"),
+        ("insole", "Insole"),
+    ]
+
+    /// Measurement roles are DERIVED from the measurement templates on the
+    /// server, so their keys are measurement field keys. Labelled from the
+    /// shared catalog rather than a second hand-maintained list.
+    public static func label(type: String, role: String) -> String? {
+        switch type {
+        case "tag":
+            return tagRoles.first { $0.key == role }?.label
+        case "detail":
+            return detailRoles.first { $0.key == role }?.label
+        case "measurement":
+            // MeasurementCatalog already de-underscores unknown keys, so a role
+            // the app has never seen still reads as words.
+            return "Measure: \(MeasurementCatalog.label(for: role))"
+        default:
+            return nil
         }
     }
 }

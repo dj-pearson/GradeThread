@@ -273,14 +273,75 @@ final class PhotoIntakeTests: XCTestCase {
                 "\(slot.rawValue) maps to \(slot.serverPhotoType), missing from FlipdeskPhotoType.all"
             )
         }
-        // And the catalog mirrors web FLIPDESK_PHOTO_TYPES (28 entries:
+        // And the catalog mirrors web FLIPDESK_PHOTO_TYPES (30 entries:
         // the original 17, the 8 universal roles from migration 00230, the
-        // seller-reference `internal` type from US-1549, and the US-1571/77
+        // seller-reference `internal` type from US-1549, the US-1571/77
         // `measurement` + `measurement_overlay` pair from migrations
-        // 00346/00350).
-        XCTAssertEqual(FlipdeskPhotoType.all.count, 28)
+        // 00346/00350, and the US-2462 `on_hanger` + `set_pair` pair from
+        // migration 00587).
+        //
+        // This count is expected to stay PUT from here. Since US-2462 a new tag
+        // idea is a ROLE, which is data on the profile table, not an enum value
+        // — so this number growing again is a signal that something was added
+        // at the wrong layer.
+        XCTAssertEqual(FlipdeskPhotoType.all.count, 30)
         XCTAssertEqual(FlipdeskPhotoType.label(for: "on_model"), "On model")
         XCTAssertEqual(FlipdeskPhotoType.label(for: "interior"), "Interior / Lining")
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "on_hanger"), "On hanger")
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "set_pair"), "Set / pair")
+    }
+
+    // MARK: - US-2468: the role qualifier
+
+    func test_retiredTypes_areNotOfferedButStayLabelled() {
+        // Retired types remain legal values forever (Postgres cannot drop an
+        // enum value, and historical rows point at them). What changes is that
+        // the picker never offers them as a NEW choice.
+        for type in ["tag_2", "detail_2", "detail_3", "detail_4",
+                     "measurement_chest", "measurement_inseam"] {
+            XCTAssertTrue(FlipdeskPhotoType.isRetired(type), "\(type) should be retired")
+            XCTAssertFalse(
+                FlipdeskPhotoType.label(for: type).isEmpty,
+                "\(type) must still render a label for un-backfilled rows"
+            )
+        }
+        for type in ["front", "back", "tag", "detail", "measurement", "defect"] {
+            XCTAssertFalse(FlipdeskPhotoType.isRetired(type), "\(type) is still a valid choice")
+        }
+    }
+
+    func test_measurementListability_dependsOnTheRole() {
+        // The trap migration 00587 walked into: `measurement` is non-listable
+        // because it means the MeasureCard frame, but `measurement_chest` was a
+        // listable tape shot — and the backfill folds the second into the first.
+        XCTAssertTrue(FlipdeskPhotoType.isNonListable("measurement", role: nil))
+        XCTAssertTrue(FlipdeskPhotoType.isNonListable("measurement"))
+        XCTAssertFalse(FlipdeskPhotoType.isNonListable("measurement", role: "chest"))
+        XCTAssertFalse(FlipdeskPhotoType.isNonListable("measurement", role: "inseam"))
+        // Every other type ignores the role entirely.
+        XCTAssertTrue(FlipdeskPhotoType.isNonListable("internal", role: "fabric"))
+        XCTAssertFalse(FlipdeskPhotoType.isNonListable("detail", role: "fabric"))
+        XCTAssertFalse(FlipdeskPhotoType.isNonListable("front", role: nil))
+    }
+
+    func test_roleLabel_prefersTheRoleOverTheBareType() {
+        // A detail with role 'fabric' is a "Fabric close-up", not "Detail 1".
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "detail", role: "fabric"), "Fabric close-up")
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "tag", role: "size"), "Size tag")
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "tag", role: "made_in"), "Made in / union label")
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "measurement", role: "inseam"), "Measure: Inseam")
+        // No role → the bare type label, unchanged.
+        XCTAssertEqual(FlipdeskPhotoType.label(for: "detail", role: nil), "Detail 1")
+        // A role the app has never seen still renders as words, not snake_case.
+        XCTAssertFalse(FlipdeskPhotoType.label(for: "measurement", role: "leg_opening").contains("_"))
+    }
+
+    func test_slotKey_identifiesTheTypeAndRolePair() {
+        // A suit profile has three `tag` slots; the key is what keeps them apart.
+        XCTAssertEqual(PhotoProfile.slotKey("tag", "size"), "tag:size")
+        XCTAssertEqual(PhotoProfile.slotKey("front", nil), "front")
+        XCTAssertEqual(PhotoProfile.slotKey("front", ""), "front")
+        XCTAssertNotEqual(PhotoProfile.slotKey("tag", "brand"), PhotoProfile.slotKey("tag", "size"))
     }
 
     // MARK: - Helpers

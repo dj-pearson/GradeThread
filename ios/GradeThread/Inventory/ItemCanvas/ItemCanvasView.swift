@@ -1531,7 +1531,7 @@ struct ItemCanvasView: View {
             }
             .frame(width: 84, height: 84)
             .clipped()
-            Text(FlipdeskPhotoType.label(for: photo.photoType))
+            Text(FlipdeskPhotoType.label(for: photo.photoType, role: photo.photoRole))
                 .font(.caption2.weight(.semibold))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 2)
@@ -1543,7 +1543,7 @@ struct ItemCanvasView: View {
         .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
         // US-705: each photo reads as "<type> photo" instead of an unlabeled image.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(FlipdeskPhotoType.label(for: photo.photoType)) photo")
+        .accessibilityLabel("\(FlipdeskPhotoType.label(for: photo.photoType, role: photo.photoRole)) photo")
     }
 
     /// US-1575: entry into the photo-measurement editor — shown only when the

@@ -24,6 +24,16 @@ final class LocalItemPhoto {
     var item: LocalInventoryItem?
 
     var photoType: String     // server flipdesk_photo_type — see FlipdeskPhotoType.all
+
+    /// US-2468 (migration 00587): the open-text qualifier saying what the photo
+    /// actually shows — 'fabric' on a detail, 'size' on a tag, 'inseam' on a
+    /// measurement. nil means no qualifier.
+    ///
+    /// Optional WITH a default so SwiftData can migrate the existing store
+    /// lightweight: a non-optional addition needs a mapping model, and a store
+    /// that fails to open takes the app down at launch rather than at the
+    /// feature (see the duplicate-checksum trap in the iOS traps note).
+    var photoRole: String?
     var photoURL: String
     var thumbnailURL: String?
     var storagePath: String?
@@ -56,6 +66,7 @@ final class LocalItemPhoto {
         id: String,
         inventoryItemId: String,
         photoType: String,
+        photoRole: String? = nil,
         photoURL: String,
         sortOrder: Int = 0,
         createdAt: Date = .now,
@@ -64,6 +75,7 @@ final class LocalItemPhoto {
         self.id = id
         self.inventoryItemId = inventoryItemId
         self.photoType = photoType
+        self.photoRole = photoRole
         self.photoURL = photoURL
         self.sortOrder = sortOrder
         self.createdAt = createdAt

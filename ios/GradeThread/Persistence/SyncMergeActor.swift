@@ -196,6 +196,7 @@ actor SyncMergeActor {
         for remote in remotePhotos {
             if let local = existingById[remote.id] {
                 local.photoType = remote.photo_type
+                local.photoRole = remote.photo_role
                 local.photoURL = remote.photo_url
                 local.thumbnailURL = remote.thumbnail_url
                 local.storagePath = remote.storage_path
@@ -209,6 +210,7 @@ actor SyncMergeActor {
                     id: remote.id,
                     inventoryItemId: remote.inventory_item_id,
                     photoType: remote.photo_type,
+                    photoRole: remote.photo_role,
                     photoURL: remote.photo_url,
                     sortOrder: remote.sort_order,
                     createdAt: SyncEngine.parseDate(remote.created_at)

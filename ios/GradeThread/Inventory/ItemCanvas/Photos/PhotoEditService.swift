@@ -74,22 +74,28 @@ struct PhotoEditService {
         context.saveOrLog("delete")
     }
 
-    private struct TypeUpdate: Encodable { let photo_type: String }
+    private struct TypeUpdate: Encodable { let photo_type: String; let photo_role: String? }
 
     /// Changes a photo's `photo_type` (web "retag" parity). `serverType`
     /// must be one of `FlipdeskPhotoType.all`. Server first, then local
     /// mirror — on throw the local row is untouched.
+    /// US-2468:  is written on EVERY retag, including when it is nil.
+    /// Omitting it when the new type takes no qualifier would leave the previous
+    /// role on the row — a "Fabric close-up" retagged to "Front" would stay
+    /// role=fabric, and the grading fabric check counts role=fabric.
     func retag(
         _ photo: LocalItemPhoto,
         to serverType: String,
+        role: String? = nil,
         context: ModelContext
     ) async throws {
         try await supabase
             .from("item_photos")
-            .update(TypeUpdate(photo_type: serverType))
+            .update(TypeUpdate(photo_type: serverType, photo_role: role))
             .eq("id", value: photo.id)
             .execute()
         photo.photoType = serverType
+        photo.photoRole = role
         context.saveOrLog("retag")
     }
 

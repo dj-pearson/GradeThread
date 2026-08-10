@@ -64,7 +64,12 @@ struct PhotoManagerView: View {
     /// Stable signature of the incoming photo set (id + order + type) so the
     /// re-seed fires only when the photos actually change.
     private var photosSignature: String {
-        photos.map { "\($0.id)|\($0.sortOrder)|\($0.photoType)" }.joined(separator: ",")
+        // US-2468: the ROLE is part of a photo's identity now, so a retag that
+        // only changes the role (Detail → Fabric close-up) must still re-seed
+        // the working copy. Without it the row keeps its old label until the
+        // sheet is reopened.
+        photos.map { "\($0.id)|\($0.sortOrder)|\($0.photoType)|\($0.photoRole ?? "")" }
+            .joined(separator: ",")
     }
 
     private var photoList: some View {
@@ -140,7 +145,13 @@ struct PhotoManagerView: View {
         let isCover = working.first?.id == photo.id
         // Retag options ordered by this item's category profile: the category's
         // own roles first (with category labels), then every other type.
-        let profile = photoProfileStore.profile(for: item.itemCategory)
+        // US-2468: the free-text garment word picks the clothing sub-profile,
+        // so a t-shirt is never offered an inseam slot and a blazer IS offered a
+        // shoulder. item_category alone cannot tell those apart.
+        let profile = photoProfileStore.profile(
+            for: item.itemCategory,
+            garment: item.garmentCategory ?? item.garmentType
+        )
         PhotoManagerRow(photo: photo, isCover: isCover)
             .contextMenu { rowContextMenu(for: photo, isCover: isCover, profile: profile) }
     }
@@ -171,41 +182,74 @@ struct PhotoManagerView: View {
         changeTypeMenu(for: photo, profile: profile)
     }
 
+    /// US-2468: one choice in the retag menu. Identity is the (type, role)
+    /// PAIR — a suit profile offers three separate `tag` slots, so keying the
+    /// menu on the type alone would collapse them into one entry.
+    private struct TagChoice: Identifiable {
+        let type: String
+        let role: String?
+        let label: String
+        var id: String { PhotoProfile.slotKey(type, role) }
+    }
+
     @ViewBuilder
     private func changeTypeMenu(for photo: LocalItemPhoto, profile: PhotoProfile) -> some View {
-        let suggestedTypes = Set(profile.roles.map(\.type))
+        let current = PhotoProfile.slotKey(photo.photoType, photo.photoRole)
+
+        // Suggested = this item's own profile, in CAPTURE order (Front → Back →
+        // Tag → Detail → measurements), because that is the order a seller
+        // shoots in and so the next tag they want is the next one down.
+        // Deduped by slot key: ForEach over duplicate Identifiable ids is a
+        // SwiftUI runtime fault, and a profile is server data — this client
+        // must not fault on a table it did not author.
+        var seen = Set<String>()
+        let suggested = profile.roles
+            .map { TagChoice(type: $0.type, role: $0.role, label: $0.label) }
+            .filter { seen.insert($0.id).inserted }
+        let suggestedIds = seen
+
+        // Everything else, A-Z by label so a rare tag is findable by name.
+        // Retired types are never offered as a NEW choice; a photo already on
+        // one keeps its old label until it is retagged (see the orphan row).
+        let rest = FlipdeskPhotoType.all
+            .filter { !FlipdeskPhotoType.isRetired($0) }
+            .map { TagChoice(type: $0, role: nil, label: FlipdeskPhotoType.label(for: $0)) }
+            .filter { !suggestedIds.contains($0.id) }
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+
         Menu {
             Section("Suggested · \(profile.label)") {
-                ForEach(profile.roles, id: \.type) { role in
-                    Button {
-                        retag(photo, to: role.type)
-                    } label: {
-                        if role.type == photo.photoType {
-                            Label(role.label, systemImage: "checkmark")
-                        } else {
-                            Text(role.label)
-                        }
-                    }
-                    .disabled(role.type == photo.photoType)
+                ForEach(suggested) { choice in
+                    tagChoiceButton(photo: photo, choice: choice, current: current)
                 }
             }
             Section("All types") {
-                ForEach(FlipdeskPhotoType.all.filter { !suggestedTypes.contains($0) }, id: \.self) { type in
-                    Button {
-                        retag(photo, to: type)
-                    } label: {
-                        if type == photo.photoType {
-                            Label(FlipdeskPhotoType.label(for: type), systemImage: "checkmark")
-                        } else {
-                            Text(FlipdeskPhotoType.label(for: type))
-                        }
-                    }
-                    .disabled(type == photo.photoType)
+                ForEach(rest) { choice in
+                    tagChoiceButton(photo: photo, choice: choice, current: current)
                 }
             }
         } label: {
             Label("Change type", systemImage: "tag")
         }
+    }
+
+    @ViewBuilder
+    private func tagChoiceButton(
+        photo: LocalItemPhoto,
+        choice: TagChoice,
+        current: String
+    ) -> some View {
+        let isCurrent = choice.id == current
+        Button {
+            retag(photo, to: choice.type, role: choice.role)
+        } label: {
+            if isCurrent {
+                Label(choice.label, systemImage: "checkmark")
+            } else {
+                Text(choice.label)
+            }
+        }
+        .disabled(isCurrent)
     }
 
     @ViewBuilder
@@ -278,7 +322,7 @@ struct PhotoManagerView: View {
         }
     }
 
-    private func retag(_ photo: LocalItemPhoto, to serverType: String) {
+    private func retag(_ photo: LocalItemPhoto, to serverType: String, role: String?) {
         AppRouter.haptic()
         photosChanged = true
         Task {
@@ -287,7 +331,7 @@ struct PhotoManagerView: View {
             do {
                 // LocalItemPhoto is @Model (observable) — the row label
                 // refreshes on mutation without touching `working`.
-                try await PhotoEditService().retag(photo, to: serverType, context: modelContext)
+                try await PhotoEditService().retag(photo, to: serverType, role: role, context: modelContext)
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -396,7 +440,7 @@ private struct PhotoManagerRow: View {
             .clipShape(RoundedRectangle(cornerRadius: CornerRadius.chip, style: .continuous))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(FlipdeskPhotoType.label(for: photo.photoType))
+                Text(FlipdeskPhotoType.label(for: photo.photoType, role: photo.photoRole))
                     .font(.subheadline)
                 if isCover {
                     Label("Cover", systemImage: "star.fill")

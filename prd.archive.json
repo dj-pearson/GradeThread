@@ -35679,6 +35679,113 @@
       ],
       "priority": 1200,
       "notes": "2026-08-10 DONE. All four ACs met, and this one exists because I caused it and then briefly believed it. WHAT HAPPENED: I had three verify runs in flight at once. Two reported FAILED - production build (incl. prerender) and vitest + coverage - and both pass alone on the same commit. The lanes are not isolated: the build writes dist/ and its prerender step then reads and rewrites dist/_headers and dist/_redirects, while the coverage lane writes a shared coverage directory. A second run entering those steps mid-flight sees a half-written tree. WHY IT IS WORTH FIXING RATHER THAN REMEMBERING: I told the user the tree was green off an earlier clean run, then saw failures, and only established they were spurious by re-running each lane serially. A verification tool's output is the thing people act on WITHOUT re-checking. A failure that is not real costs a debugging session; a pass that was not earned costs more. Either way the tool has to be trustworthy alone, because that is the only way it is ever used. AC1: a second run refuses with exit 2, naming the running pid and how long it has been going. Non-zero deliberately - a wrapper must never read the refusal as a pass, which is the failure mode that would make this fix worse than nothing. It REFUSES rather than queues: someone who ran it twice by accident wants to know, not to wait twice as long. AC2: a dead pid is taken over and the takeover is ANNOUNCED, so a genuinely hung run is not silently ignored. An unreadable lock file counts as stale too. AC3 IS TRUE ON POSIX AND NOT ON WINDOWS, and the code says so rather than claiming otherwise. Node emulates SIGINT for a console Ctrl-C, but a programmatic child.kill('SIGINT') terminates the process outright - so neither the signal handler nor the 'exit' handler fires and the lock IS left behind. Measured, not assumed. That is exactly what the stale takeover is for, and the probe asserts the property that actually matters: after an interrupt the next run recovers rather than wedging. Releasing cleanly is the nicety; recovery is the requirement. AC4: --force, an explicit flag rather than an env var someone exports once and forgets about for a month. VERIFIED BEHAVIOURALLY, six checks in one probe: a live lock refuses with exit 2 and says why; --force ignores it; a stale lock is taken over and announced; the lock is gone after a normal run; an interrupted run leaves it (Windows hard-kill); and the next run takes over the abandoned lock. All six as expected on the first full pass. NO STANDING TEST, and the reason is worth stating rather than hiding: exercising this means SPAWNING verify, and a test that spawns verify from inside the verify suite recurses. The lock logic is ~40 lines of file-and-pid handling with no domain content, and the honest trade is a one-off behavioural probe recorded here over a standing test that would either recurse or mock the only thing under test. If the lock grows a real decision it should be extracted and unit-tested then. VERIFIED: eslint 0 errors / 13 warnings (baseline held); test:scripts 365 passed; node scripts/verify.mjs --vault runs clean end to end with the lock taken and released."
+    },
+    {
+      "id": "US-2462",
+      "priority": 41,
+      "passes": true,
+      "title": "Photo role qualifier: item_photos.photo_role column + on_hanger/set_pair types",
+      "description": "As the platform, we want a nullable photo_role qualifier on item_photos plus the two genuinely-new storage types, so the tag vocabulary can grow without an enum migration per sub-role.",
+      "acceptanceCriteria": [
+        "Migration adds item_photos.photo_role text NULL with NO check constraint (open vocabulary is the point) and an index on (inventory_item_id, photo_type, photo_role)",
+        "Migration adds exactly two flipdesk_photo_type values: on_hanger, set_pair - every other proposed role maps onto an existing type",
+        "Backfill is idempotent: tag_2 -> (tag, role NULL), detail_2/3/4 -> (detail, role NULL), measurement_chest/waist/length/sleeve/inseam -> (measurement, role '<key>'), sort_order preserved verbatim",
+        "US-1108 triple honored: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer",
+        "Retired enum values are NOT dropped (Postgres cannot remove enum values without a type rebuild); they are removed from the pickers only"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). HELD MIGRATION - do not push until Dj applies it to prod. Duplicate photo_type rows are already legal and already happen: iOS defect1/2/3 all write server type 'defect' (PhotoSlotType.swift serverPhotoType). The only unique index on item_photos is (inventory_item_id, storage_path) from 00120, which dedupes by FILE not by type. | DONE 2026-08-10: Migration 00587 applied to prod 2026-08-10. photo_role text NULL (no CHECK), on_hanger + set_pair enum values, idempotent backfill of tag_2/detail_2-4/measurement_*. Found and fixed in the same commit: measurement is on NON_LISTABLE_PHOTO_TYPES but measurement_chest was listable, so the rule became role-aware (NULL role = MeasureCard frame, any role = tape photo). 10 select() sites gained photo_role; a guard test pins that a missing column reads as the card frame."
+    },
+    {
+      "id": "US-2463",
+      "priority": 42,
+      "passes": true,
+      "title": "Photo role vocabulary module, mirrored web + edge with a parity test",
+      "description": "As a developer, I want one definition of the role vocabulary and its labels, mirrored on web and edge with a parity test, so the two halves cannot drift.",
+      "acceptanceCriteria": [
+        "Tag roles: brand, size, care, made_in - 'made_in' is the union/made-in label vintage buyers date a garment by, and had no slot at all before",
+        "Detail roles: fabric, hem, hardware, pocket, print, collar",
+        "Presentation types: flatlay, on_hanger, on_model, set_pair",
+        "Measurement roles are DERIVED from MEASUREMENT_TEMPLATES for the garment group, not hand-listed, so a new measurement field gets a photo slot for free",
+        "A parity test asserts the web and edge role tables are identical, in the shape of src/test/measurement-template-parity.test.ts"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). The profiles ALREADY do this informally by hijacking numbered slots: bags label detail_2 'Handles & Straps', accessories label detail_2 'Ends & Edges', headwear labels interior 'Sweatband'. Retagging one of those in the flat web dropdown shows 'Detail 2', which is the bug this formalizes away. | DONE 2026-08-10: src/lib/photo-roles.ts + edge mirror, pinned by src/test/photo-roles-parity.test.ts (15 tests). Tag roles brand/size/care/made_in, detail roles fabric/hem/hardware/pocket/print/collar, per-group extras (bag handles+base, accessory ends_edges, shoes insole, suit size_alt). Measurement roles DERIVED from MEASUREMENT_TEMPLATES."
+    },
+    {
+      "id": "US-2464",
+      "priority": 43,
+      "passes": true,
+      "title": "measurementGroupFor: fix the dress-compound bug and add a suit group",
+      "description": "As a reseller, I want dress pants to be measured as pants, so the form asks for waist and inseam instead of bust and hip.",
+      "acceptanceCriteria": [
+        "'dress pants', 'dress trousers', 'dress slacks', 'dress shorts' resolve to bottom, not dress",
+        "'dress shirt' resolves to top, not dress - same compound bug, opposite direction",
+        "New 'suit' measurement group: chest, length (labelled 'Jacket length'), shoulder, sleeve, waist, inseam, rise - matches suit, tuxedo, tux, pantsuit, two-piece; must NOT match swimsuit, jumpsuit, tracksuit, sweatsuit, bodysuit, wetsuit, snowsuit",
+        "Common garments that fell to 'generic' are routed: coveralls/overalls/tracksuit/pajamas/scrubs -> suit, robe/kimono -> outerwear, swim trunks/board shorts -> bottom, swimsuit/bikini -> dress",
+        "Edge mirror updated in lockstep and the existing measurement-template parity test still passes"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Verified against the live regex 2026-08-10: 'dress pants' -> dress, 'dress shirt' -> dress, 'suit' -> generic, 'tuxedo' -> generic, plus swimsuit/overalls/coveralls/tracksuit/pajamas/robe/scrubs/bikini all -> generic. The dress branch is tested before both bottom and top, so any 'dress <noun>' compound is captured by it. | DONE 2026-08-10: dress pants -> bottom and dress shirt -> top via a compound guard rather than a branch reorder (a reorder would have broken shirtdress). New suit group: chest/length/shoulder/sleeve/waist/inseam/rise, reusing the outerwear and bottom keys so listing templates and eBay specifics already understand it. Routed coveralls/overalls/tracksuit/pajamas/scrubs -> suit, robe/kimono/poncho -> outerwear, swim trunks -> bottom, swimsuit/bikini -> dress. suit added to DESCRIPTION_TEMPLATES, GROUP_DIMS, and the fit-checker maps. 27 tests."
+    },
+    {
+      "id": "US-2465",
+      "priority": 44,
+      "passes": true,
+      "title": "Photo profiles sub-select by garment group for clothing",
+      "description": "As a reseller photographing a t-shirt, I do not want an inseam measurement slot; photographing a blazer, I do want a shoulder slot.",
+      "acceptanceCriteria": [
+        "getPhotoProfile takes (itemCategory, garmentCategory) and, for item_category 'clothing', sub-selects a profile by measurementGroupFor(garmentCategory)",
+        "PhotoRole gains an optional role field; slot identity becomes type+role everywhere (required checks, dedupe, ordering, uploader slots)",
+        "Clothing sub-profiles top / bottom / dress / outerwear / suit each offer only their own measurement roles",
+        "The suit profile offers 3 tag roles (brand, jacket size, pant size) and both jacket and pant measurement roles - the case that failed before",
+        "GET /api/flipdesk/photo-profiles serves the sub-profiles; a null/unknown garment keeps today's clothing behavior exactly",
+        "requiredPhotoTypesFor is unchanged in effect: front + back stay the only clothing requirements"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). The role order IS the gallery order and index 0 is the eBay cover (vault/20-domain/listing-photos.md). front must stay index 0 in every sub-profile or covers move on existing items. | DONE 2026-08-10: getPhotoProfile(category, garment) sub-selects clothing:top/bottom/dress/outerwear/suit via measurementGroupFor. PhotoRole gained an optional role; uploader slots key off (type, role). ALSO fixed a pre-existing miswiring: items_full has no item_category column, so the composer had always passed the free-text garment word into a lookup expecting the enum — every non-clothing profile was being missed unless the seller typed the enum value verbatim. The resolver now bridges both taxonomies (GROUP_TO_CATEGORY)."
+    },
+    {
+      "id": "US-2466",
+      "priority": 45,
+      "passes": true,
+      "title": "Web retag picker: suggested-then-A-Z, with role sub-picker",
+      "description": "As a reseller, I want the tag dropdown to show what fits this item first, so I stop scrolling a flat list of 28.",
+      "acceptanceCriteria": [
+        "photo-manager.tsx renders 'Suggested for <garment>' (profile order) then 'All types' (A-Z), matching what iOS PhotoManagerView already does",
+        "Picking a type that has roles reveals the role choice; picking a type without roles sets photo_role NULL",
+        "Retired values (tag_2, detail_2/3/4, measurement_*) never appear as choices; a photo already on one displays its legacy label until retagged",
+        "reconcile.tsx and autolister.tsx pickers use the same grouped component - no third hand-rolled list",
+        "photo-uploader.tsx capture slots key off type+role so a suit can hold three tag slots at once",
+        "npm run ui:check stays at zero findings"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Today's flat list: photo-manager.tsx:668 maps FLIPDESK_PHOTO_TYPES directly. reconcile.tsx:1261 and autolister.tsx:209 each hand-roll their own variant. | DONE 2026-08-10: New src/components/flipdesk/photo-tag-select.tsx: Suggested (profile order) then All types (A-Z). Retired types never offered; a photo still on one shows its old label marked \"(old tag)\" so it is never blank. persistRetag now always writes photo_role, including null, so a stale role cannot survive a retag. ui:check still 0."
+    },
+    {
+      "id": "US-2467",
+      "priority": 46,
+      "passes": true,
+      "title": "Grading and AI prompts read photo roles, not numbered slots",
+      "description": "As a seller, I want the fabric-close-up confidence check to look for an actual fabric photo, so four photos of buttons stop passing it.",
+      "acceptanceCriteria": [
+        "FABRIC_CLOSEUP_PHOTO_TYPES is replaced by a role test: a detail photo with photo_role 'fabric' satisfies the check; the four numbered detail slots no longer do on their own",
+        "Legacy rows with NULL role keep the old behavior so no historical item regresses or is retro-capped",
+        "macro-photo-quality.ts resolution and sharpness floors move from per-numbered-slot to per-role",
+        "ai-grading.ts, ai-authenticity.ts and ai-extract.ts prompt hints name roles instead of detail_2/detail_3/detail_4/tag_2",
+        "The shared grading-readiness fixture (src/test/fixtures/grading-readiness-cases.json) gains role cases and client/edge parity still holds"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Live behavior today: FABRIC_CLOSEUP_PHOTO_TYPES = [detail, detail_2, detail_3, detail_4], so ANY detail satisfies the fabric check and dodges NO_FABRIC_CLOSEUP_CONFIDENCE_CAP (0.6, ai-grading.ts:2119). This is a correctness win, not just cleanup. | DONE 2026-08-10: hasFabricCloseup() replaces the any-detail-slot test on BOTH sides, mirrored verbatim and pinned by 5 new shared-fixture cases. Real bug fixed: FABRIC_CLOSEUP_PHOTO_TYPES was [detail, detail_2..4], so four photos of buttons satisfied the fabric check and dodged NO_FABRIC_CLOSEUP_CONFIDENCE_CAP (0.6) on a factor worth 30% of the score. Legacy NULL-role rows keep the old benefit of the doubt, so no historical item is retro-capped."
+    },
+    {
+      "id": "US-2468",
+      "priority": 47,
+      "passes": true,
+      "title": "iOS: roles in the capture strip and the retag menu",
+      "description": "As an iOS seller, I want the same category-aware tags the web has.",
+      "acceptanceCriteria": [
+        "FlipdeskPhotoType gains the role qualifier; PhotoSlotType slots key off type+role",
+        "The 'Add more' menu (PhotoIntakeView) becomes profile-driven instead of using the static PhotoSlotType.extras/.measurements groups",
+        "PhotoManagerView's existing Suggested/All-types menu picks a role when the type has one",
+        "Upload writes photo_role; the PhotoIntakeTests count assertion (currently FlipdeskPhotoType.all.count == 28) is updated to the new vocabulary",
+        "Sort order still derives from the profile so galleries match web"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). iOS is the closest to correct already - PhotoManagerView.swift:174 has Suggested/All-types today. Cannot be built or tested on Windows; iOS CI on macOS runners is the gate. | DONE 2026-08-10: LocalItemPhoto.photoRole (optional, so SwiftData migrates lightweight); photo_role threaded through the pull columns, RemoteItemPhoto, the merge, and the offline replay payload. PhotoRole gained `role`; PhotoProfileStore.profile(for:garment:) mirrors the edge resolver including the group->item_category bridge. New GarmentGroup.swift is the Swift mirror of measurementGroupFor, pinned by GarmentGroupTests against the SAME cases the web suite asserts. Retag menu is Suggested (profile order) then All types (A-Z), keyed on the (type, role) pair and deduped; retired types are never offered. isNonListable is role-aware. Labels prefer the role over the bare type everywhere a photo is rendered. FlipdeskPhotoType.all is 30 and the test says why it should stay put. NOT BUILT LOCALLY - Swift/xcodebuild is macOS-only; iOS CI on macOS runners is the gate."
     }
   ]
 }
