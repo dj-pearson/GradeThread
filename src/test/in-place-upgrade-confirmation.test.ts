@@ -175,3 +175,37 @@ describe("US-2118: in-place plan changes go through the confirmation dialog", ()
     }
   });
 });
+
+// ── US-2455: the banner has to be MOUNTED, not merely product-aware ──────────
+//
+// Rendering correctly and being on the page are different claims, and this
+// repo has now been caught on that difference twice in one day (a dialog that
+// existed but was never routed to; an evidence endpoint with a caller and no
+// row to corroborate). The banner was product-blind AND mounted in one layout;
+// fixing only the first would have left a buyer seeing nothing.
+
+describe("US-2455: the past-due banner reaches both apps", () => {
+  const LAYOUTS = [
+    { path: "src/layouts/dashboard-layout.tsx", product: null },
+    { path: "src/layouts/buyer-layout.tsx", product: "buyer" },
+  ] as const;
+
+  for (const layout of LAYOUTS) {
+    it(`${layout.path} mounts the past-due banner`, () => {
+      const file = FILES.find((f) => f.path === layout.path);
+      expect(file, `${layout.path} not found — renamed?`).toBeDefined();
+      expect(
+        file!.src,
+        "a declined card must be visible on every page of this app, not only on " +
+          "its billing page (US-776's argument, which does not weaken per product)",
+      ).toContain("<PastDueBanner");
+      if (layout.product) {
+        expect(
+          file!.src,
+          `${layout.path} must pass product="${layout.product}" — the default is ` +
+            "the seller status, so an unqualified mount here warns nobody",
+        ).toContain(`product="${layout.product}"`);
+      }
+    });
+  }
+});

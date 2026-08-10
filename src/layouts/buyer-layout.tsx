@@ -2,6 +2,7 @@ import { Outlet, Link } from "react-router";
 import { Store } from "lucide-react";
 import { BuyerSidebar } from "@/components/buyer/buyer-sidebar";
 import { RouteErrorBoundary } from "@/components/error-boundary";
+import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { useAuthStore } from "@/stores/auth-store";
 
 // US-1802: buyer app shell. A surface parallel to DashboardLayout (seller) with
@@ -39,6 +40,12 @@ export function BuyerLayout() {
           tabIndex={-1}
           className="flex-1 overflow-y-auto bg-background p-6 outline-none"
         >
+          {/* US-2455: a declined card must be visible on EVERY buyer page, not
+              only on billing — the same argument US-776 made for the seller
+              app. `product` is explicit: a dual-role account past_due on their
+              FlipDesk card must not see the alarm here, where they cannot act
+              on it. */}
+          <PastDueBanner product="buyer" />
           <RouteErrorBoundary>
             <Outlet />
           </RouteErrorBoundary>
