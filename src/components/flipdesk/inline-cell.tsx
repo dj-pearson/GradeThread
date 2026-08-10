@@ -4,6 +4,26 @@ import { cn } from "@/lib/utils";
 type Props = {
   value: string | number | null;
   onChange: (next: string) => void;
+  /**
+   * What this cell edits, in the user's words — "Cost", "Tracking", "Notes".
+   *
+   * REQUIRED, and required on purpose. Until US-2450 this component said "Edit
+   * value" for every one of its seven appearances in a listings row, which
+   * passed the has-a-name bar in src/test/control-labels.test.ts and still left
+   * a screen reader user unable to tell a cost field from a target price. A
+   * required prop makes the compiler refuse a new call site that forgets, which
+   * no test can do as reliably.
+   */
+  label: string;
+  /**
+   * Which row this cell belongs to — see itemRowLabel().
+   *
+   * Also required. `label` alone disambiguates ACROSS a row and does nothing
+   * for the far commoner movement, which is down a column: seven "Cost"
+   * editors that differ only by which garment they belong to. Optional would
+   * have been the polite choice and it would have been forgotten.
+   */
+  rowLabel: string;
   type?: "text" | "number";
   align?: "left" | "right";
   className?: string;
@@ -23,6 +43,8 @@ type Props = {
 export function InlineCell({
   value,
   onChange,
+  label,
+  rowLabel,
   type = "text",
   align = "left",
   className,
@@ -42,6 +64,11 @@ export function InlineCell({
     if (editing) inputRef.current?.select();
   }, [editing]);
 
+  // The field, qualified by the row it sits in. Built once so the read view and
+  // the editor cannot describe the same cell differently — a name that changes
+  // when a control is activated reads as a different control.
+  const scoped = `${label} for ${rowLabel}`;
+
   function stage() {
     const trimmed = draft.trim();
     const current = value == null ? "" : String(value);
@@ -55,7 +82,9 @@ export function InlineCell({
     return (
       <input
         ref={inputRef}
-        aria-label="Edit value"
+        // No value in the label: an <input>'s value is announced natively, and
+        // repeating it here would have it read twice.
+        aria-label={scoped}
         type={type}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -99,7 +128,12 @@ export function InlineCell({
       role="button"
       // role="button" activates an inline text editor; the label states that so
       // the "button" announcement matches the actual (text-edit) affordance.
-      aria-label={display != null ? `Edit: ${display}` : "Edit value"}
+      //
+      // The current value is spelled into the label because aria-label REPLACES
+      // the element's text content in the accessible name — without it, the
+      // number on screen is simply not announced. "empty" rather than nothing,
+      // so a blank cell is heard as blank instead of as a truncated label.
+      aria-label={`Edit ${scoped}, currently ${display ?? "empty"}`}
       // Full value on hover when clamped, so the user can peek without editing.
       title={truncate && display != null ? display : undefined}
       className={cn(

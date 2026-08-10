@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2450",
+  "nextId": "US-2451",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1848,6 +1848,21 @@
         "Either way a guard: a test asserts the invariant that was silently violated here — if the waitlist_gating flag can be enabled, a public capture path must exist. An orphaned component is invisible to every existing check, which is why this survived.",
         "The decision and its reason are written into the story notes, so the next reader does not re-derive it from an orphaned component and a live admin page."
       ]
+    },
+    {
+      "id": "US-2450",
+      "passes": false,
+      "title": "Every control in a FlipDesk listings row is named the same thing, so a screen reader cannot tell which garment it is about to reprice",
+      "description": "US-2335 ground the unlabelled-control count to zero and the listings table passed that bar the whole time: every inline editor announced \"Edit value\", the status control \"Change status\", the checkbox \"Select row\", the delete button \"Delete item\". Those are names, so the audit counted them as fixed. But the table renders up to a few hundred virtualized rows with roughly fourteen controls each, and a screen reader user moving down a column hears the same four words repeatedly with nothing identifying the item. A name that does not distinguish is not a usable name, which is the exact caveat src/test/control-labels.test.ts records under AC4 and the exact case the count cannot measure. A second, quieter defect sits in the same rows: the row's own activate label read it.item_title ?? it.listing_title, skipping the US-1569 placeholder fallback that the visible title cell applies, so a row DISPLAYING \"Nike Windbreaker\" announced itself as \"Open Item 42\".",
+      "acceptanceCriteria": [
+        "Every per-row control in src/pages/flipdesk/listings-table.tsx names its own row, so two rows never announce identically.",
+        "The row name comes from one shared derivation, and the visible title cell uses the same rule, so the spoken and printed titles cannot drift apart again.",
+        "An untitled row still gets a distinguishing name: no shared constant fallback, because fresh drafts are exactly the rows most likely to be untitled and would all collapse onto it.",
+        "The row identity is a REQUIRED prop on InlineCell and InlineStatusSelect, so the compiler refuses a new call site that forgets it.",
+        "A guard fails the build if a fixed-string aria-label reappears inside a row, with a short allowlist for the genuinely table-level controls.",
+        "AC4-of-US-2335 still open here: nobody has driven this table with a real screen reader. Distinguishing names are necessary and not sufficient."
+      ],
+      "priority": 1989
     }
   ]
 }

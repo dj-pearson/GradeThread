@@ -61,6 +61,7 @@ import {
 import { MARKETPLACE_LABELS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { itemPhotoThumb } from "@/lib/images";
+import { itemDisplayTitle, itemRowLabel } from "@/lib/item-row-label";
 import { needsSignedDisplayUrl } from "@/lib/item-photo-url";
 import type { ItemFullRow, ItemStatus } from "@/types/database";
 import type { useEbayConnection } from "@/hooks/use-ebay";
@@ -597,6 +598,11 @@ export function ListingsTable({
               const repeat =
                 it.buyer_id != null &&
                 (buyerCounts.get(it.buyer_id) ?? 0) > 1;
+              // US-2450: every control in this row is named after this item.
+              // Derived ONCE per row rather than per control, so the row cannot
+              // introduce itself one way to the checkbox and another way to the
+              // price editor.
+              const rowLabel = itemRowLabel(it);
               return (
                 <ClickableRow
                   key={it.id}
@@ -615,7 +621,11 @@ export function ListingsTable({
                   onActivate={() =>
                     navigate(`/dashboard/flipdesk/items/${it.id}/draft`)
                   }
-                  activateLabel={`Open ${it.item_title ?? it.listing_title ?? "item"}`}
+                  // Was `it.item_title ?? it.listing_title`, which SKIPPED the
+                  // US-1569 placeholder fallback the title cell below applies —
+                  // so a row displaying "Nike Windbreaker" announced itself as
+                  // "Open Item 42". Same derivation for both now.
+                  activateLabel={`Open ${rowLabel}`}
                 >
                   {selectable && (
                     <TableCell
@@ -627,7 +637,7 @@ export function ListingsTable({
                         checked={isSel}
                         onChange={() => toggleSelected(it.id)}
                         className="h-3.5 w-3.5 cursor-pointer"
-                        aria-label="Select row"
+                        aria-label={`Select ${rowLabel}`}
                       />
                     </TableCell>
                   )}
@@ -644,7 +654,7 @@ export function ListingsTable({
                           `/dashboard/flipdesk/items/${it.id}/draft`,
                         )
                       }
-                      aria-label="Open full editor"
+                      aria-label={`Open full editor for ${rowLabel}`}
                     >
                       <Pencil className="h-3 w-3" />
                     </Button>
@@ -678,14 +688,12 @@ export function ListingsTable({
                   <TableCell className="max-w-[280px] font-medium">
                     <div className="flex items-center gap-1.5">
                       {/* US-1569: a placeholder item title falls back
-                          to the draft's generated listing title. */}
-                      <span className="truncate">
-                        {/^item\s+\d+$/i.test(it.item_title ?? "") ||
-                        /^untitled/i.test(it.item_title ?? "") ||
-                        !(it.item_title ?? "").trim()
-                          ? (it.listing_title ?? it.item_title)
-                          : it.item_title}
-                      </span>
+                          to the draft's generated listing title. The rule
+                          moved to lib/item-row-label.ts (US-2450) so the
+                          control labels apply the same one; the rendered
+                          output is unchanged, including the raw (untrimmed)
+                          value and the null-renders-nothing case. */}
+                      <span className="truncate">{itemDisplayTitle(it)}</span>
                       {tab === "drafts" && it.listing_needs_review && (() => {
                         // US-1568 AC3: show the aspect_review count ("N to
                         // fix") like the AutoLister cockpit, when known.
@@ -777,6 +785,10 @@ export function ListingsTable({
                               size="sm"
                               className="h-6 px-2 text-[10px]"
                               onClick={() => setShipItem(it)}
+                              // The visible words lead the label (WCAG 2.5.3,
+                              // label in name) so voice control still activates
+                              // it by what is printed on it.
+                              aria-label={`Mark shipped: ${rowLabel}`}
                               title="Mark shipped + push tracking to eBay"
                             >
                               Mark shipped
@@ -803,6 +815,8 @@ export function ListingsTable({
                       >
                         <InlineCell
                           value={it.purchase_price}
+                          label="Cost"
+                          rowLabel={rowLabel}
                           type="number"
                           align="right"
                           onChange={(v) =>
@@ -822,6 +836,8 @@ export function ListingsTable({
                       >
                         <InlineCell
                           value={it.target_price}
+                          label="Target price"
+                          rowLabel={rowLabel}
                           type="number"
                           align="right"
                           onChange={(v) =>
@@ -854,6 +870,8 @@ export function ListingsTable({
                       >
                         <InlineCell
                           value={it.list_price}
+                          label="List price"
+                          rowLabel={rowLabel}
                           type="number"
                           align="right"
                           onChange={(v) => updateListingPrice(it, v)}
@@ -899,6 +917,8 @@ export function ListingsTable({
                       >
                         <InlineCell
                           value={it.tracking}
+                          label="Tracking number"
+                          rowLabel={rowLabel}
                           type="text"
                           placeholder="Add tracking"
                           onChange={(v) => updateTracking(it, v)}
@@ -919,6 +939,7 @@ export function ListingsTable({
                             size="sm"
                             className="h-6 px-2 text-[10px]"
                             onClick={() => markDelivered(it)}
+                            aria-label={`Mark delivered: ${rowLabel}`}
                             title="Mark this order delivered"
                           >
                             Mark delivered
@@ -934,6 +955,8 @@ export function ListingsTable({
                       >
                         <InlineCell
                           value={it.purchase_price}
+                          label="Cost"
+                          rowLabel={rowLabel}
                           type="number"
                           align="right"
                           onChange={(v) =>
@@ -953,6 +976,8 @@ export function ListingsTable({
                       >
                         <InlineCell
                           value={it.target_price}
+                          label="Target price"
+                          rowLabel={rowLabel}
                           type="number"
                           align="right"
                           onChange={(v) =>
@@ -984,6 +1009,7 @@ export function ListingsTable({
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <InlineStatusSelect
                       value={it.status}
+                      rowLabel={rowLabel}
                       onChange={(next) => updateItemStatus(it, next)}
                     />
                   </TableCell>
@@ -993,6 +1019,8 @@ export function ListingsTable({
                   >
                     <InlineCell
                       value={it.notes}
+                      label="Notes"
+                      rowLabel={rowLabel}
                       type="text"
                       placeholder="Add notes"
                       truncate
@@ -1095,7 +1123,7 @@ export function ListingsTable({
                             size="icon"
                             className="h-6 w-6"
                             onClick={() => setPublishItem(it)}
-                            aria-label="Relist as a new listing"
+                            aria-label={`Relist ${rowLabel} as a new listing`}
                             title="End this listing and relist as a new one"
                           >
                             <RotateCcw className="h-3.5 w-3.5" />
@@ -1106,6 +1134,7 @@ export function ListingsTable({
                           size="sm"
                           className="h-6 px-2 text-[10px]"
                           onClick={() => setRecordSaleItem(it)}
+                          aria-label={`Sold: record the sale of ${rowLabel}`}
                         >
                           Sold
                         </Button>
@@ -1114,7 +1143,7 @@ export function ListingsTable({
                           size="icon"
                           className="h-6 w-6 text-destructive"
                           onClick={() => setEndTarget(it)}
-                          aria-label="End listing early"
+                          aria-label={`End the listing for ${rowLabel} early`}
                           title="End listing early"
                         >
                           <XCircle className="h-3.5 w-3.5" />
@@ -1194,6 +1223,7 @@ export function ListingsTable({
                                   size="sm"
                                   className="h-6 px-2 text-[10px]"
                                   onClick={() => setPublishItem(it)}
+                                  aria-label={`${isRelist ? "Relist" : "Publish"}: ${rowLabel}`}
                                   title={
                                     isRelist
                                       ? "Republish to eBay (same SKU, new listing)"
@@ -1212,6 +1242,7 @@ export function ListingsTable({
                                   size="sm"
                                   className="h-6 px-2 text-[10px]"
                                   onClick={() => setMarkListedItem(it)}
+                                  aria-label={`Mark ${rowLabel} as already listed`}
                                   title="Skip eBay API — just record that it's live"
                                 >
                                   Mark
@@ -1225,6 +1256,7 @@ export function ListingsTable({
                               size="sm"
                               className="h-6 px-2 text-[10px]"
                               onClick={() => setMarkListedItem(it)}
+                              aria-label={`${isRelist ? "Relist" : "List it"}: ${rowLabel}`}
                             >
                               {isRelist ? "Relist" : "List it"}
                             </Button>
@@ -1241,7 +1273,7 @@ export function ListingsTable({
                           target="_blank"
                           rel="noopener noreferrer"
                           className="inline-flex text-brand-red-text"
-                          aria-label="Open listing"
+                          aria-label={`Open the marketplace listing for ${rowLabel}`}
                         >
                           <ExternalLink className="h-3 w-3" />
                         </a>
@@ -1256,7 +1288,7 @@ export function ListingsTable({
                           size="icon"
                           className="h-6 w-6 text-muted-foreground hover:text-destructive"
                           onClick={() => setDeleteTarget(it)}
-                          aria-label="Delete item"
+                          aria-label={`Delete ${rowLabel}`}
                           title="Delete this item and its photos (for removing a duplicate)"
                         >
                           <Trash2 className="h-3.5 w-3.5" />

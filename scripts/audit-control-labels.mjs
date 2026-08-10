@@ -47,12 +47,50 @@ export function walk(dir, out = []) {
   return out;
 }
 
-/** The attribute text of the tag starting at `from`, up to its closing `>`. */
+/**
+ * The attribute text of the tag starting at `from`, up to its closing `>`.
+ *
+ * SKIPS COMMENTS AND QUOTED STRINGS while walking, because both can contain a
+ * `>` that is not the end of the tag. The case that found this (2026-08-10):
+ * inline-cell.tsx explains its own label with an attribute-level comment
+ * mentioning an input element in angle brackets, and the walk stopped at that
+ * `>` — so the aria-label two lines below it was never seen and a correctly
+ * labelled control was reported as unlabelled.
+ *
+ * That is the failure this script's header warns about, in its worst form: a
+ * FALSE POSITIVE. The obvious response is to reword the comment, and the next
+ * person writing `<input>` in a comment hits it again. Reading the tag
+ * correctly is the fix.
+ *
+ * Note this still never rewrites `src` — it only advances the cursor — so every
+ * offset stays what it was. That constraint is why the earlier blank-the-
+ * comments attempt was reverted; see inComment() below.
+ */
 export function tagAttrs(src, from) {
   let depth = 0;
+  let quote = null;
   for (let i = from; i < src.length && i < from + 4000; i++) {
     const c = src[i];
-    if (c === "{") depth++;
+    // Inside a quoted attribute value: only its own closing quote matters. This
+    // is also what keeps a `//` in a URL from reading as a comment.
+    if (quote) {
+      if (c === quote) quote = null;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") {
+      const nl = src.indexOf("\n", i);
+      if (nl === -1) return src.slice(from, i);
+      i = nl;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const end = src.indexOf("*/", i + 2);
+      if (end === -1) return src.slice(from, i);
+      i = end + 1;
+      continue;
+    }
+    if (c === '"' || c === "'") quote = c;
+    else if (c === "{") depth++;
     else if (c === "}") depth--;
     else if (c === ">" && depth === 0) return src.slice(from, i);
   }

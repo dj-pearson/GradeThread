@@ -6,6 +6,12 @@ import type { ItemStatus } from "@/types/database";
 type Props = {
   value: ItemStatus;
   onChange: (next: ItemStatus) => void;
+  /**
+   * Which row this control belongs to — see itemRowLabel(). REQUIRED: one
+   * "Change status" per row is a name; two hundred of them is a maze, and the
+   * compiler is the only thing that makes a new call site supply this.
+   */
+  rowLabel: string;
   pending?: boolean;
   className?: string;
 };
@@ -22,6 +28,7 @@ type Props = {
 export function InlineStatusSelect({
   value,
   onChange,
+  rowLabel,
   pending = false,
   className,
 }: Props) {
@@ -38,7 +45,10 @@ export function InlineStatusSelect({
           in this cell lands on it — and its own stopPropagation keeps the row's
           navigate-on-click from swallowing the interaction. */}
       <select
-        aria-label="Change status"
+        // No "currently …" here, unlike InlineCell: a native <select> announces
+        // its selected option as part of its VALUE, so spelling the status into
+        // the name would have it read twice.
+        aria-label={`Status of ${rowLabel}`}
         value={value}
         onChange={(e) => onChange(e.target.value as ItemStatus)}
         onClick={(e) => e.stopPropagation()}

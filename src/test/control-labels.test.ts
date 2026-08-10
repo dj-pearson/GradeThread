@@ -19,7 +19,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { auditFile, walk } from "../../scripts/audit-control-labels.mjs";
+import { auditFile, tagAttrs, walk } from "../../scripts/audit-control-labels.mjs";
 
 /**
  * Controls with no resolvable accessible name. **ZERO**, as of 2026-08-09.
@@ -76,6 +76,35 @@ describe("form controls carry an accessible name (US-2335)", () => {
       );
     }
     expect(total).toBeLessThanOrEqual(BASELINE);
+  });
+
+  it("a comment inside an opening tag does not hide the attributes after it", () => {
+    // 2026-08-10 false positive. tagAttrs walked to the first `>` and found the
+    // one inside "<input>" written in an attribute-level comment, so it never
+    // reached the aria-label below and accused a labelled control.
+    //
+    // A false positive is worse here than an under-count: the fix it invites is
+    // adding a SECOND name to a control that already has one.
+    const src = `
+      <input
+        // an <input> announces its own value
+        aria-label={scoped}
+        type="text"
+      />`;
+    expect(auditFile(src)).toEqual([]);
+  });
+
+  it("still reports a control that genuinely has no name", () => {
+    // The other half of the fix above: reading more of the tag must not make
+    // everything look labelled.
+    expect(auditFile(`<input type="text" value={x} />`)).toEqual([
+      { tag: "input", line: 1 },
+    ]);
+  });
+
+  it("a // inside a quoted attribute is a URL, not a comment", () => {
+    const attrs = tagAttrs(`<input data-src="https://x.test/a" aria-label="Q" />`, 0);
+    expect(attrs).toContain("aria-label");
   });
 
   it("the auth surface stays clean", () => {
