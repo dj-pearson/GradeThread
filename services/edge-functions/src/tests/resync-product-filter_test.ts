@@ -98,3 +98,43 @@ Deno.test("US-2457 AC5: the resync writes SELLER columns only", () => {
     );
   }
 });
+
+// ── The other end of the same false flag (US-2457) ──────────────────────────
+
+const RECON_JOB = code(
+  await Deno.readTextFile(
+    new URL("../routes/jobs-billing-reconciliation.ts", import.meta.url),
+  ),
+);
+
+Deno.test("US-2457: the Stripe sweep does not map a buyer subscription onto the seller", () => {
+  // The map built here is keyed by CUSTOMER and compared against the SELLER
+  // cached columns — and both products share one customer. Without the filter,
+  // an account with an active Guard plan and a canceled FlipDesk one produces a
+  // `stripe_divergence` flag claiming Stripe thinks they are active. That flag's
+  // remedy is the resync above, so the two defects fed each other: a false flag
+  // pointing at a button that adopted the buyer subscription.
+  const body = fnBody(RECON_JOB, "async function fetchStripeSubscriptions");
+  const idxFilter = body.indexOf("subscriptionIsBuyer(sub)");
+  const idxSet = body.indexOf("byCustomer.set(");
+  assert(idxFilter > -1, "the Stripe sweep must exclude buyer subscriptions");
+  assert(idxFilter < idxSet, "the filter must precede the map write");
+  assert(
+    /if \(subscriptionIsBuyer\(sub\)\) continue;/.test(body),
+    "skip the buyer subscription outright — keeping it under a different key " +
+      "would still leave it available to a seller comparison",
+  );
+});
+
+Deno.test("US-2457: the sweep still keeps CANCELED seller subscriptions", () => {
+  // The filter must not become a general tidy-up. `status: "all"` is
+  // load-bearing: "Stripe says canceled while we say active" is the most
+  // expensive divergence there is — a customer served a paid plan for free —
+  // and filtering it out would hide exactly what this fetch exists to find.
+  const body = fnBody(RECON_JOB, "async function fetchStripeSubscriptions");
+  assert(/status: "all"/.test(body), "the sweep must still list canceled subscriptions");
+  assert(
+    /existing\.status === "canceled" && sub\.status !== "canceled"/.test(body),
+    "the prefer-live-over-canceled rule must survive the filter",
+  );
+});

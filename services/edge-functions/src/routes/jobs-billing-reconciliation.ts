@@ -25,6 +25,7 @@ import { acquireJobLock } from "../lib/job-lock.ts";
 import { detectDivergence, detectStripeDivergence } from "../lib/billing-reconciliation.ts";
 import { getStripe } from "../lib/stripe-client.ts";
 import { emitOpsEvent } from "../lib/ops-events.ts";
+import { subscriptionIsBuyer } from "./webhooks.ts";
 
 // Bound the per-run scan. A pre-launch SaaS has far fewer subscribers than this;
 // the RPC clamps to 10k regardless.
@@ -64,12 +65,21 @@ async function fetchStripeSubscriptions(): Promise<
         ...(startingAfter ? { starting_after: startingAfter } : {}),
       });
       for (const sub of res.data) {
+        // US-2457: the BUYER subscription rides the same Stripe customer as the
+        // seller one, and this map is compared against the SELLER cached
+        // columns. Including it means a buyer's status can be read as the
+        // seller's — an account holding an active Guard plan and a canceled
+        // FlipDesk one produces a `stripe_divergence` flag saying Stripe thinks
+        // they are active. The remedy for that flag is the resync, whose
+        // product filter is the fix in the same story: a false flag here is a
+        // loaded button, not a stray line.
+        if (subscriptionIsBuyer(sub)) continue;
         const customerId = typeof sub.customer === "string" ? sub.customer : sub.customer?.id;
         if (!customerId) continue;
-        // One subscription per customer is the model here. If Stripe holds
-        // several, prefer a non-canceled one — a live sub is the state that
-        // governs access, and comparing against a stale canceled sibling would
-        // manufacture a divergence that is not real.
+        // One SELLER subscription per customer is the model here. If Stripe
+        // holds several, prefer a non-canceled one — a live sub is the state
+        // that governs access, and comparing against a stale canceled sibling
+        // would manufacture a divergence that is not real.
         const existing = byCustomer.get(customerId);
         if (!existing || (existing.status === "canceled" && sub.status !== "canceled")) {
           byCustomer.set(customerId, { id: sub.id, status: sub.status ?? null });

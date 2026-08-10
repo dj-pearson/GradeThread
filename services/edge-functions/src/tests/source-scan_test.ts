@@ -123,3 +123,28 @@ Deno.test("allCallArgs(): no calls is an empty list, not a throw", () => {
   // legitimate (if suspicious) state, and the CALLER should assert the count.
   assertEquals(allCallArgs("const x = 1;", "f"), []);
 });
+
+Deno.test("fnBody(): a RETURN TYPE containing braces does not swallow the body", () => {
+  // Found 2026-08-10 against fetchStripeSubscriptions, whose signature is
+  // `): Promise<Map<string, { id: string; status: string | null }> | null> {`.
+  // Taking the first `{` after the parameter list landed inside the return
+  // type, and two correct assertions failed as though the code were missing.
+  const src = [
+    "async function f(): Promise<",
+    "  Map<string, { id: string; status: string | null }> | null",
+    "> {",
+    "  const real = 1;",
+    "  return null;",
+    "}",
+  ].join("\n");
+  const body = fnBody(src, "async function f");
+  assert(body.includes("const real = 1;"), body);
+  assert(!body.includes("status: string | null }>"), "the return type leaked in");
+});
+
+Deno.test("fnBody(): a generic parameter list is not mistaken for the body", () => {
+  const src = "function g<T extends { id: string }>(x: T): T {\n  return x;\n}";
+  const body = fnBody(src, "function g");
+  assert(body.includes("return x;"), body);
+  assert(!body.includes("extends"), body);
+});

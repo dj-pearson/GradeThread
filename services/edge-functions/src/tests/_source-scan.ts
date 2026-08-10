@@ -41,11 +41,19 @@ export function code(src: string): string {
  * `declaration` is matched literally — e.g. "async function handleX" or
  * "export async function sendY".
  *
- * The trap: taking the first `{` after the name. For a function whose parameter
- * is an inline object TYPE — `user: { id: string; … }` — that brace opens the
- * annotation, and the match closes at the end of it. The returned "body" is
- * then the parameter list, and every assertion about the function fails as
- * though the code were missing. This walks the parameter parens first.
+ * TWO traps, both of which produced failures against correct code:
+ *
+ *  1. Taking the first `{` after the NAME. For a parameter that is an inline
+ *     object TYPE — `user: { id: string; … }` — that brace opens the
+ *     annotation and the match closes at the end of it, so the "body" is the
+ *     parameter list. Walked past by matching the parameter parens first.
+ *  2. Taking the first `{` after the parameter list. A RETURN TYPE can contain
+ *     one too: `): Promise<Map<string, { id: string }> | null> {`. Walked past
+ *     by tracking angle-bracket depth and taking the first `{` outside it.
+ *
+ * Both failures look identical from the test: assertions about real code fail
+ * as though the code were missing, and the tempting response is to weaken the
+ * assertion rather than fix the slicer.
  */
 export function fnBody(src: string, declaration: string): string {
   const at = src.indexOf(declaration);
@@ -57,7 +65,20 @@ export function fnBody(src: string, declaration: string): string {
     if (src[i] === "(") parens++;
     else if (src[i] === ")" && --parens === 0) break;
   }
-  const open = src.indexOf("{", i);
+  // Skip a return-type annotation: the body brace is the first `{` at
+  // angle-depth 0. `=>` inside a type would break this, and a guard test names
+  // that limit rather than pretending otherwise.
+  let angle = 0;
+  let open = -1;
+  for (let j = i + 1; j < src.length; j++) {
+    const ch = src[j];
+    if (ch === "<") angle++;
+    else if (ch === ">") angle = Math.max(0, angle - 1);
+    else if (ch === "{" && angle === 0) {
+      open = j;
+      break;
+    }
+  }
   if (open === -1) throw new Error(`fnBody: ${declaration} has no body`);
   let depth = 0;
   for (let j = open; j < src.length; j++) {
