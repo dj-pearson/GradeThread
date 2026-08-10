@@ -292,14 +292,21 @@ enum InventoryEquityMath {
         _ map: [String: InventoryEquityBucket],
         limit: Int = 5
     ) -> [InventoryEquityRow] {
-        let sorted = map
-            .map { (label: $0.key, bucket: $0.value) }
-            .sorted {
-                $0.bucket.cents == $1.bucket.cents
-                    ? $0.label < $1.label
-                    : $0.bucket.cents > $1.bucket.cents
-            }
-            .prefix(limit)
+        // Deliberately three statements with an explicit type annotation, not
+        // one chained expression. As a single `.map { }.sorted { ternary }
+        // .prefix()` chain over an inferred tuple, this blew the Release
+        // whole-module type-check budget ("unable to type-check this expression
+        // in reasonable time") — the same failure mode PhotoManagerView's body
+        // decomposition exists to avoid. The ternary inside the sort closure is
+        // what tips it over; naming the type and using an if/return keeps every
+        // sub-expression cheap.
+        typealias Pair = (label: String, bucket: InventoryEquityBucket)
+        let pairs: [Pair] = map.map { (label: $0.key, bucket: $0.value) }
+        let ordered: [Pair] = pairs.sorted { lhs, rhs in
+            if lhs.bucket.cents == rhs.bucket.cents { return lhs.label < rhs.label }
+            return lhs.bucket.cents > rhs.bucket.cents
+        }
+        let sorted = ordered.prefix(limit)
         let peak = sorted.first?.bucket.cents ?? 0
         return sorted.map { entry in
             InventoryEquityRow(

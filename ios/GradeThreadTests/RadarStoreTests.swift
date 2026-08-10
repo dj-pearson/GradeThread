@@ -140,12 +140,23 @@ final class RadarStoreTests: XCTestCase {
         )
     }
 
+    // The default is nil rather than `FakeLocation()` because a DEFAULT
+    // ARGUMENT is evaluated in a nonisolated context, even on a @MainActor
+    // type. `FakeLocation` is nested in this @MainActor class and so inherits
+    // its isolation, which made the old default "call to main actor-isolated
+    // initializer 'init()' in a synchronous nonisolated context" — an error
+    // that only surfaces on the CI toolchain. Constructing it in the BODY is
+    // the fix: the body is MainActor-isolated, the default expression is not.
     private func makeStore(
         service: FakeRadarService,
-        location: FakeLocation = FakeLocation(),
+        location: FakeLocation? = nil,
         consent: RadarConsent? = nil
     ) -> RadarStore {
-        RadarStore(service: service, location: location, consent: consent ?? self.consent())
+        RadarStore(
+            service: service,
+            location: location ?? FakeLocation(),
+            consent: consent ?? self.consent()
+        )
     }
 
     // MARK: - Consent and location (AC2)
