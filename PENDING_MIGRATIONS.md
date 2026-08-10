@@ -26,6 +26,31 @@ watch this statement's output when applying, rather than assuming.
 
 **Apply order: AFTER 00585.** No dependency on anything newer.
 
+**The exact steps**, so this is a five-minute job and not a research task:
+
+```bash
+# 1. Apply. Runs every migration in NNNNN order; all are idempotent, so the
+#    already-applied ones are no-ops and only 00586 does anything.
+SUPABASE_DB_URL="postgres://…@host:5432/postgres" ./scripts/apply-prod-migrations.sh
+
+# 2. A function changed, so PostgREST needs to reload.
+psql "$SUPABASE_DB_URL" -c "NOTIFY pgrst, 'reload schema';"
+
+# 3. Confirm the database's own answer, not the repo's.
+curl -s https://functions.gradethread.com/health/ready | jq .schema
+#    expect: applied "00586" (status "ok" or "ahead")
+```
+
+Then flip this heading to `## ✅ APPLIED:` with the date, and the push is
+unblocked — `scripts/held-migration-gate.mjs` reads that heading and is what is
+currently refusing the push.
+
+**How to tell it worked, beyond the version number.** The next email signup
+should write a `legal_acceptances` row with `method = 'signup_clickwrap'`, and
+the `legal.signup_clickwrap_missing` metric should stop appearing. Both are the
+symptom this migration exists to end, so either one is a real check rather than
+a re-reading of the code.
+
 **`NOTIFY pgrst, 'reload schema';` — YES.** A function was replaced.
 
 **What it fixes.** 00142 taught the trigger to record an email signup's
