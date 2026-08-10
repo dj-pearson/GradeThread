@@ -19,6 +19,7 @@
 // email that speaks about renewals or cancellation cannot ship unregistered.
 
 import { assert, assertEquals } from "@std/assert";
+import { code, fnBody } from "./_source-scan.ts";
 
 const EMAIL = await Deno.readTextFile(new URL("../lib/email.ts", import.meta.url));
 const REGISTER = await Deno.readTextFile(
@@ -35,41 +36,16 @@ const REGISTER = await Deno.readTextFile(
 const BILLING_SPEECH =
   /renews? automatically|until you cancel|cancel any ?time|your card will be charged|the payment is just|renewal|cancellation stops|plan will drop|subscription renewed|update your card/i;
 
-/** Whole-line comments removed: a header explaining renewal rules is not copy. */
-function code(src: string): string {
-  return src
-    .split(/\r?\n/)
-    .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l))
-    .join("\n");
+/** Every exported send*Email name, in declaration order. */
+function senderNames(src: string): string[] {
+  return [...src.matchAll(/export async function (send\w+Email)\s*\(/g)].map((m) => m[1]!);
 }
 
-/** Brace-matched bodies of every exported send*Email function. */
-function senders(src: string): Array<{ name: string; body: string }> {
-  const out: Array<{ name: string; body: string }> = [];
-  const re = /export async function (send\w+Email)\s*\(/g;
-  for (let m = re.exec(src); m; m = re.exec(src)) {
-    let parens = 0;
-    let i = src.indexOf("(", m.index);
-    for (; i < src.length; i++) {
-      if (src[i] === "(") parens++;
-      else if (src[i] === ")" && --parens === 0) break;
-    }
-    const open = src.indexOf("{", i);
-    let depth = 0;
-    for (let j = open; j < src.length; j++) {
-      if (src[j] === "{") depth++;
-      else if (src[j] === "}" && --depth === 0) {
-        out.push({ name: m[1]!, body: src.slice(open, j) });
-        break;
-      }
-    }
-  }
-  return out;
-}
-
-const BILLING_SENDERS = senders(code(EMAIL))
-  .filter((s) => BILLING_SPEECH.test(s.body))
-  .map((s) => s.name)
+const EMAIL_CODE = code(EMAIL);
+const BILLING_SENDERS = senderNames(EMAIL_CODE)
+  .filter((name) =>
+    BILLING_SPEECH.test(fnBody(EMAIL_CODE, `export async function ${name}`))
+  )
   .sort();
 
 Deno.test("US-2114: the register is not empty and the scan still works", () => {

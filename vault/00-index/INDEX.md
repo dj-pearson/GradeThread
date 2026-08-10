@@ -74,7 +74,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 70-agent — how agents work here
 
-19 notes — see [[moc-agent]].
+20 notes — see [[moc-agent]].
 
 ## 90-archive — historical snapshots
 

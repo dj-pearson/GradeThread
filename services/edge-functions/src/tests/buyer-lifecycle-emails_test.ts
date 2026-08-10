@@ -13,56 +13,15 @@
 // and the property under test is WHERE the send sits and WHAT it reads.
 
 import { assert, assertEquals } from "@std/assert";
-
-/**
- * Source with WHOLE-LINE comments removed.
- *
- * Every assertion here reads this rather than the raw file. Five times in one
- * day a guard has passed because the explanatory comment above the code
- * contained the identifier the guard was looking for — including twice in this
- * very file, where the comment saying "there is no buyer_pause_until" satisfied
- * the check for a buyer pause column. Only full lines are stripped, so a `//`
- * inside a URL in a template string survives.
- */
-function code(src: string): string {
-  return src
-    .split(/\r?\n/)
-    .filter((l) => !/^\s*(\/\/|\/\*|\*)/.test(l))
-    .join("\n");
-}
+import { code, fnBody } from "./_source-scan.ts";
 
 const WEBHOOKS = code(
   await Deno.readTextFile(new URL("../routes/webhooks.ts", import.meta.url)),
 );
 const EMAIL = code(await Deno.readTextFile(new URL("../lib/email.ts", import.meta.url)));
 
-/**
- * The BODY of one function, brace-matched.
- *
- * Finds the brace after the parameter list closes, not the first brace after
- * the name — applyBuyerSubscriptionChange takes an inline object TYPE, so
- * `indexOf("{")` lands inside the parameter annotation and the match closes at
- * the end of it. That produced five failures that looked like missing code.
- */
-function fn(src: string, declaration: string): string {
-  const at = src.indexOf(declaration);
-  assert(at > -1, `${declaration} not found — renamed?`);
-  let parens = 0;
-  let i = src.indexOf("(", at);
-  for (; i < src.length; i++) {
-    if (src[i] === "(") parens++;
-    else if (src[i] === ")" && --parens === 0) break;
-  }
-  const open = src.indexOf("{", i);
-  let depth = 0;
-  for (let j = open; j < src.length; j++) {
-    if (src[j] === "{") depth++;
-    else if (src[j] === "}" && --depth === 0) return src.slice(open, j);
-  }
-  throw new Error(`unbalanced braces in ${declaration}`);
-}
 
-const BUYER_CHANGE = () => fn(WEBHOOKS, "async function applyBuyerSubscriptionChange");
+const BUYER_CHANGE = () => fnBody(WEBHOOKS, "async function applyBuyerSubscriptionChange");
 
 Deno.test("US-2453 AC1: a buyer purchase is acknowledged", () => {
   const body = BUYER_CHANGE();
@@ -189,7 +148,7 @@ Deno.test("US-2119 AC4: a buyer trial-will-end is not sent the seller's trial co
   //
   // Skipped rather than given new copy, because a buyer Stripe trial is not a
   // product state today — and that premise is what the next assertion pins.
-  const body = fn(WEBHOOKS, "async function handleTrialWillEnd");
+  const body = fnBody(WEBHOOKS, "async function handleTrialWillEnd");
   const idxGuard = body.indexOf("if (subscriptionIsBuyer(sub))");
   const idxSend = body.indexOf("sendTrialExpiringEmail(");
   assert(idxGuard > -1, "handleTrialWillEnd must branch on the product");
@@ -221,7 +180,7 @@ Deno.test("US-2119 AC4: the premise of that skip is guarded, not assumed", () =>
 });
 
 Deno.test("US-2453 AC3: a buyer's final cancellation is audited", () => {
-  const body = fn(WEBHOOKS, "async function handleSubscriptionDeleted");
+  const body = fnBody(WEBHOOKS, "async function handleSubscriptionDeleted");
   const branch = body.indexOf("if (subscriptionIsBuyer(sub)) {");
   assert(branch > -1, "the buyer branch is gone");
   const idxRecord = body.indexOf("recordEvent(", branch);
@@ -241,7 +200,7 @@ Deno.test("US-2453 AC4: both lifecycle templates take their product from the sha
     "export async function sendSubscriptionStartedEmail",
     "export async function sendSubscriptionCanceledEmail",
   ]) {
-    const body = fn(EMAIL, template);
+    const body = fnBody(EMAIL, template);
     assert(
       /const \{ productName, manageUrl \} = renewalNoticeCopy\(data\.product, SITE_URL\)/
         .test(body),
@@ -260,7 +219,7 @@ Deno.test("US-2453: the cancellation email does not promise a buyer someone else
   // "Your inventory, listings, past grade reports and grade credits all stay
   // safe" is true for a seller and meaningless to a buyer, on the one email
   // sent at the moment they are least inclined to overlook a mistake.
-  const body = fn(EMAIL, "export async function sendSubscriptionCanceledEmail");
+  const body = fnBody(EMAIL, "export async function sendSubscriptionCanceledEmail");
   assert(/data\.product === "buyer"/.test(body), "the retained-data line must be per product");
   assert(
     !/\$\{kept\}[\s\S]{0,80}inventory/.test(body),

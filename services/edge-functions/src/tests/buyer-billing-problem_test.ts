@@ -15,24 +15,13 @@
 // the send sits, not whether a send exists somewhere.
 
 import { assert, assertEquals } from "@std/assert";
+import { fnBody } from "./_source-scan.ts";
 
 const WEBHOOKS = await Deno.readTextFile(
   new URL("../routes/webhooks.ts", import.meta.url),
 );
 const EMAIL = await Deno.readTextFile(new URL("../lib/email.ts", import.meta.url));
 
-/** The body of one function, brace-matched from its declaration. */
-function fn(src: string, declaration: string): string {
-  const at = src.indexOf(declaration);
-  assert(at > -1, `${declaration} not found — renamed?`);
-  const open = src.indexOf("{", at);
-  let depth = 0;
-  for (let i = open; i < src.length; i++) {
-    if (src[i] === "{") depth++;
-    else if (src[i] === "}" && --depth === 0) return src.slice(open, i);
-  }
-  throw new Error(`unbalanced braces in ${declaration}`);
-}
 
 const HANDLERS = [
   { name: "handleInvoicePaymentFailed", kind: "payment_failed" },
@@ -41,7 +30,7 @@ const HANDLERS = [
 
 for (const h of HANDLERS) {
   Deno.test(`US-2452: ${h.name} notifies the buyer before it returns`, () => {
-    const body = fn(WEBHOOKS, `async function ${h.name}`);
+    const body = fnBody(WEBHOOKS, `async function ${h.name}`);
     const idxBranch = body.indexOf("if (invoiceIsBuyer(invoice)) {");
     assert(idxBranch > -1, `${h.name}: the buyer branch is gone`);
     const idxSend = body.indexOf(`sendBuyerBillingProblem(`);
@@ -67,7 +56,7 @@ Deno.test("US-2452 AC3: the seller dunning transition stays behind the skip", ()
   // make the recorded state depend on Stripe's delivery order — and writing the
   // SELLER columns for a buyer invoice would put a paying seller into dunning
   // over someone else's card.
-  const body = fn(WEBHOOKS, "async function handleInvoicePaymentFailed");
+  const body = fnBody(WEBHOOKS, "async function handleInvoicePaymentFailed");
   const afterSkip = body.slice(body.indexOf("if (invoiceIsBuyer(invoice)) {"));
   for (const sellerOnly of ['subscription_status: "past_due"', "past_due_since: nextPastDueSince("]) {
     assert(
@@ -76,7 +65,7 @@ Deno.test("US-2452 AC3: the seller dunning transition stays behind the skip", ()
     );
   }
   // And the buyer notifier must not write status at all.
-  const notifier = fn(WEBHOOKS, "async function sendBuyerBillingProblem");
+  const notifier = fnBody(WEBHOOKS, "async function sendBuyerBillingProblem");
   for (const forbidden of ["buyer_subscription_status", "past_due_since", ".update("]) {
     assert(
       !notifier.includes(forbidden),
@@ -87,7 +76,7 @@ Deno.test("US-2452 AC3: the seller dunning transition stays behind the skip", ()
 });
 
 Deno.test("US-2452: a buyer already on free is not chased for a subscription they lost", () => {
-  const notifier = fn(WEBHOOKS, "async function sendBuyerBillingProblem");
+  const notifier = fnBody(WEBHOOKS, "async function sendBuyerBillingProblem");
   assert(
     /buyerPlan === "free"/.test(notifier),
     "a buyer on free has no buyer subscription to save",
@@ -103,7 +92,7 @@ Deno.test("US-2452 AC4: both templates take their product from the shared copy",
     "export async function sendPaymentFailedEmail",
     "export async function sendPaymentActionRequiredEmail",
   ]) {
-    const body = fn(EMAIL, template);
+    const body = fnBody(EMAIL, template);
     assert(
       /const \{ productName, manageUrl \} = renewalNoticeCopy\(data\.product, SITE_URL\)/
         .test(body),

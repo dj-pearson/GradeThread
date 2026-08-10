@@ -13,27 +13,16 @@
 // test is structural — WHERE the send sits relative to the skip.
 
 import { assert, assertEquals } from "@std/assert";
+import { fnBody } from "./_source-scan.ts";
 
 const WEBHOOKS = await Deno.readTextFile(
   new URL("../routes/webhooks.ts", import.meta.url),
 );
 const EMAIL = await Deno.readTextFile(new URL("../lib/email.ts", import.meta.url));
 
-/** The body of one function, brace-matched from its declaration. */
-function fn(src: string, declaration: string): string {
-  const at = src.indexOf(declaration);
-  assert(at > -1, `${declaration} not found — renamed?`);
-  const open = src.indexOf("{", at);
-  let depth = 0;
-  for (let i = open; i < src.length; i++) {
-    if (src[i] === "{") depth++;
-    else if (src[i] === "}" && --depth === 0) return src.slice(open, i);
-  }
-  throw new Error(`unbalanced braces in ${declaration}`);
-}
 
 Deno.test("US-2451: the buyer receipt is sent BEFORE the skip returns", () => {
-  const body = fn(WEBHOOKS, "async function handleInvoicePaymentSucceeded");
+  const body = fnBody(WEBHOOKS, "async function handleInvoicePaymentSucceeded");
   const idxSend = body.indexOf("sendBuyerRenewalReceipt(");
   const idxReturn = body.indexOf("if (invoiceIsBuyer(invoice)) {");
   assert(idxSend > -1, "the buyer receipt is never sent from this handler");
@@ -49,7 +38,7 @@ Deno.test("US-2451 AC2: the seller cycle resets stay behind the skip", () => {
   // reset below it. One missed branch there zeroes a SELLER's grade and AI
   // quota on a BUYER's renewal — a worse bug than the one being fixed, and one
   // that shows up as a support ticket about vanished credits.
-  const body = fn(WEBHOOKS, "async function handleInvoicePaymentSucceeded");
+  const body = fnBody(WEBHOOKS, "async function handleInvoicePaymentSucceeded");
   const afterSkip = body.slice(body.indexOf("if (invoiceIsBuyer(invoice)) {"));
   for (const sellerOnly of [
     "grades_used_this_month: 0",
@@ -74,7 +63,7 @@ Deno.test("US-2451 AC2: the seller cycle resets stay behind the skip", () => {
 });
 
 Deno.test("US-2451: only a renewal is receipted, and only for a live buyer plan", () => {
-  const body = fn(WEBHOOKS, "async function sendBuyerRenewalReceipt");
+  const body = fnBody(WEBHOOKS, "async function sendBuyerRenewalReceipt");
   assert(
     /billing_reason !== "subscription_cycle"/.test(body),
     "the first charge is covered by the subscription-started path; receipting " +
@@ -88,7 +77,7 @@ Deno.test("US-2451: only a renewal is receipted, and only for a live buyer plan"
 });
 
 Deno.test("US-2451 AC3: the receipt names the product through the shared copy", () => {
-  const body = fn(EMAIL, "export async function sendSubscriptionRenewalReceiptEmail");
+  const body = fnBody(EMAIL, "export async function sendSubscriptionRenewalReceiptEmail");
   // BOTH VALUES must come off the call, pinned as a destructure. Asserting only
   // that renewalNoticeCopy is CALLED was not enough: a sabotage that kept the
   // call for manageUrl and set `const productName = "FlipDesk"` left this green
