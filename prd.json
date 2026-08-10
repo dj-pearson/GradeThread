@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2472",
+  "nextId": "US-2484",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1929,6 +1929,217 @@
         "No change to the fabric-close-up confidence cap logic, which already moved to roles in US-2467"
       ],
       "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). SPLIT OUT OF US-2467 on 2026-08-10. US-2467 shipped the part that changes GRADE ACCURACY (the fabric close-up check now asks for role='fabric' instead of accepting any numbered detail slot). What remains is prompt wording and quality thresholds: real value, but it tunes an existing behavior rather than fixing a wrong one, and it wants an eval run against the golden set rather than a straight edit. Load the `grading-engine` skill before touching any of it - prompt changes are version-gated (shadow -> eval gate -> canary)."
+    },
+    {
+      "id": "US-2472",
+      "passes": false,
+      "title": "EPIC: marketplace coverage + honest automation — close the gap on Crosslist/Vendoo without copying Nifty",
+      "description": "As the GradeThread team, we want every marketplace we advertise to actually publish, delist and sync, and we want any engagement automation to run only in the seller's own browser with the terms-of-service risk stated on screen, so that we close the coverage gap on Crosslist and Vendoo while keeping the trust position that Nifty's server-side credential model gives up.",
+      "acceptanceCriteria": [
+        "Umbrella only: children are US-2473..US-2482; this story closes when every child passes",
+        "Standing constraint recorded in the ADR (US-2474) and enforced by review: GradeThread servers never hold a marketplace session cookie or password for Poshmark/Mercari/Grailed/Vinted/Facebook, and no GradeThread code solves CAPTCHAs",
+        "At close, MARKETPLACE_TIER in src/lib/constants.ts has zero api_pending entries and at least Poshmark+Mercari+Grailed on tier 'extension' with a working publish flow",
+        "src/lib/__tests__/marketplace-mechanism.test.ts still passes: every LIVE_CROSS_LISTING_PLATFORMS member is MARKETPLACE_TIER==='api', and every advertised channel has a delist path in cross-listing-sale.ts API_DELIST or DelistMethod 'extension'",
+        "No story in this epic ships a feature whose only disclosure is in a README — each seller-visible automation has an on-screen risk statement"
+      ],
+      "priority": 30
+    },
+    {
+      "id": "US-2473",
+      "passes": false,
+      "title": "[OPERATOR] Depop go-live: finish partner approval, set DEPOP_ENABLED, flip tier api_pending to api",
+      "description": "As a FlipDesk seller, I want Depop to be a channel I can actually connect and publish to, so that a fully built connector stops sitting behind an env flag while the UI tells me it is 'coming once approved'.",
+      "acceptanceCriteria": [
+        "Depop Selling API partner approval is confirmed in writing and the credential names in services/edge-functions/src/lib/depop-client.ts (DEPOP_ENABLED plus the OAuth creds it reads) are set as Coolify Shared Variables — values recorded by NAME only, never pasted into a note or commit",
+        "isDepopEnabled() returns true in prod and GET on the flipdesk-depop routes no longer short-circuits on the module gate",
+        "MARKETPLACE_TIER.depop in src/lib/constants.ts changes from 'api_pending' to 'api' and depop is added to LIVE_CROSS_LISTING_PLATFORMS in the same commit",
+        "src/lib/__tests__/marketplace-mechanism.test.ts passes with depop in LIVE_CROSS_LISTING_PLATFORMS (its invariant requires tier==='api')",
+        "A real end-to-end run publishes one item to Depop, and selling that item elsewhere auto-ends the Depop sibling via the existing 'depop_api' branch in services/edge-functions/src/lib/cross-listing-sale.ts",
+        "If approval is refused or withdrawn, the story is closed by REVERTING the tier to api_pending rather than leaving a dead 'api' claim in the UI"
+      ],
+      "priority": 31,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2474",
+      "passes": false,
+      "title": "[OPERATOR] Etsy go-live: provide the app keystring, set ETSY_ENABLED, flip tier api_pending to api",
+      "description": "As a FlipDesk seller, I want Etsy to be a channel I can actually connect and publish to, so that the finished Etsy connector stops being gated behind an operator flag no one has set.",
+      "acceptanceCriteria": [
+        "The Etsy app keystring and the ETSY_ENABLED flag read by services/edge-functions/src/lib/etsy-client.ts are set as Coolify Shared Variables — recorded by NAME only, never by value",
+        "isEtsyEnabled() returns true in prod and the flipdesk-etsy routes no longer short-circuit on the module gate",
+        "MARKETPLACE_TIER.etsy in src/lib/constants.ts changes from 'api_pending' to 'api' and etsy is added to LIVE_CROSS_LISTING_PLATFORMS in the same commit",
+        "src/lib/__tests__/marketplace-mechanism.test.ts passes with etsy in LIVE_CROSS_LISTING_PLATFORMS",
+        "A real end-to-end run publishes one item to Etsy and a receipt/order syncs back; selling elsewhere auto-ends the Etsy sibling via the existing 'etsy_api' branch (US-2164) in cross-listing-sale.ts",
+        "Etsy's developer terms require attribution: confirm the wording on src/pages/legal/trademarks.tsx moves Etsy from the 'named but not integrated' section into the licensed-API section in the same commit"
+      ],
+      "priority": 32,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2475",
+      "passes": false,
+      "title": "Per-channel automation risk disclosure on the Marketplaces screen and in the extension",
+      "description": "As a FlipDesk seller, I want each marketplace to tell me plainly what the automation does, where it runs, and what the terms-of-service risk is, so that I can decide with real information instead of finding out after my account is limited.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/marketplaces.tsx renders a risk block per channel driven by MARKETPLACE_MECHANISM, not hand-written per platform",
+        "For mechanism==='extension' the block states all four facts: the marketplace's terms restrict third-party automation; the actions run in the seller's own browser and session; GradeThread servers never receive the password or session cookie; the seller is responsible for the account",
+        "For mechanism==='api' the block states that the connection is an authorized developer API under that platform's developer terms, and links to /trademarks",
+        "The disclosure text lives in one exported constant so web and iOS render identical wording (same pattern as MARKETPLACE_TIER_LABEL in src/lib/constants.ts)",
+        "A unit test asserts every key of MARKETPLACE_MECHANISM has disclosure copy, so adding a platform without disclosure fails the build",
+        "npm run ui:check stays at 0 blocking findings"
+      ],
+      "priority": 33,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2476",
+      "passes": false,
+      "title": "ADR + vault note: no server-side marketplace automation, and the process for closing a coverage gap",
+      "description": "As the GradeThread team, we want the decision to refuse cloud-run marketplace automation written down with its reasoning and its competitive cost, so that a future contributor under pressure to match Nifty's feature list cannot quietly reverse it.",
+      "acceptanceCriteria": [
+        "New ADR under vault/60-decisions/ records: the three competitor models (Crosslist extension-plus-API, Vendoo extension, Nifty cloud sessions), what each requires of the seller, and why we reject the cloud model",
+        "The ADR names the two bright lines as non-negotiable: GradeThread servers never hold a marketplace password or session cookie for a no-API channel, and GradeThread never solves or bypasses a CAPTCHA",
+        "The ADR states the cost we accept for that: the seller's browser must be open for extension channels, which is the gap US-2481 addresses rather than removes",
+        "A companion vault note documents the repeatable gap-closing process: confirm the marketplace has no write API, add versioned selectors, probe before fill, fail loudly, add a delist path to cross-listing-sale.ts, add the disclosure copy from US-2475, then flip the tier",
+        "Both notes carry the vault/CONTRACT.md frontmatter and are linked from vault/00-index/INDEX.md; npm run vault:index and npm run vault:lint both pass",
+        "extension/README.md and extension-unified/README.md link to the ADR instead of restating the rationale"
+      ],
+      "priority": 34,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2477",
+      "passes": false,
+      "title": "Mercari lister flow: enable phase 2 in the unified extension",
+      "description": "As a FlipDesk seller, I want to publish a draft to Mercari from my own logged-in tab, so that Mercari stops being a written-but-switched-off flow while competitors list to it.",
+      "acceptanceCriteria": [
+        "The Mercari entries in extension-unified/lister/selectors.js flip enabled:false to true only after every required selector is re-verified against the live sell form, with version bumped and lastVerified set to the verification date",
+        "probe() still runs before any field is touched: a missing required selector aborts with the manual-listing message and names the selector version, and never half-fills the form",
+        "A successful publish writes one listings row with platform='mercari' and listing_url, so the item shows as cross-listed",
+        "Delist works: a Mercari sibling queued by cross-listing-sale.ts DelistMethod 'extension' is ended through src/hooks/use-pending-delists.ts and the delist_requested_at stamp clears",
+        "The Mercari delist host is in the selectors.js hosts allowlist so extension-unified/lister/lister-guard.js accepts the URL; covered by src/test/lister-guard.test.ts",
+        "Any fix applied here is applied to the deprecated extension/ folder in the SAME commit until its retirement gate opens; extension-unified/test/legacy-parity.test.cjs passes",
+        "The README rollout table in extension-unified/README.md shows Mercari as Enabled"
+      ],
+      "priority": 35,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2478",
+      "passes": false,
+      "title": "Grailed lister flow: enable phase 3 in the unified extension",
+      "description": "As a FlipDesk seller, I want to publish a draft to Grailed from my own logged-in tab, so that menswear inventory reaches the channel that pays best for it without me retyping the listing.",
+      "acceptanceCriteria": [
+        "The Grailed entries in extension-unified/lister/selectors.js flip enabled:false to true only after every required selector is re-verified against the live sell form, with version bumped and lastVerified set",
+        "probe() aborts with the manual-listing message and the selector version when a required selector is missing; the form is never half-filled",
+        "A successful publish writes one listings row with platform='grailed' and listing_url",
+        "A Grailed sibling queued as DelistMethod 'extension' is ended through use-pending-delists.ts and its delist_requested_at clears",
+        "The Grailed delist host is in the selectors.js hosts allowlist and passes lister-guard host matching",
+        "Fixes mirrored into extension/ in the same commit; extension-unified/test/legacy-parity.test.cjs passes"
+      ],
+      "priority": 36,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2479",
+      "passes": false,
+      "title": "Vinted lister flow: publish and delist via the unified extension",
+      "description": "As a FlipDesk seller, I want to publish a draft to Vinted from my own logged-in tab, so that the Vinted foundation shipped in US-1663 becomes a channel I can actually list to rather than a label in the UI.",
+      "acceptanceCriteria": [
+        "A new extension-unified/lister/vinted.js content script plus versioned selectors entry follows the same probe-then-fill contract as poshmark.js",
+        "The Vinted host permissions already in extension-unified/manifest.json cover the locales the flow supports; any locale NOT covered reports the manual-listing message instead of guessing",
+        "A successful publish writes one listings row with platform='vinted' and listing_url",
+        "vinted is added to the cross-listing delist path so cross-listing-sale.ts resolves it to DelistMethod 'extension' and never to 'unsupported' (which would leave a live listing and trip the US-2165 delist_unresolved marker)",
+        "MARKETPLACE_TIER.vinted stays 'extension' and MARKETPLACE_MECHANISM.vinted stays 'extension'; src/lib/__tests__/marketplace-mechanism.test.ts passes",
+        "Vinted disclosure copy exists per US-2475, including that Vinted is EU-first and that Crosslist does not serve EU customers at all"
+      ],
+      "priority": 37,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2480",
+      "passes": false,
+      "title": "Facebook Marketplace lister flow: publish and delist via the unified extension",
+      "description": "As a FlipDesk seller, I want to publish a draft to Facebook Marketplace from my own logged-in tab, so that the highest-traffic local channel stops being a coming_soon label while Crosslist and Vendoo both support it.",
+      "acceptanceCriteria": [
+        "A new extension-unified/lister/facebook.js content script plus versioned selectors entry follows the probe-then-fill contract; a changed form aborts and names the selector version",
+        "MARKETPLACE_MECHANISM.facebook and MARKETPLACE_TIER.facebook in src/lib/constants.ts both move from their current values to 'extension' in the same commit, keeping the tier-mechanism consistency rule intact",
+        "A successful publish writes one listings row with platform='facebook' and listing_url",
+        "facebook resolves to DelistMethod 'extension' in cross-listing-sale.ts, never 'unsupported'",
+        "The Facebook host is added to manifest.json host_permissions AND to the selectors.js delist hosts allowlist; extension-unified/test/manifest-hosts.test.cjs and host-permissions.test.cjs pass",
+        "Disclosure copy per US-2475 notes that Meta's platform terms restrict automated interaction and that the flow runs only in the seller's own session"
+      ],
+      "priority": 38,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2481",
+      "passes": false,
+      "title": "Queue a run from mobile, drain it on the desktop extension — the honest answer to cloud automation",
+      "description": "As a FlipDesk seller, I want to queue cross-listing and delist work from my phone and have my desktop extension run it the next time my browser is open, so that I get the convenience Nifty sells without handing anyone my marketplace session.",
+      "acceptanceCriteria": [
+        "A seller can enqueue extension-mechanism work (publish, delist, share run) from the iOS and Android apps without the desktop being awake",
+        "The queue is server-side state only: it stores WHAT to do, never a marketplace credential or cookie, per the US-2476 ADR bright lines",
+        "The desktop extension drains the queue on next open using the existing job-store path in extension-unified/lister/job-store.js; extension-unified/test/lister-jobs.test.cjs covers the drain",
+        "The queue endpoint is tenant-scoped with .eq on the workspace owner id and has a case in services/edge-functions/src/tests/tenant-isolation_test.ts (US-268)",
+        "Any new table or column ships the US-1108 migration triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and the self-record footer",
+        "Queued items expire and are reported: an item not drained within a stated window surfaces to the seller rather than sitting silently, matching the US-2165 fail-loudly rule",
+        "The mobile UI states plainly that the run happens when the desktop browser next opens, so the seller is never told work completed that has not"
+      ],
+      "priority": 40,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2482",
+      "passes": false,
+      "title": "Poshmark engagement automation (share, follow, send offer) with hard caps and a share-jail meter",
+      "description": "As a Poshmark seller, I want GradeThread to share, follow and send offers for me from my own browser with visible safety limits, so that I get the feature Nifty charges 25 dollars a month for without giving anyone my Poshmark session.",
+      "acceptanceCriteria": [
+        "Share, follow and send-offer flows run ONLY as content scripts in the seller's own logged-in tab; no GradeThread server ever performs a Poshmark action",
+        "No CAPTCHA is solved, bypassed or outsourced anywhere in the flow — the run pauses and tells the seller to finish it themselves",
+        "Action pacing is randomized with a configurable floor, and a hard daily ceiling defaults to 5000 shares with an absolute cap below 9500 that the seller cannot raise",
+        "A visible meter shows shares used today against the cap, and names share jail as the consequence of exceeding it",
+        "A dedicated clickwrap, separate from the listing clickwrap, is required before the first run: it states that Poshmark's terms restrict third-party automation, that the seller is responsible for the account, and that the actions run on their machine",
+        "The clickwrap acceptance and the caps are covered by a test in extension-unified/test/ so a build cannot ship the automation with the gate removed",
+        "Disclosure copy per US-2475 is shown on src/pages/flipdesk/marketplaces.tsx, not only inside the extension popup",
+        "Counters and settings persist in chrome.storage.local only; GradeThread servers receive run COUNTS at most, never Poshmark content or credentials"
+      ],
+      "priority": 39,
+      "dependsOn": [
+        "US-2472"
+      ]
+    },
+    {
+      "id": "US-2483",
+      "passes": false,
+      "title": "FlipDesk plan tiers show a listing allowance so sellers can compare us to Crosslist and Vendoo",
+      "description": "As a reseller comparing crosslisting tools, I want each FlipDesk tier to state how many listings it covers, so that I can compare GradeThread to competitors who all price by listing volume instead of by AI actions.",
+      "acceptanceCriteria": [
+        "Each tier in FLIPDESK_PLANS in src/lib/constants.ts carries an explicit listing allowance that matches what enforcement actually permits — no aspirational number",
+        "The allowance renders on /pricing and in src/components/billing/flipdesk-plan-comparison.tsx",
+        "vault/50-business/pricing.md is updated in the same commit, since it is the source of truth for the US-200 pricing ACs",
+        "If a tier is genuinely unlimited, it says unlimited rather than inventing a cap"
+      ],
+      "priority": 210
     }
   ]
 }
