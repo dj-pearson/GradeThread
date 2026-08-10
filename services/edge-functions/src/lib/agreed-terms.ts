@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
+import { normalizeDisclosureVersion } from "./disclosure-versions.ts";
 
 // US-2117: capture what a user actually agreed to, at the moment they agreed.
 //
@@ -26,6 +27,18 @@ export interface AgreedTerms {
   stripeSubscriptionId: string | null;
   stripePriceId: string | null;
   source: "stripe" | "appstore" | "google_play" | "manual";
+  /**
+   * Which archived disclosure the purchasing client reported it rendered, or
+   * null when it reported none / one we cannot resolve. See
+   * disclosure-versions.ts for exactly what this field does and does not prove.
+   */
+  disclosureVersion: string | null;
+  /**
+   * An unresolvable version the client sent, kept only so the IO half can report
+   * it. It is NOT written to the record — a pointer to nothing on an immutable
+   * compliance row is worse than an empty column.
+   */
+  rejectedDisclosureVersion: string | null;
 }
 
 /** The subset of a Stripe subscription this needs. Structural, so tests need no SDK. */
@@ -34,6 +47,7 @@ export interface SubscriptionLike {
   currency?: string | null;
   trial_start?: number | null;
   trial_end?: number | null;
+  metadata?: Record<string, string> | null;
   items?: {
     data?: Array<{
       price?: {
@@ -105,6 +119,10 @@ export function extractAgreedTerms(
     return null;
   }
 
+  // US-2117 AC1: the disclosure the client reported rendering, carried here in
+  // subscription metadata by the checkout/upgrade path in routes/payments.ts.
+  const disclosure = normalizeDisclosureVersion(sub.metadata?.disclosure_version);
+
   return {
     plan,
     billingInterval: interval,
@@ -117,6 +135,8 @@ export function extractAgreedTerms(
     stripeSubscriptionId: sub.id ?? null,
     stripePriceId: price.id ?? null,
     source: "stripe",
+    disclosureVersion: disclosure.version,
+    rejectedDisclosureVersion: disclosure.rejected,
   };
 }
 
@@ -153,6 +173,22 @@ export async function recordAgreedTerms(
       return;
     }
 
+    // An unresolvable version is dropped, not stored — but it is not dropped
+    // SILENTLY. The client and the edge disagreeing about which disclosures
+    // exist means one of them shipped without the other, and the symptom is a
+    // whole cohort of agreements losing their pointer.
+    if (terms.rejectedDisclosureVersion) {
+      captureException(
+        new Error(
+          `US-2117: unknown disclosure_version ${JSON.stringify(terms.rejectedDisclosureVersion)} ` +
+            `on subscription ${terms.stripeSubscriptionId ?? "(no id)"} — the agreement was ` +
+            `recorded WITHOUT a disclosure pointer. Either the web copy was versioned without ` +
+            `updating KNOWN_DISCLOSURE_VERSIONS in lib/disclosure-versions.ts, or the value was forged.`,
+        ),
+        { level: "warn", route: "agreed-terms.disclosure_version", extra: { userId, plan } },
+      );
+    }
+
     const { error } = await supabaseAdmin.from("subscription_agreements").insert({
       user_id: userId,
       plan: terms.plan,
@@ -161,6 +197,7 @@ export async function recordAgreedTerms(
       currency: terms.currency,
       trial_days: terms.trialDays,
       trial_ends_at: terms.trialEndsAt,
+      disclosure_version: terms.disclosureVersion,
       stripe_subscription_id: terms.stripeSubscriptionId,
       stripe_price_id: terms.stripePriceId,
       source: terms.source,

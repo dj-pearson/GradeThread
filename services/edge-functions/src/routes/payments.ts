@@ -16,6 +16,7 @@ import {
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 import { loadActiveDiscount } from "../lib/rewards-tangible.ts";
+import { sanitizeReportedDisclosureVersion } from "../lib/disclosure-versions.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -298,6 +299,13 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
   // this path has no interstitial, so the mutation MUST NOT fire until the client
   // has shown the confirmation dialog and echoes back confirmUpgrade:true.
   const confirmUpgrade = (body as { confirmUpgrade?: boolean }).confirmUpgrade === true;
+  // US-2117 AC1: which auto-renewal disclosure the client says it rendered.
+  // Carried onto the SUBSCRIPTION (not just the session) so the webhook that
+  // writes the agreement row can read it. Bounded here, resolved at the write
+  // site — see lib/disclosure-versions.ts.
+  const disclosureVersion = sanitizeReportedDisclosureVersion(
+    (body as { disclosureVersion?: unknown }).disclosureVersion,
+  );
 
   if (plan !== "starter" && plan !== "pro" && plan !== "business") {
     return c.json({
@@ -384,6 +392,10 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
           product: "flipdesk",
           plan,
           interval,
+          // Spread LAST so a new agreement overwrites the version recorded for
+          // the previous one — this is a fresh set of terms being agreed to, and
+          // leaving the old pointer would attribute it to the wrong disclosure.
+          ...(disclosureVersion ? { disclosure_version: disclosureVersion } : {}),
         },
       });
       // Clear any pending downgrade we just superseded (the webhook also clears
@@ -457,6 +469,7 @@ paymentRoutes.post("/flipdesk/subscribe", async (c) => {
           product: "flipdesk",
           plan,
           interval,
+          ...(disclosureVersion ? { disclosure_version: disclosureVersion } : {}),
         },
         ...(trialEndUnix ? { trial_end: trialEndUnix } : {}),
       },
@@ -635,6 +648,10 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
 
   const plan = body.plan;
   const interval = body.interval ?? "monthly";
+  // US-2117 AC1, same contract as the FlipDesk path above.
+  const disclosureVersion = sanitizeReportedDisclosureVersion(
+    (body as { disclosureVersion?: unknown }).disclosureVersion,
+  );
   if (plan !== "guard" && plan !== "connoisseur") {
     return c.json({ error: "plan must be one of: guard, connoisseur" }, 400);
   }
@@ -670,7 +687,14 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
       await stripe.subscriptions.update(user.buyer_subscription_id, {
         items: [{ id: item.id, price: priceId }],
         proration_behavior: "create_prorations",
-        metadata: { ...existing.metadata, user_id: userId, product: "buyer", plan, interval },
+        metadata: {
+          ...existing.metadata,
+          user_id: userId,
+          product: "buyer",
+          plan,
+          interval,
+          ...(disclosureVersion ? { disclosure_version: disclosureVersion } : {}),
+        },
       });
       return c.json({ ok: true, updated: true });
     } catch (err) {
@@ -685,7 +709,15 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
       payment_method_types: ["card"],
       line_items: [{ price: priceId, quantity: 1 }],
       metadata: { user_id: userId, product: "buyer", plan, interval },
-      subscription_data: { metadata: { user_id: userId, product: "buyer", plan, interval } },
+      subscription_data: {
+        metadata: {
+          user_id: userId,
+          product: "buyer",
+          plan,
+          interval,
+          ...(disclosureVersion ? { disclosure_version: disclosureVersion } : {}),
+        },
+      },
       success_url: `${siteUrl()}/buyer/billing?checkout=success&product=buyer`,
       cancel_url: `${siteUrl()}/buyer/billing?checkout=cancelled`,
       automatic_tax: { enabled: true },

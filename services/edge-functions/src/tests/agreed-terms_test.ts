@@ -189,6 +189,100 @@ Deno.test("US-2116: a duplicate platform agreement is not an error", () => {
 
 // Both platform paths must actually call it, or the gap this closes reopens on
 // one side while looking closed on the other.
+// ── US-2117 AC1: the disclosure pointer ──────────────────────────────
+//
+// The row can vouch for the amount, interval and trial because those come from
+// the Stripe subscription object. It cannot vouch for the WORDS, and "what was I
+// told?" is what a subscription dispute turns on — so it carries a pointer to
+// the archived copy the client reported rendering.
+
+const KNOWN_VERSION = [...(await import("../lib/disclosure-versions.ts")).KNOWN_DISCLOSURE_VERSIONS][0];
+
+Deno.test("US-2117: a known disclosure version reaches the terms", () => {
+  const t = extractAgreedTerms(
+    sub({ metadata: { disclosure_version: KNOWN_VERSION } }),
+    "pro",
+  );
+  assertEquals(t?.disclosureVersion, KNOWN_VERSION);
+  assertEquals(t?.rejectedDisclosureVersion, null);
+});
+
+Deno.test("US-2117: an UNKNOWN version is dropped from the record, not stored", () => {
+  const t = extractAgreedTerms(
+    sub({ metadata: { disclosure_version: "1999-01-01" } }),
+    "pro",
+  );
+  assertEquals(t?.disclosureVersion, null, "a pointer to nothing must not be recorded");
+  assertEquals(
+    t?.rejectedDisclosureVersion,
+    "1999-01-01",
+    "but the disagreement has to be reportable — it means the web copy was " +
+      "versioned without the edge, and a whole cohort is losing its pointer",
+  );
+});
+
+Deno.test("US-2117: no metadata at all is the normal legacy case, silently", () => {
+  const t = extractAgreedTerms(sub(), "pro");
+  assertEquals(t?.disclosureVersion, null);
+  assertEquals(t?.rejectedDisclosureVersion, null, "absence must not be reported");
+});
+
+Deno.test("US-2117: the column is actually written, and only when resolvable", () => {
+  const fn = AGREED_SRC.slice(
+    AGREED_SRC.indexOf("export async function recordAgreedTerms"),
+  );
+  assert(
+    /disclosure_version: terms\.disclosureVersion/.test(fn),
+    "the insert must carry the pointer, or all of this resolves to a null column",
+  );
+  assert(
+    /rejectedDisclosureVersion/.test(fn),
+    "an unresolvable version must be reported, not silently discarded",
+  );
+});
+
+// The pointer is worthless if no purchase path sets it. Both subscription
+// checkouts must put it on the SUBSCRIPTION — session metadata alone would not
+// reach handleSubscriptionChange, which is what writes the agreement.
+Deno.test("US-2117: both subscribe routes carry the version onto the subscription", async () => {
+  const payments = await Deno.readTextFile(
+    new URL("../routes/payments.ts", import.meta.url),
+  );
+  const occurrences = payments.match(/disclosure_version: disclosureVersion/g) ?? [];
+  assert(
+    occurrences.length >= 4,
+    `expected the version on both checkout paths AND both in-place upgrade paths ` +
+      `(4 sites), found ${occurrences.length}`,
+  );
+  assert(
+    /sanitizeReportedDisclosureVersion/.test(payments),
+    "a value straight off a request body must be bounded before Stripe stores it",
+  );
+});
+
+// US-2117 AC1 for the OTHER paying population. applyBuyerSubscriptionChange
+// returns before the seller path's recorder, so a buyer subscriber had no
+// agreement row at all while a FlipDesk one did.
+Deno.test("US-2117: buyer subscriptions record an agreement too", async () => {
+  const webhooks = await Deno.readTextFile(
+    new URL("../routes/webhooks.ts", import.meta.url),
+  );
+  const buyerFn = webhooks.slice(webhooks.indexOf("async function applyBuyerSubscriptionChange"));
+  const end = buyerFn.indexOf("\nasync function ", 1);
+  const body = end > 0 ? buyerFn.slice(0, end) : buyerFn;
+  assert(
+    /recordAgreedTerms\(/.test(body),
+    "a Guard/Connoisseur subscriber must have the same evidentiary standing as a " +
+      "FlipDesk one — this handler returns before the seller path's recorder",
+  );
+  assert(
+    /plan !== "free"/.test(body),
+    'the unmappable-price fallback ("free") must be skipped: subscription_agreements.plan ' +
+      "is free text with no product column, so a buyer free and a seller free are " +
+      "indistinguishable on the record",
+  );
+});
+
 Deno.test("US-2116: both platform purchase paths record an agreement", async () => {
   const appstore = await Deno.readTextFile(
     new URL("../routes/appstore.ts", import.meta.url),

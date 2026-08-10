@@ -75,6 +75,63 @@ export function frequencyWord(interval: BillingInterval): string {
   return interval === "yearly" ? "year" : "month";
 }
 
+// ── Versioning (US-2117 AC1) ────────────────────────────────────────
+//
+// subscription_agreements.disclosure_version (00486:38) has been a nullable
+// pointer since the table shipped, waiting for the copy to have a version to
+// point AT. This is that version.
+//
+// WHAT THE POINTER IS FOR. The agreement row records the amount, interval and
+// trial as Stripe actually applied them — terms the server can vouch for. It
+// cannot record the WORDS that were on screen, and "what was I told?" is the
+// question a subscription dispute actually turns on. So the row carries a
+// version, and the version resolves here.
+//
+// A BARE VERSION CONSTANT WOULD BE WORSE THAN NOTHING. Nobody remembers to bump
+// a number, so it would drift away from the copy while looking authoritative —
+// a pointer that resolves to the wrong words is a false record, not a missing
+// one. Two things stop that:
+//   - DISCLOSURE_ARCHIVE holds the exact sentence TEMPLATES of every version,
+//     so the pointer resolves to reviewable text rather than to a git spelunk.
+//   - src/lib/__tests__/disclosure-version.test.ts extracts the templates from
+//     disclosureSentences() below and fails unless they match this version's
+//     entry EXACTLY. Change a word without bumping and appending, and the build
+//     goes red.
+//
+// SO: EDITING ANY SENTENCE BELOW MEANS BUMPING DISCLOSURE_VERSION AND APPENDING
+// A NEW ARCHIVE ENTRY. Never edit an existing entry — a past subscriber's row
+// points at it, and rewriting it rewrites what we claim they were shown, which
+// is the exact defect subscription_agreements exists to prevent.
+
+/** The version of the wording below. Date-based: the copy changes rarely. */
+export const DISCLOSURE_VERSION = "2026-08-09";
+
+/**
+ * Every version's sentence templates, append-only.
+ *
+ * TEMPLATES, not rendered sentences, deliberately: a rendering would bake in an
+ * amount, a plan and a date, and `dateLabel` formats in the reader's local
+ * timezone, so a rendered archive would differ by machine and could not be
+ * compared at all. The templates are what counsel redlines and what a user in a
+ * dispute needs to see.
+ */
+export const DISCLOSURE_ARCHIVE: Readonly<Record<string, readonly string[]>> = {
+  "2026-08-09": [
+    "Free for ${trialDays} days, then ${amount} every ${every} automatically until you cancel.",
+    "${amount} every ${every} automatically until you cancel.",
+    "Your first charge is on ${firstCharge}.",
+    "Your first charge is when the ${trialDays}-day free trial ends.",
+    "Renews on ${renews}.",
+    "Billing starts when you subscribe.",
+    "Billing starts today.",
+    "Cancel any time in Settings, under Billing.",
+  ],
+};
+
+/** Every version we can resolve. A row pointing outside this set proves nothing. */
+export const KNOWN_DISCLOSURE_VERSIONS: readonly string[] =
+  Object.keys(DISCLOSURE_ARCHIVE);
+
 /**
  * The disclosure sentences. Exported so the tests assert the REAL strings
  * rather than a restatement of them.

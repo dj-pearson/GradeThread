@@ -879,6 +879,25 @@ async function applyBuyerSubscriptionChange(
     })
     .eq("id", user.id);
   failIfDbError(error, `buyer subscription update for user ${user.id}`);
+
+  // US-2117 AC1: buyer subscribers get an agreement row too.
+  //
+  // This handler RETURNS before the seller path's recordAgreedTerms call, so
+  // until now a Guard/Connoisseur subscriber had no record of what they agreed
+  // to while a FlipDesk subscriber did — two paying populations with different
+  // evidentiary standing for the same question, which is the exact asymmetry
+  // US-2116 AC6 closed for App Store and Play purchases.
+  //
+  // SKIPPED WHEN THE PLAN IS "free": that value is the ?? fallback for a price
+  // this build cannot map, so the row would be both meaningless (nobody agrees
+  // to a free plan at checkout) and ambiguous — subscription_agreements.plan is
+  // free text with no product column, so a buyer "free" and a seller "free" are
+  // indistinguishable on the record. guard/connoisseur cannot collide with
+  // starter/pro/business, so the named plans are safe to write as they are.
+  if (plan !== "free") {
+    await recordAgreedTerms(user.id, sub, plan);
+  }
+
   console.log(`[Webhook] User ${user.id} BUYER → plan=${plan} interval=${interval} status=${status}`);
 }
 

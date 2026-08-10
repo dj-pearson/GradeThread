@@ -5,6 +5,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import { useRedirectStore } from "@/stores/redirect-store";
 import { markCheckoutPending } from "@/lib/checkout-pending";
+import { DISCLOSURE_VERSION } from "@/lib/auto-renewal-copy";
 import type {
   FlipdeskPlanKey,
   BuyerPlanKey,
@@ -180,7 +181,15 @@ export function useFlipdeskSubscribe() {
     mutationFn: async ({ plan, interval, confirmUpgrade }) => {
       const res = await edgeFetch("/api/payments/flipdesk/subscribe", {
         method: "POST",
-        json: { plan, interval, confirmUpgrade },
+        // US-2117 AC1: report which auto-renewal disclosure this build renders,
+        // so the agreement row can point at the words that were on screen.
+        //
+        // SENT FROM THE HOOK, NOT FROM EACH SURFACE, deliberately. Every
+        // subscribe surface renders <AutoRenewalDisclosure> out of the same
+        // module this constant comes from, so the hook's answer is the same one
+        // the screen gave — and a new surface cannot forget to send it, which is
+        // the failure a per-surface prop would eventually hit.
+        json: { plan, interval, confirmUpgrade, disclosureVersion: DISCLOSURE_VERSION },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to start checkout.");
@@ -251,7 +260,8 @@ export function useBuyerSubscribe() {
     mutationFn: async ({ plan, interval }) => {
       const res = await edgeFetch("/api/payments/buyer/subscribe", {
         method: "POST",
-        json: { plan, interval },
+        // US-2117 AC1 — same contract as useFlipdeskSubscribe above.
+        json: { plan, interval, disclosureVersion: DISCLOSURE_VERSION },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to start checkout.");
