@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-10
 tags: [ops, privacy, gdpr, retention]
 summary: The retention schedule and purge job, plus the export and erasure paths that satisfy portability and right-to-be-forgotten.
 ---
@@ -116,6 +116,67 @@ which also handles the external resources below.
   (incl. eBay tokens) are removed by the cascade. Live revocation at eBay is
   not performed in-line; those tokens are short-lived and our stored copy is
   destroyed. See `docs/INCIDENT_RESPONSE.md` if proactive revocation is needed.
+
+### Email-keyed PII — the half the cascade cannot reach (US-2005)
+
+The cascade reaches only tables with an FK to `auth.users`. Seven tables are
+keyed by **email address** instead, including `email_deliveries`, which stores
+the full rendered `html` of every critical message we sent. Step 3 above ran
+while those stayed queryable.
+
+Since US-2005 the endpoint runs `purgeEmailKeyedPii()` **before** the cascade —
+ordering is load-bearing, because after it `users.email` is gone and there is
+nothing left to key on. The table list and the delete/anonymize decision for each
+live in `services/edge-functions/src/lib/account-email-purge.ts`; do not restate
+them anywhere else, and do not write a second script that hardcodes them.
+
+`email_suppressions` is **deliberately exempt**. Forgetting a bounced or
+complained address means it starts receiving mail again, harming the very person
+the erasure protects.
+
+Erasure for someone who never had an account — a guarantee claimant, a
+consignor — is a different procedure with a different plan; see
+`third-party-pii-purge.ts` (US-2433).
+
+### What we can and cannot say about erasures made before US-2005
+
+**Accounts deleted before US-2005 shipped did not get the email-keyed purge, and
+that backlog cannot be enumerated.** This is the answer to give if asked; it is
+a consequence of a deliberate design choice, not an oversight to be fixed later.
+
+- `account_deletion_log` stores **no address**, by design — migration `00064`
+  states the retained id "cannot be joined back to any PII". It proves *that*
+  an account id was erased on a date. It cannot say *whose address* that was.
+- `email_deliveries` has **no user column at all** (`00095`). Nothing to join.
+- Every other planned table either severs its user link `ON DELETE SET NULL`
+  (`marketing_send_log`, `email_subscribers`, `waitlist_entries`) or never had
+  one (`email_journey_step_sends`).
+
+So an address with no live account is **indistinguishable** from a lead who
+never signed up — and `waitlist_entries` and `email_subscribers` exist for
+exactly those people. Running the purge plan over that set would delete the
+waitlist and the newsletter list on the theory that some of them might be
+someone else. **Do not do it.**
+
+What *does* reduce the residue:
+
+- **Time.** US-2021 put `email_deliveries` on the retention sweep above: `sent`
+  rows deleted after 90 days, `dead_letter` bodies stripped after 180. Confirm
+  the `data-retention` cron is actually scheduled — if it is not, nothing is
+  expiring.
+- **A request.** When a subject writes in, the address is known and no inference
+  is needed.
+
+Two operator tools, both in `services/edge-functions/scripts/`:
+
+| Script | What it does |
+|---|---|
+| `email-residue-census.ts` | Counts the residue per table, split into live-account and unattributable. **Read-only, and has no `--apply`** — there is no population one could safely act on. Never prints an address. |
+| `purge-email-subject.ts` | Erases **one** address on request, running the same `EMAIL_PURGE_PLAN`. Dry run by default; refuses an address that still belongs to a live account. |
+
+Neither is an endpoint. An unverified email claim that erases rows is a deletion
+oracle — anyone could POST a stranger's address. Verification would be the work,
+and it has not been designed.
 
 ## Retention
 
