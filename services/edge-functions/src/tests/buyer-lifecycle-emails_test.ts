@@ -225,6 +225,26 @@ Deno.test("US-2453: the cancellation email does not promise a buyer someone else
     !/\$\{kept\}[\s\S]{0,80}inventory/.test(body),
     "the seller wording must not be the fallthrough for a buyer",
   );
+
+  // AND IT MUST NOT OVERPROMISE. Nothing is deleted, but the Free caps apply
+  // again from the end date and condition-alerts.ts only matches a buyer's
+  // `cap` OLDEST active searches — so a Connoisseur cancelling with 25 alerts
+  // keeps all 25 rows while 22 silently stop firing. The first version of this
+  // copy said everything "stays available", which is a false reassurance on the
+  // one email someone re-reads when it turns out otherwise.
+  const buyerArm = body.slice(body.indexOf('data.product === "buyer"'), body.indexOf(" : "));
+  assert(
+    /Free-plan limits apply|limits apply again/.test(buyerArm),
+    "the buyer wording must say the Free caps return — retention is not availability",
+  );
+  for (const overpromise of ["stay available", "all stay", "certificates you"]) {
+    assert(
+      !buyerArm.includes(overpromise),
+      `the buyer cancellation copy claims "${overpromise}". Rows are retained; ` +
+        "most of what they do stops working, and certificates were never the " +
+        "buyer's to keep.",
+    );
+  }
 });
 
 Deno.test("US-2453: every lifecycle caller states its own product", () => {

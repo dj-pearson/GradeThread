@@ -1268,8 +1268,23 @@ export async function sendSubscriptionCanceledEmail(
   // inventory to a buyer would read as a mistake on the one email confirming
   // they cancelled — the moment they are least inclined to give us the benefit
   // of the doubt.
+  // ⚠ THIS SENTENCE PROMISES SOMETHING, so it has to be true of the product.
+  //
+  // The first buyer version read "your saved items, past checks, and any
+  // certificates you've been shown all stay available". Two of those three were
+  // wrong. Nothing is deleted — but the Free caps apply again from the end date
+  // (BUYER_PLANS: 3 active alerts, 10 closet items), and condition-alerts.ts
+  // entitledSearchIds only ever matches a buyer's `cap` OLDEST active searches.
+  // So a Connoisseur cancelling with 25 alerts keeps all 25 rows and 22 of them
+  // silently stop firing. Telling someone everything "stays available" at the
+  // moment they cancel, when most of it quietly stops working, is a false
+  // reassurance on the one email they will re-read if it turns out otherwise.
+  // Certificates were worse: those are the seller's artifact and a buyer never
+  // held one to keep.
   const kept = data.product === "buyer"
-    ? "Your saved items, past checks, and any certificates you've been shown all stay available."
+    ? "Nothing is deleted — your closet, your alerts and your past checks stay in " +
+      "your account. Free-plan limits apply again from that date, so some alerts " +
+      "will stop running."
     : "Your inventory, listings, past grade reports, and grade credits all stay safe.";
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">

@@ -61,9 +61,20 @@ products — FlipDesk for sellers, GradeThread for buyers — through
 | `sendSubscriptionStartedEmail` | the purchase acknowledgement; **restates the full renewal disclosure in prose** and deep-links the cancellation flow | agent-drafted, pending review |
 | `sendRenewalReminderEmail` | advance notice before a renewal charge, with the amount, the date and how to cancel first | agent-drafted, pending review |
 | `sendSubscriptionRenewalReceiptEmail` | the receipt after a renewal charge | agent-drafted, pending review |
-| `sendSubscriptionCanceledEmail` | confirms a scheduled cancellation, the end date, and what is retained | agent-drafted, pending review |
+| `sendSubscriptionCanceledEmail` | confirms a scheduled cancellation, the end date, and what is retained — **see the warning below** | agent-drafted, pending review |
 | `sendPaymentFailedEmail` | dunning: update the card or the plan drops to Free | agent-drafted, pending review |
 | `sendPaymentActionRequiredEmail` | a bank challenge is blocking the charge and nothing retries it | agent-drafted, pending review |
+
+> [!warning] Retention is not availability, and the cancellation email got that wrong once
+> Its first buyer version said saved items, past checks and certificates "all
+> stay available". Nothing IS deleted — but the Free caps apply again from the
+> end date, and `condition-alerts.ts` `entitledSearchIds` only matches a buyer's
+> **cap oldest** active searches. A Connoisseur cancelling with 25 alerts keeps
+> all 25 rows while 22 quietly stop firing. Certificates were worse: those are
+> the seller's artifact, never the buyer's to keep. The copy now says the limits
+> return, and `buyer-lifecycle-emails_test.ts` fails the phrase. **Any wording
+> here that promises something survives must be checked against what the plan
+> caps actually do to it.**
 
 > [!note] The started email is the one to read first
 > It is the only place outside `auto-renewal-copy.ts` that states the full
