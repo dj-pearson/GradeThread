@@ -38,6 +38,8 @@ import { BADGE_CATALOG } from "../lib/rewards-badges.ts";
 import { SEASON_GOALS } from "../lib/rewards-seasons.ts";
 import { bustSettingCache, getSetting } from "../lib/system-settings.ts";
 import { clearFeatureFlagCache } from "../lib/feature-flags.ts";
+import { rewardsNorthStarReport } from "../lib/rewards-north-star-report.ts";
+import { WEEK_FOUR_END_DAY } from "../lib/rewards-north-star.ts";
 import { getStripe } from "../lib/stripe-client.ts";
 import {
   DEFAULT_REWARD_BUDGET,
@@ -1101,6 +1103,9 @@ const ROI_DEFAULT_DAYS = 30;
 // US-1859: the nudge lift report reads raw send rows and folds them in memory —
 // bounded so a wide window cannot pull an unbounded scan into one response.
 const NUDGE_ROW_CAP = 20000;
+// US-1915: the north-star report folds raw per-user rows in memory. Same bound,
+// same reason — a wide window must not pull an unbounded scan into one response.
+const NORTH_STAR_ROW_CAP = 20000;
 
 class EconomicsInputError extends Error {}
 
@@ -1543,6 +1548,131 @@ adminRewardsRoutes.get("/economics/reconciliation", async (c) => {
 
 adminRewardsRoutes.get("/economics/roi", async (c) => {
   return c.json(await loadRoi(windowDays(c.req.query("days")), Date.now()));
+});
+
+// GET /api/admin/rewards/north-star — US-1915 AC3.
+//
+// The four north-star metrics, plus the gamified-vs-not retention split. The
+// arithmetic lives in rewards-north-star.ts and the assembly in
+// rewards-north-star-report.ts; this function only fetches rows.
+//
+// ⚠ IT RETURNS COUNTS, NEVER USER IDS. The inputs are per-user (who signed up,
+// who came back, who was granted what) and the output is aggregate. An admin
+// analytics endpoint that echoes user ids turns a metrics page into a data
+// export, and nothing downstream would flag it. A tenant-isolation case asserts
+// the response body carries no id.
+//
+// ⚠ THE COHORT WINDOW IS DELIBERATELY LONGER THAN THE METRIC WINDOW. Week-4
+// retention can only be decided for someone who signed up at least 28 days ago,
+// so a 30-day window that also fetched only 30 days of signups would report on
+// the two days' worth of users who had aged in — a denominator so small it moves
+// wildly for no product reason. Signups are read from `days + 28` back, and the
+// members who have not aged in are still passed through so they surface as
+// `undecided` rather than vanishing.
+async function loadNorthStar(days: number, nowMs: number) {
+  const since = sinceIso(days, nowMs);
+  const cohortSince = sinceIso(days + WEEK_FOUR_END_DAY, nowMs);
+
+  const [usersRes, subsRes, repRes, grantsRes] = await Promise.all([
+    supabaseAdmin
+      .from("users")
+      .select("id, created_at")
+      .gte("created_at", cohortSince)
+      .limit(NORTH_STAR_ROW_CAP),
+    supabaseAdmin
+      .from("submissions")
+      .select("user_id, created_at")
+      .gte("created_at", cohortSince)
+      .limit(NORTH_STAR_ROW_CAP),
+    supabaseAdmin
+      .from("reputation_events")
+      .select("user_id")
+      .gte("created_at", cohortSince)
+      .limit(NORTH_STAR_ROW_CAP),
+    supabaseAdmin
+      .from("reward_tangible_grants")
+      .select("user_id, cost_usd, status")
+      .gte("granted_at", since)
+      .limit(NORTH_STAR_ROW_CAP),
+  ]);
+
+  const firstError = usersRes.error ?? subsRes.error ?? repRes.error ?? grantsRes.error;
+  if (firstError) throw firstError;
+
+  const users = (usersRes.data ?? []) as Array<{ id: string; created_at: string }>;
+  const subs = (subsRes.data ?? []) as Array<{ user_id: string; created_at: string }>;
+  const reps = (repRes.data ?? []) as Array<{ user_id: string }>;
+  const grants = (grantsRes.data ?? []) as Array<
+    { user_id: string; cost_usd: number | string; status: string }
+  >;
+
+  // Activity = the user submitted something. That is the product's core action,
+  // and it is the same signal `gradesPerActiveUser` counts — so "retained" and
+  // "active" cannot mean two different things on one page.
+  const activityByUser = new Map<string, string[]>();
+  for (const s of subs) {
+    const list = activityByUser.get(s.user_id);
+    if (list) list.push(s.created_at);
+    else activityByUser.set(s.user_id, [s.created_at]);
+  }
+
+  // "Gamified" = has at least one reward event, ever, in the fetched span.
+  const gamifiedUsers = new Set(reps.map((r) => r.user_id));
+
+  const cohort = users.map((u) => ({
+    userId: u.id,
+    signedUpAt: u.created_at,
+    activeAt: activityByUser.get(u.id) ?? [],
+    gamified: gamifiedUsers.has(u.id),
+  }));
+
+  // Grades in the METRIC window (not the longer cohort window) — the headline
+  // number should answer "how much grading happened lately".
+  const inWindow = subs.filter((s) => s.created_at >= since);
+  const gradingUsers = new Set(inWindow.map((s) => s.user_id)).size;
+
+  const truncated = users.length >= NORTH_STAR_ROW_CAP ||
+    subs.length >= NORTH_STAR_ROW_CAP ||
+    reps.length >= NORTH_STAR_ROW_CAP ||
+    grants.length >= NORTH_STAR_ROW_CAP;
+
+  return {
+    window_days: days,
+    since,
+    cohort_since: cohortSince,
+    // Surfaced rather than silent: a capped read makes every rate below a sample
+    // of the newest rows, which is a different claim from "the window".
+    truncated,
+    cohort_size: cohort.length,
+    report: rewardsNorthStarReport({
+      cohort,
+      grades: inWindow.length,
+      gradingUsers,
+      // Null on purpose — see the note on NorthStarInputs.kFactor. Shares are a
+      // client action and never reach this database.
+      kFactor: null,
+      grants: grants.map((g) => ({
+        userId: g.user_id,
+        costUsd: Number(g.cost_usd),
+        status: g.status,
+      })),
+      nowMs,
+    }),
+  };
+}
+
+adminRewardsRoutes.get("/north-star", async (c) => {
+  try {
+    return c.json(await loadNorthStar(windowDays(c.req.query("days")), Date.now()));
+  } catch (err) {
+    return failSafe(
+      c,
+      500,
+      "Couldn't load the north-star report.",
+      err,
+      "admin.rewards.northstar.load",
+    );
+  }
 });
 
 // GET /api/admin/rewards/nudges — US-1859 re-engagement lift.

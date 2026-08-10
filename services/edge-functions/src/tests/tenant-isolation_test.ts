@@ -2660,6 +2660,25 @@ Deno.test({
   },
 });
 
+// US-1915: the rewards north-star report aggregates PER-USER rows (who signed
+// up, who came back, who was granted what) into counts. Two properties, and the
+// second is the one specific to this route rather than to the middleware:
+//   1. a non-admin cannot reach it at all;
+//   2. even for an admin, the body carries no user ids — the aggregate must not
+//      become a data export. That half is asserted without a server in
+//      rewards-north-star-report_test.ts, since it is a property of the shape.
+Deno.test({
+  name: "B (non-admin) cannot read the rewards north-star report",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/admin/rewards/north-star?days=30`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET admin/rewards/north-star");
+  },
+});
+
 // ── US-900: support ticket inbox ─────────────────────────────────────────────
 //
 // The user-facing /api/support-tickets/:id is scoped to the caller's user_id,
