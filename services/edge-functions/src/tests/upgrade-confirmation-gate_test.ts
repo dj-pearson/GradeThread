@@ -48,6 +48,26 @@ Deno.test("US-2118 AC4: the gate keys on confirmUpgrade from the request body", 
     /requiresConfirmation:\s*true/.test(block),
     "the gated response must carry requiresConfirmation:true for the client",
   );
+
+  // ⚠ AND THE DERIVATION, NOT JUST THE USE. Found by mutation on 2026-08-09:
+  // replacing the definition with `const confirmUpgrade = true` left this whole
+  // file GREEN while every unconfirmed click charged again. The two assertions
+  // above only prove the gate READS a variable — they say nothing about where
+  // its value comes from, and the definition sits ABOVE inPlaceBlock()'s start
+  // so the block slice never saw the change.
+  //
+  // That is the worst shape a compliance guard can have: it keeps passing over
+  // a gate that no longer gates. Pin the derivation to the request body.
+  assert(
+    /const confirmUpgrade\s*=\s*\(\s*body[^;]*confirmUpgrade[^;]*===\s*true/.test(src),
+    "confirmUpgrade must be DERIVED from the request body — a constant, or a " +
+      "value from anywhere else, makes the gate vacuous while this file stays green",
+  );
+  assert(
+    !/const confirmUpgrade\s*=\s*(true|false)\s*;/.test(src),
+    "confirmUpgrade must never be a literal: the client's consent is the only " +
+      "thing that may open this gate",
+  );
 });
 
 Deno.test("US-2118 AC1: a proration preview endpoint exists for the disclosure", () => {
