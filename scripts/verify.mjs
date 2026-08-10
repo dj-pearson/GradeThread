@@ -29,6 +29,7 @@
 // own self-hosted process.
 
 import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -36,6 +37,94 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const edgeDir = resolve(root, "services/edge-functions");
 
 const flags = new Set(process.argv.slice(2));
+
+// ── US-2460: one run at a time ──────────────────────────────────────────────
+//
+// The lanes are NOT isolated. The build lane writes dist/ and its prerender step
+// then reads and rewrites dist/_headers and dist/_redirects; the coverage lane
+// writes a shared coverage directory. A second run entering those steps
+// mid-flight sees a half-written tree.
+//
+// Observed 2026-08-10 with three runs in flight: the build and coverage lanes
+// both reported FAILED, and both pass alone on the same commit. That is the
+// expensive kind of wrong — a verification tool's output is the thing people act
+// on without re-checking, so a failure that is not real costs a debugging
+// session and a pass that was not earned costs more than that.
+//
+// Refuses rather than queues: a developer who ran it twice by accident wants to
+// know, not to wait twice as long.
+const lockPath = resolve(root, "node_modules/.cache/verify.lock");
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means it exists and belongs to someone else — still running.
+    return err?.code === "EPERM";
+  }
+}
+
+function takeLock() {
+  if (flags.has("--force")) return () => {};
+  mkdirSync(dirname(lockPath), { recursive: true });
+  if (existsSync(lockPath)) {
+    let held;
+    try {
+      held = JSON.parse(readFileSync(lockPath, "utf8"));
+    } catch {
+      held = null; // unreadable → treat as stale
+    }
+    if (held?.pid && alive(held.pid)) {
+      const mins = Math.round((Date.now() - (held.startedAt ?? Date.now())) / 60000);
+      process.stderr.write(
+        `\x1b[31mverify is already running\x1b[0m (pid ${held.pid}, ~${mins} min).\n` +
+          "The lanes share dist/ and the coverage directory, so a second run " +
+          "reports failures that are not real.\n" +
+          "Wait for it, or re-run with --force if you know that run is dead.\n",
+      );
+      // Non-zero: a wrapper script must never read this refusal as a pass.
+      process.exit(2);
+    }
+    if (held?.pid) {
+      process.stdout.write(
+        `\x1b[33mtaking over a stale verify lock\x1b[0m (pid ${held.pid} is gone).\n`,
+      );
+    }
+  }
+  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    try {
+      const held = JSON.parse(readFileSync(lockPath, "utf8"));
+      if (held.pid === process.pid) rmSync(lockPath, { force: true });
+    } catch {
+      // Someone else's lock, or already gone. Leave it.
+    }
+  };
+  process.on("exit", release);
+  // Ctrl-C during a four-minute build is the common case.
+  //
+  // ⚠ ON WINDOWS THIS HANDLER OFTEN DOES NOT RUN. Node emulates SIGINT for a
+  // console Ctrl-C, but a programmatic `child.kill("SIGINT")` terminates the
+  // process outright, so neither this nor the 'exit' handler fires — measured,
+  // not assumed. The lock is then left behind, and THAT is what the stale-pid
+  // takeover above is for: the next run finds a dead pid, says so, and
+  // proceeds. Recovery is the property that matters here; releasing cleanly is
+  // the nicety. Removing either one leaves the tool wedged after one Ctrl-C.
+  for (const sig of ["SIGINT", "SIGTERM"]) {
+    process.on(sig, () => {
+      release();
+      process.exit(130);
+    });
+  }
+  return release;
+}
+
+const releaseLock = takeLock();
+
 const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault", "--all"]
   .some((f) => flags.has(f));
 const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFlag && ["web", "edge", "db", "vault"].includes(name);
@@ -205,6 +294,10 @@ for (const r of results) {
 }
 for (const s of skipped) process.stdout.write(`  \x1b[33m⚠ skipped\x1b[0m ${s}\n`);
 for (const w of warnings) process.stdout.write(`  \x1b[33m⚠ advisory FAILED (does not block)\x1b[0m ${w}\n`);
+
+// Released explicitly as well as on 'exit': the handler covers a crash, but
+// naming it here is what tells the next reader the lock has an owner.
+releaseLock();
 
 if (failed.length) {
   process.stdout.write(`\n\x1b[31m\x1b[1m${failed.length} check(s) failed:\x1b[0m ${failed.map((f) => f.name).join(", ")}\n`);
