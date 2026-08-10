@@ -9,6 +9,7 @@ import {
   decideSignupConsentEvidence,
   SIGNUP_CONFIRMED_METHOD,
 } from "../lib/signup-consent-evidence.ts";
+import { recordMetric } from "../lib/observability.ts";
 
 // US-377 / US-904: ToS/Privacy clickwrap acceptance.
 //
@@ -110,7 +111,28 @@ legalRoutes.post("/confirm-signup", async (c) => {
   // Neither non-insert outcome is an error. A returning user and an OAuth user
   // both land here on every sign-in, and answering 4xx would turn ordinary
   // traffic into alert noise — which is how a genuine failure stops being read.
+  //
+  // BUT `no_signup_clickwrap` IS COUNTED, and that absence of counting is how a
+  // months-long compliance defect stayed invisible. handle_new_user lost its
+  // clickwrap write at migration 00303 and nobody noticed until 2026-08-10:
+  // every caller here refused, correctly, for a row that no longer existed, and
+  // each refusal answered 200 with no signal of any kind. The whole
+  // strengthened-evidence path recorded nothing, ever, while its module, its
+  // route and 00573's column comment all read as working.
+  //
+  // The client only calls this for provider === "email" (lib/signup-consent.ts),
+  // so a refusal here means an email signup produced no clickwrap row — which is
+  // precisely the broken state and not ordinary traffic. `already_confirmed` is
+  // ordinary and stays uncounted.
   if (decision.action !== "insert") {
+    if (decision.reason === "no_signup_clickwrap") {
+      recordMetric("legal.signup_clickwrap_missing", 1);
+      console.warn(
+        `[legal/confirm-signup] no signup_clickwrap row for user ${userId} — ` +
+          "an email signup recorded no consent. If this is not isolated, the " +
+          "handle_new_user trigger is not writing it (see US-2017 / 00586).",
+      );
+    }
     return c.json({ ok: true, recorded: false, reason: decision.reason });
   }
 

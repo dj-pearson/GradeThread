@@ -5,7 +5,7 @@
 // append-only and is the artifact you would hand to a regulator, so a wrong row
 // cannot be corrected later — only explained.
 
-import { assertEquals } from "@std/assert";
+import { assert, assertEquals } from "@std/assert";
 import {
   type AcceptanceRow,
   decideSignupConsentEvidence,
@@ -143,4 +143,45 @@ Deno.test("the two method values are distinct strings", () => {
   assertEquals(a === b, false);
   assertEquals(a, "signup_clickwrap");
   assertEquals(b, "signup_clickwrap_confirmed");
+});
+
+// ── The silence that hid a months-long defect (US-2116 AC4, 2026-08-10) ──────
+
+Deno.test("a missing clickwrap is COUNTED, not answered 200 in silence", async () => {
+  // handle_new_user lost its clickwrap write at migration 00303. Every call to
+  // /api/legal/confirm-signup refused after that — correctly, for a row that no
+  // longer existed — and each refusal returned 200 with no metric, no warn and
+  // no distinguishable shape. So the strengthened-evidence path recorded
+  // nothing for months while its module, its route and 00573's column comment
+  // all read as working.
+  //
+  // The refusal itself was right. The absence of a SIGNAL is what made it
+  // invisible, and that is what this pins. The client only calls the endpoint
+  // for provider === "email" (src/lib/signup-consent.ts), so a refusal means an
+  // email signup produced no consent row — not ordinary traffic.
+  const src = await Deno.readTextFile(
+    new URL("../routes/legal.ts", import.meta.url),
+  );
+  const at = src.indexOf('legalRoutes.post("/confirm-signup"');
+  assert(at > -1, "the confirm-signup route was renamed");
+  const route = src.slice(at, src.indexOf("legalRoutes.post(", at + 40));
+
+  assert(
+    /decision\.reason === "no_signup_clickwrap"/.test(route),
+    "the missing-clickwrap refusal must be told apart from already_confirmed — " +
+      "one is the broken state, the other is a returning user",
+  );
+  assert(
+    /recordMetric\("legal\.signup_clickwrap_missing"/.test(route),
+    "a refusal for a missing clickwrap must emit a metric, or the next time the " +
+      "trigger stops writing it will again be invisible",
+  );
+  // already_confirmed is ordinary traffic and must stay quiet, or the metric
+  // fires on every returning user and stops meaning anything.
+  const guardStart = route.indexOf('decision.reason === "no_signup_clickwrap"');
+  const guarded = route.slice(guardStart, route.indexOf("return c.json", guardStart));
+  assert(
+    !/already_confirmed/.test(guarded),
+    "already_confirmed must not be counted — every returning user hits it",
+  );
 });
