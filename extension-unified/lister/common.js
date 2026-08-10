@@ -547,6 +547,11 @@
   var PROBE_ATTRS = [
     "name", "id", "type", "role", "aria-label", "placeholder",
     "data-testid", "data-test", "data-test-id", "data-et-name", "data-cy", "data-qa",
+    // US-2485 round two: the first real report came back with a Poshmark title
+    // input carrying nothing but a placeholder, which makes for a fragile,
+    // English-only selector. `class` is the site's own styling hook and is
+    // often the only stable anchor left — it is UI chrome, never seller data.
+    "class",
   ];
 
   var PROBE_SELECTORS = {

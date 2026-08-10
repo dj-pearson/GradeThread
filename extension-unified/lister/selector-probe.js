@@ -159,9 +159,14 @@
       return out;
     }
 
+    // `closetUrlPattern` sits INSIDE the engage block, not beside the platform's
+    // other URL patterns — so both objects are consulted. Getting this wrong is
+    // silent: pageCheck returns null, the report prints no verdict, and the
+    // engage section reads as an untested channel rather than a wrong page.
+    var flowCfg = (ctx && ctx.flowCfg) || {};
     var pattern = flow === "engage"
-      ? (cfg.closetUrlPattern || null)
-      : (cfg.liveListingUrlPattern || null);
+      ? (flowCfg.closetUrlPattern || cfg.closetUrlPattern || null)
+      : (flowCfg.liveListingUrlPattern || cfg.liveListingUrlPattern || null);
     out.what = flow === "engage" ? "your own closet" : "one of your own live listings";
     if (!pattern || !ctx.origin) return out;
     try {
@@ -210,6 +215,10 @@
       return !e.required && !e.found && !e.postInteraction;
     });
 
+    var pageCtx = {};
+    Object.keys(ctx || {}).forEach(function (k) { pageCtx[k] = ctx[k]; });
+    pageCtx.flowCfg = cfg;
+
     // Candidates are collected ONLY for the kinds a required selector missed.
     // A clean flow adds nothing to the report, and a flow blocked on one text
     // input does not list every button on the page.
@@ -241,7 +250,7 @@
       // The URL patterns live on the PLATFORM config, not the flow config —
       // `delist` and `engage` are handed their own sub-object — so the platform
       // config rides along in ctx rather than being guessed at from the flow.
-      page: pageCheck((ctx && ctx.platformCfg) || cfg, flow, ctx),
+      page: pageCheck((ctx && ctx.platformCfg) || cfg, flow, pageCtx),
       candidates: candidates,
     };
   }

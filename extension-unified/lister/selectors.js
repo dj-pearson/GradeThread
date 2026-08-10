@@ -19,7 +19,11 @@ const GT_LISTER_SELECTORS = {
   // ── Poshmark — PHASE 1 (enabled) ──────────────────────────────────────
   poshmark: {
     enabled: true,
-    version: "2026.06.1",
+    version: "2026.08.0",
+    // NOT bumped to today on purpose. The selectors below were written from a
+    // probe report of the live page, which is evidence about the PAGE, not
+    // about the fix — nobody has yet seen these resolve. It moves when a report
+    // comes back clean, and until then the staleness warning is accurate.
     lastVerified: "2026-06-13",
     newListingUrl: "https://poshmark.com/create-listing",
     // US-1876: known domains a delist URL must host-match (subdomains included).
@@ -36,16 +40,37 @@ const GT_LISTER_SELECTORS = {
     liveListingUrlPattern: "^https://[^/]*poshmark\\.(com|ca)/listing/[^/]+",
     // The form is considered "present" only if every required selector resolves.
     required: ["title", "description", "submit"],
+    // 2026-08-10, from a probe report on the live create-listing page: Poshmark
+    // has REBUILT this as a multi-step wizard, and every selector below was a
+    // miss. The editor now starts on a "Single Item / Multi Item" step whose
+    // only inputs are title, brand and tags; price and photos moved to a later
+    // step, and there is no submit button on screen at all — the primary action
+    // is "Next".
+    //
+    // The wizard does not change what we DO here: the fill flow has never
+    // auto-submitted (see runFlow in common.js — category, size and condition
+    // pickers vary too much to set safely, so the seller reviews and posts).
+    // `submit` is a PRESENCE PROBE, proof the editor rendered, and "Next" is
+    // that proof on the new layout. Nothing clicks it.
+    //
+    // The placeholder anchors are the weak part and are deliberately LAST: they
+    // are English-only, so a French-Canadian seller falls through to them and
+    // gets "list manually" rather than the wrong field filled. Replace them the
+    // moment a report shows a stable class or data-test on these inputs.
     fields: {
-      title: 'input[data-test="listing-editor-title"], input[name="title"], input#title',
+      title:
+        'input[data-test="listing-editor-title"], input[name="title"], input#title, ' +
+        'input[placeholder^="What are you selling"]',
       description:
-        'textarea[data-test="listing-editor-description"], textarea[name="description"], textarea#description',
+        'textarea[data-test="listing-editor-description"], textarea[name="description"], ' +
+        'textarea#description, textarea[placeholder^="Describe it"]',
       originalPrice: 'input[data-test="listing-editor-original-price"], input[name="originalPrice"]',
       price: 'input[data-test="listing-editor-listing-price"], input[name="listingPrice"]',
       photoInput: 'input[type="file"][accept*="image"]',
     },
     submit:
-      'button[data-test="listing-editor-submit"], button[type="submit"].listing-editor__submit, button.btn--primary[type="submit"]',
+      'button[data-test="listing-editor-submit"], button[type="submit"].listing-editor__submit, ' +
+      'button.btn--primary[type="submit"], button[data-et-name="next"]',
     // US-717: end a live listing. On a Poshmark listing page the owner has an
     // options/menu control exposing "Delete Listing", which opens a confirm
     // modal. Probed + fail-loud like the fill flow.
@@ -167,6 +192,16 @@ const GT_LISTER_SELECTORS = {
   },
 
   // ── Grailed — PHASE 3 (not yet enabled) ───────────────────────────────
+  //
+  // 2026-08-10: the LIST flow is verified. A probe report from
+  // grailed.com/sell/new resolved all five selectors, page verdict included.
+  //
+  // Still `enabled: false`, and the reason is the half that is NOT verified.
+  // Turning listing on without a working delist is the oversell in Step 5 of
+  // vault/30-platform/closing-a-coverage-gap.md: the item sells elsewhere, the
+  // Grailed sibling stays live and purchasable, and the seller owes two people
+  // one garment. `delist.menu` has only ever been checked from the sell form,
+  // where it cannot exist. One report from a live listing flips both.
   grailed: {
     enabled: false,
     version: "2026.06.0-draft",
