@@ -39,6 +39,7 @@ if (typeof importScripts === "function") {
     "lister/selectors.js",
     "lister/lister-guard.js",
     "lister/job-store.js",
+    "lister/engagement.js",
     "registry.js",
     "research/seller-memory.js",
     "research/compare-tray.js",
@@ -98,6 +99,15 @@ const SUPPORTED_LISTER = {
   poshmark: "Poshmark",
   mercari: "Mercari",
   grailed: "Grailed",
+  // US-2479 / US-2480. A platform listed here is one the extension will ACCEPT a
+  // job for — whether the flow actually runs is `enabled` in selectors.js, and a
+  // disabled flow reports "list manually for now" naming the platform. That is a
+  // better answer than the one these two used to get, which was the generic
+  // "Invalid or unsupported listing payload" from isValidPayload: the SaaS
+  // already advertised Vinted as an extension channel, so a seller clicking it
+  // was told their own request was malformed.
+  vinted: "Vinted",
+  facebook: "Facebook Marketplace",
 };
 
 // ── per-install instance id (research quota key) ──────────────────────────
@@ -833,6 +843,31 @@ async function reportJob(job, result) {
     delete pendingExternal[job.jobId];
   }
   await pushToSaasTab(job, result);
+  // US-2481: a DRAINED job has no originating GradeThread tab to push to — the
+  // seller queued it from their phone, possibly hours ago and on another
+  // network. Its outcome goes back to the queue row instead, which is the only
+  // place they will look for it.
+  if (job.queueId) {
+    await queueFetch("/" + job.queueId + "/complete", {
+      method: "POST",
+      body: JSON.stringify({
+        ok: result && result.ok === true,
+        result: {
+          error: result && typeof result.error === "string"
+            ? result.error.slice(0, 400)
+            : null,
+          manual: Boolean(result && result.manual),
+          listingUrl: result && typeof result.listingUrl === "string"
+            ? result.listingUrl
+            : null,
+        },
+      }),
+    });
+    // Immediately look for the next one. The drain runs a single job at a time,
+    // so without this a queue of six would take six sweep ticks — half an hour —
+    // to clear a browser that was open the whole time.
+    void drainQueue();
+  }
   // US-1885 AC1: remember the outcome for the popup. storage.LOCAL, not session:
   // the seller's most likely move after a cross-post that went wrong is to open the
   // popup later — possibly after a browser restart — and ask what happened. A
@@ -926,6 +961,28 @@ function isValidDelistPayload(p) {
   );
 }
 
+// US-2482: everything the engagement gate needs, read fresh.
+//
+// Read on EVERY gate call rather than cached, because the three things it holds
+// are exactly the three that must not go stale mid-run: a revoked consent, a
+// lowered cap, and a counter another tab just incremented. All three live in
+// storage.LOCAL and never leave the device — GradeThread's servers see run
+// counts at most, and never a Poshmark page, handle or cookie.
+async function readEngageState() {
+  const out = await ext.storage.local.get([
+    "engageClickwrap",
+    "engageSettings",
+    "engageCounters",
+  ]);
+  const settings = self.GT_ENGAGE.clampSettings(out && out.engageSettings);
+  const counters = self.GT_ENGAGE.rollCounters(
+    out && out.engageCounters,
+    Date.now(),
+    new Date().getTimezoneOffset(),
+  );
+  return { clickwrap: (out && out.engageClickwrap) || null, settings, counters };
+}
+
 async function tosAccepted() {
   const out = await ext.storage.local.get("tosAcceptedAt");
   return Boolean(out && out.tosAcceptedAt);
@@ -994,9 +1051,33 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   if (isDelist) {
     url = payload.listingUrl;
   } else {
-    url = self.GT_LISTER_GUARD.newListingUrlFor(self.GT_LISTER_SELECTORS, payload.platform);
+    // US-2479: locale-aware for the multi-domain platforms (Vinted), unchanged
+    // for everything else. `payload.locale` is a KEY looked up in the bundled
+    // config, never a URL — AC1 above still holds in full.
+    url = self.GT_LISTER_GUARD.newListingUrlForLocale(
+      self.GT_LISTER_SELECTORS,
+      payload.platform,
+      payload.locale,
+    );
     if (!url) {
-      sendResponse({ ok: false, error: "Unsupported marketplace." });
+      // Distinguish the two ways this fails, because they need different things
+      // from the seller. An uncovered locale is not a broken extension — it is a
+      // country we have not verified the form on, and saying so (with the list of
+      // ones we have) is the fail-loud contract rather than opening a tab on a
+      // Vinted the seller has no account on.
+      const covered = self.GT_LISTER_GUARD.localesFor(
+        self.GT_LISTER_SELECTORS,
+        payload.platform,
+      );
+      sendResponse({
+        ok: false,
+        manual: true,
+        error: covered.length > 0 && payload.locale
+          ? "GradeThread doesn't cover " + String(payload.locale).slice(0, 40) +
+            " yet — please list manually there. Covered right now: " +
+            covered.join(", ") + "."
+          : "Unsupported marketplace.",
+      });
       return;
     }
   }
@@ -1029,6 +1110,137 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   pendingExternal[job.jobId] = sendResponse;
 }
 
+// ── US-2481: drain the mobile queue ───────────────────────────────────────
+//
+// The seller queued work from their phone. This browser runs it the next time it
+// is open. The server held WHAT to do — an item id, a platform, a locale key —
+// and never a marketplace credential, which is the whole reason a queue is
+// allowed to exist at all (the ADR bright line).
+//
+// Runs on startup, on install, and on the 5-minute sweep. ONE job at a time:
+// planDrain enforces that, because six marketplace tabs opening at once in the
+// browser the seller is also using is not a feature.
+const QUEUE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/extension-queue";
+
+async function queueFetch(path, init) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") return null;
+  try {
+    const resp = await fetch(QUEUE_ENDPOINT + (path || ""), Object.assign({
+      cache: "no-store",
+      headers: {
+        "Authorization": "Bearer " + gtBuyerToken,
+        "Content-Type": "application/json",
+      },
+    }, init || {}));
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch (_e) {
+    // Offline, or the seller's token expired. The queue is server-side state and
+    // survives; the next tick tries again. Nothing is lost by failing quietly
+    // here, and a toast about a background poll would be noise.
+    return null;
+  }
+}
+
+let drainInFlight = false;
+
+async function drainQueue() {
+  // Re-entrancy guard: the sweep alarm and a startup event can land together,
+  // and two concurrent drains would each claim the same row before either
+  // marked it.
+  if (drainInFlight) return;
+  drainInFlight = true;
+  try {
+    // Same gates as an interactive cross-post, checked in the same order. A
+    // drained job is not a special case that gets to skip the seller's consent.
+    if (!(await sellerAllowed())) return;
+    if (!(await tosAccepted())) return;
+
+    const claimed = await queueFetch("/claim", {
+      method: "POST",
+      body: JSON.stringify({ limit: 5, installId: await getInstanceId() }),
+    });
+    const rows = (claimed && claimed.claimed) || [];
+    if (rows.length === 0) return;
+
+    const jobs = await withJobs(async (j) => ({ value: j }));
+    const plan = self.GT_LISTER_JOBS.planDrain(rows, jobs, { now: Date.now() });
+
+    // AC6: expired rows are REPORTED, never silently dropped. A seller who
+    // believes a delist is still pending is a seller heading for a double sale.
+    for (const row of plan.expired) {
+      await queueFetch("/" + row.id + "/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          ok: false,
+          result: {
+            expired: true,
+            error: "This waited longer than a week without your desktop browser " +
+              "opening, so GradeThread stopped waiting. Queue it again if you " +
+              "still want it run.",
+          },
+        }),
+      });
+    }
+
+    for (const row of plan.toRun) {
+      const url = self.GT_LISTER_GUARD.newListingUrlForLocale(
+        self.GT_LISTER_SELECTORS,
+        row.platform,
+        row.payload && row.payload.locale,
+      );
+      const target = row.kind === "delist"
+        ? (row.payload && row.payload.listingUrl)
+        : url;
+      // The same guard as an interactive job: a delist URL must be https and
+      // host-match its platform, and a list URL always comes from the bundled
+      // config. A queue row is server-supplied, which makes it no more trusted
+      // than a message from a page.
+      const allowed = row.kind === "delist"
+        ? self.GT_LISTER_GUARD.isAllowedDelistUrl(
+            self.GT_LISTER_SELECTORS, row.platform, target,
+          )
+        : Boolean(target);
+      if (!allowed) {
+        await queueFetch("/" + row.id + "/complete", {
+          method: "POST",
+          body: JSON.stringify({
+            ok: false,
+            result: { error: "GradeThread can't open that target for " + row.platform + "." },
+          }),
+        });
+        continue;
+      }
+
+      let tab;
+      try {
+        // NOT focused: this is background work the seller did not just ask for.
+        // Stealing focus from whatever they are doing would be the fastest way
+        // to make them uninstall it.
+        tab = await ext.tabs.create({ url: target, active: false });
+      } catch (_e) {
+        continue; // try again on the next tick; the row stays claimed
+      }
+
+      const job = self.GT_LISTER_JOBS.jobFromQueueRow(row, {
+        jobId: makeJobId(),
+        tabId: tab.id,
+        now: Date.now(),
+      });
+      await withJobs(async (j) => ({ jobs: self.GT_LISTER_JOBS.put(j, job) }));
+      await scheduleJobAlarm(job);
+    }
+  } finally {
+    drainInFlight = false;
+  }
+}
+
+// Run it when the browser opens — the moment the whole feature is named after.
+if (ext.runtime.onStartup) {
+  ext.runtime.onStartup.addListener(function () { void drainQueue(); });
+}
+
 function handleListRequest(payload, sender, sendResponse, clientRef) {
   return startJob("list", payload, sender, sendResponse, clientRef);
 }
@@ -1053,6 +1265,12 @@ if (ext.alarms && ext.alarms.onAlarm) {
       // US-1877: expired watches go with them — an abandoned tab must not capture
       // whatever the seller browses to an hour later.
       withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.sweepWatches(w, Date.now()) }));
+      // US-2481: the same tick is also when we look for work queued from the
+      // seller's phone. Riding the existing 5-minute sweep rather than adding an
+      // alarm is deliberate — a browser left open all day should pick up a job
+      // queued at lunchtime without the seller doing anything, and one more
+      // periodic alarm for that would be a second thing to get wrong.
+      void drainQueue();
       return;
     }
 
@@ -1194,6 +1412,95 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     // eslint-disable-next-line no-console
     console.debug("[GradeThread Lister][content]", msg.message);
     return false;
+  }
+
+  // ── US-2482: Poshmark engagement (share / follow / send offer) ───────────
+  //
+  // The worker owns storage and therefore owns the caps, the counters and the
+  // consent record. The content script owns the DOM. That split is the whole
+  // safety design: a marketplace page cannot raise a cap or forge a consent,
+  // because it never holds either — it asks, per action, and is told yes or no.
+  if (msg.type === "GT_ENGAGE_GATE") {
+    (async () => {
+      const state = await readEngageState();
+      const decision = self.GT_ENGAGE.gate({
+        action: msg.action,
+        sellerAllowed: await sellerAllowed(),
+        clickwrap: state.clickwrap,
+        settings: state.settings,
+        counters: state.counters,
+        now: Date.now(),
+        tzOffsetMinutes: new Date().getTimezoneOffset(),
+        humanCheck: msg.humanCheck === true,
+      });
+      // The pacing delay rides along with the decision so the page never holds
+      // the floor. A content script that computed its own delay could be made to
+      // compute zero.
+      sendResponse(
+        decision.ok
+          ? Object.assign({}, decision, {
+              nextDelayMs: self.GT_ENGAGE.nextDelayMs(state.settings),
+            })
+          : decision,
+      );
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_RECORD") {
+    (async () => {
+      const state = await readEngageState();
+      const counters = self.GT_ENGAGE.recordAction(state.counters, msg.action, msg.count);
+      await ext.storage.local.set({ engageCounters: counters });
+      sendResponse({ ok: true, meter: self.GT_ENGAGE.meter(counters, state.settings, msg.action) });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_STATE") {
+    (async () => {
+      const state = await readEngageState();
+      sendResponse({
+        ok: true,
+        accepted: self.GT_ENGAGE.isClickwrapAccepted(state.clickwrap),
+        clickwrapVersion: self.GT_ENGAGE.CLICKWRAP_VERSION,
+        terms: self.GT_ENGAGE.CLICKWRAP_TERMS,
+        settings: state.settings,
+        counters: state.counters,
+        meter: self.GT_ENGAGE.meter(state.counters, state.settings, "share"),
+        sellerAllowed: await sellerAllowed(),
+      });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_ACCEPT") {
+    (async () => {
+      await ext.storage.local.set({
+        engageClickwrap: self.GT_ENGAGE.acceptClickwrap(new Date().toISOString()),
+      });
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_REVOKE") {
+    (async () => {
+      await ext.storage.local.remove("engageClickwrap");
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_SETTINGS") {
+    (async () => {
+      // Clamped on the way IN as well as on every read. Storing an unclamped
+      // value would leave a number in storage that looks like a granted request.
+      const settings = self.GT_ENGAGE.clampSettings(msg.settings);
+      await ext.storage.local.set({ engageSettings: settings });
+      sendResponse({ ok: true, settings: settings });
+    })();
+    return true;
   }
 
   // AC1: served from storage.session, so a content script that asks AFTER the

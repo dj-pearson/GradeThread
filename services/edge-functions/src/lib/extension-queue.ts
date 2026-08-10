@@ -1,0 +1,150 @@
+// US-2481: the pure half of the mobile→desktop extension work queue.
+//
+// Kept out of the route so the one rule that actually matters — the queue stores
+// WHAT to do and never a way IN — is a unit-testable function rather than a
+// paragraph in a handler. The same rule exists a third time as a CHECK
+// constraint on extension_work_queue. Three copies sounds like duplication; it
+// is not. Each catches a different failure: the constraint catches a future
+// server path that forgets, this catches it early enough to say WHICH key was
+// refused, and the test catches someone deleting either.
+//
+// The rule comes from vault/60-decisions/adr-no-server-side-marketplace-automation.md
+// §3.1: GradeThread's servers never hold a marketplace password or session
+// cookie for a no-API channel. A queue is exactly where that would erode — "we
+// only need the cookie so the desktop can resume" is a sentence that ends with
+// the cloud model this whole design refuses.
+
+export const EXTENSION_QUEUE_KINDS = ["list", "delist", "share"] as const;
+export type ExtensionQueueKind = (typeof EXTENSION_QUEUE_KINDS)[number];
+
+/**
+ * Keys a queue payload may never carry, matched case-insensitively and
+ * ignoring separators — so `session_cookie`, `sessionCookie` and `SESSION-COOKIE`
+ * are all the same refusal. Mirrors the table's CHECK constraint.
+ */
+export const CREDENTIAL_KEYS = [
+  "password",
+  "passwd",
+  "pass",
+  "pwd",
+  "cookie",
+  "cookies",
+  "sessioncookie",
+  "session",
+  "sessionid",
+  "credential",
+  "credentials",
+  "authtoken",
+  "accesstoken",
+  "refreshtoken",
+  "bearer",
+  "csrf",
+  "apikey",
+  "secret",
+] as const;
+
+/** How long queued work stays runnable before it is reported as expired. */
+export const QUEUE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How many jobs one tenant may have outstanding.
+ *
+ * Not an arbitrary number: without a cap, a seller queues a few hundred jobs
+ * from their phone across a week, opens their laptop, and the extension starts
+ * opening marketplace tabs it will not stop opening. Sixty is more than a real
+ * week of sourcing and small enough to drain in one sitting.
+ */
+export const MAX_QUEUE_DEPTH = 60;
+
+/** Bytes of JSON a payload may occupy. An instruction, not a document. */
+const MAX_PAYLOAD_BYTES = 8 * 1024;
+
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function isCredentialKey(key: string): boolean {
+  const k = normalizeKey(key);
+  return (CREDENTIAL_KEYS as readonly string[]).some(
+    (bad) => k === bad || k.endsWith(bad),
+  );
+}
+
+export interface NormalizedPayload {
+  value: Record<string, unknown>;
+  /** The first refused key found, or null when the payload is clean. */
+  rejectedKey: string | null;
+}
+
+/**
+ * Validate and bound a queue payload.
+ *
+ * Walks NESTED objects, not just the top level: `{ auth: { cookie: "…" } }` is
+ * the same leak wearing one more brace, and a top-level-only check is the kind
+ * that passes review and fails in production.
+ */
+export function normalizeQueuePayload(input: unknown): NormalizedPayload {
+  if (input == null) return { value: {}, rejectedKey: null };
+  if (typeof input !== "object" || Array.isArray(input)) {
+    return { value: {}, rejectedKey: null };
+  }
+
+  const rejected = findCredentialKey(input as Record<string, unknown>, 0);
+  if (rejected) return { value: {}, rejectedKey: rejected };
+
+  let json: string;
+  try {
+    json = JSON.stringify(input);
+  } catch {
+    // Circular or otherwise unserializable — not a payload, and not something to
+    // try to salvage into one.
+    return { value: {}, rejectedKey: null };
+  }
+  if (json.length > MAX_PAYLOAD_BYTES) {
+    // Truncating a JSON document produces invalid JSON, and a "best effort"
+    // partial instruction is worse than none: the extension would act on half a
+    // job. Drop it and keep the row's ids, which are what the drain actually
+    // needs.
+    return { value: {}, rejectedKey: null };
+  }
+  return { value: input as Record<string, unknown>, rejectedKey: null };
+}
+
+function findCredentialKey(
+  obj: Record<string, unknown>,
+  depth: number,
+): string | null {
+  if (depth > 6) return null; // deeper than any real instruction goes
+  for (const [key, value] of Object.entries(obj)) {
+    if (isCredentialKey(key)) return key;
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = findCredentialKey(value as Record<string, unknown>, depth + 1);
+      if (nested) return nested;
+    }
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+          const nested = findCredentialKey(entry as Record<string, unknown>, depth + 1);
+          if (nested) return nested;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** When a job queued at `nowMs` stops being runnable. */
+export function planExpiry(nowMs: number): string {
+  return new Date(nowMs + QUEUE_TTL_MS).toISOString();
+}
+
+/**
+ * The sentence every client shows for a queued job.
+ *
+ * US-2481 AC7: a seller must never be told work completed that has not. The
+ * string lives here so web, iOS and Android cannot each invent their own
+ * cheerier version of it.
+ */
+export const QUEUED_NOTICE =
+  "This runs the next time you open your desktop browser with the GradeThread " +
+  "extension installed. Nothing happens on the marketplace until then.";

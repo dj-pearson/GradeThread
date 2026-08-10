@@ -58,7 +58,7 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 - Host `https://gradethread.com/*` and `https://*.gradethread.com/*` — Two uses, and the second is the one that needs stating plainly:
   1. Call GradeThread's own API (`functions.gradethread.com`) to grade a listing the user asked us to read, and to fetch that account's entitlements.
   2. **Inject a content script into gradethread.com pages** (`gt-bridge.js`). It is a message relay: the GradeThread web app posts a cross-listing request, the script forwards it to the extension's background, and posts the reply back. It exists because Firefox has no `externally_connectable`, so this is the only cross-browser way for our own site to talk to our own extension. It reads nothing from the page — no page content, no credentials, no cookies — and forwards only our own message envelope.
-- Host `https://*.poshmark.com/*`, `https://*.mercari.com/*`, `https://*.grailed.com/*` — Prefill the seller's own new-listing form during cross-listing, in the tab they are already signed into.
+- Host `https://*.poshmark.com/*`, `https://*.mercari.com/*`, `https://*.grailed.com/*`, `https://*.facebook.com/*` and the Vinted country domains (`vinted.com`, `vinted.co.uk`, `vinted.fr`, `vinted.de`, `vinted.es`, `vinted.it`, `vinted.nl`, `vinted.pl`, `vinted.be`, `vinted.at`, `vinted.cz`, `vinted.sk`, `vinted.lt`, `vinted.pt`, `vinted.se`, `vinted.ro`, `vinted.hu`, `vinted.lu`, `vinted.hr`, `vinted.gr`, `vinted.dk`, `vinted.fi`) — Prefill the seller's own new-listing form during cross-listing, in the tab they are already signed into, and end one of the seller's own listings when the item sells on another site. The list is long only because these sites run one app across many country domains; each is the same single use. The extension does not read the account, has no `cookies` permission, and sends nothing from these pages to GradeThread.
 - `contextMenus` — Adds ONE right-click item on images ("Grade this image with GradeThread"). It is how a shopper grades the specific photo they spotted when the site's gallery layout hid it from us. It reads nothing on its own: the click hands the image's public URL to the extension, which grades it exactly like the on-page button does. No menu appears anywhere else, and nothing is added to the page.
 - **Remote code:** No — all executable code ships inside the package.
 
@@ -224,7 +224,8 @@ listing and ask for a condition read — and it can be switched off in the popup
 The extension does both jobs behind one role-aware popup:
 • Condition Check (all users, free): an AI condition read on a supported resale listing — score, over-grading flag, price fairness, and photo-request hints.
 • Lister (FlipDesk sellers): one-click cross-posting of drafts into a supported marketplace's new-listing form, prefilled in your own logged-in tab.
-Versioned Lister consent and full Firefox support.
+• Seller engagement (FlipDesk sellers, opt-in): repeats a seller's own share, follow and offer actions in their own logged-in tab, behind a separate consent, a daily limit the seller cannot raise, and randomized pacing. It stops and hands the tab back whenever the site asks for a human check — it never answers one.
+Versioned consent for both seller features, and full Firefox support.
 ```
 
 > Firefox floor is 140.0 (desktop) / 142.0 (Android): the versions that support

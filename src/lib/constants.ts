@@ -321,6 +321,26 @@ export function formatMarketplacesCap(cap: number): string {
   return String(cap);
 }
 
+// US-2483: how many listings a tier covers, as a shopper reads it.
+//
+// WHY THIS IS ITS OWN FUNCTION AND ITS OWN LINE ON THE PRICING PAGE. Every
+// competitor a reseller is comparing us against — Crosslist, Vendoo, List
+// Perfectly — prices by LISTING VOLUME. It is the first number they look for
+// and the axis they compare on. GradeThread priced by AI actions and left the
+// listing number buried in a features bullet, so the one figure a shopper came
+// for was the one they had to hunt for.
+//
+// The number is `activeListingCap`, which is what the edge actually enforces
+// (plan-gate.ts), tied to it by plan-limits-parity.test.ts. It is deliberately
+// NOT a separate marketing figure — an allowance the server does not grant is
+// the advertised-vs-enforced defect US-2123 found on the iOS paywall.
+//
+// -1 is unlimited, and it says "Unlimited" rather than inventing a cap.
+export function formatListingAllowance(cap: number): string {
+  if (cap === -1) return "Unlimited";
+  return cap.toLocaleString();
+}
+
 // eBay Sell API condition enum values with buyer-friendly labels. Mirrors
 // EBAY_CONDITION_VALUES in services/edge-functions/src/lib/ai-listing.ts.
 // Shared by the listing composer and the AutoLister bulk editor.
@@ -1471,7 +1491,11 @@ export const MARKETPLACE_MECHANISM: Record<
   mercari: "extension",
   grailed: "extension",
   vinted: "extension",
-  facebook: "none",
+  // US-2480: was "none". Facebook Marketplace is the highest-traffic local
+  // channel and both Crosslist and Vendoo support it, so "no integration" was
+  // the coverage gap rather than an honest classification — there is a content
+  // script (extension-unified/lister/facebook.js) and a delist path now.
+  facebook: "extension",
   offerup: "none",
   other: "none",
 };
@@ -1508,9 +1532,49 @@ export const MARKETPLACE_TIER: Record<
   mercari: "extension",
   grailed: "extension",
   vinted: "extension",
-  facebook: "coming_soon",
+  // US-2480: moved from coming_soon in lockstep with MARKETPLACE_MECHANISM
+  // above, keeping the tier↔mechanism consistency rule intact. Whether the flow
+  // is switched ON is MARKETPLACE_EXTENSION_FLOW below — tier says how a channel
+  // is reached, not whether its selectors are verified.
+  facebook: "extension",
   offerup: "coming_soon",
   other: "coming_soon",
+};
+
+// ─── US-2477..US-2480: is an extension channel's flow actually switched on? ──
+//
+// MARKETPLACE_TIER answers "how is this channel reached". It does NOT answer
+// "does the flow run today", and conflating the two is how Mercari, Grailed and
+// Vinted spent months rendering "Connect via browser extension" in the UI while
+// their selectors sat at `enabled: false` and every attempt reported "list
+// manually for now". A seller reading the badge had no way to know.
+//
+//   "live"      — selectors verified against the live sell form, flow enabled.
+//   "verifying" — the content script and selectors exist, but no one has
+//                 re-checked them against the real form yet, so the flow
+//                 deliberately degrades to the manual message rather than
+//                 half-filling a form it has not seen.
+//
+// THIS MUST MATCH `enabled` IN extension-unified/lister/selectors.js. It is not
+// derived from it, because the frontend cannot import an extension content
+// script — so marketplace-mechanism.test.ts parses that file and fails the build
+// if the two disagree. Flipping a channel on is therefore exactly two edits:
+// `enabled: true` + `lastVerified` there, and "live" here.
+export type MarketplaceFlowStatus = "live" | "verifying";
+export const MARKETPLACE_EXTENSION_FLOW: Record<
+  (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number],
+  MarketplaceFlowStatus
+> = {
+  poshmark: "live",
+  mercari: "verifying",
+  grailed: "verifying",
+  vinted: "verifying",
+  facebook: "verifying",
+};
+
+export const MARKETPLACE_FLOW_LABEL: Record<MarketplaceFlowStatus, string> = {
+  live: "Ready to list",
+  verifying: "Checking the form — list manually for now",
 };
 
 // Short, human-facing label for each tier — used by the Marketplaces UI badges
@@ -1521,6 +1585,12 @@ export const MARKETPLACE_TIER_LABEL: Record<MarketplaceTier, string> = {
   extension: "Connect via browser extension",
   coming_soon: "Coming soon",
 };
+
+// US-2475's per-channel risk disclosure used to live here. It moved to
+// src/lib/marketplace-disclosure.ts because constants.ts is in the eager bundle
+// graph and that copy is ~5.5 KB of prose only the Marketplaces screen renders
+// — it pushed the eager graph over the US-2112 budget. Import
+// `marketplaceDisclosureFor` from there.
 
 // Cross-listable platforms fanned out server-side via POST /cross-push (the
 // US-708 adapter registry). Order = composer display order.
@@ -1541,6 +1611,7 @@ export const EXTENSION_CROSS_LISTING_PLATFORMS = [
   "mercari",
   "grailed",
   "vinted",
+  "facebook", // US-2480
 ] as const satisfies readonly (typeof LISTING_PLATFORMS)[number][];
 export type ExtensionCrossListingPlatform =
   (typeof EXTENSION_CROSS_LISTING_PLATFORMS)[number];

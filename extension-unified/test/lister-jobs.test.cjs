@@ -260,3 +260,165 @@ console.log("lister-jobs: all assertions passed");
   assert.strictEqual(swept["7"], undefined, "the expired watch is swept");
   assert.ok(swept["9"], "the live one is kept");
 }
+
+// ── US-2481: draining the mobile queue ──────────────────────────────────────
+//
+// A seller queues cross-listing or delist work from their phone; this browser
+// runs it the next time it opens. That is the honest answer to the cloud-session
+// model — the server holds WHAT to do and never a marketplace credential
+// (vault/60-decisions/adr-no-server-side-marketplace-automation.md).
+//
+// What the drain has to get right is small and unforgiving:
+//   • one job at a time, because the seller is using this browser;
+//   • never start a row already in flight, or a share run happens twice;
+//   • never run an expired row, and never drop it silently either — a delist
+//     that never happened is the thing they most need told about.
+{
+  const NOW = Date.parse("2026-08-10T12:00:00Z");
+  const future = new Date(NOW + 86_400_000).toISOString();
+  const past = new Date(NOW - 60_000).toISOString();
+
+  const row = (id, over) => Object.assign({
+    id,
+    kind: "list",
+    platform: "poshmark",
+    inventory_item_id: "item-" + id,
+    listing_id: null,
+    payload: { locale: null },
+    status: "claimed",
+    expires_at: future,
+    created_at: "2026-08-10T09:00:00Z",
+  }, over || {});
+
+  // ── one at a time ─────────────────────────────────────────────────────────
+  {
+    const plan = J.planDrain([row("a"), row("b"), row("c")], {}, { now: NOW });
+    assert.strictEqual(
+      plan.toRun.length,
+      1,
+      "the drain must start ONE job. Six queued rows means six marketplace tabs " +
+        "opening at once, each stealing focus and several filling forms the " +
+        "seller cannot see — their browser is not a worker pool.",
+    );
+    assert.strictEqual(plan.skipped.length, 2, "the rest wait their turn");
+  }
+
+  // ── oldest first ──────────────────────────────────────────────────────────
+  {
+    const plan = J.planDrain(
+      [
+        row("newer", { created_at: "2026-08-10T11:00:00Z" }),
+        row("older", { created_at: "2026-08-09T08:00:00Z" }),
+      ],
+      {},
+      { now: NOW },
+    );
+    assert.strictEqual(
+      plan.toRun[0].id,
+      "older",
+      "the seller queued these in an order — a delist queued before a relist " +
+        "has to run before it, or the replacement goes up while the original " +
+        "is still live",
+    );
+  }
+
+  // ── a pending job blocks the drain entirely ───────────────────────────────
+  {
+    const busy = J.put({}, J.makeJob({
+      jobId: "j1", tabId: 5, saasTabId: 9, platform: "mercari", now: NOW,
+    }));
+    const plan = J.planDrain([row("a")], busy, { now: NOW });
+    assert.strictEqual(
+      plan.toRun.length,
+      0,
+      "an ordinary cross-post is already holding a tab; the drain must wait",
+    );
+  }
+
+  // ── a row already in flight is never started twice ────────────────────────
+  {
+    const inFlight = J.put({}, J.makeJob({
+      jobId: "j1", tabId: 5, platform: "poshmark", queueId: "a", now: NOW,
+    }));
+    const plan = J.planDrain([row("a"), row("b")], inFlight, {
+      now: NOW,
+      maxConcurrent: 5, // room to spare, so the ONLY reason to skip is the match
+    });
+    assert.ok(
+      !plan.toRun.some((r) => r.id === "a"),
+      "queue row 'a' is already running in this browser — starting it again " +
+        "would fill the same form twice, or run a share job twice",
+    );
+    assert.ok(plan.toRun.some((r) => r.id === "b"), "the other row still runs");
+  }
+
+  // ── expired rows: not run, not silent ─────────────────────────────────────
+  {
+    const plan = J.planDrain(
+      [row("dead", { expires_at: past }), row("live")],
+      {},
+      { now: NOW },
+    );
+    assert.deepStrictEqual(
+      plan.expired.map((r) => r.id),
+      ["dead"],
+      "an expired row must be REPORTED, not quietly dropped (US-2481 AC6). A " +
+        "seller who believes a delist is still pending is a seller heading for " +
+        "a double sale.",
+    );
+    assert.ok(
+      !plan.toRun.some((r) => r.id === "dead"),
+      "an expired row must never be run",
+    );
+    assert.strictEqual(plan.toRun[0].id, "live");
+  }
+
+  // ── a malformed row cannot crash the drain ────────────────────────────────
+  {
+    const plan = J.planDrain([null, {}, { id: 7 }, row("ok")], {}, { now: NOW });
+    assert.strictEqual(plan.toRun.length, 1);
+    assert.strictEqual(plan.toRun[0].id, "ok");
+  }
+
+  // ── a row with no expiry is treated as live, not as expired ───────────────
+  {
+    const plan = J.planDrain([row("a", { expires_at: null })], {}, { now: NOW });
+    assert.strictEqual(
+      plan.toRun.length,
+      1,
+      "an unparseable expiry must not silently expire real work",
+    );
+  }
+
+  // ── the row → job translation ─────────────────────────────────────────────
+  {
+    const job = J.jobFromQueueRow(
+      row("q1", { kind: "delist", platform: "vinted", payload: { locale: "vinted.fr" } }),
+      { jobId: "j9", tabId: 3, now: NOW },
+    );
+    assert.strictEqual(job.queueId, "q1", "the job carries its queue row id home");
+    assert.strictEqual(job.kind, "delist");
+    assert.strictEqual(job.platform, "vinted");
+    assert.strictEqual(
+      job.saasTabId,
+      null,
+      "a drained job has NO originating GradeThread tab — the seller queued it " +
+        "from a phone hours ago. The result goes back to the queue endpoint, " +
+        "which is what queueId exists for.",
+    );
+    assert.strictEqual(job.payload.locale, "vinted.fr", "the instruction survives");
+    assert.strictEqual(job.payload.itemId, "item-q1");
+    assert.ok(J.isPending(job));
+  }
+
+  // ── an ordinary job still has no queueId ──────────────────────────────────
+  {
+    const job = J.makeJob({ jobId: "j1", tabId: 1, saasTabId: 2, platform: "poshmark", now: NOW });
+    assert.strictEqual(
+      job.queueId,
+      null,
+      "a same-session cross-post must not look like a drained one, or its " +
+        "result would be reported to a queue row that does not exist",
+    );
+  }
+}

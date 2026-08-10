@@ -81,6 +81,13 @@ Deno.test("delistMethodFor maps each platform to its delist channel", () => {
   assertEquals(delistMethodFor("poshmark"), "extension");
   assertEquals(delistMethodFor("mercari"), "extension");
   assertEquals(delistMethodFor("grailed"), "extension");
+  // US-2479 / US-2480. Neither was in the set, so both resolved to
+  // 'unsupported' — and Vinted was already advertised to sellers as an
+  // extension channel while Facebook was about to be. An advertised channel
+  // whose siblings are never delisted is the oversell this module exists to
+  // prevent, arriving through the one door nobody had closed.
+  assertEquals(delistMethodFor("vinted"), "extension");
+  assertEquals(delistMethodFor("facebook"), "extension");
 });
 
 Deno.test("every cross-listing platform has a delist channel, or is a known gap", () => {

@@ -50,6 +50,22 @@ Annual ≈ 17% off (10 months for the price of 12 → 2 months free).
 `activeListingCap` / `marketplacesCap` of `-1` in the constants means
 **unlimited / all**.
 
+**The listing allowance is the number a reseller shops on (US-2483).** Crosslist,
+Vendoo and List Perfectly all price by listing volume, so "how many listings does
+this cover" is the first question a switching seller asks — and until US-2483 our
+answer was buried in a features bullet three lines down the plan card, while the
+headline number was AI actions, an axis nobody else prices on. The allowance is
+now its own line on `/pricing` and in `flipdesk-plan-comparison.tsx`, rendered
+through `formatListingAllowance` so both surfaces phrase one number identically.
+
+The number is `activeListingCap` and nothing else. It is what
+`plan-gate.ts` actually enforces, tied to the edge by
+`plan-limits-parity.test.ts`, and a second marketing figure is forbidden: an
+allowance the server does not grant is the advertised-vs-enforced defect US-2123
+found on the iOS paywall. Business says **Unlimited** rather than a made-up
+ceiling, because `-1` is a real sentinel and inventing "10,000" to fill the cell
+would be a cap we would then have to honour.
+
 **Marketplace capability tiers (US-718, single source of truth =
 `MARKETPLACE_TIER`).** "Marketplaces" above is the number of *API connections*
 a tier may open; it is not a count of every channel a seller can list to:
@@ -358,10 +374,25 @@ Captured at design time so future pricing changes have a reference point.
 |---|---|
 | **List Perfectly** | $29 / $49 / $69 / $99 |
 | **Vendoo** | $14.99 / $29.99 / $59.99 / $99.99 / $149.99 |
+| **Crosslist** | ~$17 / $30 / $40 (listing-volume tiers; no EU customers) |
+| **Nifty** | ~$25/mo for the Poshmark engagement tier |
+
+Every one of them prices by **listing volume**, which is why US-2483 pulled our
+listing allowance onto the plan card as its own line. A shopper comparing
+ladders needs the same axis on both sides.
 
 Our FlipDesk ladder ($0 / $29 / $59 / $99) deliberately undercuts the top of
 both ladders while adding a genuine free tier and bundled grading neither
-competitor offers.
+competitor offers. Two more differences worth stating, since they are what a
+switching seller actually asks about:
+
+- **Poshmark engagement** (share / follow / send offer) is included on paid
+  FlipDesk tiers rather than sold as a separate ~$25/mo product, and it runs in
+  the seller's own browser rather than from our servers holding their Poshmark
+  session — see [[adr-no-server-side-marketplace-automation]].
+- **Vinted** is covered on 22 country domains. Crosslist does not serve EU
+  customers at all, so this is coverage a seller cannot get by switching to the
+  cheaper ladder.
 
 ### Grading / authentication services
 

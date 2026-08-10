@@ -164,6 +164,46 @@
           <ul class="pop-delist-list" id="delistList"></ul>
         </div>
 
+        <!-- US-2482: Poshmark engagement. A SEPARATE block with a SEPARATE
+             clickwrap — the Lister consent covers "fill in my own listing form",
+             which is not the same thing to agree to as sharing five thousand
+             times a day. Rolling them together would opt sellers into this with
+             a checkbox they ticked for cross-listing. -->
+        <div class="pop-engage" id="engageBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Poshmark sharing</span>
+            <span class="pop-lastjob-when" id="engageStatus"></span>
+          </div>
+
+          <!-- The meter. Shares used today against the cap, with share jail
+               named as the consequence — a bare percentage tells a seller
+               nothing about what waits at 100%. -->
+          <div class="pop-meter" id="engageMeter" hidden>
+            <div class="pop-meter-head">
+              <span id="engageMeterLabel"></span>
+              <span id="engageMeterPct"></span>
+            </div>
+            <div class="pop-meter-track">
+              <div class="pop-meter-fill" id="engageMeterFill"></div>
+            </div>
+            <p class="pop-meter-note" id="engageMeterNote"></p>
+          </div>
+
+          <div id="engageConsent" hidden>
+            <ul class="pop-engage-terms" id="engageTerms"></ul>
+            <label class="pop-tos-row">
+              <input type="checkbox" id="engageCheck" />
+              <span>I have read the four points above and accept them.</span>
+            </label>
+            <button class="pop-cta" id="engageAccept" type="button" disabled>
+              Accept &amp; enable sharing
+            </button>
+          </div>
+          <button class="pop-linkbtn" id="engageRevoke" type="button" hidden>
+            Turn off Poshmark sharing
+          </button>
+        </div>
+
         <div class="pop-tos" id="tosBlock">
           <label class="pop-tos-row">
             <input type="checkbox" id="tosCheck" />

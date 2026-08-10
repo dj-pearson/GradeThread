@@ -202,7 +202,8 @@ export function pricingOfferLd(): JsonLd {
     description:
       "AI-powered condition grading for pre-owned clothing: an objective " +
       "1.0–10.0 grade, a condition report, and a shareable verification " +
-      "certificate — plus FlipDesk, the full eBay reseller workflow.",
+      "certificate — plus FlipDesk, the full reseller workflow, which works " +
+      "with eBay.",
     brand: { "@type": "Brand", name: "GradeThread" },
     // Required by the US-1681 schema lint (Google's Product requirements). A
     // subscription is always sold new; there is no used-license market.
@@ -1674,7 +1675,7 @@ export function buyerGuaranteeJsonLd(): JsonLd[] {
 export const FLIPDESK_FAQS = [
   {
     q: "What is FlipDesk?",
-    a: "FlipDesk is GradeThread's eBay reseller-management suite. It runs the full pipeline — sourcing and cost basis, measurements, guided photos, condition grading, sold comps and pricing, AI-assisted listing, rules-based repricing, and payout reconciliation — in one workspace. What sets it apart from a standalone crosslister or repricer is that a standardized 1.0–10.0 condition grade and a verifiable certificate are built into every listing.",
+    a: "FlipDesk is GradeThread's reseller-management suite, and it works with eBay. It runs the full pipeline — sourcing and cost basis, measurements, guided photos, condition grading, sold comps and pricing, AI-assisted listing, rules-based repricing, and payout reconciliation — in one workspace. What sets it apart from a standalone crosslister or repricer is that a standardized 1.0–10.0 condition grade and a verifiable certificate are built into every listing.",
   },
   {
     q: "How is FlipDesk different from a crosslister like Vendoo or List Perfectly?",
@@ -1690,7 +1691,7 @@ export const FLIPDESK_FAQS = [
   },
   {
     q: "Which marketplaces does FlipDesk support?",
-    a: "FlipDesk is built around the full eBay lifecycle — listing, repricing, sold comps, and payout reconciliation. The condition grade and verifiable certificate travel with the item, so the trust they build applies wherever you sell.",
+    a: "FlipDesk works with eBay and covers the full listing lifecycle — listing, repricing, sold comps, and payout reconciliation. The condition grade and verifiable certificate travel with the item, so the trust they build applies wherever you sell.",
   },
 ];
 
@@ -1705,11 +1706,11 @@ export function flipdeskJsonLd(): JsonLd[] {
     operatingSystem: "Web",
     url,
     description:
-      "FlipDesk is GradeThread's eBay reseller-management suite: source, measure, photograph, grade, comp, list, reprice, and reconcile in one workspace — with a standardized condition grade and verifiable certificate built into every listing.",
+      "FlipDesk is GradeThread's reseller-management suite and works with eBay: source, measure, photograph, grade, comp, list, reprice, and reconcile in one workspace — with a standardized condition grade and verifiable certificate built into every listing.",
     isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: "GradeThread", url: `${SITE_URL}/` },
     publisher: { "@id": ORG_ID },
     featureList: [
-      "eBay listing management and AI-assisted drafting",
+      "Listing management and AI-assisted drafting that works with eBay",
       "Cross-listing and inventory management",
       "Condition-aware sold comps and pricing",
       "Rules-based repricing",

@@ -11,6 +11,7 @@ import {
   usePendingDelists,
   useRunDelist,
 } from "@/hooks/use-pending-delists";
+import { QUEUED_NOTICE, useEnqueueExtensionWork } from "@/hooks/use-extension-queue";
 
 // US-717: surfaces the extension auto-delist queue. When a cross-listed item
 // sells, its API siblings (eBay/Shopify/Depop) are ended server-side, but the
@@ -27,11 +28,12 @@ export function PendingDelistBanner() {
   const { data: pending = [] } = usePendingDelists();
   const runDelist = useRunDelist();
   const markDone = useMarkDelistDone();
+  const enqueue = useEnqueueExtensionWork();
 
   if (pending.length === 0) return null;
 
   const extensionReady = isListerAvailable();
-  const busy = runDelist.isPending || markDone.isPending;
+  const busy = runDelist.isPending || markDone.isPending || enqueue.isPending;
 
   const handleEnd = async (item: PendingDelist) => {
     try {
@@ -48,6 +50,30 @@ export function PendingDelistBanner() {
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Delist failed.");
+    }
+  };
+
+  // US-2481: the extension is not installed in THIS browser, but the seller's
+  // desktop probably has it. Queue the delist rather than leaving them with only
+  // "do it by hand" — a sibling left live after the item sold elsewhere is the
+  // double sale this banner exists to prevent, and "I'll get to it" is how that
+  // happens. The queue stores WHAT to do; it never holds a marketplace
+  // credential.
+  const handleQueue = async (item: PendingDelist) => {
+    try {
+      await enqueue.mutateAsync({
+        kind: "delist",
+        platform: item.platform,
+        listingId: item.listing_id,
+        inventoryItemId: item.item_id,
+        ...(item.listing_url ? { payload: { listingUrl: item.listing_url } } : {}),
+      });
+      // Deliberately NOT "Ended." The listing is still live until a desktop
+      // browser opens, and saying otherwise is the one thing this whole feature
+      // is arranged to avoid.
+      toast.success(`Queued for your desktop. ${QUEUED_NOTICE}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not queue that.");
     }
   };
 
@@ -130,19 +156,37 @@ export function PendingDelistBanner() {
                     </Button>
                   </>
                 ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7"
-                    disabled={busy}
-                    onClick={() => void handleMarkDone(item)}
-                  >
-                    {markDone.isPending ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      "Mark ended"
-                    )}
-                  </Button>
+                  <>
+                    {/* US-2481: this browser has no extension, but the seller's
+                        desktop likely does. Offer the queue before offering
+                        "I did it myself". */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      disabled={busy}
+                      onClick={() => void handleQueue(item)}
+                    >
+                      {enqueue.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        "Run on my desktop"
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-7 text-xs text-muted-foreground"
+                      disabled={busy}
+                      onClick={() => void handleMarkDone(item)}
+                    >
+                      {markDone.isPending ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        "Mark ended"
+                      )}
+                    </Button>
+                  </>
                 )}
               </div>
             </li>

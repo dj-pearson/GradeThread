@@ -101,7 +101,7 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
       "FlipDesk AutoLister turns garment photos into complete eBay listings with AI — title, description, item specifics, condition, and price — ready to review.",
     h1: "AI eBay listing generator for clothing",
     intro:
-      "FlipDesk AutoLister is an AI eBay listing generator for clothing. Photograph a garment and it drafts a complete listing — a keyword-front-loaded title, a description, eBay item specifics (aspects), the condition, and a suggested price from sold comps — for you to review and publish. It turns the slowest part of reselling, writing listings, into a review step.",
+      "FlipDesk AutoLister is an AI listing generator for clothing that works with eBay. Photograph a garment and it drafts a complete listing — a keyword-front-loaded title, a description, eBay item specifics (aspects), the condition, and a suggested price from sold comps — for you to review and publish. It turns the slowest part of reselling, writing listings, into a review step.",
     appName: "FlipDesk AutoLister",
     appDescription:
       "AI listing generator for clothing resellers: turns garment photos into complete eBay listings — title, description, item specifics, condition, and comp-based price — ready to review and publish.",
@@ -130,7 +130,7 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
     faqs: [
       {
         q: "Is there an AI tool that writes eBay listings from photos?",
-        a: "Yes. FlipDesk AutoLister generates a complete eBay listing from garment photos — title, description, item specifics, condition, and a comp-based price — which you review and edit before publishing. It also identifies the brand and style from the tag photo so titles are specific, not generic.",
+        a: "Yes. FlipDesk AutoLister works with eBay and generates a complete listing from garment photos — title, description, item specifics, condition, and a comp-based price — which you review and edit before publishing. It also identifies the brand and style from the tag photo so titles are specific, not generic.",
       },
       {
         q: "Does the AI listing generator handle eBay item specifics?",

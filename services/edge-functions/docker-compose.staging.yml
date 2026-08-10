@@ -29,16 +29,28 @@ services:
     expose:
       - "8787"
     environment:
-      - PORT=8787
+      # US-2496: MAP form, not list form, and that is load-bearing.
+      #
+      # Coolify parses this file, merges its own env vars in, and re-serialises
+      # it. A YAML SEQUENCE survives that round-trip as an array with INTEGER
+      # keys, and the re-dumped file comes back as `environment: {0: "PORT=8787",
+      # 1: ...}` — which compose rejects with
+      # "non-string key in services.edge-functions.environment: 0" and the whole
+      # deploy fails at the build step. A MAPPING round-trips as a mapping.
+      #
+      # A NULL value here is exactly equivalent to a bare `- VAR` list entry:
+      # compose passes the variable through from the host ONLY when the host
+      # actually has it, so an unset SOURCE_COMMIT still cannot clobber the
+      # build-arg stamp with an empty string. Verified with `docker compose
+      # config` — the rendered output is byte-identical to the list form.
+      PORT: "8787"
       # Staging runtime. NOT "production": boot env-validation is warn-only
       # instead of crash, security debug flags are honored, and /health
       # reports env:"staging" so the smoke test can assert it isn't prod.
-      - EDGE_ENV=staging
-      # US-2001 runtime half: bare pass-throughs, set only when the host has
-      # them, so an unset var cannot clobber the build-arg stamp above. See
-      # docker-compose.yml for the full reasoning.
-      - SOURCE_COMMIT
-      - COMMIT_SHA
+      EDGE_ENV: staging
+      # US-2001 runtime half: null = pass through only when the host has it.
+      SOURCE_COMMIT:
+      COMMIT_SHA:
     env_file:
       - .env
     healthcheck:

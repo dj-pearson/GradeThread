@@ -4,7 +4,11 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { FLIPDESK_PLANS, formatMarketplacesCap } from "@/lib/constants";
+import {
+  FLIPDESK_PLANS,
+  formatListingAllowance,
+  formatMarketplacesCap,
+} from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import type { BillingInterval } from "@/types/database";
 import { usePricingPlans } from "@/hooks/use-pricing-plans";
@@ -163,13 +167,11 @@ export function FlipdeskPlanComparison({
 
               <CardContent className="flex-1 space-y-3 pb-3 text-sm">
                 <div className="space-y-1.5 border-b border-border pb-3">
+                  {/* US-2483: the shared formatter, so this row and the public
+                      pricing page cannot describe the same cap differently. */}
                   <Stat
                     label="Active listings"
-                    value={
-                      plan.activeListingCap === -1
-                        ? "Unlimited"
-                        : plan.activeListingCap.toLocaleString()
-                    }
+                    value={formatListingAllowance(plan.activeListingCap)}
                   />
                   <Stat
                     label="AI actions / mo"

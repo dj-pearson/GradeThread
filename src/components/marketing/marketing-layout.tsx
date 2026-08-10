@@ -203,6 +203,9 @@ export function MarketingLayout({
               <Link to="/dmca" className="hover:text-foreground">
                 DMCA
               </Link>
+              <Link to="/trademarks" className="hover:text-foreground">
+                Trademarks
+              </Link>
               <Link to="/subprocessors" className="hover:text-foreground">
                 Subprocessors
               </Link>

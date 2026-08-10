@@ -23,8 +23,9 @@ export type DelistMethod =
   | "shopify_api" // productDelete (Admin GraphQL)
   | "depop_api" // deleteDepopProduct (SKU-addressed)
   | "etsy_api" // setEtsyListingState → 'inactive' (US-2164; 404 = already gone)
-  | "extension" // Poshmark/Mercari/Grailed — no server write API; queued for
-  // the GradeThread Lister browser extension (delist_requested_at)
+  | "extension" // Poshmark/Mercari/Grailed/Vinted/Facebook — no server write
+  // API; queued for the GradeThread Lister browser extension
+  // (delist_requested_at)
   //
   // US-2165: 'unsupported' NO LONGER means "quietly end the local row". A
   // platform with no delist channel leaves the listing live on its
@@ -53,6 +54,14 @@ export const EXTENSION_DELIST_PLATFORMS = new Set([
   "poshmark",
   "mercari",
   "grailed",
+  // US-2479 / US-2480. Both were advertised (Vinted as tier `extension`,
+  // Facebook about to be) with no entry here, so delistMethodFor resolved them
+  // to 'unsupported' — which since US-2165 means the sibling is left LIVE on its
+  // marketplace with a delist_unresolved marker. For the two highest-volume
+  // channels a seller cross-lists to, that is the oversell this whole module
+  // exists to prevent, arriving through the one door nobody had closed.
+  "vinted",
+  "facebook",
 ]);
 
 // Pure: how the given platform is delisted on a sibling sale.

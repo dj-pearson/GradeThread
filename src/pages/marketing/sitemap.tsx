@@ -50,6 +50,7 @@ const LEGAL_PATHS = new Set([
   "/dpa",
   "/subprocessors",
   "/dmca",
+  "/trademarks",
   "/accessibility",
   "/status",
 ]);

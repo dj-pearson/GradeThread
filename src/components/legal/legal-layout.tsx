@@ -24,6 +24,7 @@ const legalNav = [
   { to: "/dpa", label: "Data Processing Addendum" },
   { to: "/subprocessors", label: "Subprocessors" },
   { to: "/dmca", label: "Copyright / DMCA" },
+  { to: "/trademarks", label: "Trademarks" },
   { to: "/accessibility", label: "Accessibility" },
   { to: "/imprint", label: "Imprint / Legal Notice" },
 ];

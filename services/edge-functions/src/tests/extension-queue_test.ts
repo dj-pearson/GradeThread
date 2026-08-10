@@ -1,0 +1,130 @@
+// US-2481: the extension work queue's one load-bearing rule.
+//
+// The queue exists so a seller can start cross-listing work from their phone.
+// The reason it is safe to have a queue at all is that it stores WHAT to do and
+// never a way IN — see vault/60-decisions/adr-no-server-side-marketplace-automation.md
+// §3.1. These tests hold that line at the layer where a 400 can still name the
+// offending key; the table's CHECK constraint holds it underneath, and the
+// tenant-isolation suite holds it end-to-end.
+//
+// Pure functions, no network, no DB — this runs in the ordinary `deno test`.
+
+import { assert, assertEquals } from "@std/assert";
+import {
+  CREDENTIAL_KEYS,
+  EXTENSION_QUEUE_KINDS,
+  MAX_QUEUE_DEPTH,
+  QUEUE_TTL_MS,
+  QUEUED_NOTICE,
+  normalizeQueuePayload,
+  planExpiry,
+} from "../lib/extension-queue.ts";
+
+Deno.test("a clean instruction passes through unchanged", () => {
+  const payload = { locale: "vinted.fr", shareCount: 200, itemTitle: "Nike tee" };
+  const out = normalizeQueuePayload(payload);
+  assertEquals(out.rejectedKey, null);
+  assertEquals(out.value, payload);
+});
+
+Deno.test("a credential key is refused, and named", () => {
+  for (const key of ["password", "cookie", "sessionCookie", "accessToken", "csrf"]) {
+    const out = normalizeQueuePayload({ [key]: "x" });
+    assertEquals(
+      out.rejectedKey,
+      key,
+      `${key} was allowed into a queue payload — the queue must never carry a way in`,
+    );
+    assertEquals(out.value, {}, "a refused payload must not be partially kept");
+  }
+});
+
+Deno.test("separators and case do not smuggle a credential through", () => {
+  // `session_cookie`, `SESSION-COOKIE` and `sessionCookie` are one key wearing
+  // three spellings. A check that only matched the camelCase form would be
+  // trivially routed around by whichever client wrote snake_case.
+  for (const key of ["session_cookie", "SESSION-COOKIE", "Session Cookie", "PASSWORD"]) {
+    const out = normalizeQueuePayload({ [key]: "x" });
+    assert(out.rejectedKey !== null, `"${key}" slipped past the credential check`);
+  }
+});
+
+Deno.test("a nested credential is found, not just a top-level one", () => {
+  // The same leak, one brace deeper. A top-level-only check is the kind that
+  // passes review and fails in production.
+  assert(normalizeQueuePayload({ auth: { cookie: "sid=1" } }).rejectedKey !== null);
+  assert(normalizeQueuePayload({ a: { b: { c: { password: "x" } } } }).rejectedKey !== null);
+  assert(normalizeQueuePayload({ list: [{ sessionId: "x" }] }).rejectedKey !== null);
+});
+
+Deno.test("a suffix match catches the obvious rename", () => {
+  // `poshmarkCookie` is a cookie. Matching on the suffix means renaming the key
+  // is not a bypass.
+  assert(normalizeQueuePayload({ poshmarkCookie: "x" }).rejectedKey !== null);
+  assert(normalizeQueuePayload({ userPassword: "x" }).rejectedKey !== null);
+});
+
+Deno.test("an ordinary key that merely contains a bad word is still allowed", () => {
+  // The check must not be so eager that it refuses real instructions. These are
+  // the false positives that would make someone loosen it.
+  assertEquals(normalizeQueuePayload({ sessionCount: 3 }).rejectedKey, null);
+  assertEquals(normalizeQueuePayload({ cookieJarBrand: "Nike" }).rejectedKey, null);
+});
+
+Deno.test("an oversized payload is dropped whole, never truncated", () => {
+  // Truncating JSON produces invalid JSON, and a half instruction is worse than
+  // none: the extension would act on part of a job.
+  const huge = { note: "x".repeat(20_000) };
+  const out = normalizeQueuePayload(huge);
+  assertEquals(out.rejectedKey, null);
+  assertEquals(out.value, {}, "an oversized payload must be dropped, not clipped");
+});
+
+Deno.test("non-objects normalize to an empty payload rather than throwing", () => {
+  for (const input of [null, undefined, "string", 42, [1, 2, 3], true]) {
+    const out = normalizeQueuePayload(input);
+    assertEquals(out.value, {});
+    assertEquals(out.rejectedKey, null);
+  }
+});
+
+Deno.test("the queue kinds are exactly the three the extension can run", () => {
+  // A fourth kind here with no branch in the extension would queue work that
+  // silently never drains — which then expires and surfaces as a failure the
+  // seller cannot act on.
+  assertEquals([...EXTENSION_QUEUE_KINDS], ["list", "delist", "share"]);
+});
+
+Deno.test("expiry is a week out, and in the future", () => {
+  const now = Date.parse("2026-08-10T00:00:00Z");
+  const expires = Date.parse(planExpiry(now));
+  assertEquals(expires - now, QUEUE_TTL_MS);
+  assert(QUEUE_TTL_MS > 0);
+});
+
+Deno.test("the depth cap is a real number, not unlimited", () => {
+  // Without one, a week of phone queuing turns into a laptop that opens
+  // marketplace tabs it will not stop opening.
+  assert(MAX_QUEUE_DEPTH > 0 && MAX_QUEUE_DEPTH <= 500);
+});
+
+Deno.test("the queued notice never claims the work is done", () => {
+  // US-2481 AC7. A mobile screen that renders "Listed!" for a queued job has
+  // told the seller their listing is live when it is not — and for a delist,
+  // that belief is what becomes a double sale.
+  assert(/desktop browser/i.test(QUEUED_NOTICE));
+  assert(/until then/i.test(QUEUED_NOTICE));
+  assert(
+    !/\b(done|complete|completed|listed|published)\b/i.test(QUEUED_NOTICE),
+    "the queued notice must not read as a completion",
+  );
+});
+
+Deno.test("the credential list covers the obvious shapes", () => {
+  for (const expected of ["password", "cookie", "session", "accesstoken", "secret"]) {
+    assert(
+      (CREDENTIAL_KEYS as readonly string[]).includes(expected),
+      `"${expected}" fell out of CREDENTIAL_KEYS`,
+    );
+  }
+});

@@ -14,7 +14,30 @@
     "https://*.gradethread.com/*",
     "https://*.poshmark.com/*",
     "https://*.mercari.com/*",
-    "https://*.grailed.com/*"
+    "https://*.grailed.com/*",
+    "https://*.vinted.com/*",
+    "https://*.vinted.co.uk/*",
+    "https://*.vinted.fr/*",
+    "https://*.vinted.de/*",
+    "https://*.vinted.es/*",
+    "https://*.vinted.it/*",
+    "https://*.vinted.nl/*",
+    "https://*.vinted.pl/*",
+    "https://*.vinted.be/*",
+    "https://*.vinted.at/*",
+    "https://*.vinted.cz/*",
+    "https://*.vinted.sk/*",
+    "https://*.vinted.lt/*",
+    "https://*.vinted.pt/*",
+    "https://*.vinted.se/*",
+    "https://*.vinted.ro/*",
+    "https://*.vinted.hu/*",
+    "https://*.vinted.lu/*",
+    "https://*.vinted.hr/*",
+    "https://*.vinted.gr/*",
+    "https://*.vinted.dk/*",
+    "https://*.vinted.fi/*",
+    "https://*.facebook.com/*"
   ],
   "externally_connectable": {
     "matches": [
@@ -39,6 +62,7 @@
       "lister/selectors.js",
       "lister/lister-guard.js",
       "lister/job-store.js",
+      "lister/engagement.js",
       "registry.js",
       "research/seller-memory.js",
       "research/compare-tray.js",
@@ -142,7 +166,8 @@
       "js": [
         "lister/selectors.js",
         "lister/common.js",
-        "lister/poshmark.js"
+        "lister/poshmark.js",
+        "lister/poshmark-engage.js"
       ],
       "run_at": "document_idle"
     },
@@ -167,6 +192,50 @@
         "lister/selectors.js",
         "lister/common.js",
         "lister/grailed.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.vinted.com/*",
+        "https://*.vinted.co.uk/*",
+        "https://*.vinted.fr/*",
+        "https://*.vinted.de/*",
+        "https://*.vinted.es/*",
+        "https://*.vinted.it/*",
+        "https://*.vinted.nl/*",
+        "https://*.vinted.pl/*",
+        "https://*.vinted.be/*",
+        "https://*.vinted.at/*",
+        "https://*.vinted.cz/*",
+        "https://*.vinted.sk/*",
+        "https://*.vinted.lt/*",
+        "https://*.vinted.pt/*",
+        "https://*.vinted.se/*",
+        "https://*.vinted.ro/*",
+        "https://*.vinted.hu/*",
+        "https://*.vinted.lu/*",
+        "https://*.vinted.hr/*",
+        "https://*.vinted.gr/*",
+        "https://*.vinted.dk/*",
+        "https://*.vinted.fi/*"
+      ],
+      "js": [
+        "lister/selectors.js",
+        "lister/common.js",
+        "lister/vinted.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.facebook.com/*",
+        "https://*.facebook.com/*"
+      ],
+      "js": [
+        "lister/selectors.js",
+        "lister/common.js",
+        "lister/facebook.js"
       ],
       "run_at": "document_idle"
     }

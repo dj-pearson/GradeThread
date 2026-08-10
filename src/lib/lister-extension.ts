@@ -20,6 +20,14 @@ export const LISTER_EXTENSION_PLATFORMS = [
   "poshmark",
   "mercari",
   "grailed",
+  // US-2479 / US-2480. Vinted was already advertised as tier `extension` in
+  // MARKETPLACE_TIER with nothing behind it here, so a seller who picked it got
+  // "Invalid or unsupported listing payload" from the extension — a message that
+  // reads as their fault. Facebook moves to the extension tier in the same
+  // change. Keep in sync with EXTENSION_DELIST_PLATFORMS in the edge's
+  // cross-listing-sale.ts; lister-extension.test.ts asserts the pair.
+  "vinted",
+  "facebook",
 ] as const satisfies readonly MarketplacePlatform[];
 
 export type ListerPlatform = (typeof LISTER_EXTENSION_PLATFORMS)[number];
@@ -29,10 +37,21 @@ export function isListerPlatform(p: string): p is ListerPlatform {
 }
 
 // Where the extension opens the seller's new-listing page per platform.
+//
+// NOTE (US-1876): this is the SaaS's copy for display and for building the
+// payload. The extension does NOT navigate to it — the background resolves the
+// target from its own bundled selectors config, precisely so a compromised
+// gradethread.com tab cannot steer the browser. If the two ever disagree, the
+// extension's copy wins and this one is cosmetic.
 const NEW_LISTING_URL: Record<ListerPlatform, string> = {
   poshmark: "https://poshmark.com/create-listing",
   mercari: "https://www.mercari.com/sell/",
   grailed: "https://www.grailed.com/sell/",
+  // US-2479: Vinted runs ~20 country domains. This is the default only; the
+  // seller's actual locale rides on `ListerPayload.locale` and the extension
+  // looks the real URL up in its own map.
+  vinted: "https://www.vinted.com/items/new",
+  facebook: "https://www.facebook.com/marketplace/create/item",
 };
 
 export interface ListerPayload {
@@ -52,6 +71,13 @@ export interface ListerPayload {
   tags: string[];
   photoUrls: string[];
   maxPhotos: number;
+  /**
+   * US-2479: which country domain to list on, for the multi-domain platforms
+   * (Vinted). A KEY the extension looks up in its bundled locale map — never a
+   * URL, so the US-1876 rule that navigation targets come from the extension's
+   * own config still holds. Undefined means the platform's default.
+   */
+  locale?: string;
 }
 
 export interface ListerResult {
@@ -156,6 +182,8 @@ export function buildListerPayload(opts: {
   variant: PlatformKitVariant;
   photos: ExportablePhoto[];
   primaryId: string | null;
+  /** US-2479: the seller's Vinted country domain, e.g. "vinted.fr". */
+  locale?: string;
 }): ListerPayload {
   const spec = getMarketplaceSpec(opts.platform);
   const maxPhotos = spec?.maxPhotos ?? 12;
@@ -178,6 +206,7 @@ export function buildListerPayload(opts: {
     tags: v.tags ?? [],
     photoUrls: ordered.map((p) => p.photo_url),
     maxPhotos,
+    ...(opts.locale ? { locale: opts.locale } : {}),
   };
 }
 

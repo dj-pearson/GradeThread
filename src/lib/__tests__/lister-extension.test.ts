@@ -38,11 +38,18 @@ describe("isListerPlatform", () => {
     expect(isListerPlatform("depop")).toBe(false);
   });
 
-  it("LISTER_EXTENSION_PLATFORMS is exactly the three no-API channels", () => {
+  it("LISTER_EXTENSION_PLATFORMS is exactly the no-API channels", () => {
+    // US-2479/US-2480 added Vinted and Facebook. Pinned as a list rather than a
+    // count so adding a channel is a deliberate edit here — this array decides
+    // which platforms the Listing Kit will hand to the extension at all, and a
+    // platform that is advertised as tier `extension` but absent from it fails
+    // with "invalid payload", which reads to the seller as their own mistake.
     expect([...LISTER_EXTENSION_PLATFORMS]).toEqual([
       "poshmark",
       "mercari",
       "grailed",
+      "vinted",
+      "facebook",
     ]);
   });
 });

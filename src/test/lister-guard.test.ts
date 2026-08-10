@@ -6,6 +6,8 @@
 // bundled config, and delist URLs must be https + host-match the platform.
 
 import { describe, it, expect, beforeAll } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 interface ListerGuard {
   hostOf(v: unknown): string | null;
@@ -13,8 +15,58 @@ interface ListerGuard {
   senderHost(sender: unknown): string | null;
   isOriginAllowed(sender: unknown): boolean;
   newListingUrlFor(selectors: unknown, platform: string): string | null;
+  newListingUrlForLocale(
+    selectors: unknown,
+    platform: string,
+    locale: unknown,
+  ): string | null;
+  localesFor(selectors: unknown, platform: string): string[];
   isAllowedDelistUrl(selectors: unknown, platform: string, url: unknown): boolean;
   isLiveListingUrl(selectors: unknown, platform: string, url: unknown): boolean;
+}
+
+interface BundledFlow {
+  enabled: boolean;
+  newListingUrl: string;
+  hosts: string[];
+  liveListingUrlPattern: string;
+  locales?: Record<string, string>;
+}
+
+/**
+ * The REAL bundled selectors, evaluated from the shipped content script.
+ *
+ * The mocks below stay for the property tests (they need hosts that do and
+ * don't match), but the coverage assertions must run against what actually
+ * ships. A mock cannot tell you that Mercari's delist host is missing from the
+ * config the worker loads at runtime — and a missing host means the guard
+ * silently refuses every delist for that channel, which is a live listing left
+ * behind after the item sold somewhere else.
+ */
+function loadBundledSelectors(): Record<string, BundledFlow> {
+  const src = readFileSync(
+    resolve(process.cwd(), "extension-unified/lister/selectors.js"),
+    "utf8",
+  );
+  const scope: Record<string, unknown> = {};
+  new Function("self", `${src}; return self.GT_LISTER_SELECTORS;`)(scope);
+  return scope.GT_LISTER_SELECTORS as Record<string, BundledFlow>;
+}
+
+/** One channel's shipped config, or a diagnosis of why it isn't there. */
+function bundledFlow(
+  bundled: Record<string, BundledFlow>,
+  platform: string,
+): BundledFlow {
+  const flow = bundled[platform];
+  if (!flow) {
+    throw new Error(
+      `extension-unified/lister/selectors.js has no "${platform}" entry, but the ` +
+        `channel is advertised — the seller would be offered a channel the ` +
+        `extension refuses as unsupported.`,
+    );
+  }
+  return flow;
 }
 
 let guard: ListerGuard;
@@ -96,6 +148,137 @@ describe("isAllowedDelistUrl (AC1 — delist URL host-matched)", () => {
   });
 });
 
+
+// ── US-2477..US-2480: the SHIPPED config, not a mock ───────────────────────
+//
+// Every one of these assertions is about a channel we advertise. The guard is
+// the last thing standing between "the seller's item sold on eBay" and "the
+// Poshmark/Mercari/Grailed/Vinted/Facebook copy is still live and purchasable" —
+// and it refuses anything its config does not vouch for. So a channel missing
+// from `hosts` does not fail loudly at runtime; it fails as a delist that never
+// happens, which the seller discovers when a second buyer pays for an item they
+// have already shipped.
+describe("the shipped selectors satisfy the guard (US-2477..US-2480)", () => {
+  const BUNDLED = loadBundledSelectors();
+  const CHANNELS = ["poshmark", "mercari", "grailed", "vinted", "facebook"] as const;
+
+  it("every advertised channel is present", () => {
+    for (const p of CHANNELS) expect(BUNDLED[p], `${p} missing`).toBeDefined();
+  });
+
+  it("the guard accepts a delist URL on each channel's own hosts", () => {
+    for (const p of CHANNELS) {
+      const hosts = bundledFlow(BUNDLED, p).hosts;
+      expect(hosts.length, `${p} declares no hosts`).toBeGreaterThan(0);
+      for (const host of hosts) {
+        // Apex and www, because marketplaces serve both and a delist URL saved
+        // from either has to be openable.
+        expect(
+          guard.isAllowedDelistUrl(BUNDLED, p, `https://${host}/listing/abc`),
+          `${p}: guard rejects its own host ${host}`,
+        ).toBe(true);
+        expect(
+          guard.isAllowedDelistUrl(BUNDLED, p, `https://www.${host}/listing/abc`),
+          `${p}: guard rejects www.${host}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("no channel accepts another channel's host", () => {
+    // The cross-platform confusion case: a Mercari job must never be able to
+    // open a Poshmark URL, however the payload got that way.
+    for (const p of CHANNELS) {
+      for (const other of CHANNELS) {
+        if (other === p) continue;
+        for (const host of bundledFlow(BUNDLED, other).hosts) {
+          if (bundledFlow(BUNDLED, p).hosts.includes(host)) continue;
+          expect(
+            guard.isAllowedDelistUrl(BUNDLED, p, `https://${host}/listing/abc`),
+            `${p} accepted ${other}'s host ${host}`,
+          ).toBe(false);
+        }
+      }
+    }
+  });
+
+  it("no channel's create page can be captured as a live listing", () => {
+    // Every one of these tabs STARTS on the create page. If the live-listing
+    // pattern matched it, the row would flip to active the instant the tab
+    // opened — a listing that exists only in our database.
+    for (const p of CHANNELS) {
+      expect(
+        guard.isLiveListingUrl(BUNDLED, p, bundledFlow(BUNDLED, p).newListingUrl),
+        `${p}: its own create page matches liveListingUrlPattern`,
+      ).toBe(false);
+    }
+  });
+});
+
+// ── US-2479: locale resolution for the multi-domain channels ───────────────
+describe("newListingUrlForLocale (US-2479)", () => {
+  const BUNDLED = loadBundledSelectors();
+
+  it("resolves a covered locale to that locale's own URL", () => {
+    for (const [locale, url] of Object.entries(bundledFlow(BUNDLED, "vinted").locales ?? {})) {
+      expect(guard.newListingUrlForLocale(BUNDLED, "vinted", locale)).toBe(url);
+    }
+  });
+
+  it("tolerates a www prefix and mixed case", () => {
+    expect(guard.newListingUrlForLocale(BUNDLED, "vinted", "www.vinted.fr")).toBe(
+      "https://www.vinted.fr/items/new",
+    );
+    expect(guard.newListingUrlForLocale(BUNDLED, "vinted", "VINTED.FR")).toBe(
+      "https://www.vinted.fr/items/new",
+    );
+  });
+
+  it("returns null for an uncovered locale rather than guessing", () => {
+    // AC2: an uncovered locale reports "list manually" naming the domain. It
+    // must NOT silently fall back to the default — sending a Lithuanian seller
+    // to vinted.com lands them on a login wall for an account they don't have.
+    expect(guard.newListingUrlForLocale(BUNDLED, "vinted", "vinted.jp")).toBeNull();
+    expect(guard.newListingUrlForLocale(BUNDLED, "vinted", "vinted.com.evil.com")).toBeNull();
+  });
+
+  it("never accepts a URL smuggled in as a locale", () => {
+    // The whole US-1876 primitive, re-checked on the new door: the caller
+    // supplies a KEY, never a navigation target.
+    expect(
+      guard.newListingUrlForLocale(BUNDLED, "vinted", "https://evil.com/x"),
+    ).toBeNull();
+    expect(
+      guard.newListingUrlForLocale(
+        { vinted: { locales: { "vinted.fr": "http://evil.com" } } },
+        "vinted",
+        "vinted.fr",
+      ),
+    ).toBeNull();
+  });
+
+  it("falls back to the platform default when no locale is given", () => {
+    expect(guard.newListingUrlForLocale(BUNDLED, "vinted", undefined)).toBe(
+      bundledFlow(BUNDLED, "vinted").newListingUrl,
+    );
+    expect(guard.newListingUrlForLocale(BUNDLED, "vinted", "")).toBe(
+      bundledFlow(BUNDLED, "vinted").newListingUrl,
+    );
+  });
+
+  it("ignores the locale entirely for a single-domain platform", () => {
+    // Poshmark has no locales map, so a locale key must not be able to change
+    // or break its target.
+    expect(guard.newListingUrlForLocale(BUNDLED, "poshmark", "vinted.fr")).toBe(
+      bundledFlow(BUNDLED, "poshmark").newListingUrl,
+    );
+  });
+
+  it("localesFor lists the covered domains, and nothing for a single-domain platform", () => {
+    expect(guard.localesFor(BUNDLED, "vinted").length).toBeGreaterThan(10);
+    expect(guard.localesFor(BUNDLED, "poshmark")).toEqual([]);
+  });
+});
 
 // ── US-1877 (AC1): live-listing URL capture ────────────────────────────────
 //
