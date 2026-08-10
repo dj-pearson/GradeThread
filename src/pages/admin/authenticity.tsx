@@ -389,6 +389,101 @@ function TellCandidatesTab() {
   );
 }
 
+// ── Decoder contradictions (US-2138 AC7) ────────────────────────────────────
+//
+// A verdict a DETERMINISTIC decoder capped. Without this an operator sees a low
+// confidence and cannot tell whether the model was unsure or a decoder proved
+// the code impossible — and those call for opposite responses.
+//
+// ⚠ OPERATOR-ONLY, deliberately. Each row names the rule that caught the item,
+// which is what someone would need to write a code that passes next time. It is
+// not mirrored onto the seller's submission page, where the verdict already
+// appears in prose.
+
+interface DecoderContradictionRow {
+  grade_report_id: string;
+  submission_id: string;
+  created_at: string;
+  verdict: string | null;
+  verdict_confidence: number | null;
+  brand: string | null;
+  flags: Array<{ code: string; message: string }>;
+}
+
+function DecoderContradictionsTab() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["authenticity_decoder_contradictions"],
+    queryFn: async (): Promise<{
+      contradictions: DecoderContradictionRow[];
+      truncated: boolean;
+    }> => await api(`${BASE}/decoder-contradictions`),
+  });
+
+  if (isLoading) return <Skeleton className="h-48 w-full" />;
+  const rows = data?.contradictions ?? [];
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Deterministic decoder contradictions</CardTitle>
+          <CardDescription>
+            The code on the tag is impossible — a fact about the code, not a read of
+            a photo. These cap the verdict rather than being weighed by the model.
+            Operator-only: the rule that fired is not shown to the seller.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {rows.length === 0
+            ? (
+              <p className="text-sm text-muted-foreground">
+                None recorded. Only one rule can fire today — a code dating to the
+                future. The other, a code predating the brand, needs a founding
+                year the brand knowledge base does not carry yet.
+              </p>
+            )
+            : (
+              <ul className="divide-y">
+                {rows.map((r) => (
+                  <li key={r.grade_report_id} className="space-y-1 py-3">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <Badge variant="destructive">{r.verdict ?? "no verdict"}</Badge>
+                      {r.brand ? <span className="font-medium">{r.brand}</span> : null}
+                      <span className="text-muted-foreground">
+                        confidence{" "}
+                        {r.verdict_confidence === null
+                          ? "—"
+                          : r.verdict_confidence.toFixed(2)}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {new Date(r.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                    <ul className="space-y-0.5 text-xs text-muted-foreground">
+                      {r.flags.map((f, i) => (
+                        <li key={i}>
+                          <span className="font-mono">{f.code}</span> — {f.message}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+          {data?.truncated
+            ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                ⚠ Showing the newest rows only — the read hit its cap, so this is a
+                sample rather than the whole history.
+              </p>
+            )
+            : null}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 // ── Sellers ─────────────────────────────────────────────────────────────────
 
 function SellersTab() {
@@ -485,11 +580,13 @@ export function AdminAuthenticityPage() {
           <TabsTrigger value="golden">Golden set</TabsTrigger>
           <TabsTrigger value="tells">Tell candidates</TabsTrigger>
           <TabsTrigger value="sellers">Sellers</TabsTrigger>
+          <TabsTrigger value="decoders">Decoder flags</TabsTrigger>
         </TabsList>
         <TabsContent value="accuracy" className="mt-4"><AccuracyTab /></TabsContent>
         <TabsContent value="golden" className="mt-4"><GoldenSetTab /></TabsContent>
         <TabsContent value="tells" className="mt-4"><TellCandidatesTab /></TabsContent>
         <TabsContent value="sellers" className="mt-4"><SellersTab /></TabsContent>
+        <TabsContent value="decoders" className="mt-4"><DecoderContradictionsTab /></TabsContent>
       </Tabs>
     </div>
   );

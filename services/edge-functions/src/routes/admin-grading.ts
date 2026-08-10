@@ -1200,6 +1200,70 @@ adminGradingRoutes.post("/authenticity/reviews/:id/promote", async (c) => {
 // the easiest way to fake a passing gate. Cases are RETIRED (is_active=false),
 // which preserves the record and is audited.
 
+// US-2138: bound the read. Same reason as every other capped read here — a
+// wide window must not pull an unbounded scan into one response.
+const DECODER_CONTRADICTION_CAP = 200;
+
+// GET /authenticity/decoder-contradictions — US-2138 AC7.
+//
+// Verdicts a DETERMINISTIC decoder capped, most recent first. Without this a
+// capped verdict is unexplainable: an operator sees a low confidence and cannot
+// tell whether the model was unsure or a decoder proved the code impossible.
+//
+// ⚠ OPERATOR-ONLY, and that is a security property rather than a placement
+// preference. Each row names the rule that caught the item, which is exactly
+// what someone would need to produce a code that passes next time. Deterministic
+// checks are the most defensible signal here precisely because they are not
+// guessable. This lives behind the /api/admin/* auth group; it must never be
+// mirrored onto a seller or buyer surface.
+adminGradingRoutes.get("/authenticity/decoder-contradictions", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, submission_id, created_at, authenticity_verdict, authenticity_assessment")
+    // The key is absent on every report where nothing fired, which is almost
+    // all of them — so filter in the DATABASE rather than pulling every report
+    // and discarding it here.
+    .not("authenticity_assessment->decoder_contradictions", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(DECODER_CONTRADICTION_CAP);
+  if (error) {
+    return failSafe(
+      c,
+      400,
+      "Couldn't load decoder contradictions.",
+      error,
+      "admin.grading.authenticity.decoder_contradictions",
+    );
+  }
+
+  const rows = (data ?? []) as Array<{
+    id: string;
+    submission_id: string;
+    created_at: string;
+    authenticity_verdict: string | null;
+    authenticity_assessment: {
+      verdict_confidence?: number;
+      brand_assessed?: string | null;
+      decoder_contradictions?: Array<{ code: string; message: string }>;
+    } | null;
+  }>;
+
+  return c.json({
+    // Surfaced rather than silent: a capped read is a sample of the newest rows,
+    // which is a different claim from "all of them".
+    truncated: rows.length >= DECODER_CONTRADICTION_CAP,
+    contradictions: rows.map((r) => ({
+      grade_report_id: r.id,
+      submission_id: r.submission_id,
+      created_at: r.created_at,
+      verdict: r.authenticity_verdict,
+      verdict_confidence: r.authenticity_assessment?.verdict_confidence ?? null,
+      brand: r.authenticity_assessment?.brand_assessed ?? null,
+      flags: r.authenticity_assessment?.decoder_contradictions ?? [],
+    })),
+  });
+});
+
 // GET /authenticity/cases — the golden set + per-brand coverage.
 adminGradingRoutes.get("/authenticity/cases", async (c) => {
   const { data, error } = await supabaseAdmin

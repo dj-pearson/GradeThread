@@ -92,9 +92,13 @@ Deno.test("the pipeline passes NO seller-claim context to the cross-check", () =
   const src = Deno.readTextFileSync(
     new URL("../lib/grading-pipeline.ts", import.meta.url),
   );
-  const start = src.indexOf("decoderFlagCount = crossCheckDecodeResult(");
+  // Anchored on the CALL, not on the variable it assigns to. The first version
+  // of this test keyed on `decoderFlagCount = crossCheckDecodeResult(` and broke
+  // the moment that variable was renamed to carry the flag list — a guard that
+  // fails on a rename tells you nothing about the property it guards.
+  const start = src.indexOf("crossCheckDecodeResult(decoded, {");
   assert(start > -1, "the pipeline cross-check call is missing or renamed");
-  const call = src.slice(start, src.indexOf("}", start));
+  const call = src.slice(start, src.indexOf("})", start));
   for (const claim of ["claimedYear", "claimedGender", "claimedStyleCode"]) {
     assert(
       !call.includes(claim),

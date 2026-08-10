@@ -176,6 +176,31 @@ export interface AuthenticityAssessment {
   model: string;
   prompt_version: string;
   usage?: AiTokenUsage;
+  /**
+   * US-2138 AC7: which DETERMINISTIC decoder contradictions capped this verdict.
+   *
+   * Absent on every assessment where none fired, which is almost all of them —
+   * the field exists so a capped verdict is EXPLAINABLE, not as a routine
+   * annotation. `authenticity_assessment` is a jsonb column, so this needs no
+   * migration and old rows simply lack the key.
+   *
+   * ⚠ OPERATOR-ONLY. This names the deterministic check that caught the item,
+   * which is exactly the instruction someone would need to produce a code that
+   * passes next time. `red_flags` is already documented as owner-only for a
+   * weaker reason than this one — a model's prose observation can be argued
+   * with, a decoder rule cannot, so publishing which rule fired trades away the
+   * only signal here that is not guessable. Never render it on a seller or
+   * buyer surface.
+   */
+  decoder_contradictions?: DecoderContradiction[];
+}
+
+/** One deterministic decoder contradiction, as stored on the assessment. */
+export interface DecoderContradiction {
+  /** Stable machine code, e.g. "date_in_future". */
+  code: string;
+  /** Reviewer-facing explanation, straight from the cross-check. */
+  message: string;
 }
 
 // The disclosure shown wherever the signal appears. Deterministic so it's always

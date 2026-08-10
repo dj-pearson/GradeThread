@@ -41,6 +41,7 @@ import {
   assessAuthenticity,
   authenticityNeedsReview,
   type AuthenticityAssessment,
+  type DecoderContradiction,
 } from "./ai-authenticity.ts";
 import { getEffectiveTellsForBrand } from "./brand-authenticity.ts";
 import { runShadowGrades } from "./grading-shadow.ts";
@@ -1689,7 +1690,10 @@ export async function processSubmission(submissionId: string) {
     // leaving the decode behind that guard would have silently scoped the new
     // cross-check to the subset of items that happen to match an era.
     // decodeTagCode is pure, so hoisting changes nothing about eraConflict.
-    let decoderFlagCount = 0;
+    // The FLAGS themselves, not just how many — a capped verdict has to be
+    // explainable to an operator, and "confidence was capped" without saying
+    // which rule fired is not an explanation (US-2138 AC7).
+    let decoderFlags: DecoderContradiction[] = [];
     if (brandPack) {
       try {
         const styleCode = acceptedTag.find((a) => a.field === "style_code")?.value;
@@ -1718,9 +1722,11 @@ export async function processSubmission(submissionId: string) {
           // a wiring one, and inventing a year here would manufacture the
           // contradiction the cap then punishes.
           if (decoded) {
-            decoderFlagCount = crossCheckDecodeResult(decoded, {
+            decoderFlags = crossCheckDecodeResult(decoded, {
               currentYear: new Date().getUTCFullYear(),
-            }).filter((i) => i.severity === "flag").length;
+            })
+              .filter((i) => i.severity === "flag")
+              .map((i) => ({ code: i.code, message: i.message }));
           }
 
           eraConflict = matchedEra
@@ -1757,21 +1763,26 @@ export async function processSubmission(submissionId: string) {
     // offered to the model as something to weigh. Composes as a min and never
     // raises — applyDecoderContradictionCap owns that and explains why only
     // `flag` severity is allowed to reach it.
-    if (authenticityAssessment && decoderFlagCount > 0) {
+    if (authenticityAssessment && decoderFlags.length > 0) {
       const before = authenticityAssessment.verdict_confidence;
-      const after = applyDecoderContradictionCap(before, decoderFlagCount);
+      const after = applyDecoderContradictionCap(before, decoderFlags.length);
+      // The contradictions are recorded even when the verdict was ALREADY at or
+      // below the cap: the cap not moving is not the same as no contradiction,
+      // and an operator looking at a low-confidence verdict still needs to know
+      // a decoder said the code is impossible.
+      authenticityAssessment = {
+        ...authenticityAssessment,
+        verdict_confidence: after,
+        decoder_contradictions: decoderFlags,
+      };
       if (after < before) {
-        authenticityAssessment = {
-          ...authenticityAssessment,
-          verdict_confidence: after,
-        };
         console.warn(
           `[Pipeline] decoder contradiction on submission ${submissionId}: ` +
-            `verdict confidence ${before} -> ${after} (${decoderFlagCount} flag(s))`,
+            `verdict confidence ${before} -> ${after} (${decoderFlags.length} flag(s))`,
         );
         void captureServer("grading-engine", "grading.decoder_contradiction", {
           submission_id: submissionId,
-          flag_count: decoderFlagCount,
+          flag_count: decoderFlags.length,
           verdict_confidence_before: before,
           verdict_confidence_after: after,
         });
