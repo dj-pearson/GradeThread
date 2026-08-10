@@ -1,5 +1,64 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⛔ HELD: 00586_handle_new_user_restore_legal_acceptance.sql (US-2017 — the signup clickwrap has not been recorded since 00303)
+
+**PUSH-BLOCKING. Apply this SQL before the branch is pushed.**
+
+**Risk: MEDIUM — the highest of any migration in a while, and the reason is the
+blast radius rather than the change.** It is a single `CREATE OR REPLACE
+FUNCTION public.handle_new_user()`. Nothing is created, altered or dropped, and
+it is idempotent. But that function runs on EVERY signup, and if its body fails
+to parse, every new account lands without a profile row. The body's whole
+contents are inside the existing `EXCEPTION WHEN OTHERS` guard, so a RUNTIME
+failure only logs a warning and lets the auth signup through — but a PARSE
+failure happens at apply time, and `CREATE OR REPLACE` either succeeds
+completely or leaves the previous definition in place. So the failure mode at
+apply is "the statement errors and 00401's version stays live", which is the
+state we are in today. That is safe; it just means the fix did not land.
+
+**⚠ NOT EXECUTED ANYWHERE. Docker was down on the authoring machine, so
+`node scripts/verify.mjs --db` could not boot the throwaway stack and this SQL
+has never been run against a Postgres.** Everything else was checked: the
+inherited body was diffed line-by-line against 00401 to prove nothing carried
+over was dropped, the column and value lists were counted, and every column
+written exists in 00142's `legal_acceptances` / `users`. Run the `db` lane, or
+watch this statement's output when applying, rather than assuming.
+
+**Apply order: AFTER 00585.** No dependency on anything newer.
+
+**`NOTIFY pgrst, 'reload schema';` — YES.** A function was replaced.
+
+**What it fixes.** 00142 taught the trigger to record an email signup's
+clickwrap: `users.tos_accepted_version` / `privacy_accepted_version` plus an
+append-only `legal_acceptances` row with `method = 'signup_clickwrap'`. 00303
+replaced the function to add `use_case` and did not carry that block forward;
+00379 and 00401 rebased on the truncated body. So since 00303, **no email
+signup has recorded a clickwrap at all.** Two consequences:
+
+1. The legal gate re-prompts the user on their first authenticated session
+   (a NULL recorded version never meets the bar). Consent is still captured,
+   just later and stamped with whatever is current then.
+2. `POST /api/legal/confirm-signup` (the US-2116 strengthened-evidence path)
+   **refuses every caller**, correctly, because there is no clickwrap row to
+   corroborate. That entire path has recorded nothing, ever.
+
+**It also changes where the version comes from (US-2017 AC1).** 00142 stamped
+the browser's hardcoded `LEGAL_VERSIONS` constant. The new body uses the
+metadata's PRESENCE as the "this was an email signup with a checkbox" signal but
+reads the VALUE from `legal_documents`, ordered exactly the way
+`deriveKind()` in `lib/legal-versions.ts` does. An OAuth signup still records
+nothing, which the gate depends on.
+
+**No backfill.** Accounts created between 00303 and this migration have no
+clickwrap row and cannot get one — the acceptance they gave was never recorded,
+and inventing a row now would be a fabricated consent record. They are covered
+by whatever the legal gate captured on first sign-in.
+
+**Rollback** is to re-apply `00401_buyer_account_roles.sql`, which contains the
+previous definition verbatim.
+
+---
+
 ## ✅ APPLIED: 00585_swim_brand_knowledge.sql (US-2220 — chlorine consumes the garment, invisibly, applied 2026-08-09 — MEASURED)
 
 **Applied and confirmed by MEASUREMENT.** `GET https://functions.gradethread.com/health/ready` returned `schema: {expected: "00583", applied: "00585", status: "ahead"}` — the database's own answer. 00584 and 00585 were applied together, so that one reading covers both.
