@@ -87,7 +87,8 @@ struct ListingKitView: View {
                     PlatformVariantCard(
                         variant: variant,
                         copiedKey: $copiedKey,
-                        onCopy: copy
+                        onCopy: copy,
+                        itemId: store.itemId
                     )
                 }
             }
@@ -118,6 +119,32 @@ private struct PlatformVariantCard: View {
     let variant: PlatformVariant
     @Binding var copiedKey: String?
     let onCopy: (_ value: String, _ key: String) -> Void
+    /// US-2481: the item this card belongs to, so the queue row can name it.
+    let itemId: String
+
+    /// US-2481: queueing state for this card's "Run on my desktop" button.
+    @State private var queueState: QueueState = .idle
+
+    private enum QueueState: Equatable {
+        case idle
+        case sending
+        case queued
+        case failed(String)
+    }
+
+    /// Channels the desktop extension can actually run.
+    ///
+    /// Mirrors `LISTER_EXTENSION_PLATFORMS` in src/lib/lister-extension.ts. Depop
+    /// is deliberately absent: it has a real partner API, so a seller never needs
+    /// their browser for it and offering the queue there would be a worse path
+    /// than the one that already exists.
+    private static let queueablePlatforms: Set<String> = [
+        "poshmark", "mercari", "grailed", "vinted", "facebook",
+    ]
+
+    private var isQueueable: Bool {
+        Self.queueablePlatforms.contains(variant.platform)
+    }
 
     private var platformLabel: String {
         if let label = variant.spec?.label { return label }
@@ -263,6 +290,15 @@ private struct PlatformVariantCard: View {
                 .buttonStyle(.brandSecondary)
                 .disabled(isEmpty)
             }
+
+            // US-2481: the actual point of the queue.
+            //
+            // Copy-and-paste is what a seller does when they are AT a desktop.
+            // This is the other case — sourcing in a shop with a phone — and
+            // without a control here the queue is a table nothing ever writes to.
+            if isQueueable {
+                queueRow
+            }
             if let note = variant.spec?.sourceNote, !note.isEmpty {
                 Text(note)
                     .font(.caption2)
@@ -270,5 +306,60 @@ private struct PlatformVariantCard: View {
             }
         }
         .padding(.top, Spacing.xxs)
+    }
+
+    /// US-2481: queue this platform's listing for the desktop extension.
+    ///
+    /// The success copy is the part that matters. It says the work is WAITING,
+    /// never that it is done — `ExtensionQueueService.queuedNotice` is shared
+    /// verbatim with web, Android and the edge for exactly that reason. A seller
+    /// told "Listed!" for a queued job believes their item is live when it is
+    /// not, and for a delist that belief is what becomes a double sale.
+    @ViewBuilder
+    private var queueRow: some View {
+        VStack(alignment: .leading, spacing: Spacing.xxs) {
+            Button {
+                Task { await queueForDesktop() }
+            } label: {
+                Label(
+                    queueState == .queued ? "Waiting for your desktop" : "Run on my desktop",
+                    systemImage: queueState == .queued ? "checkmark.circle" : "desktopcomputer"
+                )
+                .font(.caption.weight(.semibold))
+            }
+            .buttonStyle(.brandSecondary)
+            .disabled(queueState == .sending || queueState == .queued)
+
+            switch queueState {
+            case .queued:
+                Text(ExtensionQueueService.queuedNotice)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            case .failed(let message):
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(Color.brandRed)
+            case .idle, .sending:
+                EmptyView()
+            }
+        }
+        .padding(.top, Spacing.xxs)
+    }
+
+    private func queueForDesktop() async {
+        queueState = .sending
+        do {
+            _ = try await ExtensionQueueService.shared.enqueue(
+                kind: .list,
+                platform: variant.platform,
+                inventoryItemId: itemId
+            )
+            queueState = .queued
+        } catch {
+            // Surfaced rather than swallowed: a seller who thinks they queued
+            // something and did not will stand in a shop waiting for a job that
+            // does not exist.
+            queueState = .failed("Couldn't queue that. Try again when you have signal.")
+        }
     }
 }

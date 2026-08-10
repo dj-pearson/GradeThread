@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import com.gradethread.app.marketplaces.ExtensionQueueKind
 import javax.inject.Inject
 
 /**
@@ -37,6 +38,8 @@ class ItemCanvasViewModel @Inject constructor(
     private val sizeAi: SizeAiService,
     private val compsService: CompsService,
     private val aspectSpecs: AspectSpecService,
+    // US-2481: queue a cross-list for the desktop extension from the phone.
+    private val extensionQueue: com.gradethread.app.marketplaces.ExtensionQueueRepository,
 ) : ViewModel() {
 
     data class State(
@@ -59,6 +62,17 @@ class ItemCanvasViewModel @Inject constructor(
         val comps: CompsState = CompsState.Idle,
         /** US-1347: the category's aspect spec. */
         val aspectSpec: AspectSpecState = AspectSpecState.Idle,
+        /**
+         * US-2481: the platform whose cross-list is now waiting for the seller's
+         * desktop browser. Null until they queue one.
+         */
+        val queuedForDesktop: String? = null,
+        /**
+         * Surfaced rather than swallowed — see queueForDesktop. A flag, not a
+         * message: user-facing copy belongs in strings.xml where it can be
+         * translated, not in a view model.
+         */
+        val queueFailed: Boolean = false,
     ) {
         /** Required specifics with no value — the publish blockers. */
         val missingRequiredAspects: List<String>
@@ -91,6 +105,36 @@ class ItemCanvasViewModel @Inject constructor(
             }
             val draft = ItemDraft.from(item)
             _state.value = _state.value.copy(loading = false, original = draft, draft = draft)
+        }
+    }
+
+    /**
+     * US-2481: queue this item's cross-list to run on the seller's desktop.
+     *
+     * The whole point of the queue is the case where the seller is sourcing in a
+     * shop with only a phone: Poshmark, Mercari, Grailed, Vinted and Facebook
+     * have no write API, so the listing has to be filled in a browser they do
+     * not currently have open. The server stores WHAT to do and never a
+     * marketplace credential.
+     *
+     * A failure is reported, not swallowed. A seller who believes they queued
+     * something and did not will wait for a job that does not exist.
+     */
+    fun queueForDesktop(platform: String) {
+        val itemId = _state.value.itemId ?: return
+        viewModelScope.launch {
+            val result = runCatching {
+                extensionQueue.enqueue(
+                    kind = ExtensionQueueKind.LIST,
+                    platform = platform,
+                    inventoryItemId = itemId,
+                )
+            }
+            _state.value = if (result.isSuccess) {
+                _state.value.copy(queuedForDesktop = platform, queueFailed = false)
+            } else {
+                _state.value.copy(queueFailed = true)
+            }
         }
     }
 
