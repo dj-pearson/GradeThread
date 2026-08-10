@@ -9,23 +9,43 @@
 
 On first install a **welcome tab** (`onboarding.html`) opens automatically.
 
-> **Chrome shows one warning here, and it is expected.**
+> **Chrome shows one warning on THIS folder:**
 > `'background.scripts' requires manifest version of 2 or lower.`
 >
-> This folder is ONE manifest serving two browsers. Chrome runs the background
-> as a service worker and reads `background.service_worker`; Firefox has no
-> extension service workers and reads `background.scripts`. Both keys must be
-> present in the source, and `test/background-deps.test.cjs` enforces that pair
-> as the single source of truth for what the background loads.
+> **To load without it, use `npm run ext:dev` and §1c below.**
 >
-> **Nothing ships with the warning.** `scripts/package-extensions.mjs` deletes
-> `background.scripts` from the Chrome zip and `background.service_worker` from
-> the Firefox zip, by deletion rather than by restating either — so neither
-> store build carries the other browser's key. The warning exists only on an
-> unpacked dev load, which is exactly where it costs nothing.
+> The warning is real and harmless. This folder is ONE manifest serving two
+> browsers: Chrome runs the background as a service worker and reads
+> `background.service_worker`; Firefox has no extension service workers and
+> reads `background.scripts`. Both keys must be present in the source, and
+> `test/background-deps.test.cjs` enforces that pair as the single source of
+> truth for what the background loads.
+>
+> **Nothing ships with it.** `scripts/package-extensions.mjs` deletes
+> `background.scripts` from the Chrome build and `background.service_worker`
+> from the Firefox build, by deletion rather than by restating either — so
+> neither carries the other browser's key.
 >
 > Do not "fix" it by removing the key from `manifest.json`: that breaks the
 > Firefox event page, which loads its dependencies from that list.
+
+## 1c. Load it unpacked with no warning (Chrome / Edge)
+
+```
+npm run ext:dev
+```
+
+Writes the same transformed trees the store zips are built from:
+
+| Folder | Load it with |
+|---|---|
+| `dist-ext/gradethread-chrome/` | `chrome://extensions` → **Load unpacked** |
+| `dist-ext/gradethread-firefox/` | `about:debugging` → **Load Temporary Add-on** → its `manifest.json` |
+
+Chrome is silent on this folder because it is the same bytes the Web Store
+gets. The trade is that it is a **copy**: edit a file and re-run `npm run
+ext:dev`, then hit reload in `chrome://extensions`. For a tight edit loop keep
+loading `extension-unified/` per §1a and ignore the one warning.
 
 ## 1b. Load it temporarily (Firefox)
 
