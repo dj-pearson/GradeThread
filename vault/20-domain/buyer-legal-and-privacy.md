@@ -12,7 +12,7 @@ code_refs:
   - src/pages/legal/privacy.tsx
   - src/pages/legal/__tests__/privacy-buyer.test.tsx
   - extension-unified/SUBMISSION.md
-reviewed: 2026-08-09
+reviewed: 2026-08-10
 tags: [buyer, privacy, legal, consent, contract]
 summary: Buyer personal data is enumerated in one register that the export iterates; legally-sensitive buyer copy is either behind an operator kill-switch that defaults off or bound to a fixed disclosure, and both are asserted rather than described.
 ---
@@ -112,6 +112,20 @@ The four artefacts that must agree in one commit are the ones
 guard is `privacy-buyer.test.tsx`, which asserts the retired sentence **cannot
 come back** as well as asserting the replacement is present — a test that only
 checks for the new wording passes fine alongside a reverted paragraph.
+
+> [!note] The same gap opened again on the seller side (2026-08-10)
+> US-2482 (repeat the seller's own share / follow / offer actions) and US-2481
+> (queue work on a phone, drain it on the desktop) both shipped with
+> `SUBMISSION.md` updated and `privacy.tsx` untouched, which is the identical
+> failure one story later and on the half of the page a store reviewer reads
+> first. Both are now disclosed, and `privacy-buyer.test.tsx` asserts the four
+> load-bearing phrases: the human check is never answered, the engagement tool
+> has its **own** consent rather than the cross-posting one, the queue holds an
+> instruction and never a password, cookie or session, and unpicked work expires
+> after 7 days. The rule to take from this is narrower than "update the policy":
+> **a behaviour that runs in the seller's browser on somebody else's site, or a
+> new server-side row about the seller's account, is a privacy-page edit in the
+> same commit** — a store listing alone is not the disclosure.
 
 ## Related
 
