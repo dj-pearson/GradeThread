@@ -218,16 +218,30 @@ const GT_LISTER_SELECTORS = {
     submit: 'button[data-testid="ListButton"], button[type="submit"]',
     delist: {
       enabled: false,
-      version: "2026.07.0-draft",
+      version: "2026.08.0-draft",
       lastVerified: null,
       // US-1875 AC1: pre-interaction selectors only (see the Poshmark note).
       required: ["menu"],
-      menu: 'button[data-testid="ListingMenu"], button[aria-label*="menu"]',
-      remove: '[data-testid="Delete"], [data-testid="DeleteListing"]',
+      // 2026-08-10: `ListingMenu` never existed. The control is the "More"
+      // button beside Like and Share — `MoreItemOptions` — and the panel it
+      // opens is `ItemOptions`. Both names came from the page's own test
+      // attributes; the old selector was a guess that had never been checked
+      // against the live item page, which is exactly what enabling is supposed
+      // to prevent.
+      menu: 'button[data-testid="MoreItemOptions"], button[data-testid="ListingMenu"], ' +
+        'button[aria-label*="menu"]',
+      // Scoped to the opened panel first, then the loose forms. The wildcard
+      // matches are deliberate and safe HERE because `remove` is only ever
+      // looked for after `menu` is clicked, and a wrong match fails loudly as
+      // `unverified` rather than deleting something else — the panel holds
+      // options for this one listing.
+      remove: '[data-testid="ItemOptions"] [data-testid*="Delete"], ' +
+        '[data-testid="ItemOptions"] [data-testid*="Remove"], ' +
+        '[data-testid="Delete"], [data-testid="DeleteListing"]',
       confirm: 'button[data-testid="ConfirmDelete"], button[type="submit"]',
       verify: {
         urlChanged: true,
-        gone: 'button[data-testid="ListingMenu"]',
+        gone: 'button[data-testid="MoreItemOptions"], button[data-testid="ListingMenu"]',
         toast: '[data-testid="Toast"], [role="alert"]',
       },
     },
@@ -242,8 +256,20 @@ const GT_LISTER_SELECTORS = {
   // Turning listing on without a working delist is the oversell in Step 5 of
   // vault/30-platform/closing-a-coverage-gap.md: the item sells elsewhere, the
   // Grailed sibling stays live and purchasable, and the seller owes two people
-  // one garment. `delist.menu` has only ever been checked from the sell form,
-  // where it cannot exist. One report from a live listing flips both.
+  // one garment.
+  //
+  // 2026-08-10, and this is the finding that matters: a probe of the seller's
+  // OWN live listing, header and footer excluded, found no owner controls at
+  // all. Nine test attributes, every one of them presentational — next, prev,
+  // dots, Current, Original, PercentOff, Color, Style, trustStickyFooter — and
+  // not one edit, delete, menu or manage. Mercari's equivalent page named its
+  // menu on the first look; Grailed's simply does not carry one.
+  //
+  // So the delist control is somewhere else — the seller's listing manager,
+  // most likely — and this flow's contract is a menu on the listing page. That
+  // is a design question (does delist navigate?), not a selector to guess, and
+  // it is the same question Poshmark's `edit_listing` raises. Answering it once,
+  // for both, is the next step; guessing a selector twice is not.
   grailed: {
     enabled: false,
     version: "2026.08.0",
