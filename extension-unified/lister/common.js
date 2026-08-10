@@ -570,6 +570,25 @@
   var PROBE_TEST_ATTRS = ["data-et-name", "data-test", "data-testid", "data-test-id"];
 
   /**
+   * Site chrome, excluded from every sweep.
+   *
+   * THE BUG THIS FIXES (2026-08-10, third round of reports). Three delist
+   * reports came back listing search, chat, notifications, cart, log out and the
+   * category nav — and then hit the cap. Mercari's list was truncated exactly
+   * where the item's own section began, so the controls we were hunting were
+   * cut off by the site's own header. The one useful signal was drowned by the
+   * one part of the page that is identical everywhere.
+   *
+   * A listing control is never in the header, so nothing is lost by dropping it.
+   */
+  var PROBE_CHROME =
+    "header, nav, footer, [role=banner], [role=navigation], [role=contentinfo]";
+
+  function inChrome(el) {
+    return typeof el.closest === "function" && el.closest(PROBE_CHROME) !== null;
+  }
+
+  /**
    * Every distinct test-attribute value on the page, whatever element carries it.
    *
    * This is the list that actually answers "where is the menu". A control we
@@ -585,7 +604,8 @@
     var nodes = document.querySelectorAll(
       "[data-et-name], [data-test], [data-testid], [data-test-id]",
     );
-    for (var i = 0; i < nodes.length && out.length < 60; i++) {
+    for (var i = 0; i < nodes.length && out.length < 120; i++) {
+      if (inChrome(nodes[i])) continue;
       for (var a = 0; a < PROBE_TEST_ATTRS.length; a++) {
         var v = nodes[i].getAttribute(PROBE_TEST_ATTRS[a]);
         if (!v) continue;
@@ -608,13 +628,15 @@
   function probeCandidates(kind) {
     if (kind === "testids") return probeTestIds();
     var sel = PROBE_SELECTORS[kind] || PROBE_SELECTORS.any;
-    var nodes = Array.prototype.slice.call(document.querySelectorAll(sel), 0, 40);
+    var nodes = Array.prototype.slice.call(document.querySelectorAll(sel), 0, 400);
     var out = [];
     var seen = {};
     nodes.forEach(function (el) {
-      if (out.length >= 12) return;
+      if (out.length >= 20) return;
       // A control the seller cannot see is not the one we are looking for.
       if (el.offsetParent === null && el.type !== "file") return;
+      // Nor is anything in the site's header, nav or footer — see PROBE_CHROME.
+      if (inChrome(el)) return;
       var sig = el.tagName.toLowerCase();
       PROBE_ATTRS.forEach(function (a) {
         var v = el.getAttribute && el.getAttribute(a);

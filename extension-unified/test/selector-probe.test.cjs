@@ -397,6 +397,20 @@ const matchNone = () => false;
   assert.ok(/PROBE_TEST_ATTRS/.test(tBody),
     "the swept attributes must come from a fixed list, not from el.attributes");
 
+  // THE THIRD ROUND OF REPORTS. Both sweeps returned search, chat,
+  // notifications, cart, log out and the category nav, then hit their cap —
+  // Mercari's truncated exactly where the item's own section started. The
+  // listing control was not missing, it was crowded out by the one part of
+  // every page that is identical everywhere.
+  for (const [fn, src] of [["probeCandidates", body], ["probeTestIds", tBody]]) {
+    assert.ok(/inChrome\(/.test(src),
+      `${fn} does not exclude the site header/nav/footer. Those elements are ` +
+        "the same on every page of a marketplace, they are never the control " +
+        "being hunted, and there are enough of them to fill the cap on their own.");
+  }
+  assert.ok(/header|\[role=banner\]/.test(common.slice(common.indexOf("PROBE_CHROME"))),
+    "PROBE_CHROME must actually name the chrome landmarks");
+
   // And the allowlist itself must stay a list of UI-chrome attributes.
   const attrs = /var PROBE_ATTRS = \[([\s\S]*?)\];/.exec(common);
   assert.ok(attrs, "PROBE_ATTRS must be declared as a literal list");
