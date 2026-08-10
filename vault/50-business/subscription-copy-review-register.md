@@ -83,6 +83,25 @@ products — FlipDesk for sellers, GradeThread for buyers — through
 > pins its five requirements, including that its cancellation link reaches the
 > actual flow on **both** billing pages rather than merely a billing page.
 
+## Claim audit — 2026-08-10
+
+Counsel reviews the **wording**. Nobody had checked whether the **claims** were
+true of the product, and every guard on these templates is structural (which
+branch, which product) — structure cannot see a false sentence.
+
+Each promise below was traced to the code that would have to honour it. Two
+failed. Re-run this whenever a plan cap or a cancellation path changes.
+
+| Claim | Checked against | Verdict |
+|---|---|---|
+| buyer: saved items and certificates "all stay available" after cancelling | `BUYER_PLANS` caps + `condition-alerts.ts` `entitledSearchIds` | ❌ **false** — rows are kept, but only the cap-oldest alerts still fire, and certificates are the seller's artifact. Rewritten. |
+| buyer: "thanks for going pro" on the welcome | the buyer product sells buyer tools, not a Pro tier | ❌ **wrong framing** — seller language on a buyer's first message. Rewritten. |
+| both: cancelling "keeps your plan active until the end of the period you've paid for" | `POST /api/payments/buyer/cancel` and the seller equivalent both set `cancel_at_period_end: true` | ✅ true |
+| both: "no cancellation fee and no need to contact us" | both cancel paths are self-serve; no fee exists anywhere in the plan configs | ✅ true |
+| both: "after several failed attempts your plan will drop to Free" | `handleSubscriptionDeleted` resets `buyer_plan` / `flipdesk_plan` to `free` | ✅ true |
+| bank challenge: "this one won't retry on its own" | Stripe does not auto-retry a `requires_action` invoice; the hosted page is the only remedy | ✅ true |
+| buyer: the welcome's "cancel anytime" link reaches the cancellation control | `src/pages/buyer/billing.tsx` consumes `?cancel=1` and focuses the button | ✅ true, wired the same day |
+
 ## What the gate still owes (US-2114)
 
 1. Review of all of the above, plus the consent mechanism and the cancellation

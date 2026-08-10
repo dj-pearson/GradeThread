@@ -1188,7 +1188,16 @@ export async function sendSubscriptionStartedEmail(
       Welcome to ${escapeHtml(productName)} ${escapeHtml(data.plan)}!
     </h2>
     <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
-      Hi ${escapeHtml(data.userName)}, your subscription is active. Thanks for going pro.
+      Hi ${escapeHtml(data.userName)}, your subscription is active.${
+    // "Thanks for going pro" is FlipDesk framing — a buyer did not go pro, they
+    // bought buyer tools, and a seller-flavoured aside on a buyer's first
+    // message is the small tell that the product was not built for them. The
+    // buyer sentence states an entitlement that actually changed rather than
+    // inventing a benefit.
+    data.product === "buyer"
+      ? " Everything on your plan is switched on."
+      : " Thanks for going pro."
+  }
     </p>
 
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px;">
