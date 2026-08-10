@@ -80,6 +80,19 @@ const GT_LISTER_SELECTORS = {
     delist: {
       enabled: true,
       version: "2026.07.1",
+      // 2026-08-10, UNRESOLVED and written down so the next attempt is aimed.
+      // A probe of a live listing found no menu and no delete anywhere outside
+      // the site header. What it DID find is `[data-et-name="edit_listing"]`,
+      // and Poshmark's delete lives behind that — on the edit page, not on the
+      // listing.
+      //
+      // Not wired up yet, because that is a NAVIGATION rather than a menu
+      // click, and this flow's contract is click-menu → find-remove in the same
+      // document. Following a link reloads the page, the content script
+      // re-runs, and it would ask the background for its job again — a delist
+      // that restarts itself is worse than one that reports `unverified`.
+      // Needs the edit page's own controls first, then a decision about
+      // whether delist navigates.
       lastVerified: "2026-06-13",
       // US-1875 AC1: ONLY what can exist before any interaction. `remove` lives
       // inside the overflow menu and does not exist until `menu` is clicked, so
@@ -118,6 +131,18 @@ const GT_LISTER_SELECTORS = {
     // it holds even though this runs in the seller's own browser.
     engage: {
       enabled: false,
+      // 2026-08-10, from a probe on the seller's own closet: `shareButton` and
+      // `shareToFollowers` both resolve. That is the click path itself, and it
+      // is the half that was most likely to have moved.
+      //
+      // STILL OFF, and on purpose. `actionConfirmed` has not been observed —
+      // nobody has shared one listing by hand and watched the success toast
+      // appear. Until that happens the meter is unproven, and an unproven meter
+      // is worse than none: engagement.js only counts CONFIRMED actions, so a
+      // selector that never matches means the seller is told they have shared
+      // 0 while the real total climbs toward share jail. Enabling on a verified
+      // click path and an unverified confirmation would ship exactly the
+      // failure the meter exists to prevent.
       version: "2026.08.0-draft",
       lastVerified: null,
       // The closet page a share run walks. Locale-free; Poshmark redirects an

@@ -6,9 +6,9 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-10
 tags: [security, rls, tenant-isolation, contract]
-summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id.
+summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a two-entry exemption list that carries repayment triggers.
 ---
 
 # Operator tables and the rls-guard discovery rule
@@ -87,6 +87,30 @@ is about JUSTIFICATION.** Ask "would anything go red if this table's RLS
 vanished?" first, and only then ask whether zero policies is the right shape.
 `ai_prompt_versions` answered no to the first question for months after 00510
 locked it down, because nobody asked it separately.
+
+## The other guard in the same file: the initplan form (US-1927 AC1)
+
+`rls-guard_test.ts` also asserts that every policy written since migration
+**00451** uses `((select auth.uid()) = user_id)` rather than a bare
+`auth.uid()`. The two forms are semantically identical — `auth.uid()` is
+`STABLE` — but the bare one is re-evaluated **per row** while the wrapped one
+hoists to a single InitPlan. On a large per-user scan that is the whole cost.
+
+`INITPLAN_EXEMPT` is the escape hatch, and it exists for one specific trade
+rather than for convenience. Both current entries share the same three facts:
+the table holds a handful of rows per user, so the planner win is single-digit;
+the migration is already applied and therefore immutable, so the correct form
+needs a NEW migration; and RLS DDL cannot be validated without Docker, so that
+migration would ship unverified.
+
+| File | Table | Repay when |
+|---|---|---|
+| `00474_push_subscriptions.sql` | `push_subscriptions` | the next migration touching it |
+| `00588_extension_work_queue.sql` | `extension_work_queue` | the next migration touching it — or **immediately** if it grows a per-user scan (a history view, an admin sweep) |
+
+**Do not add a third entry to silence a hot table.** If the table is read many
+rows at a time, the exemption's reasoning does not apply to it and the answer is
+the migration.
 
 ## Why discovery-by-regex rather than an explicit list
 
