@@ -61,11 +61,44 @@ cat /proc/<pid>/task/*/stat    # per-thread jiffies: one thread eating them all
 ### Recovery and the safety net
 
 `docker restart <container>` brings it back in about 15 seconds. A host cron
-watchdog at `/opt/gradethread/edge-watchdog.sh` runs every minute and restarts on
-unhealthy, capping the outage at ~60s.
+watchdog at `/opt/gradethread/edge-watchdog.sh` is *believed* to run every minute
+and restart on unhealthy.
+
+> [!warning] The ~60s cap is UNVERIFIED, and the one measurement we have
+> contradicts it (US-2447 AC4)
+> This paragraph used to state the cap as fact. It is not established. The
+> watchdog script lives only on the host — it is not in this repo, and
+> `CRON_REGISTRY` has no entry for it — so **nothing in the checkout can tell
+> you whether it is still installed, still on cron, or still working.** Its
+> absence is detectable only by an outage.
+>
+> The single measured occurrence (below, 2026-08-09) ran **at least ~8 minutes**.
+> Treat ~60s as a design intention, not a number to plan recovery against, until
+> an operator has confirmed the script is present and induced an unhealthy
+> container to time it. Anything downstream that assumes a one-minute ceiling —
+> an SLO, a retry budget, a status-page promise — is resting on this sentence.
 
 **The watchdog is a safety net, not a fix** — the spin itself is still unfixed.
 Do not let its existence retire this note.
+
+### What WOULD notice, independently of the watchdog (US-2447 AC5)
+
+`.github/workflows/uptime.yml` runs `scripts/ops/uptime-check.mjs` against
+`${EDGE_URL}/health/ready` from GitHub-hosted runners, and alerts through
+`UPTIME_ALERT_WEBHOOK` plus a GitHub issue. That is genuinely independent: it
+runs outside every piece of prod infrastructure, so a host that is wedged
+entirely still gets caught.
+
+**But it cannot validate a ~60s cap, and that is a cadence fact rather than a
+bug.** It is scheduled `*/10 * * * *`, GitHub cron cannot go below five minutes,
+and it is best-effort — a scheduled run can be late or dropped under load. So an
+outage shorter than the poll interval is invisible to it by construction.
+
+The practical consequence, which the 2026-08-09 table already shows: the early
+symptom is `http=000` (a hang to timeout), not a 503. **A monitor that alerts
+only on a bad status code misses the opening minutes.** `uptime-check.mjs`
+treats a timeout as a failure, which is the right behaviour and worth not
+regressing.
 
 #### ⚠ 2026-08-09: it recurred, and the outage was far longer than 60s
 
