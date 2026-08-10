@@ -301,6 +301,9 @@ const matchNone = () => false;
 
   assert.deepStrictEqual(flow.missingRequired, ["title"]);
   assert.deepStrictEqual(asked, ["input"], "only the missing kind should be collected");
+  assert.ok(!asked.includes("testids"),
+    "a missing text INPUT does not need the page's test attributes — that sweep " +
+      "is for the controls we cannot identify by element type");
   const text = P.formatProbeReport({ platform: "mercari", flows: [flow] });
   assert.ok(/what IS on the page/.test(text));
   assert.ok(text.includes('input#a[name="a"]'));
@@ -332,6 +335,26 @@ const matchNone = () => false;
   assert.strictEqual(boom.ok, false);
 }
 
+// ── 11b. A missing MENU also asks for the page's test attributes ───────────
+{
+  // THE PROBLEM. Every delist report came back with a dozen header buttons and
+  // no listing control, because the control is routinely not a <button>:
+  // Poshmark's is `[data-et-name=...]`, and an overflow menu is as often an <a>
+  // or a plain <div>. Sweeping buttons cannot find something that is not one.
+  // A marketplace does tag its own controls for its own test suite, so the NAME
+  // is on the page even when the shape is unguessable.
+  const asked = [];
+  const candidates = (kind) => { asked.push(kind); return [`${kind}:x`]; };
+  const flow = P.probeFlow(SELECTORS.poshmark.delist, "delist", matchNone, { candidates });
+
+  assert.deepStrictEqual(flow.missingRequired, ["menu"]);
+  assert.ok(asked.includes("testids"),
+    "a missing menu must pull the page's test attributes — the button sweep " +
+      "alone has now failed to find a delist control on three marketplaces");
+  const text = P.formatProbeReport({ platform: "poshmark", flows: [flow] });
+  assert.ok(/\[testids\]/.test(text));
+}
+
 // ── 12. The kind mapping reads the selector, not the key ───────────────────
 {
   assert.strictEqual(P.candidateKind('textarea[name="description"]'), "textarea");
@@ -361,6 +384,18 @@ const matchNone = () => false;
   assert.ok(/PROBE_ATTRS/.test(body),
     "attributes must come from the allowlist, not from el.attributes — an " +
       "open loop would echo whatever a marketplace decides to stash on a node.");
+
+  // The test-attribute sweep is the one place that reads a value off an element
+  // it did not select by name, so it gets the same treatment.
+  const tStart = common.indexOf("function probeTestIds(");
+  const tEnd = common.indexOf("\n  }", tStart);
+  assert.ok(tStart !== -1 && tEnd > tStart, "probeTestIds must exist in common.js");
+  const tBody = common.slice(tStart, tEnd);
+  assert.ok(!/\.value\b|textContent|innerHTML/.test(tBody),
+    "probeTestIds reads element content. It may report test-attribute NAMES " +
+      "and values — a developer's own identifiers — and nothing else.");
+  assert.ok(/PROBE_TEST_ATTRS/.test(tBody),
+    "the swept attributes must come from a fixed list, not from el.attributes");
 
   // And the allowlist itself must stay a list of UI-chrome attributes.
   const attrs = /var PROBE_ATTRS = \[([\s\S]*?)\];/.exec(common);

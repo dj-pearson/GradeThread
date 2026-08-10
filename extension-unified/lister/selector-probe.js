@@ -226,8 +226,23 @@
     var collect = ctx && ctx.candidates;
     if (typeof collect === "function" && missingRequired.length > 0) {
       candidates = {};
-      missingRequired.forEach(function (e) {
-        var kind = candidateKind(e.selector);
+      var kinds = missingRequired.map(function (e) { return candidateKind(e.selector); });
+
+      // US-2485 round three: a `button` sweep is not enough for a MENU.
+      //
+      // Every delist report came back with a dozen header buttons and no
+      // listing control, and the reason is that the control we are hunting is
+      // routinely NOT a <button> — Poshmark's is `[data-et-name=...]`, and an
+      // overflow menu is as likely to be an <a> or a plain <div>. So a missing
+      // button-ish selector also asks for `testids`: the distinct test
+      // attributes present anywhere on the page, whatever element carries them.
+      // That is the one list that reliably contains the answer, and it is the
+      // most compact form of it.
+      if (kinds.indexOf("button") !== -1 || kinds.indexOf("any") !== -1) {
+        kinds.push("testids");
+      }
+
+      kinds.forEach(function (kind) {
         if (candidates[kind]) return;
         try {
           var found = collect(kind);

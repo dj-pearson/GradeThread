@@ -559,9 +559,44 @@
     textarea: "textarea",
     file: "input[type=file]",
     select: "select",
-    button: "button, [role=button], input[type=submit]",
-    any: "input:not([type=hidden]), textarea, select, button, [role=button]",
+    // Anchors included: an overflow menu or a "Delete listing" control is as
+    // often an <a> as a <button>, and every delist report so far has come back
+    // with a dozen header buttons and no listing control.
+    button: "button, [role=button], input[type=submit], a[href]",
+    any: "input:not([type=hidden]), textarea, select, button, [role=button], a[href]",
   };
+
+  /** Test attributes, in the order sites tend to prefer them. */
+  var PROBE_TEST_ATTRS = ["data-et-name", "data-test", "data-testid", "data-test-id"];
+
+  /**
+   * Every distinct test-attribute value on the page, whatever element carries it.
+   *
+   * This is the list that actually answers "where is the menu". A control we
+   * cannot find is usually one whose ELEMENT type we guessed wrong — a div, an
+   * anchor, a custom element — but almost every marketplace tags its own
+   * controls for its own test suite, so the name is there even when the shape
+   * is not. Values only, no elements and no text: a test attribute is a
+   * developer's own identifier, never anything a seller typed.
+   */
+  function probeTestIds() {
+    var out = [];
+    var seen = {};
+    var nodes = document.querySelectorAll(
+      "[data-et-name], [data-test], [data-testid], [data-test-id]",
+    );
+    for (var i = 0; i < nodes.length && out.length < 60; i++) {
+      for (var a = 0; a < PROBE_TEST_ATTRS.length; a++) {
+        var v = nodes[i].getAttribute(PROBE_TEST_ATTRS[a]);
+        if (!v) continue;
+        var sig = PROBE_TEST_ATTRS[a] + "=" + String(v).slice(0, 60);
+        if (seen[sig]) continue;
+        seen[sig] = true;
+        out.push(sig);
+      }
+    }
+    return out;
+  }
 
   /**
    * Describe up to 12 controls of one kind as attribute signatures.
@@ -571,6 +606,7 @@
    * it and the label is the site's word, not the seller's.
    */
   function probeCandidates(kind) {
+    if (kind === "testids") return probeTestIds();
     var sel = PROBE_SELECTORS[kind] || PROBE_SELECTORS.any;
     var nodes = Array.prototype.slice.call(document.querySelectorAll(sel), 0, 40);
     var out = [];
