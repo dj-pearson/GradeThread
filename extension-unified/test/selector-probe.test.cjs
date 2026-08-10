@@ -219,8 +219,155 @@ const matchNone = () => false;
   );
 }
 
+// ── 10. The report says whether it was run on the right page (US-2485) ─────
+//
+// THE PROBLEM THIS FIXES. The first five real reports came back with three
+// reading "everything missing" — which looks like three dead channels and was
+// actually a seller on the marketplace's home page rather than its sell form.
+// Host alone cannot tell those apart, and a report that cannot be interpreted
+// is worse than no report, because it produces confident wrong fixes.
+{
+  const onForm = P.buildProbeReport(SELECTORS, "mercari", matchNone, {
+    host: "www.mercari.com",
+    origin: "https://www.mercari.com",
+    path: "/sell/",
+  });
+  const listOnForm = onForm.flows.find((f) => f.flow === "list");
+  assert.strictEqual(listOnForm.page.onExpectedPage, true);
+  assert.ok(/page: yes/.test(P.formatProbeReport(onForm)));
+
+  const offForm = P.buildProbeReport(SELECTORS, "mercari", matchNone, {
+    host: "www.mercari.com",
+    origin: "https://www.mercari.com",
+    path: "/",
+  });
+  const listOffForm = offForm.flows.find((f) => f.flow === "list");
+  assert.strictEqual(listOffForm.page.onExpectedPage, false);
+  const offText = P.formatProbeReport(offForm);
+  assert.ok(/page: NO/.test(offText), "the wrong page must be called out, loudly");
+  assert.ok(
+    offText.includes(SELECTORS.mercari.newListingUrl),
+    "and it must name the page to open instead — otherwise the reader has to " +
+      "go and find it, which is the friction this whole tool exists to remove",
+  );
+
+  // A live listing satisfies `delist`, and the sell form does not.
+  const onListing = P.buildProbeReport(SELECTORS, "grailed", matchNone, {
+    host: "www.grailed.com",
+    origin: "https://www.grailed.com",
+    path: "/listings/12345",
+  });
+  assert.strictEqual(
+    onListing.flows.find((f) => f.flow === "delist").page.onExpectedPage, true,
+  );
+  assert.strictEqual(
+    onListing.flows.find((f) => f.flow === "list").page.onExpectedPage, false,
+  );
+
+  // Vinted's locale map means the sell path is right on any of 22 domains.
+  const vinted = P.buildProbeReport(SELECTORS, "vinted", matchNone, {
+    host: "www.vinted.fr",
+    origin: "https://www.vinted.fr",
+    path: "/items/new",
+  });
+  assert.strictEqual(
+    vinted.flows.find((f) => f.flow === "list").page.onExpectedPage, true,
+    "a locale domain's sell form must not read as the wrong page",
+  );
+
+  // No path supplied → no verdict. Silence beats a guess: claiming the wrong
+  // page would dismiss a real break, claiming the right one would send someone
+  // hunting a selector on a page that never had it.
+  const noPath = P.buildProbeReport(SELECTORS, "mercari", matchNone, { host: "www.mercari.com" });
+  assert.strictEqual(noPath.flows[0].page.onExpectedPage, null);
+  assert.ok(!/page: /.test(P.formatProbeReport(noPath)));
+}
+
+// ── 11. A MISS comes back with what IS on the page ─────────────────────────
+{
+  // Collected per KIND, and only for the kinds that actually missed — a flow
+  // blocked on one text input must not dump every button on the page.
+  const asked = [];
+  const candidates = (kind) => {
+    asked.push(kind);
+    return [`${kind}#a[name="a"]`, `${kind}#b[data-testid="B"]`];
+  };
+  const found = (sel) => !sel.includes("name=\"name\"");
+  const flow = P.probeFlow(SELECTORS.mercari, "list", found, { candidates });
+
+  assert.deepStrictEqual(flow.missingRequired, ["title"]);
+  assert.deepStrictEqual(asked, ["input"], "only the missing kind should be collected");
+  const text = P.formatProbeReport({ platform: "mercari", flows: [flow] });
+  assert.ok(/what IS on the page/.test(text));
+  assert.ok(text.includes('input#a[name="a"]'));
+
+  // A clean flow asks for nothing.
+  const clean = P.probeFlow(SELECTORS.mercari, "list", matchAll, { candidates: () => ["x"] });
+  assert.strictEqual(clean.candidates, null);
+  assert.ok(!/what IS on the page/.test(
+    P.formatProbeReport({ platform: "mercari", flows: [clean] }),
+  ));
+
+  // On the WRONG page the candidates are the controls of some other page, so
+  // printing them would be an invitation to write a selector for the home page.
+  const wrongPage = P.probeFlow(SELECTORS.mercari, "list", found, {
+    candidates,
+    platformCfg: SELECTORS.mercari,
+    origin: "https://www.mercari.com",
+    path: "/",
+  });
+  assert.ok(!/what IS on the page/.test(
+    P.formatProbeReport({ platform: "mercari", flows: [wrongPage] }),
+  ));
+
+  // A collector that throws is a missing section, not a dead report.
+  const boom = P.probeFlow(SELECTORS.mercari, "list", found, {
+    candidates: () => { throw new Error("detached"); },
+  });
+  assert.deepStrictEqual(boom.candidates, { input: [] });
+  assert.strictEqual(boom.ok, false);
+}
+
+// ── 12. The kind mapping reads the selector, not the key ───────────────────
+{
+  assert.strictEqual(P.candidateKind('textarea[name="description"]'), "textarea");
+  assert.strictEqual(P.candidateKind('input[type="file"][accept*="image"]'), "file");
+  assert.strictEqual(P.candidateKind('button[data-test="submit"]'), "button");
+  assert.strictEqual(P.candidateKind('input[name="name"]'), "input");
+  assert.strictEqual(P.candidateKind('[data-et-name="share"]'), "any");
+}
+
+// ── 13. The DOM-side collector never reads a value ─────────────────────────
+{
+  // The pure module cannot enforce this — the collector lives in common.js,
+  // where the DOM is. `el.value` is a listing title, a price, a seller's own
+  // words; the whole design rests on it never being touched.
+  const common = fs.readFileSync(path.join(dir, "lister/common.js"), "utf8");
+  const start = common.indexOf("function probeCandidates(");
+  const end = common.indexOf("\n  }", start);
+  assert.ok(start !== -1 && end > start, "probeCandidates must exist in common.js");
+  const body = common.slice(start, end);
+
+  assert.ok(!/\.value\b/.test(body),
+    "probeCandidates reads .value. That is what the seller typed — the report " +
+      "is written to be pasted into a chat, so it may carry attribute names and " +
+      "the site's own button labels and nothing else.");
+  assert.ok(!/innerHTML|outerHTML/.test(body),
+    "probeCandidates serialises markup, which carries the page wholesale.");
+  assert.ok(/PROBE_ATTRS/.test(body),
+    "attributes must come from the allowlist, not from el.attributes — an " +
+      "open loop would echo whatever a marketplace decides to stash on a node.");
+
+  // And the allowlist itself must stay a list of UI-chrome attributes.
+  const attrs = /var PROBE_ATTRS = \[([\s\S]*?)\];/.exec(common);
+  assert.ok(attrs, "PROBE_ATTRS must be declared as a literal list");
+  assert.ok(!/"value"|"src"|"href"|"content"/.test(attrs[1]),
+    "PROBE_ATTRS admits an attribute that can carry page data or a full URL");
+}
+
 console.log(
-  "✓ selector-probe: report carries no page content, post-interaction controls " +
-    "are not counted as failures, all 5 platforms probe clean, invalid selectors " +
-    "are reported rather than thrown",
+  "✓ selector-probe: report carries no page content, states whether it was run " +
+    "on the right page, returns candidate controls for a miss without reading " +
+    "any value, post-interaction controls are not counted as failures, all 5 " +
+    "platforms probe clean, invalid selectors are reported rather than thrown",
 );

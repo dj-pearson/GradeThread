@@ -536,6 +536,62 @@
   // The report deliberately carries location.HOST and not location.href — a
   // listing URL contains an item id and, on several marketplaces, a seller
   // handle, and this string is meant to be pasted into a chat.
+  //
+  // US-2485 adds two things the first round of real reports proved were needed:
+  // location.PATHNAME (so the report can say "you are not on the sell form",
+  // which was the actual explanation for three of five "everything missing"
+  // results) and a candidate collector, so a broken selector comes back with
+  // what replaced it instead of another round of guessing.
+
+  /** Attributes safe to echo: site UI chrome, never anything a seller typed. */
+  var PROBE_ATTRS = [
+    "name", "id", "type", "role", "aria-label", "placeholder",
+    "data-testid", "data-test", "data-test-id", "data-et-name", "data-cy", "data-qa",
+  ];
+
+  var PROBE_SELECTORS = {
+    input: "input:not([type=hidden]):not([type=file])",
+    textarea: "textarea",
+    file: "input[type=file]",
+    select: "select",
+    button: "button, [role=button], input[type=submit]",
+    any: "input:not([type=hidden]), textarea, select, button, [role=button]",
+  };
+
+  /**
+   * Describe up to 12 controls of one kind as attribute signatures.
+   *
+   * `value` is never read — that is the seller's listing. A button's own label
+   * IS read, capped, because "which button is Publish" is unanswerable without
+   * it and the label is the site's word, not the seller's.
+   */
+  function probeCandidates(kind) {
+    var sel = PROBE_SELECTORS[kind] || PROBE_SELECTORS.any;
+    var nodes = Array.prototype.slice.call(document.querySelectorAll(sel), 0, 40);
+    var out = [];
+    var seen = {};
+    nodes.forEach(function (el) {
+      if (out.length >= 12) return;
+      // A control the seller cannot see is not the one we are looking for.
+      if (el.offsetParent === null && el.type !== "file") return;
+      var sig = el.tagName.toLowerCase();
+      PROBE_ATTRS.forEach(function (a) {
+        var v = el.getAttribute && el.getAttribute(a);
+        if (v) sig += "[" + a + "=\"" + String(v).slice(0, 60) + "\"]";
+      });
+      var isButton = sig.indexOf("button") === 0 ||
+        (el.getAttribute && el.getAttribute("role") === "button");
+      if (isButton) {
+        var label = (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40);
+        if (label) sig += " \"" + label + "\"";
+      }
+      if (sig === el.tagName.toLowerCase() || seen[sig]) return;
+      seen[sig] = true;
+      out.push(sig);
+    });
+    return out;
+  }
+
   GT.registerProbe = function (sel, platformKey) {
     try {
       chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
@@ -550,7 +606,15 @@
           sel,
           platformKey,
           function (selector) { return Boolean(document.querySelector(selector)); },
-          { host: location.host, at: new Date().toISOString().slice(0, 10) },
+          {
+            host: location.host,
+            // origin + pathname, never `href`: the query string is the part
+            // that carries session-shaped junk, and no URL pattern needs it.
+            origin: location.origin,
+            path: location.pathname,
+            candidates: probeCandidates,
+            at: new Date().toISOString().slice(0, 10),
+          },
         );
         sendResponse({
           ok: true,
