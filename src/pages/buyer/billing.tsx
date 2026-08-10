@@ -18,6 +18,7 @@ import {
   type BuyerPlanKey,
 } from "@/lib/constants";
 import { UsageMeter } from "@/components/billing/usage-meter";
+import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
 import { useBillingSummary, useBuyerSubscribe, useBuyerCancel, useBuyerUncancel, useBillingPortal } from "@/hooks/use-billing-summary";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { trackBuyerFunnel } from "@/lib/buyer-analytics";
@@ -248,6 +249,18 @@ export function BuyerBillingPage() {
                       {subscribe.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                       {effectiveRank > 0 ? "Switch" : "Upgrade"}
                     </Button>
+                  )}
+                  {/* US-2115: same screen, directly under the button that buys
+                      it. Only on tiles that can actually be purchased — the
+                      disabled "Current plan"/"Included"/"Free" tiles are not a
+                      point of sale. */}
+                  {!(key === "free" || isIncluded) && (
+                    <AutoRenewalDisclosure
+                      className="mt-2"
+                      amountCents={price}
+                      interval={interval}
+                      renewsOn={hasPaidSub ? paid.period_end : null}
+                    />
                   )}
                 </div>
               </div>

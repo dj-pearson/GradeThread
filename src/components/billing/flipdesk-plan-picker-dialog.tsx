@@ -11,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { FLIPDESK_PLANS, formatMarketplacesCap } from "@/lib/constants";
+import { FLIPDESK_PLANS, formatMarketplacesCap, TRIAL_DAYS } from "@/lib/constants";
+import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
 import type { FlipdeskPlanKey } from "@/lib/constants";
 import type { BillingInterval } from "@/types/database";
 import {
@@ -267,7 +268,7 @@ export function FlipdeskPlanPickerDialog({
                   {showTrialChip && (
                     <Badge variant="secondary" className="self-start">
                       <Sparkles className="mr-1 h-3 w-3" />
-                      14-day free trial
+                      {TRIAL_DAYS}-day free trial
                     </Badge>
                   )}
                 </CardHeader>
@@ -318,7 +319,7 @@ export function FlipdeskPlanPickerDialog({
                   </ul>
                 </CardContent>
 
-                <CardFooter>
+                <CardFooter className="flex-col items-stretch gap-2">
                   {renderCta({
                     planKey,
                     isCurrent,
@@ -371,6 +372,23 @@ export function FlipdeskPlanPickerDialog({
                       portal.mutate();
                     },
                   })}
+                  {/* US-2115: directly under the CTA, in the card the user is
+                      reading. Shown on every PAID tile that is not already the
+                      current plan — an upgrade, a downgrade and an interval
+                      switch all change the recurring terms, so all three owe
+                      the disclosure. The free tile is a cancellation and the
+                      current tile is not a point of sale. */}
+                  {planKey !== "free" && !isCurrent && (
+                    <AutoRenewalDisclosure
+                      amountCents={
+                        interval === "yearly"
+                          ? plan.priceYearlyCents
+                          : plan.priceMonthlyCents
+                      }
+                      interval={interval}
+                      trialDays={showTrialChip ? TRIAL_DAYS : null}
+                    />
+                  )}
                 </CardFooter>
               </Card>
             );

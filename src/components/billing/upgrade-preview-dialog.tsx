@@ -17,6 +17,7 @@ import {
   useUpgradePreview,
 } from "@/hooks/use-billing-summary";
 import { track } from "@/lib/analytics";
+import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
 import { ArrowUp, Loader2 } from "lucide-react";
 
 interface UpgradePreviewDialogProps {
@@ -131,12 +132,29 @@ export function UpgradePreviewDialog({
               }`}
             />
             <Row label="Next renewal" value={dateLabel(data.next_renewal_at)} />
+            {/* US-2115: this dialog had the only correct renewal copy in the
+                repo, hand-written here. It now renders the shared disclosure
+                instead — it was the fifth subscription surface and the one most
+                likely to drift away from the other four precisely because it
+                already looked done. The prorated sentence stays, since it is
+                specific to an in-place upgrade and the shared component does
+                not model proration. */}
             <p className="pt-1 text-xs text-muted-foreground">
               The prorated amount covers the rest of your current period at the
-              new rate. After that, {money(data.new_recurring_cents, currency)}{" "}
-              renews automatically on {dateLabel(data.next_renewal_at)}. Cancel
-              any time.
+              new rate.
             </p>
+            {/* No recurring amount means the server could not price the
+                upgrade. Stating renewal terms without the amount would be a
+                worse disclosure than none, and the Row above already shows the
+                "—" fallback, so stay silent rather than guess. */}
+            {data.new_recurring_cents != null && (
+              <AutoRenewalDisclosure
+                amountCents={data.new_recurring_cents}
+                interval={data.interval ?? targetInterval}
+                renewsOn={data.next_renewal_at}
+                currency={currency}
+              />
+            )}
           </div>
         )}
 

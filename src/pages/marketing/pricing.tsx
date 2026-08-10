@@ -13,6 +13,7 @@ import {
   SELLER_PLAN_BUYER_TIER,
   type BuyerPlanKey,
 } from "@/lib/constants";
+import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
 import type { FlipdeskPlan as FlipdeskPlanKey } from "@/types/database";
 import { PRICING_FAQS, pricingJsonLd } from "@/pages/marketing/marketing-jsonld";
 import { isBulletComingSoon } from "@/lib/buyer-features";
@@ -152,6 +153,17 @@ export function PricingPage() {
                       /mo
                     </span>
                   </p>
+                  {/* US-2115: on a paid tile the price IS the point of sale, so
+                      the renewal terms sit with it rather than only in the
+                      legal pages. Free tiles have nothing to renew. */}
+                  {plan.priceMonthlyCents > 0 && (
+                    <AutoRenewalDisclosure
+                      className="mt-2"
+                      amountCents={plan.priceMonthlyCents}
+                      interval="monthly"
+                      billingBegins="on-subscribe"
+                    />
+                  )}
                   {/* US-1110: render the full feature list (sourced from
                       FLIPDESK_PLANS — the single source of truth) so Pro vs
                       Business differentiators (AutoLister, AI comp pulls,
@@ -237,6 +249,15 @@ export function PricingPage() {
                     {dollars(plan.priceMonthlyCents)}
                     <span className="text-sm font-normal text-muted-foreground">/mo</span>
                   </p>
+                  {/* US-2115: same rule as the seller tiles above. */}
+                  {plan.priceMonthlyCents > 0 && (
+                    <AutoRenewalDisclosure
+                      className="mt-2"
+                      amountCents={plan.priceMonthlyCents}
+                      interval="monthly"
+                      billingBegins="on-subscribe"
+                    />
+                  )}
                   <ul className="mt-4 flex-1 space-y-2 text-sm text-muted-foreground">
                     {plan.features.map((f) => (
                       <li key={f} className="flex items-start gap-2">

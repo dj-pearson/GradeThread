@@ -15,6 +15,7 @@ import { useUpgradeDialogStore } from "@/stores/upgrade-dialog-store";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { CREDIT_PACKS, FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
+import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
 import { useBuyCreditPack } from "@/hooks/use-billing-summary";
 import { useRedirectStore } from "@/stores/redirect-store";
 import { track } from "@/lib/analytics";
@@ -170,6 +171,16 @@ export function UpgradeRequiredDialog() {
             <div className="text-sm text-muted-foreground">
               {requiredPlanConfig.features.slice(0, 3).join(" · ")}
             </div>
+            {/* US-2115: this is the surface the audit called weakest — a user
+                hits it blocked mid-action, under friction, and it carried no
+                renewal or cancellation language at all. The price quoted here
+                is the monthly one, so the disclosure states monthly terms; the
+                interval choice happens later in the plan picker, which
+                discloses again against whatever they pick. */}
+            <AutoRenewalDisclosure
+              amountCents={requiredPlanConfig.priceMonthlyCents}
+              interval="monthly"
+            />
           </CardContent>
         </Card>
 

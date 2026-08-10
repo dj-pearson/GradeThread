@@ -302,6 +302,14 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
 
 export type FlipdeskPlanKey = "free" | "starter" | "pro" | "business";
 
+// US-219: every new seller signup is granted a free Pro trial. The length was
+// written out as a bare 14 in the signup page, the plan picker chip, the
+// landing CTA and two FAQ answers, with nothing tying them together — and
+// US-2115's auto-renewal disclosure has to state the same number a third
+// surface already claims. One source, so shortening the trial cannot leave a
+// screen still promising the old length.
+export const TRIAL_DAYS = 14;
+
 // Human label for a plan's marketplace cap (number of live API connections a
 // tier may open). The Free tier is capped at 1, which is eBay-only, so a cap of
 // 1 reads as "eBay" rather than an ambiguous bare "1". Paid tiers use -1 → "All"
