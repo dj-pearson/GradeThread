@@ -802,6 +802,35 @@ async function renderProbe() {
   block.dataset.tabId = String(tab.id);
 }
 
+/** Ask the content script for a report. Null when it is not in the tab. */
+async function askProbe(tabId, platform) {
+  try {
+    return await Promise.resolve(
+      ext.tabs.sendMessage(Number(tabId), { type: "GT_LISTER_PROBE", platform }),
+    );
+  } catch (_e) {
+    // The content script is not in this tab: the page loaded before the
+    // extension was installed or updated, or it is a marketplace page the
+    // manifest does not match.
+    return null;
+  }
+}
+
+/** Resolve once the tab finishes loading, or after `ms` either way. */
+async function waitForTabLoad(tabId, ms) {
+  const deadline = Date.now() + ms;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 300));
+    try {
+      const t = await Promise.resolve(ext.tabs.get(Number(tabId)));
+      if (t && t.status === "complete") return true;
+    } catch (_e) {
+      return false; // the tab went away; the caller reports the failure
+    }
+  }
+  return false;
+}
+
 function wireProbe() {
   const run = document.getElementById("probeRun");
   const copy = document.getElementById("probeCopy");
@@ -816,26 +845,35 @@ function wireProbe() {
     verdict.textContent = "Checking…";
     verdict.dataset.state = "";
 
-    let res = null;
-    try {
-      res = await Promise.resolve(
-        ext.tabs.sendMessage(Number(block.dataset.tabId), {
-          type: "GT_LISTER_PROBE",
-          platform: block.dataset.platform,
-        }),
-      );
-    } catch (_e) {
-      // The content script is not in this tab: either the page loaded before
-      // the extension was installed, or it is a marketplace page the manifest
-      // does not match. Reloading is the honest instruction.
-      res = null;
+    let res = await askProbe(block.dataset.tabId, block.dataset.platform);
+
+    // US-2485: "reload it and try again" was a correct instruction and a bad
+    // one. A tab open since before the extension updated is the NORMAL state
+    // during a verification session — it happened on the very first Mercari
+    // check — and telling someone to go and do the one thing the popup can do
+    // for them is how a two-minute job becomes a dead end. So do it, once, and
+    // say so. Once only: a second failure is a real one and repeating the
+    // reload would just cost the seller their place on the form.
+    if (!res || !res.ok) {
+      verdict.textContent = "The page loaded before the extension did. Reloading it…";
+      try {
+        await Promise.resolve(ext.tabs.reload(Number(block.dataset.tabId)));
+        await waitForTabLoad(block.dataset.tabId, 8000);
+        // The content script registers its listener at document_idle, which is
+        // slightly after "complete" on a heavy SPA.
+        await new Promise((r) => setTimeout(r, 600));
+        res = await askProbe(block.dataset.tabId, block.dataset.platform);
+      } catch (_e) {
+        res = null;
+      }
     }
+
     run.disabled = false;
 
     if (!res || !res.ok) {
       verdict.textContent =
-        "Couldn't reach the page. Reload it and try again — the extension has " +
-        "to be installed before the tab loads.";
+        "Couldn't reach the page, even after a reload. Check that the address " +
+        "is one this extension covers, then try again.";
       verdict.dataset.state = "bad";
       out.hidden = true;
       copy.hidden = true;

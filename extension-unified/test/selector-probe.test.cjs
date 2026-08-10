@@ -365,6 +365,76 @@ const matchNone = () => false;
     "PROBE_ATTRS admits an attribute that can carry page data or a full URL");
 }
 
+// ── 14. The engage flow knows its own page (US-2485 round two) ─────────────
+{
+  // `closetUrlPattern` lives INSIDE the engage block rather than beside the
+  // platform's other URL patterns, so a lookup on the platform config alone
+  // finds nothing, prints no verdict, and lets an engage section checked on the
+  // create-listing page read as an untested channel. That is what the first
+  // real Poshmark report did.
+  const onEditor = P.buildProbeReport(SELECTORS, "poshmark", matchNone, {
+    host: "poshmark.com",
+    origin: "https://poshmark.com",
+    path: "/create-listing",
+  });
+  const engage = onEditor.flows.find((f) => f.flow === "engage");
+  assert.strictEqual(engage.page.onExpectedPage, false,
+    "the create-listing page is not a closet, and the report must say so");
+
+  const onCloset = P.buildProbeReport(SELECTORS, "poshmark", matchNone, {
+    host: "poshmark.com",
+    origin: "https://poshmark.com",
+    path: "/closet/some-seller",
+  });
+  assert.strictEqual(
+    onCloset.flows.find((f) => f.flow === "engage").page.onExpectedPage, true,
+  );
+}
+
+// ── 15. Poshmark's wizard: `submit` is a probe, never a click ──────────────
+{
+  // 2026-08-10: Poshmark rebuilt create-listing as a multi-step wizard. There
+  // is no submit button on the first step — the primary action is "Next" — so
+  // `submit` now matches it. That is only safe because the fill flow does not
+  // submit: it prefills and hands the tab back. If that ever changes, this
+  // selector would advance a wizard step and report a listing that was never
+  // posted, which is the worst outcome the lister has.
+  const common = fs.readFileSync(path.join(dir, "lister/common.js"), "utf8");
+  assert.ok(
+    /do NOT auto-submit by default/.test(common),
+    "common.js no longer documents the no-auto-submit rule. Poshmark's `submit` " +
+      "selector points at a wizard's \"Next\" button on the strength of it — " +
+      "clicking that would advance a step and report a listing nobody posted.",
+  );
+  assert.ok(
+    !/\.click\(\)/.test(common.slice(common.indexOf("do NOT auto-submit"),
+      common.indexOf("do NOT auto-submit") + 900)),
+    "something clicks in the block that promises not to submit",
+  );
+  assert.ok(
+    SELECTORS.poshmark.submit.includes('[data-et-name="next"]'),
+    "the Poshmark presence probe must cover the wizard's Next button, or every " +
+      "fill aborts on a form that is actually there",
+  );
+}
+
+// ── 16. An unreachable page reloads itself, once ───────────────────────────
+{
+  // A tab open since before the extension updated is the normal state during a
+  // verification session — it happened on the first Mercari check — and the
+  // popup can fix it without sending anyone away. Once only: a second failure
+  // is real, and reloading again would cost the seller their place on the form.
+  const js = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  assert.ok(/ext\.tabs\.reload\(/.test(js),
+    "the probe must reload an unreachable tab rather than only instructing the " +
+      "reader to do it by hand");
+  assert.strictEqual((js.match(/ext\.tabs\.reload\(/g) || []).length, 1,
+    "exactly one reload path — a retry loop would keep wiping the form");
+  assert.ok(/even after a reload/.test(js),
+    "the second failure must read differently from the first, or the reader " +
+      "cannot tell that the automatic retry already happened");
+}
+
 console.log(
   "✓ selector-probe: report carries no page content, states whether it was run " +
     "on the right page, returns candidate controls for a miss without reading " +
