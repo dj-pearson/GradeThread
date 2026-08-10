@@ -9,6 +9,8 @@
 import { assert, assertEquals } from "@std/assert";
 
 import {
+  canonicalMatchValue,
+  matchesAddress,
   purgeThirdPartySubject,
   redactionPatch,
   REDACTED_EMAIL,
@@ -230,6 +232,149 @@ Deno.test("US-2433: the residual free-text columns are named, not silently skipp
           "so nothing tells a reader it was a decision rather than an oversight",
       );
     }
+  }
+});
+
+// ── The caller (US-2433 AC1) ────────────────────────────────────────────────
+
+const SCRIPT = new URL("../../scripts/purge-third-party-subject.ts", import.meta.url);
+
+/**
+ * A store that compares addresses the way the operator script does — canonical
+ * form on BOTH ends — rather than the way `.eq()` does. The difference between
+ * this and `fakeStore` is the whole finding below.
+ */
+function canonicalStore(tables: Record<string, Row[]>) {
+  const reports: string[] = [];
+  const io: ThirdPartyPurgeIO = {
+    findRows: (table, column, value) =>
+      Promise.resolve({
+        rows: (tables[table] ?? [])
+          .filter((r) =>
+            column === "id"
+              ? r.id === value
+              : canonicalMatchValue("claim_buyer", r[column] ?? "") === value
+          )
+          .map((r) => ({ id: r.id })),
+        error: null,
+      }),
+    update: (table, id, patch) => {
+      const row = (tables[table] ?? []).find((r) => r.id === id);
+      if (!row) return Promise.resolve({ error: { message: "no such row" } });
+      Object.assign(row, patch);
+      return Promise.resolve({ error: null });
+    },
+    report: (m) => void reports.push(m),
+  };
+  return { io, reports };
+}
+
+Deno.test("US-2433: a STORED mixed-case address is missed by an .eq() lookup, and the miss looks like success", async () => {
+  // THE FINDING, and it is about the stored side rather than the input side.
+  // guarantee_claims.claimant_email is plain `text` (00197) and the public
+  // intake stores what the buyer typed — asString() in guarantee-public.ts
+  // trims and truncates and does NOT lowercase. purgeThirdPartySubject
+  // canonicalizes the value it is given. So a claim filed as `Buyer@Example.com`
+  // is invisible to a `.eq()` on the canonical form.
+  //
+  // The existing pass-case above seeds a LOWERCASE stored address, so it proves
+  // the input is normalized and says nothing about the column. This is the case
+  // production actually holds.
+  const stored = () => [{
+    id: "claim-1",
+    claimant_email: "Buyer@Example.com",
+    claimant_name: "A Buyer",
+    order_reference: "ORD-1",
+  }];
+
+  const naive = { guarantee_claims: stored() };
+  const naiveRes = await purgeThirdPartySubject("claim_buyer", "buyer@example.com", fakeStore(naive).io);
+  // Not an exception, not an error — a clean "there was nothing to erase",
+  // which is what an operator would relay to the data subject while the address
+  // sits exactly where it was. Under-erasure that reports as success is worse
+  // than a loud failure.
+  assertEquals(naiveRes.notFound, true);
+  assertEquals(naive.guarantee_claims[0]!.claimant_email, "Buyer@Example.com");
+
+  const correct = { guarantee_claims: stored() };
+  const okRes = await purgeThirdPartySubject("claim_buyer", "buyer@example.com", canonicalStore(correct).io);
+  assertEquals(okRes.notFound, false);
+  assertEquals(correct.guarantee_claims[0]!.claimant_email, REDACTED_EMAIL);
+  assertEquals(correct.guarantee_claims[0]!.claimant_name, null);
+});
+
+Deno.test("US-2433: canonicalMatchValue folds an address and leaves a row id alone", () => {
+  assertEquals(canonicalMatchValue("claim_buyer", "  Buyer@Example.COM "), "buyer@example.com");
+  // A uuid's case is not ours to fold, and a consignor is matched by row id.
+  assertEquals(canonicalMatchValue("consignor", "  AB12-CD34 "), "AB12-CD34");
+});
+
+Deno.test("US-2433: matchesAddress compares the stored value, NULLs included", () => {
+  assertEquals(matchesAddress("Buyer@Example.com", "buyer@example.com"), true);
+  assertEquals(matchesAddress("  buyer@example.com ", "buyer@example.com"), true);
+  assertEquals(matchesAddress("other@example.com", "buyer@example.com"), false);
+  // consignors.contact_email is nullable — a consignor recorded by name alone
+  // is reached by row id, not by an address that is not there.
+  assertEquals(matchesAddress(null, "buyer@example.com"), false);
+  assertEquals(matchesAddress(undefined, "buyer@example.com"), false);
+});
+
+Deno.test("US-2433 AC5: an underscore in an address is a character, not a wildcard", async () => {
+  // Why the script compares in TypeScript rather than with ILIKE. `_` matches
+  // any single character in SQL LIKE and is legal in an email local part, so
+  // an ILIKE lookup for `a_b@x.test` would also match `axb@x.test` — a
+  // different person, whose payout audit record we would then anonymize.
+  const tables = {
+    guarantee_claims: [
+      { id: "subject", claimant_email: "a_b@x.test", claimant_name: "Subject", order_reference: "ORD-1" },
+      { id: "bystander", claimant_email: "axb@x.test", claimant_name: "Bystander", order_reference: "ORD-2" },
+    ],
+  };
+  const res = await purgeThirdPartySubject("claim_buyer", "A_B@X.test", canonicalStore(tables).io);
+
+  assertEquals(res.anonymized.guarantee_claims, ["subject"]);
+  assertEquals(tables.guarantee_claims[1]!.claimant_email, "axb@x.test");
+  assertEquals(tables.guarantee_claims[1]!.claimant_name, "Bystander");
+});
+
+Deno.test("US-2433 AC1: the operator script keeps its guardrails", async () => {
+  const src = await Deno.readTextFile(SCRIPT);
+
+  // No pattern operator, for the reason the case above demonstrates.
+  for (const f of ["ilike(", ".like(", '"ilike"', "'ilike'"]) {
+    assert(!src.includes(f), `the script uses ${f} — an email may contain _ or %`);
+  }
+  // One normalization rule, shared. A second copy drifts silently into notFound.
+  //
+  // Asserting the IMPORT is not enough and I had it that way first: a mutation
+  // that rewrote a single comparison to `stored.trim() === canonical` left the
+  // import line intact and the guard stayed green. So the assertion is on the
+  // SHAPE a re-implementation takes — a bare equality against the canonical
+  // address — not on the presence of a name.
+  assert(src.includes("matchesAddress"), "address equality belongs to the module");
+  for (const rhs of ["canonical", "value"]) {
+    assert(
+      !new RegExp(`===\\s*${rhs}\\b`).test(src),
+      `the script compares something directly against \`${rhs}\`. Address equality ` +
+        "is matchesAddress() in third-party-pii-purge.ts — a local copy is a " +
+        "second normalization rule, and when the two drift the lookup matches " +
+        "nothing and reports notFound, which reads as 'already clean'.",
+    );
+  }
+  // Anonymize, never delete: both rows are load-bearing for someone else.
+  assert(!src.includes(".delete("), "the third-party purge anonymizes; it does not delete");
+  // Dry run by default.
+  assert(src.includes("--apply"), "the script must be dry-run by default");
+  assert(
+    src.includes("if (!apply) return { error: null };"),
+    "the dry run must suppress the WRITE, not just the wording",
+  );
+  // --find reads. A find that could act is the deletion oracle in local form.
+  assert(src.includes("--find never writes"), "--find must say it is read-only");
+  // Still not a route (AC1). If this ever becomes self-serve, the verification
+  // is the story, and it is not this file.
+  for (const routeish of ["hono", "app.post", "app.get", "Hono("]) {
+    assert(!src.includes(routeish), `the script must not become an endpoint (${routeish})`);
   }
 });
 

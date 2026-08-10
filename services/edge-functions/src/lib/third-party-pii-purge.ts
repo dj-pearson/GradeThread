@@ -146,7 +146,29 @@ export const RESIDUAL_FREE_TEXT: readonly string[] = [
 ];
 
 export interface ThirdPartyPurgeIO {
-  /** Rows belonging to the subject. Must return the id of each. */
+  /**
+   * Rows belonging to the subject. Must return the id of each.
+   *
+   * ⚠ FOR `claim_buyer` THIS MATCH MUST BE CASE-INSENSITIVE, and a caller that
+   * gets this wrong fails SILENTLY in the worst direction. `guarantee_claims
+   * .claimant_email` is plain `text` (00197) and the public intake stores what
+   * the buyer typed — `asString` in routes/guarantee-public.ts trims and
+   * truncates and does NOT lowercase. So a claim filed as `Buyer@Example.com`
+   * is stored with that casing, while `purgeThirdPartySubject` lowercases the
+   * value it is given (below) so the two ends agree on ONE canonical form.
+   *
+   * A `.eq()` lookup against a lowercased value therefore matches nothing, the
+   * result comes back `notFound: true`, and the operator is told there was
+   * nothing to erase while the address sits exactly where it was. That reads as
+   * a completed erasure request. Under-erasure that announces itself as success
+   * is the one failure mode worse than a loud error.
+   *
+   * The canonical form is `trim().toLowerCase()`; compare the STORED value the
+   * same way rather than relying on a SQL pattern operator, because `ILIKE`
+   * treats `_` and `%` as wildcards and both are legal in an email local part —
+   * `a_b@x.test` would match `aXb@x.test`, which is AC5 over-reach into a
+   * different person's record.
+   */
   findRows: (
     table: string,
     column: string,
@@ -159,6 +181,38 @@ export interface ThirdPartyPurgeIO {
     patch: Record<string, string | null>,
   ) => Promise<{ error: { message: string } | null }>;
   report: (message: string) => void;
+}
+
+/**
+ * The one canonical form of a subject's match value, exported so a caller
+ * comparing stored values compares them the SAME way this module does.
+ *
+ * A caller that re-implements `trim().toLowerCase()` is a second copy of a
+ * normalization rule, and the failure when the two drift is silent: the lookup
+ * matches nothing and the purge reports `notFound`, which an operator reads as
+ * "already clean". An address is canonicalized; a consignor row id is only
+ * trimmed, because a uuid's case is not ours to fold.
+ */
+export function canonicalMatchValue(
+  kind: ThirdPartySubjectKind,
+  raw: string,
+): string {
+  return kind === "claim_buyer" ? raw.trim().toLowerCase() : raw.trim();
+}
+
+/**
+ * Does a STORED value identify the subject whose canonical address this is?
+ *
+ * Lives here rather than in the caller because it is the comparison the whole
+ * procedure turns on, and a caller writing its own is a second normalization
+ * rule that fails silently — the lookup matches nothing, the purge reports
+ * `notFound`, and an operator reads that as "already clean". Non-strings and
+ * NULLs are simply not a match: `contact_email` is nullable, and a consignor
+ * recorded by name alone is reached by row id instead.
+ */
+export function matchesAddress(stored: unknown, canonical: string): boolean {
+  return typeof stored === "string" &&
+    canonicalMatchValue("claim_buyer", stored) === canonical;
 }
 
 export interface ThirdPartyPurgeResult {
@@ -211,7 +265,7 @@ export async function purgeThirdPartySubject(
   const failed: Record<string, string[]> = {};
   let matched = 0;
 
-  const value = kind === "claim_buyer" ? matchValue.trim().toLowerCase() : matchValue.trim();
+  const value = canonicalMatchValue(kind, matchValue);
   if (!value) return { anonymized, failed, notFound: true };
 
   for (const target of plan) {

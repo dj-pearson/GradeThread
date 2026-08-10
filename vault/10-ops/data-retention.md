@@ -136,7 +136,7 @@ the erasure protects.
 
 Erasure for someone who never had an account — a guarantee claimant, a
 consignor — is a different procedure with a different plan; see
-`third-party-pii-purge.ts` (US-2433).
+[third-party subjects](#third-party-subjects-a-buyer-or-a-consignor-us-2433).
 
 ### What we can and cannot say about erasures made before US-2005
 
@@ -177,6 +177,64 @@ Two operator tools, both in `services/edge-functions/scripts/`:
 Neither is an endpoint. An unverified email claim that erases rows is a deletion
 oracle — anyone could POST a stranger's address. Verification would be the work,
 and it has not been designed.
+
+### Third-party subjects: a buyer or a consignor (US-2433)
+
+Two tables hold identifying data about someone who is **not** the account
+holder and who may never have had an account:
+
+| Table | Who it is about | Identifying columns |
+|---|---|---|
+| `guarantee_claims` | the **buyer** who filed a claim | `claimant_email` (NOT NULL), `claimant_name`, `order_reference` |
+| `consignors` | the **consignor** who gave a seller items to sell | `name` (NOT NULL), `contact_email`, `contact_phone` |
+
+Both cascade from the **seller**, so before this they were erased if and only
+if that seller deleted their account. The buyer and the consignor had no lever.
+
+**Both are anonymized, never deleted**, and both reasons are about someone
+other than the subject. A guarantee claim is the audit record of a payout
+decision, with `claim_accuracy_signals` and `guarantee_remedies` cascading
+from it — deleting it destroys the evidence that we paid, which is the
+seller's to rely on. A consignor row is the seller's own business record, and
+`inventory_items.consignor_id` points at it so sale history survives.
+
+**Intake is operator-run** (`scripts/purge-third-party-subject.ts`), same call
+as the email-keyed purge above and for the same reason: an endpoint that erases
+on an unverified email claim is a deletion oracle.
+
+```
+# 1. read-only. Shows which rows a name or address could mean.
+deno run --allow-net --allow-env scripts/purge-third-party-subject.ts --find "a@b.test"
+
+# 2. a claim buyer is matched by address; dry run first.
+... --claim-buyer a@b.test
+... --claim-buyer a@b.test --apply
+
+# 3. a consignor is matched by ROW ID, chosen from step 1.
+... --consignor <uuid>,<uuid> --apply
+```
+
+Two things to know before running it:
+
+- **A consignor is never purged by name.** Names are unique only per seller
+  (`UNIQUE(user_id, name)`, `00107`), so one name can be several different
+  people across several sellers. `--find` lists candidates with their seller;
+  choosing which are the subject's is a human judgement.
+- **`guarantee_claims.reason`, `evidence_urls` and `consignors.notes` are not
+  touched.** They are free text the buyer or seller wrote and may carry a name.
+  `reason` is NOT NULL and *is* the claim, so blanking it turns a payout audit
+  record into a row saying money moved for no stated cause. Whether a subject
+  request should also scrub these is an owner call about how much audit
+  substance an erasure may destroy. Say so when answering the subject.
+
+> [!warning] `claimant_email` is stored with the buyer's own casing
+> `00197` types it as plain `text` and the public intake trims but does not
+> lowercase, so a claim filed as `Buyer@Example.com` is stored that way. A
+> `.eq()` lookup on the lowercased address matches nothing and reports "no rows
+> found" — which reads as a completed erasure while the address sits untouched.
+> The script compares in TypeScript through `canonicalMatchValue`, and does not
+> use `ILIKE`, because `_` and `%` are SQL wildcards and both are legal in an
+> email local part.
 
 ## Retention
 
