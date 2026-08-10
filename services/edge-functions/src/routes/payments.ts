@@ -11,6 +11,7 @@ import { effectiveAiActionsUsed } from "../lib/ai-metering.ts";
 import { API_OVERAGE_PACKS, isApiOveragePackKey } from "../lib/api-overage-packs.ts";
 import {
   appstoreSubscriptionBlocksStripe,
+  buyerMobileSubscriptionBlocksStripe,
   googleplaySubscriptionActive,
 } from "../lib/appstore/precedence.ts";
 import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
@@ -675,6 +676,31 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
   const { data: user, error: userError } = await loadUser(userId);
   if (userError || !user) return c.json({ error: "User not found" }, 404);
 
+  // US-2456: refuse when a MOBILE processor already entitles this buyer.
+  //
+  // US-807 and US-2126 built this precedence across all three processors and
+  // every guard reads the SELLER columns, so this route had none — a buyer with
+  // a live App Store or Google Play subscription could start a Stripe one on top
+  // and be charged twice, on two cards, for the same entitlement. Apple's half
+  // is not refundable from here. The Apple→Stripe direction was already covered
+  // but hand-rolled inline in routes/appstore.ts, which is why nobody noticed
+  // the other half was missing.
+  //
+  // Never auto-cancels the other processor: Apple and Google only let the
+  // customer do that themselves, so the honest answer is 409 and a pointer to
+  // where they bought it.
+  {
+    const blocking = buyerMobileSubscriptionBlocksStripe(user);
+    if (blocking) {
+      return c.json({
+        error: blocking === "appstore"
+          ? "ACTIVE_APPSTORE_SUBSCRIPTION"
+          : "ACTIVE_GOOGLEPLAY_SUBSCRIPTION",
+        action: blocking === "appstore" ? "manage_in_ios" : "manage_in_play",
+      }, 409);
+    }
+  }
+
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
@@ -1263,6 +1289,24 @@ paymentRoutes.post("/subscribe", async (c) => {
   const userId = c.get("userId");
   const { data: user, error: userError } = await loadUser(userId);
   if (userError || !user) return c.json({ error: "User not found" }, 404);
+
+  // US-2456: the legacy alias creates a REAL subscription and had none of the
+  // double-billing precedence /flipdesk/subscribe has carried since US-807 and
+  // US-2126. Found by the derived guard in buyer-billing-precedence_test.ts on
+  // its first run — a compat shim is exactly the route a per-route audit walks
+  // past, and it charges the same money as the one it aliases.
+  if (appstoreSubscriptionBlocksStripe(user)) {
+    return c.json(
+      { error: "ACTIVE_APPSTORE_SUBSCRIPTION", action: "manage_in_ios" },
+      409,
+    );
+  }
+  if (googleplaySubscriptionActive(user)) {
+    return c.json(
+      { error: "ACTIVE_GOOGLEPLAY_SUBSCRIPTION", action: "manage_in_play" },
+      409,
+    );
+  }
 
   const FLIPDESK_PRICE_IDS = await getFlipdeskPriceIds();
   const priceId = FLIPDESK_PRICE_IDS[mapped]?.monthly;

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { recordPlatformAgreement } from "../lib/agreed-terms.ts";
+import { buyerStripeSubscriptionBlocksMobile } from "../lib/appstore/precedence.ts";
 import {
   claimWebhookEvent,
   failIfDbError,
@@ -98,9 +99,13 @@ async function buyerLapseSkippedByStripe(isLapse: boolean, userId: string): Prom
     .select("buyer_billing_source, buyer_subscription_status")
     .eq("id", userId)
     .maybeSingle();
-  const u = data as { buyer_billing_source?: string; buyer_subscription_status?: string } | null;
-  return u?.buyer_billing_source === "stripe" &&
-    (u.buyer_subscription_status === "active" || u.buyer_subscription_status === "trialing");
+  // US-2456: through the shared helper rather than inline. Two hand-rolled
+  // copies of this rule existed in this file, both omitting `past_due` — which
+  // the seller equivalent (appstoreLapseSkippedByStripe) has always counted as
+  // entitling, because a subscription being retried still exists.
+  return buyerStripeSubscriptionBlocksMobile(
+    (data ?? {}) as { buyer_billing_source?: string; buyer_subscription_status?: string },
+  );
 }
 
 async function grantCredits(
@@ -238,10 +243,14 @@ appstoreVerifyRoutes.post("/verify", async (c) => {
       .select("buyer_billing_source, buyer_subscription_status")
       .eq("id", userId)
       .maybeSingle();
-    const buState = bu as { buyer_billing_source?: string; buyer_subscription_status?: string } | null;
+    // US-2456: same shared helper as the lapse guard above and as
+    // /buyer/subscribe's mirror. past_due now counts as entitling here too —
+    // a buyer whose Stripe card is being retried could previously stack an
+    // Apple subscription and be charged by both.
     if (
-      buState?.buyer_billing_source === "stripe" &&
-      (buState.buyer_subscription_status === "active" || buState.buyer_subscription_status === "trialing")
+      buyerStripeSubscriptionBlocksMobile(
+        (bu ?? {}) as { buyer_billing_source?: string; buyer_subscription_status?: string },
+      )
     ) {
       return c.json({ error: "ACTIVE_STRIPE_SUBSCRIPTION", action: "cancel_stripe_first" }, 409);
     }

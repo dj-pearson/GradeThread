@@ -96,3 +96,67 @@ export function appstoreLapseSkippedByStripe(
     decideAppstorePrecedence(user, "subscription") === "block_active_stripe"
   );
 }
+
+// ── The BUYER product (US-2456) ─────────────────────────────────────────────
+//
+// Every guard above reads the SELLER column family — `billing_source`,
+// `subscription_status`, `flipdesk_subscription_id`. The buyer product has its
+// own (`buyer_billing_source`, `buyer_subscription_status`,
+// `buyer_subscription_id`) and had no precedence guard on the Stripe side at
+// all: POST /buyer/subscribe would happily start a second subscription over a
+// live App Store or Google Play one, and the customer is then charged twice, on
+// two cards, for the same entitlement. Apple's half we cannot refund from here.
+//
+// The reverse direction was already covered, but hand-rolled inline in
+// routes/appstore.ts rather than here — which is exactly why nobody noticed the
+// other half was missing. Both directions now come from this module.
+//
+// A SEPARATE TYPE, not a widened one. `BillingUserRow` fields are seller
+// columns; letting a buyer row satisfy it is how a helper ends up reading the
+// wrong family and answering confidently about the wrong subscription.
+
+export interface BuyerBillingUserRow {
+  buyer_billing_source?: string | null;
+  buyer_subscription_status?: string | null;
+  buyer_subscription_id?: string | null;
+}
+
+/** Which processor currently entitles this buyer, if any. */
+export function buyerEntitlingProcessor(
+  user: BuyerBillingUserRow,
+): "appstore" | "googleplay" | "stripe" | null {
+  const source = user.buyer_billing_source;
+  if (source !== "appstore" && source !== "googleplay" && source !== "stripe") {
+    return null;
+  }
+  // Same three statuses the seller guards use. past_due IS entitling: the
+  // subscription still exists and is being retried, so stacking a second one is
+  // still a double charge — the inline check in routes/appstore.ts omitted it,
+  // which let a buyer whose Stripe card was failing stack an Apple purchase.
+  return APPSTORE_ENTITLING_STATUSES.has(user.buyer_subscription_status ?? "")
+    ? source
+    : null;
+}
+
+/**
+ * True when a MOBILE processor already entitles this buyer, so a Stripe
+ * subscribe must refuse. Mirrors appstoreSubscriptionBlocksStripe /
+ * googleplaySubscriptionActive for the buyer column family.
+ *
+ * Never auto-cancels the other processor — the caller returns 409 and steers
+ * the customer to manage the subscription where they bought it, which is the
+ * only place Apple or Google will let them.
+ */
+export function buyerMobileSubscriptionBlocksStripe(
+  user: BuyerBillingUserRow,
+): "appstore" | "googleplay" | null {
+  const processor = buyerEntitlingProcessor(user);
+  return processor === "appstore" || processor === "googleplay" ? processor : null;
+}
+
+/** True when a live Stripe buyer subscription must block a mobile purchase. */
+export function buyerStripeSubscriptionBlocksMobile(
+  user: BuyerBillingUserRow,
+): boolean {
+  return buyerEntitlingProcessor(user) === "stripe";
+}
