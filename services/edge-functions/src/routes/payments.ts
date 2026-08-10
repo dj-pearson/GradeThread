@@ -17,6 +17,7 @@ import { CATALOG_VERSION, serializeCatalog } from "../lib/appstore/products.ts";
 import { refuseWhileImpersonating } from "../lib/destructive-guard.ts";
 import { loadActiveDiscount } from "../lib/rewards-tangible.ts";
 import { sanitizeReportedDisclosureVersion } from "../lib/disclosure-versions.ts";
+import { renewalNoticeCopy } from "../lib/renewal-notice-copy.ts";
 
 type PaymentsEnv = {
   Variables: {
@@ -2043,6 +2044,21 @@ paymentRoutes.post("/portal", async (c) => {
   }
   const userId = c.get("userId");
 
+  // US-2125: which page the customer came from. The return_url was hardcoded to
+  // the SELLER billing page, so a buyer clicking "Manage in Stripe" on
+  // /buyer/billing was returned to a page that does not manage their
+  // subscription — and the buyer product has no other route back. Resolved
+  // through renewalNoticeCopy so "the page that manages this product" has one
+  // definition shared with every billing email.
+  let portalProduct: "flipdesk" | "buyer" = "flipdesk";
+  try {
+    const body = await c.req.json() as { product?: unknown };
+    if (body?.product === "buyer") portalProduct = "buyer";
+  } catch {
+    // No body is the historical caller. Default stays flipdesk, so every
+    // existing call site is byte-identical.
+  }
+
   const { data: user, error: userError } = await supabaseAdmin
     .from("users")
     .select("id, stripe_customer_id")
@@ -2060,7 +2076,7 @@ paymentRoutes.post("/portal", async (c) => {
   try {
     const portalSession = await stripe.billingPortal.sessions.create({
       customer: user.stripe_customer_id,
-      return_url: `${siteUrl()}/dashboard/billing`,
+      return_url: renewalNoticeCopy(portalProduct, siteUrl()).manageUrl,
     });
     return c.json({ url: portalSession.url });
   } catch (err) {

@@ -55,7 +55,8 @@ export function BuyerBillingPage() {
   const subscribe = useBuyerSubscribe();
   const cancel = useBuyerCancel();
   const uncancel = useBuyerUncancel();
-  const portal = useBillingPortal();
+  // US-2125: return from Stripe to THIS page, not the seller's.
+  const portal = useBillingPortal("buyer");
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
   // US-2118: the tier the buyer clicked while ALREADY paying. That click is an
   // in-place change that charges a prorated amount immediately, so it opens the

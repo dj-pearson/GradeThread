@@ -520,10 +520,20 @@ export function useUncancelSubscription() {
   });
 }
 
-export function useBillingPortal() {
+/**
+ * Open the Stripe billing portal.
+ *
+ * `product` decides where Stripe returns the customer. It defaulted to the
+ * seller billing page for every caller, so a buyer clicking "Manage in Stripe"
+ * landed on a page that does not manage their subscription (US-2125).
+ */
+export function useBillingPortal(product: "flipdesk" | "buyer" = "flipdesk") {
   return useMutation<{ url: string }, Error, void>({
     mutationFn: async () => {
-      const res = await edgeFetch("/api/payments/portal", { method: "POST" });
+      const res = await edgeFetch("/api/payments/portal", {
+        method: "POST",
+        json: { product },
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to open billing portal.");
       return json;
