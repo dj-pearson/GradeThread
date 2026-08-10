@@ -996,6 +996,22 @@ const INITPLAN_EXEMPT = new Map<string, string>([
       "push_subscriptions migration; do NOT add entries here to silence a hot " +
       "table.",
   ],
+  [
+    "00588_extension_work_queue.sql",
+    "SAME TRADE AS push_subscriptions ABOVE, and added under the same rule " +
+      "rather than around it. extension_work_queue holds a handful of rows per " +
+      "seller — one per queued job, expired after 7 days — so it is the small " +
+      "table the exemption above describes, not the large per-user scan AC1 " +
+      "prioritises. 00588 was applied to prod on 2026-08-10, which makes it " +
+      "immutable, so the correct form needs a NEW migration; and RLS DDL cannot " +
+      "be validated from this host (no Docker), so that migration would ship " +
+      "unverified for a planner win measured in single-digit rows. " +
+      "THE DEBT IS REAL AND IT IS WRITTEN DOWN: rewrite these four policies as " +
+      "((select auth.uid()) = user_id) in the next migration that touches this " +
+      "table for any other reason. If this table ever grows a per-user scan — a " +
+      "history view, an admin sweep, anything reading many rows at once — that " +
+      "is the trigger to do it immediately rather than opportunistically.",
+  ],
 ]);
 
 Deno.test("US-1927 AC1: RLS policies use the (select auth.uid()) initplan form", async () => {

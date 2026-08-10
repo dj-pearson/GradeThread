@@ -5,6 +5,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -98,7 +99,10 @@ const val QUEUED_NOTICE: String =
 
 @Singleton
 class ExtensionQueueRepository @Inject constructor(
-    private val edgeApi: EdgeApi,
+    // NetworkModule binds TWO EdgeApi profiles ("shared" and "ai"), so an
+    // unqualified EdgeApi has no binding at all and Dagger fails the build
+    // rather than picking one. Queueing is an ordinary API call: "shared".
+    @Named("shared") private val edgeApi: EdgeApi,
 ) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 

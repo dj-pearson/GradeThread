@@ -292,7 +292,11 @@ const matchNone = () => false;
     asked.push(kind);
     return [`${kind}#a[name="a"]`, `${kind}#b[data-testid="B"]`];
   };
-  const found = (sel) => !sel.includes("name=\"name\"");
+  // Miss the title selector WHATEVER it currently is. Matching on its text
+  // ("name=\"name\"") tied this test to one revision of the config, and it went
+  // green-to-red the day Mercari renamed the field — a false alarm on the file
+  // that was correctly updated.
+  const found = (sel) => sel !== SELECTORS.mercari.fields.title;
   const flow = P.probeFlow(SELECTORS.mercari, "list", found, { candidates });
 
   assert.deepStrictEqual(flow.missingRequired, ["title"]);

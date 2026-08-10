@@ -9,6 +9,24 @@
 
 On first install a **welcome tab** (`onboarding.html`) opens automatically.
 
+> **Chrome shows one warning here, and it is expected.**
+> `'background.scripts' requires manifest version of 2 or lower.`
+>
+> This folder is ONE manifest serving two browsers. Chrome runs the background
+> as a service worker and reads `background.service_worker`; Firefox has no
+> extension service workers and reads `background.scripts`. Both keys must be
+> present in the source, and `test/background-deps.test.cjs` enforces that pair
+> as the single source of truth for what the background loads.
+>
+> **Nothing ships with the warning.** `scripts/package-extensions.mjs` deletes
+> `background.scripts` from the Chrome zip and `background.service_worker` from
+> the Firefox zip, by deletion rather than by restating either — so neither
+> store build carries the other browser's key. The warning exists only on an
+> unpacked dev load, which is exactly where it costs nothing.
+>
+> Do not "fix" it by removing the key from `manifest.json`: that breaks the
+> Firefox event page, which loads its dependencies from that list.
+
 ## 1b. Load it temporarily (Firefox)
 
 Firefox runs the SAME `extension-unified/` folder (the browser-specific bits —
