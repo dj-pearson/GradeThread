@@ -32,6 +32,7 @@ import { ImprintPage } from "@/pages/legal/imprint";
 import { DpaPage } from "@/pages/legal/dpa";
 import { SubprocessorsPage } from "@/pages/legal/subprocessors";
 import { DmcaPage } from "@/pages/legal/dmca";
+import { TrademarksPage } from "@/pages/legal/trademarks";
 import { AccessibilityPage } from "@/pages/legal/accessibility";
 import { HowItWorksPage } from "@/pages/marketing/how-it-works";
 import { PricingPage } from "@/pages/marketing/pricing";
@@ -196,6 +197,7 @@ const PAGES: Record<string, React.ReactNode> = {
   "/dpa": <DpaPage />,
   "/subprocessors": <SubprocessorsPage />,
   "/dmca": <DmcaPage />,
+  "/trademarks": <TrademarksPage />,
   "/accessibility": <AccessibilityPage />,
   // US-500: probes run client-side only (useEffect); SSR emits the checking
   // shell, which the live SPA re-renders over with real component health.
@@ -377,6 +379,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   "/dpa": `${M}legal/dpa`,
   "/subprocessors": `${M}legal/subprocessors`,
   "/dmca": `${M}legal/dmca`,
+  "/trademarks": `${M}legal/trademarks`,
   "/accessibility": `${M}legal/accessibility`,
   "/status": `${M}status`,
   "/leaderboard": `${M}referral-leaderboard`,

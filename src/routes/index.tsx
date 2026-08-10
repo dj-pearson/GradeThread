@@ -80,6 +80,7 @@ const ImprintPage = lazy(() => import("@/pages/legal/imprint").then(m => ({ defa
 const DpaPage = lazy(() => import("@/pages/legal/dpa").then(m => ({ default: m.DpaPage })));
 const SubprocessorsPage = lazy(() => import("@/pages/legal/subprocessors").then(m => ({ default: m.SubprocessorsPage })));
 const DmcaPage = lazy(() => import("@/pages/legal/dmca").then(m => ({ default: m.DmcaPage })));
+const TrademarksPage = lazy(() => import("@/pages/legal/trademarks").then(m => ({ default: m.TrademarksPage })));
 const AccessibilityPage = lazy(() => import("@/pages/legal/accessibility").then(m => ({ default: m.AccessibilityPage })));
 // Evergreen marketing pages (US-302) — public, prerendered, indexable.
 const HowItWorksPage = lazy(() => import("@/pages/marketing/how-it-works").then(m => ({ default: m.HowItWorksPage })));
@@ -414,6 +415,7 @@ export const router = createBrowserRouter([
       { path: "/dpa", element: <SuspenseWrapper><DpaPage /></SuspenseWrapper> },
       { path: "/subprocessors", element: <SuspenseWrapper><SubprocessorsPage /></SuspenseWrapper> },
       { path: "/dmca", element: <SuspenseWrapper><DmcaPage /></SuspenseWrapper> },
+      { path: "/trademarks", element: <SuspenseWrapper><TrademarksPage /></SuspenseWrapper> },
       { path: "/accessibility", element: <SuspenseWrapper><AccessibilityPage /></SuspenseWrapper> },
 
       // Auth routes (guest only)

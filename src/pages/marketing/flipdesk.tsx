@@ -75,8 +75,8 @@ const PIPELINE = [
 export function FlipDeskPage() {
   return (
     <MarketingLayout
-      title="FlipDesk — eBay Reseller Management"
-      description="FlipDesk is GradeThread's eBay reseller suite: grade, comp, list, reprice, and reconcile in one place — with a verifiable condition grade in every listing."
+      title="FlipDesk — Management for eBay Resellers"
+      description="FlipDesk is GradeThread's reseller suite and works with eBay: grade, comp, list, reprice and reconcile in one place, with a verifiable grade per listing."
       canonicalPath="/flipdesk"
       jsonLd={flipdeskJsonLd()}
     >
@@ -91,7 +91,11 @@ export function FlipDeskPage() {
           </h1>
           <p className="mt-6 text-lg text-muted-foreground">
             Crosslisters move your listings around. Repricers chase the bottom.
-            <strong> FlipDesk does the whole eBay reseller workflow</strong> —
+            <strong>
+              {" "}
+              FlipDesk works with eBay and does the whole reseller workflow
+            </strong>{" "}
+            —
             sourcing, measurements, photos, comps, listing, repricing, and payout
             reconciliation — and puts the one thing they can&rsquo;t in every
             listing: a <strong>standardized condition grade</strong> and a{" "}
@@ -208,7 +212,7 @@ export function FlipDeskPage() {
 
       <MarketingCTA
         heading="Resell on a standard, not an opinion"
-        sub="FlipDesk runs your eBay workflow end-to-end and puts a verifiable condition grade in every listing — the trust signal that sells faster and comes back less."
+        sub="FlipDesk works with eBay and runs your reselling workflow end-to-end, putting a verifiable condition grade in every listing — the trust signal that sells faster and comes back less."
       />
     </MarketingLayout>
   );

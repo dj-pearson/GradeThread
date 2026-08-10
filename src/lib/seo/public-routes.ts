@@ -182,6 +182,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/dpa": "2026-06-12",
   "/subprocessors": "2026-04-01",
   "/dmca": "2026-04-01",
+  "/trademarks": "2026-08-10",
   "/accessibility": "2026-04-01",
   "/status": "2026-06-12",
   "/leaderboard": "2026-06-13",
@@ -242,9 +243,9 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     // US-2105: the markup was already prerendered; it simply was not DECLARED,
     // so the US-2044 parity guard could not see it.
     jsonLdType: "SoftwareApplication",
-    title: "FlipDesk — eBay Reseller Management",
+    title: "FlipDesk — Management for eBay Resellers",
     description:
-      "FlipDesk is GradeThread's eBay reseller suite: grade, comp, list, reprice, and reconcile in one place — with a verifiable condition grade in every listing.",
+      "FlipDesk is GradeThread's reseller suite and works with eBay: grade, comp, list, reprice and reconcile in one place, with a verifiable grade per listing.",
     changefreq: "monthly",
     priority: 0.8,
   },
@@ -561,6 +562,14 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/dmca",
     title: "Copyright & Content Takedown (DMCA)",
     description: "How to report infringing or abusive content and our DMCA designated-agent info.",
+    changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    path: "/trademarks",
+    title: "Trademarks & Third-Party Notices",
+    description:
+      "Trademark attribution and non-endorsement notices for the marketplaces named in GradeThread and FlipDesk, and the platforms we reach via a licensed API.",
     changefreq: "yearly",
     priority: 0.3,
   },
