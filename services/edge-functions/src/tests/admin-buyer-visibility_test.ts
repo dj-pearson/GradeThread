@@ -86,7 +86,16 @@ Deno.test("US-2458: both summaries share one shape", () => {
   // An agent is comparing one against the other. Two hand-written shapes drift,
   // and the drift shows up as a field that is present for sellers and missing
   // for buyers, which reads as "the buyer has no renewal date".
-  const body = fnBody(ADMIN_BILLING, "function summarizeAdminSubscription");
+  // The mapper lives in lib/, not beside the route — see its own header. Adding
+  // a top-level declaration to an admin route file moves the boundaries
+  // scripts/audit-admin-mutations.mjs slices on, and putting it there made
+  // three unrelated routes report as writing no audit row.
+  const SUMMARY_MODULE = code(
+    Deno.readTextFileSync(
+      new URL("../lib/admin-subscription-summary.ts", import.meta.url),
+    ),
+  );
+  const body = fnBody(SUMMARY_MODULE, "export function summarizeAdminSubscription");
   for (const field of [
     "id:",
     "status:",
@@ -101,4 +110,38 @@ Deno.test("US-2458: both summaries share one shape", () => {
     uses.length === 2,
     `expected both subscriptions to go through the shared summary, found ${uses.length}`,
   );
+});
+
+Deno.test("US-2458: the field is RENDERED, not just returned", () => {
+  // The failure this whole session keeps finding, committed by me an hour ago:
+  // I added `buyerSubscription` to the API and no surface displayed it, so
+  // support still saw nothing. A route with no caller is invisible to tsc, to
+  // lint, and to every test that exercises the route directly — which is
+  // exactly how US-2145's contest endpoint sat unreachable behind a missing
+  // button, and how the confirm-signup evidence path recorded nothing for
+  // months.
+  const card = code(
+    Deno.readTextFileSync(
+      new URL("../../../../src/components/admin/billing-actions-card.tsx", import.meta.url),
+    ),
+  );
+  assert(
+    card.includes("buyerSubscription"),
+    "the admin billing card must consume buyerSubscription — returning it and " +
+      "rendering nothing leaves the gap exactly where it was",
+  );
+  assert(
+    /subscription=\{payments\.data\.buyerSubscription\}/.test(card),
+    "it must be passed to the summary, not merely typed",
+  );
+  // Labelled: two subscriptions can be on screen at once and the agent is about
+  // to act on whichever they believe they are looking at.
+  assert(
+    /label="Buyer subscription"/.test(card) && /label="FlipDesk subscription"/.test(card),
+    "each subscription must be labelled by product",
+  );
+  // One shared block, so a field cannot render for one product and not the
+  // other — which reads as "the buyer has no renewal date" rather than as a bug.
+  const uses = [...card.matchAll(/<SubscriptionSummary\b/g)];
+  assert(uses.length === 2, `expected both to use the shared block, found ${uses.length}`);
 });

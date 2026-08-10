@@ -63,15 +63,25 @@ interface AdminSubscriptionItem {
   lookup_key: string | null;
 }
 
+interface AdminSubscription {
+  id: string;
+  status: string;
+  current_period_end: number;
+  cancel_at_period_end: boolean;
+  items: AdminSubscriptionItem[];
+}
+
 interface AdminPaymentsResponse {
   charges: AdminCharge[];
-  subscription: {
-    id: string;
-    status: string;
-    current_period_end: number;
-    cancel_at_period_end: boolean;
-    items: AdminSubscriptionItem[];
-  } | null;
+  /** The SELLER (FlipDesk) subscription. Unchanged meaning — US-2458. */
+  subscription: AdminSubscription | null;
+  /**
+   * The BUYER (Guard / Connoisseur) subscription. US-2458: this card showed
+   * only the seller one, so an agent opening a buyer subscriber saw no
+   * subscription at all while their charges listed normally — the money half of
+   * the conversation worked and the state half was blank.
+   */
+  buyerSubscription: AdminSubscription | null;
 }
 
 interface BillingActionsCardProps {
@@ -402,32 +412,60 @@ export function BillingActionsCard({
             />
           )}
 
+          {/* US-2458: BOTH products, each labelled. One shared block so the two
+              cannot drift — an agent is comparing them, and a field rendered
+              for one and not the other reads as "the buyer has no renewal
+              date" rather than as a bug. */}
           {payments.data?.subscription && (
-            <div className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
-              <div className="font-semibold">Active subscription</div>
-              <div className="mt-1 text-muted-foreground">
-                Status: <Badge variant="outline">{payments.data.subscription.status}</Badge>{" "}
-                · Renews{" "}
-                {new Date(
-                  payments.data.subscription.current_period_end * 1000,
-                ).toLocaleDateString()}
-                {payments.data.subscription.cancel_at_period_end && (
-                  <Badge variant="destructive" className="ml-2">
-                    Canceling at period end
-                  </Badge>
-                )}
-              </div>
-              {payments.data.subscription.items.map((it) => (
-                <div key={it.price_id} className="mt-0.5 text-muted-foreground">
-                  {it.lookup_key ?? it.price_id} · {dollars(it.unit_amount ?? 0)}
-                  /{it.interval}
-                </div>
-              ))}
-            </div>
+            <SubscriptionSummary
+              label="FlipDesk subscription"
+              subscription={payments.data.subscription}
+            />
+          )}
+          {payments.data?.buyerSubscription && (
+            <SubscriptionSummary
+              label="Buyer subscription"
+              subscription={payments.data.buyerSubscription}
+            />
           )}
         </section>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * One subscription, labelled by product (US-2458).
+ *
+ * The label is REQUIRED rather than defaulted. Two subscriptions can be on
+ * screen at once, and an unlabelled one is worse than none here — the agent is
+ * about to act on whichever they believe they are looking at.
+ */
+function SubscriptionSummary({
+  label,
+  subscription,
+}: {
+  label: string;
+  subscription: AdminSubscription;
+}) {
+  return (
+    <div className="mt-3 rounded-md border border-border bg-muted/30 p-3 text-xs">
+      <div className="font-semibold">{label}</div>
+      <div className="mt-1 text-muted-foreground">
+        Status: <Badge variant="outline">{subscription.status}</Badge> · Renews{" "}
+        {new Date(subscription.current_period_end * 1000).toLocaleDateString()}
+        {subscription.cancel_at_period_end && (
+          <Badge variant="destructive" className="ml-2">
+            Canceling at period end
+          </Badge>
+        )}
+      </div>
+      {subscription.items.map((it) => (
+        <div key={it.price_id} className="mt-0.5 text-muted-foreground">
+          {it.lookup_key ?? it.price_id} · {dollars(it.unit_amount ?? 0)}/{it.interval}
+        </div>
+      ))}
+    </div>
   );
 }
 

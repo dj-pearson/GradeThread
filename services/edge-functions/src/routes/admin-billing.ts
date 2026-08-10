@@ -12,6 +12,7 @@ import {
 } from "../lib/proration.ts";
 import { getFlipdeskPriceIds } from "../lib/pricing-config.ts";
 import { findLedgerInvariantViolation } from "../lib/credit-ledger.ts";
+import { summarizeAdminSubscription } from "../lib/admin-subscription-summary.ts";
 import { nextPastDueSince } from "../lib/grade-pricing.ts";
 import {
   mapSubscriptionInterval,
@@ -1107,27 +1108,6 @@ adminBillingRoutes.post("/promotion-codes/:id", requireScope("billing:write"), a
     return c.json({ error: `Promotion code update failed: ${msg}` }, 500);
   }
 });
-
-/**
- * The subscription shape the admin billing tab renders. US-2458 extracted it so
- * the seller and buyer summaries cannot drift into two different shapes — the
- * agent reading them is comparing one against the other.
- */
-function summarizeAdminSubscription(sub: Stripe.Subscription | null) {
-  if (!sub) return null;
-  return {
-    id: sub.id,
-    status: sub.status,
-    current_period_end: sub.current_period_end,
-    cancel_at_period_end: sub.cancel_at_period_end,
-    items: sub.items.data.map((it: Stripe.SubscriptionItem) => ({
-      price_id: it.price.id,
-      unit_amount: it.price.unit_amount,
-      interval: it.price.recurring?.interval,
-      lookup_key: it.price.lookup_key,
-    })),
-  };
-}
 
 // ── GET /users/:id/payments ──────────────────────────────────────
 //
