@@ -1031,6 +1031,84 @@ async function sendBuyerRenewalReceipt(
   });
 }
 
+/**
+ * US-2452: tell a buyer their payment is in trouble.
+ *
+ * One function for both problems because they share everything except the
+ * template: the same lookup, the same lapsed-plan guard, the same audit row,
+ * and — the part that matters — the same rule that NOTHING here may touch the
+ * buyer's status. `buyer_subscription_status` and the US-395 dunning clock are
+ * owned by customer.subscription.updated; writing them from an invoice event
+ * would make the recorded state depend on Stripe's delivery order.
+ *
+ * The two templates stay separate, and that separation is deliberate upstream:
+ * a declined card is fixed by updating a card, a bank challenge is fixed by the
+ * cardholder answering it, and sending the wrong one points someone at a remedy
+ * that will not work while the real one goes undone.
+ */
+async function sendBuyerBillingProblem(
+  event: Stripe.Event,
+  invoice: Stripe.Invoice,
+  customerId: string,
+  kind: "payment_failed" | "action_required",
+) {
+  const user = await loadUserByCustomerId(customerId);
+  if (!user?.email) return;
+
+  // A buyer already on free has no buyer subscription to save.
+  const buyerPlan = (user as { buyer_plan?: string | null }).buyer_plan ?? "free";
+  if (buyerPlan === "free") return;
+  const planLabel = buyerPlan.charAt(0).toUpperCase() + buyerPlan.slice(1);
+
+  await recordEvent(
+    user.id,
+    event.type,
+    event.id,
+    // Typed public.flipdesk_plan, so a buyer tier cannot go here — the buyer
+    // detail rides in the jsonb payload instead.
+    user.flipdesk_plan,
+    user.flipdesk_plan,
+    {
+      invoice_id: invoice.id,
+      amount_due: invoice.amount_due,
+      attempt_count: invoice.attempt_count,
+      hosted_invoice_url: invoice.hosted_invoice_url ?? null,
+      product: "buyer",
+      buyer_plan: buyerPlan,
+    },
+  );
+
+  if (kind === "payment_failed") {
+    safeSendEmail(
+      sendPaymentFailedEmail(user.email, {
+        userName: userDisplayName(user.email, user.full_name),
+        plan: planLabel,
+        amountCents: invoice.amount_due ?? 0,
+        attemptCount: invoice.attempt_count ?? 1,
+        retryAt: invoice.next_payment_attempt
+          ? new Date(invoice.next_payment_attempt * 1000).toISOString()
+          : null,
+        product: "buyer",
+      }),
+      "payment_failed",
+    );
+    return;
+  }
+
+  safeSendEmail(
+    sendPaymentActionRequiredEmail(user.email, {
+      userName: userDisplayName(user.email, user.full_name),
+      plan: planLabel,
+      amountCents: invoice.amount_due ?? 0,
+      // Without the hosted page the email names a problem and offers no way to
+      // fix it, which on this notice is the whole content.
+      actionUrl: invoice.hosted_invoice_url ?? null,
+      product: "buyer",
+    }),
+    "payment_action_required",
+  );
+}
+
 async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
   const invoice = event.data.object as Stripe.Invoice;
   const customerId = typeof invoice.customer === "string"
@@ -1140,8 +1218,17 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
   if (!customerId) return;
 
   // US-1799: buyer past_due is carried by subscription.updated → skip the seller
-  // dunning transition + email for a buyer invoice.
-  if (invoiceIsBuyer(invoice)) return;
+  // dunning transition for a buyer invoice.
+  //
+  // US-2452: the EMAIL was inside that skipped body and nothing else sent one,
+  // so a buyer's card was declined and they were never told — they simply went
+  // past_due and then canceled. The send is lifted out ABOVE the skip; the
+  // status write and the US-395 grace clock stay below it, because those are
+  // owned by customer.subscription.updated for a buyer.
+  if (invoiceIsBuyer(invoice)) {
+    await sendBuyerBillingProblem(event, invoice, customerId, "payment_failed");
+    return;
+  }
 
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
@@ -1193,6 +1280,7 @@ async function handleInvoicePaymentFailed(event: Stripe.Event) {
         amountCents: invoice.amount_due ?? 0,
         attemptCount: invoice.attempt_count ?? 1,
         retryAt,
+        product: "flipdesk",
       }),
       "payment_failed",
     );
@@ -2289,8 +2377,17 @@ async function handleInvoicePaymentActionRequired(event: Stripe.Event) {
   if (!customerId) return;
 
   // US-1799: buyer invoices are carried by subscription.updated — same skip as
-  // the payment-failed handler, so a buyer doesn't get a seller-shaped email.
-  if (invoiceIsBuyer(invoice)) return;
+  // the payment-failed handler.
+  //
+  // US-2452: the original reason written here was "so a buyer doesn't get a
+  // seller-shaped email", which was an honest statement of intent and produced
+  // silence instead. This is the ONLY notice of a state that never resolves
+  // without the user, so silence means the renewal simply fails. The copy is
+  // product-aware now, and the send happens before the return.
+  if (invoiceIsBuyer(invoice)) {
+    await sendBuyerBillingProblem(event, invoice, customerId, "action_required");
+    return;
+  }
 
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
@@ -2322,6 +2419,7 @@ async function handleInvoicePaymentActionRequired(event: Stripe.Event) {
         // a link the email would tell someone their payment needs action and
         // give them no way to take it.
         actionUrl: invoice.hosted_invoice_url ?? null,
+        product: "flipdesk",
       }),
       "payment_action_required",
     );

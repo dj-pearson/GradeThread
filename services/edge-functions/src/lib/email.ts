@@ -1131,6 +1131,8 @@ interface PaymentFailedData {
   amountCents: number;
   attemptCount: number;
   retryAt: string | null;
+  /** US-2452. Required and undefaulted, as on the renewal notice and receipt. */
+  product: "flipdesk" | "buyer";
 }
 
 interface TrialExpiringData {
@@ -1405,21 +1407,22 @@ export async function sendPaymentFailedEmail(
   to: string,
   data: PaymentFailedData,
 ): Promise<boolean> {
+  const { productName, manageUrl } = renewalNoticeCopy(data.product, SITE_URL);
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
       Your payment didn't go through
     </h2>
     <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
-      Hi ${escapeHtml(data.userName)}, we couldn't charge your card for your <strong>FlipDesk ${escapeHtml(data.plan)}</strong> renewal (${dollars(data.amountCents)}). This was attempt ${data.attemptCount}.
+      Hi ${escapeHtml(data.userName)}, we couldn't charge your card for your <strong>${escapeHtml(productName)} ${escapeHtml(data.plan)}</strong> renewal (${dollars(data.amountCents)}). This was attempt ${data.attemptCount}.
     </p>
     <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
       Update your card now to keep your plan active. ${data.retryAt ? `We'll automatically retry on <strong>${formatDate(data.retryAt)}</strong>.` : ""} After several failed attempts your plan will drop to Free.
     </p>
-    ${ctaButton("Update card", `${SITE_URL}/dashboard/billing`)}
+    ${ctaButton("Update card", manageUrl)}
   `;
   return await sendEmail({
     to,
-    subject: "Action needed: update your card to keep FlipDesk active",
+    subject: `Action needed: update your card to keep ${productName} active`,
     html: emailLayout(content),
     category: "payment_failed", // US-498: critical → durable retry on failure
   });
@@ -2834,19 +2837,22 @@ interface PaymentActionRequiredData {
   amountCents: number;
   /** Stripe's hosted invoice page — where the 3DS challenge is completed. */
   actionUrl: string | null;
+  /** US-2452. Required and undefaulted, as on the renewal notice and receipt. */
+  product: "flipdesk" | "buyer";
 }
 
 export async function sendPaymentActionRequiredEmail(
   to: string,
   data: PaymentActionRequiredData,
 ): Promise<boolean> {
+  const { productName, manageUrl } = renewalNoticeCopy(data.product, SITE_URL);
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
       Your bank needs you to confirm this payment
     </h2>
     <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
       Hi ${escapeHtml(data.userName)}, your bank asked for extra verification before
-      it would approve your <strong>FlipDesk ${escapeHtml(data.plan)}</strong> renewal
+      it would approve your <strong>${escapeHtml(productName)} ${escapeHtml(data.plan)}</strong> renewal
       (${dollars(data.amountCents)}). Your card wasn't declined — the payment is just
       waiting on you.
     </p>
@@ -2858,7 +2864,7 @@ export async function sendPaymentActionRequiredEmail(
     ${
     data.actionUrl
       ? ctaButton("Confirm payment", data.actionUrl)
-      : ctaButton("Open billing", `${SITE_URL}/dashboard/billing`)
+      : ctaButton("Open billing", manageUrl)
   }
   `;
   return await sendEmail({
