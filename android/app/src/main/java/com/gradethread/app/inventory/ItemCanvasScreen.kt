@@ -40,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.capture.FlipdeskCategory
 import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.marketplaces.publish.PublishSheet
+import com.gradethread.app.marketplaces.QUEUED_NOTICE
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -48,6 +49,22 @@ import com.gradethread.app.ui.theme.Spacing
  * US-1343: the item canvas — identity, pricing and notes, edited in place.
  */
 @OptIn(ExperimentalLayoutApi::class)
+/**
+ * Channels the desktop extension can run, as (id, label) pairs.
+ *
+ * Mirrors LISTER_EXTENSION_PLATFORMS in src/lib/lister-extension.ts. eBay and
+ * Shopify are absent on purpose: they publish through a real API straight from
+ * the phone, so queueing them for a browser would be a worse path than the
+ * Publish button directly above.
+ */
+private val EXTENSION_QUEUE_CHANNELS = listOf(
+    "poshmark" to "Poshmark",
+    "mercari" to "Mercari",
+    "grailed" to "Grailed",
+    "vinted" to "Vinted",
+    "facebook" to "Facebook",
+)
+
 @Composable
 fun ItemCanvasScreen(
     itemId: String,
@@ -297,6 +314,41 @@ fun ItemCanvasScreen(
             enabled = !state.isDirty,
             modifier = Modifier.fillMaxWidth(),
         ) { publishing = true }
+
+        // US-2481: queue this cross-list for the desktop extension.
+        //
+        // Publish above goes through eBay's API and works from the phone.
+        // Poshmark, Mercari, Grailed, Vinted and Facebook have no write API, so
+        // the form has to be filled in a browser — which a seller standing in a
+        // thrift store does not have open. This records the instruction; the
+        // desktop runs it. The server never stores a marketplace credential.
+        SectionHeader(stringResource(R.string.canvas_run_on_desktop))
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+            EXTENSION_QUEUE_CHANNELS.forEach { channel ->
+                FilterChip(
+                    selected = state.queuedForDesktop == channel.first,
+                    onClick = { viewModel.queueForDesktop(channel.first) },
+                    label = { Text(channel.second) },
+                )
+            }
+        }
+        if (state.queuedForDesktop != null) {
+            // The shared sentence, verbatim. It says the work is WAITING, never
+            // that it is done — a seller told "listed" for a queued job believes
+            // their item is live when it is not.
+            Text(
+                QUEUED_NOTICE,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        if (state.queueFailed) {
+            Text(
+                stringResource(R.string.canvas_queue_failed),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
 
         // US-1360: the graded flaws, marked on the photo and pushed into the
         // live description.

@@ -539,6 +539,9 @@
     <string name="marketplaces_listings">Listings</string>
     <!-- US-2481: extension work queued from the phone, run on the desktop. -->
     <string name="marketplaces_queued_for_desktop">Queued for your desktop</string>
+    <!-- US-2481: queue a cross-list from the phone for the desktop extension. -->
+    <string name="canvas_run_on_desktop">Run on my desktop</string>
+    <string name="canvas_queue_failed">Couldn’t queue that. Try again when you have signal.</string>
     <string name="marketplaces_queue_didnt_run">Didn’t run — these waited for a desktop browser that never opened, or failed when they ran. Nothing happened on the marketplace.</string>
     <string name="marketplaces_no_listings_cached_yet_sync">No listings cached yet. Sync to pull the ones live on eBay.</string>
     <string name="marketplaces_rename_this_account">Rename this account</string>

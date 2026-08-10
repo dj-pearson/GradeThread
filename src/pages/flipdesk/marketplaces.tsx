@@ -59,8 +59,8 @@ import {
   MARKETPLACE_LABELS,
   MARKETPLACE_TIER,
   MARKETPLACE_TIER_LABEL,
-  marketplaceDisclosureFor,
 } from "@/lib/constants";
+import { marketplaceDisclosureFor } from "@/lib/marketplace-disclosure";
 import {
   useCreateEbayLocation,
   useDisconnectEbay,

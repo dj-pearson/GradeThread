@@ -13,8 +13,8 @@ import {
   MARKETPLACE_EXTENSION_FLOW,
   MARKETPLACE_FLOW_LABEL,
   formatListingAllowance,
-  marketplaceDisclosureFor,
 } from "@/lib/constants";
+import { marketplaceDisclosureFor } from "@/lib/marketplace-disclosure";
 
 // US-717: the composer + Marketplaces UI read MARKETPLACE_MECHANISM to show each
 // channel's REAL mechanism (API vs browser-extension) — these guards keep the
