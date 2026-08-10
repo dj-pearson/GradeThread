@@ -965,6 +965,72 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
 
 // ── Invoice handlers ─────────────────────────────────────────────
 
+/**
+ * US-2451: the buyer half of the renewal receipt.
+ *
+ * Deliberately its OWN function rather than a branch inside
+ * handleInvoicePaymentSucceeded. That handler's buyer skip protects the seller
+ * cycle resets — grade and AI counters, subscription_status — which must not
+ * fire for a buyer invoice, and the receipt was simply sitting inside the
+ * protected region. Widening the skip to let the receipt through would have
+ * meant threading `isBuyer` past every reset below it, and one missed branch
+ * there resets a seller's quota on a buyer's renewal.
+ *
+ * Sends only for `subscription_cycle`. The FIRST charge is covered by the
+ * subscription-started path, exactly as on the seller side, so receipting a
+ * `subscription_create` here would double up on signup.
+ */
+async function sendBuyerRenewalReceipt(
+  event: Stripe.Event,
+  invoice: Stripe.Invoice,
+  customerId: string,
+) {
+  if (invoice.billing_reason !== "subscription_cycle") return;
+
+  const user = await loadUserByCustomerId(customerId);
+  if (!user?.email) return;
+
+  // A lapsed buyer has nothing to receipt, and naming "Free" on a charge
+  // confirmation is worse than sending nothing.
+  const buyerPlan = (user as { buyer_plan?: string | null }).buyer_plan ?? "free";
+  if (buyerPlan === "free") return;
+
+  const interval = invoice.lines?.data?.[0]?.price?.recurring?.interval === "year"
+    ? "yearly"
+    : "monthly";
+
+  // Recorded for the same reason the advance notice is: a buyer renewal left no
+  // trace in the subscription event log at all, and an audit gap is what kept
+  // this whole class of buyer-only omission invisible. Plan columns stay the
+  // user's real flipdesk_plan — they are typed public.flipdesk_plan and a buyer
+  // tier raises 22P02 — with the buyer detail in the jsonb payload.
+  await recordEvent(
+    user.id,
+    event.type,
+    event.id,
+    user.flipdesk_plan,
+    user.flipdesk_plan,
+    {
+      invoice_id: invoice.id,
+      billing_reason: invoice.billing_reason,
+      product: "buyer",
+      buyer_plan: buyerPlan,
+    },
+  );
+
+  void sendSubscriptionRenewalReceiptEmail(user.email, {
+    userName: user.full_name?.trim() || "there",
+    plan: buyerPlan.charAt(0).toUpperCase() + buyerPlan.slice(1),
+    interval,
+    amountCents: invoice.amount_paid ?? 0,
+    periodEnd: invoice.period_end
+      ? new Date(invoice.period_end * 1000).toISOString()
+      : new Date().toISOString(),
+    invoiceNumber: invoice.number ?? null,
+    product: "buyer",
+  });
+}
+
 async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
   const invoice = event.data.object as Stripe.Invoice;
   const customerId = typeof invoice.customer === "string"
@@ -977,7 +1043,15 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
   // US-1799: a BUYER invoice must not trigger the seller cycle resets (grade/AI
   // counters) or flip the seller's subscription_status. Buyer status transitions
   // arrive via customer.subscription.updated (applyBuyerSubscriptionChange).
-  if (invoiceIsBuyer(invoice)) return;
+  //
+  // US-2451: the RECEIPT was inside that skipped body, and nothing else sends
+  // one — so a buyer was charged on renewal and heard nothing afterwards. The
+  // send is lifted out ABOVE the skip rather than the skip being widened,
+  // because everything below it genuinely must not run for a buyer invoice.
+  if (invoiceIsBuyer(invoice)) {
+    await sendBuyerRenewalReceipt(event, invoice, customerId);
+    return;
+  }
 
   const user = await loadUserByCustomerId(customerId);
   if (!user) return;
@@ -1044,6 +1118,7 @@ async function handleInvoicePaymentSucceeded(event: Stripe.Event) {
         amountCents: invoice.amount_paid ?? 0,
         periodEnd: periodEndIso,
         invoiceNumber: invoice.number ?? null,
+        product: "flipdesk",
       });
     }
   } else {

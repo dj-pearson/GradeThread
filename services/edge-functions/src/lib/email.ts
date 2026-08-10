@@ -1116,6 +1116,13 @@ interface SubscriptionRenewalReceiptData {
   amountCents: number;
   periodEnd: string;
   invoiceNumber: string | null;
+  /**
+   * Which subscription renewed. REQUIRED and unset by default, exactly as on
+   * the advance notice: a receipt naming the wrong product, with a billing link
+   * that cannot reach the subscription, is the artifact someone opens when an
+   * unrecognised charge appears on a statement.
+   */
+  product: "flipdesk" | "buyer";
 }
 
 interface PaymentFailedData {
@@ -1212,17 +1219,19 @@ export async function sendSubscriptionRenewalReceiptEmail(
   to: string,
   data: SubscriptionRenewalReceiptData,
 ): Promise<boolean> {
+  // Same product split as the advance notice — see lib/renewal-notice-copy.ts.
+  const { productName, manageUrl } = renewalNoticeCopy(data.product, SITE_URL);
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
-      Payment received — FlipDesk ${escapeHtml(data.plan)}
+      Payment received — ${escapeHtml(productName)} ${escapeHtml(data.plan)}
     </h2>
     <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
-      Hi ${escapeHtml(data.userName)}, thanks — your FlipDesk ${escapeHtml(data.plan)} subscription renewed.
+      Hi ${escapeHtml(data.userName)}, thanks — your ${escapeHtml(productName)} ${escapeHtml(data.plan)} subscription renewed.
     </p>
 
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px;">
       <tr>
-        <td style="padding: 12px;"><span style="color: #666; font-size: 13px;">Plan</span><br><strong>FlipDesk ${escapeHtml(data.plan)}</strong></td>
+        <td style="padding: 12px;"><span style="color: #666; font-size: 13px;">Plan</span><br><strong>${escapeHtml(productName)} ${escapeHtml(data.plan)}</strong></td>
         <td style="padding: 12px; border-left: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Charged</span><br><strong>${dollars(data.amountCents)} / ${data.interval === "yearly" ? "year" : "month"}</strong></td>
       </tr>
       <tr><td colspan="2" style="padding: 12px; border-top: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Renews</span><br><strong>${formatDate(data.periodEnd)}</strong></td></tr>
@@ -1233,11 +1242,11 @@ export async function sendSubscriptionRenewalReceiptEmail(
   }
     </table>
 
-    ${ctaButton("View Billing", `${SITE_URL}/dashboard/billing`)}
+    ${ctaButton("View Billing", manageUrl)}
   `;
   return await sendEmail({
     to,
-    subject: `Receipt: FlipDesk ${data.plan} — ${dollars(data.amountCents)}`,
+    subject: `Receipt: ${productName} ${data.plan} — ${dollars(data.amountCents)}`,
     html: emailLayout(content),
     category: "subscription_renewal_receipt", // US-801: durable retry on transient failure
   });

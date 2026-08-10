@@ -85,17 +85,22 @@ Deno.test("US-2119: the template interpolates the product copy instead of hardco
   assert(start > -1, "sendRenewalReminderEmail not found — renamed?");
   const body = src.slice(start, src.indexOf("\n}", start));
 
+  // The DESTRUCTURE, not merely the call: keeping the call for one value and
+  // hardcoding the other is the shape that slipped past the receipt's version
+  // of this assertion, and it is the shape that sends every buyer the seller's
+  // copy.
   assert(
-    body.includes("renewalNoticeCopy("),
-    "the template must resolve its product copy through renewalNoticeCopy, so " +
-      "the tested values are the sent values",
+    /const \{ productName, manageUrl \} = renewalNoticeCopy\(data\.product, SITE_URL\)/
+      .test(body),
+    "the template must take BOTH its product name and its manage link from " +
+      "renewalNoticeCopy(data.product, …), so the tested values are the sent values",
   );
-  // The literals it used to carry. Either one surviving means a buyer receives
-  // a notice for a product they do not have.
-  for (const literal of ["FlipDesk ${", "/dashboard/billing"]) {
+  // No product name may be written here at all.
+  for (const literal of ["FlipDesk", "GradeThread", "/dashboard/billing", "/buyer/billing"]) {
     assert(
       !body.includes(literal),
-      `sendRenewalReminderEmail still hardcodes ${JSON.stringify(literal)}`,
+      `sendRenewalReminderEmail hardcodes ${JSON.stringify(literal)} — the ` +
+        "product is a parameter now",
     );
   }
 });
@@ -115,12 +120,18 @@ Deno.test("US-2119: every buyer skip in the Stripe webhooks says where the buyer
   const src = await Deno.readTextFile(
     new URL("../routes/webhooks.ts", import.meta.url),
   );
+  //
+  // Matches BOTH shapes: the bare `… ) return;` and the branch form
+  // `… ) {` that US-2451 introduced so the buyer receipt could be sent before
+  // the return. The first version of this guard matched only the bare form, so
+  // opening a branch would have quietly dropped that handler out of the census
+  // — a guard that stops counting is worse than one that never counted.
   const lines = src.split(/\r?\n/);
   let checked = 0;
   for (let i = 0; i < lines.length; i++) {
-    if (!/if \(invoiceIsBuyer\(invoice\)\) return;/.test(lines[i]!)) continue;
+    if (!/if \(invoiceIsBuyer\(invoice\)\)\s*(return;|\{)/.test(lines[i]!)) continue;
     checked++;
-    const preamble = lines.slice(Math.max(0, i - 6), i).join(" ");
+    const preamble = lines.slice(Math.max(0, i - 12), i).join(" ");
     assert(
       /subscription\.updated/.test(preamble),
       `webhooks.ts:${i + 1} skips buyer invoices without naming where the buyer ` +
