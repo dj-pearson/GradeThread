@@ -93,8 +93,29 @@ Deno.test("every compose file also passes the release vars at RUNTIME", async ()
       continue;
     }
     runtimes++;
-    const bare = /^\s*-\s*SOURCE_COMMIT\s*$/m.test(text);
-    const assigned = /^\s*-\s*SOURCE_COMMIT=/m.test(text);
+    // BOTH YAML shapes, because the files moved to the mapping form on
+    // 2026-08-10 and the pass-through semantics are what matters, not the
+    // punctuation. Coolify round-trips every compose file through its own YAML
+    // parser before deploying, and it rejected the sequence form outright:
+    // `Error: non-string key in services.edge-functions.environment: 0`. In the
+    // mapping form the pass-through is a key with NO value (`SOURCE_COMMIT:`),
+    // which Compose treats identically to the bare `- SOURCE_COMMIT` entry.
+    //
+    // The rule this guard exists for is unchanged: a VALUE must never be
+    // assigned here. `SOURCE_COMMIT=${SOURCE_COMMIT:-dev}` (or its mapping
+    // twin) sets the variable to "dev" whenever the host lacks it, and a
+    // runtime env var overrides the Dockerfile ENV — so the safe-looking
+    // default silently clobbers a correctly stamped image.
+    //
+    // `[ \t]` rather than `\s`, deliberately: `\s` matches a NEWLINE, so
+    // `SOURCE_COMMIT:\s+\S` reads straight past the end of the (correct,
+    // valueless) line and matches the first character of the NEXT one. Every
+    // file then reports "assigns a value" — a guard that fails on the thing it
+    // is supposed to pass.
+    const bare = /^[ \t]*-[ \t]*SOURCE_COMMIT[ \t]*$/m.test(text) ||
+      /^[ \t]*SOURCE_COMMIT:[ \t]*$/m.test(text);
+    const assigned = /^[ \t]*-[ \t]*SOURCE_COMMIT=/m.test(text) ||
+      /^[ \t]*SOURCE_COMMIT:[ \t]+\S/m.test(text);
     if (assigned) offenders.push(`${name} (assigns a value — must be bare)`);
     else if (!bare) offenders.push(`${name} (missing)`);
   }

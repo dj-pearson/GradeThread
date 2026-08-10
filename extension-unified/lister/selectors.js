@@ -19,12 +19,15 @@ const GT_LISTER_SELECTORS = {
   // ── Poshmark — PHASE 1 (enabled) ──────────────────────────────────────
   poshmark: {
     enabled: true,
-    version: "2026.08.0",
-    // NOT bumped to today on purpose. The selectors below were written from a
-    // probe report of the live page, which is evidence about the PAGE, not
-    // about the fix — nobody has yet seen these resolve. It moves when a report
-    // comes back clean, and until then the staleness warning is accurate.
-    lastVerified: "2026-06-13",
+    version: "2026.08.1",
+    // 2026-08-10: confirmed. A second report from the live create-listing page
+    // read clean — title, description and submit all resolve against the new
+    // wizard. `price` and `photoInput` are still misses, and they are supposed
+    // to be: those fields live on a later wizard step, they are optional here,
+    // and the fill flow already reports 0 photos attached rather than claiming
+    // otherwise. The seller finishes both in the tab, which is what they were
+    // going to do anyway.
+    lastVerified: "2026-08-10",
     newListingUrl: "https://poshmark.com/create-listing",
     // US-1876: known domains a delist URL must host-match (subdomains included).
     // The background rejects any delist listingUrl outside these.
@@ -160,7 +163,12 @@ const GT_LISTER_SELECTORS = {
   // script reports "coming soon — list manually" rather than guessing.
   mercari: {
     enabled: false,
-    version: "2026.06.0-draft",
+    version: "2026.08.0-draft",
+    // Still null, and the distinction matters. Four of the five list selectors
+    // were seen to resolve on the live form; the fifth was written from the
+    // page's own attribute dump, which is strong evidence about the PAGE and no
+    // evidence at all that the replacement matches. It moves when a report
+    // comes back clean — the same report that has to cover delist anyway.
     lastVerified: null,
     newListingUrl: "https://www.mercari.com/sell/",
     hosts: ["mercari.com"],
@@ -168,7 +176,14 @@ const GT_LISTER_SELECTORS = {
     liveListingUrlPattern: "^https://[^/]*mercari\\.com/(us/)?item/[^/]+",
     required: ["title", "description", "price", "submit"],
     fields: {
-      title: 'input[name="name"], input[data-testid="Name"]',
+      // 2026-08-10: was `input[name="name"], input[data-testid="Name"]`, and it
+      // was the ONLY miss on the live form — description, price, photos and the
+      // submit button all resolved. Mercari renamed the field to `sellName`
+      // and the test id to `Title`. Ordered most stable first: the test id is
+      // the attribute Mercari's own tests depend on, the name/id are the form
+      // wiring, and no placeholder anchor is used because that would be
+      // English-only for no gain here.
+      title: 'input[data-testid="Title"], input[name="sellName"], input#sellName',
       description: 'textarea[name="description"], textarea[data-testid="Description"]',
       price: 'input[name="price"], input[data-testid="Price"]',
       photoInput: 'input[type="file"][accept*="image"]',
@@ -204,8 +219,10 @@ const GT_LISTER_SELECTORS = {
   // where it cannot exist. One report from a live listing flips both.
   grailed: {
     enabled: false,
-    version: "2026.06.0-draft",
-    lastVerified: null,
+    version: "2026.08.0",
+    // The list flow, and only the list flow. Every one of its five selectors
+    // was seen to resolve on grailed.com/sell/new.
+    lastVerified: "2026-08-10",
     newListingUrl: "https://www.grailed.com/sell/",
     hosts: ["grailed.com"],
     login: { urlPattern: "grailed\.com/(users/sign_in|login|signup)" },
