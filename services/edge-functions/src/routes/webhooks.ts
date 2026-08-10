@@ -2683,6 +2683,30 @@ async function handleTrialWillEnd(event: Stripe.Event) {
     Math.ceil((sub.trial_end * 1000 - Date.now()) / 86_400_000),
   );
 
+  // US-2119 AC4, second pass: this handler was not product-aware, so a BUYER
+  // subscription with a Stripe-managed trial would have been sent
+  // sendTrialExpiringEmail — copy that names a "14-day FlipDesk Pro trial",
+  // offers to keep "your Pro features", and links to the seller billing page.
+  // The inverse of the five buyer omissions fixed alongside this: not silence,
+  // but confidently wrong.
+  //
+  // A buyer is skipped rather than given new copy, because A BUYER STRIPE TRIAL
+  // IS NOT A PRODUCT STATE TODAY — POST /buyer/subscribe builds its Checkout
+  // session with no trial_period_days and no subscription_data.trial_end, so
+  // one can only exist if a price is configured with a trial in the Stripe
+  // dashboard. Writing a notice for a flow that does not exist would be
+  // guessing at what it should say. Same call as the buyer pause/resume
+  // decision in US-2453, and guarded the same way: buyer-lifecycle-emails_test
+  // fails the moment /buyer/subscribe grows a trial, so this decision gets
+  // revisited instead of quietly outliving its premise.
+  if (subscriptionIsBuyer(sub)) {
+    console.warn(
+      `[Webhook] BUYER trial_will_end for user ${user.id} (sub ${sub.id}) — no ` +
+        "buyer trial copy exists; see US-2119 AC4. Nothing sent.",
+    );
+    return;
+  }
+
   await recordEvent(
     user.id,
     event.type,

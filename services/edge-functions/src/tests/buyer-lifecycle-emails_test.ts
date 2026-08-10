@@ -181,6 +181,45 @@ Deno.test("US-2453 AC5: pause and resume are deliberately NOT sent to buyers", (
   );
 });
 
+Deno.test("US-2119 AC4: a buyer trial-will-end is not sent the seller's trial copy", () => {
+  // The INVERSE of the five omissions: not silence, but confidently wrong.
+  // handleTrialWillEnd was not product-aware, so a buyer with a Stripe-managed
+  // trial would have been told their "14-day FlipDesk Pro trial" was ending and
+  // sent to the seller billing page to add a card.
+  //
+  // Skipped rather than given new copy, because a buyer Stripe trial is not a
+  // product state today — and that premise is what the next assertion pins.
+  const body = fn(WEBHOOKS, "async function handleTrialWillEnd");
+  const idxGuard = body.indexOf("if (subscriptionIsBuyer(sub))");
+  const idxSend = body.indexOf("sendTrialExpiringEmail(");
+  assert(idxGuard > -1, "handleTrialWillEnd must branch on the product");
+  assert(idxSend > -1, "the seller trial notice must still be sent");
+  assert(
+    idxGuard < idxSend,
+    "the buyer branch must come BEFORE the send, or a buyer still receives the " +
+      "seller's trial email",
+  );
+});
+
+Deno.test("US-2119 AC4: the premise of that skip is guarded, not assumed", () => {
+  // The skip is only defensible while /buyer/subscribe creates no trial. If a
+  // buyer trial ever ships, this fails and points at the decision — which is
+  // the difference between a decision and an omission that outlived its reason.
+  const payments = code(
+    Deno.readTextFileSync(new URL("../routes/payments.ts", import.meta.url)),
+  );
+  const at = payments.indexOf('paymentRoutes.post("/buyer/subscribe"');
+  assert(at > -1, "the buyer subscribe route was renamed");
+  const route = payments.slice(at, payments.indexOf("paymentRoutes.post(", at + 50));
+  for (const trial of ["trial_period_days", "trial_end"]) {
+    assert(
+      !route.includes(trial),
+      `/buyer/subscribe now sets ${trial} — buyer trials exist, so ` +
+        "handleTrialWillEnd's buyer skip needs replacing with real copy",
+    );
+  }
+});
+
 Deno.test("US-2453 AC3: a buyer's final cancellation is audited", () => {
   const body = fn(WEBHOOKS, "async function handleSubscriptionDeleted");
   const branch = body.indexOf("if (subscriptionIsBuyer(sub)) {");
