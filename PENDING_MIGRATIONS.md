@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⛔ HELD: 00588_extension_work_queue.sql (US-2481 — queue extension work from mobile, drain it on the desktop)
+## ✅ APPLIED: 00588_extension_work_queue.sql (US-2481 — queue extension work from mobile, drain it on the desktop, applied 2026-08-10 by Dj)
 
 **Risk: LOW.** One new table, four RLS policies, two indexes, one `updated_at`
 trigger. Nothing existing is touched — no column added to a live table, no
@@ -108,7 +108,7 @@ against a Postgres on this machine** — check Docker and run
 `node scripts/verify.mjs --db` if you want it proven on a fresh schema before
 touching prod.
 
-## ⛔ HELD: 00586_handle_new_user_restore_legal_acceptance.sql (US-2017 — the signup clickwrap has not been recorded since 00303)
+## ✅ APPLIED: 00586_handle_new_user_restore_legal_acceptance.sql (US-2017 — the signup clickwrap has not been recorded since 00303, applied 2026-08-10 by Dj)
 
 **PUSH-BLOCKING. Apply this SQL before the branch is pushed.**
 
