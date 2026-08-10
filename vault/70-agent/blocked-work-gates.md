@@ -5,9 +5,9 @@ type: reference
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-09
+reviewed: 2026-08-10
 tags: [agent, backlog, decisions]
-summary: Eleven open stories are stuck on a judgement call rather than on effort; four of those answers unblock more than one story, and one unblocks nine.
+summary: Thirteen open stories are stuck on a judgement call rather than on effort; four of those answers unblock more than one story, one unblocks nine, and one unapplied migration is holding 34 commits.
 ---
 
 # Blocked-work gates
@@ -20,8 +20,8 @@ make. Not effort, not a deploy, not missing data — those are different queues
 and are listed at the bottom so nobody confuses the two.
 
 **Why it exists:** the decisions were each recorded carefully, on the story
-where they arose, and then sat there. Scattered across eleven stories they read
-as eleven small stalls. Collected, four of them turn out to gate a dozen others,
+where they arose, and then sat there. Scattered across thirteen stories they read
+as thirteen small stalls. Collected, four of them turn out to gate a dozen others,
 and most can be answered in one sitting because the previous passes already did
 the work of laying out the options.
 
@@ -148,9 +148,42 @@ it somewhere a seller can reach.
 title_keywords, description_tighten and description_regen. **Either way, do not
 delete the edge route — iOS uses it live** (AC4, and it is a hard rule).
 
+## 12. May support cancel, change or comp a BUYER subscription? (US-2458 AC4)
+
+Support can now SEE a buyer subscription. They still cannot act on one: no admin
+route writes any buyer column, and a buyer comp additionally needs a buyer
+equivalent of `subscription_status = 'comp'`, which today is a seller-only enum
+value.
+
+This is a decision about writes against a customer's money, not a gap. The read
+half shipped 2026-08-10 precisely so the decision could be made with the state
+visible.
+
+## 13. Is "only destruction needs an audit row" the rule? (US-2459 AC4)
+
+`admin-tasks.ts` audits its DELETEs and not its creates or updates. That looks
+deliberate — and nothing states it, because a classifier bug was reporting those
+routes as audited anyway. Six writing routes are now filed OPEN awaiting this
+one answer; three of them are the tasks routes and become EXEMPT the moment the
+rule is written down once.
+
+The other three want their own look: an ads theme archive, a grading review
+release (claim and approve both audit, release does not), and a newsletter
+enforce that lands in `ops_events` rather than the central log — the same
+domain-trail question as gate 1's ads routes.
+
 ## Not decisions — different queues
 
 Kept here so nobody files them as gates:
+
+- **⛔ BLOCKS THE PUSH — one operator action:** migration `00586` is HELD and
+  unapplied, and the held-migration gate refuses the push until it is. As of
+  2026-08-10 that is **34 local commits** behind one SQL statement. It restores
+  the signup clickwrap record, which has not been written since `00303` — so
+  until it runs, `POST /api/legal/confirm-signup` keeps refusing every caller
+  and the metric added for it fires on every email signup. `PENDING_MIGRATIONS.md`
+  carries the risk note, the apply order and the rollback. **Nothing else in the
+  backlog unblocks as much as this.**
 
 - **Needs production data first:** US-2359 AC4, US-2123 AC4, US-1996 AC5,
   US-2444 AC1, US-2304 AC4. Read the data, then there may be a call.
@@ -158,7 +191,20 @@ Kept here so nobody files them as gates:
   US-2395 AC7, US-1968.
 - **Needs a machine or an account we do not have here:** a Mac (US-2090,
   US-1995), a screen reader (US-2335 AC4), real Firefox/Edge (US-1881), a live
-  eBay seller account, a live Stripe test run (US-2017, US-2119).
+  eBay seller account, a live Stripe test run (US-2017, US-2119, US-2118,
+  US-2451, US-2452, US-2453 — one test-mode buyer subscription taken through
+  purchase, renewal, a declining card and a cancellation exercises all six
+  buyer billing emails at once).
+- **Needs Docker running:** US-2457 AC4. The buyer half of billing
+  reconciliation needs a migration that swaps a partial unique index, and
+  `verify:db` is the only thing that can prove the swap applies to a table with
+  live rows. Scoped in full on the story; one focused session once Docker is up.
+- **A one-minute dashboard check, not a decision:** US-2125 AC2's other half.
+  The Stripe billing portal is opened with no `configuration`, so the account
+  default applies. If "Cancel subscription" is enabled there, the portal is a
+  second cancellation path bypassing the reviewed flow entirely — the exact
+  defect AC1 fixed for the Free tile, through a different door. Settings →
+  Billing → Customer portal → Cancellations.
 - **Needs sourced facts that do not exist:** US-2222, US-2210, US-2139,
   US-2131, US-2221, US-2220, US-2218, US-2215 AC3. Inventing these is the
   specific failure those stories were written to prevent — see
