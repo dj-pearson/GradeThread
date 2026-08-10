@@ -229,6 +229,37 @@
         <a class="pop-cta" id="upgradeBtn" href="#" target="_blank" rel="noopener noreferrer">See FlipDesk plans</a>
       </section>
 
+
+      <!-- US-2484: the one-click selector check.
+           TOP-LEVEL on purpose, not inside #sellerSection. This is a
+           DIAGNOSTIC: it runs our own bundled selectors against the page
+           already open and reports which resolve. It exposes no seller
+           data and no entitlement, so gating it behind a paid plan bought
+           nothing — and cost something real, because the seller section
+           hides whenever the entitlements fetch fails (it fail-safes to
+           anonymous), which is exactly when you want to debug. Shown only
+           on a marketplace tab the Lister has a config for. -->
+      <!-- US-2484: the one-click selector check. Only shown on a marketplace
+           tab the Lister knows about — see renderProbe. Turns "verify the
+           selectors against the live form" from a devtools session into a
+           button and a paste. -->
+      <div class="pop-probe" id="probeBlock" hidden>
+        <div class="pop-lastjob-head">
+          <span class="pop-lastjob-label">Check this page</span>
+          <span class="pop-lastjob-when" id="probeHost"></span>
+        </div>
+        <p class="pop-probe-lead" id="probeLead">
+          Open the marketplace’s sell form, then check whether GradeThread’s
+          selectors still find every field. No page content is included.
+        </p>
+        <button class="pop-cta" id="probeRun" type="button">Check selectors</button>
+        <p class="pop-probe-verdict" id="probeVerdict" hidden></p>
+        <pre class="pop-probe-out" id="probeOut" hidden></pre>
+        <button class="pop-linkbtn" id="probeCopy" type="button" hidden>
+          Copy report
+        </button>
+      </div>
+
       <footer class="pop-foot">
         <a id="privacy" href="#" target="_blank" rel="noopener noreferrer">Privacy</a>
         <a id="help" href="#" target="_blank" rel="noopener noreferrer">How it works</a>

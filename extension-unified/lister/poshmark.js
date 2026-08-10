@@ -15,6 +15,9 @@
   // callback-only); a rejected send (worker asleep / no job) is a quiet no-op.
   // US-1875: the job runner (incl. the login-wall rule that must not consume
   // the job) is shared in common.js — these three scripts were identical copies.
+  // US-2484: let the popup check this page's selectors on demand.
+  GT.registerProbe(SEL, "poshmark");
+
   Promise.resolve(chrome.runtime.sendMessage({ type: "GT_LISTER_GET_JOB" }))
     .then(function (job) {
       return GT.runJobForPlatform(SEL, "poshmark", "Poshmark", job);

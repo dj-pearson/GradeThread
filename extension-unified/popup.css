@@ -364,3 +364,44 @@ em { font-style: italic; }
 }
 
 .pop-engage-terms li { margin-bottom: 5px; }
+
+/* ── US-2484: the one-click selector check ─────────────────────────────────
+ *
+ * The report is monospace because it IS data — an aligned column of selector
+ * keys and their verdicts, which a proportional face would make unreadable.
+ * That is the one legitimate use of monospace here. */
+.pop-probe {
+  margin: 10px 0 0;
+  padding: 10px;
+  border: 1px solid #e6e6ef;
+  border-radius: 12px;
+}
+
+.pop-probe-lead {
+  margin: 6px 0 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #56566e;
+}
+
+.pop-probe-verdict {
+  margin: 8px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.pop-probe-verdict[data-state="good"] { color: #1f6f43; }
+.pop-probe-verdict[data-state="bad"] { color: #b3223a; }
+
+.pop-probe-out {
+  margin: 8px 0 0;
+  max-height: 200px;
+  overflow: auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: #f6f6fa;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: #1a1a2e;
+  white-space: pre;
+}

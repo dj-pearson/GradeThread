@@ -7,7 +7,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - services/edge-functions/src/middleware/access-log.ts
-reviewed: 2026-08-09
+reviewed: 2026-08-10
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---

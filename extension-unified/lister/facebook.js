@@ -22,6 +22,9 @@
   const SEL = self.GT_LISTER_SELECTORS;
   if (!GT || !SEL) return;
 
+  // US-2484: let the popup check this page's selectors on demand.
+  GT.registerProbe(SEL, "facebook");
+
   Promise.resolve(chrome.runtime.sendMessage({ type: "GT_LISTER_GET_JOB" }))
     .then(function (job) {
       return GT.runJobForPlatform(SEL, "facebook", "Facebook Marketplace", job);

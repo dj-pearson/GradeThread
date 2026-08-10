@@ -523,5 +523,48 @@
     } catch (_e) { /* the background's push/alarm still reports the job */ }
   };
 
+  // US-2484: answer the popup's "check this page" request.
+  //
+  // The one step CI cannot do is loading a marketplace's sell form behind a
+  // login and confirming our selectors still resolve. This is that step, minus
+  // the devtools session: the popup asks, this replies with a structured report
+  // the seller can paste back.
+  //
+  // Registered per platform script rather than here-and-guessing, because only
+  // the platform script knows which config it is running under.
+  //
+  // The report deliberately carries location.HOST and not location.href — a
+  // listing URL contains an item id and, on several marketplaces, a seller
+  // handle, and this string is meant to be pasted into a chat.
+  GT.registerProbe = function (sel, platformKey) {
+    try {
+      chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+        if (!msg || msg.type !== "GT_LISTER_PROBE") return false;
+        if (msg.platform && msg.platform !== platformKey) return false;
+        var PROBE = self.GT_SELECTOR_PROBE;
+        if (!PROBE) {
+          sendResponse({ ok: false, error: "selector-probe.js did not load" });
+          return false;
+        }
+        var report = PROBE.buildProbeReport(
+          sel,
+          platformKey,
+          function (selector) { return Boolean(document.querySelector(selector)); },
+          { host: location.host, at: new Date().toISOString().slice(0, 10) },
+        );
+        sendResponse({
+          ok: true,
+          report: report,
+          text: PROBE.formatProbeReport(report),
+          clean: PROBE.reportIsClean(report),
+        });
+        return false;
+      });
+    } catch (_e) {
+      // No runtime messaging on this page — the popup reports "couldn't reach
+      // the page", which is the honest answer.
+    }
+  };
+
   self.GTLister = GT;
 })();

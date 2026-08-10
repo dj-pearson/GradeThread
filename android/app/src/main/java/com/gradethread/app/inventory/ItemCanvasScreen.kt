@@ -46,10 +46,6 @@ import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
 
 /**
- * US-1343: the item canvas — identity, pricing and notes, edited in place.
- */
-@OptIn(ExperimentalLayoutApi::class)
-/**
  * Channels the desktop extension can run, as (id, label) pairs.
  *
  * Mirrors LISTER_EXTENSION_PLATFORMS in src/lib/lister-extension.ts. eBay and
@@ -65,6 +61,10 @@ private val EXTENSION_QUEUE_CHANNELS = listOf(
     "facebook" to "Facebook",
 )
 
+/**
+ * US-1343: the item canvas — identity, pricing and notes, edited in place.
+ */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ItemCanvasScreen(
     itemId: String,

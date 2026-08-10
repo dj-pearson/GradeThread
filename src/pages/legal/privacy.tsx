@@ -437,6 +437,26 @@ export function PrivacyPage() {
         messages.
       </p>
       <p>
+        <strong>Repeating your own seller actions.</strong> Sellers can turn on a
+        separate, opt-in tool that repeats actions you already take yourself
+        &mdash; sharing a listing, following an account, sending an offer &mdash;
+        as clicks in your own logged-in tab, with a daily limit and randomly
+        spaced timing. It is behind its own consent, not the cross-posting one.
+        We do not read your closet, your followers, or your buyers, and none of
+        those actions run on a GradeThread server. If the site asks for a human
+        check, the tool stops and hands the tab back to you. We never answer one.
+      </p>
+      <p>
+        <strong>Queueing work from your phone.</strong> If you ask a phone or
+        tablet to list or end a listing, we store an{" "}
+        <em>instruction</em> &mdash; which of your items, which marketplace, and
+        the country site &mdash; and keep it with that item. Anything your
+        desktop has not picked up within 7 days is marked expired and shown to
+        you, so nothing sits pending forever. We never store a marketplace
+        password, cookie, or session of yours, so the queue is not a way into
+        your account.
+      </p>
+      <p>
         <strong>Signing in.</strong> If you sign in, a short-lived access token
         is stored locally so the extension can apply your plan&rsquo;s limits
         and unlock seller features. The extension does not have the{" "}
@@ -654,6 +674,14 @@ export function PrivacyPage() {
             <td>
               Deleted automatically 90 days after the check; you can delete any
               of them sooner.
+            </td>
+          </tr>
+          <tr>
+            <td>Work you queued from a phone for your desktop browser</td>
+            <td>
+              Kept with the item as a record of the job. Anything your desktop
+              has not picked up within 7 days is marked expired and shown to
+              you; you can delete a queued item yourself at any time.
             </td>
           </tr>
           <tr>

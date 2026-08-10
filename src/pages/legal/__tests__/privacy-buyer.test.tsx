@@ -82,6 +82,27 @@ describe("privacy policy: the extension's alerts check", () => {
     expect(html).toMatch(/never fetch the listing page/i);
   });
 
+  it("discloses the seller engagement tool, its consent and its human-check rule", () => {
+    // US-2482 shipped a tool that clicks in the seller's own tab on a
+    // third-party site. That is exactly the behaviour a store reviewer reads
+    // this page to find, and SUBMISSION.md already declares it — a policy that
+    // stops at cross-posting describes an extension we no longer ship.
+    const html = render();
+    expect(html).toMatch(/sharing a listing/i);
+    expect(html).toMatch(/its own consent/i);
+    expect(html).toMatch(/human\s+check/i);
+    expect(html).toMatch(/We never answer one/i);
+  });
+
+  it("discloses what the mobile queue stores, and what it does not", () => {
+    // US-2481. The whole design rests on the server holding an instruction and
+    // never a credential; if the policy does not say so, the claim is only in
+    // a commit message.
+    const html = render();
+    expect(html).toMatch(/7 days/);
+    expect(html).toMatch(/never store a marketplace password, cookie, or session/i);
+  });
+
   it("keeps the retention schedule covering buyer data", () => {
     const html = render();
     expect(html).toMatch(/Listings you asked the extension to check/i);
