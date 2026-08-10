@@ -12,6 +12,7 @@ import {
   MARKETPLACE_TIER_LABEL,
   MARKETPLACE_EXTENSION_FLOW,
   MARKETPLACE_FLOW_LABEL,
+  formatListingAllowance,
   marketplaceDisclosureFor,
 } from "@/lib/constants";
 
@@ -348,5 +349,66 @@ describe("FlipDesk plan honesty (US-718)", () => {
 
   it("Free stays eBay-only (single connection) as the upsell", () => {
     expect(FLIPDESK_PLANS.free.marketplacesCap).toBe(1);
+  });
+});
+
+// US-2483: the listing allowance a shopper reads must be the one the server
+// grants.
+//
+// Every crosslisting tool a reseller compares us against prices by listing
+// volume, so this is the number they came for. It exists twice on the plan
+// card — once as the explicit allowance line (from activeListingCap, which
+// plan-limits-parity.test.ts already ties to the edge's enforcement) and once
+// inside the hand-written features bullet. Two copies of a number is how one of
+// them goes stale, and the stale one is what a shopper would be quoting back at
+// support.
+describe("listing allowance (US-2483)", () => {
+  it("formats -1 as unlimited rather than inventing a cap", () => {
+    expect(formatListingAllowance(-1)).toBe("Unlimited");
+    expect(formatListingAllowance(1000)).toBe("1,000");
+    expect(formatListingAllowance(25)).toBe("25");
+  });
+
+  it("every tier states an allowance", () => {
+    for (const [key, plan] of Object.entries(FLIPDESK_PLANS)) {
+      expect(
+        plan.activeListingCap === -1 || plan.activeListingCap > 0,
+        `${key} has no usable listing allowance (${plan.activeListingCap})`,
+      ).toBe(true);
+    }
+  });
+
+  it("the features bullet agrees with the enforced cap", () => {
+    for (const [key, plan] of Object.entries(FLIPDESK_PLANS)) {
+      const bullet = plan.features.find((f) => /active listings?/i.test(f));
+      expect(bullet, `${key} has no "active listings" feature bullet`).toBeTruthy();
+      const expected = plan.activeListingCap === -1
+        ? "unlimited"
+        : formatListingAllowance(plan.activeListingCap);
+      expect(
+        bullet!.toLowerCase(),
+        `${key}'s feature bullet says "${bullet}" but the enforced cap is ` +
+          `${plan.activeListingCap}. The bullet and the allowance line are two ` +
+          `renderings of one number — they cannot disagree.`,
+      ).toContain(expected.toLowerCase());
+    }
+  });
+
+  it("allowances increase with price", () => {
+    // A cheaper tier covering more listings than a dearer one is a pricing bug
+    // that reads as a typo and costs a real upgrade.
+    const order = ["free", "starter", "pro", "business"] as const;
+    let previous = 0;
+    for (const key of order) {
+      const cap = FLIPDESK_PLANS[key].activeListingCap;
+      if (cap === -1) {
+        previous = Number.MAX_SAFE_INTEGER;
+        continue;
+      }
+      expect(cap, `${key} does not increase on the tier below it`).toBeGreaterThan(
+        previous,
+      );
+      previous = cap;
+    }
   });
 });

@@ -321,6 +321,26 @@ export function formatMarketplacesCap(cap: number): string {
   return String(cap);
 }
 
+// US-2483: how many listings a tier covers, as a shopper reads it.
+//
+// WHY THIS IS ITS OWN FUNCTION AND ITS OWN LINE ON THE PRICING PAGE. Every
+// competitor a reseller is comparing us against — Crosslist, Vendoo, List
+// Perfectly — prices by LISTING VOLUME. It is the first number they look for
+// and the axis they compare on. GradeThread priced by AI actions and left the
+// listing number buried in a features bullet, so the one figure a shopper came
+// for was the one they had to hunt for.
+//
+// The number is `activeListingCap`, which is what the edge actually enforces
+// (plan-gate.ts), tied to it by plan-limits-parity.test.ts. It is deliberately
+// NOT a separate marketing figure — an allowance the server does not grant is
+// the advertised-vs-enforced defect US-2123 found on the iOS paywall.
+//
+// -1 is unlimited, and it says "Unlimited" rather than inventing a cap.
+export function formatListingAllowance(cap: number): string {
+  if (cap === -1) return "Unlimited";
+  return cap.toLocaleString();
+}
+
 // eBay Sell API condition enum values with buyer-friendly labels. Mirrors
 // EBAY_CONDITION_VALUES in services/edge-functions/src/lib/ai-listing.ts.
 // Shared by the listing composer and the AutoLister bulk editor.

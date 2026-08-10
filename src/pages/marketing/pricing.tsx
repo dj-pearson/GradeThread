@@ -11,6 +11,7 @@ import {
   FLIPDESK_PLANS,
   BUYER_PLANS,
   SELLER_PLAN_BUYER_TIER,
+  formatListingAllowance,
   type BuyerPlanKey,
 } from "@/lib/constants";
 import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
@@ -164,6 +165,22 @@ export function PricingPage() {
                       billingBegins="on-subscribe"
                     />
                   )}
+                  {/* US-2483: the listing allowance, stated as its own line.
+                      Every crosslisting tool a reseller is comparing us against
+                      prices by listing volume — it is the first number they look
+                      for, and ours was buried in a features bullet three lines
+                      down. The value comes from activeListingCap, which is what
+                      the edge actually enforces, so this can never become an
+                      aspirational number the server does not grant. */}
+                  <p className="mt-4 border-t pt-4 text-sm">
+                    <span className="font-semibold text-foreground">
+                      {formatListingAllowance(plan.activeListingCap)}
+                    </span>{" "}
+                    <span className="text-muted-foreground">
+                      active listings
+                      {plan.activeListingCap === -1 ? "" : " at a time"}
+                    </span>
+                  </p>
                   {/* US-1110: render the full feature list (sourced from
                       FLIPDESK_PLANS — the single source of truth) so Pro vs
                       Business differentiators (AutoLister, AI comp pulls,
