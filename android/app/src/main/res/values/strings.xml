@@ -537,6 +537,9 @@
     <string name="marketplaces_automations">Automations</string>
     <string name="marketplaces_refresh">Refresh</string>
     <string name="marketplaces_listings">Listings</string>
+    <!-- US-2481: extension work queued from the phone, run on the desktop. -->
+    <string name="marketplaces_queued_for_desktop">Queued for your desktop</string>
+    <string name="marketplaces_queue_didnt_run">Didn’t run — these waited for a desktop browser that never opened, or failed when they ran. Nothing happened on the marketplace.</string>
     <string name="marketplaces_no_listings_cached_yet_sync">No listings cached yet. Sync to pull the ones live on eBay.</string>
     <string name="marketplaces_rename_this_account">Rename this account</string>
     <string name="marketplaces_label">Label</string>

@@ -843,6 +843,31 @@ async function reportJob(job, result) {
     delete pendingExternal[job.jobId];
   }
   await pushToSaasTab(job, result);
+  // US-2481: a DRAINED job has no originating GradeThread tab to push to — the
+  // seller queued it from their phone, possibly hours ago and on another
+  // network. Its outcome goes back to the queue row instead, which is the only
+  // place they will look for it.
+  if (job.queueId) {
+    await queueFetch("/" + job.queueId + "/complete", {
+      method: "POST",
+      body: JSON.stringify({
+        ok: result && result.ok === true,
+        result: {
+          error: result && typeof result.error === "string"
+            ? result.error.slice(0, 400)
+            : null,
+          manual: Boolean(result && result.manual),
+          listingUrl: result && typeof result.listingUrl === "string"
+            ? result.listingUrl
+            : null,
+        },
+      }),
+    });
+    // Immediately look for the next one. The drain runs a single job at a time,
+    // so without this a queue of six would take six sweep ticks — half an hour —
+    // to clear a browser that was open the whole time.
+    void drainQueue();
+  }
   // US-1885 AC1: remember the outcome for the popup. storage.LOCAL, not session:
   // the seller's most likely move after a cross-post that went wrong is to open the
   // popup later — possibly after a browser restart — and ask what happened. A
@@ -1085,6 +1110,137 @@ async function beginJob(kind, payload, sender, sendResponse, clientRef) {
   pendingExternal[job.jobId] = sendResponse;
 }
 
+// ── US-2481: drain the mobile queue ───────────────────────────────────────
+//
+// The seller queued work from their phone. This browser runs it the next time it
+// is open. The server held WHAT to do — an item id, a platform, a locale key —
+// and never a marketplace credential, which is the whole reason a queue is
+// allowed to exist at all (the ADR bright line).
+//
+// Runs on startup, on install, and on the 5-minute sweep. ONE job at a time:
+// planDrain enforces that, because six marketplace tabs opening at once in the
+// browser the seller is also using is not a feature.
+const QUEUE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/extension-queue";
+
+async function queueFetch(path, init) {
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") return null;
+  try {
+    const resp = await fetch(QUEUE_ENDPOINT + (path || ""), Object.assign({
+      cache: "no-store",
+      headers: {
+        "Authorization": "Bearer " + gtBuyerToken,
+        "Content-Type": "application/json",
+      },
+    }, init || {}));
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch (_e) {
+    // Offline, or the seller's token expired. The queue is server-side state and
+    // survives; the next tick tries again. Nothing is lost by failing quietly
+    // here, and a toast about a background poll would be noise.
+    return null;
+  }
+}
+
+let drainInFlight = false;
+
+async function drainQueue() {
+  // Re-entrancy guard: the sweep alarm and a startup event can land together,
+  // and two concurrent drains would each claim the same row before either
+  // marked it.
+  if (drainInFlight) return;
+  drainInFlight = true;
+  try {
+    // Same gates as an interactive cross-post, checked in the same order. A
+    // drained job is not a special case that gets to skip the seller's consent.
+    if (!(await sellerAllowed())) return;
+    if (!(await tosAccepted())) return;
+
+    const claimed = await queueFetch("/claim", {
+      method: "POST",
+      body: JSON.stringify({ limit: 5, installId: await getInstanceId() }),
+    });
+    const rows = (claimed && claimed.claimed) || [];
+    if (rows.length === 0) return;
+
+    const jobs = await withJobs(async (j) => ({ value: j }));
+    const plan = self.GT_LISTER_JOBS.planDrain(rows, jobs, { now: Date.now() });
+
+    // AC6: expired rows are REPORTED, never silently dropped. A seller who
+    // believes a delist is still pending is a seller heading for a double sale.
+    for (const row of plan.expired) {
+      await queueFetch("/" + row.id + "/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          ok: false,
+          result: {
+            expired: true,
+            error: "This waited longer than a week without your desktop browser " +
+              "opening, so GradeThread stopped waiting. Queue it again if you " +
+              "still want it run.",
+          },
+        }),
+      });
+    }
+
+    for (const row of plan.toRun) {
+      const url = self.GT_LISTER_GUARD.newListingUrlForLocale(
+        self.GT_LISTER_SELECTORS,
+        row.platform,
+        row.payload && row.payload.locale,
+      );
+      const target = row.kind === "delist"
+        ? (row.payload && row.payload.listingUrl)
+        : url;
+      // The same guard as an interactive job: a delist URL must be https and
+      // host-match its platform, and a list URL always comes from the bundled
+      // config. A queue row is server-supplied, which makes it no more trusted
+      // than a message from a page.
+      const allowed = row.kind === "delist"
+        ? self.GT_LISTER_GUARD.isAllowedDelistUrl(
+            self.GT_LISTER_SELECTORS, row.platform, target,
+          )
+        : Boolean(target);
+      if (!allowed) {
+        await queueFetch("/" + row.id + "/complete", {
+          method: "POST",
+          body: JSON.stringify({
+            ok: false,
+            result: { error: "GradeThread can't open that target for " + row.platform + "." },
+          }),
+        });
+        continue;
+      }
+
+      let tab;
+      try {
+        // NOT focused: this is background work the seller did not just ask for.
+        // Stealing focus from whatever they are doing would be the fastest way
+        // to make them uninstall it.
+        tab = await ext.tabs.create({ url: target, active: false });
+      } catch (_e) {
+        continue; // try again on the next tick; the row stays claimed
+      }
+
+      const job = self.GT_LISTER_JOBS.jobFromQueueRow(row, {
+        jobId: makeJobId(),
+        tabId: tab.id,
+        now: Date.now(),
+      });
+      await withJobs(async (j) => ({ jobs: self.GT_LISTER_JOBS.put(j, job) }));
+      await scheduleJobAlarm(job);
+    }
+  } finally {
+    drainInFlight = false;
+  }
+}
+
+// Run it when the browser opens — the moment the whole feature is named after.
+if (ext.runtime.onStartup) {
+  ext.runtime.onStartup.addListener(function () { void drainQueue(); });
+}
+
 function handleListRequest(payload, sender, sendResponse, clientRef) {
   return startJob("list", payload, sender, sendResponse, clientRef);
 }
@@ -1109,6 +1265,12 @@ if (ext.alarms && ext.alarms.onAlarm) {
       // US-1877: expired watches go with them — an abandoned tab must not capture
       // whatever the seller browses to an hour later.
       withWatches(async (w) => ({ watches: self.GT_LISTER_JOBS.sweepWatches(w, Date.now()) }));
+      // US-2481: the same tick is also when we look for work queued from the
+      // seller's phone. Riding the existing 5-minute sweep rather than adding an
+      // alarm is deliberate — a browser left open all day should pick up a job
+      // queued at lunchtime without the seller doing anything, and one more
+      // periodic alarm for that would be a second thing to get wrong.
+      void drainQueue();
       return;
     }
 

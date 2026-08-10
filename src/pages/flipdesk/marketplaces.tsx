@@ -82,6 +82,11 @@ import {
   useSyncShopify,
 } from "@/hooks/use-shopify";
 import { safeHref } from "@/lib/safe-url";
+import {
+  QUEUED_NOTICE,
+  useCancelExtensionWork,
+  useExtensionQueue,
+} from "@/hooks/use-extension-queue";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -1070,6 +1075,103 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
   );
 }
 
+// US-2481: work queued from a phone, waiting for this desktop.
+//
+// The honest counterpart to the queue itself. Nifty's pitch is that your work
+// runs whether or not your browser is open; ours is that it runs in YOUR
+// browser, which means there is a wait — and the only way that is a feature
+// rather than a disappointment is if the wait is stated rather than discovered.
+//
+// The second list is the one that earns its place: work that expired undrained.
+// A seller who believes a delist is still pending is a seller heading for a
+// double sale, so an item that never ran surfaces here instead of aging out in
+// silence (US-2481 AC6, the same rule as the US-2165 delist marker).
+function ExtensionQueueSection() {
+  const { data, isLoading } = useExtensionQueue();
+  const cancel = useCancelExtensionWork();
+
+  const pending = data?.pending ?? [];
+  const needsAttention = data?.needsAttention ?? [];
+  if (isLoading || (pending.length === 0 && needsAttention.length === 0)) return null;
+
+  const describe = (kind: string, platform: string) => {
+    const label = MARKETPLACE_LABELS[platform as keyof typeof MARKETPLACE_LABELS] ?? platform;
+    if (kind === "delist") return `End the ${label} listing`;
+    if (kind === "share") return `Share your ${label} closet`;
+    return `List to ${label}`;
+  };
+
+  return (
+    <section>
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Queued for your desktop
+      </h2>
+
+      {pending.length > 0 && (
+        <div className="rounded-lg border p-3">
+          <p className="text-xs text-muted-foreground">{QUEUED_NOTICE}</p>
+          <ul className="mt-3 space-y-2">
+            {pending.map((job) => (
+              <li
+                key={job.id}
+                className="flex flex-wrap items-center justify-between gap-2 text-sm"
+              >
+                <span className="flex items-center gap-2">
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                  <span className="font-medium">
+                    {describe(job.kind, job.platform)}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    queued {formatAgo(job.created_at)}
+                    {job.source !== "web" ? " from your phone" : ""}
+                  </span>
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={cancel.isPending}
+                  onClick={() => {
+                    cancel.mutate(job.id, {
+                      onSuccess: () => toast.success("Removed from the queue."),
+                      onError: (e) => toast.error(e.message),
+                    });
+                  }}
+                >
+                  Cancel
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {needsAttention.length > 0 && (
+        <div className="mt-2 rounded-lg border border-dashed p-3">
+          <p className="flex items-center gap-2 text-sm font-medium">
+            <AlertTriangle className="h-4 w-4 text-brand-red-text" />
+            Didn&apos;t run
+          </p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            These waited for a desktop browser that never opened, or failed when
+            they ran. Nothing happened on the marketplace — do it there yourself,
+            or queue it again.
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {needsAttention.map((job) => (
+              <li key={job.id} className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {describe(job.kind, job.platform)}
+                </span>
+                {job.result?.error ? ` — ${job.result.error}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function FlipdeskMarketplacesPage() {
   const [params, setParams] = useSearchParams();
   const qc = useQueryClient();
@@ -1393,6 +1495,9 @@ export function FlipdeskMarketplacesPage() {
           API, so they're listed from the seller's own logged-in tab via the
           GradeThread Lister browser extension (US-716). Presented honestly as a
           real, available capability — not "coming soon". */}
+      {/* US-2481: what your phone queued and this desktop has not run yet. */}
+      <ExtensionQueueSection />
+
       <section>
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Connect via browser extension

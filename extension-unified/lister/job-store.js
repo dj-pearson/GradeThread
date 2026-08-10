@@ -65,6 +65,12 @@
       platform: String(o.platform || ""),
       kind: o.kind === "delist" ? "delist" : "list",
       payload: o.payload || null,
+      // US-2481: the server-side queue row this job came from, when it was
+      // DRAINED rather than started from an open GradeThread tab. It is how the
+      // result finds its way back to a queue entry whose originating device — a
+      // phone, hours ago — is not part of this conversation at all. Null for an
+      // ordinary same-session cross-post.
+      queueId: typeof o.queueId === "string" ? o.queueId : null,
       state: PENDING,
       createdAt: now,
       deadlineAt: now + (typeof o.ttlMs === "number" ? o.ttlMs : JOB_TIMEOUT_MS),
@@ -280,7 +286,117 @@
     return next;
   }
 
+  // ── US-2481: draining the mobile queue ────────────────────────────────────
+  //
+  // A seller queues work from their phone; this browser runs it the next time it
+  // opens. The decision of WHAT to run now is pure and lives here, next to the
+  // job map it has to reason about, so test/lister-jobs.test.cjs can hold it.
+  //
+  // ONE AT A TIME, deliberately. A drain that started six jobs would open six
+  // marketplace tabs at once, each of which steals focus, and several of which
+  // would be filling forms the seller cannot see. The seller's browser is not a
+  // worker pool — it is the thing they are also using. So the drain runs a
+  // single job and comes back for the next one when that finishes.
+  var DRAIN_MAX_CONCURRENT = 1;
+
+  /**
+   * Decide which queued rows to start now.
+   *
+   * Returns:
+   *   toRun   — rows to turn into jobs, oldest first.
+   *   expired — rows past their window. NOT run, and NOT silently dropped: the
+   *             caller reports them, because a delist that never happened is
+   *             the thing the seller most needs told about (AC6).
+   *   skipped — rows already in flight in this browser, so a second drain tick
+   *             cannot double-run a share job.
+   */
+  function planDrain(rows, jobs, ctx) {
+    var now = (ctx && typeof ctx.now === "number") ? ctx.now : 0;
+    var max = (ctx && typeof ctx.maxConcurrent === "number")
+      ? ctx.maxConcurrent
+      : DRAIN_MAX_CONCURRENT;
+
+    // What this browser is already doing. A pending job holds a marketplace tab,
+    // and starting another job for the same queue row would fill the same form
+    // twice.
+    var inFlight = {};
+    var pendingCount = 0;
+    Object.keys(jobs || {}).forEach(function (id) {
+      var job = jobs[id];
+      if (!isPending(job)) return;
+      pendingCount += 1;
+      if (job.queueId) inFlight[job.queueId] = true;
+    });
+
+    var toRun = [];
+    var expired = [];
+    var skipped = [];
+    var slots = Math.max(0, max - pendingCount);
+
+    var list = Array.isArray(rows) ? rows.slice() : [];
+    // Oldest first: the seller queued them in an order, and a delist queued
+    // before a listing should be ended before the replacement goes up.
+    list.sort(function (a, b) {
+      return String(a && a.created_at || "").localeCompare(String(b && b.created_at || ""));
+    });
+
+    for (var i = 0; i < list.length; i++) {
+      var row = list[i];
+      if (!row || typeof row.id !== "string") continue;
+
+      var expiresAt = Date.parse(row.expires_at);
+      if (Number.isFinite(expiresAt) && expiresAt <= now) {
+        expired.push(row);
+        continue;
+      }
+      if (inFlight[row.id]) {
+        skipped.push(row);
+        continue;
+      }
+      if (slots <= 0) {
+        skipped.push(row);
+        continue;
+      }
+      toRun.push(row);
+      slots -= 1;
+    }
+
+    return { toRun: toRun, expired: expired, skipped: skipped };
+  }
+
+  /**
+   * Turn a queue row into the payload shape the content scripts already expect.
+   *
+   * The queue speaks the SERVER's language (snake_case columns, an instruction
+   * blob); the job runner speaks the extension's. Translating here rather than
+   * in the worker means the mapping is testable and there is exactly one of it.
+   */
+  function jobFromQueueRow(row, o) {
+    return makeJob({
+      jobId: o.jobId,
+      clientRef: null,
+      tabId: o.tabId,
+      // A drained job has no originating GradeThread tab — the seller queued it
+      // from a phone. Results go back to the queue endpoint instead, which is
+      // what queueId is for.
+      saasTabId: null,
+      platform: row.platform,
+      kind: row.kind === "delist" ? "delist" : "list",
+      payload: Object.assign({}, row.payload || {}, {
+        platform: row.platform,
+        itemId: row.inventory_item_id || null,
+        listingId: row.listing_id || null,
+      }),
+      queueId: row.id,
+      now: o.now,
+      ttlMs: o.ttlMs,
+    });
+  }
+
   root.GT_LISTER_JOBS = {
+    DRAIN_MAX_CONCURRENT: DRAIN_MAX_CONCURRENT,
+    planDrain: planDrain,
+    jobFromQueueRow: jobFromQueueRow,
     WATCH_TTL_MS: WATCH_TTL_MS,
     makeWatch: makeWatch,
     putWatch: putWatch,

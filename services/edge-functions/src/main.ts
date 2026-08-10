@@ -54,6 +54,7 @@ import { flipdeskGooglePhotosRoutes } from "./routes/flipdesk-google-photos.ts";
 import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
+import { flipdeskExtensionQueueRoutes } from "./routes/flipdesk-extension-queue.ts";
 import { flipdeskExpensesRoutes } from "./routes/flipdesk-expenses.ts";
 import { flipdeskConsignmentRoutes } from "./routes/flipdesk-consignment.ts";
 import {
@@ -473,6 +474,11 @@ app.use("/api/flipdesk/grading/validate", authMiddleware);
 app.use("/api/flipdesk/grading/submissions/*", authMiddleware);
 app.use("/api/flipdesk/images/*", authMiddleware);
 app.use("/api/flipdesk/listings/*", authMiddleware);
+// US-2481: the mobile→desktop extension work queue. Both the bare path (POST
+// to enqueue, GET to read) and the sub-paths (/claim, /:id/complete, DELETE
+// /:id) — a wildcard alone would leave the bare mount open.
+app.use("/api/flipdesk/extension-queue", authMiddleware);
+app.use("/api/flipdesk/extension-queue/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
@@ -940,6 +946,10 @@ app.use("/api/flipdesk/ebay/policies", rateLimiter(30, 60_000, "ebay-policies"))
 app.use("/api/flipdesk/ebay/policies/*", rateLimiter(30, 60_000, "ebay-policies"));
 app.use("/api/flipdesk/images/*", rateLimiter(30, 60_000, "flipdesk-images"));
 app.use("/api/flipdesk/listings/*", rateLimiter(30, 60_000, "flipdesk-listings"));
+// US-2481: a phone enqueues one job per tap, and the desktop drains in batches,
+// so this sits above the listings limit without being an open door.
+app.use("/api/flipdesk/extension-queue", rateLimiter(60, 60_000, "flipdesk-ext-queue"));
+app.use("/api/flipdesk/extension-queue/*", rateLimiter(60, 60_000, "flipdesk-ext-queue"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
 app.use("/api/flipdesk/google/oauth/start", rateLimiter(10, 60_000, "google-oauth"));
@@ -1134,6 +1144,10 @@ app.route("/api/flipdesk/google/photos", flipdeskGooglePhotosRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleRoutes);
 app.route("/api/flipdesk/google", flipdeskGoogleSyncRoutes);
 app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
+// US-2481: extension work queued from mobile, drained by the desktop Lister.
+// Stores WHAT to do only — never a marketplace credential (the ADR bright line,
+// enforced here, in lib/extension-queue.ts and as a CHECK on the table).
+app.route("/api/flipdesk/extension-queue", flipdeskExtensionQueueRoutes);
 app.route("/api/flipdesk/expenses", flipdeskExpensesRoutes);
 app.route("/api/flipdesk/consignment", flipdeskConsignmentRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);

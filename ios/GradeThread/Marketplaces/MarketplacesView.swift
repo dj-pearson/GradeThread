@@ -56,6 +56,9 @@ struct MarketplacesView: View {
     /// error doesn't masquerade as "all reconciled" (count silently 0) and make
     /// the reconciliation card vanish.
     @State private var orphanCheckFailed = false
+    // US-2481: extension work queued from this phone, waiting on the desktop.
+    @State private var queuePending: [ExtensionQueueService.QueueItem] = []
+    @State private var queueNeedsAttention: [ExtensionQueueService.QueueItem] = []
 
     var body: some View {
         ScrollView {
@@ -83,6 +86,12 @@ struct MarketplacesView: View {
                 }
                 // US-675: durable home for AutoLister-generated drafts + bulk edit.
                 draftsCard
+                // US-2481: work this phone queued that the desktop has not run.
+                // Placed ABOVE the channel list because it answers the question a
+                // seller actually has when they open this screen after queuing
+                // something — "did that happen yet?" — and the honest answer is
+                // "not until your browser opens."
+                extensionQueueSection
                 // US-668: phased multi-channel surface — eBay is live above;
                 // the rest are surfaced as "coming soon" so the app reflects the
                 // real multi-marketplace roadmap.
@@ -99,6 +108,10 @@ struct MarketplacesView: View {
             if let userId = currentUserId() {
                 await store.refresh(userId: userId)
                 await refreshOrphanCount(userId: userId)
+                // US-2481: read on every appearance rather than once. This is
+                // the screen a seller opens to ask "did the thing I queued from
+                // the shop run yet", and a cached answer is the wrong one.
+                await refreshQueue()
             }
             // US-1262: a reconnect deep link that mounted this tab is consumed
             // here (its `.onReceive` wasn't subscribed when the signal fired).
@@ -234,6 +247,101 @@ struct MarketplacesView: View {
         // omitted until it has a real integration. The `.comingSoon` tier is kept
         // for when a future channel needs to be staged again.
     ]
+
+    // US-2481: queued extension work, and what never ran.
+    //
+    // Two lists, deliberately. `pending` is honest waiting. `needsAttention` is
+    // work that expired without a desktop browser ever opening — and that half
+    // is the one that earns the section: a seller who believes a delist is still
+    // pending is a seller heading for a double sale, so it surfaces here rather
+    // than aging out in silence.
+    @ViewBuilder
+    private var extensionQueueSection: some View {
+        if !queuePending.isEmpty || !queueNeedsAttention.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Queued for your desktop")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                if !queuePending.isEmpty {
+                    // The wording comes from the service, not from this view, so
+                    // web and iOS cannot drift into saying different things about
+                    // whether the work has happened.
+                    Text(ExtensionQueueService.queuedNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    ForEach(queuePending) { job in
+                        HStack(spacing: 10) {
+                            Image(systemName: "clock")
+                                .scaledIconFont(size: 15, maxSize: 24)
+                                .foregroundStyle(.secondary)
+                            Text(Self.describe(job))
+                                .font(.subheadline)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Button("Cancel") {
+                                Task { await cancelQueued(job.id) }
+                            }
+                            .font(.caption.weight(.semibold))
+                            .buttonStyle(.plain)
+                            .foregroundStyle(Color.brandRed)
+                        }
+                        .padding(12)
+                        .cardStyle(.flush)
+                    }
+                }
+
+                if !queueNeedsAttention.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Didn't run")
+                            .font(.subheadline.weight(.semibold))
+                        Text("These waited for a desktop browser that never opened, or failed when they ran. Nothing happened on the marketplace — do it there yourself, or queue it again.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(queueNeedsAttention) { job in
+                            Text("• \(Self.describe(job))")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(12)
+                    .cardStyle(.flush)
+                }
+            }
+        }
+    }
+
+    private static func describe(_ job: ExtensionQueueService.QueueItem) -> String {
+        let label = phasedChannels.first { $0.id == job.platform }?.label
+            ?? job.platform.capitalized
+        switch job.kind {
+        case "delist": return "End the \(label) listing"
+        case "share":  return "Share your \(label) closet"
+        default:       return "List to \(label)"
+        }
+    }
+
+    private func refreshQueue() async {
+        do {
+            let snapshot = try await ExtensionQueueService.shared.snapshot()
+            queuePending = snapshot.pending
+            queueNeedsAttention = snapshot.needsAttention
+        } catch {
+            // A failed poll is not worth an alert: the queue is server-side
+            // state and the next refresh picks it up. Showing an error here
+            // would train the seller to dismiss this section.
+            queuePending = []
+            queueNeedsAttention = []
+        }
+    }
+
+    private func cancelQueued(_ id: String) async {
+        try? await ExtensionQueueService.shared.cancel(id: id)
+        await refreshQueue()
+    }
 
     private var comingSoonChannelsSection: some View {
         VStack(alignment: .leading, spacing: 10) {

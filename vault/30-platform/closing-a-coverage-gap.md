@@ -146,6 +146,26 @@ last. Everything above is reversible without a seller noticing; this one is not.
 
 ---
 
+## Queueing from a phone (US-2481)
+
+An extension channel can also be driven from mobile: the app records an
+instruction in `extension_work_queue` and the desktop extension drains it the
+next time the browser opens. Nothing about step 1–8 changes — the queue carries
+a platform key, and a channel that is not enabled still reports "list manually"
+when it drains.
+
+Two rules the queue adds:
+
+- **It stores WHAT to do, never a way in.** No password, no session cookie.
+  Enforced in three places, each catching a different failure: a CHECK
+  constraint on the table, a by-key rejection in `lib/extension-queue.ts` (so
+  the 400 can name the offending key), and `extension-queue_test.ts`.
+- **Queued is not done.** One sentence — `QUEUED_NOTICE` — is shared verbatim by
+  the edge, the web hook, the iOS service and the Android repository. A screen
+  that reads like completion for a queued **delist** tells a seller their
+  listing was pulled when it is still live, which is the double sale everything
+  else here is arranged to prevent.
+
 ## The mirror rule (while it lasts)
 
 Until the legacy retirement gate opens (US-1872 AC5), any selector fix applied
