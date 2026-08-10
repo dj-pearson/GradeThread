@@ -48,28 +48,41 @@ services:
         max-size: "10m"
         max-file: "5"
     environment:
-      - PORT=8787
+      # US-2496: MAP form, not list form, and that is load-bearing.
+      #
+      # Coolify parses this file, merges its own env vars in, and re-serialises
+      # it. A YAML SEQUENCE survives that round-trip as an array with INTEGER
+      # keys, and the re-dumped file comes back as `environment: {0: "PORT=8787",
+      # 1: ...}` — which compose rejects with
+      # "non-string key in services.edge-functions.environment: 0" and the whole
+      # deploy fails at the build step. A MAPPING round-trips as a mapping.
+      #
+      # A NULL value here is exactly equivalent to a bare `- VAR` list entry:
+      # compose passes the variable through from the host ONLY when the host
+      # actually has it, so an unset SOURCE_COMMIT still cannot clobber the
+      # build-arg stamp with an empty string. Verified with `docker compose
+      # config` — the rendered output is byte-identical to the list form.
+      PORT: "8787"
       # Marks this as the production runtime. Security debug flags (e.g.
       # WEBHOOK_PAYOUT_DEBUG) are ignored when EDGE_ENV=production. (US-266)
-      - EDGE_ENV=production
-      # US-2001 runtime half: bare pass-throughs, set only when the host has
-      # them, so an unset var cannot clobber the build-arg stamp above. See
-      # docker-compose.yml for the full reasoning.
-      - SOURCE_COMMIT
-      - COMMIT_SHA
+      EDGE_ENV: production
+      # US-2001 runtime half: null = pass through only when the host has it, so
+      # an unset var cannot clobber the build-arg stamp above.
+      SOURCE_COMMIT:
+      COMMIT_SHA:
       # US-573: the container memory limit (MiB) the app reports against on
       # /health/metrics so the load-test gate + ops can compute headroom. Keep in
       # sync with deploy.resources.limits.memory below.
-      - EDGE_MEMORY_LIMIT_MB=2048
+      EDGE_MEMORY_LIMIT_MB: "2048"
       # US-578: edge trace/log sampling rate, the analogue of the frontend's
       # Sentry tracesSampleRate: 0.1 (src/main.tsx). Samples ONLY successful
       # (2xx/3xx) access lines + ok-outcome latency spans; every 4xx/5xx and all
       # business counters are always logged at 100%. Tune in OBSERVABILITY.md.
-      - EDGE_TRACE_SAMPLE_RATE=0.1
+      EDGE_TRACE_SAMPLE_RATE: "0.1"
       # US-573: max grading pipelines allowed to hold base64 image data resident
       # at once (the OOM bound — see grading-capacity.ts + vault/10-ops/capacity.md). Tuned so
       # worst-case residency stays under the 2G limit's 30% headroom target.
-      - GRADING_MAX_CONCURRENT_PIPELINES=6
+      GRADING_MAX_CONCURRENT_PIPELINES: "6"
     env_file:
       - .env
     healthcheck:

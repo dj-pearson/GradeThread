@@ -27,20 +27,30 @@ services:
     expose:
       - "8787"
     environment:
-      - PORT=8787
+      # US-2496: MAP form, not list form, and that is load-bearing.
+      #
+      # Coolify parses this file, merges its own env vars in, and re-serialises
+      # it. A YAML SEQUENCE survives that round-trip as an array with INTEGER
+      # keys, and the re-dumped file comes back as `environment: {0: "PORT=8787",
+      # 1: ...}` — which compose rejects with
+      # "non-string key in services.edge-functions.environment: 0" and the whole
+      # deploy fails at the build step. A MAPPING round-trips as a mapping.
+      #
+      # A NULL value here is exactly equivalent to a bare `- VAR` list entry:
+      # compose passes the variable through from the host ONLY when the host
+      # actually has it, so an unset SOURCE_COMMIT still cannot clobber the
+      # build-arg stamp with an empty string. Verified with `docker compose
+      # config` — the rendered output is byte-identical to the list form.
+      PORT: "8787"
       # US-2001, the RUNTIME half. The build-arg above is a build-time stamp; if
       # the builder does not pass it, the image bakes in "dev" and nothing later
-      # can correct it. These are bare pass-throughs (no `=`), which set the
-      # variable in the container ONLY when the host actually has it — so an
-      # unset SOURCE_COMMIT leaves the build-arg stamp intact instead of
-      # clobbering a good SHA with an empty string. That distinction is the
-      # whole reason this is not written `- SOURCE_COMMIT=${SOURCE_COMMIT:-dev}`.
+      # can correct it.
       #
       # With release-identity.ts falling through placeholder VALUES rather than
       # only unset keys, setting either of these as an ordinary Coolify env var
       # now fixes an unattributable release without a rebuild.
-      - SOURCE_COMMIT
-      - COMMIT_SHA
+      SOURCE_COMMIT:
+      COMMIT_SHA:
     env_file:
       - .env
     healthcheck:
