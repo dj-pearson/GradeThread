@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Check, Crown, Loader2, ExternalLink } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +49,7 @@ function tierForFlag(flag: string): BuyerPlanKey | null {
 }
 
 export function BuyerBillingPage() {
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const { data: summary, isLoading } = useBillingSummary();
   const ent = useBuyerEntitlements();
   const subscribe = useBuyerSubscribe();
@@ -64,9 +64,28 @@ export function BuyerBillingPage() {
   // own hosted page.
   const [upgradeTarget, setUpgradeTarget] =
     useState<Exclude<BuyerPlanKey, "free"> | null>(null);
+  // US-2453: ?cancel=1 lands on the cancellation control, mirroring the seller
+  // page (US-2122 AC2). The buyer welcome email is required to say HOW to
+  // cancel, and it links here — "go to billing and look for the button" is not
+  // that. There is no confirmation dialog on this page to open, so the honest
+  // equivalent is to move focus to the control: it names the button, puts the
+  // keyboard on it, and scrolls it into view without acting for the user.
+  const cancelRef = useRef<HTMLButtonElement>(null);
 
   const upgradeFlag = params.get("upgrade");
   const highlight = upgradeFlag ? tierForFlag(upgradeFlag) : null;
+
+  // Only when there is something to cancel — focusing nothing, or a "Resume
+  // plan" button, would be worse than ignoring the link. The param is stripped
+  // either way so a refresh or a Back press does not re-fire it.
+  useEffect(() => {
+    if (params.get("cancel") !== "1") return;
+    cancelRef.current?.focus();
+    cancelRef.current?.scrollIntoView({ block: "center" });
+    const next = new URLSearchParams(params);
+    next.delete("cancel");
+    setParams(next, { replace: true });
+  }, [params, setParams]);
 
   // US-1845: the conversion itself. Stripe returns to
   // /buyer/billing?checkout=success&product=buyer, so the return URL is the one
@@ -133,7 +152,12 @@ export function BuyerBillingPage() {
         {(hasPaidSub || summary.subscription.stripe_customer_id) && (
           <CardContent className="flex flex-wrap gap-2">
             {hasPaidSub && !paid.cancel_at_period_end && (
-              <Button variant="outline" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
+              <Button
+                ref={cancelRef}
+                variant="outline"
+                onClick={() => cancel.mutate()}
+                disabled={cancel.isPending}
+              >
                 {cancel.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Cancel plan
               </Button>

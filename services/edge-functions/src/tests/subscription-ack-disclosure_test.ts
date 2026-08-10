@@ -56,12 +56,29 @@ Deno.test("US-2122 AC1: states that renewal is AUTOMATIC, in words", () => {
 });
 
 Deno.test("US-2122 AC2: links to the cancellation FLOW, not merely to Billing", () => {
+  // US-2453 made this email serve both subscriptions, so the path is no longer
+  // a literal — it comes from renewalNoticeCopy(data.product). The requirement
+  // is unchanged: whatever billing page this reader is sent to, the link must
+  // carry ?cancel=1, and that page must act on it. Both halves are asserted,
+  // because a deep link into a page that ignores the parameter is the same
+  // "leaves the reader to find the control" failure with extra steps.
   assert(
-    body.includes("/dashboard/billing?cancel=1"),
+    /\$\{manageUrl\}\?cancel=1/.test(body),
     'must deep-link the cancellation flow. "Go to Billing" leaves the reader to ' +
-      "find the control, which is the half of the requirement a date cannot cover " +
-      "(src/pages/billing.tsx consumes ?cancel=1 and opens the dialog)",
+      "find the control, which is the half of the requirement a date cannot cover",
   );
+  const pages = [
+    "../../../../src/pages/billing.tsx",
+    "../../../../src/pages/buyer/billing.tsx",
+  ];
+  for (const page of pages) {
+    const src = Deno.readTextFileSync(new URL(page, import.meta.url));
+    assert(
+      /(searchParams|params)\.get\("cancel"\) !== "1"/.test(src),
+      `${page} does not consume ?cancel=1 — the email links there and the ` +
+        "parameter would do nothing",
+    );
+  }
   assert(
     /cancel anytime|how to cancel|cancel your/i.test(body),
     "the link needs cancellation wording — a bare URL is not an instruction",

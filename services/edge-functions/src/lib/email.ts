@@ -1093,12 +1093,16 @@ interface SubscriptionStartedData {
   interval: "monthly" | "yearly";
   priceCents: number;
   periodEnd: string;
+  /** US-2453. Required and undefaulted, as on the other billing emails. */
+  product: "flipdesk" | "buyer";
 }
 
 interface SubscriptionCanceledData {
   userName: string;
   plan: string;
   endsAt: string;
+  /** US-2453. Required and undefaulted, as on the other billing emails. */
+  product: "flipdesk" | "buyer";
 }
 
 interface CreditPackPurchasedData {
@@ -1178,9 +1182,10 @@ export async function sendSubscriptionStartedEmail(
   to: string,
   data: SubscriptionStartedData,
 ): Promise<boolean> {
+  const { productName, manageUrl } = renewalNoticeCopy(data.product, SITE_URL);
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
-      Welcome to FlipDesk ${escapeHtml(data.plan)}!
+      Welcome to ${escapeHtml(productName)} ${escapeHtml(data.plan)}!
     </h2>
     <p style="margin: 0 0 24px; color: #666; font-size: 15px; line-height: 1.5;">
       Hi ${escapeHtml(data.userName)}, your subscription is active. Thanks for going pro.
@@ -1188,7 +1193,7 @@ export async function sendSubscriptionStartedEmail(
 
     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="margin-bottom: 24px; border: 1px solid #eee; border-radius: 8px;">
       <tr>
-        <td style="padding: 12px;"><span style="color: #666; font-size: 13px;">Plan</span><br><strong>FlipDesk ${escapeHtml(data.plan)}</strong></td>
+        <td style="padding: 12px;"><span style="color: #666; font-size: 13px;">Plan</span><br><strong>${escapeHtml(productName)} ${escapeHtml(data.plan)}</strong></td>
         <td style="padding: 12px; border-left: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Billed</span><br><strong>${dollars(data.priceCents)} / ${data.interval === "yearly" ? "year" : "month"}</strong></td>
       </tr>
       <tr><td colspan="2" style="padding: 12px; border-top: 1px solid #eee;"><span style="color: #666; font-size: 13px;">Next charge</span><br><strong>${formatDate(data.periodEnd)}</strong></td></tr>
@@ -1199,15 +1204,15 @@ export async function sendSubscriptionStartedEmail(
       ${dollars(data.priceCents)} every ${data.interval === "yearly" ? "year" : "month"},
       starting ${formatDate(data.periodEnd)}, until you cancel.
       <br>
-      You can <a href="${SITE_URL}/dashboard/billing?cancel=1" style="color: ${BRAND_RED};">cancel anytime</a>
+      You can <a href="${manageUrl}?cancel=1" style="color: ${BRAND_RED};">cancel anytime</a>
       — cancelling stops future charges and keeps your plan active until the end of the period you've paid for.
     </p>
 
-    ${ctaButton("Go to Billing", `${SITE_URL}/dashboard/billing`)}
+    ${ctaButton("Go to Billing", manageUrl)}
   `;
   return await sendEmail({
     to,
-    subject: `FlipDesk ${data.plan} active — welcome aboard`,
+    subject: `${productName} ${data.plan} active — welcome aboard`,
     html: emailLayout(content),
     category: "subscription_started", // US-801: durable retry on transient failure
   });
@@ -1258,21 +1263,29 @@ export async function sendSubscriptionCanceledEmail(
   to: string,
   data: SubscriptionCanceledData,
 ): Promise<boolean> {
+  const { productName, manageUrl } = renewalNoticeCopy(data.product, SITE_URL);
+  // What survives the cancellation differs by product, and naming a seller's
+  // inventory to a buyer would read as a mistake on the one email confirming
+  // they cancelled — the moment they are least inclined to give us the benefit
+  // of the doubt.
+  const kept = data.product === "buyer"
+    ? "Your saved items, past checks, and any certificates you've been shown all stay available."
+    : "Your inventory, listings, past grade reports, and grade credits all stay safe.";
   const content = `
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
       Cancellation scheduled
     </h2>
     <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
-      Hi ${escapeHtml(data.userName)}, your <strong>FlipDesk ${escapeHtml(data.plan)}</strong> subscription will end on <strong>${formatDate(data.endsAt)}</strong>. Until then you keep full access.
+      Hi ${escapeHtml(data.userName)}, your <strong>${escapeHtml(productName)} ${escapeHtml(data.plan)}</strong> subscription will end on <strong>${formatDate(data.endsAt)}</strong>. Until then you keep full access.
     </p>
     <p style="margin: 0 0 16px; color: #666; font-size: 14px; line-height: 1.5;">
-      Your inventory, listings, past grade reports, and grade credits all stay safe. Changed your mind? You can undo the cancellation any time before ${formatDate(data.endsAt)}.
+      ${kept} Changed your mind? You can undo the cancellation any time before ${formatDate(data.endsAt)}.
     </p>
-    ${ctaButton("Manage subscription", `${SITE_URL}/dashboard/billing`)}
+    ${ctaButton("Manage subscription", manageUrl)}
   `;
   return await sendEmail({
     to,
-    subject: `Your FlipDesk ${data.plan} plan ends ${formatDate(data.endsAt)}`,
+    subject: `Your ${productName} ${data.plan} plan ends ${formatDate(data.endsAt)}`,
     html: emailLayout(content),
     category: "subscription_canceled", // US-801: durable retry on transient failure
   });

@@ -443,8 +443,15 @@ async function recordEvent(
   }
 }
 
+// US-2453: buyer_subscription_status and buyer_cancel_at_period_end are here so
+// applyBuyerSubscriptionChange can compare PRIOR state against the incoming
+// subscription. The lifecycle emails are edge-triggered — "did they just become
+// paid", "did cancellation just get scheduled" — and without the previous values
+// the only alternative is to key off the event type, which US-2122 AC4 already
+// showed is wrong: a trial conversion and an in-place upgrade both arrive as
+// subscription.updated.
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since, buyer_plan, buyer_subscription_id";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since, buyer_plan, buyer_subscription_id, buyer_subscription_status, buyer_cancel_at_period_end";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -526,7 +533,9 @@ async function handleSubscriptionChange(event: Stripe.Event) {
   // buyer_* columns and return — never touch flipdesk_* or run the seller-only
   // side effects (grade/AI resets, trial conversion, drip, downgrade schedule).
   if (subscriptionIsBuyer(sub)) {
-    await applyBuyerSubscriptionChange(user, sub, customerId);
+    // US-2453: the event is passed so the lifecycle acknowledgements can tell a
+    // purchase from a renewal. Everything else about this branch is unchanged.
+    await applyBuyerSubscriptionChange(user, sub, customerId, event);
     return;
   }
 
@@ -792,6 +801,7 @@ async function handleSubscriptionChange(event: Stripe.Event) {
           interval,
           priceCents,
           periodEnd: periodEnd ?? new Date().toISOString(),
+          product: "flipdesk",
         }),
         "subscription_started",
       );
@@ -808,6 +818,7 @@ async function handleSubscriptionChange(event: Stripe.Event) {
           userName: name,
           plan: planLabel,
           endsAt: periodEnd ?? new Date().toISOString(),
+          product: "flipdesk",
         }),
         "subscription_canceled_scheduled",
       );
@@ -850,9 +861,18 @@ async function handleSubscriptionChange(event: Stripe.Event) {
 // column family (00402) so it can never collide with the seller sub on the
 // shared customer. Fail-closed to Free on an unmappable buyer price.
 async function applyBuyerSubscriptionChange(
-  user: { id: string; buyer_plan?: string | null },
+  user: {
+    id: string;
+    email?: string | null;
+    full_name?: string | null;
+    buyer_plan?: string | null;
+    // US-2453: PRIOR state, for the edge-triggered lifecycle emails below.
+    buyer_subscription_status?: string | null;
+    buyer_cancel_at_period_end?: boolean | null;
+  },
   sub: Stripe.Subscription,
   customerId: string,
+  event?: Stripe.Event,
 ) {
   const plan = mapSubscriptionToBuyerPlan(sub) ?? "free";
   const interval = mapSubscriptionInterval(sub);
@@ -898,6 +918,69 @@ async function applyBuyerSubscriptionChange(
     await recordAgreedTerms(user.id, sub, plan);
   }
 
+  // US-2453: the lifecycle acknowledgements. Every one of these lived below the
+  // `return` in handleSubscriptionChange, so a buyer's first purchase produced
+  // nothing from us and cancelling produced no confirmation of what was
+  // cancelled or when access ends.
+  //
+  // Edge-triggered from the PRIOR row, not from the event type. That is
+  // US-2122 AC4's lesson repeated for the buyer product: a trial conversion and
+  // an in-place plan change both arrive as subscription.updated, so keying off
+  // `.created` misses the two moments a purchase most needs acknowledging —
+  // while acknowledging every `.updated` would mail someone on renewals and
+  // cancel-toggle changes that are not purchases at all.
+  //
+  // NO PAUSE / RESUME EMAILS, deliberately. Those two are keyed on
+  // flipdesk_pause_until, a seller column; there is no buyer_pause_until, no
+  // buyer pause UI, and mapSubscriptionStatus only ever reports "paused" for a
+  // buyer if someone paused collection in the Stripe dashboard by hand. An
+  // email about a state a buyer cannot enter through the product is worse than
+  // no email. buyer-lifecycle-emails_test.ts pins this absence so it reads as a
+  // decision rather than another oversight.
+  if (user.email && plan !== "free") {
+    const name = userDisplayName(user.email, user.full_name ?? null);
+    const planLabel = plan.charAt(0).toUpperCase() + plan.slice(1);
+
+    const wasTrialing = user.buyer_subscription_status === "trialing";
+    const trialConverted = wasTrialing && status === "active";
+    const planChanged = (user.buyer_plan ?? "free") !== plan;
+    const isNewPurchase =
+      (event?.type === "customer.subscription.created" && status !== "trialing") ||
+      (event?.type === "customer.subscription.updated" && (trialConverted || planChanged));
+
+    if (isNewPurchase) {
+      safeSendEmail(
+        sendSubscriptionStartedEmail(user.email, {
+          userName: name,
+          plan: planLabel,
+          interval,
+          priceCents: sub.items?.data?.[0]?.price?.unit_amount ?? 0,
+          periodEnd: periodEnd ?? new Date().toISOString(),
+          product: "buyer",
+        }),
+        "subscription_started",
+      );
+    }
+
+    // Cancellation just scheduled: false → true on an update. Edge-triggered,
+    // so a later update while still cancelling does not re-send.
+    if (
+      event?.type === "customer.subscription.updated" &&
+      sub.cancel_at_period_end &&
+      !user.buyer_cancel_at_period_end
+    ) {
+      safeSendEmail(
+        sendSubscriptionCanceledEmail(user.email, {
+          userName: name,
+          plan: planLabel,
+          endsAt: periodEnd ?? new Date().toISOString(),
+          product: "buyer",
+        }),
+        "subscription_canceled_scheduled",
+      );
+    }
+  }
+
   console.log(`[Webhook] User ${user.id} BUYER → plan=${plan} interval=${interval} status=${status}`);
 }
 
@@ -911,6 +994,25 @@ async function handleSubscriptionDeleted(event: Stripe.Event) {
   // US-1799: a buyer-sub deletion must reset ONLY the buyer_* columns — never
   // free the seller plan on the shared customer.
   if (subscriptionIsBuyer(sub)) {
+    // US-2453: this branch returned before recordEvent, so a buyer's FINAL
+    // cancellation left no audit row while the seller path wrote one — the same
+    // asymmetry, on the one event that ends a paid relationship. No email: the
+    // seller path sends none here either, because the confirmation was already
+    // sent when the cancellation was scheduled.
+    await recordEvent(
+      user.id,
+      event.type,
+      event.id,
+      // Typed public.flipdesk_plan; the buyer tier rides in the payload.
+      user.flipdesk_plan,
+      user.flipdesk_plan,
+      {
+        subscription_id: sub.id,
+        product: "buyer",
+        from_buyer_plan: (user as { buyer_plan?: string | null }).buyer_plan ?? null,
+        to_buyer_plan: "free",
+      },
+    );
     const { error: buyerErr } = await supabaseAdmin
       .from("users")
       .update({
