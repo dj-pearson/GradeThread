@@ -1108,6 +1108,27 @@ adminBillingRoutes.post("/promotion-codes/:id", requireScope("billing:write"), a
   }
 });
 
+/**
+ * The subscription shape the admin billing tab renders. US-2458 extracted it so
+ * the seller and buyer summaries cannot drift into two different shapes — the
+ * agent reading them is comparing one against the other.
+ */
+function summarizeAdminSubscription(sub: Stripe.Subscription | null) {
+  if (!sub) return null;
+  return {
+    id: sub.id,
+    status: sub.status,
+    current_period_end: sub.current_period_end,
+    cancel_at_period_end: sub.cancel_at_period_end,
+    items: sub.items.data.map((it: Stripe.SubscriptionItem) => ({
+      price_id: it.price.id,
+      unit_amount: it.price.unit_amount,
+      interval: it.price.recurring?.interval,
+      lookup_key: it.price.lookup_key,
+    })),
+  };
+}
+
 // ── GET /users/:id/payments ──────────────────────────────────────
 //
 // Lists the target user's recent Stripe charges + subscription state for
@@ -1115,9 +1136,17 @@ adminBillingRoutes.post("/promotion-codes/:id", requireScope("billing:write"), a
 adminBillingRoutes.get("/users/:id/payments", requireScope("billing:write"), async (c) => {
   const targetUserId = c.req.param("id");
 
+  // US-2458: buyer_subscription_id too. Without it an agent opening a Guard or
+  // Connoisseur subscriber saw `subscription: null` and had no way to tell
+  // whether they were subscribed, to what, or when it renewed — while their
+  // CHARGES showed up fine, because those are listed customer-wide and both
+  // products ride one Stripe customer. The money half of the conversation
+  // worked and the state half was blank, which is why this went unnoticed.
   const { data: targetUser, error: userError } = await supabaseAdmin
     .from("users")
-    .select("id, email, stripe_customer_id, flipdesk_subscription_id")
+    .select(
+      "id, email, stripe_customer_id, flipdesk_subscription_id, buyer_subscription_id",
+    )
     .eq("id", targetUserId)
     .single();
 
@@ -1126,17 +1155,24 @@ adminBillingRoutes.get("/users/:id/payments", requireScope("billing:write"), asy
   }
 
   if (!targetUser.stripe_customer_id) {
-    return c.json({ charges: [], subscription: null });
+    return c.json({ charges: [], subscription: null, buyerSubscription: null });
   }
 
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
 
   try {
-    const [charges, subscription] = await Promise.all([
+    const [charges, subscription, buyerSubscription] = await Promise.all([
       stripe.charges.list({ customer: targetUser.stripe_customer_id, limit: 20 }),
       targetUser.flipdesk_subscription_id
         ? stripe.subscriptions.retrieve(targetUser.flipdesk_subscription_id)
+        : Promise.resolve(null),
+      // US-2458: retrieved by its OWN stored id, never picked off the customer.
+      // Listing the customer and choosing is what let the reconciliation resync
+      // adopt the buyer subscription into the seller columns (US-2457 AC5); the
+      // two ids are already recorded separately and that is the whole point.
+      targetUser.buyer_subscription_id
+        ? stripe.subscriptions.retrieve(targetUser.buyer_subscription_id)
         : Promise.resolve(null),
     ]);
 
@@ -1153,20 +1189,12 @@ adminBillingRoutes.get("/users/:id/payments", requireScope("billing:write"), asy
         metadata: ch.metadata,
         receipt_url: ch.receipt_url,
       })),
-      subscription: subscription
-        ? {
-            id: subscription.id,
-            status: subscription.status,
-            current_period_end: subscription.current_period_end,
-            cancel_at_period_end: subscription.cancel_at_period_end,
-            items: subscription.items.data.map((it: Stripe.SubscriptionItem) => ({
-              price_id: it.price.id,
-              unit_amount: it.price.unit_amount,
-              interval: it.price.recurring?.interval,
-              lookup_key: it.price.lookup_key,
-            })),
-          }
-        : null,
+      // ADDITIVE, deliberately: `subscription` keeps its exact meaning (the
+      // SELLER subscription) so the admin UI and every other consumer are
+      // unchanged, and the buyer state arrives beside it. Folding both into one
+      // field would repeat the conflation this story exists to end.
+      subscription: summarizeAdminSubscription(subscription),
+      buyerSubscription: summarizeAdminSubscription(buyerSubscription),
     });
   } catch (err) {
     console.error("[admin-billing] payments query failed:", err);
