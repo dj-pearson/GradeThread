@@ -581,6 +581,24 @@ final class EdgeAPITests: XCTestCase {
         }
     }
 
+    /// URLSession's own text for a connect/DNS failure names the host it tried,
+    /// so rendering the reason put our internal edge hostname in a seller-facing
+    /// alert. The reason must survive on the case (logs, Sentry) while the copy
+    /// stays generic — asserting only "no hostname" would pass a message that
+    /// still pasted in a trace, so assert the whole reason is absent.
+    func test_networkErrorDescription_neverLeaksTheTransportReason() {
+        let reason = "Could not connect to functions.gradethread.com:443"
+        let message = EdgeAPIError.network(reason).errorDescription ?? ""
+        XCTAssertFalse(message.contains(reason))
+        XCTAssertFalse(message.contains("gradethread.com"))
+        XCTAssertTrue(message.contains("try again"))
+        // The diagnostic payload is still there for logging.
+        guard case .network(let carried) = EdgeAPIError.network(reason) else {
+            return XCTFail("Expected .network")
+        }
+        XCTAssertEqual(carried, reason)
+    }
+
     // MARK: - Request timeouts (US-992)
 
     /// The shared bounded session must carry the configured idle/resource

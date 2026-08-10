@@ -82,8 +82,15 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return detail ?? "Something went wrong on our end. Please try again."
         case .decoding(let message):
             return "Unexpected response from server: \(message)"
-        case .network(let message):
-            return "Network error: \(message)"
+        case .network:
+            // The associated reason is deliberately NOT rendered. It is
+            // URLSession's own text, and for a connect/DNS failure that text
+            // names the host it tried — so the toast handed the seller our
+            // internal edge hostname, which is both meaningless to them and a
+            // free piece of infrastructure mapping. The reason stays on the
+            // case for logs and Sentry; the user gets a sentence they can act
+            // on. Mirrors Android EdgeApiError.Network.
+            return "We couldn't reach GradeThread. Check your connection and try again."
         case .featureUnavailable(let detail):
             return detail ?? "This feature isn't available yet."
         case .offerNotOpen:

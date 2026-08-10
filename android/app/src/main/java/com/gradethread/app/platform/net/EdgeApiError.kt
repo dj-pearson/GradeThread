@@ -112,7 +112,14 @@ sealed class EdgeApiError : Exception() {
         is BadRequest -> detail ?: "Something about that request wasn't right."
         is ServerError -> detail ?: "Something went wrong on our end. Please try again."
         is Decoding -> "Unexpected response from server: $reason"
-        is Network -> "Network error: $reason"
+        // [reason] is deliberately NOT rendered. It is OkHttp's IOException
+        // text, which for a connect or DNS failure literally names the host —
+        // "Failed to connect to functions.gradethread.com/..." — so the toast
+        // handed the seller our internal edge hostname, which is both
+        // meaningless to them and a free piece of infrastructure mapping. The
+        // reason stays on the case for logs and Sentry. Mirrors iOS
+        // EdgeAPIError.network.
+        is Network -> "We couldn't reach GradeThread. Check your connection and try again."
         WorkspaceAccessRevoked ->
             "You no longer have access to that workspace — switched to your own account."
         is FeatureUnavailable -> detail ?: "This feature isn't available yet."

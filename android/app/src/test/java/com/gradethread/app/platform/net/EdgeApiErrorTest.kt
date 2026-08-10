@@ -69,6 +69,21 @@ class EdgeApiErrorTest {
         assertTrue(EdgeApiError.RateLimited().userMessage().contains("in a moment"))
     }
 
+    @Test
+    fun networkMessage_neverLeaksTheTransportReason() {
+        // OkHttp's IOException text names the host it failed to reach, so
+        // rendering the reason put our internal edge hostname in a seller-facing
+        // toast. The reason must survive on the case (logs, Sentry) while the
+        // copy stays generic — asserting only "no hostname" would pass a message
+        // that still pasted in a stack trace, so assert the reason is absent.
+        val reason = "Failed to connect to functions.gradethread.com/203.0.113.7:443"
+        val message = EdgeApiError.Network(reason).userMessage()
+        assertFalse(message.contains(reason))
+        assertFalse(message.contains("gradethread.com"))
+        assertEquals(reason, EdgeApiError.Network(reason).reason)
+        assertTrue(message.contains("try again"))
+    }
+
     // ── US-1335: `action: "upgrade"` beats the status ────────────────────
 
     @Test
