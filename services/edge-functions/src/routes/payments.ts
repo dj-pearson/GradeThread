@@ -648,6 +648,12 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
 
   const plan = body.plan;
   const interval = body.interval ?? "monthly";
+  // US-2118: same contract as /flipdesk/subscribe. This path was left bare when
+  // the FlipDesk gate shipped, so a Guard subscriber clicking Connoisseur was
+  // charged a prorated amount on a single click with no interstitial — the
+  // defect this story is named for, still live on the other product. A guard
+  // scoped to one of two identical code paths reads as covering both.
+  const confirmUpgrade = (body as { confirmUpgrade?: boolean }).confirmUpgrade === true;
   // US-2117 AC1, same contract as the FlipDesk path above.
   const disclosureVersion = sanitizeReportedDisclosureVersion(
     (body as { disclosureVersion?: unknown }).disclosureVersion,
@@ -680,6 +686,16 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
       if (!item) return c.json({ error: "Subscription has no line item to update" }, 500);
       const currentPriceId = typeof item.price === "string" ? item.price : item.price?.id;
       if (currentPriceId === priceId) return c.json({ ok: true, updated: true, unchanged: true });
+      // US-2118: the price is actually changing, so this click WOULD charge a
+      // prorated amount now. Refuse until the client has disclosed the amount
+      // and captured consent. Same 409 contract as the FlipDesk path.
+      if (!confirmUpgrade) {
+        return c.json({
+          error: "Confirmation required before an in-place plan change.",
+          code: "UPGRADE_CONFIRMATION_REQUIRED",
+          requiresConfirmation: true,
+        }, 409);
+      }
       if (existing.schedule) {
         const scheduleId = typeof existing.schedule === "string" ? existing.schedule : existing.schedule.id;
         await stripe.subscriptionSchedules.release(scheduleId);
@@ -696,6 +712,37 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
           ...(disclosureVersion ? { disclosure_version: disclosureVersion } : {}),
         },
       });
+      // US-2118 AC2: the consent artifact, mirroring the FlipDesk path.
+      //
+      // ⚠ from_plan/to_plan ARE DELIBERATELY NOT SET. Both columns are typed
+      // public.flipdesk_plan (free|starter|pro|business, 00037) and the buyer
+      // tiers are guard|connoisseur (public.buyer_plan, 00402). Writing "guard"
+      // into them raises 22P02, and because this insert is best-effort by
+      // design — the plan change already succeeded, so a logging failure must
+      // not fail the request — the row would simply never appear while the
+      // charge went through. A consent artifact that silently does not exist is
+      // worse than none, because the code reads as if it does. The plans go in
+      // raw_payload, which is jsonb and has no enum to violate.
+      const { error: consentErr } = await supabaseAdmin
+        .from("flipdesk_subscription_events")
+        .insert({
+          user_id: userId,
+          event_type: "in_place_change_confirmed",
+          raw_payload: {
+            product: "buyer",
+            from_buyer_plan: (user as { buyer_plan?: string | null }).buyer_plan ?? null,
+            to_buyer_plan: plan,
+            interval,
+            new_price_id: priceId,
+            previous_price_id: currentPriceId,
+            proration_behavior: "create_prorations",
+            confirmed: true,
+            source: "buyer_billing_page",
+          },
+        });
+      if (consentErr) {
+        console.error("[buyer/subscribe] consent-artifact insert failed:", consentErr.message);
+      }
       return c.json({ ok: true, updated: true });
     } catch (err) {
       console.error("Buyer subscription update (upgrade) failed:", err);
@@ -739,6 +786,79 @@ paymentRoutes.post("/buyer/subscribe", async (c) => {
   } catch (err) {
     console.error("Buyer subscribe checkout failed:", err);
     return c.json({ error: "Failed to create subscription checkout" }, 500);
+  }
+});
+
+// US-2118: proration preview for an in-place BUYER plan change. The mirror of
+// /flipdesk/upgrade-preview, kept as its own route rather than a product
+// parameter on that one: the two read different subscription ids, different
+// price tables and different plan enums, and a single route branching on a
+// product string is one wrong branch away from previewing a FlipDesk charge for
+// a buyer click. Returns { inPlace:false } when there is no live buyer
+// subscription — that is a fresh Checkout, which discloses on its own page.
+paymentRoutes.post("/buyer/upgrade-preview", async (c) => {
+  const userId = c.get("userId");
+
+  let body: { plan?: string; interval?: string };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const plan = body.plan;
+  const interval = body.interval ?? "monthly";
+  if (plan !== "guard" && plan !== "connoisseur") {
+    return c.json({ error: "plan must be one of: guard, connoisseur" }, 400);
+  }
+  if (interval !== "monthly" && interval !== "yearly") {
+    return c.json({ error: "interval must be 'monthly' or 'yearly'" }, 400);
+  }
+
+  const priceId = getBuyerPriceIds()[plan][interval];
+  if (!priceId) return c.json({ error: "Pricing not configured" }, 503);
+
+  const { data: user, error: userError } = await loadUser(userId);
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+
+  if (!user.buyer_subscription_id || user.buyer_subscription_status === "canceled") {
+    return c.json({ inPlace: false });
+  }
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const existing = await stripe.subscriptions.retrieve(user.buyer_subscription_id);
+    const item = existing.items.data[0];
+    if (!item) return c.json({ error: "Subscription has no line item" }, 500);
+    const currentPriceId = typeof item.price === "string" ? item.price : item.price?.id;
+    if (currentPriceId === priceId) {
+      return c.json({ inPlace: true, unchanged: true });
+    }
+
+    const preview = await stripe.invoices.retrieveUpcoming({
+      customer: typeof existing.customer === "string"
+        ? existing.customer
+        : existing.customer.id,
+      subscription: existing.id,
+      subscription_items: [{ id: item.id, price: priceId }],
+      subscription_proration_behavior: "create_prorations",
+    });
+    const newPrice = await stripe.prices.retrieve(priceId);
+
+    return c.json({
+      inPlace: true,
+      amount_due_today_cents: preview.amount_due,
+      currency: preview.currency,
+      new_recurring_cents: newPrice.unit_amount ?? null,
+      interval,
+      next_renewal_at: existing.current_period_end
+        ? new Date(existing.current_period_end * 1000).toISOString()
+        : null,
+    });
+  } catch (err) {
+    console.error("Buyer upgrade-preview failed:", err instanceof Error ? err.message : err);
+    return c.json({ error: "Couldn't preview the plan change" }, 502);
   }
 });
 

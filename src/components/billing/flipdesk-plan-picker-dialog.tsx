@@ -186,6 +186,7 @@ export function FlipdeskPlanPickerDialog({
         )}
         {upgradeTarget && (
           <UpgradePreviewDialog
+            product="flipdesk"
             open={!!upgradeTarget}
             onOpenChange={(v) => {
               if (!v) {

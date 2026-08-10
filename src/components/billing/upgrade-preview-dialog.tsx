@@ -9,10 +9,12 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { FLIPDESK_PLANS } from "@/lib/constants";
-import type { FlipdeskPlanKey } from "@/lib/constants";
+import { BUYER_PLANS, FLIPDESK_PLANS } from "@/lib/constants";
+import type { BuyerPlanKey, FlipdeskPlanKey } from "@/lib/constants";
 import type { BillingInterval } from "@/types/database";
 import {
+  useBuyerSubscribe,
+  useBuyerUpgradePreview,
   useFlipdeskSubscribe,
   useUpgradePreview,
 } from "@/hooks/use-billing-summary";
@@ -20,16 +22,30 @@ import { track } from "@/lib/analytics";
 import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
 import { ArrowUp, Loader2 } from "lucide-react";
 
-interface UpgradePreviewDialogProps {
+// US-2118: which subscription product is being changed. Discriminated so a
+// buyer tier can never be passed with product:"flipdesk" — the two have
+// different plan keys, different price tables and different Stripe
+// subscription ids, and mixing them would preview one charge and make another.
+type UpgradeTarget =
+  | {
+    product: "flipdesk";
+    /** The plan the user clicked. */
+    targetPlan: Exclude<FlipdeskPlanKey, "free">;
+    /** The plan the user is on now, for the "from" label. */
+    fromPlan: FlipdeskPlanKey;
+  }
+  | {
+    product: "buyer";
+    targetPlan: Exclude<BuyerPlanKey, "free">;
+    fromPlan: BuyerPlanKey;
+  };
+
+type UpgradePreviewDialogProps = UpgradeTarget & {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** The plan the user clicked. */
-  targetPlan: Exclude<FlipdeskPlanKey, "free">;
   /** The interval to switch to — defaults to the user's current interval. */
   targetInterval: BillingInterval;
-  /** The plan the user is on now, for the "from" label. */
-  fromPlan: FlipdeskPlanKey;
-}
+};
 
 function money(cents: number | null | undefined, currency = "usd"): string {
   if (cents == null) return "—";
@@ -52,41 +68,59 @@ function dateLabel(iso: string | null | undefined): string {
 // is the disclosure + affirmative consent a new subscriber would get on the
 // Stripe Checkout page — the amount today, the new recurring rate + frequency,
 // and the next renewal date — BEFORE the (server-gated) mutation fires.
-export function UpgradePreviewDialog({
-  open,
-  onOpenChange,
-  targetPlan,
-  targetInterval,
-  fromPlan,
-}: UpgradePreviewDialogProps) {
-  const preview = useUpgradePreview();
-  const subscribe = useFlipdeskSubscribe();
-  const next = FLIPDESK_PLANS[targetPlan];
+export function UpgradePreviewDialog(props: UpgradePreviewDialogProps) {
+  const { open, onOpenChange, targetPlan, targetInterval, fromPlan, product } = props;
+  // Both products' hooks are created unconditionally — they are useMutation
+  // pairs with no work until called, and calling hooks behind a branch is the
+  // rule this component would otherwise break. Only one pair is ever used.
+  const flipdeskPreview = useUpgradePreview();
+  const flipdeskSubscribe = useFlipdeskSubscribe();
+  const buyerPreview = useBuyerUpgradePreview();
+  const buyerSubscribe = useBuyerSubscribe();
 
-  const { mutate: fetchPreview, reset: resetPreview } = preview;
+  const isBuyer = product === "buyer";
+  const preview = isBuyer ? buyerPreview : flipdeskPreview;
+  const next = isBuyer
+    ? BUYER_PLANS[targetPlan as Exclude<BuyerPlanKey, "free">]
+    : FLIPDESK_PLANS[targetPlan as Exclude<FlipdeskPlanKey, "free">];
+
+  const { reset: resetPreview } = preview;
   useEffect(() => {
     if (open) {
-      track("subscription.upgrade_previewed", { from: fromPlan, to: targetPlan });
-      fetchPreview({ plan: targetPlan, interval: targetInterval });
+      track("subscription.upgrade_previewed", { product, from: fromPlan, to: targetPlan });
+      // Narrowed through the prop union rather than the local alias: each hook
+      // only accepts its own product's plan keys.
+      if (props.product === "buyer") {
+        buyerPreview.mutate({ plan: props.targetPlan, interval: targetInterval });
+      } else {
+        flipdeskPreview.mutate({ plan: props.targetPlan, interval: targetInterval });
+      }
     } else {
       resetPreview();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, targetPlan, targetInterval]);
+  }, [open, targetPlan, targetInterval, product]);
 
   const data = preview.data;
   const currency = data?.currency ?? "usd";
+  const subscribe = isBuyer ? buyerSubscribe : flipdeskSubscribe;
 
   function handleConfirm() {
-    subscribe.mutate(
-      { plan: targetPlan, interval: targetInterval, confirmUpgrade: true },
-      {
-        onSuccess: () => {
-          track("subscription.upgrade_confirmed", { from: fromPlan, to: targetPlan });
-          onOpenChange(false);
-        },
-      },
-    );
+    const onSuccess = () => {
+      track("subscription.upgrade_confirmed", { product, from: fromPlan, to: targetPlan });
+      onOpenChange(false);
+    };
+    if (props.product === "buyer") {
+      buyerSubscribe.mutate(
+        { plan: props.targetPlan, interval: targetInterval, confirmUpgrade: true },
+        { onSuccess },
+      );
+    } else {
+      flipdeskSubscribe.mutate(
+        { plan: props.targetPlan, interval: targetInterval, confirmUpgrade: true },
+        { onSuccess },
+      );
+    }
   }
 
   return (

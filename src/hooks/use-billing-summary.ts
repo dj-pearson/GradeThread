@@ -250,18 +250,47 @@ export function useUpgradePreview() {
 
 // ── Buyer subscription mutations (US-1799) ──────────────────────
 
+// US-2118: the buyer half of the proration preview. A separate hook rather than
+// a product argument on useUpgradePreview, mirroring the two server routes: the
+// plan unions are different types, and one hook branching on a string is one
+// wrong branch away from pricing the other product's upgrade.
+export function useBuyerUpgradePreview() {
+  return useMutation<
+    UpgradePreview,
+    Error,
+    { plan: Exclude<BuyerPlanKey, "free">; interval: BillingInterval }
+  >({
+    mutationFn: async ({ plan, interval }) => {
+      const res = await edgeFetch("/api/payments/buyer/upgrade-preview", {
+        method: "POST",
+        json: { plan, interval },
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't preview the plan change.");
+      return json as UpgradePreview;
+    },
+  });
+}
+
 export function useBuyerSubscribe() {
   const startPoll = usePollBillingSummary();
   return useMutation<
     { sessionId?: string; url?: string; ok?: boolean; updated?: boolean; unchanged?: boolean },
     Error,
-    { plan: Exclude<BuyerPlanKey, "free">; interval: BillingInterval }
+    {
+      plan: Exclude<BuyerPlanKey, "free">;
+      interval: BillingInterval;
+      // US-2118: same contract as useFlipdeskSubscribe. The buyer path was left
+      // bare when the FlipDesk gate shipped, so switching Guard → Connoisseur
+      // charged a prorated amount on one click with nothing disclosed.
+      confirmUpgrade?: boolean;
+    }
   >({
-    mutationFn: async ({ plan, interval }) => {
+    mutationFn: async ({ plan, interval, confirmUpgrade }) => {
       const res = await edgeFetch("/api/payments/buyer/subscribe", {
         method: "POST",
         // US-2117 AC1 — same contract as useFlipdeskSubscribe above.
-        json: { plan, interval, disclosureVersion: DISCLOSURE_VERSION },
+        json: { plan, interval, confirmUpgrade, disclosureVersion: DISCLOSURE_VERSION },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to start checkout.");

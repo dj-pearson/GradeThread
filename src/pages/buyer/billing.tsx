@@ -19,6 +19,7 @@ import {
 } from "@/lib/constants";
 import { UsageMeter } from "@/components/billing/usage-meter";
 import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
+import { UpgradePreviewDialog } from "@/components/billing/upgrade-preview-dialog";
 import { useBillingSummary, useBuyerSubscribe, useBuyerCancel, useBuyerUncancel, useBillingPortal } from "@/hooks/use-billing-summary";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { trackBuyerFunnel } from "@/lib/buyer-analytics";
@@ -56,6 +57,13 @@ export function BuyerBillingPage() {
   const uncancel = useBuyerUncancel();
   const portal = useBillingPortal();
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+  // US-2118: the tier the buyer clicked while ALREADY paying. That click is an
+  // in-place change that charges a prorated amount immediately, so it opens the
+  // disclosure dialog instead of the mutation. A buyer with no live
+  // subscription still goes straight to Stripe Checkout, which discloses on its
+  // own hosted page.
+  const [upgradeTarget, setUpgradeTarget] =
+    useState<Exclude<BuyerPlanKey, "free"> | null>(null);
 
   const upgradeFlag = params.get("upgrade");
   const highlight = upgradeFlag ? tierForFlag(upgradeFlag) : null;
@@ -242,6 +250,15 @@ export function BuyerBillingPage() {
                           from_plan: effective,
                           upgrade_flag: upgradeFlag ?? undefined,
                         });
+                        // US-2118: with a live buyer subscription this is an
+                        // in-place change — Stripe charges the proration on
+                        // the spot and there is no hosted page to disclose it.
+                        // The server now refuses without confirmUpgrade, so
+                        // firing the mutation here would only produce a 409.
+                        if (hasPaidSub) {
+                          setUpgradeTarget(key as Exclude<BuyerPlanKey, "free">);
+                          return;
+                        }
                         subscribe.mutate({ plan: key as "guard" | "connoisseur", interval });
                       }}
                       disabled={subscribe.isPending}
@@ -268,6 +285,19 @@ export function BuyerBillingPage() {
           })}
         </CardContent>
       </Card>
+
+      {upgradeTarget && (
+        <UpgradePreviewDialog
+          product="buyer"
+          open={!!upgradeTarget}
+          onOpenChange={(v) => {
+            if (!v) setUpgradeTarget(null);
+          }}
+          targetPlan={upgradeTarget}
+          targetInterval={interval}
+          fromPlan={paid.plan}
+        />
+      )}
 
       {ent.fromSellerPlan && (
         <p className="text-center text-xs text-muted-foreground">
