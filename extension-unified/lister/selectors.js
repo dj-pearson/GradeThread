@@ -163,13 +163,15 @@ const GT_LISTER_SELECTORS = {
   // script reports "coming soon — list manually" rather than guessing.
   mercari: {
     enabled: false,
-    version: "2026.08.0-draft",
-    // Still null, and the distinction matters. Four of the five list selectors
-    // were seen to resolve on the live form; the fifth was written from the
-    // page's own attribute dump, which is strong evidence about the PAGE and no
-    // evidence at all that the replacement matches. It moves when a report
-    // comes back clean — the same report that has to cover delist anyway.
-    lastVerified: null,
+    version: "2026.08.0",
+    // 2026-08-10: the list flow is verified. All five selectors resolved on
+    // mercari.com/sell/, including the renamed title field.
+    //
+    // Enabling still waits on delist, for the reason spelled out on Grailed
+    // below: a channel that can list and cannot end a listing sells one garment
+    // to two people. `delist.menu` has only ever been probed from the sell
+    // form, where it cannot exist.
+    lastVerified: "2026-08-10",
     newListingUrl: "https://www.mercari.com/sell/",
     hosts: ["mercari.com"],
     login: { urlPattern: "mercari\.com/(signin|login|signup)" },

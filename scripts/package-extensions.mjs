@@ -348,7 +348,32 @@ const isEntry =
   process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isEntry) main();
 
+/**
+ * Write a target's entries to a real folder as well as a zip.
+ *
+ * WHY (2026-08-10). `chrome://extensions → Load unpacked → extension-unified/`
+ * reads the SOURCE manifest, which carries both browsers' background keys, so
+ * Chrome shows `'background.scripts' requires manifest version of 2 or lower`
+ * on every load. Nothing ships with it — the zips are transformed — but it was
+ * reported three times in one session as a suspected bug, and "expected, ignore
+ * it" is a bad answer to a warning that looks like a broken extension.
+ *
+ * So `--unpacked` emits the transformed tree. Load THAT folder and Chrome is
+ * silent, because it is the same bytes the Web Store gets. The source manifest
+ * keeps both keys, and background-deps.test.cjs keeps guarding the pair.
+ */
+function writeTree(dir, entries) {
+  if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
+  for (const e of entries) {
+    const abs = join(dir, ...e.name.split("/"));
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, e.data);
+  }
+  return dir;
+}
+
 function main() {
+const unpacked = process.argv.includes("--unpacked");
 if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
 
@@ -388,6 +413,10 @@ for (const ext of EXTENSIONS) {
   const chromePath = join(outDir, `${ext.name}-v${manifest.version}-chrome.zip`);
   writeFileSync(chromePath, chromeZip);
   report.push(`✓ ${ext.name} (${ext.role}) → chrome  ${(chromeZip.length / 1024).toFixed(0)}KB  ${files.length} files  [${relative(root, chromePath)}]`);
+  if (unpacked) {
+    const d = writeTree(join(outDir, `${ext.name}-chrome`), chromeEntries);
+    report.push(`  ↳ unpacked (load this in Chrome, no MV2 warning): ${relative(root, d)}`);
+  }
 
   // Firefox: either a transformed variant, or a skip with the blocking reason.
   if (ext.firefox?.blocked) {
@@ -427,6 +456,10 @@ for (const ext of EXTENSIONS) {
     // whole point of the transform is that the manifest can override it.
     const g = ffManifest.browser_specific_settings.gecko;
     report.push(`✓ ${ext.name} (${ext.role}) → firefox ${(ffZip.length / 1024).toFixed(0)}KB  gecko:${g.id}${g.strict_min_version ? ` min:${g.strict_min_version}` : ""}  bg:${(ffManifest.background?.scripts || []).length} scripts  [${relative(root, ffPath)}]`);
+    if (unpacked) {
+      const d = writeTree(join(outDir, `${ext.name}-firefox`), ffEntries);
+      report.push(`  ↳ unpacked (about:debugging → load its manifest.json): ${relative(root, d)}`);
+    }
   }
 }
 
