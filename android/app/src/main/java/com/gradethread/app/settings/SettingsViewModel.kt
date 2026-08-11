@@ -58,6 +58,8 @@ class SettingsViewModel @Inject constructor(
     private val backgroundRefresh: com.gradethread.app.sync.BackgroundRefreshStore,
     private val onboarding: com.gradethread.app.onboarding.OnboardingStore,
     private val realtime: com.gradethread.app.sync.RealtimeService,
+    /** US-2412: the data-access export. */
+    private val accountExport: AccountExportService,
 ) : ViewModel() {
 
     data class State(
@@ -73,9 +75,47 @@ class SettingsViewModel @Inject constructor(
         val pendingConfirm: Confirm? = null,
         val busy: Boolean = false,
         val notice: String? = null,
+        /** US-2412: true while the export is being built. */
+        val exporting: Boolean = false,
+        /**
+         * The staged export, ready for the share sheet. Consumed once — see
+         * [exportShared] — so a recomposition cannot open the sheet twice.
+         */
+        val exportFile: java.io.File? = null,
+        val exportError: String? = null,
     )
 
     enum class Confirm { SIGN_OUT, DELETE_ACCOUNT }
+
+    /**
+     * US-2412: build the account export.
+     *
+     * No user id is sent. The server reads the subject from the bearer token,
+     * which is the only shape a data-access endpoint can safely have.
+     */
+    fun exportAccount() {
+        if (_state.value.exporting) return
+        _state.value = _state.value.copy(exporting = true, exportError = null)
+        viewModelScope.launch {
+            runCatching { accountExport.export() }
+                .onSuccess { _state.value = _state.value.copy(exportFile = it) }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        exportError = AccountExportService.message(it),
+                    )
+                }
+            _state.value = _state.value.copy(exporting = false)
+        }
+    }
+
+    /** The sheet has been opened; drop the file so it is offered only once. */
+    fun exportShared() {
+        _state.value = _state.value.copy(exportFile = null)
+    }
+
+    fun dismissExportError() {
+        _state.value = _state.value.copy(exportError = null)
+    }
 
     private val preferences = AppPreferences(context)
     private val sessionScope = SessionScope(db, SyncWatermark(context))

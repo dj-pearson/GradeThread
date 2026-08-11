@@ -1478,4 +1478,8 @@
         <item quantity="one">Se llenó %1$d detalle. Guarda para conservarlo.</item>
         <item quantity="other">Se llenaron %1$d detalles. Guarda para conservarlos.</item>
     </plurals>
+    <!-- US-2412: account data export. -->
+    <string name="settings_export">Exportar mis datos</string>
+    <string name="settings_export_subtitle">Descarga todo lo que tenemos de tu cuenta y elige dónde guardarlo</string>
+    <string name="settings_export_running">Preparando tu archivo…</string>
 </resources>

@@ -7,4 +7,11 @@
 -->
 <paths>
     <cache-path name="snap-capture" path="snap-capture/" />
+    <!--
+      US-2412: the staged account export, shared out through the system sheet.
+      Its own subdirectory for the same reason as above — this file is the
+      subject's entire account, and a wider root would let any app we hand a
+      URI to reach for it.
+    -->
+    <cache-path name="account-export" path="account-export/" />
 </paths>

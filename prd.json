@@ -1611,7 +1611,7 @@
     },
     {
       "id": "US-2412",
-      "passes": false,
+      "passes": true,
       "title": "Android: no account data export, so the GDPR path is web-only",
       "description": "As an Android user, I want to export my account data from the app, so that I can exercise a data-access right without being sent to a browser.",
       "acceptanceCriteria": [
@@ -1620,7 +1620,8 @@
         "The request is tied to the signed-in user only — the client never passes a user id the server would trust",
         "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "priority": 2384
+      "priority": 2384,
+      "notes": "DONE 2026-08-11. AC3 is met by the endpoints own shape and is now test-pinned as a NEGATIVE assertion: the request is a bare GET with no query string and no body, because the server reads the subject from the bearer token (account.ts:222 c.get(userId)). A data-access endpoint that took an id from its caller would be one changed character away from handing someone another persons account, so the test asserts bodySize == 0 and the exact path rather than asserting what is sent. AC2: the bytes go to a PRIVATE cache subdirectory and out through Intent.ACTION_SEND with FLAG_GRANT_READ_URI_PERMISSION; nothing touches shared storage, because this file is the whole account in one document and a copy in Downloads would be a second permanent one that nothing sweeps. file_paths.xml gained its own account-export entry rather than widening the existing root - a FileProvider root of . would let any app we hand a URI to reach the staged uploads and the OCR stash. The stage directory is swept BEFORE each write rather than after sharing, because the share sheet gives no reliable finished callback, so sweep-before is the only guarantee that can actually be kept. Verified locally: testDebugUnitTest (incl. a Robolectric AccountExportTest), lintDebug (0 errors, 168 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1342 resources, en+es) and no-ungated-log all OK."
     },
     {
       "id": "US-2413",

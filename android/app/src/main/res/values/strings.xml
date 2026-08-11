@@ -1622,4 +1622,8 @@
         <item quantity="one">Filled %1$d specific. Save to keep it.</item>
         <item quantity="other">Filled %1$d specifics. Save to keep them.</item>
     </plurals>
+    <!-- US-2412: account data export. -->
+    <string name="settings_export">Export my data</string>
+    <string name="settings_export_subtitle">Download everything we hold for your account, then choose where to keep it</string>
+    <string name="settings_export_running">Building your file…</string>
 </resources>

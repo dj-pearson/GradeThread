@@ -56,6 +56,28 @@ fun SettingsScreen(
     feedbackViewModel: com.gradethread.app.feedback.FeedbackViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // US-2412: the export goes out through the SYSTEM sheet, so the person
+    // exercising the right picks where their own data lands. Nothing is
+    // written to shared storage — a copy in Downloads is a second permanent
+    // copy of their whole account that nobody asked for.
+    val exportChooserTitle = stringResource(R.string.settings_export)
+    androidx.compose.runtime.LaunchedEffect(state.exportFile) {
+        val file = state.exportFile ?: return@LaunchedEffect
+        val uri = androidx.core.content.FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file,
+        )
+        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = com.gradethread.app.settings.AccountExportService.MIME
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(android.content.Intent.createChooser(send, exportChooserTitle))
+        viewModel.exportShared()
+    }
     var languagePickerOpen by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf(false)
     }
@@ -218,6 +240,25 @@ fun SettingsScreen(
                     stringResource(R.string.settings_language_system),
                 ),
                 onClick = { languagePickerOpen = true },
+            )
+        }
+
+        // US-2412: the data-access right, without being sent to a browser.
+        SettingRow(
+            title = stringResource(R.string.settings_export),
+            subtitle = if (state.exporting) {
+                stringResource(R.string.settings_export_running)
+            } else {
+                stringResource(R.string.settings_export_subtitle)
+            },
+            enabled = !state.exporting,
+            onClick = viewModel::exportAccount,
+        )
+        state.exportError?.let { message ->
+            Text(
+                message,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
 
