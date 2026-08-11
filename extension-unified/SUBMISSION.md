@@ -1,7 +1,7 @@
-# Store submission kit — GradeThread unified extension v0.8.0
+# Store submission kit — GradeThread unified extension v0.9.0
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.8.0-chrome.zip` · `dist-ext/gradethread-v0.8.0-firefox.zip`.
+`dist-ext/gradethread-v0.9.0-chrome.zip` · `dist-ext/gradethread-v0.9.0-firefox.zip`.
 
 ## Shared fields
 
@@ -194,7 +194,24 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.8.0)
+## Version / release notes (v0.9.0)
+
+```
+New: the popup is now three tabs — Reads, Selling and Settings — instead of one long
+page holding all three at once. It opens on the one that fits your account, and
+sellers get a count on the Selling tab of listings that still need ending.
+
+New: one more cross-listing channel for FlipDesk sellers, and the channel list now
+says plainly which ones can end a listing for you and which ones you have to end
+yourself. A channel that can only post is labelled as such before you use it.
+
+Fixed: some options and prompts stayed on screen after the extension had switched
+them off. Fixed: in dark mode the selected tab was harder to see than the unselected
+one.
+```
+
+<!-- The 0.8.0 notes, kept because the store shows the previous release alongside
+     the new one and reviewers read both. -->
 
 ```
 New: shortcuts, a settings page, and deeper reads. Alt+G reads the listing you are

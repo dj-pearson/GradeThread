@@ -16,124 +16,100 @@
       <span class="pop-ver" id="version"></span>
     </header>
 
+    <!-- The three surfaces this extension actually has. Before this the popup was
+         ONE scroll holding all of them at once: a buyer scrolled past seller
+         consent boxes, a seller scrolled past five privacy toggles, and the
+         diagnostic sat below both where nobody looked. Splitting them is not
+         decoration — the default tab is chosen from entitlements (see
+         selectDefaultTab), so each person opens on the thing they came for.
+
+         The count on Selling is the pending-delist queue. It is the one number
+         in here that is time-critical: every hour a sold item's sibling stays
+         live is an hour it can sell twice. -->
+    <nav class="pop-nav" role="tablist" aria-label="Sections">
+      <button type="button" class="pop-navtab is-on" id="navReads" role="tab" aria-selected="true" aria-controls="panelReads">
+        Reads
+      </button>
+      <button type="button" class="pop-navtab" id="navSelling" role="tab" aria-selected="false" aria-controls="panelSelling">
+        Selling<span class="pop-navcount" id="navSellingCount" hidden></span>
+      </button>
+      <button type="button" class="pop-navtab" id="navSettings" role="tab" aria-selected="false" aria-controls="panelSettings">
+        Settings
+      </button>
+    </nav>
+
     <main class="pop-body">
-      <!-- Account / sign-in -->
-      <section class="pop-section pop-account" id="accountSection">
-        <div class="pop-acct-row">
-          <div>
-            <div class="pop-acct-state" id="acctState">Not signed in</div>
-            <div class="pop-acct-sub" id="acctSummary">
-              Buyer research is free for everyone. Sign in to unlock more.
-            </div>
+      <!-- ══ READS ══════════════════════════════════════════════════════════ -->
+      <div class="pop-panel" id="panelReads" role="tabpanel" aria-labelledby="navReads">
+        <section class="pop-section">
+          <p class="pop-lead">
+            An independent AI condition read while you shop a supported resale site.
+            Open a clothing listing and click “Get condition read”.
+          </p>
+          <!-- US-1881 AC3: the Firefox opt-in host-permission flow. Firefox
+               installs the add-on and then withholds every declared host until the
+               person allows it, so the overlay is simply absent with no error to
+               read. This block is the honest degradation: it appears only when the
+               probe says access is missing (never on Chrome, where the same hosts
+               are granted at install), and its button is the user gesture the
+               platform requires for permissions.request().
+
+               It lives HERE rather than in Settings because it is about the tab
+               open right now, and it is the reason the overlay the person is
+               looking for is missing. -->
+          <div class="pop-perm" id="hostPermWrap" hidden>
+            <p class="pop-perm-text" id="hostPermText"></p>
+            <button class="pop-cta" id="hostPermBtn" type="button">Allow on this site</button>
           </div>
-          <div class="pop-badges" id="acctBadges"></div>
-        </div>
-        <button class="pop-cta" id="connectBtn" type="button">Sign in to unlock</button>
-        <!-- US-1881 AC3: Firefox has no externally_connectable, so sign-in rides
-             the gt-bridge content script on gradethread.com — and that script
-             does not run until the site is allowed. Un-granted, the connect page
-             opens and the token simply never arrives. Say so before the click,
-             not after the wait. -->
-        <p class="pop-hint" id="sitePermHint" hidden>
-          Firefox will ask you to allow GradeThread on gradethread.com. Sign-in
-          needs that permission to hand the token back to this extension.
-        </p>
-        <button class="pop-linkbtn" id="disconnectBtn" type="button" hidden>Sign out of this extension</button>
-      </section>
+          <label class="pop-toggle" id="siteToggleWrap" hidden>
+            <input type="checkbox" id="siteEnabled" />
+            <span id="siteToggleLabel">Enabled on this site</span>
+          </label>
+        </section>
 
-      <!-- Research (always) -->
-      <section class="pop-section">
-        <h2 class="pop-h2">Condition Check</h2>
-        <p class="pop-lead">
-          An independent AI condition read while you shop a supported resale site.
-          Open a clothing listing and click “Get condition read”.
-        </p>
-        <label class="pop-toggle">
-          <input type="checkbox" id="autoRun" />
-          <span>Auto-run on each supported listing</span>
-        </label>
-        <label class="pop-toggle">
-          <input type="checkbox" id="scanMode" />
-          <span>Check search results as I browse</span>
-        </label>
-        <p class="pop-hint">
-          Search pages get the seller’s stated condition and a price check only.
-          No photos are read until you open a listing.
-        </p>
-        <!-- US-1881 AC3: the Firefox opt-in host-permission flow. Firefox
-             installs the add-on and then withholds every declared host until the
-             person allows it, so the overlay is simply absent with no error to
-             read. This block is the honest degradation: it appears only when the
-             probe says access is missing (never on Chrome, where the same hosts
-             are granted at install), and its button is the user gesture the
-             platform requires for permissions.request(). -->
-        <div class="pop-perm" id="hostPermWrap" hidden>
-          <p class="pop-perm-text" id="hostPermText"></p>
-          <button class="pop-cta" id="hostPermBtn" type="button">Allow on this site</button>
-        </div>
-        <label class="pop-toggle" id="siteToggleWrap" hidden>
-          <input type="checkbox" id="siteEnabled" />
-          <span id="siteToggleLabel">Enabled on this site</span>
-        </label>
-        <!-- US-1880 AC3: opt-in, off by default. The copy states exactly what is
-             sent and what is not — a vague "help us improve" prompt is how a
-             telemetry toggle becomes a thing people feel tricked by later. -->
-        <label class="pop-toggle">
-          <input type="checkbox" id="selectorTelemetry" />
-          <span>
-            Report when a site’s layout breaks the read
-            <small class="pop-note">
-              Sends only the marketplace name and which part failed — never the
-              listing, the page address, or anything about you. Off by default.
-            </small>
-          </span>
-        </label>
-        <!-- US-1757 AC2: a SECOND, separate opt-in. It is not folded into the
-             toggle above because that one's copy promises a narrower thing, and
-             quietly widening a consent someone already gave is the trick this
-             file's other comment warns about. Same rules: off by default,
-             revocable, and the copy says exactly what leaves the device. -->
-        <label class="pop-toggle">
-          <input type="checkbox" id="usageTelemetry" />
-          <span>
-            Share anonymous usage counts
-            <small class="pop-note">
-              Sends how many condition reads and how many clicks to
-              gradethread.com you made, as totals every few hours — never when,
-              never which listing, and with no account or install identifier.
-              Off by default.
-            </small>
-          </span>
-        </label>
-      </section>
+        <section class="pop-section">
+          <div class="pop-tabs" role="tablist">
+            <button type="button" class="pop-tab is-on" id="tabReads" role="tab" aria-selected="true">Recent reads</button>
+            <button type="button" class="pop-tab" id="tabSellers" role="tab" aria-selected="false">By seller</button>
+          </div>
+          <ul class="pop-reads" id="reads">
+            <li class="pop-empty">No reads yet — open a listing and get a condition read.</li>
+          </ul>
+          <ul class="pop-reads" id="sellers" hidden>
+            <li class="pop-empty" id="sellersEmpty"></li>
+          </ul>
+          <button type="button" class="pop-linkbtn" id="openCompare" hidden>Open compare (<span id="compareCount">0</span>)</button>
+          <p class="pop-hint" id="sellersNote" hidden>
+            Worked out from your own reads on this device. Nothing about a seller is
+            ever sent to GradeThread.
+          </p>
+        </section>
+      </div>
 
-      <section class="pop-section">
-        <div class="pop-tabs" role="tablist">
-          <button type="button" class="pop-tab is-on" id="tabReads" role="tab" aria-selected="true">Recent reads</button>
-          <button type="button" class="pop-tab" id="tabSellers" role="tab" aria-selected="false">By seller</button>
-        </div>
-        <ul class="pop-reads" id="reads">
-          <li class="pop-empty">No reads yet — open a listing and get a condition read.</li>
-        </ul>
-        <ul class="pop-reads" id="sellers" hidden>
-          <li class="pop-empty" id="sellersEmpty"></li>
-        </ul>
-        <button type="button" class="pop-linkbtn" id="openCompare" hidden>Open compare (<span id="compareCount">0</span>)</button>
-        <p class="pop-hint" id="sellersNote" hidden>
-          Worked out from your own reads on this device. Nothing about a seller is
-          ever sent to GradeThread.
-        </p>
-      </section>
-
+      <!-- ══ SELLING ════════════════════════════════════════════════════════ -->
+      <div class="pop-panel" id="panelSelling" role="tabpanel" aria-labelledby="navSelling" hidden>
       <!-- Seller tools (only when entitled) -->
       <section class="pop-section pop-seller" id="sellerSection" hidden>
-        <h2 class="pop-h2">Seller tools — Lister</h2>
-        <p class="pop-lead">
-          Cross-post FlipDesk drafts to Poshmark, Mercari &amp; Grailed from your
-          own logged-in browser tab. GradeThread never sees your marketplace
-          password or cookies — automation runs entirely on your device.
-        </p>
-        <ul class="pop-platforms" id="platforms"></ul>
+        <!-- ORDER: urgent, then recent, then reference. 2026-08-11.
+             This block used to open with the lead paragraph and the platform
+             table — the two things that never change — and put the delist queue
+             below them. But the reason a seller opens this tab is the red count
+             on it, and that count is the delist queue. Marketing copy above a
+             deadline is the wrong way round. -->
+
+        <!-- US-1885 AC1: pending delists. When an item sells on one marketplace,
+             its siblings on the extension channels have no delist API and must
+             be ended in the seller's own browser. Until now the extension — the
+             only thing that CAN end them — never showed the queue, so a sold item
+             stayed live until the seller happened to open the SaaS. -->
+        <div class="pop-delists" id="delistBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Needs ending</span>
+            <span class="pop-lastjob-when" id="delistCount"></span>
+          </div>
+          <p class="pop-delist-note" id="delistNote" hidden></p>
+          <ul class="pop-delist-list" id="delistList"></ul>
+        </div>
 
         <!-- US-1885 AC1: the last cross-post/delist outcome. The popup used to show
              ZERO job state, so a cross-post that timed out or couldn't be verified
@@ -150,19 +126,13 @@
           <p class="pop-lastjob-error" id="lastJobError" hidden></p>
         </div>
 
-        <!-- US-1885 AC1: pending delists. When an item sells on one marketplace,
-             its siblings on Poshmark/Mercari/Grailed have no delist API and must
-             be ended in the seller's own browser. Until now the extension — the
-             only thing that CAN end them — never showed the queue, so a sold item
-             stayed live until the seller happened to open the SaaS. -->
-        <div class="pop-delists" id="delistBlock" hidden>
-          <div class="pop-lastjob-head">
-            <span class="pop-lastjob-label">Needs ending</span>
-            <span class="pop-lastjob-when" id="delistCount"></span>
-          </div>
-          <p class="pop-delist-note" id="delistNote" hidden></p>
-          <ul class="pop-delist-list" id="delistList"></ul>
-        </div>
+        <h2 class="pop-h2">Channels</h2>
+        <p class="pop-lead">
+          Cross-post FlipDesk drafts into your own logged-in marketplace tab.
+          GradeThread never sees your marketplace password or cookies — the
+          automation runs entirely on your device.
+        </p>
+        <ul class="pop-platforms" id="platforms"></ul>
 
         <!-- US-2482: Poshmark engagement. A SEPARATE block with a SEPARATE
              clickwrap — the Lister consent covers "fill in my own listing form",
@@ -221,53 +191,147 @@
 
       <!-- Locked seller teaser (authenticated buyer, no seller plan) -->
       <section class="pop-section pop-seller-locked" id="sellerLockedSection" hidden>
-        <h2 class="pop-h2">Seller tools</h2>
         <p class="pop-lead">
-          Cross-posting to Poshmark, Mercari &amp; Grailed unlocks with an active
-          FlipDesk plan.
+          Cross-posting unlocks with an active FlipDesk plan. Drafts go straight
+          into your own logged-in tab on each marketplace — you review and post.
         </p>
         <a class="pop-cta" id="upgradeBtn" href="#" target="_blank" rel="noopener noreferrer">See FlipDesk plans</a>
       </section>
 
-
-      <!-- US-2484: the one-click selector check.
-           TOP-LEVEL on purpose, not inside #sellerSection. This is a
-           DIAGNOSTIC: it runs our own bundled selectors against the page
-           already open and reports which resolve. It exposes no seller
-           data and no entitlement, so gating it behind a paid plan bought
-           nothing — and cost something real, because the seller section
-           hides whenever the entitlements fetch fails (it fail-safes to
-           anonymous), which is exactly when you want to debug. Shown only
-           on a marketplace tab the Lister has a config for. -->
-      <!-- US-2484: the one-click selector check. Only shown on a marketplace
-           tab the Lister knows about — see renderProbe. Turns "verify the
-           selectors against the live form" from a devtools session into a
-           button and a paste. -->
-      <div class="pop-probe" id="probeBlock" hidden>
-        <div class="pop-lastjob-head">
-          <span class="pop-lastjob-label">Check this page</span>
-          <span class="pop-lastjob-when" id="probeHost"></span>
-        </div>
-        <p class="pop-probe-lead" id="probeLead">
-          Open the marketplace’s sell form, then check whether GradeThread’s
-          selectors still find every field. No page content is included.
+      <!-- Anonymous. The tab exists for everyone, so it must say something true
+           rather than render an empty panel — an install that looks broken on
+           first open is one that gets removed. -->
+      <section class="pop-section" id="sellerSignedOutSection" hidden>
+        <p class="pop-lead">
+          Selling tools are for FlipDesk sellers. Sign in to see whether your
+          account has them.
         </p>
-        <label class="pop-probe-deep">
-          <input type="checkbox" id="probeDeep" />
-          <span>
-            I have already opened the menu or dialog
-            <em>— also describe controls that only appear after a click</em>
-          </span>
-        </label>
-        <button class="pop-cta" id="probeRun" type="button">Check selectors</button>
-        <button class="pop-linkbtn" id="probeWatch" type="button">
-          Watch the page for 25s — for a message that disappears
-        </button>
-        <p class="pop-probe-verdict" id="probeVerdict" hidden></p>
-        <pre class="pop-probe-out" id="probeOut" hidden></pre>
-        <button class="pop-linkbtn" id="probeCopy" type="button" hidden>
-          Copy report
-        </button>
+        <button class="pop-cta" id="sellerSignInBtn" type="button">Sign in</button>
+      </section>
+      </div>
+
+      <!-- ══ SETTINGS ═══════════════════════════════════════════════════════ -->
+      <div class="pop-panel" id="panelSettings" role="tabpanel" aria-labelledby="navSettings" hidden>
+        <!-- Account / sign-in -->
+        <section class="pop-section pop-account" id="accountSection">
+          <div class="pop-acct-row">
+            <div>
+              <div class="pop-acct-state" id="acctState">Not signed in</div>
+              <div class="pop-acct-sub" id="acctSummary">
+                Buyer research is free for everyone. Sign in to unlock more.
+              </div>
+            </div>
+            <div class="pop-badges" id="acctBadges"></div>
+          </div>
+          <button class="pop-cta" id="connectBtn" type="button">Sign in to unlock</button>
+          <!-- US-1881 AC3: Firefox has no externally_connectable, so sign-in rides
+               the gt-bridge content script on gradethread.com — and that script
+               does not run until the site is allowed. Un-granted, the connect page
+               opens and the token simply never arrives. Say so before the click,
+               not after the wait. -->
+          <p class="pop-hint" id="sitePermHint" hidden>
+            Firefox will ask you to allow GradeThread on gradethread.com. Sign-in
+            needs that permission to hand the token back to this extension.
+          </p>
+          <button class="pop-linkbtn" id="disconnectBtn" type="button" hidden>Sign out of this extension</button>
+        </section>
+
+        <section class="pop-section">
+          <h2 class="pop-h2">Condition Check</h2>
+          <label class="pop-toggle">
+            <input type="checkbox" id="autoRun" />
+            <span>Auto-run on each supported listing</span>
+          </label>
+          <label class="pop-toggle">
+            <input type="checkbox" id="scanMode" />
+            <span>Check search results as I browse</span>
+          </label>
+          <p class="pop-hint">
+            Search pages get the seller’s stated condition and a price check only.
+            No photos are read until you open a listing.
+          </p>
+        </section>
+
+        <section class="pop-section">
+          <h2 class="pop-h2">Privacy</h2>
+          <!-- US-1880 AC3: opt-in, off by default. The copy states exactly what is
+               sent and what is not — a vague "help us improve" prompt is how a
+               telemetry toggle becomes a thing people feel tricked by later. -->
+          <label class="pop-toggle">
+            <input type="checkbox" id="selectorTelemetry" />
+            <span>
+              Report when a site’s layout breaks the read
+              <small class="pop-note">
+                Sends only the marketplace name and which part failed — never the
+                listing, the page address, or anything about you. Off by default.
+              </small>
+            </span>
+          </label>
+          <!-- US-1757 AC2: a SECOND, separate opt-in. It is not folded into the
+               toggle above because that one's copy promises a narrower thing, and
+               quietly widening a consent someone already gave is the trick this
+               file's other comment warns about. Same rules: off by default,
+               revocable, and the copy says exactly what leaves the device. -->
+          <label class="pop-toggle">
+            <input type="checkbox" id="usageTelemetry" />
+            <span>
+              Share anonymous usage counts
+              <small class="pop-note">
+                Sends how many condition reads and how many clicks to
+                gradethread.com you made, as totals every few hours — never when,
+                never which listing, and with no account or install identifier.
+                Off by default.
+              </small>
+            </span>
+          </label>
+        </section>
+
+        <!-- US-2484: the one-click selector check.
+             COLLAPSED, and in Settings, as of 2026-08-11. It used to sit at the
+             top level of the popup and appear for EVERY user who happened to be
+             on a marketplace tab — a maintenance tool, offering a 25-second page
+             watcher and printing our internal selector versions, to people who
+             had come to read a jacket's condition.
+             Still NOT gated on entitlements, which is deliberate and was argued
+             before: the seller section hides whenever the entitlements fetch
+             fails (that path fail-safes to anonymous), and that is precisely when
+             you want to debug. A plan gate here would buy nothing and cost that.
+             It exposes no seller data and grants nothing. -->
+        <section class="pop-section">
+          <details class="pop-adv" id="advBlock">
+            <summary class="pop-adv-sum">Advanced</summary>
+            <p class="pop-hint" id="probeIdle">
+              Open a marketplace’s sell form to check whether GradeThread’s
+              selectors still find every field.
+            </p>
+            <div class="pop-probe" id="probeBlock" hidden>
+              <div class="pop-lastjob-head">
+                <span class="pop-lastjob-label">Check this page</span>
+                <span class="pop-lastjob-when" id="probeHost"></span>
+              </div>
+              <p class="pop-probe-lead" id="probeLead">
+                Checks whether our selectors still find every field on the page you
+                have open. No page content is included.
+              </p>
+              <label class="pop-probe-deep">
+                <input type="checkbox" id="probeDeep" />
+                <span>
+                  I have already opened the menu or dialog
+                  <em>— also describe controls that only appear after a click</em>
+                </span>
+              </label>
+              <button class="pop-cta" id="probeRun" type="button">Check selectors</button>
+              <button class="pop-linkbtn" id="probeWatch" type="button">
+                Watch the page for 25s — for a message that disappears
+              </button>
+              <p class="pop-probe-verdict" id="probeVerdict" hidden></p>
+              <pre class="pop-probe-out" id="probeOut" hidden></pre>
+              <button class="pop-linkbtn" id="probeCopy" type="button" hidden>
+                Copy report
+              </button>
+            </div>
+          </details>
+        </section>
       </div>
 
       <footer class="pop-foot">

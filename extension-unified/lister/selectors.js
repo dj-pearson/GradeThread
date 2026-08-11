@@ -610,6 +610,27 @@ const GT_LISTER_SELECTORS = {
   // Marketplace is also the one channel where "just submit it" is wrong: the
   // create flow is a multi-step dialog with a required category and condition,
   // so the seller finishes it. We prefill what is unambiguous and stop.
+  //
+  // ⛔ 2026-08-11: THE ARIA PLAN DOES NOT WORK ON THE LIVE FORM. Read this
+  // before spending an afternoon on better aria-label spellings.
+  //
+  // Probed on facebook.com/marketplace/create/item, signed in, form rendered:
+  // `photoInput` and `submit` resolve. `title`, `price` and `description` all
+  // miss — and not because the label text differs. Those three inputs carry NO
+  // ACCESSIBLE NAME AT ALL: no `aria-label`, no `aria-labelledby`, no
+  // `placeholder`, no wrapping `<label>`. There is nothing for a spelling
+  // variant to match, so every alternative below is dead for the same reason.
+  //
+  // The premise above — that Meta's own accessibility requirements stop these
+  // attributes churning — turned out to assume the attributes were there. On
+  // the fields that matter they are not. The selectors are LEFT AS THEY ARE
+  // rather than replaced with a positional guess ("the second text input in the
+  // form"), because a positional selector on machine-generated markup is the one
+  // thing worse than no selector: it keeps matching after the form changes, and
+  // it types a price into whatever now sits in that position.
+  //
+  // Whoever picks Phase 5 up needs a different handle entirely. Until then this
+  // stays `enabled: false` and reports "list manually", which is correct.
   facebook: {
     enabled: false,
     version: "2026.08.0-draft",
@@ -622,9 +643,9 @@ const GT_LISTER_SELECTORS = {
     liveListingUrlPattern: "^https://[^/]*facebook\\.com/marketplace/item/\\d+",
     required: ["title", "price", "submit"],
     fields: {
-      // Marketplace labels its inputs rather than naming them; aria-label is the
-      // only stable handle. Multiple spellings because the label text is
-      // localised and Meta A/B-tests the wording.
+      // ⚠️ These three MISS on the live form — see the block above. They are
+      // kept because they cost nothing while the channel is disabled and they
+      // still describe the shape we would want; they are not a working config.
       title:
         'input[aria-label="Title"], input[aria-label*="Title"], label[aria-label="Title"] input',
       price:

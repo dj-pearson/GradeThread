@@ -8,6 +8,20 @@
   --line: #eeeef4;
 }
 * { box-sizing: border-box; }
+
+/* 2026-08-11: `hidden` MUST win over a layout rule, and it did not.
+ *
+ * The UA sheet's `[hidden] { display: none }` has the lowest possible
+ * specificity, so every class here that sets its own `display` silently
+ * defeated it. `.pop-toggle` and `.pop-perm` are both `display: flex`, which
+ * meant "Enabled on this site" and the whole Firefox permission prompt rendered
+ * on every popup no matter what the JS did — the code hid them correctly and the
+ * stylesheet put them straight back.
+ *
+ * Every show/hide in popup.js goes through the `hidden` property, so this one
+ * line is the difference between that mechanism working and not. It is the rare
+ * honest `!important`: the whole point is that nothing may override it. */
+[hidden] { display: none !important; }
 body {
   margin: 0;
   width: 340px;
@@ -32,7 +46,67 @@ body {
 .pop-sub { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; color: #cfe0ff; }
 .pop-ver { margin-left: auto; font-size: 11px; opacity: 0.7; }
 
+/* ── the three main tabs ─────────────────────────────────────────────────
+   Distinct from .pop-tabs (Recent reads / By seller), which is a sub-tab set
+   INSIDE the Reads panel. Two tab strips on one screen have to look different
+   or neither reads as the primary one: this strip is a filled bar attached to
+   the navy header, the inner one is underlined text on white. */
+.pop-nav {
+  display: flex;
+  background: var(--navy);
+  padding: 0 8px;
+  gap: 2px;
+}
+.pop-navtab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 8px 12px 7px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a9c2eb;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pop-navtab:hover { color: #fff; }
+.pop-navtab.is-on { color: #fff; border-bottom-color: var(--red); }
+/* Pending delists. Red because it is the one count with a deadline attached —
+   a sibling left live after a sale is how one garment gets sold twice. */
+.pop-navcount {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+}
+
 .pop-body { display: flex; flex-direction: column; }
+.pop-panel { display: flex; flex-direction: column; }
+.pop-panel[hidden] { display: none; }
+
+/* Advanced (the selector diagnostic). Collapsed by default — see popup.html. */
+.pop-adv { font-size: 12px; }
+.pop-adv-sum {
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #6b6b80;
+  list-style: none;
+}
+.pop-adv-sum::-webkit-details-marker { display: none; }
+.pop-adv-sum::before { content: "▸ "; }
+.pop-adv[open] .pop-adv-sum::before { content: "▾ "; }
+.pop-adv > *:not(summary) { margin-top: 10px; }
 .pop-section { padding: 12px 14px; border-bottom: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .pop-section:last-of-type { border-bottom: 0; }
 .pop-h2 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: #6b6b80; }
@@ -245,6 +319,12 @@ em { font-style: italic; }
   .pop-tab { color: #9a9ab0; }
   .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
 
+  /* The main nav rides the navy header, which is already dark — so it needs no
+     inversion, only a slightly deeper ground so the strip still reads as a
+     separate row from the header above it. */
+  .pop-nav { background: #0c2749; }
+  .pop-adv-sum { color: #9a9ab0; }
+
   .pop-account { background: #1e1e32; }
   .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }
   .pop-badge.seller { background: #17301f; color: #7fd39b; }
@@ -304,6 +384,26 @@ em { font-style: italic; }
 
 .pop-tab.is-on { color: #0f3460; border-bottom-color: #0f3460; }
 .pop-tab:focus-visible { outline: 2px solid #e94560; outline-offset: 2px; }
+
+/* 2026-08-11: these three rules are a SECOND dark block, and it is here rather
+ * than up with the others for a reason worth reading before "tidying" it.
+ *
+ * The `.pop-tab` base rules are declared BELOW the main
+ * `prefers-color-scheme: dark` block. Same specificity, later in the file, so
+ * they won — and the ACTIVE sub-tab rendered navy #0f3460 on a #16162a page.
+ * Not merely low contrast: the selected tab was less visible than the
+ * unselected one, so the switch read as inverted.
+ *
+ * The main block carries a comment asking that dark rules stay together so the
+ * theme cannot fragment, which is the right instinct and is why moving the base
+ * rules up would be the tidier fix. It is also the riskier one — those rules are
+ * shared with the meter and the reads list. Overriding here, next to what it
+ * overrides, is the change that cannot break something three sections away. */
+@media (prefers-color-scheme: dark) {
+  .pop-tabs { border-bottom-color: #2c2c44; }
+  .pop-tab { color: #9a9ab0; }
+  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
+}
 
 /* ── US-2482: Poshmark engagement — the share-jail meter ────────────────────
  *

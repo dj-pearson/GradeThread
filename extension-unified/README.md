@@ -44,8 +44,10 @@ extensions into a single MV3 extension:
   and no Vision call is made, which is why it can run automatically (default ON)
   where the detail-page read stays click-to-run.
 - **Lister (seller cross-post)** — from `extension/` (US-716). Cross-post + delist
-  FlipDesk drafts into Poshmark / Mercari / Grailed from the seller's own logged-in
-  tab. **Unlocks only for an active paid FlipDesk account.**
+  FlipDesk drafts from the seller's own logged-in tab. Per-marketplace status is
+  the table below, which is the only place that list lives — naming the channels
+  here as well is how that sentence went stale for three of them at once.
+  **Unlocks only for an active paid FlipDesk account.**
 
 Founder decision 2026-07-09: sellers doing sourcing/comping ARE buyers in the same
 session — two installs and two store listings is friction. See
@@ -161,13 +163,19 @@ channels advertised "Connect via browser extension" while every attempt reported
 "list manually for now". `MARKETPLACE_EXTENSION_FLOW` now mirrors this column and
 `marketplace-mechanism.test.ts` fails the build if the two drift.
 
-| Phase | Marketplace | Status | Notes |
-|---|---|---|---|
-| 1 | Poshmark | **Enabled** | Verified 2026-06-13 |
-| 2 | Mercari | Awaiting live verification | Selectors written; the React SPA rewrites field ids often, so re-check before enabling |
-| 3 | Grailed | Awaiting live verification | Selectors written |
-| 4 | Vinted (US-2479) | Awaiting live verification | 22 country domains; an uncovered locale reports "list manually" rather than guessing |
-| 5 | Facebook Marketplace (US-2480) | Awaiting live verification | ARIA-anchored selectors — Marketplace's class names are hashed and churn every deploy |
+**List and delist are separate switches**, and the table says so per row. A
+channel that lists but cannot end a listing is not a half-finished one — it is a
+deliberate trade, disclosed to the seller before they cross-list, who then gets a
+pending-delist reminder per sale instead. The popup renders these same three
+states ("Enabled" / "List only" / "Coming soon") off `selectors.js` directly.
+
+| Phase | Marketplace | List | Delist | Notes |
+|---|---|---|---|---|
+| 1 | Poshmark | **Enabled** | **Enabled** | Verified 2026-06-13; delist menu 2026-08-11 |
+| 2 | Mercari | **Enabled** | **Enabled** | Both verified 2026-08-10/11. The React SPA rewrites field ids often — re-check after any redesign |
+| 3 | Grailed | **Enabled** | **Never** | Delete is confirmed by a NATIVE browser dialog nothing in a page can answer. Permanent, not a gap |
+| 4 | Vinted (US-2479) | **Enabled** | Not yet verified | List verified 2026-08-11 on vinted.com. 22 country domains; an uncovered locale reports "list manually" rather than guessing. Delist needs a probe from a live listing |
+| 5 | Facebook Marketplace (US-2480) | Awaiting verification | Awaiting verification | ARIA-anchored selectors, and as of 2026-08-11 the live form's title/price/description carry NO accessible name at all — that anchoring strategy needs rethinking before this ships |
 
 A disabled target reports a clear "list manually for now" message instead of
 guessing at the form. When a flow succeeds, GradeThread writes one `listings` row

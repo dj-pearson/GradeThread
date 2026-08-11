@@ -38,7 +38,23 @@ const MARKETPLACE_HOST_RE =
 
 // One list, shared by the platform rows and the last-job line. The header of this
 // file warns about hand-maintained duplicates that drift — this is that list.
-const PLATFORM_LABELS = { poshmark: "Poshmark", mercari: "Mercari", grailed: "Grailed" };
+//
+// 2026-08-11: it had drifted. Vinted went live in selectors.js and was missing
+// here, so it never appeared in the platform rows AT ALL and its last-job line
+// read "vinted cross-post". Facebook was missing for the same reason and is
+// added too — it renders honestly as "Coming soon" off its own `enabled: false`,
+// which is better than a supported platform being invisible.
+//
+// The ORDER below drives the rows. It is derived against the real config, so a
+// key with no entry in selectors.js is skipped rather than rendering an empty row.
+const PLATFORM_LABELS = {
+  poshmark: "Poshmark",
+  mercari: "Mercari",
+  grailed: "Grailed",
+  vinted: "Vinted",
+  facebook: "Facebook",
+};
+const PLATFORM_ORDER = ["poshmark", "mercari", "grailed", "vinted", "facebook"];
 
 const PLAN_LABELS = {
   free: "Free",
@@ -411,32 +427,102 @@ function wireHistoryTabs() {
   });
 }
 
+// ── the three main tabs ─────────────────────────────────────────────────────
+//
+// The popup was one scroll holding research settings, reads, seller consent,
+// a sharing meter and a diagnostic. Everyone scrolled past most of it.
+//
+// `userPicked` is the whole subtlety here. The default tab is chosen from
+// entitlements, which arrive AFTER the first paint (renderAccount is awaited on
+// a network call). Without the flag, a seller who opens the popup and taps
+// Settings within that window gets yanked back to Selling when the response
+// lands — the UI overriding a deliberate choice, which reads as a bug even
+// though the tab it picked was "right".
+const TABS = ["Reads", "Selling", "Settings"];
+let userPicked = false;
+
+function selectTab(name) {
+  for (const t of TABS) {
+    const btn = document.getElementById("nav" + t);
+    const panel = document.getElementById("panel" + t);
+    if (!btn || !panel) continue;
+    const on = t === name;
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+    panel.hidden = !on;
+  }
+}
+
+function wireMainTabs() {
+  for (const t of TABS) {
+    const btn = document.getElementById("nav" + t);
+    if (!btn) continue;
+    btn.addEventListener("click", () => {
+      userPicked = true;
+      selectTab(t);
+    });
+  }
+}
+
+/** Open on the tab this person came for. Never overrides a manual choice. */
+function selectDefaultTab(caps) {
+  if (userPicked) return;
+  selectTab(caps && caps.sellerEnabled ? "Selling" : "Reads");
+}
+
+/** The pending-delist count on the Selling tab. Hidden at zero — a "0" badge is
+ *  noise, and this one is styled to mean "act on this". */
+function setSellingCount(n) {
+  const el = document.getElementById("navSellingCount");
+  if (!el) return;
+  if (!n || n < 1) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = String(n);
+}
+
 // ── seller section ──────────────────────────────────────────────────────────
 // US-1885 AC1: platform status from the REAL versioned selectors config.
 function renderPlatforms() {
   const ul = document.getElementById("platforms");
   ul.textContent = "";
   const cfg = self.GT_LISTER_SELECTORS || {};
-  const order = ["poshmark", "mercari", "grailed"];
   const labels = PLATFORM_LABELS;
-  for (const key of order) {
+  for (const key of PLATFORM_ORDER) {
     const p = cfg[key];
     if (!p) continue;
+    // 2026-08-11: THREE states, not two.
+    //
+    // "Enabled" used to cover both a channel that can list AND end a listing,
+    // and one that can only list. Those are not the same promise. Grailed
+    // cannot auto-delist (a native browser dialog, permanently) and Vinted
+    // cannot yet (unverified) — so a seller reading "Enabled" would expect a
+    // sold item's sibling to come down on its own, and it will not. They get a
+    // reminder instead, and this row is where that expectation is set.
+    const canList = p.enabled === true;
+    const canDelist = canList && !!(p.delist && p.delist.enabled);
     const li = document.createElement("li");
     const left = document.createElement("div");
     const name = document.createElement("div");
     name.className = "name";
-    name.textContent = labels[key];
+    name.textContent = labels[key] || key;
     const metaEl = document.createElement("div");
     metaEl.className = "meta";
-    metaEl.textContent = p.enabled
-      ? "selectors v" + p.version + (p.lastVerified ? " · verified " + p.lastVerified : "")
-      : "not yet enabled";
+    metaEl.textContent = !canList
+      ? "not yet enabled"
+      : "selectors v" + p.version + (p.lastVerified ? " · verified " + p.lastVerified : "") +
+        // Short on purpose. The badge already says "List only"; this is the
+        // consequence, and at three clauses the line wrapped to two and turned
+        // the platform list into a wall.
+        (canDelist ? "" : " · you end it by hand");
     left.appendChild(name);
     left.appendChild(metaEl);
     const badge = document.createElement("span");
-    badge.className = "pop-status " + (p.enabled ? "on" : "off");
-    badge.textContent = p.enabled ? "Enabled" : "Coming soon";
+    badge.className = "pop-status " + (canDelist ? "on" : canList ? "warn" : "off");
+    badge.textContent = canDelist ? "Enabled" : canList ? "List only" : "Coming soon";
     li.appendChild(left);
     li.appendChild(badge);
     ul.appendChild(li);
@@ -533,6 +619,7 @@ async function renderPendingDelists(caps) {
   // Seller-only surface; don't even ask the server otherwise.
   if (!caps || !caps.sellerEnabled) {
     block.hidden = true;
+    setSellingCount(0);
     return;
   }
 
@@ -549,6 +636,10 @@ async function renderPendingDelists(caps) {
     count.textContent = "";
     note.hidden = false;
     note.textContent = DELIST_REASON[reason] || DELIST_REASON.error;
+    // No badge on an unknown count. A tab badge is a claim about how many
+    // things need ending; "we could not find out" is not zero and must not
+    // render as the all-clear this whole block exists to avoid.
+    setSellingCount(0);
     return;
   }
 
@@ -557,11 +648,13 @@ async function renderPendingDelists(caps) {
     // Nothing pending is genuinely good news, and only shown when we actually
     // know it — every other path above returns before here.
     block.hidden = true;
+    setSellingCount(0);
     return;
   }
 
   block.hidden = false;
   count.textContent = String(pending.length);
+  setSellingCount(pending.length);
 
   // A listing we cannot open cannot be ended by the extension. Say so plainly
   // rather than offering an action that would silently do nothing.
@@ -791,12 +884,17 @@ async function renderProbe() {
   const host = tab && tab.url ? (() => {
     try { return new URL(tab.url).host; } catch (_e) { return null; }
   })() : null;
+  // The Advanced section always exists now, so the idle note carries the "why
+  // is there nothing here" answer instead of the whole block vanishing.
+  const idle = document.getElementById("probeIdle");
   const platform = probePlatformForHost(host);
   if (!platform) {
     block.hidden = true;
+    if (idle) idle.hidden = false;
     return;
   }
   block.hidden = false;
+  if (idle) idle.hidden = true;
   document.getElementById("probeHost").textContent = host;
   block.dataset.platform = platform;
   block.dataset.tabId = String(tab.id);
@@ -948,9 +1046,15 @@ function wireProbe() {
 function renderSellerSections(caps) {
   const seller = document.getElementById("sellerSection");
   const locked = document.getElementById("sellerLockedSection");
+  // 2026-08-11: the anonymous case now has its OWN block. It used to hide all
+  // three, which was fine when this lived at the bottom of one long scroll —
+  // there was simply nothing there. As a TAB it would have rendered blank, and
+  // a blank panel reads as broken rather than as "not for you".
+  const anon = document.getElementById("sellerSignedOutSection");
   if (caps && caps.sellerEnabled) {
     seller.hidden = false;
     locked.hidden = true;
+    if (anon) anon.hidden = true;
     renderPlatforms();
     renderLastJob();
     renderPendingDelists(caps);
@@ -960,9 +1064,13 @@ function renderSellerSections(caps) {
     // Signed in but no active FlipDesk plan → honest upsell, not a dead section.
     seller.hidden = true;
     locked.hidden = false;
+    if (anon) anon.hidden = true;
+    setSellingCount(0);
   } else {
     seller.hidden = true;
     locked.hidden = true;
+    if (anon) anon.hidden = false;
+    setSellingCount(0);
   }
 }
 
@@ -987,6 +1095,18 @@ async function initSiteAccess() {
 function wireAccount() {
   const connect = document.getElementById("connectBtn");
   const disconnect = document.getElementById("disconnectBtn");
+  // The Selling tab's own sign-in button. It forwards to the real control in
+  // Settings rather than duplicating the connect flow — that flow carries the
+  // Firefox permission dance (see below), and a second copy of it is a second
+  // copy to get wrong.
+  const sellerSignIn = document.getElementById("sellerSignInBtn");
+  if (sellerSignIn) {
+    sellerSignIn.addEventListener("click", () => {
+      userPicked = true;
+      selectTab("Settings");
+      connect.click();
+    });
+  }
   connect.addEventListener("click", () => {
     // Launches the US-1838 token flow: the connect page mints an extension token
     // (POST /api/buyer/extension-token) and posts it back via GT_SET_TOKEN so this
@@ -1028,6 +1148,7 @@ function wireAccount() {
 function applyCapabilities(caps) {
   renderAccount(caps);
   renderSellerSections(caps);
+  selectDefaultTab(caps);
 }
 
 // ── boot ─────────────────────────────────────────────────────────────────────
@@ -1042,6 +1163,7 @@ function applyCapabilities(caps) {
     isSiteUrl: ATTR.isSiteUrl,
     send: (event, surface) => send({ type: "GT_CC_USAGE", event, surface }),
   });
+  wireMainTabs();
   wireAccount();
   wireConsent();
   wireEngagement(); // US-2482
