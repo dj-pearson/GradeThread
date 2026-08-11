@@ -204,20 +204,44 @@ const GT_LISTER_SELECTORS = {
       // `shareInternal` is the step INTO the followers choice, and it is
       // required so that nothing can reach the second modal by accident.
       shareInternal: '[data-et-name="share_poshmark"]',
-      // Inside the SECOND modal. Unverified: the watcher captured that modal
-      // opening but not its contents, so these three are still the original
-      // guesses.
+      // Inside the SECOND modal, and every one of these is now SCOPED to a
+      // modal — which is the fix, not a tidy-up.
+      //
+      // 2026-08-11: this resolved `ok` on a closet at rest, with no modal open
+      // anywhere. `a[href*="followers"]` was matching the closet's own
+      // Followers tab, because `.share-modal` is in the page from the start,
+      // empty, and the descendant combinator found the link elsewhere once the
+      // first clause failed. A selector we intend to CLICK, thousands of times,
+      // matching a navigation link.
+      //
+      // What it would have done is worse than nothing: shareOne waits for this
+      // and clicks it, so the run would have left the closet on its first
+      // iteration and then found no tiles to share, over and over, while the
+      // meter reported honest zeroes and the seller wondered why.
+      //
+      // Still unverified — the watcher has caught the second modal opening but
+      // not its contents — but now it cannot match anything outside one.
       shareToFollowers:
-        '[data-et-name="share_to_followers"], .share-modal a[href*="followers"], button[aria-label*="My Followers"]',
+        '[data-test="modal"] [data-et-name="share_to_followers"], ' +
+        '[data-test="modal-body"] a[href*="followers"], ' +
+        '[data-test="modal"] button[aria-label*="My Followers"]',
       followButton:
         '[data-et-name="follow"], button.btn--follow, button[aria-label^="Follow"]',
       // "Offer to Likers" on a listing the seller owns.
       offerButton:
         '[data-et-name="offer_to_likers"], button[aria-label*="Offer to Likers"]',
+      // Scoped for the same reason as shareToFollowers above. These two are
+      // specific enough that they probably would not have matched a closet at
+      // rest — but "probably" is exactly what `a[href*="followers"]` had going
+      // for it, and the rule is cheaper to keep than to reason about per
+      // selector. Both are still unverified: nobody has opened an offer dialog
+      // with the watcher armed.
       offerPriceInput:
-        'input[data-test="offer-price"], input[name="offerPrice"]',
+        '[data-test="modal"] input[data-test="offer-price"], ' +
+        '[data-test="modal"] input[name="offerPrice"]',
       offerSubmit:
-        'button[data-test="offer-submit"], button[data-et-name="submit_offer"]',
+        '[data-test="modal"] button[data-test="offer-submit"], ' +
+        '[data-test="modal"] button[data-et-name="submit_offer"]',
       // Poshmark's own confirmation that one action landed. Without a positive
       // signal the run would count actions it never performed, and the meter
       // would tell the seller they were safe while the real total ran ahead.
