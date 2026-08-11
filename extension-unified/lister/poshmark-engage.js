@@ -77,6 +77,27 @@
       (tile.matches && tile.matches(cfg.shareButton) ? tile : null);
     if (!control) return false;
     control.click();
+
+    // 2026-08-11: sharing is TWO modals, and the first one is mostly exits.
+    //
+    // Watching a real share showed the first modal is a share MENU whose
+    // options are largely outbound — share_facebook, share_pinterest,
+    // share_email, share_copy, and a people_search box that DMs the listing to
+    // a named person. Only `share_poshmark` stays inside Poshmark, and it opens
+    // the second modal where "To My Followers" lives.
+    //
+    // So this step is not optional politeness, it is the guard: without it a
+    // selector drift in the second modal could resolve against the FIRST one,
+    // and the failure would not be a missed share — it would be the seller's
+    // listing posted to their Facebook, or sent to a stranger, a few thousand
+    // times. Missing the step means no share at all, which is the right way for
+    // this to break.
+    if (cfg.shareInternal) {
+      const internal = await GT.waitFor(cfg.shareInternal, 3000);
+      if (!internal) return false;
+      internal.click();
+    }
+
     const toFollowers = await GT.waitFor(cfg.shareToFollowers, 3000);
     if (!toFollowers) {
       // The modal did not open, or its markup moved. Do NOT fall back to

@@ -185,10 +185,28 @@ const GT_LISTER_SELECTORS = {
       // Followers" and "To a Party".
       shareButton:
         '[data-et-name="share"], button.share-grey, .tile__social-actions button[aria-label*="Share"]',
-      // Inside that modal — the only target we ever click. Sharing to a party is
-      // deliberately not automated: parties are themed and time-boxed, and a bot
-      // sharing the wrong catalogue into one is the most visible thing a closet
-      // can do.
+      // ⚠️ SHARING IS TWO MODALS, NOT ONE (watched live, 2026-08-11).
+      //
+      // The first modal is a share MENU, and most of what it offers leaves
+      // Poshmark entirely: `share_facebook`, `share_pinterest`, `share_email`,
+      // `share_copy`, plus a `people_search` box for sending the listing to a
+      // named person. The one internal option is `share_poshmark`, and it opens
+      // a SECOND modal where "To My Followers" and "To a Party" actually live.
+      //
+      // That structure is why this stays off. A share automation that clicks
+      // the wrong element in the first modal does not fail — it posts the
+      // seller's listing to their Facebook, or DMs it to a stranger, thousands
+      // of times. Sharing to a party has always been excluded here for a
+      // smaller version of the same reason (parties are themed and time-boxed);
+      // discovering an outbound-social row sitting one selector away makes the
+      // point louder.
+      //
+      // `shareInternal` is the step INTO the followers choice, and it is
+      // required so that nothing can reach the second modal by accident.
+      shareInternal: '[data-et-name="share_poshmark"]',
+      // Inside the SECOND modal. Unverified: the watcher captured that modal
+      // opening but not its contents, so these three are still the original
+      // guesses.
       shareToFollowers:
         '[data-et-name="share_to_followers"], .share-modal a[href*="followers"], button[aria-label*="My Followers"]',
       followButton:
