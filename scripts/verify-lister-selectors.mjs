@@ -159,6 +159,27 @@ function checkPlatform(platform, cfg) {
     if (!cfg.engage.humanCheck) {
       fail(`${platform}.engage: no \`humanCheck\` selector. The run is supposed to PAUSE when the marketplace asks for a human — without a detector it keeps clicking into the wall instead, and GradeThread never answers one (US-2482 AC2).`);
     }
+    // 2026-08-11: `shareToFollowers` resolved `ok` on a closet at rest, with no
+    // modal open anywhere — `a[href*="followers"]` was matching the closet's own
+    // Followers TAB. shareOne waits for that selector and CLICKS it, so the run
+    // would have navigated away on its first iteration, found no tiles, and kept
+    // reporting honest zeroes while the seller wondered why nothing shared.
+    //
+    // Every control that only exists inside a modal must SAY so in its selector.
+    // A click target that can match a page at rest is not a weak selector, it is
+    // a different feature.
+    const MODAL_SCOPED = ["shareToFollowers", "offerPriceInput", "offerSubmit"];
+    for (const key of MODAL_SCOPED) {
+      const sel = cfg.engage[key];
+      if (!sel) continue;
+      const scoped = String(sel)
+        .split(",")
+        .every((part) => /\[data-test[^\]]*modal|\.modal|\[role="?dialog/i.test(part));
+      if (!scoped) {
+        fail(`${platform}.engage.${key}: at least one alternative is not scoped to a modal. This control only exists inside one, and shareOne CLICKS it — an unscoped alternative can match the page at rest and navigate the run away from the closet.`);
+      }
+    }
+
     if (!cfg.engage.actionConfirmed) {
       fail(`${platform}.engage: no \`actionConfirmed\` selector. Without positive confirmation the run counts actions it never performed, and the meter tells the seller they are safe while the real total runs ahead.`);
     }

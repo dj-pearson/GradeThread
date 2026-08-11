@@ -799,6 +799,9 @@
   // several clicks, then re-open the popup. 25 seconds captured the share modal
   // opening and ran out before the confirmation.
   var WATCH_MS = 60000;
+  // Raised with the inner cap: one modal can legitimately account for twenty
+  // signatures, and two modals in sequence is the flow we are trying to see.
+  var WATCH_MAX = 90;
   var watched = [];
   var watchUntil = 0;
   var watchObserver = null;
@@ -835,7 +838,7 @@
     var seen = {};
     watchObserver = new MutationObserver(function (records) {
       if (Date.now() > watchUntil) { watchObserver.disconnect(); watchObserver = null; return; }
-      for (var i = 0; i < records.length && watched.length < 40; i++) {
+      for (var i = 0; i < records.length && watched.length < WATCH_MAX; i++) {
         // A toggled banner: an element that was already there whose class just
         // became banner-shaped. No node was added, so childList sees nothing.
         if (records[i].type === "attributes") {
@@ -850,19 +853,29 @@
           continue;
         }
         var added = records[i].addedNodes || [];
-        for (var j = 0; j < added.length && watched.length < 40; j++) {
+        for (var j = 0; j < added.length && watched.length < WATCH_MAX; j++) {
           var el = added[j];
           if (!el || el.nodeType !== 1) continue;
           // The node itself, plus anything under it carrying a test attribute —
           // a toast is usually a wrapper with the interesting name inside.
+          // 2026-08-11: this used to look only for test attributes inside an
+          // added node, capped at 8. Poshmark's SECOND share modal — the one
+          // holding "To My Followers" — came back as four empty wrappers,
+          // because its options carry classes and no test attribute, and
+          // nothing without one was ever considered.
+          //
+          // So interactive elements count too, and the cap is 25. The thing we
+          // are hunting is by definition a control, and a control with no test
+          // id is the normal case on most of the web.
           var candidates = [el];
           if (el.querySelectorAll) {
             var inner = el.querySelectorAll(
-              "[data-et-name], [data-test], [data-testid], [data-test-id], [role=alert]",
+              "[data-et-name], [data-test], [data-testid], [data-test-id], " +
+                "[role=alert], [role=status], button, a[href], [role=button]",
             );
-            for (var k = 0; k < inner.length && k < 8; k++) candidates.push(inner[k]);
+            for (var k = 0; k < inner.length && k < 25; k++) candidates.push(inner[k]);
           }
-          for (var c = 0; c < candidates.length && watched.length < 40; c++) {
+          for (var c = 0; c < candidates.length && watched.length < WATCH_MAX; c++) {
             var sig = watchSignature(candidates[c]);
             if (!sig || seen[sig]) continue;
             seen[sig] = true;
