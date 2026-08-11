@@ -89,11 +89,21 @@
       Object.keys(fields).forEach(function (k) { push(k, fields[k]); });
       push("submit", cfg && cfg.submit);
     } else {
+      // Every string on a flow used to be treated as a selector, with two names
+      // hard-coded out. That is backwards: adding ANY new string key to a flow
+      // silently turns it into a selector, and US-2486's `navigatesTo` did
+      // exactly that — a URL pattern was reported to the seller as an INVALID
+      // SELECTOR, which reads like a broken config rather than a working one.
+      //
+      // So the rule is now positive: a key is metadata if it is one of the
+      // known scalars, or if it NAMES a URL pattern. Everything else is a
+      // selector, which keeps the failure mode on the safe side — a genuinely
+      // new selector still gets probed rather than being silently skipped.
       Object.keys(cfg || {}).forEach(function (k) {
-        if (typeof cfg[k] === "string" && k !== "version" && k !== "lastVerified" &&
-            k !== "closetUrlPattern") {
-          push(k, cfg[k]);
-        }
+        if (typeof cfg[k] !== "string") return;
+        if (k === "version" || k === "lastVerified") return;
+        if (/Pattern$/.test(k) || /^navigatesTo$/.test(k)) return;
+        push(k, cfg[k]);
       });
     }
     return out;
@@ -164,19 +174,41 @@
     // silent: pageCheck returns null, the report prints no verdict, and the
     // engage section reads as an untested channel rather than a wrong page.
     var flowCfg = (ctx && ctx.flowCfg) || {};
-    var pattern = flow === "engage"
-      ? (flowCfg.closetUrlPattern || cfg.closetUrlPattern || null)
-      : (flowCfg.liveListingUrlPattern || cfg.liveListingUrlPattern || null);
-    out.what = flow === "engage" ? "your own closet" : "one of your own live listings";
-    if (!pattern || !ctx.origin) return out;
-    try {
-      // These patterns are anchored at `^https://`, so they are matched against
-      // origin + path. The query string is left off on purpose: it is the part
-      // that carries referral and session-shaped junk, and no pattern needs it.
-      out.onExpectedPage = new RegExp(pattern, "i").test(String(ctx.origin) + path);
-    } catch (_err) {
-      out.onExpectedPage = null;
+    var patterns = [];
+    if (flow === "engage") {
+      out.what = "your own closet";
+      patterns.push(flowCfg.closetUrlPattern || cfg.closetUrlPattern);
+    } else {
+      out.what = "one of your own live listings";
+      patterns.push(flowCfg.liveListingUrlPattern || cfg.liveListingUrlPattern);
+      // US-2486: on a two-page channel the delete control lives on the LISTING
+      // EDITOR, so that page is a legitimate place to run this check — it is
+      // where half the flow actually happens. Without this the editor was
+      // reported as the wrong page and the candidate sweep was suppressed,
+      // which meant the one page carrying the answer was the one page the
+      // report refused to describe.
+      if (flowCfg.navigatesTo) {
+        patterns.push(flowCfg.navigatesTo);
+        out.what = "one of your own live listings, or its editor";
+      }
     }
+    patterns = patterns.filter(Boolean);
+    if (patterns.length === 0 || !ctx.origin) return out;
+
+    var url = String(ctx.origin) + path;
+    var verdict = false;
+    for (var i = 0; i < patterns.length; i++) {
+      try {
+        // These patterns are anchored at `^https://`, so they are matched
+        // against origin + path. The query string is left off on purpose: it is
+        // the part that carries referral and session-shaped junk, and no
+        // pattern needs it.
+        if (new RegExp(patterns[i], "i").test(url)) { verdict = true; break; }
+      } catch (_err) {
+        return { onExpectedPage: null, open: out.open, what: out.what };
+      }
+    }
+    out.onExpectedPage = verdict;
     return out;
   }
 

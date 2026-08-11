@@ -264,18 +264,35 @@ const GT_LISTER_SELECTORS = {
   // Grailed sibling stays live and purchasable, and the seller owes two people
   // one garment.
   //
-  // 2026-08-10, and this is the finding that matters: a probe of the seller's
-  // OWN live listing, header and footer excluded, found no owner controls at
-  // all. Nine test attributes, every one of them presentational — next, prev,
-  // dots, Current, Original, PercentOff, Color, Style, trustStickyFooter — and
-  // not one edit, delete, menu or manage. Mercari's equivalent page named its
-  // menu on the first look; Grailed's simply does not carry one.
+  // ⛔ 2026-08-11: GRAILED AUTO-DELIST IS NOT POSSIBLE IN THIS DESIGN, and the
+  // reason is not a selector we have failed to find.
   //
-  // So the delist control is somewhere else — the seller's listing manager,
-  // most likely — and this flow's contract is a menu on the listing page. That
-  // is a design question (does delist navigate?), not a selector to guess, and
-  // it is the same question Poshmark's `edit_listing` raises. Answering it once,
-  // for both, is the next step; guessing a selector twice is not.
+  // The seller reports that Grailed's Delete opens a NATIVE BROWSER dialog —
+  // `window.confirm`, the one Chrome draws itself — rather than an in-page
+  // modal. Nothing running in the page can answer that. It is not a matter of
+  // the right selector or a longer wait: a native dialog is drawn by the
+  // browser, outside the document, and it BLOCKS the page's JavaScript while it
+  // is open. The probe itself hangs on it, which is the same fact from the
+  // other end.
+  //
+  // (An extension could only intercept it by overriding `window.confirm` in the
+  // page's own world before the click. That means injecting script into the
+  // page context to defeat a confirmation the seller is being shown — a deletion
+  // dialog, specifically — and doing it silently. That is not a technique this
+  // project uses, and the ADR's bright lines exist for smaller reasons than
+  // this one.)
+  //
+  // So Grailed gets the honest fallback: `delist.enabled` stays false, and when
+  // an item sells elsewhere the seller is told to end the Grailed listing
+  // themselves. That is US-2165's `delist_unresolved` path — a durable marker
+  // plus a notification, one message per sale, and the seller keeps the sale.
+  //
+  // The earlier note here recorded that the listing page carried no owner
+  // control at all. That reading was a cap artefact: 11 of the 20 candidate
+  // slots went to the follow-heart on each related listing, all identical but
+  // for their id. The dedupe now collapses repeats, so a page like that one
+  // reports its own controls. The conclusion did not survive; the fix it
+  // prompted did.
   grailed: {
     enabled: false,
     version: "2026.08.0",

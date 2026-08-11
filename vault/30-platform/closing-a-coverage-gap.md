@@ -8,7 +8,7 @@ code_refs:
   - extension-unified/lister/common.js
   - services/edge-functions/src/lib/cross-listing-sale.ts
   - src/lib/constants.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-11
 tags: [runbook, marketplaces, extension, process]
 summary: The eight steps that take a marketplace from "a label in the UI" to a channel a seller can publish and delist on, in the order that makes a half-finished one impossible to ship.
 ---
@@ -113,6 +113,25 @@ the same selectors against the live DOM and prints a report to paste back.
 > the other direction. Since US-2485 the report states which page it was run on
 > and names the one to open instead, so the mistake is visible in the paste
 > rather than in a fix that does not work.
+
+> [!danger] A native browser dialog ends the conversation (Grailed, 2026-08-11)
+> Grailed's Delete opens `window.confirm` — the dialog **Chrome draws itself**,
+> not an in-page modal. Nothing running in the page can answer it. It is not a
+> selector problem and no timeout helps: a native dialog lives outside the
+> document and BLOCKS the page's JavaScript while it is open, which is also why
+> the selector probe hangs on one.
+>
+> The only interception is overriding `window.confirm` in the page's own world
+> before the click — injecting script into the page context to defeat a deletion
+> confirmation the seller is being shown, silently. Do not. The
+> [[adr-no-server-side-marketplace-automation]] bright lines exist for smaller
+> reasons than this.
+>
+> **Check for this BEFORE writing a delist flow**, not after: click the control
+> by hand once and see which kind of dialog appears. A channel that confirms
+> natively gets the honest fallback — `delist.enabled: false` and the US-2165
+> `delist_unresolved` path, a durable marker plus one notification per sale, so
+> the seller ends it themselves and keeps the sale.
 
 ## Step 5 — add the delist path
 
