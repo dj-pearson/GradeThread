@@ -50,6 +50,7 @@ fun SettingsScreen(
     onOpenCredits: () -> Unit,
     onOpenPlans: () -> Unit = {},
     onOpenSupport: () -> Unit = {},
+    onOpenTeam: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: SettingsViewModel = hiltViewModel(),
     feedbackViewModel: com.gradethread.app.feedback.FeedbackViewModel = hiltViewModel(),
@@ -105,6 +106,14 @@ fun SettingsScreen(
 
         // US-1388: which workspace this session is scoped to, and the switch.
         com.gradethread.app.workspace.WorkspaceSwitcherRow()
+
+        // US-2407: directly under the switcher, because "which workspace" and
+        // "who is in it" are the same question asked twice.
+        SettingRow(
+            title = stringResource(R.string.settings_team),
+            subtitle = stringResource(R.string.settings_team_subtitle),
+            onClick = onOpenTeam,
+        )
 
         // ── Plan & credits ───────────────────────────────────────────────────
         SectionHeader(stringResource(R.string.settings_section_plan))

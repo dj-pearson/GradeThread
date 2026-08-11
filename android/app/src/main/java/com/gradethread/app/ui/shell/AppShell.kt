@@ -421,6 +421,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenCredits = { navController.navigate(ShellRoutes.PAYWALL) },
                 onOpenPlans = { navController.navigate(ShellRoutes.PAYWALL) },
                 onOpenSupport = { navController.navigate(ShellRoutes.SUPPORT) },
+                onOpenTeam = { navController.navigate(ShellRoutes.TEAM) },
             )
         }
         // US-1349: global search replaces the placeholder.
@@ -460,6 +461,12 @@ private fun ShellNavHost(navController: NavHostController) {
                         popUpTo(ShellRoutes.IMPORT) { inclusive = true }
                     }
                 },
+            )
+        }
+        // US-2407: running the workspace from the phone.
+        composable(ShellRoutes.TEAM) {
+            com.gradethread.app.workspace.TeamScreen(
+                onClose = { navController.popBackStack() },
             )
         }
         // US-1386: the support inbox, and the thread a support.reply push

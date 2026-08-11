@@ -45,6 +45,26 @@ class EdgeApiErrorTest {
     }
 
     @Test
+    fun explained403_isAPermissionAnswerNotADeadSession() {
+        // US-2407: the workspace routes refuse in sentences a person can act
+        // on. Folded into Unauthorized they read as "your session expired",
+        // which points the seller at a sign-out that cannot help.
+        val denied = EdgeApiError.from(403, """{"error":"You cannot assign a role higher than your own"}""")
+        assertTrue(denied is EdgeApiError.Forbidden)
+        assertEquals("You cannot assign a role higher than your own", denied.userMessage())
+
+        // A 403 with nothing in it is exactly what a dead token produces, and
+        // it must keep prompting for a sign-in.
+        assertEquals(EdgeApiError.Unauthorized, EdgeApiError.from(403, ""))
+        assertEquals(EdgeApiError.Unauthorized, EdgeApiError.from(403, """{"error":""}"""))
+        // The discriminator cases still win over the new message branch.
+        assertEquals(
+            EdgeApiError.WorkspaceAccessRevoked,
+            EdgeApiError.from(403, """{"error":"gone","code":"workspace_access_revoked"}"""),
+        )
+    }
+
+    @Test
     fun detail_prefersStructuredFieldsThenPreview() {
         val structured = EdgeApiError.from(400, """{"error":"nope","detail":"Too many photos"}""")
         assertEquals("Too many photos", (structured as EdgeApiError.BadRequest).detail)

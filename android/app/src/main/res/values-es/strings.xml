@@ -1373,4 +1373,33 @@
         <item quantity="one">%1$d cambio esperando sincronizar</item>
         <item quantity="other">%1$d cambios esperando sincronizar</item>
     </plurals>
+    <!-- US-2407: team management. -->
+    <string name="settings_team">Equipo</string>
+    <string name="settings_team_subtitle">Invita a tu equipo, asigna roles, quita personas</string>
+    <string name="team_title">Equipo</string>
+    <string name="team_invite">Invitar</string>
+    <string name="team_read_only">Solo el propietario del espacio y los administradores pueden cambiar el equipo.</string>
+    <string name="team_pending_header">Invitaciones pendientes</string>
+    <string name="team_email_not_sent">Se creó la invitación, pero el correo no salió. Envía este enlace en su lugar.</string>
+    <string name="team_copy_link">Copiar enlace</string>
+    <string name="team_unnamed_member">Compañero de equipo</string>
+    <string name="team_change_role">Cambiar rol</string>
+    <string name="team_remove">Quitar</string>
+    <string name="team_resend">Reenviar</string>
+    <string name="team_revoke">Revocar</string>
+    <string name="team_invite_expires">%1$s, vence en %2$d días</string>
+    <string name="team_invite_title">Invitar a un compañero</string>
+    <string name="team_invite_email">Correo electrónico</string>
+    <string name="team_invite_role">Rol: %1$s</string>
+    <string name="team_send_invite">Enviar invitación</string>
+    <string name="team_role_owner">Propietario</string>
+    <string name="team_role_admin">Administrador</string>
+    <string name="team_role_manager">Gerente</string>
+    <string name="team_role_staff">Personal</string>
+    <string name="team_role_viewer">Observador</string>
+    <string name="team_role_owner_summary">Acceso total. Gestiona facturación, miembros y mercados, y puede eliminar el espacio.</string>
+    <string name="team_role_admin_summary">Acceso total salvo facturación y eliminar el espacio. Puede gestionar miembros y mercados.</string>
+    <string name="team_role_manager_summary">Crea y edita inventario, publicaciones, fuentes y envíos de calificación. No gestiona miembros ni facturación.</string>
+    <string name="team_role_staff_summary">Envía solicitudes de calificación y ve todos los datos. No edita inventario ni publicaciones.</string>
+    <string name="team_role_viewer_summary">Acceso de solo lectura a todo el espacio.</string>
 </resources>

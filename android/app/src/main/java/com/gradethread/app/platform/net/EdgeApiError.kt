@@ -17,6 +17,24 @@ sealed class EdgeApiError : Exception() {
      *  futile token refresh (a fresh token is still unverified). US-1182. */
     object EmailUnverified : EdgeApiError()
 
+    /**
+     * US-2407: a 403 the server EXPLAINED — a permission answer, not an
+     * expired session.
+     *
+     * The workspace routes refuse in sentences a person can act on ("You
+     * cannot assign a role higher than your own", "The workspace owner's role
+     * can't be changed"). Folded into [Unauthorized] those became "your
+     * session expired, sign in again", which is wrong and points the seller at
+     * a sign-out that cannot help. A refresh cannot grant a role either, so
+     * this case also stops the pointless forced retry [EdgeApi] does on
+     * Unauthorized.
+     *
+     * A 403 with no message still maps to [Unauthorized] — an empty body is
+     * exactly the shape a dead token produces, and guessing "permission" there
+     * would break the sign-in prompt that case needs.
+     */
+    data class Forbidden(val detail: String?) : EdgeApiError()
+
     /** 429; [retryAfterSeconds] carries the server's Retry-After hint. */
     data class RateLimited(val retryAfterSeconds: Long? = null) : EdgeApiError()
 
@@ -103,6 +121,9 @@ sealed class EdgeApiError : Exception() {
     /** User-facing copy, mirroring the iOS errorDescription strings. */
     fun userMessage(): String = when (this) {
         Unauthorized -> "Your session expired. Sign in again to continue."
+        // The server names the rule that was broken and who can break it; the
+        // fallback only runs for a 403 whose message decoded to nothing.
+        is Forbidden -> detail ?: "You don't have permission to do that."
         EmailUnverified ->
             "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
         is RateLimited -> retryAfterSeconds?.takeIf { it >= 1 }
@@ -212,6 +233,14 @@ sealed class EdgeApiError : Exception() {
             // this only tells the CALLER not to offer a retry that can't work.
             if (statusCode == 402) {
                 PlanGateError.decode(body)?.let { return PlanGated(it) }
+            }
+
+            // US-2407: a 403 that came with a message is a permission answer.
+            // Keyed on `error` specifically — that is the key every workspace
+            // refusal uses, and it is absent from the empty body a dead token
+            // produces, which must keep reading as a session problem.
+            if (statusCode == 403 && !payload?.error.isNullOrBlank()) {
+                return Forbidden(detail)
             }
 
             return when (statusCode) {

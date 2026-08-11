@@ -1536,7 +1536,7 @@
     },
     {
       "id": "US-2407",
-      "passes": false,
+      "passes": true,
       "title": "Android: team management — invite, roles, remove",
       "description": "As an Android workspace owner, I want to invite teammates, set their role and remove them from the phone, so that I am not forced onto the web or iOS to run my own workspace.",
       "acceptanceCriteria": [
@@ -1546,7 +1546,8 @@
         "Every new string goes through stringResource and the file is added to SCOPE in android/scripts/no-bare-strings.py, with the Spanish values-es/strings.xml entry added in the same commit so check-string-formats.py stays green",
         "Unit tests cover the repository's role-change and remove calls including the server-refusal path; Android CI (assembleDebug + unit tests + lintDebug) is green"
       ],
-      "priority": 2379
+      "priority": 2379,
+      "notes": "DONE 2026-08-11. AC1 names /api/flipdesk/workspace/invitations; the real prefix is /api/workspace (main.ts routes workspaceRoutes there), and the code calls the real one. TeamService does all four writes through the edge and NOT through Supabase, deliberately unlike iOS: the role cap, the last-admin guard and the audit log all live in the edge route, so a direct workspace_members write skips three guards at once and an owner could lock their own workspace out of admin with nothing recorded. TeamDirectory keeps the reads, which have no edge route on any platform. Pending invitations are owner-only because workspace_invitations has no admin SELECT policy in RLS (00042, never extended) - an admin can create and resend but their list query returns empty, so the card is hidden rather than shown empty. Added EdgeApiError.Forbidden: every workspace refusal is a 403 with a sentence, and 401/403 both folding into Unauthorized turned \"You cannot assign a role higher than your own\" into \"your session expired\", pointing the seller at a sign-out that cannot help; a 403 with no message still maps to Unauthorized, which is the shape a dead token actually produces. Verified locally: testDebugUnitTest, lintDebug (0 errors, 161 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1270 resources, en+es) and no-ungated-log all OK."
     },
     {
       "id": "US-2408",

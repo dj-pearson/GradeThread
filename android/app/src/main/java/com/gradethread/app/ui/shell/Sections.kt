@@ -73,6 +73,9 @@ object ShellRoutes {
     /** US-1389: CSV / Sheets import, reached from Tools. */
     const val IMPORT = "import"
 
+    /** US-2407: the workspace's members and invitations, reached from Settings. */
+    const val TEAM = "team"
+
     /** US-1386: the support inbox, reached from Tools or a support.reply push. */
     const val SUPPORT = "support"
 

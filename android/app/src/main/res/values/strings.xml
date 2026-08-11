@@ -1517,4 +1517,33 @@
         <item quantity="one">%1$d change waiting to sync</item>
         <item quantity="other">%1$d changes waiting to sync</item>
     </plurals>
+    <!-- US-2407: team management. -->
+    <string name="settings_team">Team</string>
+    <string name="settings_team_subtitle">Invite teammates, set roles, remove people</string>
+    <string name="team_title">Team</string>
+    <string name="team_invite">Invite</string>
+    <string name="team_read_only">Only the workspace owner and admins can change who is on the team.</string>
+    <string name="team_pending_header">Pending invitations</string>
+    <string name="team_email_not_sent">The invitation was created, but the email did not go out. Send this link instead.</string>
+    <string name="team_copy_link">Copy link</string>
+    <string name="team_unnamed_member">Teammate</string>
+    <string name="team_change_role">Change role</string>
+    <string name="team_remove">Remove</string>
+    <string name="team_resend">Resend</string>
+    <string name="team_revoke">Revoke</string>
+    <string name="team_invite_expires">%1$s, expires in %2$d days</string>
+    <string name="team_invite_title">Invite a teammate</string>
+    <string name="team_invite_email">Email address</string>
+    <string name="team_invite_role">Role: %1$s</string>
+    <string name="team_send_invite">Send invitation</string>
+    <string name="team_role_owner">Owner</string>
+    <string name="team_role_admin">Admin</string>
+    <string name="team_role_manager">Manager</string>
+    <string name="team_role_staff">Staff</string>
+    <string name="team_role_viewer">Viewer</string>
+    <string name="team_role_owner_summary">Full access. Manages billing, members, marketplaces, and can delete the workspace.</string>
+    <string name="team_role_admin_summary">Full access except billing and workspace deletion. Can manage members and marketplaces.</string>
+    <string name="team_role_manager_summary">Create and edit inventory, listings, sources, and grade submissions. Cannot manage members or billing.</string>
+    <string name="team_role_staff_summary">Submit grade requests and view all data. Cannot edit inventory or listings.</string>
+    <string name="team_role_viewer_summary">Read-only access to everything in the workspace.</string>
 </resources>

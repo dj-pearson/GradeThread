@@ -22,6 +22,10 @@ import com.gradethread.app.templates.TemplateProviding
 import com.gradethread.app.templates.TemplateService
 import com.gradethread.app.verified.VerifiedProviding
 import com.gradethread.app.verified.VerifiedService
+import com.gradethread.app.workspace.TeamDirectory
+import com.gradethread.app.workspace.TeamManaging
+import com.gradethread.app.workspace.TeamReading
+import com.gradethread.app.workspace.TeamService
 import com.gradethread.app.workspace.WorkspaceReading
 import com.gradethread.app.workspace.WorkspaceRepository
 import dagger.Binds
@@ -97,6 +101,16 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindWorkspaces(impl: WorkspaceRepository): WorkspaceReading
+
+    /** US-2407: workspace membership writes, all through the edge. */
+    @Binds
+    @Singleton
+    abstract fun bindTeamManaging(impl: TeamService): TeamManaging
+
+    /** US-2407: the membership reads, RLS-scoped through Supabase. */
+    @Binds
+    @Singleton
+    abstract fun bindTeamReading(impl: TeamDirectory): TeamReading
 
     /** US-1389: CSV import commits. */
     @Binds
