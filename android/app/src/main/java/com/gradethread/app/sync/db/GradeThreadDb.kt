@@ -29,8 +29,9 @@ import kotlinx.coroutines.flow.StateFlow
         PendingMutationEntity::class,
         CaptureDraftEntity::class,
         IntakeBatchEntity::class,
+        AutolisterSessionEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {
@@ -44,6 +45,7 @@ abstract class GradeThreadDb : RoomDatabase() {
     abstract fun pendingMutations(): PendingMutationDao
     abstract fun captureDrafts(): CaptureDraftDao
     abstract fun intakeBatches(): IntakeBatchDao
+    abstract fun autolisterSessions(): AutolisterSessionDao
 
     companion object {
         const val DB_NAME = "gradethread.db"
@@ -115,6 +117,7 @@ object DatabaseProvider {
         Room.databaseBuilder(context, GradeThreadDb::class.java, dbName)
             .addMigrations(
                 MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                MIGRATION_6_7,
             )
             .build()
 
@@ -222,6 +225,27 @@ object DatabaseProvider {
     internal val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
         override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
             db.execSQL("ALTER TABLE item_photos ADD COLUMN photoRole TEXT DEFAULT NULL")
+        }
+    }
+
+    /**
+     * US-2408: the AutoLister session survives process death.
+     *
+     * Explicit, like its predecessors — a version bump with no migration is a
+     * crash on launch for every device already holding a v6 file, and
+     * destructive fallback would take their queued mutations with it.
+     */
+    internal val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS autolister_sessions (
+                    id TEXT NOT NULL PRIMARY KEY,
+                    stateJson TEXT NOT NULL,
+                    updatedAt INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
         }
     }
 }

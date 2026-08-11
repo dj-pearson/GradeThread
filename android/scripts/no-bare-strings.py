@@ -39,6 +39,7 @@ SCOPE = [
     "feedback/FeedbackSheet.kt",
     "workspace/WorkspaceSwitcherRow.kt",
     "workspace/TeamScreen.kt",
+    "autolister/AutolisterSessionScreen.kt",
     "importer/ImportScreen.kt",
     "auth/AuthScreen.kt",
     "home/HomeScreen.kt",

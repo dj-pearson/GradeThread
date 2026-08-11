@@ -37,6 +37,9 @@ class AutolisterViewModel @Inject constructor(
         val busy: Boolean = false,
         val banner: String? = null,
         val errorMessage: String? = null,
+        /** US-2408: the per-platform drafts for one item, once asked for. */
+        val platformFields: PlatformFieldsResponse? = null,
+        val loadingPlatformFields: Boolean = false,
     ) {
         val failedJobs: List<AutolisterJob> get() = Autolister.failedJobs(jobs)
         val canRetry: Boolean get() = batch?.let { Autolister.canRetryFailed(it) } == true
@@ -267,6 +270,35 @@ class AutolisterViewModel @Inject constructor(
         }
     }
 
+    /**
+     * US-2408: what this draft looks like on every other marketplace.
+     *
+     * Asked of the server rather than assembled here. Title caps, condition
+     * vocabularies and category trees differ per marketplace and change
+     * without an app release, so a phone that built these itself would be
+     * wrong the first time Poshmark renamed a condition — and the seller would
+     * only find out when the listing was refused.
+     *
+     * One billed AI action covers every platform in the request, which is why
+     * they all go in one call rather than one per platform.
+     */
+    fun loadPlatformFields(itemId: String) {
+        if (_state.value.loadingPlatformFields) return
+        _state.value = _state.value.copy(loadingPlatformFields = true, errorMessage = null)
+        viewModelScope.launch {
+            runCatching { service.platformFields(itemId, CROSS_LIST_PLATFORMS) }
+                .onSuccess { _state.value = _state.value.copy(platformFields = it) }
+                .onFailure {
+                    _state.value = _state.value.copy(errorMessage = service.message(it))
+                }
+            _state.value = _state.value.copy(loadingPlatformFields = false)
+        }
+    }
+
+    fun dismissPlatformFields() {
+        _state.value = _state.value.copy(platformFields = null)
+    }
+
     fun dismissMessages() {
         _state.value = _state.value.copy(banner = null, errorMessage = null)
     }
@@ -293,5 +325,19 @@ class AutolisterViewModel @Inject constructor(
     override fun onCleared() {
         pollJob?.cancel()
         super.onCleared()
+    }
+
+    private companion object {
+        /**
+         * The non-eBay marketplaces `/platform-fields` knows about.
+         *
+         * eBay is absent because it is the SOURCE draft this endpoint reads
+         * from — asking for an eBay variant of an eBay listing is what the
+         * server refuses with "no eBay draft".
+         */
+        val CROSS_LIST_PLATFORMS = listOf(
+            "poshmark", "mercari", "depop", "grailed",
+            "etsy", "whatnot", "vinted", "facebook",
+        )
     }
 }

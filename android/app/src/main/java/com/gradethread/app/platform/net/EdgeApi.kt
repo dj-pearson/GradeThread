@@ -141,6 +141,37 @@ class EdgeApi(
         return send("POST", path, emptyMap(), multipart, allowTransientRetry = false)
     }
 
+    /**
+     * US-2408: POSTs SEVERAL image parts in one multipart body.
+     *
+     * `/staging/upload` takes a `full` and an optional `thumb` in the same
+     * request, and splitting them into two calls would double a 200-photo
+     * batch's requests against a 120/min limiter — and leave the thumbnail
+     * orphaned whenever the second call failed.
+     */
+    suspend fun postMultipartImages(
+        path: String,
+        parts: List<ImagePart>,
+        fields: Map<String, String> = emptyMap(),
+    ): String {
+        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM).apply {
+            fields.forEach { (k, v) -> addFormDataPart(k, v) }
+            parts.forEach {
+                addFormDataPart(it.fieldName, it.fileName, it.bytes.toRequestBody(it.mimeType.toMediaType()))
+            }
+        }.build()
+        return send("POST", path, emptyMap(), multipart, allowTransientRetry = false)
+    }
+
+    /** One image part. Not a data class: it holds an array, whose generated
+     *  `equals` would compare identity and read as if it compared content. */
+    class ImagePart(
+        val fieldName: String,
+        val fileName: String,
+        val mimeType: String,
+        val bytes: ByteArray,
+    )
+
     /** Decode helper shared by the reified entry points. */
     inline fun <reified T> decode(raw: String): T =
         try {

@@ -1551,7 +1551,7 @@
     },
     {
       "id": "US-2408",
-      "passes": false,
+      "passes": true,
       "title": "Android: AutoLister multi-item session — the Add sheet still lands on a placeholder",
       "description": "As an Android reseller, I want the AutoLister flow that iOS has, so that tapping Add then AutoLister does something instead of showing 'Coming with its conversion story'.",
       "acceptanceCriteria": [
@@ -1562,7 +1562,8 @@
         "A session survives process death: leaving and reopening the app resumes the same session id instead of starting over",
         "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "priority": 2380
+      "priority": 2380,
+      "notes": "DONE 2026-08-11. capture/autolister is a real screen; the placeholder string was removed with it. Scope note on AC3: the local dHash clustering engine web and iOS run was NOT ported. The ACs name /propose-groups as where groups come from, and that is what Android calls, windowed at the endpoint cap of 40 photos per call - each window is one billed AI action, and a 120-photo roll costs three, which the button states before it is pressed. A trailing window of one photo is dropped because the endpoint refuses fewer than two. Nothing the model says is applied without a tap: a proposal only claims photos that are STILL ungrouped when it lands (the seller has been editing since the pass was sent), and a proposal reduced to under two survivors is dropped rather than silently undoing a group they made by hand. All grouping edits go through one normalize() that holds two invariants - a photo is in at most one group, a cover is one of its own members - and an overlap resolves first-group-wins, matching the servers own parser so client and server never disagree about a contested photo. AC5 (process death) is Room: new autolister_sessions table, DB version 6 to 7 with an explicit MIGRATION_6_7, the whole session state serialized after every edit, and a sign-out wipe in SessionScope because an unsent batch is someones stock photographed in their house. PhotoImport gained exifCapturedAtMs (nullable, EXIF ONLY) and a limit param: captureDateMs falls back to the import instant, which as a captured_at_ms would stamp a hundred photos with the same second and read on the server as one long burst. AC4 landed as a read-only Other marketplaces dialog on each draft, filled from /platform-fields - one billed action covers every platform, which is why they go in one call. EdgeApi gained postMultipartImages so /staging/upload gets full+thumb in one request rather than doubling a 200-photo batch against a 120/min limiter. Verified locally: testDebugUnitTest, lintDebug (0 errors, 166 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1300 resources, en+es) and no-ungated-log all OK."
     },
     {
       "id": "US-2409",

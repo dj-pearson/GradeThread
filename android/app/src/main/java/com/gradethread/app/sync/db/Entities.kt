@@ -287,6 +287,21 @@ data class CaptureDraftEntity(
  * already has Room, so the manifest IS the row. The JPEGs still live on disk —
  * the row carries their paths.
  */
+/**
+ * US-2408: the in-flight AutoLister session.
+ *
+ * One row, like [CaptureDraftEntity], because a seller can only be sorting one
+ * batch at a time and a second row would mean two sessions writing to the same
+ * `_staging/` shelf. The photos live in Supabase storage already — the row
+ * carries their paths, the grouping, and nothing else.
+ */
+@Entity(tableName = "autolister_sessions")
+data class AutolisterSessionEntity(
+    @PrimaryKey val id: String,
+    val stateJson: String,
+    val updatedAt: Long,
+)
+
 @Entity(tableName = "intake_batches")
 data class IntakeBatchEntity(
     @PrimaryKey val id: String,

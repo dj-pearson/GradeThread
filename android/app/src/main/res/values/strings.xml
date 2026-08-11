@@ -1457,7 +1457,6 @@
     <string name="expense_date_invalid">Use YYYY-MM-DD.</string>
     <string name="grades_pending_review">Pending review</string>
     <string name="shell_placeholder_add">Add an item</string>
-    <string name="shell_placeholder_autolister">AutoLister</string>
     <string name="shell_search">Search</string>
     <string name="shell_tools">Tools</string>
     <string name="shell_settings">Settings</string>
@@ -1546,4 +1545,36 @@
     <string name="team_role_manager_summary">Create and edit inventory, listings, sources, and grade submissions. Cannot manage members or billing.</string>
     <string name="team_role_staff_summary">Submit grade requests and view all data. Cannot edit inventory or listings.</string>
     <string name="team_role_viewer_summary">Read-only access to everything in the workspace.</string>
+    <!-- US-2408: the AutoLister multi-item session. -->
+    <string name="autolister_session_title">AutoLister batch</string>
+    <string name="autolister_add_photos">Add photos</string>
+    <string name="autolister_empty">Add a roll of photos, then sort them into one group per item. The desktop picks the batch up from there.</string>
+    <string name="autolister_propose">Group with AI (%1$d passes)</string>
+    <string name="autolister_verify">Check my grouping</string>
+    <string name="autolister_ungrouped">Not in a group yet (%1$d)</string>
+    <string name="autolister_group_selected">Make a group</string>
+    <string name="autolister_group_size">%1$d photos</string>
+    <string name="autolister_set_cover">Set as cover</string>
+    <string name="autolister_split">Split out</string>
+    <string name="autolister_move_here">Move here</string>
+    <string name="autolister_ungroup">Break up</string>
+    <string name="autolister_remove">Remove</string>
+    <string name="autolister_apply">Apply</string>
+    <string name="autolister_suggestion_fallback">The model suggests a change to this grouping.</string>
+    <string name="autolister_send">Send to desktop</string>
+    <string name="autolister_send_help">The batch waits on your account. Open AutoLister on a computer to finish the listings.</string>
+    <string name="autolister_sent">Sent %1$d photos. Open AutoLister on a computer to pick them up.</string>
+    <string name="autolister_waiting_header">Waiting for a computer</string>
+    <string name="autolister_waiting_row">%1$d photos in %2$d groups</string>
+    <string name="autolister_discard">Throw away</string>
+    <string name="autolister_busy_importing">Uploading photo %1$d of %2$d</string>
+    <string name="autolister_busy_proposing">Grouping your photos</string>
+    <string name="autolister_busy_verifying">Checking your grouping</string>
+    <string name="autolister_busy_sending">Sending to your desktop</string>
+    <string name="autolister_skipped">%1$d photos could not be uploaded and were left out.</string>
+    <string name="autolister_cover">Cover photo</string>
+    <string name="autolister_photo">Batch photo</string>
+    <string name="drafts_other_platforms">Other marketplaces</string>
+    <string name="drafts_no_platform_fields">Nothing to show for the other marketplaces yet.</string>
+    <string name="drafts_platform_summary">%1$s, %2$s</string>
 </resources>

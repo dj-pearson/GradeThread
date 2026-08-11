@@ -286,6 +286,22 @@ interface CaptureDraftDao {
     suspend fun clearAll()
 }
 
+/** US-2408: the one in-flight AutoLister session. */
+@Dao
+interface AutolisterSessionDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(session: AutolisterSessionEntity)
+
+    @Query("SELECT * FROM autolister_sessions WHERE id = :id")
+    suspend fun byId(id: String): AutolisterSessionEntity?
+
+    @Query("DELETE FROM autolister_sessions WHERE id = :id")
+    suspend fun delete(id: String)
+
+    @Query("DELETE FROM autolister_sessions")
+    suspend fun clearAll()
+}
+
 /** US-1382: the share-target inbox. */
 @Dao
 interface IntakeBatchDao {

@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
@@ -112,6 +114,7 @@ fun DraftsLibraryScreen(
                         onDelete = { viewModel.deleteDraft(draft) },
                         onSchedule = { scheduling = draft },
                         onClearSchedule = { viewModel.clearSchedule(draft) },
+                        onOtherPlatforms = { viewModel.loadPlatformFields(draft.inventoryItemId) },
                     )
                 }
             }
@@ -138,6 +141,12 @@ fun DraftsLibraryScreen(
                 editing = null
             },
         )
+    }
+
+    // US-2408: the same draft as every other marketplace would take it,
+    // filled by the server.
+    state.platformFields?.let { fields ->
+        PlatformFieldsDialog(fields = fields, onDismiss = viewModel::dismissPlatformFields)
     }
 
     scheduling?.let { draft ->
@@ -228,6 +237,7 @@ private fun DraftCard(
     onDelete: () -> Unit,
     onSchedule: () -> Unit = {},
     onClearSchedule: () -> Unit = {},
+    onOtherPlatforms: () -> Unit = {},
 ) {
     Column(
         Modifier.fillMaxWidth().cardStyle(),
@@ -285,11 +295,69 @@ private fun DraftCard(
             if (draft.scheduledPublishAt != null) {
                 TextButton(onClick = onClearSchedule, enabled = !busy) { Text(stringResource(R.string.drafts_unschedule)) }
             }
+            TextButton(onClick = onOtherPlatforms, enabled = !busy) {
+                Text(stringResource(R.string.drafts_other_platforms))
+            }
             TextButton(onClick = onDelete, enabled = !busy) {
                 Text(stringResource(R.string.drafts_delete), color = MaterialTheme.colorScheme.error)
             }
         }
     }
+}
+
+/**
+ * US-2408: one draft, as each marketplace would take it.
+ *
+ * Read-only on purpose. These fields are the server's answer for a listing
+ * that has not been created yet, and the place to change them is the
+ * marketplace's own draft once it exists — an edit here would look saved and
+ * would not be.
+ */
+@Composable
+private fun PlatformFieldsDialog(fields: PlatformFieldsResponse, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.drafts_other_platforms)) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+            ) {
+                if (fields.variants.isEmpty()) {
+                    Text(stringResource(R.string.drafts_no_platform_fields))
+                }
+                for (variant in fields.variants) {
+                    Text(
+                        variant.spec?.label?.ifBlank { variant.platform } ?: variant.platform,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(variant.title, style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        stringResource(
+                            R.string.drafts_platform_summary,
+                            Money.format(variant.price),
+                            variant.category.ifBlank { variant.platform },
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    // The blockers the marketplace itself would raise. Shown
+                    // before a publish rather than after one is refused.
+                    for (issue in variant.validation?.issues.orEmpty()) {
+                        Text(
+                            issue.message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.drafts_cancel)) }
+        },
+    )
 }
 
 @Composable

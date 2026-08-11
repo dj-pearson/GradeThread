@@ -104,6 +104,9 @@ class SessionScope(
                     // their house. The FILES are removed separately, by
                     // IntakeInboxStore.clearAll — this only drops the rows.
                     db.intakeBatches().clearAll()
+                    // US-2408: an unsent AutoLister batch is someone's stock,
+                    // photographed in their house.
+                    db.autolisterSessions().clearAll()
                     if (includeQueue) db.pendingMutations().clearAll()
                 }
             }

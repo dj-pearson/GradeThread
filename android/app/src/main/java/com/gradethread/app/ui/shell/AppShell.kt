@@ -208,7 +208,8 @@ fun AppShell(
  *
  * Home / Money / Settings were `SectionPlaceholder`s until US-1370 / US-1363 /
  * US-1383 landed — the first, third and fifth things a seller could tap. Only
- * `ADD` and `capture/autolister` remain placeholders (AutoLister is US-1359).
+ * `ADD` remains a placeholder; `capture/autolister` became the real batch
+ * screen in US-2408.
  */
 @Composable
 private fun ShellNavHost(navController: NavHostController) {
@@ -524,8 +525,11 @@ private fun ShellNavHost(navController: NavHostController) {
         composable("capture/details") {
             com.gradethread.app.inventory.DetailsIntakeScreen()
         }
+        // US-2408: the AutoLister batch — no longer a placeholder.
         composable("capture/autolister") {
-            SectionPlaceholder(stringResource(R.string.shell_placeholder_autolister))
+            com.gradethread.app.autolister.AutolisterSessionScreen(
+                onClose = { navController.popBackStack() },
+            )
         }
         // US-1339: grade a multi-selection.
         composable("grade-bulk/{itemIds}") { entry ->

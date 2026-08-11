@@ -29,6 +29,17 @@ object PhotoImport {
         val processed: PhotoProcessor.Processed,
         /** EXIF DateTimeOriginal when present; otherwise the import instant. */
         val captureDateMs: Long,
+        /**
+         * US-2408: the EXIF time ALONE, null when the file carried none.
+         *
+         * [captureDateMs] cannot answer this — its fallback is the import
+         * instant, which is a fine sort key and a terrible shooting time. The
+         * AutoLister handoff sends this field to a server that reads it as
+         * "when was this garment photographed", and a hundred photos all
+         * stamped with the same import second would read as one long burst and
+         * group the whole batch into a single item.
+         */
+        val exifCapturedAtMs: Long?,
     )
 
     /** EXIF datetime ("2026:07:03 10:15:30", local-naive) → epoch ms. */
@@ -53,9 +64,15 @@ object PhotoImport {
         uris: List<Uri>,
         outputDir: File,
         now: () -> Long = System::currentTimeMillis,
+        /**
+         * US-2408: how many of [uris] to take. Defaults to the single-item
+         * capture cap; an AutoLister batch is hundreds of photos of DIFFERENT
+         * garments, which is a different job from filling one item's slots.
+         */
+        limit: Int = MAX_PICK,
     ): List<Result<Imported>> = withContext(Dispatchers.IO) {
         val staging = File(context.cacheDir, "import-staging").apply { mkdirs() }
-        val results = uris.take(MAX_PICK).mapIndexed { index, uri ->
+        val results = uris.take(limit).mapIndexed { index, uri ->
             runCatching {
                 val staged = File(staging, "pick_${now()}_$index.jpg")
                 context.contentResolver.openInputStream(uri)?.use { input ->
@@ -63,16 +80,16 @@ object PhotoImport {
                 } ?: error("unreadable pick: $uri")
 
                 // Capture date BEFORE processing (the output has no EXIF).
-                val captureDate = runCatching {
+                val exif = runCatching {
                     parseExifDateTime(
                         ExifInterface(staged.absolutePath)
                             .getAttribute(ExifInterface.TAG_DATETIME_ORIGINAL),
                     )
-                }.getOrNull() ?: now()
+                }.getOrNull()
 
                 val processed = PhotoProcessor.process(staged, outputDir)
                 staged.delete()
-                Imported(processed, captureDate)
+                Imported(processed, exif ?: now(), exif)
             }
         }
         results

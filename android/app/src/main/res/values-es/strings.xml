@@ -1315,7 +1315,6 @@
     <string name="expense_date_invalid">Usa AAAA-MM-DD.</string>
     <string name="grades_pending_review">Pendiente de revisión</string>
     <string name="shell_placeholder_add">Agregar un artículo</string>
-    <string name="shell_placeholder_autolister">AutoLister</string>
     <string name="shell_search">Buscar</string>
     <string name="shell_tools">Herramientas</string>
     <string name="shell_settings">Ajustes</string>
@@ -1402,4 +1401,36 @@
     <string name="team_role_manager_summary">Crea y edita inventario, publicaciones, fuentes y envíos de calificación. No gestiona miembros ni facturación.</string>
     <string name="team_role_staff_summary">Envía solicitudes de calificación y ve todos los datos. No edita inventario ni publicaciones.</string>
     <string name="team_role_viewer_summary">Acceso de solo lectura a todo el espacio.</string>
+    <!-- US-2408: the AutoLister multi-item session. -->
+    <string name="autolister_session_title">Lote de AutoLister</string>
+    <string name="autolister_add_photos">Agregar fotos</string>
+    <string name="autolister_empty">Agrega un carrete de fotos y agrúpalas, un grupo por artículo. La computadora recoge el lote desde ahí.</string>
+    <string name="autolister_propose">Agrupar con IA (%1$d pasadas)</string>
+    <string name="autolister_verify">Revisar mis grupos</string>
+    <string name="autolister_ungrouped">Todavía sin grupo (%1$d)</string>
+    <string name="autolister_group_selected">Crear un grupo</string>
+    <string name="autolister_group_size">%1$d fotos</string>
+    <string name="autolister_set_cover">Usar como portada</string>
+    <string name="autolister_split">Separar</string>
+    <string name="autolister_move_here">Mover aquí</string>
+    <string name="autolister_ungroup">Deshacer el grupo</string>
+    <string name="autolister_remove">Quitar</string>
+    <string name="autolister_apply">Aplicar</string>
+    <string name="autolister_suggestion_fallback">El modelo sugiere un cambio en este grupo.</string>
+    <string name="autolister_send">Enviar a la computadora</string>
+    <string name="autolister_send_help">El lote queda esperando en tu cuenta. Abre AutoLister en una computadora para terminar las publicaciones.</string>
+    <string name="autolister_sent">Se enviaron %1$d fotos. Abre AutoLister en una computadora para recogerlas.</string>
+    <string name="autolister_waiting_header">Esperando una computadora</string>
+    <string name="autolister_waiting_row">%1$d fotos en %2$d grupos</string>
+    <string name="autolister_discard">Descartar</string>
+    <string name="autolister_busy_importing">Subiendo la foto %1$d de %2$d</string>
+    <string name="autolister_busy_proposing">Agrupando tus fotos</string>
+    <string name="autolister_busy_verifying">Revisando tus grupos</string>
+    <string name="autolister_busy_sending">Enviando a tu computadora</string>
+    <string name="autolister_skipped">%1$d fotos no se pudieron subir y quedaron fuera.</string>
+    <string name="autolister_cover">Foto de portada</string>
+    <string name="autolister_photo">Foto del lote</string>
+    <string name="drafts_other_platforms">Otros mercados</string>
+    <string name="drafts_no_platform_fields">Todavía no hay nada que mostrar para los otros mercados.</string>
+    <string name="drafts_platform_summary">%1$s, %2$s</string>
 </resources>
