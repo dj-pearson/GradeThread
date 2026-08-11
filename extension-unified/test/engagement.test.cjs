@@ -59,6 +59,38 @@ const assert = require("node:assert");
     "a missing internal-share step must ABORT. Falling through would leave the " +
       "next click landing in the outbound-share menu.",
   );
+
+  // ── The second signal, and the rule that keeps it honest ────────────────
+  //
+  // Four watcher runs failed to record Poshmark's success toast: it is gone in
+  // about two seconds and may not be a DOM insertion at all. So the modal
+  // CLOSING counts as proof too — the same evidence delist has used since
+  // US-1875 — but ONLY as a present-then-absent transition.
+  //
+  // Without that rule a selector matching nothing reads as "absent" on the
+  // first tick and rubber-stamps every action, which is the false-success bug
+  // the confirmation exists to prevent, rebuilt inside the confirmation.
+  const conf = engage.slice(engage.indexOf("async function confirmed("));
+  const confBody = conf.slice(0, conf.indexOf("\n  }"));
+  assert.ok(/goneWasPresent/.test(confBody),
+    "confirmed() must capture whether the witness was present BEFORE the click");
+  assert.ok(
+    confBody.indexOf("goneWasPresent =") < confBody.indexOf("while ("),
+    "the presence snapshot must be taken before the polling loop, not inside it",
+  );
+  assert.ok(
+    /goneWasPresent && !document\.querySelector\(cfg\.confirmGone\)/.test(confBody),
+    "absence alone must never confirm an action — only present-then-absent",
+  );
+  assert.ok(SEL2.poshmark.engage.confirmGone, "poshmark.engage must declare confirmGone");
+  assert.ok(
+    SEL2.poshmark.engage.actionConfirmed,
+    "the toast selector stays: it is the STRONGER signal and is checked first",
+  );
+  assert.ok(
+    confBody.indexOf("cfg.actionConfirmed") < confBody.indexOf("goneWasPresent &&"),
+    "the toast must be checked before the weaker gone-witness",
+  );
 }
 const fs = require("node:fs");
 const path = require("node:path");
