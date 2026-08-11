@@ -11,7 +11,8 @@ public struct PhotoUploadTask: Identifiable, Equatable {
     public let id: UUID
     public let inventoryItemId: String
     public let userId: String
-    public let slot: PhotoSlotType
+    /// US-2470: the (photo_type, photo_role) pair this upload writes.
+    public let slot: CaptureSlot
     public let storagePath: String
     public let localFileURL: URL
     public let bytes: Int64
@@ -50,7 +51,7 @@ public struct PhotoUploadTask: Identifiable, Equatable {
         id: UUID = UUID(),
         inventoryItemId: String,
         userId: String,
-        slot: PhotoSlotType,
+        slot: CaptureSlot,
         storagePath: String,
         localFileURL: URL,
         bytes: Int64,

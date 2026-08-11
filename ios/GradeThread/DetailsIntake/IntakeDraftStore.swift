@@ -165,15 +165,18 @@ enum PhotoDraftStore {
         let savedAt: Date
     }
 
-    private static func fileName(for slot: PhotoSlotType) -> String {
-        "photo-\(slot.rawValue).jpg"
+    /// US-2470: keyed on the slot's ``CaptureSlot/storageKey``, so a draft can
+    /// hold `tag|brand` and `tag|size` as two different files. `|` is chosen
+    /// over `:` precisely because this ends up in a filename.
+    private static func fileName(for slot: CaptureSlot) -> String {
+        "photo-\(slot.storageKey).jpg"
     }
 
     /// Persist the current capture set. Overwrites the single draft.
     /// Synchronous full rewrite — kept for explicit one-shot callers and tests;
     /// the capture flow's per-shutter autosave uses ``update(from:to:)``, which
     /// writes only the changed slot and stays off the calling thread.
-    static func save(photos: [PhotoSlotType: PhotoCapture]) {
+    static func save(photos: [CaptureSlot: PhotoCapture]) {
         ioQueue.sync { writeAll(photos: photos) }
     }
 
@@ -183,8 +186,8 @@ enum PhotoDraftStore {
     /// hitch. This diffs by ``PhotoCapture/id`` (cheap; a retake mints a new id)
     /// and hands only the changed slot's bytes to the serial utility queue.
     static func update(
-        from old: [PhotoSlotType: PhotoCapture],
-        to new: [PhotoSlotType: PhotoCapture]
+        from old: [CaptureSlot: PhotoCapture],
+        to new: [CaptureSlot: PhotoCapture]
     ) {
         guard !new.isEmpty else {
             ioQueue.async { removeAll() }
@@ -201,7 +204,7 @@ enum PhotoDraftStore {
 
     // MARK: Queue-confined implementation
 
-    private static func writeAll(photos: [PhotoSlotType: PhotoCapture]) {
+    private static func writeAll(photos: [CaptureSlot: PhotoCapture]) {
         removeAll()
         guard !photos.isEmpty, let dir = directory else { return }
         ensureDirectory(dir)
@@ -212,16 +215,16 @@ enum PhotoDraftStore {
             // Encrypt at rest (consistent with US-658) — these are unsubmitted
             // garment photos sitting on disk.
             if (try? capture.imageData.write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil {
-                entries.append(Manifest.Entry(slot: slot.rawValue, filename: filename))
+                entries.append(Manifest.Entry(slot: slot.storageKey, filename: filename))
             }
         }
         writeManifest(entries: entries, in: dir)
     }
 
     private static func writeDelta(
-        changed: [PhotoSlotType: PhotoCapture],
-        removedSlots: [PhotoSlotType],
-        allSlots: [PhotoSlotType]
+        changed: [CaptureSlot: PhotoCapture],
+        removedSlots: [CaptureSlot],
+        allSlots: [CaptureSlot]
     ) {
         guard let dir = directory else { return }
         ensureDirectory(dir)
@@ -237,7 +240,7 @@ enum PhotoDraftStore {
         // The manifest lists the full current slot set (filenames are
         // slot-deterministic). A slot whose write failed is listed but absent on
         // disk — restore already skips unreadable entries gracefully.
-        let entries = allSlots.map { Manifest.Entry(slot: $0.rawValue, filename: fileName(for: $0)) }
+        let entries = allSlots.map { Manifest.Entry(slot: $0.storageKey, filename: fileName(for: $0)) }
         writeManifest(entries: entries, in: dir)
     }
 
@@ -289,11 +292,11 @@ enum PhotoDraftStore {
               let data = try? Data(contentsOf: dir.appendingPathComponent("manifest.json")),
               let manifest = try? JSONDecoder().decode(Manifest.self, from: data) else { return }
         let restored = await Task.detached(priority: .userInitiated) {
-            () -> [(PhotoSlotType, PhotoCapture)] in
-            var out: [(PhotoSlotType, PhotoCapture)] = []
+            () -> [(CaptureSlot, PhotoCapture)] in
+            var out: [(CaptureSlot, PhotoCapture)] = []
             for entry in manifest.entries {
                 autoreleasepool {
-                    guard let slot = PhotoSlotType(rawValue: entry.slot),
+                    guard let slot = CaptureSlot(storageKey: entry.slot),
                           let bytes = try? Data(contentsOf: dir.appendingPathComponent(entry.filename)),
                           let thumb = ThumbnailLoader.downsample(
                               data: bytes,

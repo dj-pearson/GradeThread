@@ -40,20 +40,6 @@ public struct PhotoProfile: Decodable, Hashable, Identifiable {
 
     public var id: String { category }
 
-    /// Required roles resolved to capture slots (unmappable types skipped).
-    public var requiredSlots: [PhotoSlotType] {
-        roles.filter { $0.required }.compactMap { PhotoSlotType(serverType: $0.type) }
-    }
-
-    /// Optional, non-defect roles resolved to capture slots. Defects keep
-    /// their own reveal-one-at-a-time mechanism in the capture flow, so they
-    /// are excluded here.
-    public var optionalSlots: [PhotoSlotType] {
-        roles
-            .filter { !$0.required && $0.type != "defect" }
-            .compactMap { PhotoSlotType(serverType: $0.type) }
-    }
-
     /// Whether this category offers defect close-ups.
     public var allowsDefects: Bool {
         roles.contains { $0.type == "defect" }
@@ -81,15 +67,35 @@ public struct PhotoProfile: Decodable, Hashable, Identifiable {
 
     // MARK: - Bundled fallback
 
+    /// US-2470: the fallback now carries ROLES, not just the four base slots.
+    ///
+    /// It used to hold five type-only entries, which was fine while the capture
+    /// strip's "Add more" menu came from a hard-coded `PhotoSlotType.extras`
+    /// list. That list is gone — the menu is built from whatever profile is
+    /// resolved — so a bare fallback would leave a seller who opens the camera
+    /// offline with nothing behind "Add more" except Defect. These mirror the
+    /// server's clothing roles closely enough to shoot a garment properly, and
+    /// the server table replaces them the moment it loads.
     public static let clothingFallback = PhotoProfile(
         category: "clothing",
         label: "Clothing",
         roles: [
             PhotoRole(type: "front", role: nil, label: "Front", hint: "Lay flat, full front in frame", required: true, icon: "shirt"),
             PhotoRole(type: "back", role: nil, label: "Back", hint: "Same crop as the front shot", required: true, icon: "shirt"),
-            PhotoRole(type: "tag", role: nil, label: "Garment Tag", hint: "Care + size label, close enough to read", required: true, icon: "tag"),
-            PhotoRole(type: "detail", role: nil, label: "Detail", hint: "Texture, weave, or a distinctive feature", required: true, icon: "search"),
+            PhotoRole(type: "tag", role: "brand", label: "Brand label", hint: "The maker's logo or wordmark", required: false, icon: "tag"),
+            PhotoRole(type: "tag", role: "size", label: "Size tag", hint: "The size itself, close enough to read without zooming", required: false, icon: "tag"),
+            PhotoRole(type: "tag", role: "care", label: "Care & fabric", hint: "The care label with the fibre content", required: false, icon: "tag"),
+            PhotoRole(type: "detail", role: "fabric", label: "Fabric close-up", hint: "Fill the frame with the weave or knit, in even light", required: false, icon: "search"),
+            PhotoRole(type: "detail", role: "hardware", label: "Hardware", hint: "Zip pull, buttons, rivets or snaps", required: false, icon: "search"),
+            PhotoRole(type: "detail", role: "print", label: "Print or graphic", hint: "The graphic straight on, close enough to show cracking", required: false, icon: "search"),
+            PhotoRole(type: "measurement", role: nil, label: "Measurement card", hint: "Whole garment flat with the MeasureCard BESIDE it, shot top-down", required: false, icon: "ruler"),
             PhotoRole(type: "defect", role: nil, label: "Defect", hint: "Tight crop on any flaw — be honest", required: false, icon: "alert-triangle"),
+            PhotoRole(type: "interior", role: nil, label: "Interior / Lining", hint: "Inside-out: lining, seams, interior tags", required: false, icon: "layers"),
+            PhotoRole(type: "detail", role: "hem", label: "Hem & stitching", hint: "A hem or seam up close", required: false, icon: "search"),
+            PhotoRole(type: "tag", role: "made_in", label: "Made in / union label", hint: "Origin, union or RN label", required: false, icon: "tag"),
+            PhotoRole(type: "flatlay", role: nil, label: "Flat lay", hint: "Styled flat lay for the listing gallery", required: false, icon: "layout-grid"),
+            PhotoRole(type: "on_hanger", role: nil, label: "On hanger", hint: "Hung straight on, showing how it drapes", required: false, icon: "shirt"),
+            PhotoRole(type: "on_model", role: nil, label: "On model", hint: "Worn on a model or mannequin", required: false, icon: "user"),
         ]
     )
 

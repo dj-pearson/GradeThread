@@ -11,9 +11,9 @@ struct PhotoStagingTray: View {
     let staged: [PhotoCapture]
     /// Slots the user can pick from for each photo. Filtered by the caller
     /// to "still empty" plus the next revealable defect slot when relevant.
-    let availableSlots: (PhotoCapture) -> [PhotoSlotType]
+    let availableSlots: (PhotoCapture) -> [CaptureSlot]
 
-    let onAssign: (PhotoCapture, PhotoSlotType) -> Void
+    let onAssign: (PhotoCapture, CaptureSlot) -> Void
     let onDiscard: (PhotoCapture) -> Void
 
     var body: some View {

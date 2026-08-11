@@ -47,10 +47,17 @@ perl -i -CSD -pe 's/[\x{201C}\x{201D}]/"/g if $. >= START && $. <= END' FILE
 static reads as belonging to whichever type you had in mind, and the split is
 real:
 
-- `PhotoSlotType` — capture-time slots (`.tag`, `.defect1`)
+- `PhotoSlotType` — the capture-time KIND (`.tag`, `.defect1`): SF Symbol,
+  storage bucket, sensitivity
+- `CaptureSlot` (US-2470, `Capture/CaptureSlot.swift`) — a capture-strip
+  POSITION: the `(PhotoSlotType, photo_role)` pair plus the profile's label and
+  hint. Equality reads only the pair, so `CaptureSlot(.tag) != tag|size`
 - `FlipdeskPhotoType` — the persisted server `photo_type` string
 
-Code working from `item_photos` rows wants `FlipdeskPhotoType`.
+Code working from `item_photos` rows wants `FlipdeskPhotoType`. Code holding a
+photo the seller is about to take wants `CaptureSlot`; reaching for a bare
+`PhotoSlotType` there is how a roled tag shot gets missed (`$0.slot == .tag`
+matched none of `tag|brand` / `tag|size` / `tag|care`).
 
 > **Confirm the enclosing `enum`/`struct` of a grep hit, not just the file.** This
 > is the Swift instance of a general habit, and it is the one that burns a CI

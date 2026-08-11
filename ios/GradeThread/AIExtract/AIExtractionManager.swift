@@ -110,7 +110,7 @@ final class AIExtractionManager {
     func start(
         itemId: String,
         userId: String,
-        photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
+        photos: [(slot: CaptureSlot, capture: PhotoCapture)],
         uploadStore: PhotoUploadStore,
         isOffline: Bool
     ) {
@@ -245,7 +245,7 @@ final class AIExtractionManager {
     private func run(
         itemId: String,
         userId _: String,
-        photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
+        photos: [(slot: CaptureSlot, capture: PhotoCapture)],
         uploadStore: PhotoUploadStore,
         isOffline: Bool
     ) async {
@@ -329,7 +329,7 @@ final class AIExtractionManager {
                 }
                 url = publicURL
             }
-            extractPhotos.append(ExtractPhoto(url: url, type: slotName))
+            extractPhotos.append(ExtractPhoto(url: url, type: slotName, role: entry.slot.role))
         }
         if !dropped.isEmpty {
             Telemetry.event("ai_extract_photo_dropped", props: [
@@ -472,7 +472,7 @@ final class AIExtractionManager {
     /// the whole captured set when none of the photos is a required slot.
     private func waitForRequiredUploads(
         itemId: String,
-        photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
+        photos: [(slot: CaptureSlot, capture: PhotoCapture)],
         uploadStore: PhotoUploadStore
     ) async {
         // Gate on the REQUIRED slots (front/back) plus every captured TAG.
@@ -488,7 +488,7 @@ final class AIExtractionManager {
         // Waiting costs a few seconds against a call that already takes 20-40s,
         // and the same deadline still applies — a tag that never lands is left
         // behind exactly as before, just no longer by default.
-        let gated = photos.map(\.slot).filter { $0.isRequired || $0.isTagSlot }
+        let gated = photos.map(\.slot).filter { $0.isBlocking || $0.isTagSlot }
         let gateSlots = gated.isEmpty ? photos.map(\.slot) : gated
         let total = photos.count
         let start = Date.now
@@ -608,7 +608,7 @@ final class AIExtractionManager {
     /// whether anything was applied. Shared by the offline branch and the
     /// server-failure (`EdgeAPIError`) fallback so they degrade identically.
     private func applyLiveTextFallback(
-        photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
+        photos: [(slot: CaptureSlot, capture: PhotoCapture)],
         store: AIExtractStore
     ) async -> Bool {
         let liveText = await liveTextSuggestions(photos: photos)
@@ -628,7 +628,7 @@ final class AIExtractionManager {
     }
 
     private func runLiveTextFallbackIfNeeded(
-        photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
+        photos: [(slot: CaptureSlot, capture: PhotoCapture)],
         store: AIExtractStore
     ) async {
         guard case let .ready(result) = store.phase else { return }
@@ -644,9 +644,13 @@ final class AIExtractionManager {
     }
 
     private func liveTextSuggestions(
-        photos: [(slot: PhotoSlotType, capture: PhotoCapture)]
+        photos: [(slot: CaptureSlot, capture: PhotoCapture)]
     ) async -> [String: FieldSuggestion] {
-        guard let tagEntry = photos.first(where: { $0.slot == .tag }) else { return [:] }
+        // US-2470: any TAG slot, whatever role it carries. Matching the bare
+        // `.tag` slot missed every profile-driven capture, where the tag shots
+        // are `tag:brand` / `tag:size` / `tag:care` — the size tag most of all,
+        // which is exactly the photo this OCR pass exists to read.
+        guard let tagEntry = photos.first(where: { $0.slot.isTagSlot }) else { return [:] }
         let imageData = tagEntry.capture.imageData
         // Downsample (~1600px long edge) BEFORE the `.accurate` Vision pass: a
         // full-res capture (2048px+) makes accurate OCR crawl with no accuracy

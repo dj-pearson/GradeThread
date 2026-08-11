@@ -17,7 +17,7 @@ struct AIExtractView: View {
     let inventoryItemId: String
     let userId: String
     /// Captured photos in their final upload slots.
-    let photos: [(slot: PhotoSlotType, capture: PhotoCapture)]
+    let photos: [(slot: CaptureSlot, capture: PhotoCapture)]
     /// Invoked to land the user ON the new item (canvas) once extraction
     /// finishes (or on Skip after a failure).
     let onComplete: () -> Void

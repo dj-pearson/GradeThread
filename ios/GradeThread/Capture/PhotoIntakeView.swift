@@ -16,6 +16,12 @@ struct PhotoIntakeView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     // US-1408: drives camera-session restart on return to foreground.
     @Environment(\.scenePhase) private var scenePhase
+    /// US-2470: the server-authoritative photo profile table. The camera-first
+    /// intake has no item and therefore no category yet, so this resolves the
+    /// default clothing profile — but the SERVER's, whose roles are named
+    /// (brand label, size tag, fabric close-up) instead of the numbered
+    /// `tag_2`/`detail_2` slots the strip used to offer.
+    @Environment(PhotoProfileStore.self) private var photoProfileStore
 
     @State private var store: PhotoIntakeStore
     @State private var camera = CameraSession()
@@ -31,7 +37,7 @@ struct PhotoIntakeView: View {
     /// staging tray, but only after the "couldn't load N photos" alert is
     /// dismissed (presenting an alert + sheet in the same tick is unreliable).
     @State private var openTrayAfterAlert = false
-    @State private var slotForPreview: PhotoSlotType?
+    @State private var slotForPreview: CaptureSlot?
     @State private var showingExitConfirmation = false
     /// US-686: tag-photo quality pre-flight (nudge to retake a blurry/low-res
     /// tag before spending an AI action). `isCheckingTag` covers the brief OCR
@@ -53,7 +59,7 @@ struct PhotoIntakeView: View {
     /// photos keyed by slot and seeds the intake store with them.
     /// Used by the drag-drop-from-Photos.app path on the inventory
     /// list.
-    init(initialPhotos: [PhotoSlotType: PhotoCapture]) {
+    init(initialPhotos: [CaptureSlot: PhotoCapture]) {
         let preloaded = PhotoIntakeStore()
         for (slot, photo) in initialPhotos {
             preloaded.setPhoto(photo, for: slot)
@@ -113,6 +119,12 @@ struct PhotoIntakeView: View {
             if phase == .active { camera.restartIfNeeded() }
         }
         .task {
+            // Applied BEFORE bootstrap: the strip renders on the first frame and
+            // a profile that landed after it would visibly reshuffle the slots
+            // under the seller's thumb. `loadIfNeeded` is a no-op after the
+            // app-launch fetch, so this is normally free.
+            await photoProfileStore.loadIfNeeded()
+            store.apply(profile: photoProfileStore.profile(for: nil, garment: nil))
             await bootstrap()
             // US-651: move VoiceOver focus to the shutter once the camera's up.
             if permissionState == .granted { captureControlFocused = true }
@@ -406,7 +418,7 @@ struct PhotoIntakeView: View {
     /// and VoiceOver keeps using the `.accessibilityActions` delete action
     /// (the visible badge is hidden from it to avoid a duplicate).
     @ViewBuilder
-    private func slotButton(for slot: PhotoSlotType) -> some View {
+    private func slotButton(for slot: CaptureSlot) -> some View {
         Button {
             AppRouter.haptic()
             if let phase = uploadPhase(for: slot), case .failed = phase {
@@ -461,7 +473,7 @@ struct PhotoIntakeView: View {
     /// Hidden from VoiceOver — the slot already carries a "Delete photo"
     /// accessibility action, so surfacing this as a second element would be
     /// a redundant control.
-    private func deleteBadge(for slot: PhotoSlotType) -> some View {
+    private func deleteBadge(for slot: CaptureSlot) -> some View {
         Button {
             AppRouter.haptic()
             store.clearPhoto(at: slot)
@@ -485,6 +497,12 @@ struct PhotoIntakeView: View {
                     slotButton(for: slot)
                 }
 
+                // US-2470: every entry below comes from the RESOLVED PHOTO
+                // PROFILE, not from a fixed `PhotoSlotType.extras +
+                // .measurements` list. That list offered a pair of trousers a
+                // sleeve measurement, offered a watch a flat lay, and could only
+                // call a second tag shot "Tag 2" — the profile knows it is the
+                // size tag and says so.
                 if !store.hiddenExtraSlots.isEmpty {
                     Menu {
                         if let defect = store.nextHiddenDefectSlot {
@@ -492,14 +510,10 @@ struct PhotoIntakeView: View {
                                 AppRouter.haptic()
                                 store.reveal(defect)
                             } label: {
-                                Label("Defect", systemImage: defect.systemImage)
+                                Label(defect.label, systemImage: defect.systemImage)
                             }
                         }
-                        ForEach(
-                            PhotoSlotType.extras.filter {
-                                !store.extraSlots.contains($0)
-                            }
-                        ) { slot in
+                        ForEach(store.hiddenGeneralSlots) { slot in
                             Button {
                                 AppRouter.haptic()
                                 store.reveal(slot)
@@ -507,17 +521,18 @@ struct PhotoIntakeView: View {
                                 Label(slot.label, systemImage: slot.systemImage)
                             }
                         }
-                        Section("Measurements") {
-                            ForEach(
-                                PhotoSlotType.measurements.filter {
-                                    !store.extraSlots.contains($0)
-                                }
-                            ) { slot in
-                                Button {
-                                    AppRouter.haptic()
-                                    store.reveal(slot)
-                                } label: {
-                                    Label(slot.label, systemImage: slot.systemImage)
+                        // Measurements keep their own section: a garment can
+                        // have five and they would otherwise bury everything
+                        // else in the menu.
+                        if !store.hiddenMeasurementSlots.isEmpty {
+                            Section("Measurements") {
+                                ForEach(store.hiddenMeasurementSlots) { slot in
+                                    Button {
+                                        AppRouter.haptic()
+                                        store.reveal(slot)
+                                    } label: {
+                                        Label(slot.label, systemImage: slot.systemImage)
+                                    }
                                 }
                             }
                         }
@@ -698,16 +713,17 @@ struct PhotoIntakeView: View {
 
     // MARK: - Upload + AI extract flow (US-175 / US-176)
 
-    private func uploadPhase(for slot: PhotoSlotType) -> PhotoUploadTask.Phase? {
+    private func uploadPhase(for slot: CaptureSlot) -> PhotoUploadTask.Phase? {
         guard let itemId = draftItemId else { return nil }
         return uploadStore.task(for: slot, inventoryItemId: itemId)?.phase
     }
 
-    private func capturedEntries() -> [(slot: PhotoSlotType, capture: PhotoCapture)] {
-        store.visibleSlots.compactMap { slot in
-            guard let capture = store.photos[slot] else { return nil }
-            return (slot, capture)
-        }
+    /// US-2470: the profile's own order, which IS the `sort_order` written to
+    /// `item_photos` and therefore the gallery order and the eBay cover. It used
+    /// to be the strip order, which was close enough only while every category
+    /// shared one hard-coded strip.
+    private func capturedEntries() -> [(slot: CaptureSlot, capture: PhotoCapture)] {
+        store.orderedCaptures
     }
 
     private func currentUserId() -> String? {
@@ -722,7 +738,11 @@ struct PhotoIntakeView: View {
     /// creating the item + spending an AI action; otherwise proceed straight in.
     /// No tag captured → nothing to check, proceed.
     private func handleDone() async {
-        if let tag = store.photos[.tag] {
+        // US-2470: whichever tag shot the seller took. Under a profile the tag
+        // slots are `tag:brand` / `tag:size` / `tag:care`, so keying on the bare
+        // `.tag` slot skipped the blur check on every one of them.
+        if let tag = store.visibleSlots.first(where: { $0.isTagSlot && store.photos[$0] != nil })
+            .flatMap({ store.photos[$0] }) {
             isCheckingTag = true
             let assessment = await TagPhotoQuality.assess(tag)
             isCheckingTag = false
@@ -868,7 +888,7 @@ struct PhotoIntakeView: View {
         modelContext.saveOrLog("PhotoIntake.enqueueOfflineItemCreate")
     }
 
-    private func retryUpload(for slot: PhotoSlotType) {
+    private func retryUpload(for slot: CaptureSlot) {
         guard let itemId = draftItemId,
               let task = uploadStore.task(for: slot, inventoryItemId: itemId),
               let service = uploadService
@@ -883,12 +903,12 @@ struct PhotoIntakeView: View {
     /// (next hidden defect first, then the extended taxonomy). Re-evaluated
     /// per-photo so two staged photos can both pick "Defect 1" or both
     /// target newly-revealed slots without confusing the menu.
-    private func availableSlots(for _: PhotoCapture) -> [PhotoSlotType] {
+    private func availableSlots(for _: PhotoCapture) -> [CaptureSlot] {
         store.visibleSlots.filter { store.photos[$0] == nil }
             + store.hiddenExtraSlots
     }
 
-    private func assign(stagedPhoto: PhotoCapture, to slot: PhotoSlotType) {
+    private func assign(stagedPhoto: PhotoCapture, to slot: CaptureSlot) {
         // setPhoto auto-reveals hidden optional slots, so the strip always
         // shows the assigned photo.
         store.setPhoto(stagedPhoto, for: slot)
@@ -981,5 +1001,8 @@ struct PhotoIntakeView: View {
 }
 
 #Preview {
+    // The profile store is a non-optional environment value, so the preview has
+    // to supply one the same way the app scene does.
     PhotoIntakeView()
+        .environment(PhotoProfileStore())
 }

@@ -97,7 +97,7 @@ struct InventoryListView: View {
 
     // US-193 drag-drop from Photos.app — captures live here until the
     // PhotoIntakeView mounts and seeds its own store from them.
-    @State private var droppedCaptures: [PhotoSlotType: PhotoCapture] = [:]
+    @State private var droppedCaptures: [CaptureSlot: PhotoCapture] = [:]
     @State private var showingDroppedIntake = false
 
     // US-685: per-row quick actions — publish to eBay + quick price edit
@@ -533,8 +533,9 @@ struct InventoryListView: View {
             // Map each capture onto the next available default slot in
             // declaration order (front, back, tag, detail). Extras spill
             // into defect slots if the user keeps dragging.
-            let slots = PhotoSlotType.defaultSlots + PhotoSlotType.defects
-            var mapping: [PhotoSlotType: PhotoCapture] = [:]
+            let slots = (PhotoSlotType.defaultSlots + PhotoSlotType.defects)
+                .map { CaptureSlot($0) }
+            var mapping: [CaptureSlot: PhotoCapture] = [:]
             for (idx, capture) in captures.prefix(slots.count).enumerated() {
                 mapping[slots[idx]] = capture
             }

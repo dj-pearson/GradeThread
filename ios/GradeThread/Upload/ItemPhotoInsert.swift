@@ -17,6 +17,10 @@ struct ItemPhotoInsert: Encodable, Equatable {
     let id: String
     let inventory_item_id: String
     let photo_type: String
+    /// US-2470 (migration 00587): the role qualifier — "size", "fabric", "chest".
+    /// nil for a slot that takes none, and OMITTED from the JSON when nil so an
+    /// unroled capture sends exactly the payload it always did.
+    var photo_role: String?
     let storage_path: String
     let photo_url: String
     let sort_order: Int
@@ -31,6 +35,7 @@ struct ItemPhotoInsert: Encodable, Equatable {
         case id
         case inventory_item_id
         case photo_type
+        case photo_role
         case storage_path
         case photo_url
         case sort_order
@@ -53,6 +58,7 @@ struct ItemPhotoInsert: Encodable, Equatable {
         try c.encode(id, forKey: .id)
         try c.encode(inventory_item_id, forKey: .inventory_item_id)
         try c.encode(photo_type, forKey: .photo_type)
+        try c.encodeIfPresent(photo_role, forKey: .photo_role)
         try c.encode(storage_path, forKey: .storage_path)
         try c.encode(photo_url, forKey: .photo_url)
         try c.encode(sort_order, forKey: .sort_order)

@@ -126,9 +126,19 @@ index drives `sort_order`:
   (see `src/lib/photo-order.ts`).
 - `services/edge-functions/src/lib/photo-profiles.ts` → per-category `roles[]`,
   server-authoritative; clients fetch `GET /api/flipdesk/photo-profiles`.
-- iOS `PhotoSlotType.swift` → **the enum declaration order *is* the order**,
-  because `PhotoUploadService.enqueueAll` derives `sort_order` from
-  `allCases.firstIndex(of:)`. Reordering the enum silently reorders listings.
+- iOS: **the resolved profile's `roles[]` order is the order** (US-2470).
+  `PhotoIntakeStore.orderedCaptures` ranks each capture by
+  `PhotoProfile.sortIndex(of:)` and `PhotoUploadService.enqueueAll` takes that
+  order as given.
+
+  It used to be the `PhotoSlotType` enum's DECLARATION order, via
+  `allCases.firstIndex(of:)` — one global ordering for every category, so a
+  watch's dial and caseback sorted by where they sat in a Swift enum. That is
+  gone; reordering the enum no longer reorders listings. What the enum still
+  owns is the SF Symbol, the storage bucket and the sensitivity rule. A slot is
+  now a `CaptureSlot` — the `(photo_type, photo_role)` pair — and anything the
+  profile does not list (defects, slots carried over from an earlier profile)
+  sorts after everything it does, never into the cover position.
 
 **Required set** — blocks the "photographed" status and grading:
 

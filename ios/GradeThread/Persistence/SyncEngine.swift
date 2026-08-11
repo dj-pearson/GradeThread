@@ -1680,7 +1680,12 @@ actor SyncEngine {
         // US-979: route sensitive slots (tag/grading-label close-ups) to the
         // PRIVATE bucket, mirroring the direct-upload path, so an offline-queued
         // retry never lands a PII photo in the public bucket.
-        let slot = PhotoSlotType(rawValue: p.slot)
+        // US-2470: `slot` is a CaptureSlot storage key now ("tag|size"), and a
+        // pre-2470 payload's bare raw value decodes through the same call. The
+        // split matters: reading "tag|size" as a photo_type would send Postgres
+        // a value its enum does not have, and the whole replay would fail on a
+        // photo that had already uploaded its bytes.
+        let slot = CaptureSlot(storageKey: p.slot)
         let photoType = slot?.serverPhotoType ?? p.slot
         let bucket = slot?.storageBucket ?? PhotoStorageBucket.bucket(forServerType: photoType)
         guard let storageURL = Self.storageObjectURL(path: p.storage_path, bucket: bucket) else {
@@ -1714,7 +1719,10 @@ actor SyncEngine {
             "bytes": .integer(bytes ?? 0),
         ]
         if let photoId = p.photo_id { row["id"] = .string(photoId) }
-        if let photoRole = p.photo_role { row["photo_role"] = .string(photoRole) }
+        // Prefer the explicit field; fall back to the role encoded in the slot
+        // key, so a payload queued by a build that sent one but not the other
+        // still replays with its role intact.
+        if let photoRole = p.photo_role ?? slot?.role { row["photo_role"] = .string(photoRole) }
         // US-289: preserve capture-time + reconcile session through replay.
         if let capturedAt = p.captured_at { row["captured_at"] = .string(capturedAt) }
         // US-1547: preserve the provenance filename through replay.

@@ -5,7 +5,7 @@ import SwiftUI
 /// brand-navy ring; filled slots get a checkmark badge. While an upload
 /// is in flight for the slot, a progress overlay covers the thumbnail.
 struct SlotThumbnail: View {
-    let slot: PhotoSlotType
+    let slot: CaptureSlot
     let capture: PhotoCapture?
     let isActive: Bool
     /// Upload phase for the photo in this slot, if any. nil = not

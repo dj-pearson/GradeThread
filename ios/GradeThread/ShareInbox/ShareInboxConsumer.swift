@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /// Drains ``IntakeInbox`` batches written by the Share Extension and
-/// materialises them into the `[PhotoSlotType: PhotoCapture]` shape
+/// materialises them into the `[CaptureSlot: PhotoCapture]` shape
 /// ``PhotoIntakeView/init(initialPhotos:)`` expects. The Share Extension
 /// JPEG-encodes its own payloads, so this layer skips the recompress
 /// step the camera flow uses + maps slot raw values back to typed cases.
@@ -10,7 +10,7 @@ import UIKit
 /// `IntakeInbox` itself lives in the Shared/ target so the Share
 /// Extension can import it without dragging in the main app's modules.
 /// This consumer is main-app-only because it depends on PhotoCapture +
-/// PhotoSlotType.
+/// CaptureSlot.
 @MainActor
 enum ShareInboxConsumer {
 
@@ -20,7 +20,7 @@ enum ShareInboxConsumer {
     /// it without us bridging through a separate optional flag.
     struct DrainedBatch: Identifiable {
         let batch: IntakeInbox.Batch
-        let slotPhotos: [PhotoSlotType: PhotoCapture]
+        let slotPhotos: [CaptureSlot: PhotoCapture]
 
         var id: String { batch.id }
     }
@@ -53,16 +53,19 @@ enum ShareInboxConsumer {
         return DrainedBatch(batch: next, slotPhotos: mapped)
     }
 
-    /// Materialises a batch's JPEGs into the `[PhotoSlotType: PhotoCapture]`
+    /// Materialises a batch's JPEGs into the `[CaptureSlot: PhotoCapture]`
     /// shape PhotoIntakeView expects. `nonisolated` so ``popNext()`` can run
     /// it inside a detached task, off the main actor — it touches only the
     /// filesystem + image decode, no main-actor state.
     nonisolated static func materializeSlotPhotos(
         in batch: IntakeInbox.Batch
-    ) -> [PhotoSlotType: PhotoCapture] {
-        var mapped: [PhotoSlotType: PhotoCapture] = [:]
+    ) -> [CaptureSlot: PhotoCapture] {
+        var mapped: [CaptureSlot: PhotoCapture] = [:]
         for entry in IntakeInbox.materializePhotos(in: batch) {
-            guard let slot = PhotoSlotType(rawValue: entry.slot),
+            // US-2470: `entry.slot` is a CaptureSlot storage key. A share-sheet
+            // batch written by an older build holds a bare PhotoSlotType raw
+            // value, which decodes through the same initializer.
+            guard let slot = CaptureSlot(storageKey: entry.slot),
                   // Build a thumbnail at the same size the camera flow
                   // uses so the slot strip preview looks consistent.
                   let thumbnail = entry.image.preparingThumbnail(of: thumbnailSize)

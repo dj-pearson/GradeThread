@@ -19,12 +19,14 @@ final class ReconcileIntakeTests: XCTestCase {
 
     private func base(
         capturedAt: Date? = nil,
-        session: String? = nil
+        session: String? = nil,
+        role: String? = nil
     ) -> ItemPhotoInsert {
         ItemPhotoInsert(
             id: "11111111-1111-1111-1111-111111111111",
             inventory_item_id: "item-1",
             photo_type: "front",
+            photo_role: role,
             storage_path: "user-1/item-1/front_0.jpg",
             photo_url: "https://example.test/front.jpg",
             sort_order: 2,
@@ -43,6 +45,21 @@ final class ReconcileIntakeTests: XCTestCase {
         XCTAssertEqual(json["photo_url"] as? String, "https://example.test/front.jpg")
         XCTAssertEqual(json["sort_order"] as? Int, 2)
         XCTAssertEqual(json["bytes"] as? Int, 4096)
+    }
+
+    /// US-2470: the role rides the insert, and only when there IS one.
+    ///
+    /// An unroled capture must send exactly the payload it always did — a
+    /// `"photo_role": null` on every front shot would be a schema change
+    /// dressed up as a no-op, and PostgREST treats an explicit null as an
+    /// instruction to clear the column on an upsert replay.
+    func test_itemPhotoInsert_carriesPhotoRole_andOmitsItWhenNil() throws {
+        let roled = try encodeToObject(base(role: "size"))
+        XCTAssertEqual(roled["photo_role"] as? String, "size")
+
+        let unroled = try encodeToObject(base(role: nil))
+        XCTAssertNil(unroled["photo_role"])
+        XCTAssertFalse(unroled.keys.contains("photo_role"))
     }
 
     func test_itemPhotoInsert_omitsOptionalsWhenNil() throws {

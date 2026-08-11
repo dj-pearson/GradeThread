@@ -294,7 +294,7 @@ final class AutoListerGenerator: ObservableObject {
         var scheduled: [ScheduledPhoto] = []
         // group.photos is already cover-first.
         for (idx, photo) in group.photos.enumerated() {
-            let slot: PhotoSlotType = idx == 0 ? .front : .detail
+            let slot = CaptureSlot(idx == 0 ? .front : .detail)
             guard let taskId = uploadService.schedule(
                 capture: photo, slot: slot, inventoryItemId: itemId,
                 userId: userId, sortOrder: idx

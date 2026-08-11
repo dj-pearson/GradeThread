@@ -181,20 +181,21 @@ public final class PhotoUploadService {
 
     /// Schedules every captured photo for upload. Tasks beyond the
     /// concurrency cap stay queued and start as in-flight tasks finish.
+    ///
+    /// US-2470: `sort_order` is the caller's ORDER, taken as given. It used to
+    /// be re-derived here from `PhotoSlotType.allCases.firstIndex(of:)`, which
+    /// could express exactly one global ordering — so a watch's dial and
+    /// caseback sorted by where they happened to sit in a Swift enum rather
+    /// than by what the category's photo profile says. The profile owns that
+    /// order now (`PhotoIntakeStore.orderedCaptures`), and index 0 is the eBay
+    /// cover on both clients because both read the same list.
     public func enqueueAll(
-        photos: [(slot: PhotoSlotType, capture: PhotoCapture)],
+        photos: [(slot: CaptureSlot, capture: PhotoCapture)],
         inventoryItemId: String,
         userId: String,
         reconcileSessionId: String? = nil
     ) {
-        // Stable sort_order across re-uploads: required slots in canonical
-        // order first, then defects.
-        let order = PhotoSlotType.allCases
-        let sorted = photos.sorted {
-            (order.firstIndex(of: $0.slot) ?? .max) < (order.firstIndex(of: $1.slot) ?? .max)
-        }
-
-        for (offset, entry) in sorted.enumerated() {
+        for (offset, entry) in photos.enumerated() {
             schedule(
                 capture: entry.capture,
                 slot: entry.slot,
@@ -211,7 +212,7 @@ public final class PhotoUploadService {
     @discardableResult
     public func schedule(
         capture: PhotoCapture,
-        slot: PhotoSlotType,
+        slot: CaptureSlot,
         inventoryItemId: String,
         userId: String,
         sortOrder: Int,
@@ -580,6 +581,10 @@ public final class PhotoUploadService {
             id: Self.photoId(for: task),
             inventory_item_id: task.inventoryItemId,
             photo_type: task.slot.serverPhotoType,
+            // US-2470: the role half of the pair. nil for a slot that takes
+            // none, and OMITTED from the JSON in that case, so a capture that
+            // has no role writes exactly the payload it always did.
+            photo_role: task.slot.role,
             storage_path: task.storagePath,
             photo_url: publicURL,
             sort_order: sortOrder,
@@ -788,7 +793,15 @@ public final class PhotoUploadService {
         struct Payload: Codable {
             let inventory_item_id: String
             let user_id: String
+            /// US-2470: the slot's ``CaptureSlot/storageKey`` — "front", or
+            /// "tag|size". Pre-2470 payloads hold a bare PhotoSlotType raw
+            /// value, which decodes to the same thing.
             let slot: String
+            /// US-2468/US-2470: the role half, sent explicitly rather than left
+            /// to be re-derived. The SyncEngine replay has read this field since
+            /// US-2468 and NOTHING wrote it, so every offline-replayed photo
+            /// landed with a null role while the direct-insert path set one.
+            let photo_role: String?
             let storage_path: String
             let local_file_url: String
             // Deterministic row id (the task's own id) so the SyncEngine replay
@@ -809,7 +822,8 @@ public final class PhotoUploadService {
         let payload = Payload(
             inventory_item_id: task.inventoryItemId,
             user_id: task.userId,
-            slot: task.slot.rawValue,
+            slot: task.slot.storageKey,
+            photo_role: task.slot.role,
             storage_path: task.storagePath,
             // US-1646: store the RELATIVE filename (resolved against the staging
             // dir at replay), so an app-update container relocation can't break

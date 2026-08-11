@@ -20,7 +20,7 @@ public final class PhotoUploadStore {
         tasks.values.sorted { $0.createdAt < $1.createdAt }
     }
 
-    public func task(for slot: PhotoSlotType, inventoryItemId: String) -> PhotoUploadTask? {
+    public func task(for slot: CaptureSlot, inventoryItemId: String) -> PhotoUploadTask? {
         tasks.values.first {
             $0.slot == slot && $0.inventoryItemId == inventoryItemId
         }

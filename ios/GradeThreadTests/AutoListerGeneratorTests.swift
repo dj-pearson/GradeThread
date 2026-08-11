@@ -98,7 +98,7 @@ final class AutoListerGeneratorTests: XCTestCase {
         XCTAssertEqual(AutoListerGenerator.uploadStallTimeout, 90)
     }
 
-    private func makeTask(slot: PhotoSlotType, phase: PhotoUploadTask.Phase) -> PhotoUploadTask {
+    private func makeTask(slot: CaptureSlot, phase: PhotoUploadTask.Phase) -> PhotoUploadTask {
         PhotoUploadTask(
             inventoryItemId: "item-A",
             userId: "user-1",

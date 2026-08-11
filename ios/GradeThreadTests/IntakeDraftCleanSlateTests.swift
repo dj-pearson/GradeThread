@@ -31,7 +31,7 @@ final class IntakeDraftCleanSlateTests: XCTestCase {
 
     /// A minimal, valid 1×1 JPEG capture so `PhotoDraftStore.save` actually
     /// writes a file to disk.
-    private func makeCapture(slot: PhotoSlotType) -> PhotoCapture {
+    private func makeCapture(slot: CaptureSlot) -> PhotoCapture {
         let renderer = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1))
         let image = renderer.image { ctx in
             UIColor.red.setFill()

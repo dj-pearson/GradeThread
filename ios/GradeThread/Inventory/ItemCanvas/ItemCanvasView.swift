@@ -20,6 +20,9 @@ struct ItemCanvasView: View {
     @Environment(\.photoUploadService) private var uploadService
     /// US-981: gate the network-only "Get eBay comps" lookup when offline.
     @Environment(NetworkMonitor.self) private var networkMonitor: NetworkMonitor?
+    /// US-2470: the per-category photo profile, so "Add photos" fills the slots
+    /// THIS item's category actually has instead of a hard-coded four.
+    @Environment(PhotoProfileStore.self) private var photoProfileStore
 
     let item: LocalInventoryItem
 
@@ -1191,6 +1194,7 @@ struct ItemCanvasView: View {
         allPhotos.map {
             PersistedPhotoRef(
                 photoType: $0.photoType,
+                photoRole: $0.photoRole,
                 storagePath: $0.storagePath,
                 photoURL: $0.photoURL
             )
@@ -1915,25 +1919,41 @@ struct ItemCanvasView: View {
 
     // MARK: - Item-level actions (US-650)
 
-    /// Standard photo slots this item doesn't have yet — the targets the
-    /// "Add photos" action fills (front/back/tag/detail, then unused defects,
-    /// then detail 2–4). Exotic types (interior, flat lay, measurements…)
-    /// are never auto-assigned — retag via Manage instead.
-    private var unfilledStandardSlots: [PhotoSlotType] {
-        let present = Set(allPhotos.map(\.photoType))
-        var slots: [PhotoSlotType] = []
-        for slot in [PhotoSlotType.front, .back, .tag, .detail]
-        where !present.contains(slot.serverPhotoType) {
-            slots.append(slot)
+    /// This item's resolved photo profile.
+    private var photoProfile: PhotoProfile {
+        photoProfileStore.profile(
+            for: item.itemCategory,
+            garment: item.garmentCategory ?? item.garmentType
+        )
+    }
+
+    /// Photo slots this item doesn't have yet — the targets the "Add photos"
+    /// action fills: the profile's default slots, then unused defects, then the
+    /// profile's remaining DETAIL roles.
+    ///
+    /// US-2470 AC4: the tail used to be `detail_2`, `detail_3`, `detail_4`,
+    /// which are RETIRED types. They stay legal forever (Postgres cannot drop
+    /// an enum value and historical rows point at them) but a new capture must
+    /// never write one, and this path was still writing three of them. The
+    /// replacement is the profile's own detail roles — fabric, hardware, hem —
+    /// which say what the photo shows instead of counting it.
+    private var unfilledStandardSlots: [CaptureSlot] {
+        let profile = photoProfile
+        let present = Set(allPhotos.map { PhotoProfile.slotKey($0.photoType, $0.photoRole) })
+        func isPresent(_ slot: CaptureSlot) -> Bool {
+            present.contains(PhotoProfile.slotKey(slot.serverPhotoType, slot.role))
         }
+
+        var slots = profile.defaultCaptureSlots.filter { !isPresent($0) }
+
         let defectCount = allPhotos.filter { $0.photoType == "defect" }.count
-        let defectSlots: [PhotoSlotType] = [.defect1, .defect2, .defect3]
+        let defectSlots = profile.defectCaptureSlots
         if defectCount < defectSlots.count {
             slots.append(contentsOf: defectSlots[defectCount...])
         }
-        for slot in [PhotoSlotType.detail2, .detail3, .detail4]
-        where !present.contains(slot.serverPhotoType) {
-            slots.append(slot)
+
+        slots += profile.optionalCaptureSlots.filter {
+            $0.serverPhotoType == "detail" && !isPresent($0)
         }
         return slots
     }
@@ -1941,9 +1961,9 @@ struct ItemCanvasView: View {
     /// US-687: the slot a newly-added photo at `offset` should fill — unfilled
     /// standard slots first, then extra `.detail` shots once the standard set
     /// is full (so users aren't capped at the standard slot count).
-    private func slotForAddedPhoto(offset: Int) -> PhotoSlotType {
+    private func slotForAddedPhoto(offset: Int) -> CaptureSlot {
         let slots = unfilledStandardSlots
-        return offset < slots.count ? slots[offset] : .detail
+        return offset < slots.count ? slots[offset] : CaptureSlot.detail
     }
 
     /// Compresses picked photos and uploads them into THIS item. Fills unfilled
@@ -1952,7 +1972,7 @@ struct ItemCanvasView: View {
         guard let uploadService, !results.isEmpty else { return }
         isAddingPhotos = true
         defer { isAddingPhotos = false }
-        var pairs: [(slot: PhotoSlotType, capture: PhotoCapture)] = []
+        var pairs: [(slot: CaptureSlot, capture: PhotoCapture)] = []
         var accepted = 0
         for result in results {
             guard let image = await result.loadImage(),

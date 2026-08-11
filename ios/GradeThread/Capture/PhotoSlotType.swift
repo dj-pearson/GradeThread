@@ -16,7 +16,7 @@ import Foundation
 /// derives each photo's `sort_order` from `allCases.firstIndex(of:)`, so index 0
 /// (`front`) is the cover / eBay main image. Canonical sequence:
 /// Front → Back → Tag → Detail → measurements → defects → extras → universal.
-public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
+public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable, Sendable {
     case front
     case back
     case tag
@@ -49,6 +49,13 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
     case certificate
     case corner
     case surface
+    // US-2470 (migration 00587): the two profile roles that had no existing
+    // capture case, so a profile offering them silently dropped the slot.
+    // Declared LAST because this enum's declaration order used to BE the
+    // sort_order contract; the profile's role order owns that now, and
+    // appending leaves every pre-profile ordering exactly where it was.
+    case onHanger = "on_hanger"
+    case setPair = "set_pair"
 
     public var id: String { rawValue }
 
@@ -76,6 +83,8 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         case .accessory:   return "Accessories"
         case .certificate: return "Certificate"
         case .corner:      return "Corners"
+        case .onHanger:    return "On hanger"
+        case .setPair:     return "Set / pair"
         case .surface:     return "Surface"
         case .measurementChest:  return "Chest / Bust"
         case .measurementWaist:  return "Waist"
@@ -120,6 +129,10 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
             return "Grading label / certificate of authenticity"
         case .corner:
             return "Close-up of the corners"
+        case .onHanger:
+            return "Hung as it would be worn — shows how it drapes"
+        case .setPair:
+            return "Both pieces together, so the set reads as one item"
         case .surface:
             return "Surface & centering under raking light"
         case .measurementChest:
@@ -153,6 +166,8 @@ public enum PhotoSlotType: String, CaseIterable, Identifiable, Hashable {
         case .accessory:   return "shippingbox"
         case .certificate: return "checkmark.seal"
         case .corner:      return "viewfinder"
+        case .onHanger:    return "hanger"
+        case .setPair:     return "square.on.square"
         case .surface:     return "rays"
         case .measurementChest, .measurementWaist, .measurementLength,
              .measurementSleeve, .measurementInseam, .measurementCard:

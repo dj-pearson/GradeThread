@@ -110,18 +110,18 @@ final class ShareInboxTests: XCTestCase {
 
     // MARK: - ShareInboxConsumer slot mapping
 
-    func test_consumer_mapsRawSlotsToPhotoSlotType() throws {
+    func test_consumer_mapsRawSlotsToCaptureSlot() throws {
         // Synthesise a DrainedBatch directly — we're testing the slot
-        // raw-value mapping is in lock-step with PhotoSlotType, not the
-        // disk round-trip (covered above).
+        // key mapping is in lock-step with CaptureSlot, not the disk
+        // round-trip (covered above).
         let entries: [(slot: String, image: UIImage, bytes: Data)] = [
             ("front",   makeUIImage(color: .red),   makeJPEG(color: .red)),
             ("defect3", makeUIImage(color: .gray),  makeJPEG(color: .gray)),
             ("not-a-slot", makeUIImage(color: .black), makeJPEG(color: .black)),
         ]
-        var mapped: [PhotoSlotType: PhotoCapture] = [:]
+        var mapped: [CaptureSlot: PhotoCapture] = [:]
         for entry in entries {
-            guard let slot = PhotoSlotType(rawValue: entry.slot),
+            guard let slot = CaptureSlot(storageKey: entry.slot),
                   let thumbnail = entry.image.preparingThumbnail(of: CGSize(width: 240, height: 240))
             else { continue }
             mapped[slot] = PhotoCapture(
@@ -130,7 +130,7 @@ final class ShareInboxTests: XCTestCase {
                 source: .library
             )
         }
-        XCTAssertEqual(Set(mapped.keys), [.front, .defect3])
+        XCTAssertEqual(Set(mapped.keys), [CaptureSlot(.front), CaptureSlot(.defect3)])
         XCTAssertNil(mapped[.back])
     }
 
@@ -192,6 +192,8 @@ final class ShareInboxTests: XCTestCase {
             "measurement",
             "angle", "sole", "marking", "serial", "accessory",
             "certificate", "corner", "surface",
+            // US-2470: the two profile roles that gained a capture case.
+            "on_hanger", "set_pair",
         ]
         let canonical = PhotoSlotType.allCases.map(\.rawValue)
         XCTAssertEqual(mirroredSlots, canonical,

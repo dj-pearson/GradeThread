@@ -6,6 +6,11 @@ import Foundation
 struct PersistedPhotoRef: Equatable {
     /// Server `item_photos.photo_type` — front / back / tag / detail / …
     let photoType: String
+    /// US-2470: `item_photos.photo_role`. A re-run reads the SAME rows the
+    /// capture path wrote, so without this the model is told "tag" for a photo
+    /// the capture path would have announced as "tag: size tag" — the re-run
+    /// would be strictly worse at the field it exists to fix.
+    var photoRole: String?
     let storagePath: String?
     /// Empty for a PRIVATE-bucket photo (US-979); a permanent public URL
     /// otherwise. This is the same signal the edge's `readBucketForItemPhoto`
@@ -51,7 +56,11 @@ enum AIRerunPhotos {
             // FlipdeskPhotoType, not PhotoSlotType: these are PERSISTED rows, so
             // they carry the server `photo_type` string rather than a capture-time
             // slot (see the comment on FlipdeskPhotoType).
-            guard !FlipdeskPhotoType.isNonListable(ref.photoType) else { continue }
+            // Role-aware (US-2468): a bare `measurement` is the MeasureCard
+            // calibration frame and never lists, but a ROLED one is a tape
+            // close-up the seller publishes on purpose.
+            guard !FlipdeskPhotoType.isNonListable(ref.photoType, role: ref.photoRole)
+            else { continue }
             let path = ref.storagePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             let stored = ref.photoURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -61,7 +70,7 @@ enum AIRerunPhotos {
             let bucket = PhotoStorageBucket.readBucket(photoURL: stored)
             if bucket == PhotoStorageBucket.publicBucket {
                 if !stored.isEmpty {
-                    out.append(ExtractPhoto(url: stored, type: ref.photoType))
+                    out.append(ExtractPhoto(url: stored, type: ref.photoType, role: ref.photoRole))
                 }
                 // No stored URL and no way to derive one safely → skip. (A public
                 // photo always carries its photoURL; a row without one is either
@@ -72,7 +81,7 @@ enum AIRerunPhotos {
             guard !path.isEmpty,
                   let signed = await signer(bucket, path)
             else { continue }
-            out.append(ExtractPhoto(url: signed.absoluteString, type: ref.photoType))
+            out.append(ExtractPhoto(url: signed.absoluteString, type: ref.photoType, role: ref.photoRole))
         }
         return out
     }

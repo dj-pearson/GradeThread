@@ -4,7 +4,7 @@ import UIKit
 /// Full-screen preview of a captured photo. Tap a slot in the strip to
 /// open this; user can keep, retake, or delete from here.
 struct PhotoPreview: View {
-    let slot: PhotoSlotType
+    let slot: CaptureSlot
     let capture: PhotoCapture
     let onRetake: () -> Void
     let onDelete: () -> Void

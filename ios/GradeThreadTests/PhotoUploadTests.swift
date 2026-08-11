@@ -133,7 +133,7 @@ final class PhotoUploadTests: XCTestCase {
         XCTAssertEqual(cap, 1, "Cap is documented at 1 (strictly sequential) — change tests if this changes")
 
         // Simulate `cap` active uploads. activeCount must reflect them.
-        let slots: [PhotoSlotType] = [.front, .back, .tag, .detail]
+        let slots: [CaptureSlot] = [.front, .back, .tag, .detail]
         for slot in slots.prefix(cap) {
             var t = makeTask(slot: slot, itemId: "item-A")
             t.phase = .uploading(progress: 0.1)
@@ -428,7 +428,7 @@ final class PhotoUploadTests: XCTestCase {
     }
 
     private func makeTask(
-        slot: PhotoSlotType = .front,
+        slot: CaptureSlot = .front,
         itemId: String = "item-A",
         localFileURL: URL? = nil
     ) -> PhotoUploadTask {

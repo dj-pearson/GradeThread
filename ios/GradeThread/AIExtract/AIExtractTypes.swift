@@ -63,6 +63,10 @@ struct ExtractPhoto: Encodable {
     let url: String
     /// Server-side enum value (front / back / tag / detail / defect / …).
     let type: String?
+    /// US-2470: the `item_photos.photo_role` qualifier. The edge announces the
+    /// photo to the model as "tag: size tag" rather than a bare "tag", which is
+    /// what stops it guessing which of three tag shots holds the size.
+    var role: String?
 }
 
 /// Loosely-typed wrapper because `known_fields` values can be strings,

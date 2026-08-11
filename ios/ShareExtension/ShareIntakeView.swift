@@ -61,6 +61,8 @@ struct ShareIntakeView: View {
         "measurement",
         "angle", "sole", "marking", "serial", "accessory",
         "certificate", "corner", "surface",
+        // US-2470: the two profile roles that gained a capture case.
+        "on_hanger", "set_pair",
     ]
 
     /// US-1647: the order used to DEFAULT-assign shared photos to slots — the
@@ -88,6 +90,8 @@ struct ShareIntakeView: View {
         case "interior": return "Interior"
         case "flatlay":  return "Flat lay"
         case "on_model": return "On model"
+        case "on_hanger": return "On hanger"
+        case "set_pair":  return "Set / pair"
         case "measurement": return "Measurement card"
         case "angle":       return "Angle / Profile"
         case "sole":        return "Sole"
