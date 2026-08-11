@@ -22,6 +22,8 @@ import com.gradethread.app.templates.TemplateProviding
 import com.gradethread.app.templates.TemplateService
 import com.gradethread.app.verified.VerifiedProviding
 import com.gradethread.app.verified.VerifiedService
+import com.gradethread.app.importer.SheetsImportService
+import com.gradethread.app.importer.SheetsImporting
 import com.gradethread.app.workspace.TeamDirectory
 import com.gradethread.app.workspace.TeamManaging
 import com.gradethread.app.workspace.TeamReading
@@ -111,6 +113,11 @@ abstract class AnalyticsModule {
     @Binds
     @Singleton
     abstract fun bindTeamReading(impl: TeamDirectory): TeamReading
+
+    /** US-2410: pulling a Google Sheet down as CSV, through the edge. */
+    @Binds
+    @Singleton
+    abstract fun bindSheetsImport(impl: SheetsImportService): SheetsImporting
 
     /** US-1389: CSV import commits. */
     @Binds

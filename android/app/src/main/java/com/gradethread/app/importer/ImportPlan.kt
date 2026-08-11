@@ -72,9 +72,16 @@ object Importer {
      * Build the plan.
      *
      * [existingSkus] is the seller's current inventory. A row whose SKU already
-     * exists is SKIPPED, not merged and not duplicated — the same rule the web
-     * import uses. In-batch collisions are resolved in sheet order, so the
-     * first occurrence wins and later ones are reported.
+     * exists is SKIPPED, not merged and not duplicated. In-batch collisions are
+     * resolved in sheet order, so the first occurrence wins and later ones are
+     * reported.
+     *
+     * **This is NOT what the web import does**, and the comment here claimed it
+     * was until US-2410 checked. `src/pages/flipdesk/import.tsx` fills blank
+     * columns on the existing row instead of skipping it. Both are defensible;
+     * skipping is the one a phone should do, because a fill silently edits rows
+     * the seller cannot see on this screen. Recorded rather than quietly
+     * matched, so nobody "fixes" one to the other by accident.
      */
     fun plan(
         sheet: CsvParser.Sheet,

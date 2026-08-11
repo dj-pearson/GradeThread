@@ -1460,4 +1460,9 @@
     <string name="cases_evidence_sent">Tu prueba ya está con eBay.</string>
     <string name="cases_give_up">Descartar</string>
     <string name="cases_cancel">Cerrar</string>
+    <!-- US-2410: Google Sheets import. -->
+    <string name="import_sheet_header">O trae una hoja de Google</string>
+    <string name="import_sheet_help">Abre la hoja, elige Compartir, pon Acceso general en “Cualquier persona con el enlace” como Lector y pega el enlace. Leemos la primera pestaña.</string>
+    <string name="import_sheet_link">Enlace de la hoja de Google</string>
+    <string name="import_sheet_fetch">Traer la hoja</string>
 </resources>

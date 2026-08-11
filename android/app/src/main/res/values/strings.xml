@@ -1604,4 +1604,9 @@
     <string name="cases_evidence_sent">Your proof is with eBay.</string>
     <string name="cases_give_up">Drop it</string>
     <string name="cases_cancel">Close</string>
+    <!-- US-2410: Google Sheets import. -->
+    <string name="import_sheet_header">Or pull from a Google Sheet</string>
+    <string name="import_sheet_help">Open the sheet, choose Share, set General access to “Anyone with the link” as Viewer, then paste the link. We read the first tab.</string>
+    <string name="import_sheet_link">Google Sheet link</string>
+    <string name="import_sheet_fetch">Fetch the sheet</string>
 </resources>

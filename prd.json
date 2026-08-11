@@ -1582,7 +1582,7 @@
     },
     {
       "id": "US-2410",
-      "passes": false,
+      "passes": true,
       "title": "Android: Google Sheets import — the importer reads local CSV only",
       "description": "As an Android reseller who keeps inventory in a Google Sheet, I want to import straight from the sheet URL, so that I do not have to export a CSV to the phone first.",
       "acceptanceCriteria": [
@@ -1591,7 +1591,8 @@
         "Column mapping, preview and the duplicate handling the local-file path already implements are reused for the sheet path rather than reimplemented",
         "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "priority": 2382
+      "priority": 2382,
+      "notes": "DONE 2026-08-11. AC1 names ImportService.kt, but that file is the Supabase WRITE seam with no HTTP dependency at all, so the fetch went in a separate SheetsImporting interface + SheetsImportService injecting EdgeApi, mirroring iOS SheetsImportService. ImportCommitting is untouched. AC3 is satisfied structurally rather than by re-implementation: loadFromSheet converges on a new private adopt() the moment the CSV arrives, and load(uri) now calls the same adopt(), so column guessing, the mapping screen, the preview and the duplicate rule are one code path with two front doors. AC2 works because the SERVER is the only party that can tell an unshared sheet from an unreachable one - Google answers an unshared sheet with a 200 carrying a login page, which is why the edge has two distinct 403 sentences, both naming Share then General access then Anyone with the link (Viewer). The screen shows EdgeApiError.userMessage() verbatim; this only works because US-2407 added EdgeApiError.Forbidden - before that a messaged 403 folded into Unauthorized and would have told the seller their session expired, sending them to a sign-out that cannot fix a sharing setting. Both sentences are pinned by MockWebServer tests. Also corrected a false comment in ImportPlan.kt: it claimed the duplicate-SKU skip was the same rule the web uses, and it is not - src/pages/flipdesk/import.tsx FILLS blank columns on the existing row. Recorded rather than quietly matched, because skipping is the right call for a phone (a fill silently edits rows the seller cannot see on this screen). Verified locally: testDebugUnitTest, lintDebug (0 errors, 167 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1330 resources, en+es) and no-ungated-log all OK."
     },
     {
       "id": "US-2411",

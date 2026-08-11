@@ -18,6 +18,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -74,7 +75,8 @@ fun ImportScreen(onDone: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
         }
 
         when (state.step) {
-            ImportViewModel.Step.PICK -> PickStep { picker.launch(arrayOf("*/*")) }
+            ImportViewModel.Step.PICK ->
+                PickStep(state, viewModel) { picker.launch(arrayOf("*/*")) }
             ImportViewModel.Step.MAP -> MapStep(state, viewModel)
             ImportViewModel.Step.PREVIEW -> PreviewStep(state, viewModel)
             ImportViewModel.Step.DONE -> DoneStep(state, viewModel, onDone)
@@ -83,7 +85,11 @@ fun ImportScreen(onDone: () -> Unit, viewModel: ImportViewModel = hiltViewModel(
 }
 
 @Composable
-private fun PickStep(onPick: () -> Unit) {
+private fun PickStep(
+    state: ImportViewModel.State,
+    viewModel: ImportViewModel,
+    onPick: () -> Unit,
+) {
     Column(Modifier.fillMaxWidth().padding(top = Spacing.sm)) {
         Text(
             stringResource(R.string.import_intro),
@@ -94,6 +100,31 @@ private fun PickStep(onPick: () -> Unit) {
             text = stringResource(R.string.import_choose_file),
             modifier = Modifier.fillMaxWidth().padding(top = Spacing.md),
         ) { onPick() }
+
+        // US-2410: the sheet goes to the server, which fetches it and hands
+        // back CSV — from here on it is the same import as a picked file.
+        Text(
+            stringResource(R.string.import_sheet_header),
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(top = Spacing.md),
+        )
+        Text(
+            stringResource(R.string.import_sheet_help),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = state.sheetUrl,
+            onValueChange = viewModel::setSheetUrl,
+            label = { Text(stringResource(R.string.import_sheet_link)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
+        )
+        BrandSecondaryButton(
+            text = stringResource(R.string.import_sheet_fetch),
+            modifier = Modifier.fillMaxWidth().padding(top = Spacing.xs),
+            enabled = state.canFetchSheet,
+        ) { viewModel.loadFromSheet() }
     }
 }
 

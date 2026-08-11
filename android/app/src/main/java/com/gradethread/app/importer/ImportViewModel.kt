@@ -22,6 +22,8 @@ import javax.inject.Inject
 class ImportViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val service: ImportCommitting,
+    /** US-2410: the Google Sheets side. Local file import does not touch it. */
+    private val sheets: SheetsImporting,
 ) : ViewModel() {
 
     enum class Step { PICK, MAP, PREVIEW, DONE }
@@ -35,7 +37,10 @@ class ImportViewModel @Inject constructor(
         val error: String? = null,
         val outcome: String? = null,
         val failures: List<ImportRejection> = emptyList(),
+        /** US-2410: the sheet link the seller is typing. */
+        val sheetUrl: String = "",
     ) {
+        val canFetchSheet: Boolean get() = sheetUrl.isNotBlank() && !busy
         val mappingError: String? get() = Importer.mappingError(mapping)
         val canPreview: Boolean get() = sheet != null && mappingError == null && !busy
         val canCommit: Boolean get() = (plan?.ready?.isNotEmpty() == true) && !busy
@@ -69,26 +74,68 @@ class ImportViewModel @Inject constructor(
                 )
                 return@launch
             }
-            val sheet = CsvParser.parseSheet(text)
-            if (sheet.headers.isEmpty() || sheet.rows.isEmpty()) {
-                _state.value = _state.value.copy(
-                    busy = false,
-                    // Named separately from an unreadable file: a header-only
-                    // export is a different mistake with a different fix.
-                    error = "That file has no rows under its header.",
-                )
-                return@launch
-            }
-            Telemetry.event("import_file_loaded", mapOf("rows" to sheet.rows.size))
+            adopt(text, "import_file_loaded")
+        }
+    }
+
+    /**
+     * Parse CSV text and move to the mapping step.
+     *
+     * The single entry point for both front doors — a local file and a fetched
+     * sheet arrive here as the same string.
+     */
+    private fun adopt(text: String, telemetryEvent: String) {
+        val sheet = CsvParser.parseSheet(text)
+        if (sheet.headers.isEmpty() || sheet.rows.isEmpty()) {
             _state.value = _state.value.copy(
                 busy = false,
-                step = Step.MAP,
-                sheet = sheet,
-                mapping = Importer.guessMapping(sheet.headers),
-                plan = null,
-                outcome = null,
-                failures = emptyList(),
+                // Named separately from an unreadable file: a header-only
+                // export is a different mistake with a different fix.
+                error = "That file has no rows under its header.",
             )
+            return
+        }
+        Telemetry.event(telemetryEvent, mapOf("rows" to sheet.rows.size))
+        _state.value = _state.value.copy(
+            busy = false,
+            step = Step.MAP,
+            sheet = sheet,
+            mapping = Importer.guessMapping(sheet.headers),
+            plan = null,
+            outcome = null,
+            failures = emptyList(),
+        )
+    }
+
+    fun setSheetUrl(value: String) {
+        _state.value = _state.value.copy(sheetUrl = value, error = null)
+    }
+
+    /**
+     * US-2410: pull a Google Sheet and hand it to the same pipeline.
+     *
+     * It converges on [adopt] the moment the CSV arrives, which is what keeps
+     * the promise that local import is unchanged: column guessing, the mapping
+     * screen, the preview and the duplicate rule are one code path with two
+     * front doors, not two importers that drift.
+     */
+    fun loadFromSheet() {
+        if (!_state.value.canFetchSheet) return
+        val url = _state.value.sheetUrl
+        _state.value = _state.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            val csv = runCatching { sheets.fetchCsv(url) }
+                .onFailure { error ->
+                    // Verbatim. A sheet that is not shared comes back naming
+                    // the exact setting to change, and nothing here could
+                    // work that out.
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        error = SheetsImportService.message(error),
+                    )
+                }
+                .getOrNull() ?: return@launch
+            adopt(csv, "import_sheet_loaded")
         }
     }
 
