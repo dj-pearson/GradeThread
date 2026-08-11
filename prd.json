@@ -2236,7 +2236,7 @@
     {
       "id": "US-2491",
       "priority": 2389,
-      "passes": false,
+      "passes": true,
       "title": "Android: the inventory equity card is missing from Money",
       "description": "As an Android reseller, I want to see what my unsold stock is worth, so the Money tab answers the same question it answers on iOS and the web.",
       "acceptanceCriteria": [
@@ -2244,7 +2244,7 @@
         "The card sits on the Money surface next to the existing rollups, not on a screen of its own",
         "New strings go through stringResource, any new Compose file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "notes": "[P3][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Money/InventoryEquityCard.swift:358,362, mounted MoneyView.swift:210. Web: src/components/flipdesk/inventory-equity-card.tsx:146,159. Edge mount: services/edge-functions/src/main.ts:1139.",
+      "notes": "[P3][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Money/InventoryEquityCard.swift:358,362, mounted MoneyView.swift:210. Web: src/components/flipdesk/inventory-equity-card.tsx:146,159. Edge mount: services/edge-functions/src/main.ts:1139. | DONE 2026-08-11. The number is a LIQUIDATION estimate - the server discounts a comp median by grade, by the sellers own sell-through speed and by how long the item has sat - so the card SAYS so under the headline. The same figure presented as what-your-inventory-is-worth would be the most flattering possible lie about a shelf that has not sold. Items the server could not value are counted and their reason named (no grade / no comps) rather than folded in at zero: a total that quietly treated five ungraded items as worthless would be wrong in the one direction a seller cannot detect, and naming the reason is what makes it actionable. A 404 from this route means the FEATURE is off, not that data is missing - reported as not-switched-on rather than we-couldnt-find-that, which would send a seller looking for stock they can see on the next screen. The card lives on Money next to the existing rollups per AC2, but its state is its OWN flow rather than a field on MoneyViewModel.State: everything in State is computed from Room and works offline, and folding a network-backed card into it would make the whole Money screen look broken on a train. The trend is best-effort beside the summary, because it comes from a nightly snapshot job and a brand-new account legitimately has none - failing the card over an empty history would hide the number that IS available. Buckets sort by VALUE not count (ten cheap tees are not the thing to show above one designer coat), ties break on name so the order cannot flicker, and a low/high that collapses onto the total is not printed. Verified locally: testDebugUnitTest, lintDebug (0 errors, 174 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings (96 files), check-string-formats (1377 resources, en+es) and no-ungated-log all OK.",
       "dependsOn": []
     },
     {

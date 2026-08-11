@@ -1510,4 +1510,18 @@
     <string name="listingedit_end_confirm">Terminarla la quita de eBay. Si la publicas después, empieza una publicación nueva, así que los seguidores y su historial no se conservan.</string>
     <string name="listingedit_end_yes">Sí, terminarla</string>
     <string name="listingedit_end_no">Dejarla publicada</string>
+    <!-- US-2491: the inventory equity card. -->
+    <string name="equity_title">Cuánto vale tu inventario sin vender</string>
+    <string name="equity_subtitle">Una cifra realista si tuvieras que venderlo ya, no lo que estás pidiendo.</string>
+    <string name="equity_range">Entre %1$s y %2$s.</string>
+    <string name="equity_unvalued">%1$d artículos no tienen cifra: %2$d necesitan calificación y %3$d no tienen con qué compararse.</string>
+    <string name="equity_movement_up">Subió %1$s desde ayer.</string>
+    <string name="equity_movement_down">Bajó %1$s desde ayer.</string>
+    <string name="equity_by_category">Dónde está</string>
+    <string name="equity_loading">Calculando…</string>
+    <string name="equity_not_loaded">Desliza para cargar el valor de tu inventario.</string>
+    <plurals name="equity_valued_count">
+        <item quantity="one">Con base en %1$d artículo que pudimos valorar.</item>
+        <item quantity="other">Con base en %1$d artículos que pudimos valorar.</item>
+    </plurals>
 </resources>

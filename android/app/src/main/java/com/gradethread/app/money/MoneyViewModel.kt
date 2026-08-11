@@ -33,6 +33,8 @@ class MoneyViewModel @Inject constructor(
     private val db: GradeThreadDb,
     private val syncTrigger: SyncTrigger,
     private val expenses: ExpenseRepository,
+    /** US-2491: what the unsold stock is worth. Server-computed. */
+    private val equityService: EquityService,
 ) : ViewModel() {
 
     data class State(
@@ -60,6 +62,45 @@ class MoneyViewModel @Inject constructor(
     /** One-shot feedback for the expense sheet (saved / queued / failed). */
     private val _notice = MutableStateFlow<String?>(null)
     val notice: StateFlow<String?> = _notice.asStateFlow()
+
+    /**
+     * US-2491: the equity card.
+     *
+     * Its own flow rather than a field on [State], because everything in State
+     * is computed from Room and works offline. This needs a connection, and
+     * folding it in would make the whole Money screen look broken on a train.
+     */
+    private val _equity = MutableStateFlow<EquitySummary?>(null)
+    val equity: StateFlow<EquitySummary?> = _equity.asStateFlow()
+
+    private val _equityTrend = MutableStateFlow<EquityTrend?>(null)
+    val equityTrend: StateFlow<EquityTrend?> = _equityTrend.asStateFlow()
+
+    private val _equityLoading = MutableStateFlow(false)
+    val equityLoading: StateFlow<Boolean> = _equityLoading.asStateFlow()
+
+    private val _equityError = MutableStateFlow<String?>(null)
+    val equityError: StateFlow<String?> = _equityError.asStateFlow()
+
+    /**
+     * Load the equity summary and its trend.
+     *
+     * The trend is best-effort: it comes from a nightly snapshot job, so a
+     * brand-new account legitimately has none, and failing the card over an
+     * empty history would hide the number that IS available.
+     */
+    fun loadEquity() {
+        if (_equityLoading.value) return
+        _equityLoading.value = true
+        _equityError.value = null
+        viewModelScope.launch {
+            runCatching { equityService.summary() }
+                .onSuccess { _equity.value = it }
+                .onFailure { _equityError.value = EquityService.message(it) }
+            runCatching { equityService.trend() }.onSuccess { _equityTrend.value = it }
+            _equityLoading.value = false
+        }
+    }
 
     private val zone: ZoneId = ZoneId.systemDefault()
 

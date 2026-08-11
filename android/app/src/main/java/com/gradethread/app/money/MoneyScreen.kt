@@ -60,6 +60,13 @@ fun MoneyScreen(
     val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val refreshError by viewModel.refreshError.collectAsStateWithLifecycle()
     val notice by viewModel.notice.collectAsStateWithLifecycle()
+    // US-2491: server-computed, so it is loaded once on open rather than
+    // recomputed with the Room-backed panels around it.
+    val equity by viewModel.equity.collectAsStateWithLifecycle()
+    val equityTrend by viewModel.equityTrend.collectAsStateWithLifecycle()
+    val equityLoading by viewModel.equityLoading.collectAsStateWithLifecycle()
+    val equityError by viewModel.equityError.collectAsStateWithLifecycle()
+    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.loadEquity() }
 
     var sheetDraft by remember { mutableStateOf<ExpenseDraft?>(null) }
     val sortedRows = remember(state.profitRows, sort) {
@@ -260,6 +267,15 @@ fun MoneyScreen(
         }
 
         // ── Per-item P&L ─────────────────────────────────────────────────────
+        item {
+            InventoryEquityCard(
+                summary = equity,
+                trend = equityTrend,
+                loading = equityLoading,
+                errorMessage = equityError,
+                onRetry = viewModel::loadEquity,
+            )
+        }
         item {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs),

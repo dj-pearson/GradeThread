@@ -1654,4 +1654,18 @@
     <string name="listingedit_end_confirm">Ending it takes it off eBay. Relisting later starts a new listing, so watchers and its sales history do not carry over.</string>
     <string name="listingedit_end_yes">Yes, end it</string>
     <string name="listingedit_end_no">Keep it listed</string>
+    <!-- US-2491: the inventory equity card. -->
+    <string name="equity_title">What your unsold stock is worth</string>
+    <string name="equity_subtitle">A realistic figure if you had to move it, not what you are asking.</string>
+    <string name="equity_range">Somewhere between %1$s and %2$s.</string>
+    <string name="equity_unvalued">%1$d items have no figure: %2$d need a grade, %3$d have nothing to compare against.</string>
+    <string name="equity_movement_up">Up %1$s since yesterday.</string>
+    <string name="equity_movement_down">Down %1$s since yesterday.</string>
+    <string name="equity_by_category">Where it sits</string>
+    <string name="equity_loading">Working it out…</string>
+    <string name="equity_not_loaded">Pull to load your inventory value.</string>
+    <plurals name="equity_valued_count">
+        <item quantity="one">Based on %1$d item we could price.</item>
+        <item quantity="other">Based on %1$d items we could price.</item>
+    </plurals>
 </resources>
