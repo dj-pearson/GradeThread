@@ -451,6 +451,58 @@ const matchNone = () => false;
   );
 }
 
+// ── 11f. The watcher: catching something that does not stay (US-2487) ──────
+{
+  // A success toast cannot be described by looking at a page — it is gone
+  // before anyone can look. Four rounds of "share, then open the popup, tick
+  // the box, press the button" produced four reports of a page the toast had
+  // already left. So the watcher records what APPEARED and the next report
+  // carries it.
+  const appeared = ['div[data-et-name="shared"]', "div[class=\"toast\"]"];
+  const report = P.buildProbeReport(SELECTORS, "poshmark", matchAll, {
+    host: "poshmark.com", appeared,
+  });
+  assert.deepStrictEqual(report.appeared, appeared);
+  const text = P.formatProbeReport(report);
+  assert.ok(/APPEARED while the watcher was armed/.test(text));
+  assert.ok(text.includes('div[data-et-name="shared"]'));
+
+  // Reported once for the PAGE, not per flow: a toast belongs to the page, and
+  // repeating it under three flows would treble the noise for one fact.
+  assert.strictEqual((text.match(/APPEARED while the watcher/g) || []).length, 1);
+
+  // Absent when nothing was watched — an empty section is a section that
+  // teaches the reader to skip the area where the answer will appear.
+  const quiet = P.buildProbeReport(SELECTORS, "poshmark", matchAll, { host: "poshmark.com" });
+  assert.deepStrictEqual(quiet.appeared, []);
+  assert.ok(!/APPEARED while the watcher/.test(P.formatProbeReport(quiet)));
+}
+
+// ── 11g. The watcher never records TEXT ────────────────────────────────────
+{
+  // This matters more here than anywhere else in the probe. A toast contains a
+  // SENTENCE, and that sentence can name a buyer, a price or a listing — so a
+  // watched node is described by its attributes alone, never its text, not
+  // even for buttons (which the ordinary sweep does read).
+  const common = fs.readFileSync(path.join(dir, "lister/common.js"), "utf8");
+  const start = common.indexOf("function watchSignature(");
+  const end = common.indexOf("\n  }", start);
+  assert.ok(start !== -1 && end > start, "watchSignature must exist in common.js");
+  const body = common.slice(start, end);
+  assert.ok(!/textContent|innerText|innerHTML|\.value\b/.test(body),
+    "watchSignature reads element text. A toast is a sentence about a real " +
+      "sale — attributes only.");
+  assert.ok(/a === "id"/.test(body),
+    "a toast's id is generated per toast, so keeping it makes every appearance " +
+      "unique and defeats the dedupe");
+
+  // And it disarms itself. Nothing observes a marketplace page indefinitely.
+  const watchStart = common.indexOf("function startWatch(");
+  const watchBody = common.slice(watchStart, common.indexOf("\n  }", watchStart) + 4);
+  assert.ok(/disconnect\(\)/.test(watchBody) && /setTimeout/.test(watchBody),
+    "startWatch must stop on its own timer as well as on the next mutation");
+}
+
 // ── 12. The kind mapping reads the selector, not the key ───────────────────
 {
   assert.strictEqual(P.candidateKind('textarea[name="description"]'), "textarea");

@@ -349,6 +349,10 @@
       platform: platform,
       host: (ctx && ctx.host) || null,
       checkedAt: (ctx && ctx.at) || null,
+      // US-2487: what appeared while the watcher was armed. Reported once for
+      // the page rather than per flow — a toast belongs to the page, and the
+      // seller who armed the watcher knows which action they took.
+      appeared: (ctx && Array.isArray(ctx.appeared)) ? ctx.appeared.slice(0) : [],
       flows: flows,
     };
   }
@@ -420,6 +424,15 @@
         }
       }
     });
+
+    if (report.appeared && report.appeared.length) {
+      lines.push("");
+      lines.push("APPEARED while the watcher was armed (attributes only, no text):");
+      report.appeared.forEach(function (sig) { lines.push("  " + sig); });
+      lines.push("  ↑ a success toast lives in here. It is the one control that");
+      lines.push("    cannot be found by looking at a page, because it is gone");
+      lines.push("    before anyone can look.");
+    }
 
     lines.push("");
     lines.push("Controls marked \"appears after a click\" are expected to be");

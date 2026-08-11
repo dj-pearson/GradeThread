@@ -897,6 +897,42 @@ function wireProbe() {
     copy.hidden = false;
   });
 
+  // US-2487: arm the watcher, then go and do the thing.
+  //
+  // A success toast is the one control that cannot be described by looking at a
+  // page — Poshmark's "Shared" banner is gone in a couple of seconds, so
+  // catching it means sharing, opening this popup, ticking a box and pressing
+  // a button inside that window. Four attempts produced four reports of a page
+  // the toast had already left. That is the wrong instrument, not a careless
+  // seller: arm it here, close the popup, share, come back and press Check.
+  const watch = document.getElementById("probeWatch");
+  if (watch) {
+    watch.addEventListener("click", async () => {
+      const block = document.getElementById("probeBlock");
+      const verdict = document.getElementById("probeVerdict");
+      verdict.hidden = false;
+      verdict.dataset.state = "";
+      let res = null;
+      try {
+        res = await Promise.resolve(
+          ext.tabs.sendMessage(Number(block.dataset.tabId), {
+            type: "GT_LISTER_WATCH",
+            platform: block.dataset.platform,
+          }),
+        );
+      } catch (_e) { res = null; }
+      if (!res || !res.ok) {
+        verdict.textContent = "Couldn't reach the page. Reload it and try again.";
+        verdict.dataset.state = "bad";
+        return;
+      }
+      verdict.textContent =
+        "Watching for " + Math.round((res.ms || 25000) / 1000) + " seconds. Close this, " +
+        "do the thing you want captured — share a listing, open a menu — then " +
+        "open this again and press Check selectors.";
+    });
+  }
+
   copy.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(probeText);
