@@ -1,0 +1,68 @@
+{
+  "_note": "US-1576. The behavioural contract for the measurement-overlay editor math, asserted by BOTH src/lib/__tests__/measure-editor-math.test.ts and android/app/src/test/java/com/gradethread/app/measure/MeasureGeometryTest.kt. src/lib/measure-editor-math.ts is the spec; this file is what stops a port drifting from it. A source diff cannot be the guard - the ports are in three languages with three point types. iOS (ios/GradeThread/Measure/MeasureGeometry.swift) does NOT read this yet and differs on formatQuarter (ASCII '22 1/4' rather than the glyph); adopting it is a macOS session.",
+  "_tolerance": 1e-9,
+  "_homography": "Row-major 3x3. This one is a pure 100px-per-inch scale, so every expected inch value below is checkable by hand.",
+  "homography": [0.01, 0, 0, 0, 0.01, 0, 0, 0, 1],
+
+  "applyHomography": [
+    { "x": 250, "y": 0, "out": [2.5, 0] },
+    { "x": 0, "y": 2837, "out": [0, 28.37] },
+    { "x": 1234, "y": 5678, "out": [12.34, 56.78] }
+  ],
+
+  "roundQuarterInch": [
+    { "in": 22.13, "out": 22.25 },
+    { "in": 22.0, "out": 22.0 },
+    { "in": 0.12, "out": 0.0 },
+    { "in": 0.13, "out": 0.25 },
+    { "in": 28.37, "out": 28.25 },
+    { "in": 28.38, "out": 28.5 }
+  ],
+
+  "formatQuarter": [
+    { "in": 22.25, "out": "22¼" },
+    { "in": 22.5, "out": "22½" },
+    { "in": 22.75, "out": "22¾" },
+    { "in": 28.0, "out": "28" },
+    { "in": 0.5, "out": "½" },
+    { "in": 0.0, "out": "0" }
+  ],
+
+  "fitScale": [
+    { "imgW": 4000, "imgH": 3000, "maxW": 640, "maxH": 480, "out": 0.16 },
+    { "imgW": 300, "imgH": 200, "maxW": 640, "maxH": 480, "out": 1 },
+    { "imgW": 4000, "imgH": 1000, "maxW": 640, "maxH": 480, "out": 0.16 },
+    { "imgW": 1000, "imgH": 4000, "maxW": 640, "maxH": 480, "out": 0.12 },
+    { "imgW": 0, "imgH": 0, "maxW": 640, "maxH": 480, "out": 1 }
+  ],
+
+  "inchesBetween": [
+    { "e1": [100, 500], "e2": [2300, 500], "out": 22 },
+    { "e1": [0, 0], "e2": [0, 2837], "out": 28.25 },
+    { "e1": [0, 0], "e2": [300, 400], "out": 5 },
+    { "e1": [700, 700], "e2": [700, 700], "out": 0 }
+  ],
+
+  "_hitEndpointLines": "Endpoints are ORIGINAL px; the point is DISPLAY px. Radius is given explicitly on every case because the platform DEFAULTS deliberately differ - 14 on web (cursor), 24 on iOS and Android (fingertip).",
+  "hitEndpointLines": [
+    { "key": "chest", "label": "Chest", "e1": [100, 100], "e2": [500, 100] },
+    { "key": "length", "label": "Length", "e1": [300, 50], "e2": [300, 450] }
+  ],
+  "hitEndpoint": [
+    { "point": [252, 52], "scale": 0.5, "radius": 14, "out": { "lineIndex": 0, "end": "e2" } },
+    { "point": [400, 400], "scale": 0.5, "radius": 14, "out": null },
+    { "point": [149, 27], "scale": 0.5, "radius": 14, "out": { "lineIndex": 1, "end": "e1" } },
+    { "point": [50, 50], "scale": 0.5, "radius": 14, "out": { "lineIndex": 0, "end": "e1" } },
+    { "point": [64, 50], "scale": 0.5, "radius": 14, "out": { "lineIndex": 0, "end": "e1" } },
+    { "point": [65, 50], "scale": 0.5, "radius": 14, "out": null },
+    { "point": [65, 50], "scale": 0.5, "radius": 24, "out": { "lineIndex": 0, "end": "e1" } }
+  ],
+
+  "defaultPlacement": [
+    { "key": "length", "imgW": 1000, "imgH": 800, "e1": [500, 240], "e2": [500, 560] },
+    { "key": "inseam", "imgW": 1000, "imgH": 800, "e1": [500, 240], "e2": [500, 560] },
+    { "key": "chest", "imgW": 1000, "imgH": 800, "e1": [300, 400], "e2": [700, 400] },
+    { "key": "waist", "imgW": 1000, "imgH": 800, "e1": [300, 400], "e2": [700, 400] },
+    { "key": "not_a_canonical_key", "imgW": 1000, "imgH": 800, "e1": [300, 400], "e2": [700, 400] }
+  ]
+}

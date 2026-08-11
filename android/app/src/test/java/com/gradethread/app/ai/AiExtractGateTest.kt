@@ -130,6 +130,26 @@ class AiExtractGateTest {
     }
 
     @Test
+    fun `the MeasureCard frame never reaches the model, but a tape shot does`() = runTest {
+        val photos = AiExtractPhotos.build(
+            rows = listOf(
+                row("front", 0),
+                // No role: the calibration frame, a printed card beside the
+                // garment. It would spend a photo slot on a foreign object.
+                AiExtractPhotos.Row("measurement", "https://cdn/card.jpg", "u/i/m.jpg", 1),
+                // A role: a tape close-up, which sellers publish on purpose.
+                AiExtractPhotos.Row("measurement", "https://cdn/chest.jpg", "u/i/c.jpg", 2, "chest"),
+                AiExtractPhotos.Row("internal", "https://cdn/price.jpg", "u/i/p.jpg", 3),
+            ),
+            resolve = signAll,
+        )
+        assertEquals(
+            listOf("https://cdn/front.jpg", "https://cdn/chest.jpg"),
+            photos.map { it.url },
+        )
+    }
+
+    @Test
     fun `a public row with a blank url is dropped rather than sent empty`() = runTest {
         val photos = AiExtractPhotos.build(
             rows = listOf(AiExtractPhotos.Row("front", "", null, 0)),

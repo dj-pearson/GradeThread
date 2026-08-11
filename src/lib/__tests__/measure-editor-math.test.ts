@@ -12,6 +12,10 @@ import {
   roundQuarterInch,
   type EditorLine,
 } from "@/lib/measure-editor-math";
+// US-1576: the SHARED behavioural fixture. The Android port asserts the same
+// file, so the two cannot drift; a source diff could never be the guard,
+// because the ports are in different languages with different point types.
+import fixture from "../../test/fixtures/measure-editor-math-cases.json";
 
 // 100 px per inch, pure scale.
 const H = [1 / 100, 0, 0, 0, 1 / 100, 0, 0, 0, 1];
@@ -60,5 +64,66 @@ describe("measure-editor math", () => {
     const h = defaultLinePlacement("chest", 1000, 800);
     expect(h.e1[1]).toBe(h.e2[1]); // horizontal
     expect(h.e2[0] - h.e1[0]).toBeCloseTo(400);
+  });
+});
+
+// US-1576: every case below comes from the shared fixture rather than being
+// written here, so adding a case constrains the Android port in the same
+// commit. The web functions are the spec; this is what proves a port matches.
+describe("shared fixture (web ↔ Android)", () => {
+  const F = fixture as typeof fixture & { hitEndpoint: Array<{ radius: number }> };
+  const h = F.homography;
+  const TOL = F._tolerance;
+
+  it("applyHomography", () => {
+    for (const c of F.applyHomography) {
+      const [x, y] = applyHomography(h, c.x, c.y);
+      expect(x).toBeCloseTo(c.out[0]!, 9);
+      expect(y).toBeCloseTo(c.out[1]!, 9);
+    }
+  });
+
+  it("roundQuarterInch", () => {
+    for (const c of F.roundQuarterInch) {
+      expect(Math.abs(roundQuarterInch(c.in) - c.out)).toBeLessThan(TOL);
+    }
+  });
+
+  it("formatQuarter", () => {
+    for (const c of F.formatQuarter) expect(formatQuarter(c.in)).toBe(c.out);
+  });
+
+  it("fitScale", () => {
+    for (const c of F.fitScale) {
+      expect(Math.abs(fitScale(c.imgW, c.imgH, c.maxW, c.maxH) - c.out)).toBeLessThan(TOL);
+    }
+  });
+
+  it("inchesBetween", () => {
+    for (const c of F.inchesBetween) {
+      const got = inchesBetween(h, c.e1 as [number, number], c.e2 as [number, number]);
+      expect(Math.abs(got - c.out)).toBeLessThan(TOL);
+    }
+  });
+
+  it("hitEndpoint", () => {
+    const lines: EditorLine[] = F.hitEndpointLines.map((l) => ({
+      key: l.key,
+      label: l.label,
+      e1: l.e1 as [number, number],
+      e2: l.e2 as [number, number],
+    }));
+    for (const c of F.hitEndpoint) {
+      const got = hitEndpoint(lines, c.point as [number, number], c.scale, c.radius);
+      expect(got).toEqual(c.out);
+    }
+  });
+
+  it("defaultPlacement", () => {
+    for (const c of F.defaultPlacement) {
+      const got = defaultLinePlacement(c.key, c.imgW, c.imgH);
+      expect(got.e1).toEqual(c.e1);
+      expect(got.e2).toEqual(c.e2);
+    }
   });
 });

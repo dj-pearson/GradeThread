@@ -73,6 +73,14 @@ class ItemCanvasViewModel @Inject constructor(
          * translated, not in a view model.
          */
         val queueFailed: Boolean = false,
+        /**
+         * US-1576: whether this item has a MeasureCard shot to measure from.
+         *
+         * The editor needs a photo whose `photo_type` is `measurement`; without
+         * one there is nothing to calibrate against, so the entry point is
+         * hidden rather than shown and then apologised for.
+         */
+        val hasMeasurementPhoto: Boolean = false,
     ) {
         /** Required specifics with no value — the publish blockers. */
         val missingRequiredAspects: List<String>
@@ -104,7 +112,13 @@ class ItemCanvasViewModel @Inject constructor(
                 return@launch
             }
             val draft = ItemDraft.from(item)
-            _state.value = _state.value.copy(loading = false, original = draft, draft = draft)
+            _state.value = _state.value.copy(
+                loading = false,
+                original = draft,
+                draft = draft,
+                hasMeasurementPhoto = db.photos().forItem(itemId)
+                    .any { it.photoType == MEASUREMENT_PHOTO_TYPE },
+            )
         }
     }
 
@@ -152,6 +166,26 @@ class ItemCanvasViewModel @Inject constructor(
     fun setMeasurement(key: String, value: Double?) = edit { draft ->
         val next = draft.measurements.toMutableMap()
         if (value == null || value <= 0.0) next.remove(key) else next[key] = value
+        draft.copy(measurements = next)
+    }
+
+    /**
+     * US-1576: take the overlay editor's numbers into the draft.
+     *
+     * Merged, not replaced. The editor only knows about the lines that were
+     * drawn on the card photo, so a measurement the seller typed by hand for a
+     * dimension they never drew has to survive — replacing the map would delete
+     * it the first time anyone opened the editor.
+     *
+     * Values arrive already rounded to the quarter inch, and they overwrite:
+     * a line on the photo is a measurement of the garment, which beats an
+     * earlier typed guess at the same key.
+     */
+    fun applyMeasurements(values: Map<String, Double>) = edit { draft ->
+        val next = draft.measurements.toMutableMap()
+        for ((key, value) in values) {
+            if (value > 0.0) next[key] = value else next.remove(key)
+        }
         draft.copy(measurements = next)
     }
 
@@ -376,5 +410,6 @@ class ItemCanvasViewModel @Inject constructor(
 
     private companion object {
         const val TABLE = "inventory_items"
+        const val MEASUREMENT_PHOTO_TYPE = "measurement"
     }
 }

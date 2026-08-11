@@ -40,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gradethread.app.capture.FlipdeskCategory
 import com.gradethread.app.marketplaces.CustomTabsLauncher
 import com.gradethread.app.marketplaces.publish.PublishSheet
+import com.gradethread.app.measure.MeasurementPhotoEditorSheet
 import com.gradethread.app.marketplaces.QUEUED_NOTICE
 import com.gradethread.app.ui.theme.BrandPrimaryButton
 import com.gradethread.app.ui.theme.BrandSecondaryButton
@@ -83,6 +84,7 @@ fun ItemCanvasScreen(
     val context = LocalContext.current
     var publishing by remember { mutableStateOf(false) }
     var disclosing by remember { mutableStateOf(false) }
+    var measuring by remember { mutableStateOf(false) }
 
     if (state.loading) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -185,6 +187,14 @@ fun ItemCanvasScreen(
             category = draft.category?.wire,
             onSet = viewModel::setMeasurement,
         )
+        // US-1576: only offered when there is a MeasureCard shot to measure
+        // from — see State.hasMeasurementPhoto.
+        if (state.hasMeasurementPhoto) {
+            BrandSecondaryButton(
+                text = stringResource(R.string.measure_editor_open),
+                modifier = Modifier.fillMaxWidth(),
+            ) { measuring = true }
+        }
         SizeEstimateCard(
             estimate = state.sizeEstimate,
             busy = state.estimatingSize,
@@ -358,6 +368,17 @@ fun ItemCanvasScreen(
         ) { disclosing = true }
 
         BrandSecondaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) { onClose() }
+    }
+
+    if (measuring) {
+        MeasurementPhotoEditorSheet(
+            itemId = itemId,
+            // The numbers land in the DRAFT, not the row: the seller still sees
+            // them in the fields and still presses Save, so a measurement they
+            // disagree with can be changed before it reaches a listing.
+            onApply = viewModel::applyMeasurements,
+            onDismiss = { measuring = false },
+        )
     }
 
     if (publishing) {

@@ -103,6 +103,31 @@ class ItemPhotoRepository @Inject constructor(
         }
     }
 
+    /**
+     * US-1576: persist the measurement lines the seller dragged.
+     *
+     * @param stored the calibration document as the column holds it, from
+     *   [com.gradethread.app.measure.MeasureCalibrationResult]. Merged into
+     *   rather than rebuilt, because it carries `quality` and `computedAt`,
+     *   which this client never models and must not drop.
+     *
+     * Through the ANON client like every other `item_photos` write here, so RLS
+     * scopes it to the caller's own rows — the edge's service-role client would
+     * not, and there is no reason to reach for it to save a line.
+     */
+    suspend fun saveMeasureLines(
+        photoId: String,
+        stored: JsonObject,
+        lines: JsonObject,
+    ): Result<Unit> = runCatching {
+        val merged = JsonObject(stored + ("lines" to lines))
+        client.from(PHOTOS).update(
+            JsonObject(mapOf("measure_calibration" to merged)),
+        ) {
+            filter { eq("id", photoId) }
+        }
+    }
+
     /** Delete the whole item. `item_photos` cascades, server-side and locally. */
     suspend fun deleteItem(itemId: String): Result<Unit> = runCatching {
         val owner = ownerId() ?: error("Not signed in")

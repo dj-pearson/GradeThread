@@ -228,7 +228,12 @@ class PhotoOrderingTest {
         val offered = PhotoOrdering.unfilledSlots(strip, suit).map { it.key }
         assertTrue("measurement:chest" in offered)
         assertTrue("measurement:inseam" in offered)
-        assertNull(PhotoSlotType.fromWire("measurement"))
+        // US-1576 later gave the enum its plain `measurement` slot, so this no
+        // longer reads as a gap. It still reads as INDEPENDENCE, which is the
+        // durable half: the offer list is built from the profile's (type, role)
+        // pairs, so it would keep working even if the enum lost the slot again.
+        assertEquals("measurement", PhotoSlotType.MEASUREMENT.wire)
+        assertNull(PhotoSlotType.fromWire("measurement_hip"))
     }
 
     @Test

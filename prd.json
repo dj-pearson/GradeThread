@@ -1041,7 +1041,7 @@
     {
       "id": "US-1576",
       "priority": 2378,
-      "passes": false,
+      "passes": true,
       "title": "Android: MeasureCard capture + measurement editor parity",
       "description": "As an Android reseller, I get the same guided measurement capture and overlay editor as iOS/web, backed by the same server-side calibrate/extract endpoints — no platform-specific CV.",
       "acceptanceCriteria": [
@@ -1051,7 +1051,7 @@
         "Measurement photos excluded from listing photo selection",
         "Unit tests for the shared math port; runs in the Android CI lane once it exists (assembleDebug + testDebugUnitTest locally per the android-local-toolchain setup until then)"
       ],
-      "notes": "DEPENDS on the Android client reaching photo-capture parity — keep pending until then rather than building against a moving target. All heavy lifting is server-side by design, so parity is UI-only. | Scoped 2026-07-30, NOT started: the DEPENDS note still holds — Android photo-capture parity is the prerequisite and has not landed, so building the MeasureCard capture step against it would be building on a moving target."
+      "notes": "DEPENDS on the Android client reaching photo-capture parity — keep pending until then rather than building against a moving target. All heavy lifting is server-side by design, so parity is UI-only. | Scoped 2026-07-30, NOT started: the DEPENDS note still holds — Android photo-capture parity is the prerequisite and has not landed, so building the MeasureCard capture step against it would be building on a moving target. | DONE 2026-08-11. Android photo-capture parity has since landed (US-2488), so the DEPENDS note is discharged. PhotoSlotType gains MEASUREMENT (appended, non-listable so it sorts last and every existing slot keeps its storage-path offset); the retired measurement_* slots stay legal for fromWire round-tripping but are never offered. MeasureService wraps the four /api/flipdesk/measure calls and decodes the 422 quality body (it has no error key, so the generic detail would show raw JSON to a seller). MeasureGeometry is a pure Kotlin port of src/lib/measure-editor-math.ts, guarded by a SHARED behavioural fixture (src/test/fixtures/measure-editor-math-cases.json) read by both the web suite and MeasureGeometryTest, since a source diff cannot guard a port across languages. MeasureLines holds the save semantics (values recomputed from endpoints, original-pixel storage, corrections only for touched keys that had a proposal, out-of-band rows dropped so one bad line cannot fail the batch). AC4 landed as a filter in AiExtractPhotos: the MeasureCard frame and internal shots no longer reach the model, role-aware so a tape close-up still does. Verified locally: testDebugUnitTest, lintDebug (0 errors), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-ungated-log and no-bare-strings OK; web vitest 12 passed and tsc -b clean."
     },
     {
       "id": "US-2231",

@@ -196,6 +196,7 @@ class AiExtractionManager @Inject constructor(
                 photoUrl = row.photoUrl,
                 storagePath = row.storagePath,
                 sortOrder = row.sortOrder,
+                photoRole = row.photoRole,
             )
         }
         return AiExtractPhotos.build(

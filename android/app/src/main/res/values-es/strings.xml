@@ -1180,6 +1180,18 @@
     <string name="measure_suggested_confidence">%1$s · %2$d%% de confianza</string>
     <string name="measure_low_confidence">Confianza baja — compárala con la prenda antes de guardar.</string>
     <string name="measure_use_size">Usar \"%1$s\"</string>
+    <!-- US-1576: editor de medidas sobre la foto con la MeasureCard. -->
+    <string name="measure_editor_open">Medir desde la foto</string>
+    <string name="measure_editor_title">Medir desde la foto de la tarjeta</string>
+    <string name="measure_editor_no_photo">Añade primero una foto con la MeasureCard: la prenda en plano y la tarjeta impresa al lado, con los cuatro cuadros visibles.</string>
+    <string name="measure_editor_no_dimensions">Todavía no tenemos el tamaño de esta foto, así que no se pueden colocar las líneas. Suele llegar con la siguiente sincronización.</string>
+    <string name="measure_editor_retake_hint">O vuelve a tomar la foto con los cuatro cuadros visibles.</string>
+    <string name="measure_editor_try_again">Reintentar</string>
+    <string name="measure_editor_auto">Medir automáticamente</string>
+    <string name="measure_editor_auto_running">Midiendo…</string>
+    <string name="measure_editor_line_chip">%1$s %2$s\"</string>
+    <string name="measure_editor_add_line">+ %1$s</string>
+    <string name="measure_editor_canvas_a11y">Foto de medidas con %1$d líneas arrastrables. Arrastra un extremo para moverlo.</string>
     <string name="verified_title">Vendedor verificado</string>
     <string name="verified_subtitle">Tu insignia muestra a los compradores tu historial de calificaciones. Configúrala en gradethread.com.</string>
     <string name="verified_maybe_stale">Puede estar desactualizado</string>

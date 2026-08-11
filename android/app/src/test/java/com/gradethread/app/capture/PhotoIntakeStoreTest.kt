@@ -109,8 +109,21 @@ class PhotoIntakeStoreTest {
         val menu = store.hiddenExtraSlots
         assertEquals(PhotoSlotType.DEFECT1, menu.first())
         val tagIdx = menu.indexOf(PhotoSlotType.TAG2)
-        val chestIdx = menu.indexOf(PhotoSlotType.MEASUREMENT_CHEST)
-        assertTrue(tagIdx in 1 until chestIdx)
+        val measureIdx = menu.indexOf(PhotoSlotType.MEASUREMENT)
+        assertTrue(tagIdx in 1 until measureIdx)
+    }
+
+    @Test
+    fun hiddenExtras_offersTheMeasureCardSlotAndNoRetiredMeasurementSlot() {
+        // US-1576: the menu used to offer the five `measurement_*` slots, every
+        // one of which migration 00587 retired — so the seller was choosing
+        // between five tags the server rewrites on arrival, and could not
+        // choose the ONE type calibrate/extract accept.
+        val menu = PhotoIntakeStore().hiddenExtraSlots
+        assertTrue(PhotoSlotType.MEASUREMENT in menu)
+        PhotoSlotType.retiredMeasurements.forEach {
+            assertTrue("$it is retired and must never be offered", it !in menu)
+        }
     }
 
     // ── Draft recovery (AC3) ──

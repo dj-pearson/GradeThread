@@ -1,5 +1,6 @@
 package com.gradethread.app.ai
 
+import com.gradethread.app.capture.FlipdeskPhotoType
 import com.gradethread.app.upload.PhotoUpload
 
 /**
@@ -21,6 +22,13 @@ object AiExtractPhotos {
         val photoUrl: String,
         val storagePath: String?,
         val sortOrder: Int,
+        /**
+         * US-1576: the open-text qualifier. It changes the ANSWER for
+         * `measurement`, so it is part of the row and not an afterthought — see
+         * the filter in [build]. Defaulted for the pre-00587 rows, which is also
+         * what every older caller passes.
+         */
+        val photoRole: String? = null,
     )
 
     /**
@@ -40,6 +48,12 @@ object AiExtractPhotos {
         max: Int = AiExtractService.MAX_PHOTOS,
     ): List<AiExtractPhoto> = rows
         .sortedBy { it.sortOrder }
+        // US-1576: the MeasureCard frame and the 'internal' shots never go to
+        // the model. The card is a printed black-and-white target lying beside
+        // the garment, so sending it spends one of the few photo slots on an
+        // object that is not the item and invites the model to describe it.
+        // Matches iOS AIRerunPhotos and the edge's filterListablePhotos.
+        .filterNot { FlipdeskPhotoType.isNonListable(it.photoType, it.photoRole) }
         .mapNotNull { row ->
             val bucket = PhotoUpload.readBucketFor(row.photoType, row.photoUrl)
             val url = resolve(bucket, row.storagePath, row.photoUrl) ?: return@mapNotNull null

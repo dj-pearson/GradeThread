@@ -1314,6 +1314,18 @@
     <string name="measure_suggested_confidence">%1$s \u00b7 %2$d%% confidence</string>
     <string name="measure_low_confidence">Low confidence \u2014 check it against the garment before saving.</string>
     <string name="measure_use_size">Use \"%1$s\"</string>
+    <!-- US-1576: MeasureCard overlay editor. -->
+    <string name="measure_editor_open">Measure from photo</string>
+    <string name="measure_editor_title">Measure from the card photo</string>
+    <string name="measure_editor_no_photo">Add a MeasureCard shot first — the garment flat with the printed card beside it, all four squares in frame.</string>
+    <string name="measure_editor_no_dimensions">We don\'t have this photo\'s size yet, so the lines can\'t be placed. It usually arrives with the next sync.</string>
+    <string name="measure_editor_retake_hint">Or retake the photo with all four squares visible.</string>
+    <string name="measure_editor_try_again">Try again</string>
+    <string name="measure_editor_auto">Auto-measure</string>
+    <string name="measure_editor_auto_running">Measuring…</string>
+    <string name="measure_editor_line_chip">%1$s %2$s\"</string>
+    <string name="measure_editor_add_line">+ %1$s</string>
+    <string name="measure_editor_canvas_a11y">Measurement photo with %1$d draggable lines. Drag an endpoint to move it.</string>
     <string name="verified_title">Verified seller</string>
     <string name="verified_subtitle">Your badge shows buyers your grading record. Set it up on gradethread.com.</string>
     <string name="verified_maybe_stale">Might be out of date</string>
