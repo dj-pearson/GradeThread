@@ -60,11 +60,44 @@
    * has not confirmed in two seconds has almost certainly not happened, and
    * waiting longer just slows a run that is already paced.
    */
+  /**
+   * Positive proof that ONE action landed.
+   *
+   * TWO SIGNALS, because one of them could not be caught (2026-08-11).
+   *
+   * The design has always been that only a CONFIRMED action increments the
+   * meter — an optimistic meter is worse than none, since the seller trusts it
+   * and share jail is the thing on the other side of the number. The signal was
+   * a success toast, and four watcher runs across two evenings failed to record
+   * one: Poshmark's confirmation is gone in about two seconds, and it may not be
+   * a DOM insertion at all.
+   *
+   * So the modal CLOSING counts too, and it is the same evidence delist has
+   * relied on since US-1875: a witness that was present before the click and is
+   * absent after it. `confirmGone` is checked exactly that way — its presence
+   * is captured at entry, and only a present-then-absent transition is
+   * admissible. Without that rule a selector that never matched anything would
+   * read as "absent" on the first tick and rubber-stamp every action, which is
+   * the false-success bug this whole check exists to prevent, rebuilt inside the
+   * check itself.
+   *
+   * It is weaker than a toast — a modal can also close because the seller hit
+   * escape — and that is acceptable HERE and nowhere else: we clicked the
+   * confirm ourselves a moment earlier, and the cost of a wrong count is one
+   * share of slack against a cap set thousands below Poshmark's real edge. The
+   * cost of no signal at all is a meter that reads zero forever.
+   */
   async function confirmed(timeoutMs) {
     const deadline = Date.now() + (timeoutMs || 2500);
+    let goneWasPresent = false;
+    try {
+      goneWasPresent = Boolean(cfg.confirmGone && document.querySelector(cfg.confirmGone));
+    } catch (_e) { /* an unusable selector is simply no signal */ }
+
     while (Date.now() < deadline) {
       try {
         if (cfg.actionConfirmed && document.querySelector(cfg.actionConfirmed)) return true;
+        if (goneWasPresent && !document.querySelector(cfg.confirmGone)) return true;
       } catch (_e) { /* keep polling */ }
       await sleep(120);
     }

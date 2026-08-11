@@ -221,10 +221,27 @@ const GT_LISTER_SELECTORS = {
       //
       // Still unverified — the watcher has caught the second modal opening but
       // not its contents — but now it cannot match anything outside one.
+      // 2026-08-11, watched: `share_poshmark` does not open a followers/party
+      // CHOOSER. It opens a plain confirm dialog — `[data-test="modal"]` with a
+      // footer holding a tertiary (cancel) and a primary (go ahead), the same
+      // shape as the delete confirm on the listing editor. So this selector is
+      // that primary button, and the older three stay as fallbacks in case the
+      // chooser exists for other accounts.
+      //
+      // Every alternative names a modal. That rule is enforced by
+      // verify-lister-selectors, and it exists because the unscoped version of
+      // this selector spent three reports matching the closet's own Followers
+      // TAB while looking perfectly healthy.
       shareToFollowers:
+        '[data-test="modal-footer"] button.btn--primary, ' +
         '[data-test="modal"] [data-et-name="share_to_followers"], ' +
         '[data-test="modal-body"] a[href*="followers"], ' +
         '[data-test="modal"] button[aria-label*="My Followers"]',
+      // The witness for "the action landed" when no toast can be caught: the
+      // share modal itself, present before the confirm click and gone after.
+      // See confirmed() in poshmark-engage.js for why this is admissible only
+      // as a present-then-absent transition.
+      confirmGone: '[data-test="listing-share-modal"], .share-modal',
       followButton:
         '[data-et-name="follow"], button.btn--follow, button[aria-label^="Follow"]',
       // "Offer to Likers" on a listing the seller owns.
