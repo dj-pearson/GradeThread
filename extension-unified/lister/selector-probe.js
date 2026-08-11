@@ -370,7 +370,13 @@
       lines.push("");
       lines.push("[" + f.flow + "]  selector v" + f.version +
         "  enabled=" + f.enabled +
-        "  lastVerified=" + (f.lastVerified || "never"));
+        "  lastVerified=" + (f.lastVerified || "never") +
+        // Stated on EVERY flow, not only where it changed the output. The deep
+        // marker used to appear solely in the candidates header, so a run with
+        // the box unticked looked identical to one with it ticked that had
+        // nothing to add — and three rounds were spent asking for a report
+        // that had, in fact, already been sent without the box.
+        "  deep=" + (f.deep ? "on" : "off"));
 
       // Stated FIRST, because it changes how every line under it reads.
       var page = f.page || {};
