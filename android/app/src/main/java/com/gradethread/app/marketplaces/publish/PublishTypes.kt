@@ -79,6 +79,13 @@ sealed interface PublishOutcome {
     /** A plan or capacity wall — the server's copy names the limit. */
     data class PlanLimit(val message: String) : PublishOutcome
 
+    /**
+     * US-2490: a post-publish edit landed. Its own case rather than Pushed:
+     * a reprice or an end returns no listing to adopt, and reporting one would
+     * invite a caller to read an id that is not there.
+     */
+    data object Done : PublishOutcome
+
     data class Failed(val message: String) : PublishOutcome
 }
 

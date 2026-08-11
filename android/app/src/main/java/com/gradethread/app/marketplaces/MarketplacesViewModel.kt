@@ -25,6 +25,8 @@ class MarketplacesViewModel @Inject constructor(
     private val ebaySync: EbaySyncService,
     // US-2481: extension work this phone queued for the seller's desktop.
     private val extensionQueue: ExtensionQueueRepository,
+    /** US-2490: reprice, revise and end a listing that is already live. */
+    private val publish: com.gradethread.app.marketplaces.publish.EbayPublishService,
     db: GradeThreadDb,
 ) : ViewModel() {
 
@@ -70,6 +72,14 @@ class MarketplacesViewModel @Inject constructor(
         val pendingConsentUrl: String? = null,
         /** US-1351: a listing pull is in flight. */
         val syncing: Boolean = false,
+        /**
+         * US-2490: the listing whose post-publish edit is in flight, by id.
+         *
+         * Per listing rather than one global flag: these push a price to a live
+         * marketplace, and a second tap while the first is travelling is how a
+         * listing gets two different prices in two minutes.
+         */
+        val editingListingId: String? = null,
         /**
          * US-2481: extension work queued from this phone, still waiting for a
          * desktop browser to open.
@@ -269,6 +279,70 @@ class MarketplacesViewModel @Inject constructor(
      * server, and telling the seller it broke would send them to re-run a job
      * that is already working.
      */
+    // ── US-2490: post-publish edits ──────────────────────────────────────
+
+    /** Change one live listing's price. */
+    fun repriceListing(listingId: String, price: Double) =
+        editListing(listingId) { publish.setPrice(listingId, price) }
+
+    /**
+     * Push the saved edits to a live listing.
+     *
+     * Sends `resyncEbayFields` so the eBay-owned structured fields — category,
+     * condition and item specifics — go too. Without it a specifics correction
+     * made on the phone (US-2413) reaches the item and stops there, and the
+     * live listing keeps the values the seller already fixed.
+     */
+    fun reviseListing(listingId: String) =
+        editListing(listingId) { publish.revise(listingId, photos = true, resyncEbayFields = true) }
+
+    fun endListing(listingId: String) =
+        editListing(listingId) { publish.endListing(listingId) }
+
+    /**
+     * Run one post-publish edit, then re-pull.
+     *
+     * The pull is not optional. These change state on eBay AND in the listings
+     * table, so the card the seller is looking at is stale the moment the call
+     * lands — and a card still showing the old price after a reprice reads as
+     * the reprice having failed.
+     */
+    private fun editListing(
+        listingId: String,
+        action: suspend () -> com.gradethread.app.marketplaces.publish.PublishOutcome,
+    ) {
+        if (_state.value.editingListingId != null) return
+        _state.value = _state.value.copy(
+            editingListingId = listingId, errorMessage = null, message = null,
+        )
+        viewModelScope.launch {
+            when (val outcome = action()) {
+                is com.gradethread.app.marketplaces.publish.PublishOutcome.Done ->
+                    _state.value = _state.value.copy(message = null)
+
+                // Every other case carries the server's own sentence. A 409 on
+                // an eBay-authored listing says eBay owns its lifecycle and to
+                // end it there, which nothing here could work out.
+                is com.gradethread.app.marketplaces.publish.PublishOutcome.PlanLimit ->
+                    _state.value = _state.value.copy(errorMessage = outcome.message)
+
+                is com.gradethread.app.marketplaces.publish.PublishOutcome.Failed ->
+                    _state.value = _state.value.copy(errorMessage = outcome.message)
+
+                is com.gradethread.app.marketplaces.publish.PublishOutcome.Blockers ->
+                    _state.value = _state.value.copy(
+                        errorMessage = outcome.blockers.joinToString(" "),
+                    )
+
+                else -> _state.value = _state.value.copy(
+                    errorMessage = com.gradethread.app.marketplaces.publish.PublishFlow.NO_OFFER_MESSAGE,
+                )
+            }
+            _state.value = _state.value.copy(editingListingId = null)
+            syncListings()
+        }
+    }
+
     fun syncListings() {
         if (_state.value.syncing) return
         _state.value = _state.value.copy(syncing = true, errorMessage = null, message = null)

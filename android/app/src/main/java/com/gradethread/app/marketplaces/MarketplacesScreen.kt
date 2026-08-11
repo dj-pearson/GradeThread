@@ -84,6 +84,8 @@ fun MarketplacesScreen(
     var disconnecting by remember { mutableStateOf<MarketplaceConnection?>(null) }
     // US-1357: the promotion + sale sheet, opened from a listing card.
     var promoting by remember { mutableStateOf<ListingCardModel?>(null) }
+    // US-2490: the listing whose price/edit/end sheet is open.
+    var editing by remember { mutableStateOf<ListingCardModel?>(null) }
 
     Column(
         modifier.fillMaxSize().padding(Spacing.md),
@@ -265,10 +267,35 @@ fun MarketplacesScreen(
                         onPromote = if (listing.isImported) null else {
                             { promoting = listing }
                         },
+                        // Same rule as promotions, for the same reason: eBay
+                        // authored an imported listing and owns its lifecycle.
+                        onEdit = if (listing.isImported) null else {
+                            { editing = listing }
+                        },
                     )
                 }
             }
         }
+    }
+
+    editing?.let { listing ->
+        ListingEditSheet(
+            listing = listing,
+            busy = state.editingListingId == listing.id,
+            onDismiss = { editing = null },
+            onReprice = { price ->
+                viewModel.repriceListing(listing.id, price)
+                editing = null
+            },
+            onRevise = {
+                viewModel.reviseListing(listing.id)
+                editing = null
+            },
+            onEnd = {
+                viewModel.endListing(listing.id)
+                editing = null
+            },
+        )
     }
 
     promoting?.let { listing ->

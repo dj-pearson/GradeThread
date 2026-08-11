@@ -1642,4 +1642,16 @@
     <string name="payouts_amount_unknown">Amount not recorded</string>
     <string name="payouts_match_this">This one</string>
     <string name="payouts_not_a_sale">Not one of my sales</string>
+    <!-- US-2490: post-publish listing edits. -->
+    <string name="listingcard_edit">Change or end</string>
+    <string name="listingedit_title">Your live %1$s listing</string>
+    <string name="listingedit_current_price">Listed at %1$s</string>
+    <string name="listingedit_new_price">New price</string>
+    <string name="listingedit_reprice">Change the price</string>
+    <string name="listingedit_resubmit_help">Pushes everything you have saved for this item, including photos and item specifics.</string>
+    <string name="listingedit_resubmit">Push my saved edits</string>
+    <string name="listingedit_end">End this listing</string>
+    <string name="listingedit_end_confirm">Ending it takes it off eBay. Relisting later starts a new listing, so watchers and its sales history do not carry over.</string>
+    <string name="listingedit_end_yes">Yes, end it</string>
+    <string name="listingedit_end_no">Keep it listed</string>
 </resources>

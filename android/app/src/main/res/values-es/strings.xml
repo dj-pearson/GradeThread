@@ -1498,4 +1498,16 @@
     <string name="payouts_amount_unknown">Monto no registrado</string>
     <string name="payouts_match_this">Esta</string>
     <string name="payouts_not_a_sale">No es una de mis ventas</string>
+    <!-- US-2490: post-publish listing edits. -->
+    <string name="listingcard_edit">Cambiar o terminar</string>
+    <string name="listingedit_title">Tu publicación activa de %1$s</string>
+    <string name="listingedit_current_price">Publicado en %1$s</string>
+    <string name="listingedit_new_price">Nuevo precio</string>
+    <string name="listingedit_reprice">Cambiar el precio</string>
+    <string name="listingedit_resubmit_help">Envía todo lo que guardaste de este artículo, incluidas las fotos y los detalles.</string>
+    <string name="listingedit_resubmit">Enviar mis cambios guardados</string>
+    <string name="listingedit_end">Terminar esta publicación</string>
+    <string name="listingedit_end_confirm">Terminarla la quita de eBay. Si la publicas después, empieza una publicación nueva, así que los seguidores y su historial no se conservan.</string>
+    <string name="listingedit_end_yes">Sí, terminarla</string>
+    <string name="listingedit_end_no">Dejarla publicada</string>
 </resources>

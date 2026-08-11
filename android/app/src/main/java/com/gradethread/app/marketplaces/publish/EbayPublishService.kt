@@ -31,6 +31,19 @@ class EbayPublishService @Inject constructor(
     )
 
     @Serializable
+    private data class PriceRequest(val price: Double)
+
+    @Serializable
+    private data class ReviseRequest(
+        val title: String? = null,
+        val description: String? = null,
+        @SerialName("listing_price") val listingPrice: Double? = null,
+        /** Omitted unless true — the server treats absence as "leave alone". */
+        val photos: Boolean? = null,
+        @SerialName("resync_ebay_fields") val resyncEbayFields: Boolean? = null,
+    )
+
+    @Serializable
     private data class PushRequest(
         @SerialName("inventory_item_id") val inventoryItemId: String,
         /** Omitted unless true, so a normal first publish is byte-identical. */
@@ -40,6 +53,13 @@ class EbayPublishService @Inject constructor(
     companion object {
         const val VALIDATE_PATH = "/api/flipdesk/ebay/listings/validate"
         const val PUSH_PATH = "/api/flipdesk/ebay/listings/push"
+
+        // US-2490: what a seller can do to a listing AFTER it is live.
+        const val LISTINGS_PATH = "/api/flipdesk/ebay/listings"
+
+        fun pricePath(listingId: String) = "$LISTINGS_PATH/$listingId/price"
+        fun revisePath(listingId: String) = "$LISTINGS_PATH/$listingId/revise"
+        fun endPath(listingId: String) = "$LISTINGS_PATH/$listingId"
 
         /** Maps a typed transport error onto the publish vocabulary. Pure. */
         fun outcome(error: EdgeApiError, json: Json): PublishOutcome = when (error) {
@@ -84,6 +104,68 @@ class EbayPublishService @Inject constructor(
         ),
     ) { raw ->
         PublishOutcome.Pushed(edge.json.decodeFromString(PushResponse.serializer(), raw))
+    }
+
+    /**
+     * US-2490: change one live listing's price.
+     *
+     * Its own endpoint rather than a one-field revise: the server pushes the
+     * offer price without re-asserting the title, description, photos or
+     * specifics, so a price drop cannot accidentally republish a draft edit
+     * the seller had not finished.
+     */
+    suspend fun setPrice(listingId: String, price: Double): PublishOutcome = post(
+        path = pricePath(listingId),
+        body = edge.json.encodeToString(PriceRequest.serializer(), PriceRequest(price)),
+    ) { PublishOutcome.Done }
+
+    /**
+     * Push saved edits to a live listing.
+     *
+     * `resyncEbayFields` re-asserts the eBay-OWNED structured fields — category,
+     * condition and item specifics — which is what makes a specifics edit made
+     * on the phone (US-2413) actually reach the live listing rather than sitting
+     * in the database waiting for a relist.
+     */
+    suspend fun revise(
+        listingId: String,
+        title: String? = null,
+        description: String? = null,
+        price: Double? = null,
+        photos: Boolean = false,
+        resyncEbayFields: Boolean = false,
+    ): PublishOutcome = post(
+        path = revisePath(listingId),
+        body = edge.json.encodeToString(
+            ReviseRequest.serializer(),
+            ReviseRequest(
+                title = title?.trim()?.takeIf { it.isNotEmpty() },
+                description = description?.trim()?.takeIf { it.isNotEmpty() },
+                listingPrice = price,
+                photos = photos.takeIf { it },
+                resyncEbayFields = resyncEbayFields.takeIf { it },
+            ),
+        ),
+    ) { PublishOutcome.Done }
+
+    /**
+     * End a live listing.
+     *
+     * DELETE, and the server always reconciles the local row even when the
+     * withdraw fails because the offer was already not live — a listing eBay
+     * removed for a policy issue would otherwise be stuck "active" forever with
+     * End as a no-op. Only a transient failure blocks it, so a retry is real.
+     */
+    suspend fun endListing(listingId: String): PublishOutcome = try {
+        edge.deleteRaw(endPath(listingId))
+        PublishOutcome.Done
+    } catch (error: EdgeApiError) {
+        Telemetry.breadcrumb("end listing failed: ${error.userMessage()}", category = "ebay")
+        outcome(error, edge.json)
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Throwable) {
+        PublishOutcome.Failed(error.message ?: "eBay wouldn't accept that.")
     }
 
     private suspend fun post(

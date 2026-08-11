@@ -4,11 +4,16 @@ package com.gradethread.app.inventory
  * US-1348: one action offered in the multi-select bar.
  *
  * DELIBERATELY NARROWER THAN iOS. The iOS set includes Publish, End listing
- * and the eBay-backed price drop, all of which go through the publish
- * endpoints — Android has no listing composer yet, so offering them would be
- * a button that can only fail. The AC's own list (status / price / delete /
- * grade) is exactly the set that works today; the rest arrive with the
- * composer.
+ * and the eBay-backed price drop.
+ *
+ * The original reason given here — "Android has no listing composer yet" —
+ * stopped being true when PublishSheet was wired into the item canvas, and
+ * US-2490 has since added reprice, resubmit and end as PER-LISTING actions on
+ * the listing card. What remains true is the reason to keep them off the BULK
+ * bar: each of these pushes to a live marketplace, and a multi-select that
+ * ends forty listings on one tap is a different risk from ending one after a
+ * confirmation. Bulk versions want the same treatment the web gives them
+ * (selection, confirm, per-row result), which is its own story.
  */
 sealed class BulkAction {
 

@@ -145,6 +145,13 @@ fun ListingCard(
     onOpenExternal: ((String) -> Unit)? = null,
     /** US-1357: opens the promotion + sale sheet. Null hides the action. */
     onPromote: (() -> Unit)? = null,
+    /**
+     * US-2490: opens the post-publish edit sheet. Null hides the action, which
+     * is how an imported listing is handled: eBay authored it, so eBay owns its
+     * lifecycle, and the server refuses an edit here with a 409. An absent
+     * button beats a disabled one nobody can explain.
+     */
+    onEdit: (() -> Unit)? = null,
 ) {
     // Hoisted: `semantics { }` is not a composable scope.
     val spoken = model.spokenDescription()
@@ -204,6 +211,12 @@ fun ListingCard(
                     onClick = promote,
                     modifier = Modifier.padding(top = Spacing.xxs),
                 ) { Text(stringResource(R.string.listingcard_promote)) }
+            }
+            onEdit?.let { edit ->
+                TextButton(
+                    onClick = edit,
+                    modifier = Modifier.padding(top = Spacing.xxs),
+                ) { Text(stringResource(R.string.listingcard_edit)) }
             }
         }
     }
