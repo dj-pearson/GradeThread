@@ -329,7 +329,15 @@ flipdeskListingsRoutes.post("/cross-push", async (c) => {
 // verified before any write (the service-role client bypasses RLS).
 
 // Platforms the extension automates (no write API; depop has its own API path).
-const EXTENSION_PLATFORMS = ["poshmark", "mercari", "grailed"] as const;
+//
+// 2026-08-11: vinted added with its go-live. Without it this route rejected the
+// writeback with "vinted is not a browser-extension platform" — so the extension
+// would have prefilled the form correctly and the cross-listing would never have
+// been recorded, leaving the seller with a live Vinted listing FlipDesk did not
+// know about. That is the same class of silent gap as an unrecorded delist.
+//
+// Facebook stays out until its selectors flow is enabled.
+const EXTENSION_PLATFORMS = ["poshmark", "mercari", "grailed", "vinted"] as const;
 type ExtensionPlatform = (typeof EXTENSION_PLATFORMS)[number];
 function isExtensionPlatform(p: string): p is ExtensionPlatform {
   return (EXTENSION_PLATFORMS as readonly string[]).includes(p);

@@ -61,6 +61,15 @@ const KIT_PLATFORMS: MarketplacePlatform[] = [
   "mercari",
   "depop",
   "grailed",
+  // 2026-08-11. Vinted's lister flow went live the same day and there was no
+  // way to reach it: the extension accepted a Vinted job, the content script was
+  // installed on all 22 country domains, and the app had no button that sent
+  // one. This list is hand-written and predated the channel.
+  //
+  // Facebook is deliberately still absent — its flow is `enabled: false` in
+  // selectors.js, so a tab here would offer a send that reports "list manually".
+  // Add it when that flips, not before.
+  "vinted",
 ].filter((p) =>
   p === "depop" ? true : manualKitPlatforms().includes(p as MarketplacePlatform),
 ) as MarketplacePlatform[];
@@ -402,10 +411,22 @@ function PlatformPanel({
       // binary, and photosAttached was true when ANY photo landed — so a 6-of-8
       // attach read as a clean success and the seller published a listing missing
       // two photos without ever being told.
-      toast.success(
-        `${spec.label} prefilled in a new tab — review and submit.` +
-          photoNote(res),
-      );
+      // 2026-08-11: the price gets the same treatment, and it is a WARNING
+      // rather than a success line. On Poshmark the price input is not on the
+      // create page at all — it lives in a dialog the seller opens later — so
+      // the fill silently did nothing and this toast said "prefilled, review
+      // and submit" over a listing with no price on it.
+      // Both notes always compose — a run can miss the price AND drop photos,
+      // and showing only the louder one would hide the other.
+      const priceMsg = priceNote(res);
+      const photoMsg = photoNote(res);
+      if (priceMsg) {
+        toast.warning(`${spec.label} prefilled in a new tab.${priceMsg}${photoMsg}`);
+      } else {
+        toast.success(
+          `${spec.label} prefilled in a new tab — review and submit.` + photoMsg,
+        );
+      }
       // The seller now has a draft row they can promote once they've published —
       // see the "I published it" control below.
       setPrefilled(true);
@@ -597,6 +618,22 @@ export function photoNote(res: {
   const attached = total - failed;
   if (attached === 0) return " Photos didn't attach — drag your downloaded photos in.";
   return ` Attached ${attached} of ${total} photos — drag the rest in.`;
+}
+
+// 2026-08-11: what to tell the seller about the PRICE.
+//
+// Same idea as photoNote and a harder failure. A photo that did not attach is
+// visible the moment the seller looks at the form; a price that was never set
+// looks exactly like a price of zero or a blank field they assume was handled.
+//
+// `undefined` must stay silent. Extensions built before this field exists send
+// no `priceFilled` at all, and treating "did not say" as "did not fill" would
+// warn on every run of every older install — which trains the seller to ignore
+// the one warning that means something.
+export function priceNote(res: { priceFilled?: boolean }): string {
+  return res.priceFilled === false
+    ? " The price was NOT filled in — set it yourself before you post."
+    : "";
 }
 
 export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: string }) {

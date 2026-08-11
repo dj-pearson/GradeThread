@@ -83,6 +83,14 @@ export interface ListerPayload {
 export interface ListerResult {
   ok: boolean;
   filled?: boolean;
+  /**
+   * 2026-08-11: whether the price field was actually set. `undefined` means an
+   * extension old enough not to report it — that must read as "unknown", never
+   * as "not filled", or every older install warns on every run. Only an explicit
+   * `false` is a real miss (Poshmark, whose price input lives in a dialog that
+   * is not on the create page at all).
+   */
+  priceFilled?: boolean;
   /** True only when EVERY photo landed — see photosTotal/photosFailed (US-1877). */
   photosAttached?: boolean;
   /** US-1877 (AC4): how many photos the fill tried to attach, and how many failed.

@@ -79,8 +79,10 @@ const MARKETPLACE_DISCLOSURE_NOTE: Partial<
     "Grailed listings have to be ended by hand. Grailed confirms a delete with a browser pop-up that no extension can answer, so when an item sells somewhere else GradeThread flags the Grailed copy and reminds you — it cannot close it for you.",
   // US-2479: Vinted is EU-first, and this is also the one place we have coverage
   // a competitor structurally cannot match.
+  // 2026-08-11: listing is on, delisting is not yet, and the seller has to know
+  // that BEFORE they cross-list rather than after something sells.
   vinted:
-    "Vinted is EU-first. The flow runs on the country domains the extension covers and reports “list manually” on any other rather than guessing at a form it has not seen. Crosslist does not serve EU customers at all.",
+    "Vinted is EU-first. The flow runs on the country domains the extension covers and reports “list manually” on any other rather than guessing at a form it has not seen. Crosslist does not serve EU customers at all. Vinted listings have to be ended by hand for now — when an item sells somewhere else GradeThread flags the Vinted copy and reminds you, but it cannot close it for you yet.",
   // US-2480: Meta's terms are stricter than the generic case and Marketplace
   // form churn is the highest of any channel we support.
   facebook:

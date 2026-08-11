@@ -2380,6 +2380,11 @@ function platformGuidance(platform: MarketplacePlatform): string {
     mercari: "concise, keyword-first, a few hashtags",
     depop: "casual Gen-Z tone, hashtags, no title",
     grailed: "minimal designer/streetwear voice",
+    // 2026-08-11: Vinted's buyers are EU-first and the title cap is 60 chars,
+    // the tightest of any kit channel — so the guidance is plain and factual
+    // rather than a voice. Without an entry the variant is generated from the
+    // spec alone, which is correct but reads like eBay.
+    vinted: "plain, factual, item-first; no hashtags",
     shopify: "clean retail product copy",
     ebay: "keyword-rich, search-optimized",
   };

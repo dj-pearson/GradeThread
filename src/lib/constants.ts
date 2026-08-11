@@ -1576,7 +1576,11 @@ export const MARKETPLACE_EXTENSION_FLOW: Record<
   // pending-delist reminder instead, and chose that trade knowingly. "Ready to
   // list" is the honest badge for exactly what it does.
   grailed: "live",
-  vinted: "verifying",
+  // 2026-08-11: the list flow was verified on www.vinted.com and switched on in
+  // selectors.js. It lists; it cannot yet auto-delist, and the disclosure says
+  // so — same honest badge as Grailed, for a different reason (Grailed's wall is
+  // permanent, Vinted's is an unfinished check).
+  vinted: "live",
   facebook: "verifying",
 };
 

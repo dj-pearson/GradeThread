@@ -114,6 +114,47 @@ the same selectors against the live DOM and prints a report to paste back.
 > and names the one to open instead, so the mistake is visible in the paste
 > rather than in a fix that does not work.
 
+> [!warning] "Every required selector resolves" is not "the fill works" (2026-08-11)
+> A live sweep of all five channels found two bugs that every previous report had
+> called green, and both hid in the same blind spot: the probe only checks
+> `required`, and `required` is deliberately small.
+>
+> **A field outside `required` fails in total silence.** Poshmark's `photoInput`
+> was `input[type="file"][accept*="image"]` and matched **nothing** — Poshmark's
+> picker lists EXTENSIONS, `accept=".mov, .mp4, .png, .jpg, .jpeg"`, which
+> `*="image"` cannot match. Every Poshmark cross-post went up with zero photos
+> while the probe stayed green. Its `price` was stale the same way, and worse:
+> the input is not on the create page at all, it lives in a dialog opened later,
+> so the fill silently no-opped on the field that decides what the seller is
+> paid. **After a probe passes, check what each optional field actually did** —
+> `GT.fill` returns false when it matches nothing, and since 2026-08-11 an
+> unfilled price rewrites the on-page banner and returns `priceFilled: false`.
+>
+> **A selector list has no clause priority — document order decides.** Grailed's
+> `submit` was `button[type="submit"].listItem, button[type="submit"]`. `.listItem`
+> was gone, so it fell through to the bare clause, whose first match in the
+> document is the **site header's search button**. `querySelector` returns the
+> earliest matching ELEMENT, not a match for the earliest clause, so a broad
+> fallback anywhere on the page beats a specific first clause. Scope every
+> fallback to the form (`.SellForm-Form-Wrapper button[type="submit"]`). Nothing
+> clicks `submit` — `runFlow` is always `autoSubmit: false` — so this cost
+> nothing, but a presence probe the header can satisfy is not a presence probe.
+>
+> Both are the [[extension-adapter-verification]] failure in a different
+> subsystem: a config cannot be checked by reading it.
+
+> [!info] A marketplace can serve automation a blank page (Mercari, 2026-08-11)
+> Driving Chrome for the sweep, every Mercari page — including the homepage —
+> rendered `readyState: "complete"` with a **completely empty body**. Not a login
+> wall, not a challenge, no content at all. Poshmark, Grailed, Vinted and
+> Facebook all rendered normally in the same session, so it is Mercari, not the
+> setup.
+>
+> Record that as **"could not verify"**, never as a selector failure. Reporting
+> five misses from a blank page is how a working channel gets marked dead. A
+> hand-run report from an ordinary browser session is the fallback, and remains
+> the better evidence.
+
 > [!danger] A native browser dialog ends the conversation (Grailed, 2026-08-11)
 > Grailed's Delete opens `window.confirm` — the dialog **Chrome draws itself**,
 > not an in-page modal. Nothing running in the page can answer it. It is not a

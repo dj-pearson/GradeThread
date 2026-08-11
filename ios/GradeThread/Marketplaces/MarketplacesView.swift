@@ -233,7 +233,9 @@ struct MarketplacesView: View {
                 // they cross-list, not after something sells.
                 return "Grailed listings have to be ended by hand. Grailed confirms a delete with a browser pop-up that no extension can answer, so when an item sells somewhere else GradeThread flags the Grailed copy and reminds you \u{2014} it cannot close it for you."
             case "vinted":
-                return "Vinted is EU-first. The flow runs on the country domains the extension covers and reports \u{201C}list manually\u{201D} on any other rather than guessing at a form it has not seen."
+                // 2026-08-11: listing is on, delisting is not yet. Same words as
+                // the web disclosure, and said before the seller cross-lists.
+                return "Vinted is EU-first. The flow runs on the country domains the extension covers and reports \u{201C}list manually\u{201D} on any other rather than guessing at a form it has not seen. Vinted listings have to be ended by hand for now \u{2014} when an item sells somewhere else GradeThread flags the Vinted copy and reminds you, but it cannot close it for you yet."
             case "facebook":
                 return "Meta's platform terms restrict automated interaction with Marketplace. The flow only ever touches the listing form in your own signed-in session."
             default:

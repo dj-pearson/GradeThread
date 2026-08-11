@@ -13,7 +13,7 @@ code_refs:
   - src/lib/item-photo-url.ts
   - services/edge-functions/src/lib/item-photo-storage.ts
   - supabase/migrations/00587_item_photo_role_qualifier.sql
-reviewed: 2026-08-10
+reviewed: 2026-08-11
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---

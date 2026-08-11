@@ -260,7 +260,33 @@
     const f = flow.fields;
     GT.fill(f.title, payload.title);
     GT.fill(f.description, payload.description);
-    if (f.price) GT.fill(f.price, payload.price);
+
+    // 2026-08-11: the price fill is now WITNESSED, not assumed.
+    //
+    // On Poshmark this returned false on every run and said nothing about it.
+    // The price input is not on the create page at all — it lives inside a price
+    // dialog the seller opens later — so `f.price` matched nothing, GT.fill
+    // no-opped, and the flow reported a clean `filled: true`. The seller saw a
+    // prefilled listing and no hint that the one field that decides what they
+    // get paid was untouched.
+    //
+    // Photos already had this treatment (the counts below): a thing we tried and
+    // failed to do has to leave a mark. Price is money, so it gets the louder
+    // one — the banner is rewritten in place rather than only reported home,
+    // because the seller is looking at the form right now and is about to post.
+    //
+    // This does NOT fail the run. An unfilled price is a form the seller
+    // finishes, not a form that changed under us — bailing out would cost them
+    // the whole prefill over a field they were going to set anyway.
+    const priceFilled = f.price ? GT.fill(f.price, payload.price) : false;
+    if (f.price && !priceFilled) {
+      GT.showBanner(
+        "GradeThread prefilled this " + (payload.platformLabel || payload.platform) +
+          " listing, but it could NOT set the price — enter it yourself before you post.",
+      );
+      GT.log("price NOT filled on " + payload.platform + " (selector matched nothing)");
+    }
+
     if (f.originalPrice && payload.originalPrice) {
       GT.fill(f.originalPrice, payload.originalPrice);
     }
@@ -283,6 +309,11 @@
     return {
       ok: true,
       filled: true,
+      // Same contract as the photo counts: the SaaS renders this, so a price we
+      // could not set is visible after the tab is closed, not only while the
+      // banner is on screen. A platform with no price field at all (none today)
+      // reports false too — "we did not set a price" is true either way.
+      priceFilled: priceFilled,
       photosAttached: photosAttached,
       // AC4: the counts the SaaS renders as "attached 6 of 8 — drag the rest in".
       photosTotal: photos.total,

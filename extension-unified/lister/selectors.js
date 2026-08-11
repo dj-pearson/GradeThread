@@ -69,7 +69,21 @@ const GT_LISTER_SELECTORS = {
         'textarea#description, textarea[placeholder^="Describe it"]',
       originalPrice: 'input[data-test="listing-editor-original-price"], input[name="originalPrice"]',
       price: 'input[data-test="listing-editor-listing-price"], input[name="listingPrice"]',
-      photoInput: 'input[type="file"][accept*="image"]',
+      // 2026-08-11: `input[type="file"][accept*="image"]` matched NOTHING here,
+      // and had not been noticed because photoInput is not in `required` — the
+      // probe stayed green while every cross-post to Poshmark attached zero
+      // photos. The cause is that Poshmark's picker lists EXTENSIONS rather than
+      // a MIME type: accept=".mov, .mp4, .png, .jpg, .jpeg", which `*="image"`
+      // cannot match.
+      //
+      // `#img-file-input` is the real control and it is the FIRST file input in
+      // the document, which matters: a selector list has no clause priority, so
+      // querySelector returns the earliest MATCHING element in document order,
+      // not the earliest clause. The generic fallbacks are last in the string
+      // for readability only — document order is what actually decides.
+      photoInput:
+        'input#img-file-input, input[name="img-file-input"], ' +
+        'input[type="file"][accept*="image"], input[type="file"][accept*="jpg"]',
     },
     submit:
       'button[data-test="listing-editor-submit"], button[type="submit"].listing-editor__submit, ' +
@@ -435,7 +449,22 @@ const GT_LISTER_SELECTORS = {
       price: 'input[name="price"], input#price',
       photoInput: 'input[type="file"][accept*="image"]',
     },
-    submit: 'button[type="submit"].listItem, button[type="submit"]',
+    // 2026-08-11: `.listItem` no longer exists, so this fell through to the bare
+    // `button[type="submit"]` — whose first match in document order is the SITE
+    // HEADER'S SEARCH BUTTON, not Publish. The probe reported `ok` for a control
+    // on a completely different part of the page: a false green, and the exact
+    // failure this file's fail-loud contract exists to prevent.
+    //
+    // Nothing clicks submit (runFlow is always autoSubmit:false), so no seller
+    // has been hurt by it. Scoped to the sell form anyway, because a presence
+    // probe that can be satisfied by the header is not a presence probe.
+    //
+    // `.SellForm-Form-Wrapper` is one of the few UNHASHED classes on this page —
+    // the buttons themselves carry only `Button-module__button___<hash>`, which
+    // is worthless the next time Grailed builds. Two submits live inside that
+    // wrapper, "Save as Draft" first and "Publish" second, so this selector must
+    // NOT be clicked without disambiguating them by text.
+    submit: '.SellForm-Form-Wrapper button[type="submit"], button[type="submit"].listItem',
     delist: {
       enabled: false,
       version: "2026.07.0-draft",
@@ -453,7 +482,7 @@ const GT_LISTER_SELECTORS = {
     },
   },
 
-  // ── Vinted — PHASE 4 (US-2479, not yet enabled) ───────────────────────
+  // ── Vinted — PHASE 4 (US-2479) ────────────────────────────────────────
   //
   // Vinted is EU-first and runs ~20 COUNTRY DOMAINS with the same app on each.
   // That is the whole complication: `newListingUrl` is one string everywhere
@@ -468,9 +497,23 @@ const GT_LISTER_SELECTORS = {
   // told to list manually, naming the domain — never a guess at a form on a
   // domain we have not verified (US-2479 AC2).
   vinted: {
-    enabled: false,
-    version: "2026.08.0-draft",
-    lastVerified: null,
+    // ON as of 2026-08-11 for LISTING ONLY, at the seller's decision.
+    //
+    // All five list selectors resolved on www.vinted.com/items/new, page verdict
+    // included. That is ONE locale of the 22 below, and it is the honest limit of
+    // what has been checked: the app is the same on every country domain, so the
+    // rest are a reasoned expectation rather than a verified fact. They fail loud
+    // if that expectation is wrong — a missing required selector aborts before
+    // anything is typed, and the seller is told to list by hand.
+    //
+    // `delist.enabled` stays false, and unlike Grailed that is a GAP, not a wall.
+    // The delist probe has only ever run on a page that was not one of the
+    // seller's own live listings, where `menu` cannot exist, so its miss proves
+    // nothing either way. Re-probe from a live Vinted listing to settle it.
+    enabled: true,
+    version: "2026.08.0",
+    // The list flow, on vinted.com, and nothing else.
+    lastVerified: "2026-08-11",
     // The default target when the job names no locale. vinted.com is the
     // smallest of these markets, but defaulting to a European one would silently
     // send US sellers somewhere their account does not exist.
@@ -525,6 +568,16 @@ const GT_LISTER_SELECTORS = {
     submit:
       'button[data-testid="upload-form-save-button"], button#upload-form-save-button, button[type="submit"]',
     delist: {
+      // OFF, and the selectors below are UNCHECKED guesses — not a verdict on
+      // them. The 2026-08-11 probe reported `menu` missing from a page that was
+      // not one of the seller's own live listings, which is the one page where
+      // that control cannot exist. A miss there is not evidence.
+      //
+      // Until it is probed from a real live listing this is a gap, and the gap
+      // is covered the same way Grailed's permanent one is: Vinted stays in
+      // EXTENSION_DELIST_PLATFORMS, so a Vinted copy of something that sells
+      // elsewhere gets a pending-delist marker and a reminder rather than being
+      // silently left live.
       enabled: false,
       version: "2026.08.0-draft",
       lastVerified: null,
