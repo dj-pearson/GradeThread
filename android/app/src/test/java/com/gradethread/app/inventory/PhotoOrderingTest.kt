@@ -18,10 +18,12 @@ class PhotoOrderingTest {
         type: String = "detail",
         sortOrder: Int = 0,
         createdAt: Long = 0,
+        role: String? = null,
     ) = ItemPhotoEntity(
         id = id,
         inventoryItemId = "item-1",
         photoType = type,
+        photoRole = role,
         photoUrl = "https://cdn/$id.jpg",
         thumbnailUrl = null,
         storagePath = "u/i/$id.jpg",
@@ -182,5 +184,44 @@ class PhotoOrderingTest {
     fun `appending is safe when sort orders are already sparse`() {
         val sparse = listOf(photo("a", sortOrder = 0), photo("b", sortOrder = 7))
         assertEquals(8, PhotoOrdering.nextSortOrder(sparse))
+    }
+
+    // ── US-2469: what a photo FILLS is the (type, role) pair ──────────────
+
+    @Test
+    fun `a retired type fills the same slot as the pair it became`() {
+        // A device holding a pre-00587 row must not be told its chest
+        // measurement is still missing while the seller is looking at it.
+        assertEquals(
+            PhotoOrdering.slotKeyOf(photo("old", "measurement_chest")),
+            PhotoOrdering.slotKeyOf(photo("new", "measurement", role = "chest")),
+        )
+        assertEquals("tag", PhotoOrdering.slotKeyOf(photo("old", "tag_2")))
+        assertEquals("detail", PhotoOrdering.slotKeyOf(photo("old", "detail_3")))
+    }
+
+    @Test
+    fun `two roles on one type are two different slots`() {
+        // The whole reason the enum stopped growing a tag_2: a suit's brand
+        // label and its trouser size tag are both `tag` and are not the same
+        // shot. Keying on the type alone would call one of them filled.
+        val brand = photo("a", "tag", role = "brand")
+        val size = photo("b", "tag", role = "size_alt")
+        assertEquals("tag:brand", PhotoOrdering.slotKeyOf(brand))
+        assertEquals("tag:size_alt", PhotoOrdering.slotKeyOf(size))
+    }
+
+    @Test
+    fun `a qualified tag does not satisfy the plain tag capture slot`() {
+        // The capture strip writes a bare `tag`. A photo the seller retagged to
+        // "Brand label" is a different slot, so the strip still offers Tag.
+        val qualified = listOf(
+            photo("front", "front", 0),
+            photo("back", "back", 1),
+            photo("brand", "tag", 2, role = "brand"),
+        )
+        assertTrue(PhotoSlotType.TAG in PhotoOrdering.unfilledStandardSlots(qualified))
+        // …and the unqualified one still does.
+        assertTrue(PhotoSlotType.TAG !in PhotoOrdering.unfilledStandardSlots(strip))
     }
 }

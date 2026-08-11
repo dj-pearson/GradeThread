@@ -102,6 +102,17 @@ data class ItemPhotoEntity(
     val inventoryItemId: String,
     /** Server flipdesk_photo_type (front/back/tag/detail/defect/flatlay/internal…). */
     val photoType: String,
+    /**
+     * US-2469 (migration 00587): the `item_photos.photo_role` qualifier — the
+     * open-text half of the pair that says what the photo actually SHOWS. Null
+     * for a type that takes no qualifier, and null on every row written before
+     * 00587 backfilled them.
+     *
+     * Photo identity is (photoType, photoRole), not photoType: a suit holds
+     * three separate `tag` photos, which is the whole reason the enum stopped
+     * growing a `tag_2`.
+     */
+    @ColumnInfo(defaultValue = "NULL") val photoRole: String? = null,
     val photoUrl: String,
     val thumbnailUrl: String?,
     val storagePath: String?,

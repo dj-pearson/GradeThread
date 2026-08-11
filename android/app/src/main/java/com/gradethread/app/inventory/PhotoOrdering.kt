@@ -1,5 +1,7 @@
 package com.gradethread.app.inventory
 
+import com.gradethread.app.capture.FlipdeskPhotoType
+import com.gradethread.app.capture.PhotoProfile
 import com.gradethread.app.capture.PhotoSlotType
 import com.gradethread.app.sync.db.ItemPhotoEntity
 
@@ -88,17 +90,41 @@ object PhotoOrdering {
      * otherwise mark every defect slot as taken.
      */
     fun unfilledStandardSlots(photos: List<ItemPhotoEntity>): List<PhotoSlotType> {
-        val filled = photos.map { it.photoType }.toSet()
+        val filled = filledSlotKeys(photos)
         return PhotoSlotType.defaultSlots.filter { slot ->
-            slot !in PhotoSlotType.defects && slot.serverPhotoType !in filled
+            slot !in PhotoSlotType.defects && slotKeyOf(slot) !in filled
         }
     }
 
     /** Required shots still missing — the grading blocker, in the seller's words. */
     fun missingRequiredSlots(photos: List<ItemPhotoEntity>): List<PhotoSlotType> {
-        val filled = photos.map { it.photoType }.toSet()
-        return PhotoSlotType.required.filter { it.serverPhotoType !in filled }
+        val filled = filledSlotKeys(photos)
+        return PhotoSlotType.required.filter { slotKeyOf(it) !in filled }
     }
+
+    /**
+     * US-2469: what a stored photo FILLS, as a (type, role) slot key.
+     *
+     * A retired type resolves to the pair migration 00587 rewrote it to, so a
+     * row the backfill has not reached yet still counts as the same slot as one
+     * it has. Without that, a device holding a pre-00587 `measurement_chest`
+     * would be told its chest measurement is still missing while looking at it.
+     */
+    fun slotKeyOf(photo: ItemPhotoEntity): String {
+        val retired = FlipdeskPhotoType.retired[photo.photoType]
+        if (retired != null) return PhotoProfile.slotKey(retired.first, retired.second)
+        return PhotoProfile.slotKey(photo.photoType, photo.photoRole)
+    }
+
+    /** The slot key a CAPTURE slot writes. Capture slots carry no role yet. */
+    fun slotKeyOf(slot: PhotoSlotType): String {
+        val retired = FlipdeskPhotoType.retired[slot.serverPhotoType]
+        if (retired != null) return PhotoProfile.slotKey(retired.first, retired.second)
+        return PhotoProfile.slotKey(slot.serverPhotoType, null)
+    }
+
+    private fun filledSlotKeys(photos: List<ItemPhotoEntity>): Set<String> =
+        photos.map { slotKeyOf(it) }.toSet()
 
     /**
      * The next sort_order for a newly added photo — the end of the list.

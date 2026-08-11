@@ -304,6 +304,9 @@ object SyncRows {
         val id: String,
         @SerialName("inventory_item_id") val inventoryItemId: String,
         @SerialName("photo_type") val photoType: String? = null,
+        // US-2469: the open-text qualifier. Absent on a pre-00587 row and on a
+        // type that takes none, which are the same thing to every reader.
+        @SerialName("photo_role") val photoRole: String? = null,
         @SerialName("photo_url") val photoUrl: String? = null,
         @SerialName("thumbnail_url") val thumbnailUrl: String? = null,
         @SerialName("storage_path") val storagePath: String? = null,
@@ -324,6 +327,7 @@ object SyncRows {
             id = row.id.lowercase(),
             inventoryItemId = row.inventoryItemId.lowercase(),
             photoType = row.photoType ?: "detail",
+            photoRole = row.photoRole?.takeIf { it.isNotBlank() },
             photoUrl = url,
             thumbnailUrl = row.thumbnailUrl,
             storagePath = row.storagePath,

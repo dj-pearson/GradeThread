@@ -6,6 +6,7 @@ import com.gradethread.app.sync.db.ItemPhotoEntity
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.from
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import javax.inject.Inject
@@ -72,15 +73,33 @@ class ItemPhotoRepository @Inject constructor(
         mirrorOrder(remaining)
     }
 
-    /** Re-tag a photo's slot (web "retag" parity). */
-    suspend fun retag(photoId: String, serverPhotoType: String): Result<Unit> = runCatching {
+    /**
+     * Re-tag a photo's slot (web "retag" parity).
+     *
+     * US-2469: the target is the (type, role) PAIR. Both halves are always
+     * written, and the role is written as an explicit JSON null when the new
+     * type takes no qualifier — omitting it would leave the old role attached
+     * to the new type, so retagging a "Fabric close-up" to "Front" would store
+     * a front photo still qualified as fabric.
+     */
+    suspend fun retag(
+        photoId: String,
+        serverPhotoType: String,
+        photoRole: String? = null,
+    ): Result<Unit> = runCatching {
+        val role = photoRole?.takeIf { it.isNotBlank() }
         client.from(PHOTOS).update(
-            JsonObject(mapOf("photo_type" to JsonPrimitive(serverPhotoType))),
+            JsonObject(
+                mapOf(
+                    "photo_type" to JsonPrimitive(serverPhotoType),
+                    "photo_role" to (role?.let { JsonPrimitive(it) } ?: JsonNull),
+                ),
+            ),
         ) {
             filter { eq("id", photoId) }
         }
         db.photos().forItemPhoto(photoId)?.let {
-            db.photos().upsert(listOf(it.copy(photoType = serverPhotoType)))
+            db.photos().upsert(listOf(it.copy(photoType = serverPhotoType, photoRole = role)))
         }
     }
 

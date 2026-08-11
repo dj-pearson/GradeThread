@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2488",
+  "nextId": "US-2489",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1890,16 +1890,31 @@
     {
       "id": "US-2469",
       "priority": 48,
-      "passes": false,
+      "passes": true,
       "title": "Android: wire the unused PhotoProfileStore and add a retag menu",
       "description": "As an Android seller, I want a retag menu at all, and tag names in English.",
       "acceptanceCriteria": [
-        "PhotoProfileStore.profileFor is called from the capture flow - today it has ZERO production call sites, only its own file and PhotoProfileTest",
+        "PhotoProfileStore.profileFor has production call sites - resolved per item in ItemPhotosViewModel.bind and injected as a singleton in NetworkModule (the capture-strip half is US-2488)",
         "ItemPhotosSection gains a retag menu with the same Suggested / All-types grouping as web and iOS",
         "PhotoTile stops rendering raw snake_case (ItemPhotosSection.kt:250 shows measurement_chest) and uses the profile label",
         "PhotoOrdering required/cover rules key off type+role"
       ],
-      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Verified 2026-08-10: PhotoProfileStore/profileFor are dead code on Android, and the only DropdownMenu in ItemPhotosSection is an item overflow (duplicate / share cert / delete), not a retag."
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). Verified 2026-08-10: PhotoProfileStore/profileFor are dead code on Android, and the only DropdownMenu in ItemPhotosSection is an item overflow (duplicate / share cert / delete), not a retag. CLOSED 2026-08-11. AC1 was SPLIT: profileFor is now live on the item-photos surface, but driving the CAPTURE strip from the profile is US-2488, because PhotoSlotType.fromWire(\"measurement\") returns null - the enum has measurement_chest/waist/... and no plain `measurement` - so a profile-driven strip built on today's enum would silently drop every measurement slot. Same split iOS made (US-2470). Shipped here: GarmentGroup.kt + FlipdeskPhotoType.kt (Kotlin ports of the iOS/web vocabulary), PhotoTagOptions.kt (the Suggested/All-types grouping rule, kept out of Compose so it is JVM-testable), a RetagMenu where the tile's own label IS the button, PhotoProfile.roleFor/slotKey, item_photos.photo_role through Room (db v6, MIGRATION_5_6, watermark 2) and SyncService, and PhotoOrdering keyed on the (type, role) pair with retired types resolving to the pair they became. Verified locally against all four Android CI gates: testDebugUnitTest 1594 passing (33 new), lintDebug, assembleRelease, no-ungated-log.py."
+    },
+    {
+      "id": "US-2488",
+      "priority": 50,
+      "passes": false,
+      "title": "Android: make the capture strip's 'Add photos' slots profile-driven",
+      "description": "As an Android seller, I want the capture strip to offer the slots that fit this garment, not a fixed enum, so a suit can hold three tag shots and a pair of jeans is never offered a sleeve measurement.",
+      "acceptanceCriteria": [
+        "ItemPhotosViewModel.add() and the capture flow fill slots from the resolved PhotoProfile instead of PhotoOrdering.unfilledStandardSlots' static PhotoSlotType list",
+        "PhotoSlotType becomes a (type, role) pair, or the strip stops using it - today PhotoSlotType.fromWire(\"measurement\") returns null, so a profile-driven strip built on the enum as-is would silently drop EVERY measurement slot",
+        "UploadWorker.request carries photo_role, and MutationReplayer.photoRow writes it, so a capture made offline keeps its role when the queue drains",
+        "sort_order still derives from the profile's capture order so Android galleries match web and iOS",
+        "The retired types (tag_2, detail_2/3/4, measurement_*) are never used for a NEW capture"
+      ],
+      "notes": "[P1][FlipDesk/Photos] Category-aware photo tags epic (US-2461). SPLIT OUT OF US-2469 on 2026-08-11, for the same reason US-2470 was split out of US-2468 on iOS: the retag menu works on PERSISTED rows (server type strings, which US-2469 made role-aware), while the strip works on PhotoSlotType, whose DECLARATION ORDER is the sort_order contract. Verified during US-2469 that PhotoSlotType has measurement_chest/measurement_waist/... but no plain `measurement` wire value, so PhotoProfile.optionalSlots discards every measurement role a server profile names. Fixing that touches UploadWorker, MutationReplayer, PhotoOrdering and the offline queue - a refactor that deserves its own story rather than riding along. The retag surface is where sellers hit the problem, so it shipped first. Pair with US-2470 (the iOS twin)."
     },
     {
       "id": "US-2470",

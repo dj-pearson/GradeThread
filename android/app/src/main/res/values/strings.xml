@@ -1088,6 +1088,11 @@
     <string name="photos_delete_body">Its photos go with it, and this can\'t be undone. Any grade or certificate for it is deleted too.</string>
     <string name="photos_spoken">%1$s photo</string>
     <string name="photos_spoken_cover">%1$s photo, cover image</string>
+    <!-- US-2469: the retag menu on each photo tile. -->
+    <string name="photos_retag_suggested">Suggested · %1$s</string>
+    <string name="photos_retag_all_types">All types</string>
+    <string name="photos_retag_old_tag">%1$s (old tag)</string>
+    <string name="photos_retag_current">✓</string>
 
     <string name="search_keep_typing">Keep typing \u2014 %1$d characters minimum.</string>
     <string name="search_hint">Search by title, brand, SKU, size, colour, buyer or source.</string>

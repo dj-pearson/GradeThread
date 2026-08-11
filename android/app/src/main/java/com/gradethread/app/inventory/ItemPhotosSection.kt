@@ -38,7 +38,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.gradethread.app.capture.FlipdeskPhotoType
 import com.gradethread.app.capture.PhotoImport
+import com.gradethread.app.capture.PhotoProfile
 import com.gradethread.app.sync.db.ItemPhotoEntity
 import com.gradethread.app.ui.theme.BrandSecondaryButton
 import com.gradethread.app.ui.theme.Spacing
@@ -59,6 +61,7 @@ fun ItemPhotosSection(
     LaunchedEffect(itemId) { viewModel.bind(itemId) }
     val confirmed by viewModel.photos.collectAsState()
     val state by viewModel.state.collectAsState()
+    val profile by viewModel.profile.collectAsState()
     val ordered = viewModel.displayed(confirmed)
 
     LaunchedEffect(state.duplicatedItemId) {
@@ -134,6 +137,8 @@ fun ItemPhotosSection(
                     val index = ordered.indexOfFirst { it.id == photo.id }
                     PhotoTile(
                         photo = photo,
+                        profile = profile,
+                        onRetag = { type, role -> viewModel.retag(photo.id, type, role) },
                         isCover = index == 0,
                         canMoveLeft = index > 0,
                         canMoveRight = index < ordered.lastIndex,
@@ -199,6 +204,8 @@ fun ItemPhotosSection(
 @Composable
 private fun PhotoTile(
     photo: ItemPhotoEntity,
+    profile: PhotoProfile,
+    onRetag: (String, String?) -> Unit,
     isCover: Boolean,
     canMoveLeft: Boolean,
     canMoveRight: Boolean,
@@ -207,11 +214,15 @@ private fun PhotoTile(
     onSetCover: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    // US-2469: the seller-facing name for this (type, role) pair. This used to
+    // be `photo.photoType` rendered raw, which is how a measured chest showed
+    // up under the tile as the literal string `measurement_chest`.
+    val tagLabel = FlipdeskPhotoType.label(photo.photoType, photo.photoRole, profile)
     // Resolved out here: `semantics { }` is not a composable scope, so a
     // stringResource call inside it does not compile.
     val spoken = stringResource(
         if (isCover) R.string.photos_spoken_cover else R.string.photos_spoken,
-        photo.photoType,
+        tagLabel,
     )
     Column(
         Modifier.width(120.dp).semantics { contentDescription = spoken },
@@ -246,10 +257,12 @@ private fun PhotoTile(
                 )
             }
         }
-        Text(
-            photo.photoType,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        RetagMenu(
+            label = tagLabel,
+            photoType = photo.photoType,
+            photoRole = photo.photoRole,
+            profile = profile,
+            onRetag = onRetag,
         )
         Row {
             if (canMoveLeft) {
@@ -266,6 +279,104 @@ private fun PhotoTile(
             }
         }
     }
+}
+
+/**
+ * US-2469: the retag menu. The photo's own label IS the control — a seller
+ * looking at a mislabelled photo taps the wrong label, which is the shortest
+ * path there is from noticing to fixing.
+ *
+ * Two sections, matching web and iOS: this item's own profile first in capture
+ * order, then every other type A-Z. Nothing is hidden; anything not suggested
+ * is demoted. The grouping rule lives in [PhotoTagOptions] so it can be tested
+ * without Compose.
+ */
+@Composable
+private fun RetagMenu(
+    label: String,
+    photoType: String,
+    photoRole: String?,
+    profile: PhotoProfile,
+    onRetag: (String, String?) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    val menu = remember(photoType, photoRole, profile) {
+        PhotoTagOptions.build(photoType, photoRole, profile)
+    }
+    Box {
+        TextButton(onClick = { open = true }, contentPadding = tight) {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        DropdownMenu(open, onDismissRequest = { open = false }) {
+            // A photo still on a retired type has no matching choice, so
+            // without this row the menu would show nothing selected and the
+            // seller would have no idea what they were changing FROM.
+            menu.orphan?.let { orphan ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            stringResource(R.string.photos_retag_old_tag, orphan.label),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    },
+                    enabled = false,
+                    onClick = {},
+                )
+            }
+            if (menu.suggested.isNotEmpty()) {
+                RetagSectionHeader(
+                    stringResource(R.string.photos_retag_suggested, profile.label),
+                )
+                menu.suggested.forEach { choice ->
+                    RetagChoice(choice, menu.current) {
+                        open = false
+                        onRetag(choice.type, choice.role)
+                    }
+                }
+            }
+            RetagSectionHeader(stringResource(R.string.photos_retag_all_types))
+            menu.allTypes.forEach { choice ->
+                RetagChoice(choice, menu.current) {
+                    open = false
+                    onRetag(choice.type, choice.role)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RetagSectionHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xxs),
+    )
+}
+
+@Composable
+private fun RetagChoice(
+    choice: PhotoTagOptions.Choice,
+    current: String,
+    onPick: () -> Unit,
+) {
+    val isCurrent = choice.slot == current
+    DropdownMenuItem(
+        text = { Text(choice.label) },
+        enabled = !isCurrent,
+        trailingIcon = if (isCurrent) {
+            { Text(stringResource(R.string.photos_retag_current)) }
+        } else {
+            null
+        },
+        onClick = onPick,
+    )
 }
 
 private val tight = androidx.compose.foundation.layout.PaddingValues(horizontal = 4.dp)

@@ -973,6 +973,10 @@
     <string name="photos_delete_body">Sus fotos se van con él y esto no se puede deshacer. También se elimina su grado o certificado.</string>
     <string name="photos_spoken">Foto %1$s</string>
     <string name="photos_spoken_cover">Foto %1$s, imagen de portada</string>
+    <string name="photos_retag_suggested">Sugerido · %1$s</string>
+    <string name="photos_retag_all_types">Todos los tipos</string>
+    <string name="photos_retag_old_tag">%1$s (etiqueta antigua)</string>
+    <string name="photos_retag_current">✓</string>
     <string name="search_keep_typing">Sigue escribiendo — mínimo %1$d caracteres.</string>
     <string name="search_hint">Busca por título, marca, SKU, talla, color, comprador o fuente.</string>
     <string name="search_searching">Buscando…</string>

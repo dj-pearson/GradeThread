@@ -1,6 +1,7 @@
 package com.gradethread.app.platform.di
 
 import android.content.Context
+import com.gradethread.app.capture.PhotoProfileStore
 import com.gradethread.app.platform.AppConfig
 import com.gradethread.app.platform.net.EdgeApi
 import com.gradethread.app.platform.net.EdgeNetwork
@@ -61,6 +62,19 @@ object NetworkModule {
             anonKey = AppConfig.supabaseAnonKey,
             tokenProvider = client.edgeTokenProvider(),
         )
+
+    /**
+     * US-2469: one process-wide photo-profile table.
+     *
+     * Singleton for the same reason as the signed-URL cache: the whole point is
+     * that the fetch happens once. A per-screen instance would re-fetch on
+     * every navigation and, worse, a screen that failed the fetch would sit on
+     * the bundled fallback while the one next to it showed the real table.
+     */
+    @Provides
+    @Singleton
+    fun providePhotoProfileStore(@Named("shared") api: EdgeApi): PhotoProfileStore =
+        PhotoProfileStore(api)
 
     @Provides
     @Singleton

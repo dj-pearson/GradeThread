@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
 import com.gradethread.app.capture.PhotoImport
+import com.gradethread.app.capture.PhotoProfile
+import com.gradethread.app.capture.PhotoProfileStore
 import com.gradethread.app.capture.PhotoSlotType
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.sync.db.GradeThreadDb
@@ -35,6 +37,7 @@ import javax.inject.Inject
 class ItemPhotosViewModel @Inject constructor(
     private val db: GradeThreadDb,
     private val repository: ItemPhotoRepository,
+    private val profiles: PhotoProfileStore,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
 
@@ -58,10 +61,53 @@ class ItemPhotosViewModel @Inject constructor(
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
+    /**
+     * US-2469: the resolved photo profile for THIS item — what the retag menu
+     * suggests and how it words each choice.
+     *
+     * Starts on the bundled fallback so the menu is usable before the fetch (or
+     * with no network at all), then re-emits once the table lands. The
+     * free-text garment word is consulted as well as `item_category`, because
+     * the category enum says "clothing" for a t-shirt and for a suit alike —
+     * which is how a t-shirt ended up being offered an inseam slot.
+     */
+    private val _profile = MutableStateFlow(PhotoProfile.clothingFallback)
+    val profile: StateFlow<PhotoProfile> = _profile.asStateFlow()
+
     fun bind(itemId: String) {
         if (itemIdFlow.value == itemId) return
         itemIdFlow.value = itemId
         _state.value = State()
+        viewModelScope.launch {
+            val item = db.items().byId(itemId)
+            val garment = item?.garmentCategory?.takeIf { it.isNotBlank() } ?: item?.garmentType
+            // Resolve BEFORE the fetch so the menu is never empty, then again
+            // after: a failed fetch is non-fatal and leaves the fallback.
+            _profile.value = profiles.profileFor(item?.itemCategory, garment)
+            profiles.loadIfNeeded()
+            _profile.value = profiles.profileFor(item?.itemCategory, garment)
+        }
+    }
+
+    /**
+     * Re-tag one photo to a (type, role) pair.
+     *
+     * Not optimistic: a retag changes what the grader and the marketplace
+     * adapters are told a photo SHOWS, so showing the new label before the
+     * server accepted it would be a claim we cannot back. The Room mirror in
+     * the repository re-emits through [photos] on success.
+     */
+    fun retag(photoId: String, type: String, role: String?) {
+        if (_state.value.busy) return
+        _state.value = _state.value.copy(busy = true, errorMessage = null)
+        viewModelScope.launch {
+            repository.retag(photoId, type, role)
+                .onSuccess {
+                    _state.value = _state.value.copy(busy = false)
+                    Telemetry.event("item_photo_retagged", mapOf("type" to type))
+                }
+                .onFailure { error -> fail("Couldn't change that photo's type.", error) }
+        }
     }
 
     /** The order to render: the in-progress drag, else the confirmed order. */

@@ -30,7 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
         CaptureDraftEntity::class,
         IntakeBatchEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class GradeThreadDb : RoomDatabase() {
@@ -48,8 +48,18 @@ abstract class GradeThreadDb : RoomDatabase() {
     companion object {
         const val DB_NAME = "gradethread.db"
 
-        /** Bump when the pull shape changes → one-time full backfill. */
-        const val WATERMARK_SCHEMA_VERSION = 1
+        /**
+         * Bump when the pull shape changes → one-time full backfill.
+         *
+         * 2 (US-2469): `item_photos.photo_role` joined the pull. Room's
+         * migration adds the COLUMN, but every cached row keeps a null role
+         * until it is re-fetched — and a null role is indistinguishable from
+         * "this type takes no qualifier", so the canvas would label a
+         * chest-measurement photo "Measurement card (not listed)" until the
+         * seller happened to touch that item. The rows survive; the backfill is
+         * what makes them complete.
+         */
+        const val WATERMARK_SCHEMA_VERSION = 2
     }
 }
 
@@ -103,7 +113,9 @@ object DatabaseProvider {
 
     private fun build(context: Context, dbName: String): GradeThreadDb =
         Room.databaseBuilder(context, GradeThreadDb::class.java, dbName)
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+            .addMigrations(
+                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+            )
             .build()
 
     /**
@@ -190,6 +202,26 @@ object DatabaseProvider {
                 )
                 """.trimIndent(),
             )
+        }
+    }
+
+    /**
+     * US-2469 (server migration 00587): the photo ROLE qualifier.
+     *
+     * Explicit, like its predecessors — a version bump with no migration is a
+     * crash on launch for every device already holding a v5 file, and
+     * destructive fallback would take their unsynced captures with it.
+     *
+     * NULL is the correct value for every existing row and stays correct: a
+     * pre-00587 photo genuinely has no qualifier, and the retired types it may
+     * be sitting on (`measurement_chest`, `tag_2`) still carry their own
+     * meaning through [com.gradethread.app.capture.FlipdeskPhotoType.retired].
+     * The server's own backfill arrives with the next full pull, which is what
+     * WATERMARK_SCHEMA_VERSION = 2 forces.
+     */
+    internal val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE item_photos ADD COLUMN photoRole TEXT DEFAULT NULL")
         }
     }
 }

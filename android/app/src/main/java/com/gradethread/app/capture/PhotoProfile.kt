@@ -19,6 +19,16 @@ data class PhotoRole(
     val hint: String,
     val required: Boolean,
     val icon: String,
+    /**
+     * US-2469 (migration 00587): the `item_photos.photo_role` qualifier this
+     * slot writes, or null for a slot that takes none. Slot identity is
+     * (type, role) — that is what lets a suit hold three separate `tag` slots
+     * instead of needing a `tag_2` and a `tag_3` in the enum.
+     *
+     * Defaulted so a profile served by an older edge still decodes, and so the
+     * bundled fallbacks below stay readable.
+     */
+    val role: String? = null,
 )
 
 @Serializable
@@ -50,7 +60,27 @@ data class PhotoProfile(
     fun roleForServerType(serverType: String): PhotoRole? =
         roles.firstOrNull { it.type == serverType }
 
+    /**
+     * US-2469: the role definition for a stored (type, role) PAIR. Prefer this
+     * over [roleForServerType] whenever the caller has both halves — a suit
+     * profile has three `tag` slots and the type alone picks the wrong one two
+     * times out of three.
+     */
+    fun roleFor(serverType: String, photoRole: String?): PhotoRole? =
+        roles.firstOrNull { it.type == serverType && it.role == photoRole }
+            ?: roles.firstOrNull { it.type == serverType && it.role == null }
+
     companion object {
+        /** Stable identity for a slot: "type" or "type:role". */
+        fun slotKey(type: String, role: String?): String =
+            if (role.isNullOrEmpty()) type else "$type:$role"
+
+        /** Splits a [slotKey] back into its halves. */
+        fun parseSlotKey(slot: String): Pair<String, String?> {
+            val i = slot.indexOf(':')
+            return if (i == -1) slot to null else slot.substring(0, i) to slot.substring(i + 1)
+        }
+
         val clothingFallback = PhotoProfile(
             category = "clothing",
             label = "Clothing",
@@ -103,6 +133,32 @@ class PhotoProfileStore(private val api: EdgeApi) {
     fun profileFor(category: String?): PhotoProfile {
         category?.let { profiles[it] }?.let { return it }
         return profiles["clothing"] ?: PhotoProfile.clothingFallback
+    }
+
+    /**
+     * US-2469: resolves the profile for an item, consulting the free-text
+     * GARMENT word ("blazer", "dress pants") as well as the item_category.
+     *
+     * Mirrors `getPhotoProfile(category, garment)` on the edge, including its
+     * fallback: when no usable item_category is given, the garment word resolves
+     * a group and that group maps back to an item_category profile where one
+     * exists. That matters because `items_full` has no item_category column at
+     * all, so a free-text word is often the only thing a caller has.
+     *
+     * The clothing sub-profiles are keyed "clothing:top", "clothing:suit" and
+     * friends, so a t-shirt is never offered an inseam slot and a blazer IS
+     * offered a shoulder — which `item_category` alone cannot tell apart,
+     * because it says "clothing" for both.
+     */
+    fun profileFor(category: String?, garment: String?): PhotoProfile {
+        // An explicit, known item_category wins outright.
+        if (!category.isNullOrEmpty() && category != "clothing") {
+            profiles[category]?.let { return it }
+        }
+        val group = GarmentGroup.from(garment ?: category)
+        group.itemCategoryProfileKey?.let { key -> profiles[key]?.let { return it } }
+        profiles[group.clothingProfileKey]?.let { return it }
+        return profileFor(category)
     }
 
     /** Load once from the edge (1h TTL cache); safe to call repeatedly. */
