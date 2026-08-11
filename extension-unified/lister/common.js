@@ -766,24 +766,37 @@
     var out = [];
     var seen = {};
     nodes.forEach(function (el) {
-      if (out.length >= 20) return;
+      if (out.length >= 30) return;
       // A control the seller cannot see is not the one we are looking for.
       if (el.offsetParent === null && el.type !== "file") return;
       // Nor is anything in the site's header, nav or footer — see PROBE_CHROME.
       if (inChrome(el)) return;
       var sig = el.tagName.toLowerCase();
+      // The dedupe key drops `id`, because a REPEATED control differs only by
+      // id — and repeated controls are the flood that hides the one that
+      // matters. A Grailed listing page filled 11 of 20 slots with the
+      // follow-heart on each related listing, identical but for `fr101251474`
+      // and friends, and the page's own Delete button never made the cut.
+      var dedupe = el.tagName.toLowerCase();
       PROBE_ATTRS.forEach(function (a) {
         var v = el.getAttribute && el.getAttribute(a);
-        if (v) sig += "[" + a + "=\"" + String(v).slice(0, 60) + "\"]";
+        if (!v) return;
+        var part = "[" + a + "=\"" + String(v).slice(0, 60) + "\"]";
+        sig += part;
+        if (a !== "id") dedupe += part;
       });
       var isButton = sig.indexOf("button") === 0 ||
         (el.getAttribute && el.getAttribute("role") === "button");
       if (isButton) {
         var label = (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40);
-        if (label) sig += " \"" + label + "\"";
+        if (label) { sig += " \"" + label + "\""; dedupe += " \"" + label + "\""; }
       }
-      if (sig === el.tagName.toLowerCase() || seen[sig]) return;
-      seen[sig] = true;
+      // An element described by its id ALONE keeps that id in the key: dropping
+      // it would collapse every such element into one line, which is the same
+      // information loss in the other direction.
+      if (dedupe === el.tagName.toLowerCase()) dedupe = sig;
+      if (sig === el.tagName.toLowerCase() || seen[dedupe]) return;
+      seen[dedupe] = true;
       out.push(sig);
     });
     return out;

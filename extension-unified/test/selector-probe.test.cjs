@@ -389,6 +389,60 @@ const matchNone = () => false;
   assert.strictEqual(clean.candidates, null);
 }
 
+// ── 11d. A URL pattern is not a selector (US-2486) ─────────────────────────
+{
+  // `navigatesTo` was reported to the seller as "INVALID SELECTOR", because
+  // every string on a flow was treated as one with two names hard-coded out.
+  // A working config read as a broken one. The rule is now positive — known
+  // scalars and anything named *Pattern are metadata — so the failure mode
+  // stays on the safe side: a genuinely new SELECTOR still gets probed.
+  const keys = P.selectorsFor(SELECTORS.poshmark.delist, "delist").map((e) => e.key);
+  assert.ok(!keys.includes("navigatesTo"),
+    "navigatesTo is a URL pattern; probing it reports our own config as broken");
+  assert.ok(!keys.some((k) => /Pattern$/.test(k)), `a *Pattern key leaked in: ${keys}`);
+  assert.ok(keys.includes("menu") && keys.includes("remove"),
+    "the real selectors must still be probed");
+
+  const text = P.formatProbeReport(P.buildProbeReport(SELECTORS, "poshmark", matchNone, {
+    host: "poshmark.com", origin: "https://poshmark.com", path: "/listing/x",
+  }));
+  assert.ok(!/INVALID SELECTOR/.test(text));
+}
+
+// ── 11e. The listing EDITOR is a legitimate page for a delist check ─────────
+{
+  // On a two-page channel the delete control lives on the editor, so that page
+  // is where half the flow happens. It was being reported as the wrong page,
+  // which suppressed the candidate sweep — so the one page carrying the answer
+  // was the one page the report refused to describe.
+  const onEditor = P.buildProbeReport(SELECTORS, "poshmark", matchNone, {
+    host: "poshmark.com",
+    origin: "https://poshmark.com",
+    path: "/edit-listing/abc123",
+    candidates: (k) => [`${k}:found`],
+  });
+  const delist = onEditor.flows.find((f) => f.flow === "delist");
+  assert.strictEqual(delist.page.onExpectedPage, true,
+    "the listing editor must count as a delist page when the flow navigates to it");
+  assert.ok(delist.candidates, "and the candidate sweep must therefore run there");
+
+  // A listing page still counts too — both halves of the flow are legitimate.
+  const onListing = P.buildProbeReport(SELECTORS, "poshmark", matchNone, {
+    host: "poshmark.com", origin: "https://poshmark.com", path: "/listing/abc123",
+  });
+  assert.strictEqual(
+    onListing.flows.find((f) => f.flow === "delist").page.onExpectedPage, true,
+  );
+
+  // Somewhere else is still somewhere else.
+  const elsewhere = P.buildProbeReport(SELECTORS, "poshmark", matchNone, {
+    host: "poshmark.com", origin: "https://poshmark.com", path: "/feed",
+  });
+  assert.strictEqual(
+    elsewhere.flows.find((f) => f.flow === "delist").page.onExpectedPage, false,
+  );
+}
+
 // ── 12. The kind mapping reads the selector, not the key ───────────────────
 {
   assert.strictEqual(P.candidateKind('textarea[name="description"]'), "textarea");
@@ -444,6 +498,16 @@ const matchNone = () => false;
   }
   assert.ok(/header|\[role=banner\]/.test(common.slice(common.indexOf("PROBE_CHROME"))),
     "PROBE_CHROME must actually name the chrome landmarks");
+
+  // Repeated controls must collapse. A Grailed listing page spent 11 of its 20
+  // candidate slots on the follow-heart of each RELATED listing — identical but
+  // for `id` — and the page's own Delete button never made the cut. So the
+  // dedupe key drops `id` while the printed line keeps it.
+  assert.ok(/var dedupe = /.test(body) && /if \(a !== "id"\)/.test(body),
+    "probeCandidates must dedupe on a key that ignores `id`, or one repeated " +
+      "control floods the list and hides the one being hunted");
+  assert.ok(/seen\[dedupe\] = true/.test(body),
+    "the dedupe key must be the one recorded, or nothing is collapsed at all");
 
   // And the allowlist itself must stay a list of UI-chrome attributes.
   const attrs = /var PROBE_ATTRS = \[([\s\S]*?)\];/.exec(common);
