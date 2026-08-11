@@ -249,6 +249,10 @@ flipdeskAiRoutes.post("/extract", async (c) => {
             typeof (p as ExtractPhoto).type === "string"
               ? (p as ExtractPhoto).type
               : undefined,
+          role:
+            typeof (p as ExtractPhoto).role === "string"
+              ? (p as ExtractPhoto).role
+              : undefined,
         });
       }
     }
@@ -1122,7 +1126,7 @@ async function persistCanonicalAttributes(args: {
 async function loadItemPhotos(itemId: string): Promise<ExtractPhoto[]> {
   const { data } = await supabaseAdmin
     .from("item_photos")
-    .select("photo_type, storage_path, photo_url")
+    .select("photo_type, photo_role, storage_path, photo_url")
     .eq("inventory_item_id", itemId);
   const resolved = await itemPhotoAiUrls(
     (data ?? []) as ItemPhotoUrlRow[],
@@ -1130,6 +1134,9 @@ async function loadItemPhotos(itemId: string): Promise<ExtractPhoto[]> {
   return resolved.map(({ row, url }) => ({
     url,
     type: row.photo_type ?? undefined,
+    // US-2471: the qualifier that says which tag is the brand and which is the
+    // size. Absent on every pre-00587 row, which reads as "unqualified tag".
+    role: (row as { photo_role?: string | null }).photo_role ?? undefined,
   }));
 }
 

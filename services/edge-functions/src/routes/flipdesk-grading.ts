@@ -498,22 +498,69 @@ flipdeskGradingRoutes.post("/validate", async (c) => {
   return c.json(result.result);
 });
 
-// Maps a FlipDesk photo type to the GradeThread submission_images image_type.
-// Returns null for photos that aren't useful for grading (interior/flatlay/on_model).
-export function mapPhotoTypeForGrading(t: string): string | null {
-  if (t === "front") return "front";
-  if (t === "back") return "back";
-  if (t === "tag") return "label";
-  if (t === "tag_2") return "label_2";
-  // detail_2..4 and the measurement_* shots are valid grading image_types too,
-  // so carry them through 1:1 — measurements help the grader establish size.
-  if (
-    t === "detail" || t === "detail_2" || t === "detail_3" || t === "detail_4"
-  ) {
-    return t;
+// The five tape-measure dimensions that have their own `image_type` enum value
+// (00103). A `measurement` photo whose role is one of these is the same shot the
+// retired `measurement_chest` type used to name, so it keeps that enum value and
+// nothing about a historical submission changes shape.
+const LEGACY_MEASUREMENT_IMAGE_ROLES = new Set([
+  "chest",
+  "waist",
+  "length",
+  "sleeve",
+  "inseam",
+]);
+
+/**
+ * Maps a FlipDesk (photo_type, photo_role) pair onto the grading
+ * `submission_images` (image_type, image_role) pair. Returns null for photos
+ * that aren't useful for grading (interior/flatlay/on_model).
+ *
+ * US-2471: this used to take the type alone, and US-2462's backfill broke it.
+ * That migration rewrote `measurement_chest` → (`measurement`, `chest`), and
+ * `measurement` on its own is the MeasureCard calibration frame, which 00346
+ * excludes from grading on purpose. So every tape-measure photo started
+ * resolving to null and silently stopped reaching the grader — the role is what
+ * tells the two apart, and there was nowhere to read it.
+ *
+ * The role is carried through rather than folded into the type, because
+ * `image_type` is a Postgres enum the photo-tags epic deliberately stopped
+ * growing. A `tag` shot is `label` whether it holds the brand or the size; which
+ * one it holds is `image_role`, and that is what ai-extract reads.
+ */
+export function mapPhotoTypeForGrading(
+  t: string,
+  role?: string | null,
+): { imageType: string; imageRole: string | null } | null {
+  const pair = (imageType: string, imageRole: string | null = role ?? null) => ({
+    imageType,
+    imageRole,
+  });
+
+  if (t === "front") return pair("front", null);
+  if (t === "back") return pair("back", null);
+  if (t === "tag") return pair("label");
+  // Retired by 00587; historical rows and the round-trip test still name it.
+  if (t === "tag_2") return pair("label_2", null);
+  if (t === "detail") return pair("detail");
+  if (t === "detail_2" || t === "detail_3" || t === "detail_4") {
+    return pair(t, null);
   }
-  if (t === "defect") return "defect";
-  if (t.startsWith("measurement_")) return t;
+  if (t === "defect") return pair("defect", null);
+  // Retired by 00587, same as above: the type already names the dimension, so
+  // hand it on as the role too and the prompt site only has to speak roles.
+  if (t.startsWith("measurement_")) {
+    return pair(t, t.slice("measurement_".length));
+  }
+  if (t === "measurement") {
+    // No role = the MeasureCard calibration frame. It is a branded foreign
+    // object next to the garment, not evidence about the garment.
+    if (!role) return null;
+    // A dimension outside the five has no `image_type` to land in, and inventing
+    // one would restart the enum growth this epic ended. Those roles are new
+    // slots that never reached the grader before either, so nothing regresses.
+    if (!LEGACY_MEASUREMENT_IMAGE_ROLES.has(role)) return null;
+    return pair(`measurement_${role}`, role);
+  }
   return null;
 }
 
@@ -631,7 +678,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
       .eq("user_id", ownerId),
     supabaseAdmin
       .from("item_photos")
-      .select("inventory_item_id, photo_type, storage_path, sort_order")
+      .select("inventory_item_id, photo_type, photo_role, storage_path, sort_order")
       .in("inventory_item_id", batchItemIds)
       .not("storage_path", "is", null)
       .order("sort_order", { ascending: true }),
@@ -653,6 +700,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
   type BatchPhoto = {
     inventory_item_id: string;
     photo_type: string | null;
+    photo_role: string | null;
     storage_path: string | null;
     sort_order: number | null;
   };
@@ -731,22 +779,27 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
 
       const eligible = ((photos ?? []) as Array<{
         photo_type: string;
+        photo_role: string | null;
         storage_path: string;
         sort_order: number;
       }>)
         .map((p) => ({
           ...p,
-          submission_image_type: mapPhotoTypeForGrading(p.photo_type),
+          grading: mapPhotoTypeForGrading(p.photo_type, p.photo_role),
         }))
         .filter(
-          (p): p is typeof p & { submission_image_type: string } =>
-            p.submission_image_type !== null,
+          (
+            p,
+          ): p is typeof p & {
+            grading: { imageType: string; imageRole: string | null };
+          } => p.grading !== null,
         );
 
       // 3. Copy each eligible photo into submission-images
       const imageRecords: Array<{
         submission_id: string;
         image_type: string;
+        image_role: string | null;
         storage_path: string;
         display_order: number;
       }> = [];
@@ -763,7 +816,7 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
         const arrayBuf = await blob.arrayBuffer();
         const ext =
           photo.storage_path.split(".").pop()?.toLowerCase() || "webp";
-        const newPath = `${ownerId}/${submissionId}/${photo.submission_image_type}_${i}.${ext}`;
+        const newPath = `${ownerId}/${submissionId}/${photo.grading.imageType}_${i}.${ext}`;
         const { error: upErr } = await supabaseAdmin.storage
           .from("submission-images")
           .upload(newPath, new Uint8Array(arrayBuf), {
@@ -777,7 +830,8 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
         }
         imageRecords.push({
           submission_id: submissionId,
-          image_type: photo.submission_image_type,
+          image_type: photo.grading.imageType,
+          image_role: photo.grading.imageRole,
           storage_path: newPath,
           display_order: i,
         });

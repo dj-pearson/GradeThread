@@ -72,6 +72,11 @@ export const COMPOSITE_PROMPT_VERSION = "composite_v4";
 
 export interface PerImageAnalysis {
   image_type: string;
+  // US-2471: the `submission_images.image_role` qualifier for this image, when
+  // it had one. Optional for back-compat with historical / eval traces, and the
+  // only place the composite can see that a role reached the per-image prompt —
+  // the per-image call itself is never stamped on a grade record.
+  image_role?: string | null;
   detected_issues: DetectedIssue[];
   condition_signals: ConditionSignal[];
   // Intentional design features observed in this image (factory distressing,
@@ -344,6 +349,88 @@ const IMAGE_TYPE_CONTEXT: Record<string, string> = {
   measurement_inseam:
     "This is a FLAT MEASUREMENT shot of the INSEAM (a tape measure along the inseam). Read the measurement to help establish size; do not assess condition or treat the tape measure as damage.",
 };
+
+// ── US-2471: image context by ROLE, not by numbered slot ────────────────────
+//
+// The map above is keyed on `image_type` alone, and that is all the grader ever
+// knew. `detail_2`, `detail_3` and `detail_4` therefore carry the SAME sentence
+// three times, because a numbered slot cannot say what is in the frame — the
+// model is told "this is an additional close-up" and left to work out whether it
+// is looking at a weave, a zip pull or a hem. `label` and `label_2` have the
+// same problem from the other side: ai-extract has to guess which of the two
+// holds the brand and which holds the size.
+//
+// Migration 00587 replaced the numbers with a role, and 00589 carries that role
+// through to `submission_images.image_role`. So the context can finally name the
+// subject. Keyed `"<image_type>:<image_role>"`; anything not listed falls
+// through to IMAGE_TYPE_CONTEXT unchanged.
+//
+// The measurement roles are deliberately absent: IMAGE_TYPE_CONTEXT already has
+// a sentence per `measurement_*` type, and duplicating it here would be two
+// copies of one instruction.
+const IMAGE_ROLE_CONTEXT: Record<string, string> = {
+  "label:brand":
+    "This is the BRAND LABEL of the garment — the maker's logo or wordmark, usually a separate neck or waistband tag. Read the MAKER from it (a collection or product-line name printed alongside is not the brand). Assess the label's own condition: fading, fraying, curling, or a cut/removed tag.",
+  "label:size":
+    "This is the SIZE TAG of the garment. Read the size as printed, including any secondary sizing (numeric, EU/UK, or a cut size). Assess legibility and tag condition; a cut or illegible size tag is itself a condition signal buyers care about.",
+  "label:size_alt":
+    "This is the SECOND PIECE'S SIZE TAG — a suit is two garments and carries two sizes. Read this size separately from the jacket's; do not merge or average the two.",
+  "label:care":
+    "This is the CARE LABEL of the garment. US-1534: transcribe the fiber composition VERBATIM into fiber_content as [{fiber, pct}] entries (e.g. '93% Nylon 7% Elastane' → [{\"fiber\":\"nylon\",\"pct\":93},{\"fiber\":\"elastane\",\"pct\":7}]); when a line is unreadable, OMIT it — never guess a fiber or percentage. Also assess care-label condition, since a worn-away care label reduces resale value.",
+  "label:made_in":
+    "This is the ORIGIN, UNION or RN LABEL. Read the country of origin, any union label, and the RN/CA number. These date a garment: a union label or a specific RN format is evidence of era, NOT a defect. Do not lower any score for an old-style label.",
+  "detail:fabric":
+    "This is a FABRIC CLOSE-UP — the weave or knit filling the frame. This is the primary evidence for fabric_condition, the heaviest factor in the grade. Judge pilling, thinning or transparency, abrasion, snags, fading and surface fuzz. Do NOT read structural or functional condition from this frame.",
+  "detail:hem":
+    "This is a HEM or SEAM close-up. Judge seam integrity, unthreading, puckering, and hem fraying. A deliberately raw or chewed hem is a design feature (is_intentional=true), not damage — distinguish it from a hem coming apart through wear.",
+  "detail:hardware":
+    "This is a HARDWARE close-up — zip pull, buttons, rivets or snaps. Judge plating wear, corrosion, engraving crispness, missing or replaced pieces, and whether the closure looks functional. This is the primary evidence for functional_elements.",
+  "detail:pocket":
+    "This is a POCKET close-up. Judge the opening and the corners, where tearing starts, plus any bagging, staining at the mouth, or a missing pocket flap/button.",
+  "detail:print":
+    "This is a PRINT or GRAPHIC close-up. Judge cracking, flaking, fading and lift at the edges. Deliberate distressing of a print is a design feature (is_intentional=true) — separate a factory-distressed graphic from one that has cracked through wear and washing.",
+  "detail:collar":
+    "This is a COLLAR or CUFF close-up — the first place a shirt shows its age. Judge fraying at the fold, discoloration on the inner band, interfacing bubbling, and stretched or misshapen ribbing.",
+  "detail:handles":
+    "This is a HANDLE or STRAP close-up. Judge darkening and patina on the wrap, cracking at the fold, and wear at the anchor points and stitching where the strap meets the body.",
+  "detail:base":
+    "This is the BASE of the bag, shot flat on. Judge corner wear and abrasion, sag, and whether the base has collapsed or lost its structure.",
+  "detail:ends_edges":
+    "This is an ENDS-and-EDGES close-up (tie tip and keeper, belt holes and cut end, scarf fringe, glove fingertips). Wear shows here first — judge fraying, curling, stretching at the holes, and edge abrasion.",
+  "detail:insole":
+    "This is an INSOLE close-up — inside the shoe. Judge footbed wear, heel-strike collapse, staining and any lettering worn away, which is the honest measure of how much the shoe has been worn.",
+};
+
+/**
+ * US-2471 rollout gate (default OFF — enable after the eval gate + canary).
+ *
+ * With it off, `IMAGE_ROLE_CONTEXT` is never consulted and every assembled
+ * prompt is byte-identical to what production serves today, so deploying this
+ * commit changes no grade. Same posture and same reasoning as
+ * GRADING_CATEGORY_CRITERIA_V2 above: naming the subject of a photo is a
+ * plausible accuracy WIN and an untested one, and grading prompts move through
+ * shadow → eval → canary, never a silent edit.
+ */
+export function photoRolePromptsEnabled(): boolean {
+  const v = (Deno.env.get("GRADING_PHOTO_ROLES") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+/**
+ * The context sentence for one (image_type, image_role) pair, or undefined when
+ * the pair has none and should fall through to the type-level sentence.
+ *
+ * Exported so the guard test can assert both halves without reaching into
+ * module internals.
+ */
+export function imageRoleContextFor(
+  imageType: string,
+  imageRole: string | null | undefined,
+  enabled: boolean = photoRolePromptsEnabled(),
+): string | undefined {
+  if (!enabled || !imageRole) return undefined;
+  return IMAGE_ROLE_CONTEXT[`${imageType}:${imageRole}`];
+}
 
 const GARMENT_TYPE_CRITERIA: Record<string, string> = {
   tops:
@@ -726,9 +813,14 @@ export function buildUserPrompt(
   // both resolve to the code constants below and the prompt is byte-identical,
   // which is the whole additive guarantee — an empty registry changes nothing.
   blocks: PromptBlockOverrides = {},
+  // US-2471: the `submission_images.image_role` qualifier. New parameter goes
+  // LAST — every call site passes positionally. Undefined (and the gate off)
+  // means the prompt is byte-identical to the pre-role one.
+  imageRole?: string | null,
 ): string {
-  const imageContext = IMAGE_TYPE_CONTEXT[imageType] ||
-    `This is a ${imageType} image of the garment.`;
+  const imageContext = imageRoleContextFor(imageType, imageRole) ??
+    (IMAGE_TYPE_CONTEXT[imageType] ||
+      `This is a ${imageType} image of the garment.`);
   const garmentCriteria = blocks.garment_type_criteria?.text ??
     (GARMENT_TYPE_CRITERIA[garmentType] ||
       "Evaluate using general garment condition criteria.");
@@ -1152,6 +1244,10 @@ export async function analyzeImage(
   // also reverted the other blocks to code defaults would score the candidate
   // against a prompt no customer gets.
   blockOverride?: PromptBlockOverrides,
+  // US-2471: the `submission_images.image_role` qualifier for THIS image. Last
+  // parameter, because all eight call sites pass positionally. Undefined (and
+  // the GRADING_PHOTO_ROLES gate off) leaves the prompt byte-identical.
+  imageRole?: string | null,
 ): Promise<PerImageAnalysis> {
   const client = getAnthropicClient();
   const startTime = Date.now();
@@ -1265,6 +1361,7 @@ export async function analyzeImage(
                 styleHint,
                 baselineBlock,
                 blocks,
+                imageRole,
               ),
             },
           ],
@@ -1389,6 +1486,7 @@ export async function analyzeImage(
 
     return {
       image_type: imageType,
+      image_role: imageRole ?? null,
       detected_issues: parsed.detected_issues,
       style_attributes: parsed.style_attributes,
       condition_signals: parsed.condition_signals,
@@ -2279,13 +2377,18 @@ export function promptVersionSuffix(
     // current output — an absent key must read as "not present", not as a new
     // era for grades that predate the block.
     categoryV2?: boolean;
+    // US-2471. Optional for the same reason as categoryV2, and appended after
+    // it — inserting a suffix in the middle rewrites what every previously
+    // recorded version string means.
+    roles?: boolean;
   },
 ): string {
   return (blocks.baseline ? "+baseline" : "") +
     (blocks.fabric ? "+fabric" : "") +
     (blocks.visual ? "+visual" : "") +
     (blocks.tag ? "+tag" : "") +
-    (blocks.categoryV2 ? "+cat2" : "");
+    (blocks.categoryV2 ? "+cat2" : "") +
+    (blocks.roles ? "+roles" : "");
 }
 
 /**
@@ -2616,12 +2719,23 @@ export async function compositeGrade(
     !!categoryCriteriaFor(garmentInfo.garment_category, true) &&
     !GARMENT_CATEGORY_CRITERIA[garmentInfo.garment_category];
 
+  // US-2471: same attribution problem as categoryV2, same answer. The role
+  // sentence is in the PER-IMAGE user message, so the composite record is the
+  // only place the era can be marked. Marked only when a role actually SELECTED
+  // a sentence: a submission of nothing but front/back shots ran the identical
+  // prompt whether the gate was on or off, and reporting it as a new era would
+  // split one version's history for no behavioral difference.
+  const roles = perImageResults.some((r) =>
+    !!imageRoleContextFor(r.image_type, r.image_role)
+  );
+
   const promptVersion = prompt.versionName + promptVersionSuffix({
     baseline: !!baselineBlock,
     fabric: !!fabricBlock,
     visual: verificationImages.length > 0,
     tag: !!tagBlock,
     categoryV2,
+    roles,
   });
 
   // US-2432: the other half of the attribution. promptVersion names the SYSTEM

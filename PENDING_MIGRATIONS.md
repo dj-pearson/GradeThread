@@ -1,5 +1,67 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00589_submission_image_role.sql (US-2471 — the photo role reaches the grader)
+
+**Risk: LOW.** One nullable text column on `submission_images`. No enum change,
+no backfill, no constraint, no index, nothing dropped or narrowed. The whole file
+is `ADD COLUMN IF NOT EXISTS` plus a `COMMENT`, so it is safe to run twice and
+safe to re-run the whole directory.
+
+**What it adds.** `submission_images.image_role` — the open-text qualifier that
+says WHAT a grading photo shows, mirroring `item_photos.photo_role` from 00587.
+NULL means no qualifier, which is what every historical row keeps: this migration
+deliberately does NOT rewrite `image_type` on existing rows, because those rows
+are the evidence behind grades already issued and are served by the public API v1
+contract.
+
+**Why it exists, and the bug it closes.** 00587 rewrote `measurement_chest` into
+(`measurement`, `chest`). A bare `measurement` is the MeasureCard calibration
+frame, which is excluded from grading on purpose (00346). `mapPhotoTypeForGrading`
+read the type alone, so from 00587 onward EVERY tape-measure photo resolved to
+"not useful for grading" and silently stopped reaching the grader. The role is
+the only thing that tells the two apart. That fix is in this commit and needs
+this column.
+
+**⚠ THE ONE THING TO WATCH — pre-apply, the new edge build breaks EVERY grading
+path, not just FlipDesk.** Two separate reads of the column:
+
+1. `grading-pipeline.ts` `processSubmission` SELECTs `image_role`, and that is
+   the single entry point for every grade in the product: consumer
+   (`routes/grade.ts`), the public API v1 (`routes/api-v1.ts`), Stripe-paid
+   (`routes/webhooks.ts`), the stuck-submission retry sweep, and the batch
+   worker. If the edge redeploys before the column exists, PostgREST returns
+   42703 and every one of those fails — including submissions the customer has
+   already paid for. Worse for diagnosis: the pipeline collapses that error into
+   `No images found for submission …`, so the logs will name the wrong cause for
+   the whole window.
+2. `flipdesk-grading.ts` INSERTs `image_role` on every `submission_images` row.
+   That path does compensate the charge (the idempotent `refund_grade` RPC in its
+   catch); the consumer and webhook paths in (1) do not.
+
+So: apply the SQL BEFORE the edge redeploys, without a gap. The frontend half is
+harmless — no client reads this column (`grep -rn image_role src/` is empty), so
+a Cloudflare Pages auto-deploy on push breaks no page.
+
+**No grading behavior changes on apply.** The role-aware prompt text is behind
+`GRADING_PHOTO_ROLES`, default off; with it unset the assembled prompt is
+byte-identical (guarded by `photo-role-prompts_test.ts`). Turning it on is a
+separate decision that goes through the eval gate and a canary slice, per the
+`grading-engine` prompt lifecycle.
+
+Apply order: AFTER 00588 (no dependency beyond sequence).
+
+```bash
+# 1. Apply. All migrations are idempotent; only 00589 does anything new.
+SUPABASE_DB_URL="postgres://…@host:5432/postgres" ./scripts/apply-prod-migrations.sh
+
+# 2. A COLUMN was added, so PostgREST must reload or the insert 404s on the
+#    column even after the migration lands.
+psql "$SUPABASE_DB_URL" -c "NOTIFY pgrst, 'reload schema';"
+
+# 3. Redeploy the edge on Coolify (its boot guard now expects 00589).
+# 4. THEN push.
+```
+
 ## ✅ APPLIED: 00588_extension_work_queue.sql (US-2481 — queue extension work from mobile, drain it on the desktop, applied 2026-08-10 by Dj)
 
 **Risk: LOW.** One new table, four RLS policies, two indexes, one `updated_at`

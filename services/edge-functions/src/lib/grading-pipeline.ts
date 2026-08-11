@@ -1307,7 +1307,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, storage_path, display_order, phash, exif, original_storage_path, capture_source, quality_score")
+      .select("id, image_type, image_role, storage_path, display_order, phash, exif, original_storage_path, capture_source, quality_score")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -1494,6 +1494,11 @@ export async function processSubmission(submissionId: string) {
         // Return as data URI for analyzeImage
         return {
           imageType: image.image_type,
+          // US-2471 (migration 00589): the role qualifier, so the per-image
+          // prompt can name what the photo shows instead of which slot it
+          // landed in. Null on every pre-00589 row and on every type that takes
+          // no qualifier.
+          imageRole: (image as { image_role?: string | null }).image_role ?? null,
           dataUri: `data:${mediaType};base64,${base64}`,
           // US-2136 AC4: carried alongside the bytes so the authenticity pass can
           // cap on the macro frames' MEASURED sharpness rather than on the mere
@@ -1521,6 +1526,9 @@ export async function processSubmission(submissionId: string) {
           firstPassModel,
           submissionId,
           baselineBlock,
+          // US-2438: no per-block eval override on the live path.
+          undefined,
+          img.imageRole,
         )
       );
 

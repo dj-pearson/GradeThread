@@ -141,10 +141,61 @@ Deno.test("US-2304: the photo-type mapping round-trips", () => {
   for (const imageType of REQUIRED_IMAGE_TYPES) {
     const photoType = gradingImageTypeToPhotoType(imageType);
     assertEquals(
-      mapPhotoTypeForGradingForTest(photoType),
+      mapPhotoTypeForGradingForTest(photoType)?.imageType ?? null,
       imageType,
       `${photoType} does not map back to ${imageType} — the requirement list ` +
         `asks for a photo type that never becomes this grading image type`,
     );
   }
+});
+
+// US-2471. Migration 00587 rewrote `measurement_chest` → (`measurement`,
+// `chest`), and a bare `measurement` is the MeasureCard calibration frame that
+// 00346 excludes from grading on purpose. Reading the type alone therefore sent
+// every tape-measure photo to null and it silently stopped reaching the grader.
+// The role is the only thing that tells the two apart.
+Deno.test("US-2471: a measurement photo's role decides whether it grades", () => {
+  assertEquals(
+    mapPhotoTypeForGradingForTest("measurement", null),
+    null,
+    "the MeasureCard calibration frame must stay out of grading",
+  );
+  assertEquals(mapPhotoTypeForGradingForTest("measurement", "chest"), {
+    imageType: "measurement_chest",
+    imageRole: "chest",
+  });
+  assertEquals(
+    mapPhotoTypeForGradingForTest("measurement", "shoulder"),
+    null,
+    "a dimension with no image_type enum value has nowhere to land",
+  );
+  // The retired type still round-trips, and hands its dimension on as the role
+  // so the prompt site only ever has to speak roles.
+  assertEquals(mapPhotoTypeForGradingForTest("measurement_inseam"), {
+    imageType: "measurement_inseam",
+    imageRole: "inseam",
+  });
+});
+
+Deno.test("US-2471: a tag's role rides along to the grader", () => {
+  // Both are `label`; which one holds the brand and which the size is exactly
+  // what ai-extract could not tell before, and is now the role.
+  assertEquals(mapPhotoTypeForGradingForTest("tag", "brand"), {
+    imageType: "label",
+    imageRole: "brand",
+  });
+  assertEquals(mapPhotoTypeForGradingForTest("tag", "size"), {
+    imageType: "label",
+    imageRole: "size",
+  });
+  assertEquals(mapPhotoTypeForGradingForTest("detail", "fabric"), {
+    imageType: "detail",
+    imageRole: "fabric",
+  });
+  // A type that takes no qualifier reports none, whatever it was handed.
+  assertEquals(mapPhotoTypeForGradingForTest("front", "brand"), {
+    imageType: "front",
+    imageRole: null,
+  });
+  assertEquals(mapPhotoTypeForGradingForTest("flatlay", "fabric"), null);
 });

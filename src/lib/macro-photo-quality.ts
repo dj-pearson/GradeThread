@@ -29,8 +29,56 @@
 // tag. Unknown inputs (a dimension we could not read, a decode failure) are
 // treated as fine, exactly like the iOS `guard let ... else { return .ok }`.
 
+import { RETIRED_PHOTO_TYPES, roleLabel } from "./photo-roles";
+
 /** Slots that carry fine detail the model must actually resolve. */
 export type MacroQualityReason = "low_resolution" | "unsharp";
+
+/**
+ * US-2471: every lookup below is keyed on the (type, role) PAIR, not on a
+ * numbered slot.
+ *
+ * Before roles, the maps had to name `tag_2`, `detail_2`, `detail_3` and
+ * `detail_4` one at a time and give each the same number as its base type. That
+ * is the enumeration the photo-tags epic retired: a new sub-role now ships as a
+ * line in photo-roles.ts, and a map that lists slots by number would silently
+ * NOT cover it — a `detail:hem` shot would fall off the map and get no floor at
+ * all, which is the failure mode this rewrite removes.
+ *
+ * A retired type still arriving from an older cached bundle is collapsed onto
+ * its base pair first, so it resolves to exactly the number it always did.
+ */
+// This module serves BOTH uploaders, and they speak different vocabularies:
+// the FlipDesk one (`tag`, `tag_2`) and the grading submission one (`label`,
+// `label_2`). RETIRED_PHOTO_TYPES covers only the first, so the grading
+// spellings need their own line — `label_2` is the same retired second-tag slot
+// as `tag_2` and must collapse the same way. Missing this is what the
+// both-spellings test above the gate exists to catch (US-2136 AC2).
+const RETIRED_GRADING_IMAGE_TYPES: Record<
+  string,
+  { type: string; role: string | null }
+> = {
+  label_2: { type: "label", role: null },
+  detail_2: { type: "detail", role: null },
+  detail_3: { type: "detail", role: null },
+  detail_4: { type: "detail", role: null },
+};
+
+function baseSlot(
+  photoType: string | null | undefined,
+  photoRole?: string | null,
+): { type: string; role: string | null } | null {
+  if (!photoType) return null;
+  const retired = RETIRED_PHOTO_TYPES[photoType] ??
+    RETIRED_GRADING_IMAGE_TYPES[photoType];
+  if (retired) return { type: retired.type, role: retired.role };
+  return { type: photoType, role: photoRole ?? null };
+}
+
+/** `"detail:fabric"`, or `"detail"` when the slot carries no qualifier. */
+function slotKey(type: string, role: string | null): string {
+  return role ? `${type}:${role}` : type;
+}
 
 export interface MacroQualityAssessment {
   /** False only when we are confident the photo is too poor to read. */
@@ -65,16 +113,11 @@ export interface MacroQualityAssessment {
 export const MACRO_MIN_LONG_EDGE_PX: Readonly<Record<string, number>> = {
   // Tag / care label — the iOS baseline, and the highest-traffic macro slot.
   tag: 700,
-  tag_2: 700,
   // The web submission flow spells the same slot `label`.
   label: 700,
-  label_2: 700,
   // Fabric close-ups feed the fabric_condition factor, which is 30% of the
   // grade — the weave has to be resolvable, not merely present.
   detail: 700,
-  detail_2: 700,
-  detail_3: 700,
-  detail_4: 700,
   // A defect close-up is the evidence for a deduction. If it is unreadable the
   // grader is guessing at severity.
   defect: 700,
@@ -106,6 +149,21 @@ export const MACRO_MIN_SHARPNESS: Readonly<Record<string, number>> = {
   corner: 0.3,
   sole: 0.3,
 };
+
+/**
+ * Per-ROLE overrides, keyed `"type:role"`, layered over the per-type maps above.
+ *
+ * DELIBERATELY EMPTY. US-2471 moves the floors off numbered slots; it does not
+ * re-tune them, and every role today inherits the number its old numbered slot
+ * had. Raising `detail:fabric` because fabric_condition is 30% of the grade is a
+ * defensible idea and an accuracy change — it belongs behind an eval, not inside
+ * a refactor whose whole claim is that nothing moved.
+ *
+ * This is the extension point: a role that genuinely needs more pixels than its
+ * type's baseline gets one line here and no other edit.
+ */
+export const MACRO_MIN_LONG_EDGE_BY_ROLE: Readonly<Record<string, number>> = {};
+export const MACRO_MIN_SHARPNESS_BY_ROLE: Readonly<Record<string, number>> = {};
 
 /** The floor applied to any macro slot without its own entry above. */
 export const DEFAULT_MIN_SHARPNESS = 0.22;
@@ -146,13 +204,8 @@ export const MACRO_UPLOAD_MAX_WIDTH_PX: Readonly<Record<string, number>> = {
   // over 2400 without the byte cost of the authenticity tier on the slots
   // sellers shoot most often.
   tag: 3000,
-  tag_2: 3000,
   label: 3000,
-  label_2: 3000,
   detail: 3000,
-  detail_2: 3000,
-  detail_3: 3000,
-  detail_4: 3000,
   defect: 3000,
   interior: 3000,
   certificate: 3000,
@@ -163,30 +216,60 @@ export const MACRO_UPLOAD_MAX_WIDTH_PX: Readonly<Record<string, number>> = {
  * default for every non-macro slot, so a caller can pass the result
  * unconditionally without deciding whether the slot is special.
  */
-export function uploadMaxWidthFor(photoType: string | null | undefined): number {
-  if (!photoType) return DEFAULT_UPLOAD_MAX_WIDTH_PX;
-  return MACRO_UPLOAD_MAX_WIDTH_PX[photoType] ?? DEFAULT_UPLOAD_MAX_WIDTH_PX;
+export function uploadMaxWidthFor(
+  photoType: string | null | undefined,
+  photoRole?: string | null,
+): number {
+  const slot = baseSlot(photoType, photoRole);
+  if (!slot) return DEFAULT_UPLOAD_MAX_WIDTH_PX;
+  return MACRO_UPLOAD_MAX_WIDTH_PX[slot.type] ?? DEFAULT_UPLOAD_MAX_WIDTH_PX;
 }
 
 /** True when this photo slot is a macro shot the gate applies to. */
-export function isMacroPhotoType(photoType: string | null | undefined): boolean {
-  return !!photoType && photoType in MACRO_MIN_LONG_EDGE_PX;
+export function isMacroPhotoType(
+  photoType: string | null | undefined,
+  photoRole?: string | null,
+): boolean {
+  const slot = baseSlot(photoType, photoRole);
+  return !!slot && slot.type in MACRO_MIN_LONG_EDGE_PX;
 }
 
 /** The long-edge floor for a slot, or null when the slot is not a macro shot. */
-export function minLongEdgeFor(photoType: string | null | undefined): number | null {
-  if (!photoType) return null;
-  return MACRO_MIN_LONG_EDGE_PX[photoType] ?? null;
+export function minLongEdgeFor(
+  photoType: string | null | undefined,
+  photoRole?: string | null,
+): number | null {
+  const slot = baseSlot(photoType, photoRole);
+  if (!slot) return null;
+  const byType = MACRO_MIN_LONG_EDGE_PX[slot.type];
+  if (byType == null) return null;
+  return MACRO_MIN_LONG_EDGE_BY_ROLE[slotKey(slot.type, slot.role)] ?? byType;
 }
 
 /** The sharpness floor for a slot, or null when the slot is not a macro shot. */
-export function minSharpnessFor(photoType: string | null | undefined): number | null {
-  if (!isMacroPhotoType(photoType)) return null;
-  return MACRO_MIN_SHARPNESS[photoType as string] ?? DEFAULT_MIN_SHARPNESS;
+export function minSharpnessFor(
+  photoType: string | null | undefined,
+  photoRole?: string | null,
+): number | null {
+  const slot = baseSlot(photoType, photoRole);
+  if (!slot || !(slot.type in MACRO_MIN_LONG_EDGE_PX)) return null;
+  const key = slotKey(slot.type, slot.role);
+  return MACRO_MIN_SHARPNESS_BY_ROLE[key] ??
+    MACRO_MIN_SHARPNESS[slot.type] ??
+    DEFAULT_MIN_SHARPNESS;
 }
 
-/** Friendly slot noun for the guidance copy ("tag", "serial number", …). */
-function slotNoun(photoType: string): string {
+/**
+ * Friendly slot noun for the guidance copy ("fabric close-up", "tag", …).
+ *
+ * The role is what makes this specific. "Move closer and fill the frame with
+ * the close-up" was always a slightly absurd sentence; with a role it becomes
+ * "fill the frame with the fabric close-up", which names the thing the seller
+ * is pointing the camera at.
+ */
+function slotNoun(photoType: string, photoRole: string | null): string {
+  const labelled = roleLabel(photoType, photoRole);
+  if (labelled) return labelled.toLowerCase();
   if (photoType.startsWith("tag") || photoType.startsWith("label")) return "tag";
   if (photoType.startsWith("detail")) return "close-up";
   if (photoType === "defect") return "flaw";
@@ -204,8 +287,10 @@ function slotNoun(photoType: string): string {
 export function macroQualityMessage(
   reason: MacroQualityReason,
   photoType: string,
+  photoRole?: string | null,
 ): string {
-  const noun = slotNoun(photoType);
+  const slot = baseSlot(photoType, photoRole);
+  const noun = slot ? slotNoun(slot.type, slot.role) : photoType;
   return reason === "low_resolution"
     ? `Move closer and fill the frame with the ${noun} — this shot is too small for AI to read reliably.`
     : `This ${noun} looks blurry. Hold steady, tap to focus, and retake it in good light.`;
@@ -213,6 +298,8 @@ export function macroQualityMessage(
 
 export interface MacroPhotoMeasurement {
   photoType: string | null | undefined;
+  /** US-2471: the `item_photos.photo_role` qualifier, when the slot has one. */
+  photoRole?: string | null;
   /** Longest side in pixels, or null when it could not be read. */
   longEdge: number | null;
   /** 0..1 sharpness from measureMacroPhoto(), or null when not measured. */
@@ -228,9 +315,10 @@ export interface MacroPhotoMeasurement {
  * blames the user for our problem.
  */
 export function assessMacroPhoto(m: MacroPhotoMeasurement): MacroQualityAssessment {
-  const floor = minLongEdgeFor(m.photoType);
+  const floor = minLongEdgeFor(m.photoType, m.photoRole);
   if (floor == null) return { ok: true, reason: null, message: null, score: null };
   const photoType = m.photoType as string;
+  const photoRole = m.photoRole ?? null;
 
   // Resolution is checked first and reported alone: a too-small photo is also
   // usually a soft one, and "move closer" is the action that fixes both.
@@ -238,12 +326,12 @@ export function assessMacroPhoto(m: MacroPhotoMeasurement): MacroQualityAssessme
     return {
       ok: false,
       reason: "low_resolution",
-      message: macroQualityMessage("low_resolution", photoType),
+      message: macroQualityMessage("low_resolution", photoType, photoRole),
       score: m.sharpness,
     };
   }
 
-  const sharpFloor = minSharpnessFor(photoType);
+  const sharpFloor = minSharpnessFor(photoType, photoRole);
   if (
     m.sharpness != null &&
     Number.isFinite(m.sharpness) &&
@@ -253,7 +341,7 @@ export function assessMacroPhoto(m: MacroPhotoMeasurement): MacroQualityAssessme
     return {
       ok: false,
       reason: "unsharp",
-      message: macroQualityMessage("unsharp", photoType),
+      message: macroQualityMessage("unsharp", photoType, photoRole),
       score: m.sharpness,
     };
   }
@@ -337,14 +425,16 @@ export function laplacianVariance(
 export async function measureMacroPhoto(
   source: Blob | HTMLImageElement,
   photoType: string | null | undefined,
+  photoRole?: string | null,
 ): Promise<MacroPhotoMeasurement> {
   const unmeasured: MacroPhotoMeasurement = {
     photoType,
+    photoRole,
     longEdge: null,
     sharpness: null,
   };
   // Only pay for the decode on slots the gate actually applies to.
-  if (!isMacroPhotoType(photoType)) return unmeasured;
+  if (!isMacroPhotoType(photoType, photoRole)) return unmeasured;
 
   try {
     const bitmap =
@@ -364,7 +454,7 @@ export async function measureMacroPhoto(
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) return { photoType, longEdge, sharpness: null };
+    if (!ctx) return { photoType, photoRole, longEdge, sharpness: null };
     ctx.drawImage(bitmap as CanvasImageSource, 0, 0, w, h);
     const { data } = ctx.getImageData(0, 0, w, h);
 
@@ -383,6 +473,7 @@ export async function measureMacroPhoto(
     }
     return {
       photoType,
+      photoRole,
       longEdge,
       sharpness: normalizeSharpness(laplacianVariance(gray, w, h)),
     };

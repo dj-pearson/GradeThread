@@ -15,6 +15,7 @@ import {
   resolveBrandKnowledgePack,
 } from "./brand-knowledge.ts";
 import { decodeTagCode, type DecodeResult } from "./brand-decoders.ts";
+import { roleLabel } from "./photo-roles.ts";
 import {
   lookupLearnedStyle,
   styleNameFromTitle,
@@ -278,6 +279,11 @@ export type CanonicalAttributeColumn = Record<string, string | string[]>;
 export interface ExtractPhoto {
   url: string;
   type?: string; // front | back | tag | detail | defect | flatlay | on_model
+  // US-2471: the `item_photos.photo_role` qualifier. This is what finally tells
+  // the model WHICH tag photo is the brand and which is the size — before it,
+  // both arrived labelled `(tag)` and the brand rule below had to be guessed at
+  // against whichever one the model happened to look at first.
+  role?: string;
 }
 
 export interface ExtractInput {
@@ -371,7 +377,8 @@ Hard rules:
 - For every field you return, give a calibrated confidence from 0 to 1, and a source string.
 
 Photo guidance (when photos are present):
-- The 'tag' / 'tag_2' photos carry the brand and/or care labels — the highest-value inputs. Read the BRAND from the maker's logo/wordmark (often a separate neck/waistband brand tag), and the SIZE + fiber/material from the care label. Do not mistake a collection/style name printed on the label for the brand (see the brand rule above).
+- The 'tag' photos carry the brand, size and care labels — the highest-value inputs. Each is announced with the role it holds, so use it instead of guessing which tag is which: 'tag: brand label' is the maker's logo/wordmark and is where the BRAND comes from; 'tag: size tag' is where the SIZE comes from; 'tag: care & fabric' is the care label and is where the fiber/material comes from; 'tag: made in / union label' carries origin, union and RN text and DATES the piece — read era from it, never brand. An unqualified 'tag' may hold any of them. Do not mistake a collection/style name printed on the label for the brand (see the brand rule above).
+- 'detail' photos are announced with their role too: 'detail: fabric close-up' is the weave (material), 'detail: hardware' is zips/buttons/rivets, 'detail: print or graphic' is the graphic. Prefer the role that matches the field you are filling.
 - 'front', 'flatlay', 'on_model' photos: use for color, item_category, and garment style.
 - 'detail' and 'defect' photos: use for condition_notes and condition_summary.
 - Set each field's source to where it came from: 'text', or 'photo:<type>' (e.g. 'photo:tag').
@@ -698,6 +705,22 @@ function bytesToBase64(bytes: Uint8Array): string {
  * non-image photo and proceed with the rest, and the edge shares infra with
  * storage so it fetches reliably. Order is preserved; skipped photos are logged.
  */
+/**
+ * The slot caption a photo is announced with, e.g. ` (tag: brand label)`.
+ *
+ * US-2471: pure and exported so a test can pin the caption without a network
+ * stub. A photo with no type is announced with no caption at all, exactly as
+ * before; a photo with a type and no role reads exactly as before too. Only a
+ * role-qualified photo gains anything, which is the whole additive claim.
+ */
+export function photoSlotLabel(photo: ExtractPhoto): string {
+  if (!photo.type) return "";
+  const label = photo.role
+    ? roleLabel(photo.type, photo.role)?.toLowerCase() ?? photo.role
+    : null;
+  return label ? ` (${photo.type}: ${label})` : ` (${photo.type})`;
+}
+
 export async function buildPhotoContent(
   photos: ExtractPhoto[],
   // Injectable so tests can stub the network without reaching the SSRF guard /
@@ -750,7 +773,7 @@ export async function buildPhotoContent(
     if (!entry) return;
     content.push({
       type: "text",
-      text: `Photo ${i + 1}${entry.photo.type ? ` (${entry.photo.type})` : ""}:`,
+      text: `Photo ${i + 1}${photoSlotLabel(entry.photo)}:`,
     });
     content.push({
       type: "image",

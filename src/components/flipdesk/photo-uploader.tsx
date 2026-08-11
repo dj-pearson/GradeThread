@@ -175,7 +175,11 @@ export function PhotoUploader({
       // Non-macro slots get the unchanged 2400 default — AC5 is explicit that
       // the increase must NOT be global, because the upload-speed tradeoff that
       // motivated the low cap is real on mobile data.
-      const main = await compressImage(file, uploadMaxWidthFor(photoType), 0.85);
+      const main = await compressImage(
+        file,
+        uploadMaxWidthFor(photoType, photoRole),
+        0.85,
+      );
       // Always prefer the canvas-baked output: compressImage applies EXIF
       // orientation to the PIXELS (upright) and strips metadata, so the
       // stored image renders the right way up everywhere — including eBay,
@@ -285,7 +289,9 @@ export function PhotoUploader({
     // seller is nudged AFTER the upload rather than blocked before it: Claude
     // Vision reads a marginal photo better than any client-side check, and a
     // false "retake this" is what teaches sellers to ignore the nudge.
-    const macro = assessMacroPhoto(await measureMacroPhoto(body, photoType));
+    const macro = assessMacroPhoto(
+      await measureMacroPhoto(body, photoType, photoRole),
+    );
 
     return { originalSize, storedSize: body.size, macro };
   }

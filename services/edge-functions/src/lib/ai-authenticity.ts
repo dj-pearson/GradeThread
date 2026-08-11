@@ -6,7 +6,11 @@ import {
   isCachingEnabled,
 } from "./ai-config.ts";
 import { toAiTokenUsage, type AiTokenUsage } from "./ai-usage.ts";
-import { sanitizeSellerText, type GarmentInfo } from "./ai-grading.ts";
+import {
+  photoRolePromptsEnabled,
+  sanitizeSellerText,
+  type GarmentInfo,
+} from "./ai-grading.ts";
 import type { AuthenticationTell } from "./brand-authenticity.ts";
 import {
   assessTellVerifiability,
@@ -337,19 +341,62 @@ function parseImageInput(imageUrl: string): {
   return { type: "base64", media_type: "image/jpeg", data: imageUrl };
 }
 
+// US-2471: the detail ROLES that carry an authentication tell, ranked ahead of
+// a bare `detail`. Every one of these is named in SYSTEM_PROMPT's own tell list
+// — hardware is "zipper pulls/teeth branding, button/rivet engraving", hem and
+// collar are "seam straightness, stitch-per-inch consistency", print is "screen-
+// print registration". A `detail:pocket` or `detail:base` is deliberately absent:
+// it is a condition shot, and it should not displace a hardware macro from the
+// six-image budget.
+//
+// This orders which photos are SENT. It does not touch MACRO_EVIDENCE_TYPES,
+// which gates a confidence cap — widening that would RAISE authenticity
+// confidence on existing submissions, and a cap is not something a refactor gets
+// to loosen.
+const AUTHENTICITY_ROLE_PRIORITY = [
+  "detail:hardware",
+  "detail:hem",
+  "detail:collar",
+  "detail:print",
+  "detail:fabric",
+];
+
 /**
  * Pick the most authenticity-informative images (label/tag + detail close-ups
  * first), capped at MAX_AUTHENTICITY_IMAGES. Pure + exported for tests.
+ *
+ * US-2471: a role, when present and when the gate is on, outranks the bare
+ * type — a hardware macro is better authenticity evidence than a generic
+ * close-up, and before roles there was no way to tell the two apart. With the
+ * gate off, or on a submission whose photos carry no role, the ordering is
+ * byte-identical to the pre-role one.
  */
-export function selectAuthenticityImages<T extends { imageType: string }>(
+export function selectAuthenticityImages<
+  T extends { imageType: string; imageRole?: string | null },
+>(
   images: readonly T[],
+  rolesEnabled: boolean = photoRolePromptsEnabled(),
 ): T[] {
-  const rank = (t: string) => {
-    const i = AUTHENTICITY_IMAGE_PRIORITY.indexOf(t);
+  // Fractional ranks, landing strictly BETWEEN `label_2` and `detail`. A role
+  // promotes a close-up above the generic ones and no further: US-2134 put
+  // serial and marking above label on purpose, because those are the only slots
+  // a seller shoots AS authenticity evidence, and a hardware macro does not get
+  // to displace a date code out of the six-image budget.
+  const detailRank = AUTHENTICITY_IMAGE_PRIORITY.indexOf("detail");
+  const rank = (img: T) => {
+    if (rolesEnabled && img.imageRole) {
+      const r = AUTHENTICITY_ROLE_PRIORITY.indexOf(
+        `${img.imageType}:${img.imageRole}`,
+      );
+      if (r !== -1) {
+        return detailRank - 1 + (r + 1) / (AUTHENTICITY_ROLE_PRIORITY.length + 1);
+      }
+    }
+    const i = AUTHENTICITY_IMAGE_PRIORITY.indexOf(img.imageType);
     return i === -1 ? AUTHENTICITY_IMAGE_PRIORITY.length : i;
   };
   return [...images]
-    .sort((a, b) => rank(a.imageType) - rank(b.imageType))
+    .sort((a, b) => rank(a) - rank(b))
     .slice(0, MAX_AUTHENTICITY_IMAGES);
 }
 
@@ -738,6 +785,10 @@ export function authenticityNeedsReview(
 export async function assessAuthenticity(
   images: readonly {
     imageType: string;
+    // US-2471: submission_images.image_role. Absent/null on every pre-00589 row
+    // and on every type that takes no qualifier; used only to rank which frames
+    // fit in the MAX_AUTHENTICITY_IMAGES budget.
+    imageRole?: string | null;
     dataUri: string;
     // US-2136 AC4: submission_images.quality_score, 0..1. Absent/null means the
     // client could not measure it (or predates 00568) and applies NO cap.

@@ -199,6 +199,71 @@ describe("guidance says what to DO", () => {
     // No raw snake_case ever reaches a seller.
     expect(macroQualityMessage("unsharp", "detail_3")).not.toContain("_");
   });
+
+  it("names the ROLE when the slot has one (US-2471)", () => {
+    // "fill the frame with the close-up" was always a slightly absurd sentence.
+    // The role is what lets it name the thing the camera is pointed at.
+    expect(macroQualityMessage("low_resolution", "detail", "fabric"))
+      .toContain("fabric close-up");
+    expect(macroQualityMessage("low_resolution", "tag", "care"))
+      .toContain("care & fabric");
+    expect(macroQualityMessage("unsharp", "detail", "hardware"))
+      .toContain("hardware");
+    // An unknown role falls back to the type's noun rather than leaking a key.
+    expect(macroQualityMessage("unsharp", "detail", "not_a_role"))
+      .toContain("close-up");
+    expect(macroQualityMessage("unsharp", "detail", "not_a_role"))
+      .not.toContain("not_a_role");
+  });
+});
+
+describe("floors follow the role, not the slot number (US-2471)", () => {
+  it("gives a role-qualified slot the same floor its numbered slot had", () => {
+    // The point is that the numbers did NOT move. A `detail:hem` shot is new
+    // vocabulary and gets `detail`'s floor; a `detail_3` from an older cached
+    // bundle collapses onto the same one.
+    for (const role of ["fabric", "hem", "hardware", "pocket", "print", "collar"]) {
+      expect(minLongEdgeFor("detail", role)).toBe(minLongEdgeFor("detail"));
+      expect(minSharpnessFor("detail", role)).toBe(minSharpnessFor("detail"));
+    }
+    for (const role of ["brand", "size", "care", "made_in"]) {
+      expect(minLongEdgeFor("tag", role)).toBe(700);
+      expect(minLongEdgeFor("label", role)).toBe(700);
+    }
+    expect(minLongEdgeFor("detail_3")).toBe(minLongEdgeFor("detail"));
+    expect(minLongEdgeFor("tag_2")).toBe(minLongEdgeFor("tag"));
+    expect(minLongEdgeFor("label_2")).toBe(minLongEdgeFor("label"));
+  });
+
+  it("a role never turns a non-macro slot into a macro one", () => {
+    // Measurement roles are real vocabulary, and a tape-measure frame is a
+    // whole-garment shot governed by photo-standards.ts — handing this gate a
+    // role must not drag it in.
+    for (const role of ["chest", "waist", "inseam"]) {
+      expect(isMacroPhotoType("measurement", role)).toBe(false);
+      expect(minLongEdgeFor("measurement", role)).toBeNull();
+      expect(minSharpnessFor("measurement", role)).toBeNull();
+    }
+    expect(isMacroPhotoType("front", "fabric")).toBe(false);
+  });
+
+  it("the upload width cap follows the base type, role or not", () => {
+    expect(uploadMaxWidthFor("detail", "fabric")).toBe(uploadMaxWidthFor("detail"));
+    expect(uploadMaxWidthFor("detail_3")).toBe(uploadMaxWidthFor("detail"));
+    expect(uploadMaxWidthFor("tag_2")).toBe(uploadMaxWidthFor("tag"));
+    expect(uploadMaxWidthFor("label_2")).toBe(uploadMaxWidthFor("label"));
+  });
+
+  it("assessMacroPhoto reads the role through", () => {
+    const a = assessMacroPhoto({
+      photoType: "detail",
+      photoRole: "fabric",
+      longEdge: 699,
+      sharpness: SHARP,
+    });
+    expect(a.ok).toBe(false);
+    expect(a.message).toContain("fabric close-up");
+  });
 });
 
 describe("the sharpness metric", () => {

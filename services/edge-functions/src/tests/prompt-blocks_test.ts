@@ -920,8 +920,12 @@ Deno.test("US-2438: analyzeImage resolves blocks and passes them to the builder"
     /resolvePromptBlocks\(\s*"per_image"/.test(body),
     "analyzeImage no longer resolves the user-message blocks",
   );
+  // US-2471 added an `imageRole` argument AFTER `blocks`, so this no longer
+  // pins `blocks` as the final argument — only that it is still an argument.
+  // Anchoring on "last" would fail every time the signature grows, which is a
+  // guard against edits rather than against the regression it names.
   assert(
-    /buildUserPrompt\([^)]*\bblocks,?\s*\)/s.test(body),
+    /buildUserPrompt\([^)]*\bblocks,/s.test(body),
     "the resolved blocks are no longer passed to buildUserPrompt — the seam is dead code",
   );
   assert(

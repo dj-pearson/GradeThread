@@ -13,6 +13,8 @@ code_refs:
   - src/lib/item-photo-url.ts
   - services/edge-functions/src/lib/item-photo-storage.ts
   - supabase/migrations/00587_item_photo_role_qualifier.sql
+  - supabase/migrations/00589_submission_image_role.sql
+  - services/edge-functions/src/routes/flipdesk-grading.ts
 reviewed: 2026-08-11
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
@@ -65,6 +67,38 @@ meant.
 > column silently drops the seller's tape photos from their listing and reports
 > nothing. Every call site feeding `filterListablePhotos` selects it; there is a
 > guard test for the shape in `item-photo-storage_test.ts`.
+
+## The same trap fired again on the GRADING side (US-2471, migration 00589)
+
+The warning above was written about listability and was correct there. Nobody
+applied it to grading, and grading had the identical shape: `flipdesk-grading.ts`
+`mapPhotoTypeForGrading` took the type ALONE, so once 00587 folded
+`measurement_chest` into (`measurement`, `chest`), every tape-measure photo
+resolved to `null` — the "not useful for grading" answer that is correct only for
+the card frame. The photos kept uploading, kept showing in the gallery, and
+stopped reaching the grader. Nothing reported it.
+
+The fix is the same rule in the same words: **NULL role ⇒ card frame ⇒ never
+grades; a role ⇒ tape photo ⇒ grades.** Two further points that are easy to get
+wrong here:
+
+- `submission_images.image_type` is a **different enum** from
+  `flipdesk_photo_type` (`00001`, grown by `00103`) and has no bare `measurement`
+  value. A measurement role only reaches the grader when the role is one of the
+  five that already have an `image_type` — chest, waist, length, sleeve, inseam.
+  Any other dimension resolves to `null` deliberately, because inventing an enum
+  value is the growth this epic ended.
+- The role travels in `submission_images.image_role` (00589), NOT folded into
+  `image_type`. Historical rows are never rewritten: they are the evidence behind
+  grades already issued and are served by the public API v1 contract.
+
+> [!note] The role reaching the grader and the grader USING it are two switches
+> 00589 plus the threading make the role *available* at the prompt site. Whether
+> the per-image prompt SAYS anything about it is gated by `GRADING_PHOTO_ROLES`,
+> default off, because a grading prompt only changes through shadow → eval gate →
+> canary. With the gate off the assembled prompt is byte-identical
+> (`photo-role-prompts_test.ts`). `ai-extract` is not a versioned grading prompt
+> and its role captions are live.
 
 ## Which garment, not just which category (US-2465)
 
