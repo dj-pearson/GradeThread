@@ -55,7 +55,12 @@
   /** Selector keys that only exist AFTER an interaction, per flow. */
   var POST_INTERACTION = {
     delist: ["remove", "confirm"],
-    engage: ["shareToFollowers", "offerPriceInput", "offerSubmit", "actionConfirmed"],
+    engage: [
+      // `shareInternal` lives in the first share modal, `shareToFollowers` in
+      // the second — both post-interaction, neither present on a closet at rest.
+      "shareInternal", "shareToFollowers", "offerPriceInput", "offerSubmit",
+      "actionConfirmed",
+    ],
     list: [],
   };
 

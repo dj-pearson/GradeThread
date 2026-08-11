@@ -14,6 +14,52 @@
 // dependencies and no browser.
 
 const assert = require("node:assert");
+
+// ── US-2487: the share menu is mostly exits ────────────────────────────────
+//
+// Watching a real share showed the first modal is a share MENU whose options
+// are largely OUTBOUND — share_facebook, share_pinterest, share_email,
+// share_copy, and a people_search box that DMs the listing to a named person.
+// Only `share_poshmark` stays inside Poshmark, and it opens the second modal
+// where "To My Followers" lives.
+//
+// So the intermediate step is a guard, not politeness: without it a selector
+// drift in the second modal could resolve against the FIRST one, and the
+// failure would not be a missed share — it would be the seller's listing posted
+// to their Facebook, or sent to a stranger, a few thousand times.
+{
+  const fs2 = require("node:fs");
+  const path2 = require("node:path");
+  const dir2 = path2.resolve(__dirname, "..");
+  const engage = fs2.readFileSync(path2.join(dir2, "lister", "poshmark-engage.js"), "utf8");
+  const src2 = fs2.readFileSync(path2.join(dir2, "lister", "selectors.js"), "utf8");
+  const scope2 = {};
+  // eslint-disable-next-line no-new-func
+  const SEL2 = new Function("self", `${src2}; return self.GT_LISTER_SELECTORS;`)(scope2);
+
+  assert.ok(
+    SEL2.poshmark.engage.shareInternal,
+    "poshmark.engage must declare shareInternal — the one option in the share " +
+      "menu that does not leave Poshmark",
+  );
+
+  const shareOne = engage.slice(engage.indexOf("async function shareOne("));
+  const body2 = shareOne.slice(0, shareOne.indexOf("\n  }"));
+  const internalAt = body2.indexOf("cfg.shareInternal");
+  const followersAt = body2.indexOf("cfg.shareToFollowers");
+  assert.ok(internalAt !== -1, "shareOne must step through shareInternal");
+  assert.ok(
+    internalAt < followersAt,
+    "shareOne looks for shareToFollowers BEFORE stepping into the internal " +
+      "share modal. In the first modal the neighbouring controls are Facebook, " +
+      "Pinterest, email and a DM box.",
+  );
+  assert.ok(
+    /if \(!internal\) return false;/.test(body2),
+    "a missing internal-share step must ABORT. Falling through would leave the " +
+      "next click landing in the outbound-share menu.",
+  );
+}
 const fs = require("node:fs");
 const path = require("node:path");
 

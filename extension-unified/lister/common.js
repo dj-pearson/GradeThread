@@ -794,10 +794,24 @@
   // listing. So a watched node is described by its attribute signature only —
   // never its text, not even for buttons. `WATCH_MS` is short and the watcher
   // disarms itself; nothing observes a marketplace page in the background.
-  var WATCH_MS = 25000;
+  // 60s, raised from 25s once a real run showed the shape of the job: the
+  // seller has to press Watch, close the popup, complete a flow that is itself
+  // several clicks, then re-open the popup. 25 seconds captured the share modal
+  // opening and ran out before the confirmation.
+  var WATCH_MS = 60000;
   var watched = [];
   var watchUntil = 0;
   var watchObserver = null;
+
+  // A banner that is TOGGLED rather than inserted.
+  //
+  // The first watcher assumed a toast is a new node. Plenty are, but plenty
+  // more are a permanent element whose class flips — and that produces no
+  // childList record at all, so the watcher would sit through the exact moment
+  // it was armed for and report nothing. Attribute changes are watched too,
+  // narrowed to class values that look like a banner: watching every class
+  // change on a marketplace SPA is thousands of records a second.
+  var WATCH_BANNERISH = /toast|snack|banner|alert|notif|flash|message--|--show|--visible|is-open/i;
 
   function watchSignature(el) {
     if (!el || el.nodeType !== 1 || inChrome(el)) return null;
@@ -822,6 +836,19 @@
     watchObserver = new MutationObserver(function (records) {
       if (Date.now() > watchUntil) { watchObserver.disconnect(); watchObserver = null; return; }
       for (var i = 0; i < records.length && watched.length < 40; i++) {
+        // A toggled banner: an element that was already there whose class just
+        // became banner-shaped. No node was added, so childList sees nothing.
+        if (records[i].type === "attributes") {
+          var t = records[i].target;
+          var cls = (t && t.getAttribute && t.getAttribute("class")) || "";
+          if (!WATCH_BANNERISH.test(cls) || inChrome(t)) continue;
+          var tsig = watchSignature(t);
+          if (tsig && !seen["~" + tsig]) {
+            seen["~" + tsig] = true;
+            watched.push(tsig + "   (class changed — a toggled banner)");
+          }
+          continue;
+        }
         var added = records[i].addedNodes || [];
         for (var j = 0; j < added.length && watched.length < 40; j++) {
           var el = added[j];
@@ -844,7 +871,12 @@
         }
       }
     });
-    watchObserver.observe(document.body, { childList: true, subtree: true });
+    watchObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class"],
+    });
     setTimeout(function () {
       if (watchObserver) { watchObserver.disconnect(); watchObserver = null; }
     }, WATCH_MS);
