@@ -1566,8 +1566,16 @@ export const MARKETPLACE_EXTENSION_FLOW: Record<
   MarketplaceFlowStatus
 > = {
   poshmark: "live",
-  mercari: "verifying",
-  grailed: "verifying",
+  // 2026-08-11: verified against the live forms and switched on in
+  // extension-unified/lister/selectors.js. These two must move together with
+  // that file — the whole point of this map is that the badge cannot claim
+  // something the selectors do not do.
+  mercari: "live",
+  // Grailed lists but cannot auto-delist: its delete is confirmed by a NATIVE
+  // browser dialog, which nothing in a page can answer. The seller gets a
+  // pending-delist reminder instead, and chose that trade knowingly. "Ready to
+  // list" is the honest badge for exactly what it does.
+  grailed: "live",
   vinted: "verifying",
   facebook: "verifying",
 };

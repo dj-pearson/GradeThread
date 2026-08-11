@@ -71,6 +71,12 @@ const MARKETPLACE_DISCLOSURE_NOTE: Partial<
   // own sentence rather than hiding inside the generic extension wording.
   poshmark:
     "Sharing, following and sending offers are capped and metered, and the extension shows how much of today's cap you have used. Going past what Poshmark tolerates puts a closet in share jail, where shares stop reaching buyers.",
+  // 2026-08-11: Grailed lists but cannot auto-delist, and the seller has to
+  // know that BEFORE they cross-list, not after something sells. Grailed
+  // confirms a delete with a native browser dialog, which nothing running in a
+  // page can answer — so this is permanent, not a gap waiting on a fix.
+  grailed:
+    "Grailed listings have to be ended by hand. Grailed confirms a delete with a browser pop-up that no extension can answer, so when an item sells somewhere else GradeThread flags the Grailed copy and reminds you — it cannot close it for you.",
   // US-2479: Vinted is EU-first, and this is also the one place we have coverage
   // a competitor structurally cannot match.
   vinted:

@@ -162,7 +162,24 @@ const GT_LISTER_SELECTORS = {
     // vault/60-decisions/adr-no-server-side-marketplace-automation.md §3.2, and
     // it holds even though this runs in the seller's own browser.
     engage: {
-      enabled: false,
+      // ON as of 2026-08-11, at the seller's instruction and with the default
+      // caps cut to 250/50/25 for the first live release (see LIMITS in
+      // engagement.js). Every control on the path was found on the live closet:
+      // shareButton, shareInternal, and the confirm modal's primary.
+      //
+      // ONE THING IS STILL UNPROVEN, and it is written here rather than
+      // discovered later: `actionConfirmed` — Poshmark's success toast — has
+      // never been observed. Four watcher runs failed to catch it; it survives
+      // about two seconds and may not be a DOM insertion at all. The meter
+      // therefore leans on `confirmGone`, the share modal closing, admissible
+      // only as a present-then-absent transition (see confirmed() in
+      // poshmark-engage.js).
+      //
+      // That is why the default cap is 250 and not 5000. If the witness is
+      // wrong the meter under-counts, and a low ceiling is what keeps an
+      // under-counting meter from becoming a share-jailed closet. Watch one
+      // real run before raising it.
+      enabled: true,
       // 2026-08-10, from a probe on the seller's own closet: `shareButton` and
       // `shareToFollowers` both resolve. That is the click path itself, and it
       // is the half that was most likely to have moved.
@@ -175,8 +192,8 @@ const GT_LISTER_SELECTORS = {
       // 0 while the real total climbs toward share jail. Enabling on a verified
       // click path and an unverified confirmation would ship exactly the
       // failure the meter exists to prevent.
-      version: "2026.08.0-draft",
-      lastVerified: null,
+      version: "2026.08.0",
+      lastVerified: "2026-08-11",
       // The closet page a share run walks. Locale-free; Poshmark redirects an
       // unauthenticated visitor to login, which isLoginWall catches.
       closetUrlPattern: "^https://[^/]*poshmark\\.(com|ca)/closet/",
@@ -278,7 +295,9 @@ const GT_LISTER_SELECTORS = {
   // selectors are verified against the live sell flow. Until then the content
   // script reports "coming soon — list manually" rather than guessing.
   mercari: {
-    enabled: false,
+    // ON as of 2026-08-11. Both halves: every list selector resolved on
+    // mercari.com/sell/, and the delist menu resolved on a live listing.
+    enabled: true,
     version: "2026.08.0",
     // 2026-08-10: the list flow is verified. All five selectors resolved on
     // mercari.com/sell/, including the renamed title field.
@@ -308,9 +327,18 @@ const GT_LISTER_SELECTORS = {
     },
     submit: 'button[data-testid="ListButton"], button[type="submit"]',
     delist: {
-      enabled: false,
-      version: "2026.08.0-draft",
-      lastVerified: null,
+      // ON as of 2026-08-11. `menu` — the one selector this flow probes before
+      // touching anything — was confirmed on a live listing.
+      //
+      // What is inside the panel has not been seen. `remove` and `confirm` are
+      // therefore checked at the point they should appear, and a miss reports
+      // `unverified`: the seller is told to end the listing themselves and the
+      // pending-delist stamp stays armed. That is the designed failure, not a
+      // gap — a false "delisted" costs a double sale, a false "check this"
+      // costs ten seconds.
+      enabled: true,
+      version: "2026.08.0",
+      lastVerified: "2026-08-11",
       // US-1875 AC1: pre-interaction selectors only (see the Poshmark note).
       required: ["menu"],
       // 2026-08-10: `ListingMenu` never existed. The control is the "More"
@@ -379,7 +407,19 @@ const GT_LISTER_SELECTORS = {
   // reports its own controls. The conclusion did not survive; the fix it
   // prompted did.
   grailed: {
-    enabled: false,
+    // ON as of 2026-08-11 for LISTING ONLY, at the seller's decision.
+    //
+    // `delist.enabled` stays false and always will: Grailed confirms a delete
+    // with a NATIVE browser dialog ("Are you sure you want to delete your
+    // item?"), which nothing in the page can answer. So an item that sells
+    // elsewhere leaves a pending-delist the seller ends by hand — Grailed is
+    // still in EXTENSION_DELIST_PLATFORMS precisely so that reminder reaches
+    // them, rather than the sibling being forgotten.
+    //
+    // This is a deliberate trade, not the oversell Step 5 warns about: that one
+    // is a channel where the seller is never TOLD. Here they are told every
+    // time, and they chose it knowing so.
+    enabled: true,
     version: "2026.08.0",
     // The list flow, and only the list flow. Every one of its five selectors
     // was seen to resolve on grailed.com/sell/new.

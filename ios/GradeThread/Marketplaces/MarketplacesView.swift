@@ -226,6 +226,12 @@ struct MarketplacesView: View {
             switch id {
             case "poshmark":
                 return "Sharing, following and sending offers are capped and metered, and the extension shows how much of today's cap you have used. Going past what Poshmark tolerates puts a closet in share jail, where shares stop reaching buyers."
+            case "grailed":
+                // 2026-08-11: permanent, not a gap awaiting a fix. Grailed
+                // confirms a delete with a native browser dialog, which nothing
+                // running in a page can answer. The seller has to know before
+                // they cross-list, not after something sells.
+                return "Grailed listings have to be ended by hand. Grailed confirms a delete with a browser pop-up that no extension can answer, so when an item sells somewhere else GradeThread flags the Grailed copy and reminds you \u{2014} it cannot close it for you."
             case "vinted":
                 return "Vinted is EU-first. The flow runs on the country domains the extension covers and reports \u{201C}list manually\u{201D} on any other rather than guessing at a form it has not seen."
             case "facebook":

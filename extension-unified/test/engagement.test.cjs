@@ -109,11 +109,23 @@ const SELECTORS = load("lister/selectors.js", "GT_LISTER_SELECTORS");
 
 // ── 1. The absolute ceiling cannot be raised ───────────────────────────────
 //
-// AC3: a hard daily ceiling defaulting to 5000 shares, with an absolute cap
-// below 9500 the seller CANNOT raise. The absolute sits below the point sellers
-// report as the edge of Poshmark's tolerance, and the gap is the margin — a cap
-// the seller can push to the exact edge is not a safety limit.
-assert.strictEqual(E.LIMITS.share.default, 5000, "the default share cap must be 5000 (AC3)");
+// AC3: a hard daily ceiling with an absolute cap below 9500 that the seller
+// CANNOT raise. The absolute sits below the point sellers report as the edge of
+// Poshmark's tolerance, and the gap is the margin — a cap the seller can push to
+// the exact edge is not a safety limit.
+//
+// The DEFAULT is a different question, and the test now asserts the property
+// rather than the number. AC3 named 5000 when nothing had ever run; it dropped
+// to 250 for the first live release, because a default is what happens to a
+// seller who turns this on and changes nothing, on a feature whose confirmation
+// signal has never been seen working in production. Pinning the literal here
+// would mean a deliberate, reasoned reduction fails the build — a guard that
+// punishes caution is a guard that gets deleted.
+assert.ok(
+  E.LIMITS.share.default > 0 && E.LIMITS.share.default <= 5000,
+  `the default share cap is ${E.LIMITS.share.default}; it must be positive and ` +
+    "no higher than the 5000 AC3 set as the ceiling for a default (AC3)",
+);
 assert.ok(
   E.LIMITS.share.absolute < 9500,
   `the absolute share cap is ${E.LIMITS.share.absolute}; it must sit BELOW 9500 — ` +
