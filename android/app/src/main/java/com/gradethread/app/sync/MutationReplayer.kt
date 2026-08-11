@@ -16,6 +16,8 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.longOrNull
 import javax.inject.Inject
+import com.gradethread.app.platform.net.EdgeApi
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -44,6 +46,8 @@ class MutationReplayer @Inject constructor(
     private val client: SupabaseClient,
     private val db: GradeThreadDb,
     private val queue: OfflineMutationQueue,
+    /** US-2413: the one queued mutation that is an edge call, not a table write. */
+    @Named("shared") private val edge: EdgeApi,
 ) {
 
     /** Active workspace, else self — matching every other tenant-scoped write. */
@@ -106,6 +110,11 @@ class MutationReplayer @Inject constructor(
                         write.userId?.let { eq("user_id", it) }
                     }
                 }
+
+            // US-2413: the edge scopes this to the caller's workspace itself,
+            // reading the tenant from the token — so unlike the table writes
+            // above there is no owner to re-stamp here.
+            is MutationReplayPlan.Write.EdgePost -> edge.postRaw(write.path, write.body.toString())
         }
 
         mirrorLocally(mutation)
@@ -164,6 +173,10 @@ object MutationReplayPlan {
 
     const val SALES = "sales"
 
+    /** US-2413: mirrors AspectWriteBackService.PATH; kept here so the pure
+     *  planner does not have to reach into an inventory service. */
+    const val ASPECT_WRITE_BACK_PATH = "/api/flipdesk/ebay/aspects/write-back"
+
     sealed interface Write {
         /**
          * Upsert rather than insert, deliberately.
@@ -185,6 +198,15 @@ object MutationReplayPlan {
         ) : Write
 
         data class Delete(val table: String, val id: String, val userId: String?) : Write
+
+        /**
+         * US-2413: a queued POST to the edge, replayed verbatim.
+         *
+         * The payload IS the original request body, so replaying it is the same
+         * call the phone would have made when it had signal — no reconstruction,
+         * nothing to get wrong a second time.
+         */
+        data class EdgePost(val path: String, val body: JsonObject) : Write
     }
 
     /** Local-row hints for the photo case, read by the caller (IO, not pure). */
@@ -255,6 +277,9 @@ object MutationReplayPlan {
                 ?: terminal("Queued mark-shipped has no patch object")
             Write.Update(SALES, requireId(body, mutation, "mark shipped"), patch, owner)
         }
+
+        MutationKind.EBAY_ASPECT_WRITE_BACK.wire ->
+            Write.EdgePost(ASPECT_WRITE_BACK_PATH, decode(mutation))
 
         // CREATE_SALE / CREATE_LISTING / REVISE_LISTING have no enqueue site yet
         // (no Android surface creates them). Terminal rather than retried:

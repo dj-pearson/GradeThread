@@ -1625,7 +1625,7 @@
     },
     {
       "id": "US-2413",
-      "passes": false,
+      "passes": true,
       "title": "Android: eBay aspects write-back never runs, so specifics edits stay local",
       "description": "As an Android reseller, I want the item specifics I edit on the phone to reach eBay and my item record, so that a live listing does not keep the values I already corrected.",
       "acceptanceCriteria": [
@@ -1635,7 +1635,8 @@
         "A failed write-back is retried through the existing sync queue rather than dropped, and the item is not shown as synced until the server confirms",
         "Unit tests cover the append case and the failure-requeue case; Android CI green"
       ],
-      "priority": 2385
+      "priority": 2385,
+      "notes": "DONE 2026-08-11. Runs after the item row itself lands, not before: the endpoint READS that row to decide what to change, so calling it first would fold the edits into a version the server has not seen. Skipped entirely when the specifics did not change, because it is a write and re-asserting an unchanged map on every price edit is a round trip and an audit row for nothing. AC3 note on where append actually lives: the edges reverseColumnAspects handles COLUMNS only and takes values[0] by design (brand/size/color/material/style are single-entry). The multi-value half is the servers reverseProjectAspectColumns attribute branch (entry.multi ? values : [values[0]]), so the CLIENTS obligation is to send the whole list and let the registry decide - a client that sent values[0] would silently turn a three-value Features specific into a one-value one, and the loss would only surface on the live listing. Test-pinned. Provenance is sent too and is not cosmetic: the server refuses to write back anything that is not manual or ai_extracted, which is what stops a value the items own column derived from being written straight back onto that column in a loop. AC4 needed a genuine extension: every queued mutation until now was a Supabase table write, and this one cannot be - the aspect-to-column mapping lives in the servers registry, and a phone computing the patch itself would be a second mapping table free to drift from the one publish reads. So MutationReplayPlan.Write gained EdgePost, replayed VERBATIM from the stored bytes (nothing to get wrong a second time), and MutationReplayer now injects the shared EdgeApi. A 4xx is not queued - it refuses identically on every retry and would only fill the inspector. queuedOffline stays true while a write-back is pending, so the canvas keeps saying waiting to sync rather than claiming the row is finished while Brand has not reached its column. Verified locally: testDebugUnitTest, lintDebug (0 errors, 168 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats and no-ungated-log all OK."
     },
     {
       "id": "US-2414",

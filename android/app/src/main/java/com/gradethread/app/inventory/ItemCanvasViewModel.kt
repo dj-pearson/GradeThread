@@ -40,6 +40,8 @@ class ItemCanvasViewModel @Inject constructor(
     private val aspectSpecs: AspectSpecService,
     /** US-2411: listing copy and aspect extraction. Both propose only. */
     private val listingAi: ListingCopyService,
+    /** US-2413: fold specifics edits back into the item's own columns. */
+    private val aspectWriteBack: AspectWriteBackService,
     // US-2481: queue a cross-list for the desktop extension from the phone.
     private val extensionQueue: com.gradethread.app.marketplaces.ExtensionQueueRepository,
 ) : ViewModel() {
@@ -406,10 +408,18 @@ class ItemCanvasViewModel @Inject constructor(
                     }
                 }
             }.onSuccess {
+                // US-2413: only after the row itself landed. The write-back
+                // reads that row to decide what to change, so running it first
+                // would fold the edits into a version of the item the server
+                // has not seen.
+                val queued = writeBackAspects(itemId, current)
                 _state.value = _state.value.copy(
                     saving = false,
                     original = _state.value.draft,
                     savedAtLeastOnce = true,
+                    // The item is not claimed as fully synced while a
+                    // write-back is still waiting in the queue.
+                    queuedOffline = queued,
                 )
             }.onFailure { error ->
                 if (OfflineMutationQueue.shouldEnqueue(error)) {
@@ -433,6 +443,44 @@ class ItemCanvasViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    /**
+     * US-2413: fold the specifics into the item's own columns.
+     *
+     * Returns true when the call did not land and was queued instead, so the
+     * canvas can keep saying "waiting to sync" rather than claiming a row is
+     * finished while Brand still has not reached its column.
+     *
+     * Skipped entirely when the specifics did not change: the endpoint is a
+     * write, and re-asserting an unchanged map on every price edit is a round
+     * trip and an audit row for nothing.
+     */
+    private suspend fun writeBackAspects(itemId: String, before: State): Boolean {
+        val draft = _state.value.draft
+        if (draft.aspects == before.original.aspects &&
+            draft.aspectSources == before.original.aspectSources
+        ) {
+            return false
+        }
+        val result = runCatching {
+            aspectWriteBack.writeBack(itemId, draft.aspects, draft.aspectSources)
+        }
+        val error = result.exceptionOrNull() ?: return false
+        if (!OfflineMutationQueue.shouldEnqueue(error)) {
+            // A refusal the server means (a 4xx) will not become true on a
+            // retry, so queueing it would only fill the inspector.
+            return false
+        }
+        queue.enqueue(
+            kind = MutationKind.EBAY_ASPECT_WRITE_BACK,
+            targetId = itemId,
+            payload = AspectWriteBackService
+                .payload(itemId, draft.aspects, draft.aspectSources)
+                .toString()
+                .toByteArray(),
+        )
+        return true
     }
 
     /** Put the local row back the way it was, and say why. */

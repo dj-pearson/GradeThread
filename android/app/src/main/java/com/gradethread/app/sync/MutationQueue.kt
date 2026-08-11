@@ -229,4 +229,14 @@ enum class MutationKind(val wire: String) {
 
     /** US-1377: `shipped_at` (+ tracking) stamped on a sale while offline. */
     MARK_SHIPPED("markShipped"),
+
+    /**
+     * US-2413: fold specifics edits back into the item's own columns.
+     *
+     * The only queued mutation that is an EDGE CALL rather than a table write.
+     * It has to be: the aspect-to-column mapping lives in the server's registry,
+     * and a phone that computed the patch itself would be a second mapping
+     * table free to drift from the one publish reads.
+     */
+    EBAY_ASPECT_WRITE_BACK("ebayAspectWriteBack"),
 }
