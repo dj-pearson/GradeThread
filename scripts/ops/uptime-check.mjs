@@ -76,6 +76,27 @@ const TARGETS = [
     name: "Edge readiness (database)",
     url: `${EDGE_URL}/health/ready`,
     ok: (status) => status === 200,
+    // US-2447: read the host hang-watchdog's state and report it, WITHOUT
+    // letting it fail the target.
+    //
+    // The watchdog is the only thing that ends an edge hang, it lives on the
+    // host, and until now nothing outside SSH could say whether it was still
+    // installed — so the answer only ever arrived during an outage, which is
+    // exactly when nobody can go and check. This is a note, not a check,
+    // because it will read "unconfigured" on any host that has not installed
+    // scripts/ops/edge-watchdog.sh yet: paging on that would mean an alert
+    // firing every ten minutes forever, and a muted monitor is worse than none.
+    // It surfaces in the run log always, and in the incident issue body — which
+    // is the moment "was the watchdog even running?" is the first question.
+    bodyNote: (bodyText) => {
+      try {
+        const state = JSON.parse(bodyText)?.checks?.features?.hostWatchdog;
+        if (typeof state !== "string" || state === "ok") return null;
+        return `hostWatchdog: ${state}`;
+      } catch {
+        return null;
+      }
+    },
   },
   {
     // Kong fronts GoTrue and requires an apikey for /auth/v1/health. With the
@@ -103,13 +124,16 @@ async function probe(target) {
     const latency = Date.now() - started;
     // Read the body only when a target asserts on it (e.g. the SPA-shell check);
     // otherwise just drain so the runner doesn't hold sockets open.
-    const needsBody = typeof target.bodyOk === "function";
+    const needsBody = typeof target.bodyOk === "function" || typeof target.bodyNote === "function";
     const bodyText = needsBody ? await res.text() : (await res.arrayBuffer().catch(() => {}), null);
     const statusOk = target.ok(res.status);
-    const bodyOk = needsBody ? target.bodyOk(bodyText ?? "") : true;
+    const bodyOk = typeof target.bodyOk === "function" ? target.bodyOk(bodyText ?? "") : true;
+    // A note never contributes to `up` — see the bodyNote comment on edge_ready.
+    const note = typeof target.bodyNote === "function" ? target.bodyNote(bodyText ?? "") : null;
     return {
       ...target,
       up: statusOk && bodyOk,
+      note,
       httpStatus: res.status,
       latency,
       // Distinguish a clean status failure from a 200-with-wrong-body (soft 404).
@@ -131,7 +155,10 @@ async function probe(target) {
 function describe(r) {
   const state = r.up ? "UP" : "DOWN";
   const detail = r.error ?? `HTTP ${r.httpStatus}`;
-  return `${r.name}: ${state} (${detail}, ${r.latency}ms) — ${r.url}`;
+  // US-2447: the note rides along on both the healthy and the failing line. On
+  // the failing one it answers the question an edge-hang incident opens with.
+  const note = r.note ? ` [${r.note}]` : "";
+  return `${r.name}: ${state} (${detail}, ${r.latency}ms)${note} — ${r.url}`;
 }
 
 // ── GitHub issue channel (uses the workflow's GITHUB_TOKEN) ─────────────────

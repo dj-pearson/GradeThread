@@ -12,9 +12,13 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { summarizeReadiness, summarizeSchema, releaseReadiness } = await import(
-  "../routes/health.ts"
-);
+const {
+  summarizeReadiness,
+  summarizeSchema,
+  releaseReadiness,
+  watchdogReadiness,
+  WATCHDOG_STALE_AFTER_MS,
+} = await import("../routes/health.ts");
 
 Deno.test("ready when DB is up and no env is missing", () => {
   const s = summarizeReadiness(true, []);
@@ -187,4 +191,63 @@ Deno.test("US-2001: a degraded release NEVER flips the service to not_ready", ()
   assertEquals(s.httpStatus, 200);
   assertEquals(s.body.status, "ready");
   assert(String(s.body.features?.release).startsWith("unattributable:"));
+});
+
+// ── US-2447: the host hang-watchdog feature entry ──────────────────────────
+//
+// The watchdog is the only thing that ends an edge hang (`restart:
+// unless-stopped` fires on process EXIT and a hang never exits), it lives on the
+// host, and until this entry existed nothing off-host could say whether it was
+// still installed. The 2026-08-09 occurrence ran at least ~8 minutes against a
+// documented ~60s cap with no way to tell late from absent.
+
+const NOW = 1_800_000_000_000;
+
+Deno.test("US-2447: a null heartbeat reports unconfigured, not ok", () => {
+  // This is what prod will say until an operator installs the script, and
+  // saying so is the entire point — the true state today IS unknown, and the
+  // silence it replaces was the bug.
+  const r = watchdogReadiness(null, NOW);
+  assert(r.startsWith("unconfigured:"), r);
+  assert(r.includes("edge-watchdog.sh"), "must name what to install");
+});
+
+Deno.test("US-2447: a garbage or zero timestamp is unconfigured, never ok", () => {
+  // The value comes from a jsonb column. A 0 or a NaN reading as "fresh" would
+  // report a watchdog that has never run as healthy, which is the one direction
+  // this check must not fail in.
+  for (const bad of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert(
+      watchdogReadiness(bad, NOW).startsWith("unconfigured:"),
+      `${bad} must not read as a heartbeat`,
+    );
+  }
+});
+
+Deno.test("US-2447: a recent heartbeat is ok, an old one names its age", () => {
+  assertEquals(watchdogReadiness(NOW - 60_000, NOW), "ok");
+  assertEquals(watchdogReadiness(NOW - WATCHDOG_STALE_AFTER_MS, NOW), "ok");
+  const stale = watchdogReadiness(NOW - WATCHDOG_STALE_AFTER_MS - 60_000, NOW);
+  assert(stale.startsWith("stale:"), stale);
+  assert(stale.includes("16m"), `must state the age, got: ${stale}`);
+});
+
+Deno.test("US-2447: a heartbeat from the future is clock skew, not a third verdict", () => {
+  // The question is "did something check in recently". It did. Inventing a
+  // "skewed" state here would put a second failure mode in front of an operator
+  // who is trying to answer a yes/no.
+  assertEquals(watchdogReadiness(NOW + 3_600_000, NOW), "ok");
+});
+
+Deno.test("US-2447: a missing watchdog NEVER flips the service to not_ready", () => {
+  // Same trade as the release entry above, and the sharper version of it:
+  // pulling the edge out of rotation to protest a missing safety net would
+  // cause the outage the safety net exists to shorten.
+  const s = summarizeReadiness(true, [], {
+    hostWatchdog: watchdogReadiness(null, NOW),
+  });
+  assert(s.ready, "a missing safety net must not take the container down");
+  assertEquals(s.httpStatus, 200);
+  assertEquals(s.body.status, "ready");
+  assert(String(s.body.features?.hostWatchdog).startsWith("unconfigured:"));
 });

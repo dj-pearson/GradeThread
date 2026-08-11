@@ -7,7 +7,10 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - services/edge-functions/src/middleware/access-log.ts
-reviewed: 2026-08-10
+  - scripts/ops/edge-watchdog.sh
+  - scripts/ops/host-schedules.json
+  - services/edge-functions/src/routes/jobs-watchdog-heartbeat.ts
+reviewed: 2026-08-11
 tags: [edge, incident, outage, ops]
 summary: Two edge failure modes with opposite signatures — a dying process that restarts itself, and a live process that never will. Telling them apart is the whole job; the hang recurred 2026-08-09 and ran far longer than the watchdog is meant to allow.
 ---
@@ -66,17 +69,49 @@ and restart on unhealthy.
 
 > [!warning] The ~60s cap is UNVERIFIED, and the one measurement we have
 > contradicts it (US-2447 AC4)
-> This paragraph used to state the cap as fact. It is not established. The
-> watchdog script lives only on the host — it is not in this repo, and
-> `CRON_REGISTRY` has no entry for it — so **nothing in the checkout can tell
-> you whether it is still installed, still on cron, or still working.** Its
-> absence is detectable only by an outage.
+> This paragraph used to state the cap as fact. It is not established.
 >
 > The single measured occurrence (below, 2026-08-09) ran **at least ~8 minutes**.
 > Treat ~60s as a design intention, not a number to plan recovery against, until
 > an operator has confirmed the script is present and induced an unhealthy
 > container to time it. Anything downstream that assumes a one-minute ceiling —
 > an SLO, a retry budget, a status-page promise — is resting on this sentence.
+
+### The script is in the repo now, and it reports in (US-2447 AC3)
+
+The sentence this section used to carry — *"nothing in the checkout can tell you
+whether it is still installed"* — was true and is the reason the 2026-08-09
+outage could not be explained. Three states looked identical from outside: the
+watchdog fired late, the watchdog failed, the watchdog was uninstalled months
+ago. The only thing that ever reported the answer was the next outage, which is
+the moment nobody can go and look.
+
+| Piece | Where |
+|---|---|
+| The script | `scripts/ops/edge-watchdog.sh` |
+| Its schedule, as data | `scripts/ops/host-schedules.json` |
+| Its check-in | `POST /api/jobs/watchdog-heartbeat` (job-secret gated) |
+| What it reports as | `GET /health/ready` → `checks.features.hostWatchdog` |
+| Who reads that | `scripts/ops/uptime-check.mjs`, from GitHub runners |
+
+**Prod will report `unconfigured` until an operator installs it**, and that is
+the correct output rather than a rollout wart: the true state today *is* unknown,
+and an entry saying so is strictly better than the silence it replaces. Install
+with `install -m 0755` to the path above plus the exact `crontabLine` in the
+manifest; the script needs `FLIPDESK_INTERNAL_JOB_SECRET` in its environment or
+it runs fine and stays invisible here.
+
+**Two limits worth stating rather than discovering.** The heartbeat travels
+*through* the service the watchdog protects, so it cannot report during the very
+outage it exists to bound — it answers the steady-state question ("is the
+watchdog still installed?"), which is the one that was unanswerable. And it still
+does not verify the ~60s cap: that is a timing claim, and AC2 asks for it to be
+proven by inducing an unhealthy container on a non-production copy, not by
+reading a crontab.
+
+The feature entry is informational and **cannot** fail readiness. Gating `ready`
+on it would pull the edge — grading, payments, webhooks — out of rotation to
+protest a missing safety net, causing the outage the net exists to shorten.
 
 **The watchdog is a safety net, not a fix** — the spin itself is still unfixed.
 Do not let its existence retire this note.

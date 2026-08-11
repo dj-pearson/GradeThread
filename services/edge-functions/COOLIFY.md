@@ -227,6 +227,34 @@ Two probes (US-492):
   traffic-gating or deploy-gating readiness check; keep the restart probe on
   `/health`.
 
+### ⚠️ The healthcheck alone does NOT end an edge hang — install the watchdog (US-2447)
+
+Docker's `restart: unless-stopped` fires on process **exit**. An edge *hang* is
+the opposite: the Deno main thread spins, the process stays alive, Docker marks
+the container unhealthy, Traefik pulls it from the pool and serves
+`no available server` — indefinitely, because nothing ever exits. The full
+signature is in `vault/10-ops/edge-hang-vs-crash-loop.md`; it cost four weeks the
+first time and recurred on 2026-08-09 for at least ~8 minutes.
+
+The only thing that ends it is a host cron watchdog. It now lives in the repo:
+
+```bash
+install -m 0755 scripts/ops/edge-watchdog.sh /opt/gradethread/edge-watchdog.sh
+# crontab -e — this exact line (it is also in scripts/ops/host-schedules.json):
+* * * * * /opt/gradethread/edge-watchdog.sh >> /var/log/edge-watchdog.log 2>&1
+```
+
+The script needs `FLIPDESK_INTERNAL_JOB_SECRET` in its environment. Without it
+the restart half still works and the script becomes **invisible** — which was the
+whole problem: `/health/ready` reports `checks.features.hostWatchdog`, and that
+field is the only way to answer "is the watchdog still installed?" without
+logging into the host. Until you install it, prod correctly reports
+`unconfigured`.
+
+That entry is informational: a missing watchdog never fails readiness, because
+pulling the edge out of rotation to protest a missing safety net would cause the
+outage the safety net exists to shorten.
+
 ## Updating
 
 Pushing to the tracked branch triggers a Coolify rebuild + rolling restart.

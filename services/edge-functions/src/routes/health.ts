@@ -9,6 +9,8 @@ import {
   gradingBufferConcurrency,
   summarizeMemory,
 } from "../lib/grading-capacity.ts";
+import { getSetting } from "../lib/system-settings.ts";
+import { WATCHDOG_HEARTBEAT_KEY } from "./jobs-watchdog-heartbeat.ts";
 
 export const healthRoutes = new Hono();
 
@@ -121,6 +123,52 @@ export function releaseReadiness(release: string, env: string): string {
   return env === "production" ? detail : `${detail} [non-production]`;
 }
 
+// US-2447: how long a watchdog heartbeat stays credible. The script runs every
+// minute, so 15 makes a genuine gap unmistakable while absorbing a slow cron, a
+// container restart (which the watchdog itself causes) and the 30s
+// system-settings cache.
+export const WATCHDOG_STALE_AFTER_MS = 15 * 60_000;
+
+/**
+ * US-2447 AC3. Is the host hang-watchdog still checking in?
+ *
+ * THE BLIND SPOT THIS FILLS. `/opt/gradethread/edge-watchdog.sh` is the only
+ * thing that ends an edge hang — `restart: unless-stopped` fires on process
+ * EXIT and a hang never exits. It has always lived only on the host, so nothing
+ * in a checkout could tell whether it was still installed, and the sole way to
+ * find out was the next outage. On 2026-08-09 an outage ran at least ~8 minutes
+ * against a documented ~60s cap and there was no way to say why.
+ *
+ * "unconfigured" is the honest answer for a null, and it is what prod will
+ * report until an operator installs the script from `scripts/ops/`. That is the
+ * point rather than a rollout wart: today the true state IS unknown, and a
+ * feature entry saying so is strictly better than the silence it replaces.
+ *
+ * Informational only, for the same reason `release` is: taking the edge out of
+ * rotation — grading, payments, webhooks — to protest a missing safety net
+ * would cause the outage the safety net exists to shorten.
+ *
+ * Pure so it is unit-testable without a clock or a database.
+ */
+export function watchdogReadiness(
+  lastSeenMs: number | null,
+  nowMs: number,
+  staleAfterMs: number = WATCHDOG_STALE_AFTER_MS,
+): string {
+  if (lastSeenMs === null || !Number.isFinite(lastSeenMs) || lastSeenMs <= 0) {
+    return "unconfigured: no host watchdog has ever checked in — an edge hang " +
+      "would not be capped (install scripts/ops/edge-watchdog.sh, US-2447)";
+  }
+  const ageMs = nowMs - lastSeenMs;
+  // A heartbeat from the future means a clock skew, not health. Treat it as
+  // present rather than inventing a third verdict: the check is "did something
+  // report in recently", and it did.
+  if (ageMs <= staleAfterMs) return "ok";
+  const mins = Math.floor(ageMs / 60_000);
+  return `stale: last host-watchdog heartbeat ${mins}m ago (expected every ` +
+    `minute) — assume an edge hang would NOT be capped`;
+}
+
 // Pure decision (unit-tested) so the route's I/O stays trivial. `features` is
 // informational: overall readiness is still just DB + core env so a missing
 // optional integration can't take the container out of rotation.
@@ -229,6 +277,20 @@ healthRoutes.get("/ready", async (c) => {
     }
   }
 
+  // US-2447: last host-watchdog heartbeat. Best-effort like the schema read
+  // above, and for the same reason — a diagnostic must not be able to fail the
+  // probe. A read failure reports "unconfigured", which overstates the problem
+  // rather than understating it; that is the correct direction for a safety-net
+  // check.
+  let watchdogLastSeen: number | null = null;
+  if (dbOk) {
+    try {
+      watchdogLastSeen = await getSetting<number | null>(WATCHDOG_HEARTBEAT_KEY, null);
+    } catch {
+      watchdogLastSeen = null;
+    }
+  }
+
   const summary = summarizeReadiness(
     dbOk,
     missingEnv,
@@ -238,6 +300,12 @@ healthRoutes.get("/ready", async (c) => {
       // reports "ok" purely because the Sentry DSN is present — true, and
       // misleading, while every event it ships is tagged "dev".
       release: releaseReadiness(releaseSha(), edgeEnv()),
+      // US-2447: the only thing that ends an edge hang lives on the host and
+      // was invisible from here until now.
+      hostWatchdog: watchdogReadiness(
+        typeof watchdogLastSeen === "number" ? watchdogLastSeen : null,
+        Date.now(),
+      ),
     },
     summarizeSchema(EXPECTED_SCHEMA_VERSION, applied),
   );

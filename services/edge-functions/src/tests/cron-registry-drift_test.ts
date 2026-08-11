@@ -27,6 +27,35 @@ const COOLIFY = new URL("../../COOLIFY.md", import.meta.url);
 const CHECKLIST = new URL("../../../../vault/10-ops/launch-checklist.md", import.meta.url);
 const CRON_SETUP = new URL("../../CRON_SETUP.md", import.meta.url);
 
+// US-2447: /api/jobs/* endpoints that are NOT Coolify tasks.
+//
+// CRON_REGISTRY drives the operator docs — COOLIFY.md and launch-checklist.md
+// embed renderCronDocs() verbatim — so every entry reads as "create this task in
+// the Coolify UI". `/api/jobs/watchdog-heartbeat` is called by a HOST cron
+// (scripts/ops/edge-watchdog.sh, every minute); registering it would instruct
+// the operator to build a second, duplicate scheduler for it.
+//
+// THIS IS NOT A FREE EXEMPTION, and the assertion below is what stops it
+// becoming one: an exempted endpoint must appear in scripts/ops/host-schedules.json.
+// So the only thing it buys you is moving a route from one registry to the
+// other, which is the honest trade — it cannot make a route unregistered.
+const HOST_SCHEDULED_JOB_ROUTES = new Set([
+  "/api/jobs/watchdog-heartbeat",
+]);
+const HOST_SCHEDULES = new URL("../../../../scripts/ops/host-schedules.json", import.meta.url);
+
+Deno.test("US-2447: a host-scheduled job route is declared in the host manifest, not merely exempted", async () => {
+  const manifest = await Deno.readTextFile(HOST_SCHEDULES);
+  for (const path of HOST_SCHEDULED_JOB_ROUTES) {
+    assert(
+      manifest.includes(path),
+      `${path} is exempted from CRON_REGISTRY as host-scheduled but does not ` +
+        "appear in scripts/ops/host-schedules.json — so nothing records what " +
+        "schedules it, which is the blind spot both registries exist to close",
+    );
+  }
+});
+
 Deno.test("US-1561: every /api/jobs/* route in main.ts is registered (and none is stale)", async () => {
   const main = await Deno.readTextFile(MAIN_TS);
   const routed = new Set(
@@ -36,6 +65,7 @@ Deno.test("US-1561: every /api/jobs/* route in main.ts is registered (and none i
     CRON_REGISTRY.map((d) => d.endpoint).filter((e) => e.startsWith("/api/jobs/")),
   );
   for (const path of routed) {
+    if (HOST_SCHEDULED_JOB_ROUTES.has(path)) continue;
     assert(
       registered.has(path),
       `${path} is mounted in main.ts but missing from CRON_REGISTRY — ` +

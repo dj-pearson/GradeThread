@@ -1,0 +1,37 @@
+{
+  "$comment": [
+    "US-2447 AC3: HOST-level scheduled work, as data, so its absence is checkable from a checkout.",
+    "",
+    "SCOPE, stated so this is not mistaken for something bigger. This file covers only",
+    "schedules that run ON THE HOST, outside the edge service — things a `crontab -l` would",
+    "show and nothing in the repo otherwise knows about. The ~74 EDGE cron jobs (the",
+    "/api/jobs/* endpoints an operator wires up as Coolify tasks) are a different problem",
+    "with a different registry: CRON_REGISTRY in services/edge-functions/src/lib/ops-jobs.ts,",
+    "and US-2313 owns making THOSE verifiable. Adding them here would produce two",
+    "half-registries that disagree, which is the shape this repo keeps learning to avoid.",
+    "",
+    "'verifiable' says how a checkout can tell whether the entry is actually installed.",
+    "'heartbeat' means the job reports in and something serves the last-seen time;",
+    "'none' means it cannot be checked without SSH, which is a gap and should say so."
+  ],
+  "schedules": [
+    {
+      "id": "edge-watchdog",
+      "script": "scripts/ops/edge-watchdog.sh",
+      "installedAt": "/opt/gradethread/edge-watchdog.sh",
+      "cron": "* * * * *",
+      "crontabLine": "* * * * * /opt/gradethread/edge-watchdog.sh >> /var/log/edge-watchdog.log 2>&1",
+      "purpose": "Restart the edge container when Docker marks it unhealthy. `restart: unless-stopped` fires on process EXIT and an edge hang never exits, so this is the only thing that ends a hang.",
+      "verifiable": "heartbeat",
+      "heartbeat": {
+        "endpoint": "POST /api/jobs/watchdog-heartbeat",
+        "route": "/api/jobs/watchdog-heartbeat",
+        "settingKey": "ops.edge_watchdog_last_seen",
+        "reportedAt": "GET /health/ready -> checks.features.hostWatchdog",
+        "staleAfterMinutes": 15
+      },
+      "runbook": "vault/10-ops/edge-hang-vs-crash-loop.md",
+      "story": "US-2447"
+    }
+  ]
+}

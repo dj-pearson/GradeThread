@@ -163,6 +163,7 @@ import { handleNewsletterTopicBankRefillCron } from "./routes/jobs-newsletter-to
 import { handleNewsletterAbFinalizeCron } from "./routes/jobs-newsletter-ab.ts";
 import { handleNewsletterDispatchCron } from "./routes/jobs-newsletter-dispatch.ts";
 import { handleAbuseScanCron } from "./routes/jobs-abuse-scan.ts";
+import { watchdogHeartbeatHandler } from "./routes/jobs-watchdog-heartbeat.ts";
 import { handlePassportIntegrityScanCron } from "./routes/jobs-passport-integrity-scan.ts";
 import { handlePassportBackfillCron } from "./routes/jobs-passport-backfill.ts";
 import { handleListingPromptPromoteCron } from "./routes/jobs-listing-prompt-promote.ts";
@@ -1473,6 +1474,13 @@ app.post("/api/jobs/newsletter-dispatch", (c) => handleNewsletterDispatchCron(c)
 // cross-account phash photo-reuse + submission-velocity signals. Idempotent
 // (dedupe_key); the handler enforces X-Internal-Job-Secret itself.
 app.post("/api/jobs/abuse-scan", (c) => handleAbuseScanCron(c));
+// US-2447 host hang-watchdog check-in. NOT an edge cron — this is called BY the
+// host script scripts/ops/edge-watchdog.sh (installed at
+// /opt/gradethread/edge-watchdog.sh, every minute), which is the only thing
+// that ends an edge hang. Recording it makes the watchdog's ABSENCE visible via
+// /health/ready instead of only via the next outage. The handler enforces
+// X-Internal-Job-Secret itself.
+app.post("/api/jobs/watchdog-heartbeat", (c) => watchdogHeartbeatHandler(c));
 // US-1103 Garment Passport integrity scan — populates the integrity queue with
 // wear-reversal, duplicate-fingerprint-across-owners, rapid-reclaim and
 // token-replay anomalies. Idempotent (dedupe_key); the handler enforces
