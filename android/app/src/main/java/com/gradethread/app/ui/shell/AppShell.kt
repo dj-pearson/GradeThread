@@ -85,7 +85,17 @@ fun AppShell(
     // US-1314: inbound deep links (push/widget/App Links) drive navigation.
     LaunchedEffect(Unit) {
         DeepLinkController.shared.routes.collect { route ->
-            navController.navigate(route.toNavRoute()) { launchSingleTop = true }
+            val target = route.toNavRoute()
+            // US-1299: "Add item" is a SHEET, not a destination. The launcher
+            // long-press shortcut, its Assistant capability and the public
+            // /app/add link all resolve to the ADD route, and navigating there
+            // landed every one of them on a placeholder that said the feature
+            // was still coming. Three ways in, one dead end.
+            if (target == ShellSection.ADD.route) {
+                addSheetOpen = true
+            } else {
+                navController.navigate(target) { launchSingleTop = true }
+            }
         }
     }
 
@@ -235,10 +245,15 @@ private fun ShellNavHost(navController: NavHostController) {
                 onOpenItem = { itemId -> navController.navigate("item/$itemId") },
             )
         }
-        // Registered for deep links (US-1314 AddItem); the bar's Add button
-        // opens the method sheet instead of navigating here.
+        // US-1299: still registered so any route that reaches the NavHost
+        // resolves, but it renders NOTHING and pops straight back. "Add" is a
+        // choice of method, and there is no screen behind it — the two ways in
+        // (the bar button and a deep link) both open the sheet before they get
+        // here. What used to be here was a placeholder telling the seller the
+        // feature was still coming, which the launcher shortcut and the public
+        // /app/add link both walked into.
         composable(ShellSection.ADD.route) {
-            SectionPlaceholder(stringResource(R.string.shell_placeholder_add))
+            LaunchedEffect(Unit) { navController.popBackStack() }
         }
         // US-1342: the real inventory list replaces the placeholder.
         composable(ShellSection.INVENTORY.route) {

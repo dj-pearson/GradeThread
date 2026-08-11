@@ -1314,7 +1314,6 @@
     <string name="expense_note_optional">Nota (opcional)</string>
     <string name="expense_date_invalid">Usa AAAA-MM-DD.</string>
     <string name="grades_pending_review">Pendiente de revisión</string>
-    <string name="shell_placeholder_add">Agregar un artículo</string>
     <string name="shell_search">Buscar</string>
     <string name="shell_tools">Herramientas</string>
     <string name="shell_settings">Ajustes</string>

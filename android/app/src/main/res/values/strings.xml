@@ -1456,7 +1456,6 @@
     <string name="expense_note_optional">Note (optional)</string>
     <string name="expense_date_invalid">Use YYYY-MM-DD.</string>
     <string name="grades_pending_review">Pending review</string>
-    <string name="shell_placeholder_add">Add an item</string>
     <string name="shell_search">Search</string>
     <string name="shell_tools">Tools</string>
     <string name="shell_settings">Settings</string>

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2489",
+  "nextId": "US-2495",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -17,7 +17,7 @@
         "Phases A→I land in order; each child story is independently shippable behind the same auth/sync foundation",
         "No regression to web or iOS; edge/Supabase contracts are reused unchanged except the called-out backend deps"
       ],
-      "notes": "[P1][Android/Epic] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | 2026-08-06 parity audit (fresh, against the tree): DO NOT CLOSE. All children US-1300..1396 pass, but 'full feature parity' does not hold. AC1 PASSES - every named library is declared in android/gradle/libs.versions.toml AND imported by real code (Retrofit is the only omission and the AC says OkHttp/Retrofit). AC2 PASSES in code: POST /api/payments/google/verify (routes/google-play.ts:109, registered main.ts:1094), FCM branch in the push fan-out (lib/apns.ts:217-225, backed by migration 00320's platform CHECK), /.well-known/assetlinks.json (functions/.well-known/assetlinks.json.ts) - though assetlinks returns 503 until ANDROID_CERT_SHA256 is set on the Pages project, so App Links are not live. AC4 PASSES - no commit touching android/ also touched src/ or ios/. AC3 FAILS. Android calls 39 distinct edge endpoints to iOS's 79. Nine real gaps, now filed and set as dependsOn: US-2407 team management, US-2408 AutoLister sessions (ui/shell/AppShell.kt:521 still renders SectionPlaceholder and the Add sheet navigates there at :638), US-2409 eBay returns/cancellations/disputes, US-2410 Sheets import, US-2411 AI listing-copy + extract-aspects, US-2412 account export, US-2413 aspects write-back, US-2414 payout CSV import, plus the existing US-1576 (photo measurement) and US-2207 (DeleteReconciler has no production caller, so server-side deletes never reach Android). What exists is genuine - zero TODOs and only two placeholder destinations - it is just about half the surface. Close this when those ten pass, or rewrite the title and AC to the surface actually delivered.",
+      "notes": "[P1][Android/Epic] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | 2026-08-06 parity audit (fresh, against the tree): DO NOT CLOSE. All children US-1300..1396 pass, but 'full feature parity' does not hold. AC1 PASSES - every named library is declared in android/gradle/libs.versions.toml AND imported by real code (Retrofit is the only omission and the AC says OkHttp/Retrofit). AC2 PASSES in code: POST /api/payments/google/verify (routes/google-play.ts:109, registered main.ts:1094), FCM branch in the push fan-out (lib/apns.ts:217-225, backed by migration 00320's platform CHECK), /.well-known/assetlinks.json (functions/.well-known/assetlinks.json.ts) - though assetlinks returns 503 until ANDROID_CERT_SHA256 is set on the Pages project, so App Links are not live. AC4 PASSES - no commit touching android/ also touched src/ or ios/. AC3 FAILS. Android calls 39 distinct edge endpoints to iOS's 79. Nine real gaps, now filed and set as dependsOn: US-2407 team management, US-2408 AutoLister sessions (ui/shell/AppShell.kt:521 still renders SectionPlaceholder and the Add sheet navigates there at :638), US-2409 eBay returns/cancellations/disputes, US-2410 Sheets import, US-2411 AI listing-copy + extract-aspects, US-2412 account export, US-2413 aspects write-back, US-2414 payout CSV import, plus the existing US-1576 (photo measurement) and US-2207 (DeleteReconciler has no production caller, so server-side deletes never reach Android). What exists is genuine - zero TODOs and only two placeholder destinations - it is just about half the surface. Close this when those ten pass, or rewrite the title and AC to the surface actually delivered. | 2026-08-11 RE-AUDIT (fresh, against the tree, not against these notes). All TEN named dependencies now pass AND are reachable from the UI - each was checked for a call site and a navigation entry point, and none is shipped-but-unwired. The four literal ACs pass: AC1 (every named library declared in libs.versions.toml and imported by real code), AC2 (google/verify at google-play.ts:110 mounted main.ts:1095, the FCM branch at lib/apns.ts:217-225, assetlinks at functions/.well-known/ - still 503 until ANDROID_CERT_SHA256 is set on the Pages project, so verified App Links are not live), AC4 (the seven commits since 2026-08-01 touching android/ and src/ together are additive - a shared fixture and an extracted pure module, nothing removed). CORRECTION TO THE 2026-08-06 AUDIT: its 'Android calls 39 endpoints to iOS 79' was a RAW STRING-LITERAL count and undercounted Android by roughly 60 percent, because Android composes paths from constants. Re-measured with composed paths resolved transitively: Android 102 distinct endpoints, iOS 107. STILL DO NOT CLOSE AS TITLED - 'full feature parity' does not hold. Sixteen endpoints across six features have no Android caller, now filed as US-2489..US-2494 and set as dependsOn. FIXED IN PASSING 2026-08-11: the ADD route rendered a placeholder saying the feature was still coming, and THREE things reached it - the launcher long-press shortcut (shortcuts.xml:42-50), its Assistant capability (:26) and the public App Link https://gradethread.com/app/add (AndroidManifest.xml:133). Add is a sheet, not a destination; the deep-link collector now opens the sheet, and the registered route renders nothing and pops.",
       "dependsOn": [
         "US-1576",
         "US-2207",
@@ -28,7 +28,13 @@
         "US-2411",
         "US-2412",
         "US-2413",
-        "US-2414"
+        "US-2414",
+        "US-2489",
+        "US-2490",
+        "US-2491",
+        "US-2492",
+        "US-2493",
+        "US-2494"
       ]
     },
     {
@@ -2195,6 +2201,96 @@
       ],
       "priority": 34,
       "notes": "DONE 2026-08-10: written after four rounds of asking a human to share a listing, open the popup, tick a checkbox and press a button inside the two seconds a Poshmark toast survives. Every attempt came back describing a page the toast had already left. That is the wrong instrument, not a careless seller: arm it, close the popup, do the thing, come back. CLOSED 2026-08-10 after a per-criterion audit: all 7 met — common.js:850-863 (attributes only, no text path for any element type), :858 (id excluded so a per-toast id cannot defeat the dedupe), :924-926 (self-disarm timer as well as expiry). The audit also caught a stale user-facing number: the popup said \"Watch the page for 25s\" and fell back to 25000ms while WATCH_MS had been raised to 60000, so the button undersold the window and made sellers rush. Both fixed (popup.html, popup.js)."
+    },
+    {
+      "id": "US-2489",
+      "priority": 2387,
+      "passes": false,
+      "title": "Android: server-side payout reconciliation (queue, run, match, dismiss) is absent",
+      "description": "As an Android reseller, I want the server payout matcher and its review queue on my phone, so a deposit that does not line up can be matched or dismissed there rather than only at a computer.",
+      "acceptanceCriteria": [
+        "Android calls GET /api/flipdesk/reconciliation/queue, POST /run, POST /match and POST /dismiss/:id; there is currently no caller under android/ (grep for reconciliation/queue and reconciliation/match both return 0)",
+        "The existing LOCAL comparison in money/PayoutReconciliation.kt stays and is not duplicated: it is the offline view, the server queue is the review surface, and the screen says which is which",
+        "A row matched or dismissed on the phone does not reappear on the next pull",
+        "New strings go through stringResource, any new Compose file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "notes": "[P2][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Money/PayoutReconciliationService.swift:21,27,33,40. Web: src/hooks/use-payouts.ts:93,126,158. Edge mount: services/edge-functions/src/main.ts:1124. PayoutReconciliationViewModel.kt:18-23 states outright that the comparison is local-only and never touches the network - that is correct for the offline promise and is NOT the gap; the gap is that the server matcher has no phone surface at all.",
+      "dependsOn": []
+    },
+    {
+      "id": "US-2490",
+      "priority": 2388,
+      "passes": false,
+      "title": "Android: a published eBay listing cannot be repriced, revised or ended from the phone",
+      "description": "As an Android reseller, I want to change the price of a live listing, push an edit, or end it, so publishing from the phone is not a one-way door.",
+      "acceptanceCriteria": [
+        "Android calls POST /api/flipdesk/ebay/listings/:id/price, POST /listings/:id/revise and DELETE /listings/:id; today marketplaces/publish/EbayPublishService.kt:41-42 declares only VALIDATE_PATH and PUSH_PATH",
+        "The three actions are reachable from the surface that already shows a live listing, not from a new screen",
+        "inventory/BulkAction.kt:6-11 justifies its narrow action set with a claim that Android has no listing composer yet, which is stale - PublishSheet is wired at inventory/ItemCanvasScreen.kt:395. Correct or remove that comment in the same commit",
+        "An eBay refusal surfaces eBay's own message, and the local row is not left claiming a state the server never accepted",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "notes": "[P2][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Marketplaces/Publish/EbayPublishService.swift:90,138,233. Edge: flipdesk-ebay.ts:5011 (price), :6365 (revise), :6731 (end). The sharpest of the remaining gaps: Android can already publish, so a seller can put a listing live from the phone and then has no way to touch it again without a computer.",
+      "dependsOn": []
+    },
+    {
+      "id": "US-2491",
+      "priority": 2389,
+      "passes": false,
+      "title": "Android: the inventory equity card is missing from Money",
+      "description": "As an Android reseller, I want to see what my unsold stock is worth, so the Money tab answers the same question it answers on iOS and the web.",
+      "acceptanceCriteria": [
+        "Android calls GET /api/flipdesk/equity and GET /api/flipdesk/equity/trend; there is currently no caller under android/ (grep for equity returns 0)",
+        "The card sits on the Money surface next to the existing rollups, not on a screen of its own",
+        "New strings go through stringResource, any new Compose file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "notes": "[P3][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Money/InventoryEquityCard.swift:358,362, mounted MoneyView.swift:210. Web: src/components/flipdesk/inventory-equity-card.tsx:146,159. Edge mount: services/edge-functions/src/main.ts:1139.",
+      "dependsOn": []
+    },
+    {
+      "id": "US-2492",
+      "priority": 2390,
+      "passes": false,
+      "title": "Android: Sourcing Radar is absent entirely",
+      "description": "As an Android reseller, I want the venue map and my store list on the phone, so the feature that is most useful while I am standing in a shop is available on the device I have with me.",
+      "acceptanceCriteria": [
+        "Android calls GET /api/flipdesk/radar/venues, GET /radar/venues/:id and GET /radar/my-stores; today grep for radar under android/app/src/main returns 0 hits",
+        "Location handling reuses the permission pattern the capture flow already uses rather than introducing a second one",
+        "The personal scan log stays the seller's own data - it is covered by the account export (US-2412) and is not shared to the aggregate store by any path the seller did not choose",
+        "New strings go through stringResource, any new Compose file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "notes": "[P3][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Prospect/RadarService.swift:55,60,67, view RadarNearbyView.swift:17. Web: src/hooks/use-radar-network.ts:15-16. Edge mount: services/edge-functions/src/main.ts:1130. Note the privacy split the epic already documents: radar_personal_scans is subject data, and the shared event store deliberately has no account column.",
+      "dependsOn": []
+    },
+    {
+      "id": "US-2493",
+      "priority": 2391,
+      "passes": false,
+      "title": "Android: the Verified profile is read-only, so a handle cannot be set or changed",
+      "description": "As an Android seller, I want to edit my Verified profile and check whether a handle is free, so I am not sent to a browser to finish a profile the app already shows me.",
+      "acceptanceCriteria": [
+        "Android calls PUT /api/verified/profile and GET /api/verified/handle-available; verified/VerifiedService.kt:25-56 exposes profile() and cached() only",
+        "A handle already taken is reported before the save is attempted, not after it is refused",
+        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
+      ],
+      "notes": "[P3][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Verified/VerifiedService.swift:26,32. Web: src/hooks/use-verified.ts:114. Edge: services/edge-functions/src/routes/verified.ts:72. This is a METHOD-level gap a path scan cannot see - Android has the right path, GET only.",
+      "dependsOn": []
+    },
+    {
+      "id": "US-2494",
+      "priority": 2392,
+      "passes": false,
+      "title": "Three iOS-only endpoints have no owner on any other client",
+      "description": "As the team, we want derive-aspects, AI negotiate and the passport claim token either ported or recorded as deliberately iOS-only, so a reader does not keep rediscovering them as gaps.",
+      "acceptanceCriteria": [
+        "DECIDE FIRST, per endpoint: port to web and Android, or record as iOS-only with the reason. Do not default to whichever is less work",
+        "POST /api/flipdesk/ebay/category/:id/derive-aspects - deterministic, NO-AI aspect refill. Costs zero AI actions, which makes it the cheap sibling of the paid extraction US-2411 shipped on Android",
+        "POST /api/flipdesk/ai/negotiate - AI-drafted offer reply, used by the iOS negotiation inbox",
+        "POST /api/passport/garments/:id/claim-token - mints a buyer claim link",
+        "The decision is written into this story's notes so the next reader does not re-derive it"
+      ],
+      "notes": "[P3][Cross-platform] Filed 2026-08-11 from the US-1299 parity audit. All three are absent from WEB as well as Android, so these are iOS-ahead rather than Android-behind - which is why this is one story and not three parity stories. iOS refs: EbayAspectsService.swift:93 used by SpecificsEditorModel.swift:244; NegotiationDraftService.swift:61 used by NegotiationInboxView.swift:307,421; PassportService.swift:74. Edge: flipdesk-ebay.ts:1961, flipdesk-ai.ts:2026, main.ts:804.",
+      "dependsOn": []
     }
   ]
 }
