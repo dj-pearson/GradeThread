@@ -776,6 +776,81 @@
     return hits.concat(rest).slice(0, 120);
   }
 
+  // ── Watching for something that does not stay ─────────────────────────────
+  //
+  // WHY THIS EXISTS (US-2487). A success toast is the one control that cannot
+  // be described by looking at a page. Poshmark's "Shared" banner is gone in a
+  // couple of seconds, and the only way to catch it by hand is to share a
+  // listing, open the popup, tick a box and press a button inside that window.
+  // We asked for that four times and got four reports of a page it had already
+  // left — which is not the seller being careless, it is the wrong instrument.
+  //
+  // So: arm a watcher, go and do the thing, come back. The observer records
+  // what APPEARED while it ran, and the next report includes it. The seller's
+  // hands are free during the only moment that matters.
+  //
+  // Same privacy rule as everywhere else in this file, and it matters more
+  // here: a toast contains a SENTENCE, and that sentence can name a buyer or a
+  // listing. So a watched node is described by its attribute signature only —
+  // never its text, not even for buttons. `WATCH_MS` is short and the watcher
+  // disarms itself; nothing observes a marketplace page in the background.
+  var WATCH_MS = 25000;
+  var watched = [];
+  var watchUntil = 0;
+  var watchObserver = null;
+
+  function watchSignature(el) {
+    if (!el || el.nodeType !== 1 || inChrome(el)) return null;
+    var sig = el.tagName.toLowerCase();
+    var described = false;
+    PROBE_ATTRS.forEach(function (a) {
+      var v = el.getAttribute && el.getAttribute(a);
+      // `id` is skipped: a toast's id is generated per toast, so keeping it
+      // would make every appearance unique and defeat the dedupe.
+      if (!v || a === "id") return;
+      sig += "[" + a + "=\"" + String(v).slice(0, 60) + "\"]";
+      described = true;
+    });
+    return described ? sig : null;
+  }
+
+  function startWatch() {
+    watched = [];
+    watchUntil = Date.now() + WATCH_MS;
+    if (watchObserver) watchObserver.disconnect();
+    var seen = {};
+    watchObserver = new MutationObserver(function (records) {
+      if (Date.now() > watchUntil) { watchObserver.disconnect(); watchObserver = null; return; }
+      for (var i = 0; i < records.length && watched.length < 40; i++) {
+        var added = records[i].addedNodes || [];
+        for (var j = 0; j < added.length && watched.length < 40; j++) {
+          var el = added[j];
+          if (!el || el.nodeType !== 1) continue;
+          // The node itself, plus anything under it carrying a test attribute —
+          // a toast is usually a wrapper with the interesting name inside.
+          var candidates = [el];
+          if (el.querySelectorAll) {
+            var inner = el.querySelectorAll(
+              "[data-et-name], [data-test], [data-testid], [data-test-id], [role=alert]",
+            );
+            for (var k = 0; k < inner.length && k < 8; k++) candidates.push(inner[k]);
+          }
+          for (var c = 0; c < candidates.length && watched.length < 40; c++) {
+            var sig = watchSignature(candidates[c]);
+            if (!sig || seen[sig]) continue;
+            seen[sig] = true;
+            watched.push(sig);
+          }
+        }
+      }
+    });
+    watchObserver.observe(document.body, { childList: true, subtree: true });
+    setTimeout(function () {
+      if (watchObserver) { watchObserver.disconnect(); watchObserver = null; }
+    }, WATCH_MS);
+    return WATCH_MS;
+  }
+
   /**
    * Describe up to 12 controls of one kind as attribute signatures.
    *
@@ -829,6 +904,11 @@
   GT.registerProbe = function (sel, platformKey) {
     try {
       chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+        if (msg && msg.type === "GT_LISTER_WATCH") {
+          if (msg.platform && msg.platform !== platformKey) return false;
+          sendResponse({ ok: true, ms: startWatch() });
+          return false;
+        }
         if (!msg || msg.type !== "GT_LISTER_PROBE") return false;
         if (msg.platform && msg.platform !== platformKey) return false;
         var PROBE = self.GT_SELECTOR_PROBE;
@@ -849,6 +929,8 @@
             candidates: probeCandidates,
             // Set by the popup's "I have already opened the menu" checkbox.
             deep: Boolean(msg.deep),
+            // Whatever the watcher saw appear, if one was armed (US-2487).
+            appeared: watched.slice(0),
             at: new Date().toISOString().slice(0, 10),
           },
         );

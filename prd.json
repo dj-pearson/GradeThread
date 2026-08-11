@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2487",
+  "nextId": "US-2488",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2153,6 +2153,23 @@
       ],
       "priority": 34,
       "notes": "Chosen over the alternative (notify the seller to end it by hand) because half-automating the one step that causes double sales is what this feature exists to prevent. Poshmark is wired: menu is [data-et-name=edit_listing] and delete lives on /edit-listing/. The mechanism is complete but the flow is NOT verified — nobody has probed the edit page, so remove/confirm are still the pre-2026-08 guesses. Grailed needs its own investigation: a probe of a live listing found no owner control at all, so its delete is somewhere else entirely."
+    },
+    {
+      "id": "US-2487",
+      "passes": false,
+      "title": "Watch the page for a control that does not stay",
+      "description": "As the GradeThread team, we want the extension to record what APPEARS on a marketplace page over a short window, so that a transient control like a success toast can be identified at all — it is the one selector that cannot be found by looking at a page, because it is gone before anyone can look.",
+      "acceptanceCriteria": [
+        "A Watch control in the popup arms a MutationObserver in the page for a bounded window and reports the window length back",
+        "The next report lists what appeared, once for the page rather than per flow, and says nothing when nothing was watched",
+        "A watched node is described by its attribute signature ONLY — never its text, not even for buttons. A toast is a sentence that can name a buyer, a price or a listing",
+        "The id attribute is excluded from a watched signature: a per-toast id makes every appearance unique and defeats the dedupe",
+        "The watcher disarms itself on a timer as well as on the next mutation. Nothing observes a marketplace page in the background",
+        "Capped at 40 signatures so a busy SPA cannot fill the report",
+        "Held by extension-unified/test/selector-probe.test.cjs, which asserts the no-text rule against the source of watchSignature"
+      ],
+      "priority": 34,
+      "notes": "Written after four rounds of asking a human to share a listing, open the popup, tick a checkbox and press a button inside the two seconds a Poshmark toast survives. Every attempt came back describing a page the toast had already left. That is the wrong instrument, not a careless seller: arm it, close the popup, do the thing, come back."
     }
   ]
 }
