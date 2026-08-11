@@ -79,7 +79,7 @@ const GT_LISTER_SELECTORS = {
     // modal. Probed + fail-loud like the fill flow.
     delist: {
       enabled: true,
-      version: "2026.07.1",
+      version: "2026.08.0",
       // 2026-08-10: a probe of a live listing found no menu and no delete
       // anywhere outside the site header. What it DID find is
       // `[data-et-name="edit_listing"]` — Poshmark's delete lives behind that,
@@ -90,12 +90,17 @@ const GT_LISTER_SELECTORS = {
       // of opening a panel, and the run continues on the far side with the
       // stage recorded on the job first. See runDelistFlow.
       //
-      // STILL `lastVerified` at the old date and the flow is unproven: nobody
-      // has probed the edit page, so `remove` and `confirm` below are still the
-      // pre-2026-08 guesses. They fail loudly (`unverified`, which leaves the
-      // pending-delist stamp armed) rather than quietly, but a guess that fails
-      // loudly is still a guess. One deep probe of the edit page replaces both.
-      lastVerified: "2026-06-13",
+      // 2026-08-11: all three controls are now named from live evidence rather
+      // than guessed — `edit_listing` on the listing, `delete` on the editor,
+      // and a confirm that resolves in the editor's modal footer. The date
+      // moves with them.
+      //
+      // What is still unproven is the WHOLE CHAIN running end to end: nobody
+      // has watched a listing actually disappear. That is the one thing a
+      // probe cannot show, and it fails safe if it is wrong — no positive
+      // verification means `unverified`, which leaves the pending-delist stamp
+      // armed and asks the seller to check.
+      lastVerified: "2026-08-11",
       // The presence of this key is what turns `menu` from a panel-opener into
       // a link. Anchored on origin + path so a query string cannot satisfy it.
       navigatesTo: "^https://[^/]*poshmark\\.(com|ca)/edit-listing/",
@@ -107,8 +112,19 @@ const GT_LISTER_SELECTORS = {
       menu:
         '[data-et-name="edit_listing"], button[data-test="listing-menu"], ' +
         'button.listing__menu, [data-et-name="listing_options"]',
+      // 2026-08-11, from the listing editor's own test attributes: the control
+      // is `[data-et-name="delete"]`, sitting beside cancel, update, discard
+      // and save_draft. The three older selectors here were guesses and all
+      // three missed; they stay only as fallbacks for an older layout.
+      //
+      // `a[href*="delete"]` is deliberately LAST and deliberately kept narrow.
+      // It is the loosest thing in this file — on a page that happened to link
+      // anywhere containing the word, it would match — and it is only ever
+      // consulted after the editor has been reached and the named selectors
+      // have already failed.
       remove:
-        '[data-test="delete-listing"], [data-et-name="delete_listing"], a[href*="delete"]',
+        '[data-et-name="delete"], [data-test="delete-listing"], ' +
+        '[data-et-name="delete_listing"], a[href*="delete"]',
       // 2026-08-11: a probe of the listing editor found the confirm modal —
       // `[data-test="modal"]` with a `modal-footer` holding a plain "No" and
       // "Yes" pair. Neither carries a `data-et-name`, which is why every

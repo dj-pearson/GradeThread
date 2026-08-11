@@ -383,6 +383,14 @@ const matchNone = () => false;
     P.formatProbeReport({ platform: "poshmark", flows: [flowDeep] }),
   ), "a deep report must say so, or it reads as the ordinary one");
 
+  // Stated on EVERY flow, not only where it changed the output. The marker used
+  // to appear solely in the candidates header, so a run with the box unticked
+  // looked identical to one with it ticked that had nothing to add — and three
+  // rounds went by asking for a report that had already been sent without it.
+  assert.ok(/deep=off/.test(P.formatProbeReport({ platform: "p", flows: [flowShallow] })),
+    "a shallow run must SAY it was shallow, on a flow with nothing to report");
+  assert.ok(/deep=on/.test(P.formatProbeReport({ platform: "p", flows: [flowDeep] })));
+
   // And it stays OPT-IN. On an untouched page those controls SHOULD be missing,
   // and sweeping for them every time would dress a clean report as a broken one.
   const clean = P.probeFlow(SELECTORS.poshmark.delist, "delist", matchAll, { candidates: () => ["x"] });
