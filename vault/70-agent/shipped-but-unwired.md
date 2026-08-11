@@ -11,6 +11,8 @@ code_refs:
   - src/test/no-dead-column-writes.test.ts
   - src/components/waitlist-form.tsx
   - src/test/waitlist-capture-reachable.test.ts
+  - scripts/audit-unwired-exports.mjs
+  - scripts/check-unwired-modules.mjs
 reviewed: 2026-08-11
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
@@ -288,6 +290,51 @@ confident, not less.
 for does not exist. Before wiring one, check that its declared callers are real.
 And check the reverse too — `title-sync.ts` above was declared to have no
 possible caller, and by then it had one.
+
+## The detector was itself undetected (US-2495, 2026-08-11)
+
+Everything above was found by `scripts/audit-unwired-exports.mjs`. That script
+was executable, dated, and referenced by **nothing** — not `package.json`, not
+`scripts/verify.mjs`, not a single workflow. It ran when somebody remembered it
+existed, which over three weeks meant three times, and each of those three times
+it found a real defect.
+
+Its own header is why:
+
+> This is a REPORT, not a gate. Plenty of hits are legitimate — test-only reset
+> helpers, deliberate public API. Read it, don't CI-fail on it.
+
+Every clause of that is true, and together they produced a tool nobody read. **A
+report nobody is scheduled to read is indistinguishable from no report** — which
+is this note's own thesis, applied to the instrument that wrote it.
+
+`scripts/check-unwired-modules.mjs` is the fix, and it is a **wrapper rather than
+a stricter mode**, because the header's objection stands: most hits are
+legitimate, and a bare non-zero exit would be noise that gets muted inside a
+week. What is not legitimate is a *new* one arriving unnoticed. So every
+currently-dead module is allowlisted **with the verdict a human reached** —
+`SUPERSEDED` / `PENDING` / `HALF-WIRED`, the three the audit's own closing line
+says look identical in its output — and anything else fails, in `verify` and in
+CI both (verify-only is shed by `--no-verify`; US-2402 recorded that on the UI
+gate).
+
+**A thin reason is a failed reason, and the test that says so caught me.** My
+first entry for `grading-reliability.ts` read *"PENDING. Triaged 2026-07-19 and
+unchanged since."* The assertion rejected it, so I read the module instead of
+padding the string — and it is not PENDING at all. It is US-481's
+self-consistency math, correct and tested, whose feeder job was never built; and
+since US-2035 established that grading is *not* temperature-pinned on the default
+model, run-to-run variance is real and this module is the only thing that could
+measure it. The entry now says **allowlisted because US-2035 owns it, not because
+it is fine**. A one-word verdict would have buried that.
+
+**The gap this leaves, stated rather than scoped away.** The gate covers
+`services/edge-functions/src/lib` only. The three instances that prompted it were
+all on the *web* side — a React component and two hooks — and none of them would
+be caught by it. Components have a guard now
+(`src/test/waitlist-capture-reachable.test.ts`, US-2449); hooks have nothing, and
+`useFeatureFlag` (US-2361) and `useListingCopy` (US-2442) are both sitting there
+today.
 
 ## The habit this argues for
 

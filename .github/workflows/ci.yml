@@ -181,6 +181,14 @@ jobs:
       - name: UI anti-patterns
         if: ${{ !cancelled() }}
         run: node scripts/check-ui-antipatterns.mjs
+      # US-2495: an edge lib module whose tests pass while nothing imports it.
+      # Every hand-run sweep of the underlying audit found a real defect,
+      # including the unwired edge half of a P1 shipped feature (US-1995) — so
+      # it stops depending on someone remembering the script exists. Allowlisted
+      # modules carry the triage verdict a human already reached.
+      - name: Unwired edge modules
+        if: ${{ !cancelled() }}
+        run: node scripts/check-unwired-modules.mjs
       # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
       # if the entry/eager gz size regresses past budget, or if a heavy primitive
       # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides

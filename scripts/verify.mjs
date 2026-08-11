@@ -193,6 +193,10 @@ if (on("web")) {
   // rest against a recorded noise baseline. Runs here rather than as a bare
   // impeccable call so one noisy rule cannot block a deploy.
   run("web: UI anti-patterns (impeccable)", "node scripts/check-ui-antipatterns.mjs");
+  // US-2495: an edge lib module that NO production file imports. The audit
+  // behind this has found a real defect every time a human remembered to run
+  // it, which is why it now runs here instead of on memory.
+  run("web: unwired edge modules", "node scripts/check-unwired-modules.mjs");
   run("web: npm audit (high)", "npm audit --audit-level=high");
 }
 

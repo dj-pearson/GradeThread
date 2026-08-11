@@ -5,7 +5,8 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
-reviewed: 2026-08-10
+  - scripts/ops/edge-watchdog.sh
+reviewed: 2026-08-11
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
@@ -20,6 +21,14 @@ contract note.
 |---|---|---|
 | `api.gradethread.com` | Supabase (self-hosted), fronted by Kong | **Only** Supabase routes — REST, auth, storage, realtime |
 | `functions.gradethread.com` | Deno/Hono edge service on Coolify | **All** Hono routes: `/api/grade/*`, `/api/payments/*`, `/api/webhooks/*`, `/api/flipdesk/*`, `/api/jobs/*` (the crons) |
+
+> [!note] One `/api/jobs/*` endpoint is not called over the public host at all
+> `/api/jobs/watchdog-heartbeat` (US-2447) is called by the host watchdog script
+> from *inside* the box, so `scripts/ops/edge-watchdog.sh` defaults `EDGE_URL` to
+> `http://localhost:8787`. That is deliberate: the watchdog must keep working
+> when Traefik has pulled the backend out of the pool, which is precisely the
+> state it exists to end. It is the one caller that should NOT be pointed at
+> `functions.gradethread.com`.
 
 ## The failure mode
 
