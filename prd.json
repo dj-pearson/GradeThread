@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2486",
+  "nextId": "US-2487",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2135,6 +2135,24 @@
       ],
       "priority": 34,
       "notes": "Written from the first five real reports (2026-08-10). Three of them read \"everything missing\", which looks like three dead channels; the likeliest cause was a seller on a marketplace home page rather than its sell form, and the report could not distinguish those because it carried the host and not the path. The second half is the round-trip cost: a MISS said a selector broke but nothing about what replaced it, so every fix was a guess that needed another manual check to test."
+    },
+    {
+      "id": "US-2486",
+      "passes": false,
+      "title": "Delist across two pages, for the marketplaces that keep delete on a different page",
+      "description": "As a FlipDesk seller, I want GradeThread to end a Poshmark or Grailed listing even though the delete control lives on a separate page, so that an item sold elsewhere cannot stay purchasable on a channel just because its delete button is one click further away.",
+      "acceptanceCriteria": [
+        "A delist flow may declare navigatesTo; its presence means clicking the menu selector loads a page rather than opening a panel in place",
+        "The stage is recorded on the JOB before the link is followed — recording it after races the page unload, and a lost marker makes the far page click a link that is no longer there",
+        "A failed stage message aborts to manual rather than navigating untracked",
+        "The stage is one-way and idempotent: it can never be cleared, a repeat does not re-stamp it, and a terminal job never accepts one",
+        "Page one sends NO result — the job stays pending, exactly as the login-wall path does — and the deadline is extended to cover the page load",
+        "Page two checks the destination against navigatesTo (origin + pathname, never the query string) before clicking anything, and reports manual if it landed somewhere else",
+        "The far side keeps the full US-1875 contract: remove then confirm, then positive verification, with unverified leaving the pending-delist stamp armed",
+        "A platform declaring navigatesTo must also declare remove and confirm, and its pattern must not match a plain listing URL. Held by extension-unified/test/lister-selectors.test.cjs"
+      ],
+      "priority": 34,
+      "notes": "Chosen over the alternative (notify the seller to end it by hand) because half-automating the one step that causes double sales is what this feature exists to prevent. Poshmark is wired: menu is [data-et-name=edit_listing] and delete lives on /edit-listing/. The mechanism is complete but the flow is NOT verified — nobody has probed the edit page, so remove/confirm are still the pre-2026-08 guesses. Grailed needs its own investigation: a probe of a live listing found no owner control at all, so its delete is somewhere else entirely."
     }
   ]
 }
