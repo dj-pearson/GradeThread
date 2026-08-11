@@ -283,6 +283,11 @@ object MutationReplayPlan {
             put("id", JsonPrimitive(photoId))
             put("inventory_item_id", JsonPrimitive(itemId))
             put("photo_type", JsonPrimitive(body.string("photo_type") ?: "detail"))
+            // US-2488: only when the upload carried one. Writing an explicit
+            // null would be wrong on a REPLAY of an older queued row, which
+            // predates the column and never had a role to lose.
+            body.string("photo_role")?.takeIf { it.isNotBlank() }
+                ?.let { put("photo_role", JsonPrimitive(it)) }
             put("storage_path", JsonPrimitive(storagePath))
             put("sort_order", JsonPrimitive(body.int("sort_order") ?: hints?.sortOrder ?: 0))
             // The URL comes from the local row the worker already wrote, never

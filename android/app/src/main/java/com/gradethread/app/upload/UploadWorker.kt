@@ -13,6 +13,8 @@ import com.gradethread.app.sync.OfflineMutationQueue
 import com.gradethread.app.sync.db.DatabaseProvider
 import com.gradethread.app.sync.db.ItemPhotoEntity
 import io.github.jan.supabase.auth.auth
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -41,6 +43,10 @@ class UploadWorker(
         val staged = inputData.getString(KEY_STAGED_PATH)?.let(::File)
         val itemId = inputData.getString(KEY_ITEM_ID) ?: return Result.failure()
         val serverType = inputData.getString(KEY_SERVER_TYPE) ?: return Result.failure()
+        // US-2488: blank is normalized to null here rather than at the call
+        // site, because WorkManager's Data has no null-string distinction and a
+        // stored "" role is NOT the same slot as no role at all.
+        val photoRole = inputData.getString(KEY_PHOTO_ROLE)?.takeIf { it.isNotBlank() }
         val sortOrder = inputData.getInt(KEY_SORT_ORDER, 0)
         val capturedAt = inputData.getLong(KEY_CAPTURED_AT, System.currentTimeMillis())
         val photoId = id.toString().lowercase() // deterministic (AC3)
@@ -78,6 +84,7 @@ class UploadWorker(
                         id = photoId,
                         inventoryItemId = itemId,
                         photoType = serverType,
+                        photoRole = photoRole,
                         photoUrl = PhotoUpload.publicUrlFor(supabaseUrl, bucket, path),
                         thumbnailUrl = null,
                         storagePath = path,
@@ -95,7 +102,9 @@ class UploadWorker(
             OfflineMutationQueue(db).enqueue(
                 MutationKind.UPLOAD_PHOTO,
                 targetId = itemId,
-                payload = uploadPayload(photoId, itemId, serverType, path, sortOrder, capturedAt),
+                payload = uploadPayload(
+                    photoId, itemId, serverType, photoRole, path, sortOrder, capturedAt,
+                ),
             )
 
             // Staged bytes deleted ONLY after the row landed (AC4).
@@ -135,6 +144,7 @@ class UploadWorker(
         const val KEY_STAGED_PATH = "staged_path"
         const val KEY_ITEM_ID = "item_id"
         const val KEY_SERVER_TYPE = "server_type"
+        const val KEY_PHOTO_ROLE = "photo_role"
         const val KEY_SORT_ORDER = "sort_order"
         const val KEY_CAPTURED_AT = "captured_at"
         const val KEY_WIDTH = "width"
@@ -154,12 +164,22 @@ class UploadWorker(
             photoId: String,
             itemId: String,
             serverType: String,
+            photoRole: String?,
             path: String,
             sortOrder: Int,
             capturedAt: Long,
-        ): ByteArray =
-            """{"photo_id":"$photoId","inventory_item_id":"$itemId","photo_type":"$serverType","storage_path":"$path","sort_order":$sortOrder,"captured_at":$capturedAt}"""
-                .encodeToByteArray()
+        ): ByteArray = buildJsonObject {
+            put("photo_id", photoId)
+            put("inventory_item_id", itemId)
+            put("photo_type", serverType)
+            // US-2488: absent, not "" — the replayer treats a missing key as
+            // "this slot takes no qualifier" and an empty string would instead
+            // write a role nothing can look up.
+            photoRole?.takeIf { it.isNotBlank() }?.let { put("photo_role", it) }
+            put("storage_path", path)
+            put("sort_order", sortOrder)
+            put("captured_at", capturedAt)
+        }.toString().encodeToByteArray()
 
         /** Build the persisted request for one photo. */
         fun request(
@@ -170,12 +190,14 @@ class UploadWorker(
             capturedAt: Long,
             width: Int? = null,
             height: Int? = null,
+            photoRole: String? = null,
         ): OneTimeWorkRequest = OneTimeWorkRequestBuilder<UploadWorker>()
             .setInputData(
                 Data.Builder()
                     .putString(KEY_STAGED_PATH, stagedPath)
                     .putString(KEY_ITEM_ID, itemId.lowercase())
                     .putString(KEY_SERVER_TYPE, serverType)
+                    .putString(KEY_PHOTO_ROLE, photoRole?.takeIf { it.isNotBlank() })
                     .putInt(KEY_SORT_ORDER, sortOrder)
                     .putLong(KEY_CAPTURED_AT, capturedAt)
                     .putInt(KEY_WIDTH, width ?: 0)

@@ -1,5 +1,7 @@
 package com.gradethread.app.inventory
 
+import com.gradethread.app.capture.PhotoProfile
+import com.gradethread.app.capture.PhotoRole
 import com.gradethread.app.capture.PhotoSlotType
 import com.gradethread.app.sync.db.ItemPhotoEntity
 import org.junit.Assert.assertEquals
@@ -39,6 +41,32 @@ class PhotoOrderingTest {
         photo("front", "front", 0),
         photo("back", "back", 1),
         photo("tag", "tag", 2),
+    )
+
+    private fun role(
+        type: String,
+        label: String,
+        role: String? = null,
+        required: Boolean = false,
+    ) = PhotoRole(type, label, "", required = required, icon = "x", role = role)
+
+    /** The bundled clothing default, which is what an unresolved item gets. */
+    private val clothing = PhotoProfile.clothingFallback
+
+    private val suit = PhotoProfile(
+        category = "clothing:suit",
+        label = "Suit",
+        roles = listOf(
+            role("front", "Front", required = true),
+            role("back", "Back", required = true),
+            role("tag", "Brand label", "brand"),
+            role("tag", "Size tag", "size"),
+            role("tag", "Trouser size tag", "size_alt"),
+            role("detail", "Fabric close-up", "fabric"),
+            role("defect", "Defect"),
+            role("measurement", "Measure: Chest", "chest"),
+            role("measurement", "Measure: Inseam", "inseam"),
+        ),
     )
 
     // ── changed rows only ────────────────────────────────────────────────
@@ -147,11 +175,11 @@ class PhotoOrderingTest {
     // ── slots ────────────────────────────────────────────────────────────
 
     @Test
-    fun `add offers the standard slots that have no photo`() {
+    fun `add offers the slots this garment wants that have no photo`() {
         val partial = listOf(photo("front", "front", 0))
         assertEquals(
-            listOf(PhotoSlotType.BACK, PhotoSlotType.TAG, PhotoSlotType.DETAIL),
-            PhotoOrdering.unfilledStandardSlots(partial),
+            listOf("back", "tag", "detail"),
+            PhotoOrdering.unfilledSlots(partial, clothing).map { it.key },
         )
     }
 
@@ -159,15 +187,93 @@ class PhotoOrderingTest {
     fun `one defect photo does not mark every defect slot filled`() {
         // defect1..3 all collapse to the server type `defect`, so a naive
         // filled-check would hide the remaining defect slots after one shot.
+        // Defects are excluded from the offer list outright for that reason.
         val withDefect = strip + photo("d1", "defect", 3) + photo("detail", "detail", 4)
-        assertTrue(PhotoOrdering.unfilledStandardSlots(withDefect).isEmpty())
+        assertTrue(PhotoOrdering.unfilledSlots(withDefect, clothing).isEmpty())
     }
 
     @Test
     fun `missing required slots are reported by name`() {
+        // US-2488: named from the PROFILE's required flags, which is why this
+        // now says Tag and Detail too. The old list was the capture enum's
+        // `required` — front+back, the PUBLISH gate (00306) — but this string
+        // is the canvas hint, and grading needs front, back, label and at
+        // least one detail. It was under-reporting.
         val onlyFront = listOf(photo("front", "front", 0))
-        assertEquals(listOf(PhotoSlotType.BACK), PhotoOrdering.missingRequiredSlots(onlyFront))
-        assertTrue(PhotoOrdering.missingRequiredSlots(strip).isEmpty())
+        assertEquals(
+            listOf("Back", "Garment Tag", "Detail"),
+            PhotoOrdering.missingRequiredSlots(onlyFront, clothing).map { it.label },
+        )
+        // The front+back+tag strip still owes a detail shot.
+        assertEquals(
+            listOf("Detail"),
+            PhotoOrdering.missingRequiredSlots(strip, clothing).map { it.label },
+        )
+        assertTrue(
+            PhotoOrdering.missingRequiredSlots(
+                strip + photo("d", "detail", 3),
+                clothing,
+            ).isEmpty(),
+        )
+    }
+
+    // ── US-2488: the offer list is the PROFILE's, not the enum's ──────────
+
+    @Test
+    fun `measurement roles survive - the enum silently dropped every one`() {
+        // The bug this story exists for: PhotoSlotType has measurement_chest
+        // and friends but NO plain `measurement`, so resolving a profile's
+        // measurement roles through the enum returned null every time and the
+        // seller was never offered a single measurement shot.
+        val offered = PhotoOrdering.unfilledSlots(strip, suit).map { it.key }
+        assertTrue("measurement:chest" in offered)
+        assertTrue("measurement:inseam" in offered)
+        assertNull(PhotoSlotType.fromWire("measurement"))
+    }
+
+    @Test
+    fun `a suit is offered a slot per tag and a top is not offered an inseam`() {
+        val suitSlots = PhotoOrdering.unfilledSlots(emptyList(), suit).map { it.key }
+        assertEquals(
+            listOf("tag:brand", "tag:size", "tag:size_alt"),
+            suitSlots.filter { it.startsWith("tag") },
+        )
+        val topSlots = PhotoOrdering.unfilledSlots(emptyList(), clothing).map { it.key }
+        assertTrue("measurement:inseam" !in topSlots)
+    }
+
+    @Test
+    fun `filling one tag role still leaves the other tag slots on offer`() {
+        val withBrand = listOf(photo("b", "tag", 0, role = "brand"))
+        val offered = PhotoOrdering.unfilledSlots(withBrand, suit).map { it.key }
+        assertTrue("tag:brand" !in offered)
+        assertTrue("tag:size" in offered)
+    }
+
+    @Test
+    fun `a stale server profile cannot put a retired type back on offer`() {
+        val stale = PhotoProfile(
+            category = "clothing",
+            label = "Clothing",
+            roles = listOf(role("front", "Front", required = true), role("detail_2", "Detail 2")),
+        )
+        assertEquals(
+            listOf("front"),
+            PhotoOrdering.unfilledSlots(emptyList(), stale).map { it.key },
+        )
+    }
+
+    @Test
+    fun `a duplicate pair in a server profile is offered once`() {
+        val dupes = PhotoProfile(
+            category = "clothing",
+            label = "Clothing",
+            roles = listOf(
+                role("tag", "Brand label", "brand"),
+                role("tag", "Brand label again", "brand"),
+            ),
+        )
+        assertEquals(1, PhotoOrdering.unfilledSlots(emptyList(), dupes).size)
     }
 
     // ── appending ────────────────────────────────────────────────────────
@@ -212,16 +318,17 @@ class PhotoOrderingTest {
     }
 
     @Test
-    fun `a qualified tag does not satisfy the plain tag capture slot`() {
-        // The capture strip writes a bare `tag`. A photo the seller retagged to
-        // "Brand label" is a different slot, so the strip still offers Tag.
+    fun `a qualified tag does not satisfy the plain tag slot`() {
+        // The clothing default asks for a bare `tag`. A photo the seller
+        // retagged to "Brand label" is a different slot, so Tag is still on
+        // offer.
         val qualified = listOf(
             photo("front", "front", 0),
             photo("back", "back", 1),
             photo("brand", "tag", 2, role = "brand"),
         )
-        assertTrue(PhotoSlotType.TAG in PhotoOrdering.unfilledStandardSlots(qualified))
+        assertTrue("tag" in PhotoOrdering.unfilledSlots(qualified, clothing).map { it.key })
         // …and the unqualified one still does.
-        assertTrue(PhotoSlotType.TAG !in PhotoOrdering.unfilledStandardSlots(strip))
+        assertTrue("tag" !in PhotoOrdering.unfilledSlots(strip, clothing).map { it.key })
     }
 }

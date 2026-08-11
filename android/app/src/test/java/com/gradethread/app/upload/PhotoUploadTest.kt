@@ -146,10 +146,49 @@ class PhotoUploadTest {
     @Test
     fun mutationPayload_carriesTheDeterministicPhotoId() {
         val payload = UploadWorker.uploadPayload(
-            "photo-1", "item-1", "front", "u/i/front_1.jpg", 0, 99L,
+            "photo-1", "item-1", "front", null, "u/i/front_1.jpg", 0, 99L,
         ).decodeToString()
         assertTrue(payload.contains("\"photo_id\":\"photo-1\""))
         assertTrue(payload.contains("\"storage_path\":\"u/i/front_1.jpg\""))
         assertTrue(payload.contains("\"sort_order\":0"))
+    }
+
+    // ── US-2488: the role survives the offline queue ──
+
+    @Test
+    fun mutationPayload_carriesTheRoleWhenTheSlotHasOne() {
+        val payload = UploadWorker.uploadPayload(
+            "photo-1", "item-1", "tag", "size_alt", "u/i/tag_1.jpg", 3, 99L,
+        ).decodeToString()
+        assertTrue(payload.contains("\"photo_role\":\"size_alt\""))
+    }
+
+    @Test
+    fun mutationPayload_omitsAnAbsentRoleRatherThanWritingBlank() {
+        // A "" role is NOT the same slot as no role: the retag menu, the
+        // grader and the listing adapters all look a role up, and an empty
+        // string resolves to nothing while still counting as "qualified".
+        for (role in listOf(null, "", "   ")) {
+            val payload = UploadWorker.uploadPayload(
+                "photo-1", "item-1", "front", role, "u/i/front_1.jpg", 0, 99L,
+            ).decodeToString()
+            assertTrue("role=$role leaked", !payload.contains("photo_role"))
+        }
+    }
+
+    @Test
+    fun workRequest_carriesTheRoleAndNormalizesBlankToNull() {
+        fun roleOf(role: String?) = UploadWorker.request(
+            stagedPath = "/data/p.jpg",
+            itemId = "item-1",
+            serverType = "tag",
+            sortOrder = 0,
+            capturedAt = 1L,
+            photoRole = role,
+        ).workSpec.input.getString(UploadWorker.KEY_PHOTO_ROLE)
+
+        assertEquals("brand", roleOf("brand"))
+        assertEquals(null, roleOf(""))
+        assertEquals(null, roleOf(null))
     }
 }

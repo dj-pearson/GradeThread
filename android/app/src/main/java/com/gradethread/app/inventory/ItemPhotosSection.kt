@@ -111,7 +111,9 @@ fun ItemPhotosSection(
             }
         }
 
-        val missing = remember(confirmed) { PhotoOrdering.missingRequiredSlots(confirmed) }
+        val missing = remember(confirmed, profile) {
+            PhotoOrdering.missingRequiredSlots(confirmed, profile)
+        }
         if (missing.isNotEmpty()) {
             // Named, not counted: "2 photos missing" makes the seller work out
             // which two.

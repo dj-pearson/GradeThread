@@ -170,20 +170,22 @@ class ItemPhotosViewModel @Inject constructor(
                 val imported = PhotoImport.importPicked(context, uris, outputDir)
                     .mapNotNull { it.getOrNull() }
 
-                // Unfilled standard slots first, then extras. A new photo never
-                // takes sort_order 0 — silently changing a live listing's main
-                // image is not something anyone asked for.
-                val slots = PhotoOrdering.unfilledStandardSlots(confirmed).toMutableList()
+                // US-2488: the slots THIS garment wants, in capture order, then
+                // a plain detail once they run out. A new photo never takes
+                // sort_order 0 — silently changing a live listing's main image
+                // is not something anyone asked for.
+                val slots = PhotoOrdering.unfilledSlots(confirmed, _profile.value).toMutableList()
                 var order = PhotoOrdering.nextSortOrder(confirmed)
                 val work = WorkManager.getInstance(context)
 
                 imported.forEach { photo ->
-                    val slot = slots.removeFirstOrNull() ?: PhotoSlotType.DETAIL
+                    val slot = slots.removeFirstOrNull()
                     work.enqueue(
                         UploadWorker.request(
                             stagedPath = photo.processed.file.absolutePath,
                             itemId = itemId,
-                            serverType = slot.serverPhotoType,
+                            serverType = slot?.type ?: PhotoSlotType.DETAIL.serverPhotoType,
+                            photoRole = slot?.role,
                             sortOrder = order,
                             capturedAt = photo.captureDateMs,
                             width = photo.processed.width,

@@ -2,7 +2,6 @@ package com.gradethread.app.inventory
 
 import com.gradethread.app.capture.FlipdeskPhotoType
 import com.gradethread.app.capture.PhotoProfile
-import com.gradethread.app.capture.PhotoSlotType
 import com.gradethread.app.sync.db.ItemPhotoEntity
 
 /**
@@ -83,23 +82,57 @@ object PhotoOrdering {
     fun coverOf(ordered: List<ItemPhotoEntity>): ItemPhotoEntity? = ordered.firstOrNull()
 
     /**
-     * Standard slots with no photo yet — what "Add" offers to fill.
+     * US-2488: one slot this garment wants, as the (type, role) PAIR the
+     * profile named plus the wording a seller reads.
      *
-     * Defect slots are EXCLUDED from the filled check on purpose: defect1..3
-     * all collapse to the server type `defect`, so one defect photo would
-     * otherwise mark every defect slot as taken.
+     * A pair rather than a [PhotoSlotType]: the enum has `measurement_chest`,
+     * `measurement_waist` and friends but no plain `measurement`, so resolving
+     * a profile's measurement roles through it returns null every time and
+     * silently drops every measurement slot the garment asked for.
      */
-    fun unfilledStandardSlots(photos: List<ItemPhotoEntity>): List<PhotoSlotType> {
+    data class Slot(
+        val type: String,
+        val role: String?,
+        val label: String,
+        val required: Boolean,
+    ) {
+        val key: String get() = PhotoProfile.slotKey(type, role)
+    }
+
+    /**
+     * Slots this garment wants that have no photo yet — what "Add" fills first.
+     *
+     * Driven by the resolved profile, so a pair of jeans is never offered a
+     * sleeve measurement and a suit gets a slot per tag. Two exclusions:
+     *  - `defect`, because defects collapse to one server type, so a single
+     *    defect photo would otherwise mark every defect slot as taken;
+     *  - anything retired, because the profile table is server data this client
+     *    did not author and a stale row must not put `detail_2` back in play.
+     */
+    fun unfilledSlots(photos: List<ItemPhotoEntity>, profile: PhotoProfile): List<Slot> {
         val filled = filledSlotKeys(photos)
-        return PhotoSlotType.defaultSlots.filter { slot ->
-            slot !in PhotoSlotType.defects && slotKeyOf(slot) !in filled
-        }
+        return profileSlots(profile).filter { it.key !in filled }
     }
 
     /** Required shots still missing — the grading blocker, in the seller's words. */
-    fun missingRequiredSlots(photos: List<ItemPhotoEntity>): List<PhotoSlotType> {
+    fun missingRequiredSlots(photos: List<ItemPhotoEntity>, profile: PhotoProfile): List<Slot> {
         val filled = filledSlotKeys(photos)
-        return PhotoSlotType.required.filter { slotKeyOf(it) !in filled }
+        return profileSlots(profile).filter { it.required && it.key !in filled }
+    }
+
+    /** The profile's slots in CAPTURE order, deduped by pair. */
+    private fun profileSlots(profile: PhotoProfile): List<Slot> {
+        val seen = mutableSetOf<String>()
+        return profile.roles.mapNotNull { role ->
+            if (role.type == "defect" || FlipdeskPhotoType.isRetired(role.type)) return@mapNotNull null
+            val slot = Slot(
+                type = role.type,
+                role = role.role,
+                label = FlipdeskPhotoType.label(role.type, role.role, profile),
+                required = role.required,
+            )
+            if (!seen.add(slot.key)) null else slot
+        }
     }
 
     /**
@@ -114,13 +147,6 @@ object PhotoOrdering {
         val retired = FlipdeskPhotoType.retired[photo.photoType]
         if (retired != null) return PhotoProfile.slotKey(retired.first, retired.second)
         return PhotoProfile.slotKey(photo.photoType, photo.photoRole)
-    }
-
-    /** The slot key a CAPTURE slot writes. Capture slots carry no role yet. */
-    fun slotKeyOf(slot: PhotoSlotType): String {
-        val retired = FlipdeskPhotoType.retired[slot.serverPhotoType]
-        if (retired != null) return PhotoProfile.slotKey(retired.first, retired.second)
-        return PhotoProfile.slotKey(slot.serverPhotoType, null)
     }
 
     private fun filledSlotKeys(photos: List<ItemPhotoEntity>): Set<String> =
