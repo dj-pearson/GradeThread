@@ -93,6 +93,42 @@ object AspectSync {
      * Marked MANUAL, which outranks both other sources — a value someone typed
      * deliberately must survive the next derivation pass.
      */
+    /**
+     * US-2411: merge the model's proposals into the specifics.
+     *
+     * **Only EMPTY specifics are filled, and a previous AI fill can be
+     * replaced.** A value the seller typed is theirs: a model that disagreed
+     * with it would otherwise quietly win on a screen where nothing says a
+     * value changed. Re-running the extraction can overwrite its own earlier
+     * answer, because that one was never anybody's opinion but the model's.
+     * Same rule as the web picker's merge.
+     *
+     * Returns the aspects, the sources, and HOW MANY were filled — the count is
+     * what lets the screen say "added 4 specifics" instead of appearing to do
+     * nothing when the model had nothing new.
+     */
+    fun fillFromAi(
+        aspects: Map<String, List<String>>,
+        sources: Map<String, Provenance>,
+        suggestions: Map<String, List<String>>,
+    ): Triple<Map<String, List<String>>, Map<String, Provenance>, Int> {
+        val nextAspects = aspects.toMutableMap()
+        val nextSources = sources.toMutableMap()
+        var filled = 0
+        for ((name, raw) in suggestions) {
+            val values = raw.map { it.trim() }.filter { it.isNotEmpty() }
+            if (values.isEmpty()) continue
+            val existing = nextAspects[name].orEmpty()
+            val replaceable = existing.isEmpty() || sources[name] == Provenance.AI_EXTRACTED
+            if (!replaceable) continue
+            if (existing == values) continue
+            nextAspects[name] = values
+            nextSources[name] = Provenance.AI_EXTRACTED
+            filled += 1
+        }
+        return Triple(nextAspects, nextSources, filled)
+    }
+
     fun setManual(
         aspects: Map<String, List<String>>,
         sources: Map<String, Provenance>,

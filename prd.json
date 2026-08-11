@@ -1596,7 +1596,7 @@
     },
     {
       "id": "US-2411",
-      "passes": false,
+      "passes": true,
       "title": "Android: AI listing copy and aspect extraction are absent",
       "description": "As an Android reseller, I want the AI to write my listing copy and pull item specifics from photos, so that drafting on the phone is not slower than drafting on the web.",
       "acceptanceCriteria": [
@@ -1606,7 +1606,8 @@
         "Credit cost is shown before the call and the existing paywall/credit-pack path (android/app/src/main/java/com/gradethread/app/billing/) is used when the balance is short — the same treatment BulkGradeScreen.kt:241 already gives grading",
         "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "priority": 2383
+      "priority": 2383,
+      "notes": "DONE 2026-08-11. AC4 could not be met as literally written and the reason is structural: AI ACTIONS ARE NOT GRADING CREDITS (services/edge-functions/src/lib/ai-metering.ts:16-17 says so), and CreditPackSheet requires a GradeTier, so the BulkGradeScreen treatment cannot be reused. What AC4 actually wants - cost stated before the tap, and a real route out when the balance is short - is met instead by naming the cost on both buttons (Uses one AI action, mirroring analytics_summary_cost) and by a new EdgeApiError.AiActionsExhausted. That case exists because a used-up monthly allowance comes back as a bare 429 with actions_remaining and NO action:upgrade marker, so it mapped to RateLimited and told the seller they were going a little too fast - sending them back to press the same button on an allowance that resets next month, and never firing the shell plan-gate dialog. Keyed on actions_remaining rather than the status, because a real rate limit uses the same status and the remedies are opposites. It also stops EdgeApi retrying it twice, which spent two more requests proving the same thing. AC3 holds for both features: neither route writes to the item (flipdesk-ai.ts logs the proposal and returns), listing copy sits in state until Use this is tapped, and extracted aspects land in the DRAFT marked AI_EXTRACTED with Save as the accept. AspectSync.fillFromAi fills only EMPTY specifics and may replace an earlier AI fill, never a MANUAL or INVENTORY_DERIVED value - a model that contradicted a field the seller can see two sections up would win silently. Provenance.AI_EXTRACTED already existed and was unreachable; this is the first thing that sets it. A 404 is reported as not-synced-yet rather than the servers Item not found, which reads as data loss when the truth is that the photos the model needs have not uploaded. Verified locally: testDebugUnitTest, lintDebug (0 errors, 168 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1339 resources, en+es) and no-ungated-log all OK."
     },
     {
       "id": "US-2412",

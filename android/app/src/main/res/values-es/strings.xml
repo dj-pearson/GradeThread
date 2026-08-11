@@ -1465,4 +1465,17 @@
     <string name="import_sheet_help">Abre la hoja, elige Compartir, pon Acceso general en “Cualquier persona con el enlace” como Lector y pega el enlace. Leemos la primera pestaña.</string>
     <string name="import_sheet_link">Enlace de la hoja de Google</string>
     <string name="import_sheet_fetch">Traer la hoja</string>
+    <!-- US-2411: AI listing copy and specifics extraction. -->
+    <string name="canvas_ai_one_action">Usa una acción de IA.</string>
+    <string name="canvas_ai_aspects">Llenar detalles con las fotos</string>
+    <string name="canvas_ai_aspects_running">Leyendo tus fotos…</string>
+    <string name="canvas_ai_aspects_none">No hay nada nuevo que agregar. Tus detalles ya cubren lo que muestran las fotos.</string>
+    <string name="canvas_ai_copy">Escribir mi texto de venta</string>
+    <string name="canvas_ai_copy_running">Escribiendo…</string>
+    <string name="canvas_ai_copy_empty">La IA no tuvo nada que agregar para este artículo.</string>
+    <string name="canvas_ai_copy_use">Usar esto</string>
+    <plurals name="canvas_ai_aspects_filled">
+        <item quantity="one">Se llenó %1$d detalle. Guarda para conservarlo.</item>
+        <item quantity="other">Se llenaron %1$d detalles. Guarda para conservarlos.</item>
+    </plurals>
 </resources>

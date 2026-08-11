@@ -26,6 +26,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import com.gradethread.app.R
 import androidx.compose.ui.Modifier
@@ -258,7 +259,16 @@ fun ItemCanvasScreen(
             onSet = viewModel::setAspect,
         )
 
+        // US-2411: only once the category's specifics are on screen — before
+        // that there is nothing for the model's answers to land in.
+        if (state.aspectSpec is AspectSpecState.Loaded) {
+            AiFillAspectsRow(state, viewModel)
+        }
+
         SectionHeader(stringResource(R.string.canvas_notes))
+        // US-2411: the copy is a PROPOSAL. It sits above the fields it would
+        // replace so the seller can compare before accepting.
+        ListingCopyCard(state, viewModel)
         Field(stringResource(R.string.canvas_field_description), draft.description, lines = 3) { v ->
             viewModel.edit { it.copy(description = v) }
         }
@@ -387,6 +397,117 @@ fun ItemCanvasScreen(
             onDismiss = { publishing = false },
             onOpenListing = { url -> CustomTabsLauncher.open(context, url) },
         )
+    }
+}
+
+/**
+ * US-2411: ask the model to fill the specifics from the photos.
+ *
+ * The cost is named before the tap. One AI action is not free and the seller's
+ * monthly allowance is the thing they run out of, so a button that spends one
+ * without saying so is a button they learn not to trust.
+ */
+@Composable
+private fun AiFillAspectsRow(
+    state: ItemCanvasViewModel.State,
+    viewModel: ItemCanvasViewModel,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        BrandSecondaryButton(
+            text = if (state.fillingAspects) {
+                stringResource(R.string.canvas_ai_aspects_running)
+            } else {
+                stringResource(R.string.canvas_ai_aspects)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.fillingAspects,
+        ) { viewModel.fillAspectsFromPhotos() }
+        Text(
+            stringResource(R.string.canvas_ai_one_action),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        state.aspectsFilled?.let { count ->
+            Text(
+                if (count == 0) {
+                    stringResource(R.string.canvas_ai_aspects_none)
+                } else {
+                    pluralStringResource(R.plurals.canvas_ai_aspects_filled, count, count)
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        state.aspectAiError?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = viewModel::dismissAspectAi) {
+                Text(stringResource(R.string.common_dismiss))
+            }
+        }
+    }
+}
+
+/**
+ * US-2411: the model's title and description, before they are accepted.
+ *
+ * Nothing reaches the fields until Use this is tapped. Overwriting a
+ * description the seller already wrote, on a screen whose only undo is
+ * retyping it, is not worth saving one tap.
+ */
+@Composable
+private fun ListingCopyCard(
+    state: ItemCanvasViewModel.State,
+    viewModel: ItemCanvasViewModel,
+) {
+    val copy = state.listingCopy
+    Column(Modifier.fillMaxWidth()) {
+        if (copy == null) {
+            BrandSecondaryButton(
+                text = if (state.writingCopy) {
+                    stringResource(R.string.canvas_ai_copy_running)
+                } else {
+                    stringResource(R.string.canvas_ai_copy)
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.writingCopy,
+            ) { viewModel.writeListingCopy() }
+            Text(
+                stringResource(R.string.canvas_ai_one_action),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else if (!copy.isUsable) {
+            // An empty answer is a real answer. Applying it would erase copy
+            // the seller already had.
+            Text(
+                stringResource(R.string.canvas_ai_copy_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = viewModel::dismissListingCopy) {
+                Text(stringResource(R.string.common_dismiss))
+            }
+        } else {
+            Text(copy.title, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
+            Text(
+                copy.description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row {
+                TextButton(onClick = viewModel::applyListingCopy) {
+                    Text(stringResource(R.string.canvas_ai_copy_use))
+                }
+                TextButton(onClick = viewModel::dismissListingCopy) {
+                    Text(stringResource(R.string.common_dismiss))
+                }
+            }
+        }
+        state.listingCopyError?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = viewModel::dismissListingCopy) {
+                Text(stringResource(R.string.common_dismiss))
+            }
+        }
     }
 }
 

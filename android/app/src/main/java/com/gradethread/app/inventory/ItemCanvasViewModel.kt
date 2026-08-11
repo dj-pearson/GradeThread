@@ -38,6 +38,8 @@ class ItemCanvasViewModel @Inject constructor(
     private val sizeAi: SizeAiService,
     private val compsService: CompsService,
     private val aspectSpecs: AspectSpecService,
+    /** US-2411: listing copy and aspect extraction. Both propose only. */
+    private val listingAi: ListingCopyService,
     // US-2481: queue a cross-list for the desktop extension from the phone.
     private val extensionQueue: com.gradethread.app.marketplaces.ExtensionQueueRepository,
 ) : ViewModel() {
@@ -62,6 +64,18 @@ class ItemCanvasViewModel @Inject constructor(
         val comps: CompsState = CompsState.Idle,
         /** US-1347: the category's aspect spec. */
         val aspectSpec: AspectSpecState = AspectSpecState.Idle,
+        /** US-2411: the AI's proposed title and description, before accepting. */
+        val listingCopy: ListingCopy? = null,
+        val writingCopy: Boolean = false,
+        val listingCopyError: String? = null,
+        /** US-2411: aspect extraction. */
+        val fillingAspects: Boolean = false,
+        val aspectAiError: String? = null,
+        /**
+         * How many specifics the last extraction actually filled. Null until
+         * one has run; 0 is a real answer and says so.
+         */
+        val aspectsFilled: Int? = null,
         /**
          * US-2481: the platform whose cross-list is now waiting for the seller's
          * desktop browser. Null until they queue one.
@@ -226,6 +240,97 @@ class ItemCanvasViewModel @Inject constructor(
                 aspectSpec = aspectSpecs.fetch(_state.value.draft.ebayCategoryId),
             )
         }
+    }
+
+    // ── US-2411: the two AI proposals ────────────────────────────────────
+
+    /**
+     * Ask the model to write the listing copy. One AI action.
+     *
+     * The answer lands in [State.listingCopy] and NOWHERE else until the
+     * seller accepts it. Overwriting a description they had already written,
+     * on a screen where the undo is retyping it, is not a trade worth making
+     * for one fewer tap.
+     */
+    fun writeListingCopy() {
+        val itemId = _state.value.itemId ?: return
+        if (_state.value.writingCopy) return
+        _state.value = _state.value.copy(writingCopy = true, listingCopyError = null)
+        viewModelScope.launch {
+            runCatching { listingAi.listingCopy(itemId) }
+                .onSuccess { _state.value = _state.value.copy(listingCopy = it) }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        listingCopyError = ListingCopyService.message(it),
+                    )
+                }
+            _state.value = _state.value.copy(writingCopy = false)
+        }
+    }
+
+    /**
+     * Take the proposed copy into the draft.
+     *
+     * A blank field is not applied. An empty title is the model saying it had
+     * nothing, and writing that over real copy would be a silent deletion.
+     */
+    fun applyListingCopy() {
+        val copy = _state.value.listingCopy ?: return
+        edit { draft ->
+            draft.copy(
+                title = copy.title.ifBlank { draft.title },
+                description = copy.description.ifBlank { draft.description },
+            )
+        }
+        dismissListingCopy()
+    }
+
+    fun dismissListingCopy() {
+        _state.value = _state.value.copy(listingCopy = null, listingCopyError = null)
+    }
+
+    /**
+     * Propose item specifics from the photos. One AI action.
+     *
+     * The values land in the DRAFT, marked [AspectSync.Provenance.AI_EXTRACTED],
+     * and the seller still has to press Save — which is the accept. Only EMPTY
+     * specifics are filled: a value they typed is theirs, and a model that
+     * disagreed with it would otherwise quietly win.
+     */
+    fun fillAspectsFromPhotos() {
+        val itemId = _state.value.itemId ?: return
+        if (_state.value.fillingAspects) return
+        _state.value = _state.value.copy(
+            fillingAspects = true, aspectAiError = null, aspectsFilled = null,
+        )
+        viewModelScope.launch {
+            runCatching {
+                listingAi.extractAspects(
+                    itemId = itemId,
+                    categoryId = _state.value.draft.ebayCategoryId,
+                    knownAspects = _state.value.draft.aspects,
+                )
+            }
+                .onSuccess { result ->
+                    val filled = AspectSync.fillFromAi(
+                        _state.value.draft.aspects,
+                        _state.value.draft.aspectSources,
+                        result.suggestions.mapValues { it.value.values },
+                    )
+                    edit { it.copy(aspects = filled.first, aspectSources = filled.second) }
+                    _state.value = _state.value.copy(aspectsFilled = filled.third)
+                }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        aspectAiError = ListingCopyService.message(it),
+                    )
+                }
+            _state.value = _state.value.copy(fillingAspects = false)
+        }
+    }
+
+    fun dismissAspectAi() {
+        _state.value = _state.value.copy(aspectAiError = null, aspectsFilled = null)
     }
 
     /** A manual edit from the specifics editor — outranks derivation. */

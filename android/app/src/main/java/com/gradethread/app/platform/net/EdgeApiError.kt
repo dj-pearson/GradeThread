@@ -35,6 +35,22 @@ sealed class EdgeApiError : Exception() {
      */
     data class Forbidden(val detail: String?) : EdgeApiError()
 
+    /**
+     * US-2411: the month's AI actions are gone.
+     *
+     * A 429, but nothing like a rate limit: waiting a moment cannot help,
+     * because the allowance resets at the start of next month. Folded into
+     * [RateLimited] it read as "you're going a little too fast", which sends
+     * the seller back to press the same button again — and the FlipDesk AI
+     * routes return this without an `action: "upgrade"` marker, so the plan
+     * gate never fired for it either. [actionsRemaining] is what the server
+     * reports, and its presence in the body is the discriminator.
+     */
+    data class AiActionsExhausted(
+        val detail: String?,
+        val actionsRemaining: Int,
+    ) : EdgeApiError()
+
     /** 429; [retryAfterSeconds] carries the server's Retry-After hint. */
     data class RateLimited(val retryAfterSeconds: Long? = null) : EdgeApiError()
 
@@ -126,6 +142,10 @@ sealed class EdgeApiError : Exception() {
         is Forbidden -> detail ?: "You don't have permission to do that."
         EmailUnverified ->
             "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
+        // The server names the allowance and when it resets; nothing here
+        // could improve on that.
+        is AiActionsExhausted -> detail
+            ?: "You've used this month's AI actions. The allowance resets next month."
         is RateLimited -> retryAfterSeconds?.takeIf { it >= 1 }
             ?.let { "You're going a little too fast. Try again in ${it}s." }
             ?: "You're going a little too fast. Try again in a moment."
@@ -165,7 +185,8 @@ sealed class EdgeApiError : Exception() {
     }
 
     /** Whether the UI should offer an upgrade route rather than a retry. */
-    val isUpgradePrompt: Boolean get() = this is UpgradeRequired || this is PlanGated
+    val isUpgradePrompt: Boolean
+        get() = this is UpgradeRequired || this is PlanGated || this is AiActionsExhausted
 
     companion object {
 
@@ -179,6 +200,9 @@ sealed class EdgeApiError : Exception() {
             val code: String? = null,
             /** US-1335: the edge's "this is a plan wall" marker. */
             val action: String? = null,
+            /** US-2411: present only on the AI-actions 429. */
+            @kotlinx.serialization.SerialName("actions_remaining")
+            val actionsRemaining: Int? = null,
         ) {
             val discriminator: String? get() = error_code ?: code
         }
@@ -233,6 +257,15 @@ sealed class EdgeApiError : Exception() {
             // this only tells the CALLER not to offer a retry that can't work.
             if (statusCode == 402) {
                 PlanGateError.decode(body)?.let { return PlanGated(it) }
+            }
+
+            // US-2411: a 429 carrying actions_remaining is a monthly AI
+            // allowance, not a rate limit. Keyed on the field rather than the
+            // status, because the status is the same one a real rate limiter
+            // uses and the remedies are opposites: wait a moment, versus wait
+            // a month or upgrade.
+            if (statusCode == 429 && payload?.actionsRemaining != null) {
+                return AiActionsExhausted(detail, payload.actionsRemaining)
             }
 
             // US-2407: a 403 that came with a message is a permission answer.

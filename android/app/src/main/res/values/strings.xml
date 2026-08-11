@@ -1609,4 +1609,17 @@
     <string name="import_sheet_help">Open the sheet, choose Share, set General access to “Anyone with the link” as Viewer, then paste the link. We read the first tab.</string>
     <string name="import_sheet_link">Google Sheet link</string>
     <string name="import_sheet_fetch">Fetch the sheet</string>
+    <!-- US-2411: AI listing copy and specifics extraction. -->
+    <string name="canvas_ai_one_action">Uses one AI action.</string>
+    <string name="canvas_ai_aspects">Fill specifics from photos</string>
+    <string name="canvas_ai_aspects_running">Reading your photos…</string>
+    <string name="canvas_ai_aspects_none">Nothing new to add. Your specifics already cover what the photos show.</string>
+    <string name="canvas_ai_copy">Write my listing copy</string>
+    <string name="canvas_ai_copy_running">Writing…</string>
+    <string name="canvas_ai_copy_empty">The AI had nothing to add for this item.</string>
+    <string name="canvas_ai_copy_use">Use this</string>
+    <plurals name="canvas_ai_aspects_filled">
+        <item quantity="one">Filled %1$d specific. Save to keep it.</item>
+        <item quantity="other">Filled %1$d specifics. Save to keep them.</item>
+    </plurals>
 </resources>
