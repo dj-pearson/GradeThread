@@ -71,6 +71,18 @@
       // phone, hours ago — is not part of this conversation at all. Null for an
       // ordinary same-session cross-post.
       queueId: typeof o.queueId === "string" ? o.queueId : null,
+      // US-2486: where a MULTI-PAGE job has got to.
+      //
+      // Poshmark and Grailed keep "delete this listing" on a different page
+      // from the listing, so ending one means following a link. That reloads
+      // the document, the content script re-runs, and it asks for its job by
+      // tab id — getting the same job back. Without a marker it would click the
+      // link again, from a page that no longer has one, forever.
+      //
+      // `null` means "has not navigated yet". It only ever moves forward, and
+      // the destination is checked against the config's own URL pattern before
+      // anything is clicked on the far side.
+      stage: null,
       state: PENDING,
       createdAt: now,
       deadlineAt: now + (typeof o.ttlMs === "number" ? o.ttlMs : JOB_TIMEOUT_MS),
@@ -122,6 +134,29 @@
     // misbehaving page could shorten its own job.
     if (deadlineAt <= job.deadlineAt) return { jobs: jobs, job: job };
     var next = Object.assign({}, job, { deadlineAt: deadlineAt });
+    return { jobs: put(jobs, next), job: next };
+  }
+
+  /**
+   * Record that a multi-page job has moved on (US-2486).
+   *
+   * ONE-WAY, and that is the whole safety property. A job that has navigated
+   * can never be told it has not, so the content script on the far page cannot
+   * be talked into clicking the link a second time — which, on a page that no
+   * longer has one, is the difference between a failed delist and a loop.
+   *
+   * Terminal jobs are never staged: once the seller has been told an outcome,
+   * it stands.
+   */
+  function advanceStage(jobs, jobId, stage, now) {
+    var job = findById(jobs, jobId);
+    if (!isPending(job)) return { jobs: jobs, job: null };
+    if (typeof stage !== "string" || !stage) return { jobs: jobs, job: job };
+    if (job.stage === stage) return { jobs: jobs, job: job };
+    var next = Object.assign({}, job, {
+      stage: stage,
+      stagedAt: typeof now === "number" ? now : job.createdAt,
+    });
     return { jobs: put(jobs, next), job: next };
   }
 
@@ -414,6 +449,7 @@
     findByTab: findByTab,
     markTerminal: markTerminal,
     extendDeadline: extendDeadline,
+    advanceStage: advanceStage,
     sweep: sweep,
     isPending: isPending,
     timeoutResultFor: timeoutResultFor,

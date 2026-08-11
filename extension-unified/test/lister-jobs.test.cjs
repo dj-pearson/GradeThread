@@ -422,3 +422,55 @@ console.log("lister-jobs: all assertions passed");
     );
   }
 }
+
+// ── US-2486: the stage marker on a two-page delist ─────────────────────────
+//
+// Poshmark and Grailed keep "delete this listing" on a different page from the
+// listing, so ending one means following a link. That reloads the document, the
+// content script re-injects and asks for its job BY TAB ID — and gets the same
+// job back, because findByTab is exactly that mechanism. Without a marker it
+// would click the link again, from a page that no longer has one.
+{
+  const J = loadJobs();
+  const NOW = 1_000_000;
+
+  const fresh = J.makeJob({ jobId: "d1", tabId: 7, platform: "poshmark", kind: "delist", now: NOW });
+  assert.strictEqual(fresh.stage, null, "a new job has not navigated");
+
+  let jobs = J.put({}, fresh);
+
+  // Forward once.
+  const a = J.advanceStage(jobs, "d1", "navigated", NOW + 10);
+  assert.strictEqual(a.job.stage, "navigated");
+  assert.strictEqual(a.job.stagedAt, NOW + 10);
+  jobs = a.jobs;
+
+  // The far page gets the SAME job back, now carrying the marker. This is the
+  // whole mechanism: same tab, same job, different stage.
+  const served = J.findByTab(jobs, 7);
+  assert.strictEqual(served.jobId, "d1");
+  assert.strictEqual(served.stage, "navigated");
+
+  // ONE-WAY. Nothing may talk a navigated job back into thinking it has not
+  // navigated — that is the loop, and it would be a delist clicking a link
+  // that is no longer there on every page load until the deadline killed it.
+  const back = J.advanceStage(jobs, "d1", null, NOW + 20);
+  assert.strictEqual(back.job.stage, "navigated", "stage must not be cleared");
+  const empty = J.advanceStage(jobs, "d1", "", NOW + 20);
+  assert.strictEqual(empty.job.stage, "navigated", "an empty stage must be ignored");
+
+  // Idempotent: a duplicate message from a re-injected script changes nothing,
+  // including the timestamp.
+  const again = J.advanceStage(jobs, "d1", "navigated", NOW + 999);
+  assert.strictEqual(again.job.stagedAt, NOW + 10, "a repeat must not re-stamp");
+  assert.strictEqual(again.jobs, jobs, "a no-op must not rewrite the map");
+
+  // A terminal job is never staged. Once the seller has been told an outcome it
+  // stands, and a late navigation must not revive it.
+  const ended = J.markTerminal(jobs, "d1", "done", NOW + 30).jobs;
+  const late = J.advanceStage(ended, "d1", "navigated-again", NOW + 40);
+  assert.strictEqual(late.job, null, "a terminal job must not accept a stage");
+
+  // And an unknown job id is a no-op rather than a throw.
+  assert.strictEqual(J.advanceStage(jobs, "nope", "navigated", NOW).job, null);
+}

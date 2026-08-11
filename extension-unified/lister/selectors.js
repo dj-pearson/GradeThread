@@ -80,27 +80,33 @@ const GT_LISTER_SELECTORS = {
     delist: {
       enabled: true,
       version: "2026.07.1",
-      // 2026-08-10, UNRESOLVED and written down so the next attempt is aimed.
-      // A probe of a live listing found no menu and no delete anywhere outside
-      // the site header. What it DID find is `[data-et-name="edit_listing"]`,
-      // and Poshmark's delete lives behind that — on the edit page, not on the
-      // listing.
+      // 2026-08-10: a probe of a live listing found no menu and no delete
+      // anywhere outside the site header. What it DID find is
+      // `[data-et-name="edit_listing"]` — Poshmark's delete lives behind that,
+      // on the edit page rather than the listing.
       //
-      // Not wired up yet, because that is a NAVIGATION rather than a menu
-      // click, and this flow's contract is click-menu → find-remove in the same
-      // document. Following a link reloads the page, the content script
-      // re-runs, and it would ask the background for its job again — a delist
-      // that restarts itself is worse than one that reports `unverified`.
-      // Needs the edit page's own controls first, then a decision about
-      // whether delist navigates.
+      // US-2486 makes that a supported shape rather than a blocker. `menu` is
+      // now the link, `navigatesTo` says that clicking it loads a page instead
+      // of opening a panel, and the run continues on the far side with the
+      // stage recorded on the job first. See runDelistFlow.
+      //
+      // STILL `lastVerified` at the old date and the flow is unproven: nobody
+      // has probed the edit page, so `remove` and `confirm` below are still the
+      // pre-2026-08 guesses. They fail loudly (`unverified`, which leaves the
+      // pending-delist stamp armed) rather than quietly, but a guess that fails
+      // loudly is still a guess. One deep probe of the edit page replaces both.
       lastVerified: "2026-06-13",
+      // The presence of this key is what turns `menu` from a panel-opener into
+      // a link. Anchored on origin + path so a query string cannot satisfy it.
+      navigatesTo: "^https://[^/]*poshmark\\.(com|ca)/edit-listing/",
       // US-1875 AC1: ONLY what can exist before any interaction. `remove` lives
       // inside the overflow menu and does not exist until `menu` is clicked, so
       // requiring it up front (as this did) made the probe unsatisfiable and the
       // whole enabled flow bailed out every run. It is validated after the click.
       required: ["menu"],
       menu:
-        'button[data-test="listing-menu"], button.listing__menu, [data-et-name="listing_options"]',
+        '[data-et-name="edit_listing"], button[data-test="listing-menu"], ' +
+        'button.listing__menu, [data-et-name="listing_options"]',
       remove:
         '[data-test="delete-listing"], [data-et-name="delete_listing"], a[href*="delete"]',
       confirm:

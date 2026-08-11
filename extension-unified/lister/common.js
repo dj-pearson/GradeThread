@@ -322,6 +322,101 @@
     // shipped-enabled Poshmark flow bailed out at the probe on every run, reporting
     // a selector break on a page that was working fine.
     //
+    // US-2486: TWO-PAGE DELIST.
+    //
+    // Poshmark and Grailed keep "delete this listing" on a different page from
+    // the listing itself, so `menu` is a LINK rather than a control that opens
+    // a panel in place. `navigatesTo` in the config is what says so — its
+    // presence changes nothing about the selectors, only about what happens
+    // between clicking `menu` and looking for `remove`.
+    //
+    // The run is therefore split across two documents:
+    //   page 1  probe `menu`, click it, record the stage, and STOP — sending no
+    //           result, exactly as the login-wall path does, so the job stays
+    //           pending instead of being reported as a failure;
+    //   page 2  the content script re-injects, asks for its job by tab id, gets
+    //           the same one back and sees stage === "navigated". It skips
+    //           `menu` entirely and goes straight to `remove`.
+    //
+    // The stage is one-way, and the destination is checked against
+    // `navigatesTo` before anything is clicked on the far side. Between them
+    // those two rules are what stop the obvious failure: a job that arrives
+    // somewhere unexpected clicking a link that is no longer there, forever.
+    const navigatesTo = delistFlow.navigatesTo || null;
+    const hasNavigated = payload.stage === "navigated";
+
+    if (navigatesTo && hasNavigated) {
+      if (!new RegExp(navigatesTo, "i").test(location.origin + location.pathname)) {
+        return {
+          ok: false,
+          manual: true,
+          error: label + " didn't open its listing editor, so GradeThread stopped " +
+            "rather than clicking on an unexpected page. Please end the listing manually.",
+          version: delistFlow.version,
+        };
+      }
+      const tNav = delistFlow.timeouts || {};
+      const navControlMs = typeof tNav.control === "number" ? tNav.control : 6000;
+      const navVerifyMs = typeof tNav.verify === "number" ? tNav.verify : 8000;
+      const navStartUrl = location.href;
+      // Snapshotted BEFORE the click, for the same reason as the single-page
+      // path: an absent witness is only evidence if it was ever present.
+      const navGoneWasPresent = Boolean(
+        delistFlow.verify && delistFlow.verify.gone &&
+        document.querySelector(delistFlow.verify.gone),
+      );
+
+      const removeAfterNav = await GT.waitFor(delistFlow.remove, navControlMs);
+      if (!removeAfterNav) {
+        return {
+          ok: false,
+          manual: true,
+          error: label + " delete control didn't appear on the listing editor — " +
+            "end the listing manually.",
+          version: delistFlow.version,
+        };
+      }
+      removeAfterNav.click();
+      if (delistFlow.confirm) {
+        const c = await GT.waitFor(delistFlow.confirm, navControlMs);
+        if (!c) {
+          return {
+            ok: false,
+            manual: true,
+            unverified: true,
+            error: label + " didn't show the delete confirmation, so GradeThread " +
+              "couldn't confirm the listing ended. Check " + label +
+              " and end it manually.",
+            version: delistFlow.version,
+          };
+        }
+        c.click();
+      }
+
+      const navEvidence = await GT.verifyDelist(
+        delistFlow,
+        { startUrl: navStartUrl, goneWasPresent: navGoneWasPresent },
+        navVerifyMs,
+      );
+      if (!navEvidence) {
+        return {
+          ok: false,
+          manual: true,
+          unverified: true,
+          error: "GradeThread clicked delete on " + label + " but couldn't confirm " +
+            "the listing actually ended. Check " + label +
+            " and end it manually if it's still live.",
+          version: delistFlow.version,
+        };
+      }
+      return {
+        ok: true,
+        delisted: true,
+        verifiedBy: navEvidence,
+        version: delistFlow.version,
+      };
+    }
+
     // Only `menu` can exist pre-interaction, so only `menu` is probed up front;
     // everything downstream is validated at the point it is supposed to appear.
     const missing = await GT.probe({
@@ -365,6 +460,37 @@
         version: delistFlow.version,
       };
     }
+    // US-2486: on a two-page channel this click is a NAVIGATION, so record the
+    // stage BEFORE following the link. Recording it afterwards would race the
+    // page unload — and a lost stage marker is precisely the loop this exists
+    // to prevent, since the far page would then think it had never navigated.
+    if (navigatesTo) {
+      try {
+        await Promise.resolve(chrome.runtime.sendMessage({
+          type: "GT_LISTER_STAGE",
+          jobId: payload.jobId,
+          stage: "navigated",
+        }));
+      } catch (_e) {
+        // The worker is asleep or the message failed. Do NOT navigate: without
+        // the marker the far page would click a link that is not there, and a
+        // delist that fails to report is better than one that loops.
+        return {
+          ok: false,
+          manual: true,
+          error: label + " delist couldn't be tracked across its listing editor — " +
+            "end the listing manually.",
+          version: delistFlow.version,
+        };
+      }
+      menu.click();
+      GT.log(payload.platform + ": following the listing editor link; the delist " +
+        "continues after the page loads");
+      // Deliberately no result: the job stays pending and the content script on
+      // the far page finishes it. Same contract as the login wall.
+      return { deferred: true };
+    }
+
     menu.click();
 
     const remove = await GT.waitFor(delistFlow.remove, controlMs);
@@ -483,6 +609,10 @@
     const payload = Object.assign(
       { platform: platformKey, platformLabel: label },
       job.payload,
+      // US-2486: a two-page delist needs to know WHICH page it is on, and which
+      // job to stamp when it follows the link. Assigned last so a payload from
+      // the SaaS can never supply either — the stage is ours, not the page's.
+      { jobId: job.jobId, stage: job.stage || null },
     );
 
     if (GT.isLoginWall(cfg.login)) {
@@ -518,6 +648,10 @@
         version: cfg.version,
       };
     }
+    // US-2486: a deferred run has followed a link and is continuing on the far
+    // page. Reporting anything here would end a job that is still working.
+    if (partial && partial.deferred) return;
+
     try {
       chrome.runtime.sendMessage(GT.result(job.jobId, partial));
     } catch (_e) { /* the background's push/alarm still reports the job */ }
@@ -676,6 +810,8 @@
             origin: location.origin,
             path: location.pathname,
             candidates: probeCandidates,
+            // Set by the popup's "I have already opened the menu" checkbox.
+            deep: Boolean(msg.deep),
             at: new Date().toISOString().slice(0, 10),
           },
         );

@@ -384,6 +384,28 @@ em { font-style: italic; }
   color: #56566e;
 }
 
+.pop-probe-deep {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #56566e;
+  cursor: pointer;
+}
+
+.pop-probe-deep input {
+  margin: 1px 0 0;
+  flex: none;
+}
+
+.pop-probe-deep em {
+  display: block;
+  font-style: normal;
+  color: #7b7b90;
+}
+
 .pop-probe-verdict {
   margin: 8px 0 0;
   font-size: 12px;

@@ -93,6 +93,13 @@ const MAX_RECENT = 20;
 // to force a fresh grade, which overwrites the cached entry.
 const GRADE_CACHE_KEY = "gradeCacheByKey";
 const GRADE_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// US-2486: how much room a delist gets after it follows a link to the page that
+// actually holds the delete control. A page load plus a re-injected content
+// script routinely costs more than the slack left in a 120s job, and a job
+// killed mid-navigation reports a failure for work that was still in flight.
+// Much shorter than the login-wall grace: nobody is typing a password here.
+const NAVIGATION_GRACE_MS = 90 * 1000;
 const GRADE_CACHE_MAX = 100;
 
 const SUPPORTED_LISTER = {
@@ -1551,6 +1558,32 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // exactly the case this exists for. Recorded as pending, so the terminal
       // outcome overwrites it once the job actually finishes.
       await writeLastJob(job, notice);
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  // US-2486: a multi-page job has followed a link and is continuing on the far
+  // page. Like GT_LISTER_NOTICE this is deliberately NON-TERMINAL — no result is
+  // sent, the job stays pending, and the content script that loads next picks it
+  // up already knowing it has navigated.
+  //
+  // The deadline moves out for the same reason it does on a login wall: a page
+  // load costs seconds the original job timeout never budgeted for, and killing
+  // the job mid-navigation would report a failure for work still in flight.
+  if (msg.type === "GT_LISTER_STAGE") {
+    (async () => {
+      const staged = await withJobs(async (jobs) => {
+        const r = self.GT_LISTER_JOBS.advanceStage(jobs, msg.jobId, msg.stage, Date.now());
+        if (!r.job) return { jobs: r.jobs, value: null };
+        const e = self.GT_LISTER_JOBS.extendDeadline(
+          r.jobs,
+          msg.jobId,
+          Date.now() + NAVIGATION_GRACE_MS,
+        );
+        return { jobs: e.jobs, value: e.job || r.job };
+      });
+      if (staged) await scheduleJobAlarm(staged);
       sendResponse({ ok: true });
     })();
     return true;

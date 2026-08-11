@@ -355,6 +355,40 @@ const matchNone = () => false;
   assert.ok(/\[testids\]/.test(text));
 }
 
+// ── 11c. Deep mode describes the controls that only exist after a click ────
+{
+  // THE GAP. The sweep fires on a missing REQUIRED selector, and a control that
+  // only exists after a click is by definition not required — so the two
+  // selectors we most needed described were the two that could never be. A
+  // seller sat on Mercari's OPEN menu, looking at its Delete button, and on a
+  // Poshmark closet with the "Shared" banner still up, and both reports said
+  // only "missing, as expected".
+  const shallow = [];
+  const deep = [];
+  const flowShallow = P.probeFlow(SELECTORS.poshmark.delist, "delist", (s) => s.includes("listing-menu"),
+    { candidates: (k) => { shallow.push(k); return [k]; } });
+  const flowDeep = P.probeFlow(SELECTORS.poshmark.delist, "delist", (s) => s.includes("listing-menu"),
+    { candidates: (k) => { deep.push(k); return [k]; }, deep: true });
+
+  // Menu resolves, so nothing is REQUIRED-missing: the shallow run sweeps
+  // nothing at all, which is correct on an untouched page.
+  assert.ok(flowShallow.ok && flowDeep.ok);
+  assert.strictEqual(flowShallow.candidates, null);
+  assert.deepStrictEqual(shallow, []);
+
+  // Deep mode describes `remove` and `confirm` anyway — that is the whole point.
+  assert.ok(deep.length > 0, "deep mode must sweep for post-interaction misses");
+  assert.ok(flowDeep.deep === true, "the flow must record that it ran deep");
+  assert.ok(/menu\/dialog included/.test(
+    P.formatProbeReport({ platform: "poshmark", flows: [flowDeep] }),
+  ), "a deep report must say so, or it reads as the ordinary one");
+
+  // And it stays OPT-IN. On an untouched page those controls SHOULD be missing,
+  // and sweeping for them every time would dress a clean report as a broken one.
+  const clean = P.probeFlow(SELECTORS.poshmark.delist, "delist", matchAll, { candidates: () => ["x"] });
+  assert.strictEqual(clean.candidates, null);
+}
+
 // ── 12. The kind mapping reads the selector, not the key ───────────────────
 {
   assert.strictEqual(P.candidateKind('textarea[name="description"]'), "textarea");
@@ -486,6 +520,19 @@ const matchNone = () => false;
   assert.ok(/even after a reload/.test(js),
     "the second failure must read differently from the first, or the reader " +
       "cannot tell that the automatic retry already happened");
+
+  // The deep checkbox has to reach BOTH probe calls — the first one and the
+  // one after the automatic reload. A reload that silently drops the flag
+  // would answer a deep request with a shallow report, and the reader has no
+  // way to tell those apart.
+  const html = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  assert.ok(/id="probeDeep"/.test(html), "popup.html must carry the deep checkbox");
+  const calls = js.match(/askProbe\([^)]*\)/g) || [];
+  assert.ok(calls.length >= 2, "expected a probe call and a post-reload retry");
+  for (const c of calls) {
+    if (!c.includes("block.dataset")) continue;
+    assert.ok(/,\s*deep\)/.test(c), `askProbe call drops the deep flag: ${c}`);
+  }
 }
 
 console.log(
