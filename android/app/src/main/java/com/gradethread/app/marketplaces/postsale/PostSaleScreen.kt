@@ -40,6 +40,8 @@ import com.gradethread.app.ui.theme.cardStyle
 @Composable
 fun PostSaleScreen(
     onClose: () -> Unit = {},
+    /** US-2409: returns, cancellations and disputes — the cases with a clock. */
+    onOpenCases: () -> Unit = {},
     viewModel: PostSaleViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -100,6 +102,13 @@ fun PostSaleScreen(
                 )
             }
         }
+
+        // US-2409: the same screen a seller reaches for after a sale is where
+        // a return or a dispute about that sale has to be answered.
+        BrandSecondaryButton(
+            text = stringResource(R.string.cases_title),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onOpenCases() }
 
         BrandSecondaryButton(text = stringResource(R.string.postsale_back), modifier = Modifier.fillMaxWidth()) { onClose() }
     }

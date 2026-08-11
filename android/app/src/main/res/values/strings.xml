@@ -1577,4 +1577,31 @@
     <string name="drafts_other_platforms">Other marketplaces</string>
     <string name="drafts_no_platform_fields">Nothing to show for the other marketplaces yet.</string>
     <string name="drafts_platform_summary">%1$s, %2$s</string>
+    <!-- US-2409: eBay returns, cancellations and payment disputes. -->
+    <string name="cases_title">Returns and disputes</string>
+    <string name="cases_tab_disputes">Disputes</string>
+    <string name="cases_tab_returns">Returns</string>
+    <string name="cases_tab_cancellations">Cancellations</string>
+    <string name="cases_tab_count">%1$s (%2$d)</string>
+    <string name="cases_nothing_open">Nothing here needs an answer right now.</string>
+    <string name="cases_show_closed">Show closed (%1$d)</string>
+    <string name="cases_hide_closed">Hide closed (%1$d)</string>
+    <string name="cases_overdue">Past the eBay deadline</string>
+    <string name="cases_respond_in">Respond within %1$d days</string>
+    <string name="cases_dispute">Payment dispute</string>
+    <string name="cases_return">Return request</string>
+    <string name="cases_cancellation">Cancellation request</string>
+    <string name="cases_send_proof">Send proof</string>
+    <string name="cases_contest">Contest</string>
+    <string name="cases_contest_help">Tell eBay why this charge should stand. Sending proof helps more than a note alone.</string>
+    <string name="cases_contest_note">Note for eBay</string>
+    <string name="cases_accept_refund">Accept and refund</string>
+    <string name="cases_approve">Approve</string>
+    <string name="cases_decline">Decline</string>
+    <string name="cases_refund">Refund in full</string>
+    <string name="cases_reject">Reject</string>
+    <string name="cases_approve_cancel">Approve and cancel</string>
+    <string name="cases_evidence_sent">Your proof is with eBay.</string>
+    <string name="cases_give_up">Drop it</string>
+    <string name="cases_cancel">Close</string>
 </resources>

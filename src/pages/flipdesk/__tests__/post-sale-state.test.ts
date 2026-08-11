@@ -5,7 +5,13 @@
 // on the first unanticipated value. These cases pin the asymmetry that makes
 // that safe, and the one word that must never be matched loosely.
 import { describe, it, expect } from "vitest";
-import { isClosedCase, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
+import {
+  daysUntil,
+  isClosedCase,
+  isOverdue,
+  splitByOpenState,
+} from "@/pages/flipdesk/post-sale-state";
+import fixture from "../../../test/fixtures/post-sale-state-cases.json";
 
 describe("isClosedCase", () => {
   it("treats terminal states as closed", () => {
@@ -75,5 +81,37 @@ describe("splitByOpenState", () => {
 
   it("handles an empty list", () => {
     expect(splitByOpenState([])).toEqual({ open: [], closed: [] });
+  });
+});
+
+// US-2409: the same rule now runs on Android, in Kotlin. A source diff cannot
+// guard a port across languages, so both suites read one fixture — this one.
+describe("shared fixture (web ↔ Android)", () => {
+  it("classifies every recorded state the same way", () => {
+    for (const c of fixture.isClosed) {
+      expect(
+        isClosedCase({ state: c.state, status: c.status }),
+        `${c.state ?? "null"}/${c.status ?? "null"}: ${c.why}`,
+      ).toBe(c.closed);
+    }
+  });
+
+  it("counts the days to a deadline the same way", () => {
+    for (const c of fixture.daysUntil) {
+      const now = new Date(c.nowIso).getTime();
+      expect(daysUntil(c.atIso, now), `${c.atIso} from ${c.nowIso}`).toBe(
+        c.days,
+      );
+    }
+  });
+
+  it("calls a passed deadline overdue, and an unreadable one not", () => {
+    const now = new Date("2026-08-11T00:00:00Z").getTime();
+    for (const c of fixture.daysUntil) {
+      expect(isOverdue(c.atIso, new Date(c.nowIso).getTime())).toBe(
+        c.days != null && c.days < 0,
+      );
+    }
+    expect(isOverdue("next tuesday", now)).toBe(false);
   });
 });

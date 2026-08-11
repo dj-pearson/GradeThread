@@ -1433,4 +1433,31 @@
     <string name="drafts_other_platforms">Otros mercados</string>
     <string name="drafts_no_platform_fields">Todavía no hay nada que mostrar para los otros mercados.</string>
     <string name="drafts_platform_summary">%1$s, %2$s</string>
+    <!-- US-2409: eBay returns, cancellations and payment disputes. -->
+    <string name="cases_title">Devoluciones y disputas</string>
+    <string name="cases_tab_disputes">Disputas</string>
+    <string name="cases_tab_returns">Devoluciones</string>
+    <string name="cases_tab_cancellations">Cancelaciones</string>
+    <string name="cases_tab_count">%1$s (%2$d)</string>
+    <string name="cases_nothing_open">Aquí no hay nada que responder por ahora.</string>
+    <string name="cases_show_closed">Ver cerradas (%1$d)</string>
+    <string name="cases_hide_closed">Ocultar cerradas (%1$d)</string>
+    <string name="cases_overdue">Pasó la fecha límite de eBay</string>
+    <string name="cases_respond_in">Responde en %1$d días</string>
+    <string name="cases_dispute">Disputa de pago</string>
+    <string name="cases_return">Solicitud de devolución</string>
+    <string name="cases_cancellation">Solicitud de cancelación</string>
+    <string name="cases_send_proof">Enviar prueba</string>
+    <string name="cases_contest">Impugnar</string>
+    <string name="cases_contest_help">Dile a eBay por qué el cobro debe mantenerse. Una prueba ayuda más que una nota sola.</string>
+    <string name="cases_contest_note">Nota para eBay</string>
+    <string name="cases_accept_refund">Aceptar y reembolsar</string>
+    <string name="cases_approve">Aprobar</string>
+    <string name="cases_decline">Rechazar</string>
+    <string name="cases_refund">Reembolsar todo</string>
+    <string name="cases_reject">Rechazar</string>
+    <string name="cases_approve_cancel">Aprobar y cancelar</string>
+    <string name="cases_evidence_sent">Tu prueba ya está con eBay.</string>
+    <string name="cases_give_up">Descartar</string>
+    <string name="cases_cancel">Cerrar</string>
 </resources>

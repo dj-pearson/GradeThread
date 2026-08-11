@@ -1,0 +1,68 @@
+{
+  "_note": "US-2409: the shared behavioural fixture for the post-sale open/closed rule. Read by src/pages/flipdesk/__tests__/post-sale-state.test.ts AND by android/app/src/test/java/com/gradethread/app/marketplaces/postsale/EbayCasesTest.kt. The rule exists in two languages, so a source diff cannot guard it — this file is the guard. The asymmetry is the point: unknown means OPEN, because hiding an open case costs the seller the case while showing a closed one costs them a glance.",
+  "isClosed": [
+    { "state": "CLOSED", "closed": true, "why": "the plain terminal state" },
+    { "state": "RETURN_CLOSED", "closed": true, "why": "terminal marker as a suffix" },
+    { "state": "CANCEL_CLOSED", "closed": true, "why": "how a finished cancellation reads" },
+    { "state": "COMPLETED", "closed": true, "why": "terminal" },
+    { "state": "CANCELLED", "closed": true, "why": "British spelling" },
+    { "state": "CANCELED", "closed": true, "why": "American spelling, both are seen" },
+    { "state": "DECLINED", "closed": true, "why": "the seller already answered" },
+    { "state": "REJECTED", "closed": true, "why": "the seller already answered" },
+    { "state": "REFUNDED", "closed": true, "why": "money already moved" },
+    { "state": "RESOLVED", "closed": true, "why": "dispute vocabulary" },
+    { "state": "FINISHED", "closed": true, "why": "terminal" },
+    { "state": "closed", "closed": true, "why": "matching is case-insensitive" },
+    {
+      "state": "REFUND_OVERDUE",
+      "closed": false,
+      "why": "THE case this rule exists for. A refund the seller owes and has not issued is the most urgent OPEN state there is, so the bare word REFUND is deliberately not a terminal marker."
+    },
+    { "state": "RETURN_REQUESTED", "closed": false, "why": "waiting on the seller" },
+    { "state": "ITEM_SHIPPED", "closed": false, "why": "in flight" },
+    { "state": "CANCEL_REQUESTED", "closed": false, "why": "waiting on the seller" },
+    { "state": "", "closed": false, "why": "unknown defaults to OPEN" },
+    { "state": null, "closed": false, "why": "absent defaults to OPEN" },
+    {
+      "state": "SOMETHING_EBAY_ADDED_LATER",
+      "closed": false,
+      "why": "a state nobody anticipated must never be silently hidden"
+    },
+    { "state": null, "status": "OPEN", "closed": false, "why": "disputes carry status, not state" },
+    { "state": null, "status": "ACTION_NEEDED", "closed": false, "why": "the dispute needs the seller" },
+    { "state": null, "status": "CLOSED", "closed": true, "why": "a finished dispute" },
+    {
+      "state": "CLOSED",
+      "status": "OPEN",
+      "closed": true,
+      "why": "state wins when both are present; no case type sends both, and reading state first matches the reference implementation"
+    }
+  ],
+  "daysUntil": [
+    { "nowIso": "2026-08-11T00:00:00Z", "atIso": "2026-08-25T00:00:00Z", "days": 14 },
+    { "nowIso": "2026-08-11T00:00:00Z", "atIso": "2026-08-12T00:00:00Z", "days": 1 },
+    {
+      "nowIso": "2026-08-11T00:00:00Z",
+      "atIso": "2026-08-11T11:00:00Z",
+      "days": 1,
+      "why": "ceiling, not floor: eleven hours left is one day, and rounding down would tell a seller they were out of time on a day they could still act"
+    },
+    { "nowIso": "2026-08-11T00:00:00Z", "atIso": "2026-08-11T00:00:00Z", "days": 0 },
+    { "nowIso": "2026-08-11T00:00:00Z", "atIso": "2026-08-10T00:00:00Z", "days": -1, "why": "overdue" },
+    {
+      "nowIso": "2026-08-11T00:00:00Z",
+      "atIso": "2026-08-10T23:00:00Z",
+      "days": 0,
+      "why": "an hour past is still 0 by ceiling, which is why overdue tests days < 0 rather than <= 0"
+    },
+    { "nowIso": "2026-08-11T00:00:00Z", "atIso": "2026-08-25T00:00:00+00:00", "days": 14, "why": "offset form parses the same as Z" },
+    { "nowIso": "2026-08-11T00:00:00Z", "atIso": null, "days": null, "why": "no deadline, no badge" },
+    { "nowIso": "2026-08-11T00:00:00Z", "atIso": "", "days": null },
+    {
+      "nowIso": "2026-08-11T00:00:00Z",
+      "atIso": "next tuesday",
+      "days": null,
+      "why": "an unreadable date produces no badge, never an invented Overdue"
+    }
+  ]
+}

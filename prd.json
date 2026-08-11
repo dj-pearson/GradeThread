@@ -1567,7 +1567,7 @@
     },
     {
       "id": "US-2409",
-      "passes": false,
+      "passes": true,
       "title": "Android: eBay returns, cancellations and payment disputes",
       "description": "As an Android reseller, I want to see and answer returns, cancellations and payment disputes on my phone, so that an eBay clock does not run out because I was not at a desk.",
       "acceptanceCriteria": [
@@ -1577,7 +1577,8 @@
         "An action that eBay refuses surfaces eBay's own message, and the local row is not left claiming a state the server never accepted",
         "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "priority": 2381
+      "priority": 2381,
+      "notes": "DONE 2026-08-11. AC3 is only half-satisfiable and that is a wire fact, not a shortcut: ONLY payment disputes carry a deadline (respondByDate). normalizeReturn and normalizeCancellation on the edge expose creationDate and nothing else, so eBays 3-day cancellation clock and the return respond-by date do not exist in this contract at all. Disputes therefore get a real Respond within N days / Past the eBay deadline badge, and all three types get the other half of AC3 - a case still actionable is visually separated from one that is not - via the US-2227 open/closed split, with closed cases rendering NO action buttons. That rule is a direct port of src/pages/flipdesk/post-sale-state.ts, and both suites now read one shared fixture (src/test/fixtures/post-sale-state-cases.json) because a source diff cannot guard a port across languages. daysUntil and isOverdue were moved OUT of post-sale.tsx into post-sale-state.ts with an injectable now so the fixture could pin them; that move also fixed a real -0 leak (Math.ceil of a small negative is -0 in JS, which renders as -0d and does not equal Kotlins 0). AC4: every action reloads its list from eBay afterwards, on failure as well as success, because a refusal usually means eBay moved the case on and the list on screen is the stale thing. Per-case busy ids rather than one global flag - these move money, and a second tap on a travelling refund would issue it twice. The evidence upload is never retried automatically (two server calls, not idempotent); a failure keeps the bytes and offers one explicit retry. Also note EbayReturn.orderId is hardcoded null by the edge, so nothing needing an order id (the webs partial refund) can be offered on a return row. Verified locally: testDebugUnitTest, lintDebug (0 errors, 167 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1326 resources, en+es), no-ungated-log OK; web vitest src/pages/flipdesk 140 passed and tsc -b clean."
     },
     {
       "id": "US-2410",

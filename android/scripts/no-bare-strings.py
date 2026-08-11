@@ -64,6 +64,7 @@ SCOPE = [
     "grading/GradeReportScreen.kt",
     "consignment/ConsignorsScreen.kt",
     "marketplaces/postsale/PostSaleScreen.kt",
+    "marketplaces/postsale/EbayCasesScreen.kt",
     "grading/BulkGradeScreen.kt",
     "inventory/InventoryListScreen.kt",
     "marketplaces/promotions/PromotionSheet.kt",

@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { splitByOpenState } from "@/pages/flipdesk/post-sale-state";
+import { daysUntil, splitByOpenState } from "@/pages/flipdesk/post-sale-state";
 import { toast } from "sonner";
 import {
   AlertTriangle,
@@ -98,14 +98,6 @@ function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
-}
-
-// Days until a deadline (negative = overdue). null when no date.
-function daysUntil(iso: string | null): number | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return Math.ceil((d.getTime() - Date.now()) / 86_400_000);
 }
 
 function EmptyRow({ text }: { text: string }) {

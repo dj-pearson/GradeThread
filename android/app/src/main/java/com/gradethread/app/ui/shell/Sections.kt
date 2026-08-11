@@ -122,6 +122,9 @@ object ShellRoutes {
     /** US-1357: what still needs posting, and who to thank. */
     const val POST_SALE = "post-sale"
 
+    /** US-2409: eBay returns, cancellations and payment disputes. */
+    const val EBAY_CASES = "ebay-cases"
+
     /** US-1358: repricing rules + the scan's suggestions. */
     const val REPRICING = "repricing"
 

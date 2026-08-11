@@ -76,3 +76,37 @@ export function splitByOpenState<T extends CaseLike>(
   for (const c of cases) (isClosedCase(c) ? closed : open).push(c);
   return { open, closed };
 }
+
+/**
+ * Whole days until an eBay deadline. Negative means it has passed; null means
+ * there is no readable date, which renders no badge at all rather than an
+ * "Overdue" invented from a parse failure.
+ *
+ * CEILING, not floor: a deadline eleven hours away is "1 day". Rounding down
+ * would tell a seller they had run out of time on a day they could still act.
+ *
+ * US-2409 moved this out of the page so Android's port could be pinned against
+ * the same fixture — `now` is a parameter for the same reason.
+ */
+export function daysUntil(
+  iso: string | null | undefined,
+  now: number = Date.now(),
+): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const days = Math.ceil((d.getTime() - now) / 86_400_000);
+  // Math.ceil of a small negative is -0 in JS, which renders as "-0d" and does
+  // not equal Kotlin's 0 under a strict comparison. Normalised so the two ports
+  // agree and the badge never says minus zero.
+  return days === 0 ? 0 : days;
+}
+
+/** A deadline already passed. An unknown date is never overdue. */
+export function isOverdue(
+  iso: string | null | undefined,
+  now: number = Date.now(),
+): boolean {
+  const days = daysUntil(iso, now);
+  return days != null && days < 0;
+}

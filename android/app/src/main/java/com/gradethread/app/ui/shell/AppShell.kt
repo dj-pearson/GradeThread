@@ -398,6 +398,7 @@ private fun ShellNavHost(navController: NavHostController) {
         composable(ShellRoutes.POST_SALE) {
             com.gradethread.app.marketplaces.postsale.PostSaleScreen(
                 onClose = { navController.popBackStack() },
+                onOpenCases = { navController.navigate(ShellRoutes.EBAY_CASES) },
             )
         }
         // US-1356: the orphan-listing queue.
@@ -426,6 +427,12 @@ private fun ShellNavHost(navController: NavHostController) {
             )
         }
         // US-1349: global search replaces the placeholder.
+        // US-2409: the eBay cases with a clock on them.
+        composable(ShellRoutes.EBAY_CASES) {
+            com.gradethread.app.marketplaces.postsale.EbayCasesScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
         composable(ShellRoutes.SEARCH) {
             com.gradethread.app.inventory.GlobalSearchScreen(
                 onOpen = { route ->
