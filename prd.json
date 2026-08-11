@@ -2205,7 +2205,7 @@
     {
       "id": "US-2489",
       "priority": 2387,
-      "passes": false,
+      "passes": true,
       "title": "Android: server-side payout reconciliation (queue, run, match, dismiss) is absent",
       "description": "As an Android reseller, I want the server payout matcher and its review queue on my phone, so a deposit that does not line up can be matched or dismissed there rather than only at a computer.",
       "acceptanceCriteria": [
@@ -2214,7 +2214,7 @@
         "A row matched or dismissed on the phone does not reappear on the next pull",
         "New strings go through stringResource, any new Compose file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "notes": "[P2][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Money/PayoutReconciliationService.swift:21,27,33,40. Web: src/hooks/use-payouts.ts:93,126,158. Edge mount: services/edge-functions/src/main.ts:1124. PayoutReconciliationViewModel.kt:18-23 states outright that the comparison is local-only and never touches the network - that is correct for the offline promise and is NOT the gap; the gap is that the server matcher has no phone surface at all.",
+      "notes": "[P2][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Money/PayoutReconciliationService.swift:21,27,33,40. Web: src/hooks/use-payouts.ts:93,126,158. Edge mount: services/edge-functions/src/main.ts:1124. PayoutReconciliationViewModel.kt:18-23 states outright that the comparison is local-only and never touches the network - that is correct for the offline promise and is NOT the gap; the gap is that the server matcher has no phone surface at all. | DONE 2026-08-11. AC2 was the design question and the answer is: the two comparisons stay APART and are labelled. money/PayoutReconciliation.kt compares two Room tables and works with no signal - that is the offline answer to do-my-books-agree. The server queue is the answer to they-do-not-what-now, and it needs a connection. Folding them into one list would produce a screen that is quietly wrong offline, which is the exact property the local comparison exists to protect. The matcher section sits below it and says so in its own help line. AC3: every queue action reloads the queue from the server afterwards and, for the two that write to sales (run and match), also triggers a pull - the local comparison above them is stale the moment a payout is linked. One queue action at a time, because the server refuses a double link with a 409 and a second tap while the first is travelling would earn an error rather than do anything. The has_more cap is REPORTED rather than silently truncated - a seller with 214 unmatched deposits shown 50 would otherwise believe the list was clear; test-pinned. The servers score and its reasons are rendered as written; re-ranking or re-wording them would be a second opinion the seller has nothing to check against. One implementation note worth keeping: kotlinx combine is only typed to five sources, and a sixth silently drops to the Array<Any?> overload where every parameter loses its type - the network-backed half of the state is bundled into one Extras flow for that reason. Verified locally: testDebugUnitTest, lintDebug (0 errors, 172 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1356 resources, en+es) and no-ungated-log all OK.",
       "dependsOn": []
     },
     {

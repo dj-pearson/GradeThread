@@ -136,6 +136,65 @@ fun PayoutReconciliationScreen(
             }
         }
 
+        // US-2489: the SERVER matcher. Kept below the local comparison and
+        // labelled, because that comparison works with no signal and this does
+        // not — merging them would make one screen that is quietly wrong
+        // offline.
+        Text(
+            stringResource(R.string.payouts_matcher_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            stringResource(R.string.payouts_matcher_help),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        val queue = state.queue
+        if (queue == null) {
+            BrandSecondaryButton(
+                text = stringResource(R.string.payouts_matcher_load),
+                enabled = !state.queueBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { viewModel.loadQueue() }
+        } else {
+            Text(
+                if (queue.hasMore) {
+                    // Reported, not silently truncated: a seller with 200
+                    // unmatched deposits must not think they cleared the list.
+                    stringResource(R.string.payouts_queue_truncated, queue.showing, queue.total)
+                } else {
+                    stringResource(R.string.payouts_queue_count, queue.total)
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            BrandSecondaryButton(
+                text = stringResource(R.string.payouts_matcher_run),
+                enabled = !state.queueBusy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { viewModel.runMatcher() }
+            for (entry in queue.queue) {
+                QueuedPayoutCard(entry, state.queueBusy, viewModel)
+            }
+        }
+
+        state.sweep?.let { sweep ->
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(
+                        R.string.payouts_sweep_result,
+                        sweep.autoMatched,
+                        sweep.ambiguous,
+                        sweep.noCandidates,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = viewModel::dismissSweep) {
+                    Text(stringResource(R.string.common_dismiss))
+                }
+            }
+        }
+
         // US-2414: the eBay payouts export, so reconciliation is not a job
         // that can only be finished at a computer.
         BrandSecondaryButton(
@@ -182,6 +241,67 @@ fun PayoutReconciliationScreen(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
         ) { onClose() }
+    }
+}
+
+/**
+ * US-2489: one payout the server could not match on its own.
+ *
+ * The candidates are the server's, with its score and its reasons shown as
+ * written. Re-ranking or re-wording them here would be a second opinion the
+ * seller cannot check against anything.
+ */
+@Composable
+private fun QueuedPayoutCard(
+    entry: PayoutQueueEntry,
+    busy: Boolean,
+    viewModel: PayoutReconciliationViewModel,
+) {
+    Column(Modifier.fillMaxWidth().cardStyle()) {
+        Text(
+            entry.payout.amount?.let(Money::format)
+                ?: stringResource(R.string.payouts_amount_unknown),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+        )
+        entry.payout.payoutDate?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (entry.candidates.isEmpty()) {
+            Text(
+                stringResource(R.string.payouts_no_candidates),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        for (candidate in entry.candidates) {
+            Column(Modifier.fillMaxWidth().padding(top = Spacing.xxs)) {
+                Text(
+                    candidate.itemTitle ?: stringResource(R.string.payouts_untitled_item),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    // The server's own words for why it thinks so.
+                    candidate.reasons.joinToString(", "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextButton(
+                    onClick = { viewModel.matchPayout(entry.payout.id, candidate.saleId) },
+                    enabled = !busy,
+                ) { Text(stringResource(R.string.payouts_match_this)) }
+            }
+        }
+
+        TextButton(
+            onClick = { viewModel.dismissPayout(entry.payout.id) },
+            enabled = !busy,
+        ) { Text(stringResource(R.string.payouts_not_a_sale)) }
     }
 }
 

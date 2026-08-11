@@ -1629,4 +1629,17 @@
     <string name="payouts_import_cta">Import a payouts CSV</string>
     <string name="payouts_importing">Reading your file…</string>
     <string name="payouts_import_result">Added %1$d payouts. %2$d were already here, and %3$d lines were not payouts.</string>
+    <!-- US-2489: the server-side payout matcher and its review queue. -->
+    <string name="payouts_matcher_title">Match deposits to sales</string>
+    <string name="payouts_matcher_help">This part needs a connection. It asks the server to pair each deposit with the sale it paid for, and leaves anything it is not sure about for you.</string>
+    <string name="payouts_matcher_load">Show what needs matching</string>
+    <string name="payouts_matcher_run">Match the obvious ones</string>
+    <string name="payouts_queue_count">%1$d deposits still need matching.</string>
+    <string name="payouts_queue_truncated">Showing %1$d of %2$d deposits that still need matching.</string>
+    <string name="payouts_sweep_result">Matched %1$d. %2$d were too close to call, and %3$d had nothing to match against.</string>
+    <string name="payouts_no_candidates">No sale looks like this deposit.</string>
+    <string name="payouts_untitled_item">Untitled item</string>
+    <string name="payouts_amount_unknown">Amount not recorded</string>
+    <string name="payouts_match_this">This one</string>
+    <string name="payouts_not_a_sale">Not one of my sales</string>
 </resources>

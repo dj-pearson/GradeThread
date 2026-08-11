@@ -1485,4 +1485,17 @@
     <string name="payouts_import_cta">Importar un CSV de pagos</string>
     <string name="payouts_importing">Leyendo tu archivo…</string>
     <string name="payouts_import_result">Se agregaron %1$d pagos. %2$d ya estaban aquí y %3$d líneas no eran pagos.</string>
+    <!-- US-2489: the server-side payout matcher and its review queue. -->
+    <string name="payouts_matcher_title">Emparejar depósitos con ventas</string>
+    <string name="payouts_matcher_help">Esta parte necesita conexión. Le pide al servidor que empareje cada depósito con la venta que pagó y te deja lo que no tiene claro.</string>
+    <string name="payouts_matcher_load">Ver lo que falta emparejar</string>
+    <string name="payouts_matcher_run">Emparejar los obvios</string>
+    <string name="payouts_queue_count">Faltan %1$d depósitos por emparejar.</string>
+    <string name="payouts_queue_truncated">Mostrando %1$d de %2$d depósitos que faltan por emparejar.</string>
+    <string name="payouts_sweep_result">Se emparejaron %1$d. %2$d quedaron muy parejos y %3$d no tenían con qué emparejarse.</string>
+    <string name="payouts_no_candidates">Ninguna venta se parece a este depósito.</string>
+    <string name="payouts_untitled_item">Artículo sin título</string>
+    <string name="payouts_amount_unknown">Monto no registrado</string>
+    <string name="payouts_match_this">Esta</string>
+    <string name="payouts_not_a_sale">No es una de mis ventas</string>
 </resources>

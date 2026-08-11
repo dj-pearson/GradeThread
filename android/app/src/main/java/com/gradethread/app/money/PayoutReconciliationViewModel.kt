@@ -30,6 +30,8 @@ class PayoutReconciliationViewModel @Inject constructor(
     private val syncTrigger: SyncTrigger,
     /** US-2414: the payouts CSV, parsed and deduped server-side. */
     private val payoutImport: PayoutImportService,
+    /** US-2489: the server matcher and its review queue. */
+    private val payoutQueue: PayoutQueueService,
 ) : ViewModel() {
 
     data class State(
@@ -49,6 +51,15 @@ class PayoutReconciliationViewModel @Inject constructor(
          * silent success they will second-guess.
          */
         val importResult: PayoutImportResult? = null,
+        /**
+         * US-2489: the SERVER queue. Null until it has been asked for, which
+         * is the honest state — this half needs a connection, and the local
+         * comparison above deliberately does not.
+         */
+        val queue: PayoutQueue? = null,
+        val queueBusy: Boolean = false,
+        /** The last sweep's counts, held until dismissed. */
+        val sweep: PayoutSweep? = null,
     )
 
     private val _refreshing = MutableStateFlow(false)
@@ -56,14 +67,29 @@ class PayoutReconciliationViewModel @Inject constructor(
 
     private val _importing = MutableStateFlow(false)
     private val _importResult = MutableStateFlow<PayoutImportResult?>(null)
+    /** The network-backed half of the state, bundled to fit combine's arity. */
+    private data class Extras(
+        val importing: Boolean,
+        val importResult: PayoutImportResult?,
+        val queue: PayoutQueue?,
+        val queueBusy: Boolean,
+        val sweep: PayoutSweep?,
+    )
+
+    private val _queue = MutableStateFlow<PayoutQueue?>(null)
+    private val _queueBusy = MutableStateFlow(false)
+    private val _sweep = MutableStateFlow<PayoutSweep?>(null)
 
     val state: StateFlow<State> = combine(
         db.payouts().observeAll(),
         db.sales().observeAll(),
         _refreshing,
         _errorMessage,
-        combine(_importing, _importResult) { importing, result -> importing to result },
-    ) { payouts, sales, refreshing, error, importState ->
+        // Collapsed into ONE flow because combine is only typed to five
+        // sources; a sixth silently drops to the Array<Any?> overload and
+        // every parameter loses its type.
+        combine(_importing, _importResult, _queue, _queueBusy, _sweep, ::Extras),
+    ) { payouts, sales, refreshing, error, extras ->
         val reconciled = PayoutReconciliation.reconcile(payouts, sales)
         State(
             reconciled = reconciled,
@@ -73,8 +99,11 @@ class PayoutReconciliationViewModel @Inject constructor(
             unknownPayout = PayoutReconciliation.salesWithUnknownPayout(payouts, sales),
             refreshing = refreshing,
             errorMessage = error,
-            importing = importState.first,
-            importResult = importState.second,
+            importing = extras.importing,
+            importResult = extras.importResult,
+            queue = extras.queue,
+            queueBusy = extras.queueBusy,
+            sweep = extras.sweep,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), State())
 
@@ -116,6 +145,58 @@ class PayoutReconciliationViewModel @Inject constructor(
                     .onFailure { _errorMessage.value = PayoutImportService.message(it) }
             }
             _importing.value = false
+        }
+    }
+
+    // ── US-2489: the server matcher ──────────────────────────────────────
+
+    /** Load the review queue. Nothing is matched by loading it. */
+    fun loadQueue() = onQueue { _queue.value = payoutQueue.queue() }
+
+    /**
+     * Sweep and auto-match the unambiguous payouts, then reload.
+     *
+     * The reload is not optional: a sweep changes what is left to review, and
+     * leaving the old list up would show rows the server has already linked.
+     */
+    fun runMatcher() = onQueue {
+        _sweep.value = payoutQueue.run()
+        _queue.value = payoutQueue.queue()
+        // Auto-matched rows are a write to sales, so the local comparison is
+        // stale too.
+        runCatching { syncTrigger.refresh() }
+    }
+
+    fun matchPayout(payoutImportId: String, saleId: String) = onQueue {
+        payoutQueue.match(payoutImportId, saleId)
+        _queue.value = payoutQueue.queue()
+        runCatching { syncTrigger.refresh() }
+    }
+
+    fun dismissPayout(payoutImportId: String) = onQueue {
+        payoutQueue.dismiss(payoutImportId)
+        _queue.value = payoutQueue.queue()
+    }
+
+    fun dismissSweep() {
+        _sweep.value = null
+    }
+
+    /**
+     * One queue action at a time.
+     *
+     * These link real money to real sales, and the server refuses a double
+     * link with a 409 — so a second tap while the first is travelling earns an
+     * error message rather than doing anything useful.
+     */
+    private fun onQueue(block: suspend () -> Unit) {
+        if (_queueBusy.value) return
+        _queueBusy.value = true
+        _errorMessage.value = null
+        viewModelScope.launch {
+            runCatching { block() }
+                .onFailure { _errorMessage.value = PayoutQueueService.message(it) }
+            _queueBusy.value = false
         }
     }
 
