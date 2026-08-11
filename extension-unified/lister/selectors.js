@@ -198,14 +198,13 @@ const GT_LISTER_SELECTORS = {
       // `shareToFollowers` both resolve. That is the click path itself, and it
       // is the half that was most likely to have moved.
       //
-      // STILL OFF, and on purpose. `actionConfirmed` has not been observed —
-      // nobody has shared one listing by hand and watched the success toast
-      // appear. Until that happens the meter is unproven, and an unproven meter
-      // is worse than none: engagement.js only counts CONFIRMED actions, so a
-      // selector that never matches means the seller is told they have shared
-      // 0 while the real total climbs toward share jail. Enabling on a verified
-      // click path and an unverified confirmation would ship exactly the
-      // failure the meter exists to prevent.
+      // The paragraph that used to sit here said STILL OFF, directly below the
+      // line that turns this on — it was written when `enabled` was false and
+      // was never rewritten when it flipped. Left in place it would eventually
+      // send someone looking for a switch that had already been thrown. What it
+      // argued is still true and now lives above, next to the caps it explains:
+      // the click path is verified, the confirmation is not, and the low default
+      // cap is the answer to that.
       version: "2026.08.0",
       lastVerified: "2026-08-11",
       // The closet page a share run walks. Locale-free; Poshmark redirects an

@@ -281,82 +281,6 @@ em { font-style: italic; }
 }
 .pop-delist-meta { font-size: 11px; opacity: 0.6; }
 
-/* ── dark theme (US-1884 AC4) ──────────────────────────────────────────────
- *
- * The popup shipped light-only, so on a dark OS it was a 340px white flash next
- * to the (already dark-themed) overlay.
- *
- * Worth being explicit about why this is NOT the browser-gated half of AC4: the
- * risk that defers the overlay's hardening is SITE CSS BLEEDING IN, which can
- * only be judged against real marketplace pages. The popup has no site. It is the
- * extension's own document in its own context — nothing can bleed into it, so the
- * only question is whether the palette is complete, which is answerable here.
- *
- * Every element in this file is covered below. The ones that need care are the
- * SEMANTIC pills (status/badges/score), where the light palette is a pale tint +
- * dark ink — inverting that naively gives unreadable low-contrast text. They get
- * a dark tint + light ink instead, keeping the meaning (green = enabled, amber =
- * needs attention, red = failed) rather than the literal colours.
- */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --gray: #232338;
-    --muted: #9a9ab0;
-    --line: #2c2c44;
-  }
-  body { color: #f5f5f5; background: #16162a; }
-
-  /* Head keeps the navy brand block — it reads correctly on dark already. */
-  /* .pop-h2 uses a literal, not var(--muted), so it needs its own override;
-     everything else that reads muted picks the new value up from :root. */
-  .pop-h2 { color: #9a9ab0; }
-  .pop-lead { color: #d7d7e2; }
-  .pop-hint { color: #9a9ab0; }
-  /* US-2239: the Recent reads / By seller switch. Folded into THIS block rather
-     than appended as a second @media — popup-theme.test.ts requires exactly one
-     prefers-color-scheme:dark block so the theme can't fragment. */
-  .pop-tabs { border-bottom-color: #2c2c44; }
-  .pop-tab { color: #9a9ab0; }
-  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
-
-  /* The main nav rides the navy header, which is already dark — so it needs no
-     inversion, only a slightly deeper ground so the strip still reads as a
-     separate row from the header above it. */
-  .pop-nav { background: #0c2749; }
-  .pop-adv-sum { color: #9a9ab0; }
-
-  .pop-account { background: #1e1e32; }
-  .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }
-  .pop-badge.seller { background: #17301f; color: #7fd39b; }
-
-  .pop-read { border-color: #2c2c44; background: #1c1c30; }
-
-  /* Pale-tint + dark-ink pills inverted to dark-tint + light-ink: a naive invert
-     would leave #137333 text on a near-black chip. */
-  .pop-status.on { background: #17301f; color: #7fd39b; }
-  .pop-status.off { background: #3a1a22; color: #ff8fa3; }
-  .pop-status.warn { background: #3a2f14; color: #f0c674; }
-
-  .pop-tos-row a { color: #9ec1ff; }
-  .pop-accepted { color: #7fd39b; }
-
-  .pop-foot a { color: #9ec1ff; }
-
-  /* US-1885's last-job and pending-delist blocks. These already read through
-     vars with light fallbacks, so dark only has to supply the values. */
-  .pop-lastjob,
-  .pop-delists {
-    --pop-border: #2c2c44;
-    --pop-subtle: #1c1c30;
-  }
-
-  /* The score circles carry white text on a saturated fill in both themes, so
-     they need no override — but the fair/poor ambers are tuned for a white page
-     and go muddy on dark. */
-  .s-fair { background: #c9921c; }
-  .s-poor { background: #cf7328; }
-}
-
 /* US-2239 — the Recent reads / By seller switch.
  *
  * A two-item switch, not a nav: underline-on-active only, so it reads as one
@@ -385,25 +309,6 @@ em { font-style: italic; }
 .pop-tab.is-on { color: #0f3460; border-bottom-color: #0f3460; }
 .pop-tab:focus-visible { outline: 2px solid #e94560; outline-offset: 2px; }
 
-/* 2026-08-11: these three rules are a SECOND dark block, and it is here rather
- * than up with the others for a reason worth reading before "tidying" it.
- *
- * The `.pop-tab` base rules are declared BELOW the main
- * `prefers-color-scheme: dark` block. Same specificity, later in the file, so
- * they won — and the ACTIVE sub-tab rendered navy #0f3460 on a #16162a page.
- * Not merely low contrast: the selected tab was less visible than the
- * unselected one, so the switch read as inverted.
- *
- * The main block carries a comment asking that dark rules stay together so the
- * theme cannot fragment, which is the right instinct and is why moving the base
- * rules up would be the tidier fix. It is also the riskier one — those rules are
- * shared with the meter and the reads list. Overriding here, next to what it
- * overrides, is the change that cannot break something three sections away. */
-@media (prefers-color-scheme: dark) {
-  .pop-tabs { border-bottom-color: #2c2c44; }
-  .pop-tab { color: #9a9ab0; }
-  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
-}
 
 /* ── US-2482: Poshmark engagement — the share-jail meter ────────────────────
  *
@@ -464,6 +369,46 @@ em { font-style: italic; }
 }
 
 .pop-engage-terms li { margin-bottom: 5px; }
+
+/* US-2482: the run control. Plain fields on the card surface — the card already
+ * declares the one border, so nothing in here draws a second one. */
+.pop-engage-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+  margin-top: 8px;
+}
+
+.pop-engage-row .pop-cta { margin: 0; flex: 1; }
+
+.pop-engage-field {
+  display: block;
+  flex: 1;
+  font-size: 11px;
+  font-weight: 600;
+  color: #56566e;
+}
+
+.pop-engage-field select,
+.pop-engage-field input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  color: #1a1a2e;
+  background: #fff;
+  border: 1px solid #d9d9e4;
+  border-radius: 8px;
+}
+
+.pop-engage-field select:focus-visible,
+.pop-engage-field input:focus-visible {
+  outline: 2px solid #e94560;
+  outline-offset: 1px;
+}
 
 /* ── US-2484: the one-click selector check ─────────────────────────────────
  *
@@ -526,4 +471,118 @@ em { font-style: italic; }
   font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
   color: #1a1a2e;
   white-space: pre;
+}
+
+/* ── dark theme (US-1884 AC4) ──────────────────────────────────────────────
+ *
+ * The popup shipped light-only, so on a dark OS it was a 340px white flash next
+ * to the (already dark-themed) overlay.
+ *
+ * Worth being explicit about why this is NOT the browser-gated half of AC4: the
+ * risk that defers the overlay's hardening is SITE CSS BLEEDING IN, which can
+ * only be judged against real marketplace pages. The popup has no site. It is the
+ * extension's own document in its own context — nothing can bleed into it, so the
+ * only question is whether the palette is complete, which is answerable here.
+ *
+ * THIS BLOCK STAYS LAST IN THE FILE. It is one block by design (popup-theme.
+ * test.ts fails the build on a second one), and a single block can only win
+ * against equal-specificity light rules by being declared after all of them.
+ *
+ * Every element in this file is covered here. The ones that need care are the
+ * SEMANTIC pills (status/badges/score), where the light palette is a pale tint +
+ * dark ink — inverting that naively gives unreadable low-contrast text. They get
+ * a dark tint + light ink instead, keeping the meaning (green = enabled, amber =
+ * needs attention, red = failed) rather than the literal colours.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --gray: #232338;
+    --muted: #9a9ab0;
+    --line: #2c2c44;
+  }
+  body { color: #f5f5f5; background: #16162a; }
+
+  /* Head keeps the navy brand block — it reads correctly on dark already. */
+  /* .pop-h2 uses a literal, not var(--muted), so it needs its own override;
+     everything else that reads muted picks the new value up from :root. */
+  .pop-h2 { color: #9a9ab0; }
+  .pop-lead { color: #d7d7e2; }
+  .pop-hint { color: #9a9ab0; }
+  /* US-2239: the Recent reads / By seller switch. Folded into THIS block rather
+     than appended as a second @media — popup-theme.test.ts requires exactly one
+     prefers-color-scheme:dark block so the theme can't fragment. */
+  .pop-tabs { border-bottom-color: #2c2c44; }
+  .pop-tab { color: #9a9ab0; }
+  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
+
+  /* The main nav rides the navy header, which is already dark — so it needs no
+     inversion, only a slightly deeper ground so the strip still reads as a
+     separate row from the header above it. */
+  .pop-nav { background: #0c2749; }
+  .pop-adv-sum { color: #9a9ab0; }
+
+  .pop-account { background: #1e1e32; }
+  .pop-badge.buyer { background: #1d2b4a; color: #cfe0ff; }
+  .pop-badge.seller { background: #17301f; color: #7fd39b; }
+
+  .pop-read { border-color: #2c2c44; background: #1c1c30; }
+
+  /* Pale-tint + dark-ink pills inverted to dark-tint + light-ink: a naive invert
+     would leave #137333 text on a near-black chip. */
+  .pop-status.on { background: #17301f; color: #7fd39b; }
+  .pop-status.off { background: #3a1a22; color: #ff8fa3; }
+  .pop-status.warn { background: #3a2f14; color: #f0c674; }
+
+  .pop-tos-row a { color: #9ec1ff; }
+  .pop-accepted { color: #7fd39b; }
+
+  .pop-foot a { color: #9ec1ff; }
+
+  /* US-1885's last-job and pending-delist blocks. These already read through
+     vars with light fallbacks, so dark only has to supply the values. */
+  .pop-lastjob,
+  .pop-delists {
+    --pop-border: #2c2c44;
+    --pop-subtle: #1c1c30;
+  }
+
+  /* The score circles carry white text on a saturated fill in both themes, so
+     they need no override — but the fair/poor ambers are tuned for a white page
+     and go muddy on dark. */
+  .s-fair { background: #c9921c; }
+  .s-poor { background: #cf7328; }
+
+  /* US-2482's engagement card. Its rules are declared below this block and use
+     literal light values, so it rendered near-black meter text on the dark page
+     — the one number in the popup that is load-bearing (shares used against the
+     cap) was the least readable thing in it. */
+  .pop-engage { border-color: #2c2c44; }
+  .pop-meter-head { color: #f5f5f5; }
+  .pop-meter-track { background: #232338; }
+  .pop-meter-note,
+  .pop-engage-terms,
+  .pop-engage-field { color: #9a9ab0; }
+  .pop-engage-field select,
+  .pop-engage-field input {
+    color: #f5f5f5;
+    background: #1c1c30;
+    border-color: #2c2c44;
+  }
+
+  /* US-2239's sub-tab switch. The `.pop-tab` base rules are declared ABOVE this
+     block in the file, so ordinary cascade order settles it — which is the whole
+     reason this block now sits at the END of the stylesheet.
+     
+     It used to sit in the middle, and every section declared BELOW it (the
+     sub-tabs, the engagement card, the meter) quietly won on source order at
+     equal specificity — so the ACTIVE sub-tab rendered navy #0f3460 on a #16162a
+     page, less visible than the unselected one. The fix shipped on 2026-08-11
+     was a SECOND dark block placed next to what it overrode. That worked, and it
+     broke the one-block rule popup-theme.test.ts enforces, so the test had been
+     red on main ever since. One block, last in the file, is the version where
+     both hold — and it is what makes the engagement-card overrides above apply
+     at all. Keep it last. */
+  .pop-tabs { border-bottom-color: #2c2c44; }
+  .pop-tab { color: #9a9ab0; }
+  .pop-tab.is-on { color: #cfe0ff; border-bottom-color: #cfe0ff; }
 }

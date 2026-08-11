@@ -169,6 +169,40 @@
               Accept &amp; enable sharing
             </button>
           </div>
+          <!-- The run control. Until this shipped the whole engagement stack
+               was unreachable: the content script listened for a run that
+               nothing ever sent. Only rendered once the clickwrap is accepted,
+               so Start can never be the first thing a seller meets. -->
+          <div id="engageRunBox" hidden>
+            <div class="pop-engage-row">
+              <label class="pop-engage-field">
+                <span>Action</span>
+                <select id="engageAction">
+                  <option value="share">Share my closet</option>
+                  <option value="follow">Follow back</option>
+                  <option value="offer">Send offers to likers</option>
+                </select>
+              </label>
+              <label class="pop-engage-field" id="engagePriceField" hidden>
+                <span>Offer price</span>
+                <input type="number" id="engagePrice" min="1" step="1" placeholder="18" />
+              </label>
+            </div>
+            <label class="pop-engage-field">
+              <span>Pace</span>
+              <select id="engagePace">
+                <option value="1400">Normal — about 1.4s between actions</option>
+                <option value="3000">Slower — about 3s</option>
+                <option value="6000">Slowest — about 6s</option>
+              </select>
+            </label>
+            <div class="pop-engage-row">
+              <button class="pop-cta" id="engageStart" type="button">Start run</button>
+              <button class="pop-linkbtn" id="engageStop" type="button" hidden>Stop run</button>
+            </div>
+            <p class="pop-meter-note" id="engageRunStatus"></p>
+          </div>
+
           <button class="pop-linkbtn" id="engageRevoke" type="button" hidden>
             Turn off Poshmark sharing
           </button>

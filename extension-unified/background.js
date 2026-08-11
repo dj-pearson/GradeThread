@@ -1467,6 +1467,20 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   if (msg.type === "GT_ENGAGE_STATE") {
     (async () => {
       const state = await readEngageState();
+      const out = await ext.storage.local.get(["engageRun", "engageLastRun"]);
+      // A run whose tab is gone is not a run. Without this the record outlives
+      // the closet tab, the popup shows Stop with nothing behind it, and Start
+      // stays hidden — the seller's next run is blocked by a run that ended.
+      if (out && out.engageRun && typeof out.engageRun.tabId === "number") {
+        let alive = false;
+        try {
+          alive = Boolean(await ext.tabs.get(out.engageRun.tabId));
+        } catch (_e) { /* closed */ }
+        if (!alive) {
+          await ext.storage.local.remove("engageRun");
+          out.engageRun = null;
+        }
+      }
       sendResponse({
         ok: true,
         accepted: self.GT_ENGAGE.isClickwrapAccepted(state.clickwrap),
@@ -1476,7 +1490,157 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         counters: state.counters,
         meter: self.GT_ENGAGE.meter(state.counters, state.settings, "share"),
         sellerAllowed: await sellerAllowed(),
+        // The popup renders these; it does not own them. A popup that kept its
+        // own idea of "a run is going" would keep showing Stop after the tab
+        // that was running closed.
+        run: (out && out.engageRun) || null,
+        lastRun: (out && out.engageLastRun) || null,
+        engageEnabled: Boolean(
+          self.GT_LISTER_SELECTORS.poshmark &&
+          self.GT_LISTER_SELECTORS.poshmark.engage &&
+          self.GT_LISTER_SELECTORS.poshmark.engage.enabled,
+        ),
       });
+    })();
+    return true;
+  }
+
+  // ── The run trigger (US-2482 AC1) ────────────────────────────────────────
+  //
+  // The seller presses Start in the popup; this is what turns that into work.
+  // The order matters: entitlement, then consent, then the tab, then the cap.
+  // Every one of those refusals is a sentence the seller can act on, which is
+  // the difference between "nothing happened" and "you are on the wrong page".
+  //
+  // The tab check is here rather than in the popup because this is where the
+  // rest of the enforcement lives. A run is only ever sent to a tab whose URL
+  // matches the closet pattern in the bundled selectors — never to a URL that
+  // arrived in a message (US-1876).
+  if (msg.type === "GT_ENGAGE_START") {
+    (async () => {
+      try {
+        const action = msg.action === "follow" || msg.action === "offer" ? msg.action : "share";
+        const state = await readEngageState();
+        const decision = self.GT_ENGAGE.gate({
+          action: action,
+          sellerAllowed: await sellerAllowed(),
+          clickwrap: state.clickwrap,
+          settings: state.settings,
+          counters: state.counters,
+          now: Date.now(),
+          tzOffsetMinutes: new Date().getTimezoneOffset(),
+          humanCheck: false,
+        });
+        if (!decision.ok) {
+          sendResponse({ ok: false, reason: decision.reason, error: decision.message });
+          return;
+        }
+
+        const cfg = self.GT_LISTER_SELECTORS.poshmark && self.GT_LISTER_SELECTORS.poshmark.engage;
+        if (!cfg || !cfg.enabled) {
+          sendResponse({
+            ok: false,
+            reason: "disabled",
+            error: "Poshmark sharing isn't switched on in this build yet.",
+          });
+          return;
+        }
+
+        const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+        const closetRe = new RegExp(cfg.closetUrlPattern);
+        if (!tab || !tab.url || !closetRe.test(tab.url)) {
+          sendResponse({
+            ok: false,
+            reason: "wrong_tab",
+            error: "Open your Poshmark closet in this tab first, then press Start.",
+          });
+          return;
+        }
+
+        const runId = (crypto.randomUUID && crypto.randomUUID()) ||
+          "run-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+        const run = {
+          runId: runId,
+          action: action,
+          // Only read for offers, and clamped so a bad field cannot send a
+          // one-cent offer to every liker in the closet.
+          offerPrice: action === "offer" ? Math.max(1, Math.floor(Number(msg.offerPrice) || 0)) : null,
+          tabId: tab.id,
+          startedAt: new Date().toISOString(),
+        };
+        if (action === "offer" && !run.offerPrice) {
+          sendResponse({ ok: false, reason: "no_price", error: "Enter the offer price first." });
+          return;
+        }
+
+        let started = null;
+        try {
+          started = await ext.tabs.sendMessage(tab.id, { type: "GT_ENGAGE_RUN", run: run });
+        } catch (_e) { /* handled below */ }
+        if (!started || started.ok !== true) {
+          sendResponse({
+            ok: false,
+            reason: (started && started.reason) || "no_content_script",
+            error: started && started.reason === "already_running"
+              ? "A run is already going in that tab."
+              : "Reload your closet tab and try again — the extension updated since it opened.",
+          });
+          return;
+        }
+
+        await ext.storage.local.set({ engageRun: run });
+        sendResponse({ ok: true, run: run });
+      } catch (e) {
+        sendResponse({ ok: false, reason: "error", error: String((e && e.message) || e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_STOP") {
+    (async () => {
+      const out = await ext.storage.local.get("engageRun");
+      const run = out && out.engageRun;
+      if (run && typeof run.tabId === "number") {
+        try {
+          await ext.tabs.sendMessage(run.tabId, { type: "GT_ENGAGE_STOP", runId: run.runId });
+        } catch (_e) { /* tab gone — clearing the record below is the whole fix */ }
+      }
+      // Cleared either way. If the tab is gone there is nothing left to stop,
+      // and leaving the record would show Stop forever with nothing behind it.
+      await ext.storage.local.remove("engageRun");
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  // A run reports twice: a NOTICE when it pauses and needs the seller (login
+  // wall, human check), and a RESULT when it ends. Both used to be sent into a
+  // void — the content script posted them and nothing listened, so a paused run
+  // looked identical to a finished one from anywhere but the tab itself.
+  if (msg.type === "GT_ENGAGE_NOTICE") {
+    (async () => {
+      await ext.storage.local.set({
+        engageLastRun: Object.assign(
+          { runId: msg.runId, at: new Date().toISOString(), paused: true },
+          msg.notice || {},
+        ),
+      });
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
+
+  if (msg.type === "GT_ENGAGE_RESULT") {
+    (async () => {
+      await ext.storage.local.set({
+        engageLastRun: Object.assign(
+          { runId: msg.runId, at: new Date().toISOString(), paused: false },
+          msg.result || {},
+        ),
+      });
+      await ext.storage.local.remove("engageRun");
+      sendResponse({ ok: true });
     })();
     return true;
   }
@@ -1503,7 +1667,14 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     (async () => {
       // Clamped on the way IN as well as on every read. Storing an unclamped
       // value would leave a number in storage that looks like a granted request.
-      const settings = self.GT_ENGAGE.clampSettings(msg.settings);
+      //
+      // MERGED over what is stored, because callers send one field. Clamping a
+      // bare { pacingFloorMs } would silently reset the three caps to defaults —
+      // the pace control quietly undoing a cap the seller had set.
+      const current = await readEngageState();
+      const settings = self.GT_ENGAGE.clampSettings(
+        Object.assign({}, current.settings, msg.settings || {}),
+      );
       await ext.storage.local.set({ engageSettings: settings });
       sendResponse({ ok: true, settings: settings });
     })();

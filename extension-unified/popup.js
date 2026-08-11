@@ -816,6 +816,55 @@ async function renderEngagement() {
   } else {
     meter.hidden = true;
   }
+
+  renderEngageRun(state);
+}
+
+/** How the last run (or the one in flight) reads as one line. */
+function engageRunLine(state) {
+  if (state.run) {
+    return "Running " + state.run.action + " in your closet tab. Leave the tab open.";
+  }
+  const last = state.lastRun;
+  if (!last) return "";
+  if (last.paused) {
+    return last.error || "The run paused and is waiting for you in the tab.";
+  }
+  if (last.ok === false) return last.error || "The last run could not start.";
+  const n = typeof last.done === "number" ? last.done : 0;
+  const what = (last.action || "action") + (n === 1 ? "" : "s");
+  if (last.stoppedBy === "daily_cap") return "Last run: " + n + " " + what + ", then today's cap.";
+  if (last.stoppedBy === "stopped") return "Last run: stopped by you after " + n + " " + what + ".";
+  return "Last run: " + n + " " + what + " confirmed.";
+}
+
+function renderEngageRun(state) {
+  const box = document.getElementById("engageRunBox");
+  if (!box) return;
+  // Start is only reachable behind the clickwrap AND behind a build where the
+  // selectors are actually switched on. Showing it otherwise would offer a
+  // button whose only possible outcome is the "not switched on" message.
+  box.hidden = !(state.accepted && state.engageEnabled !== false);
+
+  const start = document.getElementById("engageStart");
+  const stop = document.getElementById("engageStop");
+  const running = Boolean(state.run);
+  start.hidden = running;
+  stop.hidden = !running;
+
+  const pace = document.getElementById("engagePace");
+  if (pace && state.settings && !running) {
+    // Snap to the nearest offered pace rather than adding an option: the stored
+    // floor can be any clamped number (an older build, a future control).
+    const want = Number(state.settings.pacingFloorMs) || 1400;
+    let best = pace.options[0];
+    for (const opt of pace.options) {
+      if (Math.abs(Number(opt.value) - want) < Math.abs(Number(best.value) - want)) best = opt;
+    }
+    pace.value = best.value;
+  }
+
+  document.getElementById("engageRunStatus").textContent = engageRunLine(state);
 }
 
 function wireEngagement() {
@@ -840,6 +889,60 @@ function wireEngagement() {
     try {
       await Promise.resolve(ext.runtime.sendMessage({ type: "GT_ENGAGE_REVOKE" }));
     } catch (_e) { /* same */ }
+    await renderEngagement();
+  });
+
+  const action = document.getElementById("engageAction");
+  const priceField = document.getElementById("engagePriceField");
+  const start = document.getElementById("engageStart");
+  const stop = document.getElementById("engageStop");
+  const pace = document.getElementById("engagePace");
+  if (!action || !start || !stop || !pace) return;
+
+  action.addEventListener("change", () => {
+    priceField.hidden = action.value !== "offer";
+  });
+
+  // The pacing floor, which until now was reachable only by a message no UI
+  // sent. Written through the background so it lands clamped.
+  pace.addEventListener("change", async () => {
+    try {
+      await Promise.resolve(ext.runtime.sendMessage({
+        type: "GT_ENGAGE_SETTINGS",
+        settings: { pacingFloorMs: Number(pace.value) },
+      }));
+    } catch (_e) { /* the re-render below shows what actually stuck */ }
+    await renderEngagement();
+  });
+
+  start.addEventListener("click", async () => {
+    const status = document.getElementById("engageRunStatus");
+    start.disabled = true;
+    status.textContent = "Starting…";
+    let res = null;
+    try {
+      res = await Promise.resolve(ext.runtime.sendMessage({
+        type: "GT_ENGAGE_START",
+        action: action.value,
+        offerPrice: Number(document.getElementById("engagePrice").value) || 0,
+      }));
+    } catch (_e) { /* handled by the null check */ }
+    start.disabled = false;
+    if (!res || res.ok !== true) {
+      // Shown here rather than swallowed: every refusal the background returns
+      // is one the seller can act on (wrong tab, terms not accepted, cap hit).
+      status.textContent = (res && res.error) || "Could not start the run.";
+      return;
+    }
+    await renderEngagement();
+  });
+
+  stop.addEventListener("click", async () => {
+    stop.disabled = true;
+    try {
+      await Promise.resolve(ext.runtime.sendMessage({ type: "GT_ENGAGE_STOP" }));
+    } catch (_e) { /* the record is cleared either way */ }
+    stop.disabled = false;
     await renderEngagement();
   });
 }

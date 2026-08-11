@@ -52,6 +52,23 @@
     return new Promise(function (resolve) { setTimeout(resolve, ms); });
   }
 
+  // ── Stop ────────────────────────────────────────────────────────────────
+  //
+  // The banner this run draws tells the seller they can end it from the
+  // extension, so there has to be something on the other end of that sentence.
+  // The flag is checked at the TOP of each iteration, next to the human check,
+  // so a stop lands before the next click rather than after it — a stop that
+  // took effect one share late would be a stop the seller cannot trust.
+  //
+  // It is per-run: a stale STOP arriving after a run ended must not silently
+  // kill the next one the seller starts.
+  var stopRequestedFor = null;
+  var currentRunId = null;
+
+  function stopRequested() {
+    return currentRunId !== null && stopRequestedFor === currentRunId;
+  }
+
   /**
    * Wait for Poshmark's own success signal.
    *
@@ -171,6 +188,8 @@
    */
   async function runEngagement(run) {
     const label = "Poshmark";
+    currentRunId = run.runId || null;
+    stopRequestedFor = null;
 
     if (!cfg.enabled) {
       return send({
@@ -225,9 +244,23 @@
 
     const targets = collectTargets(run.action);
     for (let i = 0; i < targets.length; i++) {
+      // The seller's own stop, checked before anything is clicked.
+      if (stopRequested()) {
+        stoppedBy = "stopped";
+        GT.showBanner("Run stopped. " + done + " " + run.action + "s done today so far.");
+        break;
+      }
+
       // RULE 3 first: a human check outranks everything, including the cap.
       if (humanCheckPresent()) {
         stoppedBy = "human_check";
+        // The banner is the half of AC2 the seller actually sees. The notice
+        // below reaches the popup, which may not be open — a run that pauses
+        // silently in the tab the seller is looking at reads as a run that hung.
+        GT.showBanner(
+          "Poshmark asked for a human check. Finish it in this tab, then start " +
+            "the run again — GradeThread will never answer one for you.",
+        );
         await send({
           type: "GT_ENGAGE_NOTICE",
           runId: run.runId,
@@ -278,7 +311,11 @@
       type: "GT_ENGAGE_RESULT",
       runId: run.runId,
       result: {
-        ok: stoppedBy === null || stoppedBy === "daily_cap",
+        // A seller-requested stop and a cap are ENDINGS, not failures. Reporting
+        // them as errors would train the seller to ignore the one line that
+        // tells them a run really did break.
+        ok: stoppedBy === null || stoppedBy === "daily_cap" || stoppedBy === "stopped",
+        action: run.action,
         done: done,
         attempted: attempted,
         // Deliberately reported rather than swallowed: a run that stops at 300 of
@@ -310,9 +347,34 @@
   // because a seller happened to open their own closet is not something they
   // asked for.
   chrome.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
-    if (!msg || msg.type !== "GT_ENGAGE_RUN") return false;
-    sendResponse({ ok: true, started: true });
-    void runEngagement(msg.run || {});
+    if (!msg) return false;
+
+    if (msg.type === "GT_ENGAGE_RUN") {
+      // One run per tab. Starting a second while the first is walking the closet
+      // would double the pace without either loop knowing, and the pacing floor
+      // is the whole reason a run looks human.
+      if (currentRunId !== null) {
+        sendResponse({ ok: false, reason: "already_running" });
+        return false;
+      }
+      sendResponse({ ok: true, started: true });
+      // The reset is in a finally, not at the end of the happy path: every early
+      // return (switched off, login wall, moved selectors) also ends the run, and
+      // one that forgot to clear the flag would leave the tab refusing to start
+      // another until it was reloaded.
+      void runEngagement(msg.run || {}).catch(function () {}).then(function () {
+        currentRunId = null;
+        stopRequestedFor = null;
+      });
+      return false;
+    }
+
+    if (msg.type === "GT_ENGAGE_STOP") {
+      stopRequestedFor = currentRunId;
+      sendResponse({ ok: true, stopping: currentRunId !== null });
+      return false;
+    }
+
     return false;
   });
 })();

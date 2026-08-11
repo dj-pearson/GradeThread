@@ -114,17 +114,26 @@ const SELECTORS = load("lister/selectors.js", "GT_LISTER_SELECTORS");
 // Poshmark's tolerance, and the gap is the margin — a cap the seller can push to
 // the exact edge is not a safety limit.
 //
-// The DEFAULT is a different question, and the test now asserts the property
-// rather than the number. AC3 named 5000 when nothing had ever run; it dropped
-// to 250 for the first live release, because a default is what happens to a
-// seller who turns this on and changes nothing, on a feature whose confirmation
-// signal has never been seen working in production. Pinning the literal here
-// would mean a deliberate, reasoned reduction fails the build — a guard that
-// punishes caution is a guard that gets deleted.
-assert.ok(
-  E.LIMITS.share.default > 0 && E.LIMITS.share.default <= 5000,
-  `the default share cap is ${E.LIMITS.share.default}; it must be positive and ` +
-    "no higher than the 5000 AC3 set as the ceiling for a default (AC3)",
+// The DEFAULT is a different question, and it is now PINNED to the literal.
+//
+// AC3 named 5000 when nothing had ever run. It dropped to 250 for the first
+// live release, because a default is what happens to a seller who turns this on
+// and changes nothing, on a feature whose confirmation signal has never been
+// seen working in production. The intermediate state was worse than either
+// number: the test was loosened to "positive and <= 5000", the AC still said
+// 5000, and the shipped default was 250 — so the number the seller actually got
+// was defended by nothing and matched no written requirement.
+//
+// 2026-08-11: AC3 was amended to record 250 as the intentional first-release
+// default, and this pins it. Raising it is now a two-line change — the AC and
+// this assertion — which is the right amount of friction for a number whose
+// failure mode is a share-jailed closet.
+assert.strictEqual(
+  E.LIMITS.share.default,
+  250,
+  `the default share cap is ${E.LIMITS.share.default}; AC3 records 250 as the ` +
+    "first-release default. Raise it only by amending AC3 in the same commit, " +
+    "and only after a live run has been watched end to end.",
 );
 assert.ok(
   E.LIMITS.share.absolute < 9500,
@@ -419,6 +428,122 @@ for (const sellerAllowed of [undefined, null, false, "true", 1]) {
         "(AC8).",
     );
   }
+}
+
+// ── 10. The feature is REACHABLE ───────────────────────────────────────────
+//
+// Every guard above is worth nothing if no surface ever starts a run, and for a
+// while that was literally true: GT_ENGAGE_RUN appeared exactly once in the
+// whole repository, in the listener waiting for it. The machinery shipped, the
+// caps were tested, the clickwrap was enforced, and the seller had no button.
+//
+// This section walks the chain end to end as SOURCE, because the alternative is
+// a browser. Each link is asserted separately so a break names itself rather
+// than reporting "the popup is broken".
+{
+  const popupJs = fs.readFileSync(path.join(dir, "popup.js"), "utf8");
+  const popupHtml = fs.readFileSync(path.join(dir, "popup.html"), "utf8");
+  const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+  const content = fs.readFileSync(path.join(dir, "lister/poshmark-engage.js"), "utf8");
+
+  // Link 1: the popup has a control, and it sends a start.
+  assert.ok(
+    /id="engageStart"/.test(popupHtml),
+    "popup.html must carry a Start control — a clickwrap and a meter with no way " +
+      "to run is the state this story shipped in for a week",
+  );
+  assert.ok(
+    /GT_ENGAGE_START/.test(popupJs),
+    "popup.js must send GT_ENGAGE_START",
+  );
+
+  // Link 2: the background turns that into a message to the closet tab, and it
+  // gates BEFORE it does — a refusal the seller can read beats a silent no-op.
+  assert.ok(
+    /msg\.type === "GT_ENGAGE_START"/.test(bg),
+    "background.js must handle GT_ENGAGE_START",
+  );
+  const startAt = bg.indexOf('msg.type === "GT_ENGAGE_START"');
+  const startBlock = bg.slice(startAt, startAt + 4000);
+  assert.ok(
+    startBlock.indexOf("GT_ENGAGE.gate(") < startBlock.indexOf("GT_ENGAGE_RUN"),
+    "the start handler must gate before it sends the run",
+  );
+  assert.ok(
+    /closetUrlPattern/.test(startBlock),
+    "a run may only be sent to a tab whose URL matches the BUNDLED closet " +
+      "pattern — never to a URL that arrived in a message (US-1876)",
+  );
+  assert.ok(
+    /tabs\.sendMessage\([\s\S]{0,80}GT_ENGAGE_RUN/.test(startBlock),
+    "the start handler must send GT_ENGAGE_RUN to the tab",
+  );
+
+  // Link 3: the content script still listens, and now also accepts a stop. The
+  // in-page banner tells the seller they can end the run from the extension;
+  // without a stop path that sentence is false.
+  assert.ok(
+    /msg\.type === "GT_ENGAGE_RUN"/.test(content),
+    "poshmark-engage.js must listen for GT_ENGAGE_RUN",
+  );
+  assert.ok(
+    /msg\.type === "GT_ENGAGE_STOP"/.test(content),
+    "poshmark-engage.js must listen for GT_ENGAGE_STOP — the run banner tells " +
+      "the seller they can stop from the extension",
+  );
+  assert.ok(
+    /msg\.type === "GT_ENGAGE_STOP"/.test(bg) && /GT_ENGAGE_STOP/.test(popupJs),
+    "the stop must be reachable from the popup through the background",
+  );
+  const loop = content.slice(content.indexOf("for (let i = 0; i < targets.length"));
+  const loopBody = loop.slice(0, loop.indexOf("return send({"));
+  assert.ok(
+    loopBody.indexOf("stopRequested()") < loopBody.indexOf("humanCheckPresent()"),
+    "the stop must be checked at the TOP of each iteration, before anything is " +
+      "clicked — a stop that lands one share late is a stop the seller cannot trust",
+  );
+
+  // Link 4: both of the run's reports have a receiver. They used to have none:
+  // the pause message was well-worded and went nowhere, so a run waiting on a
+  // human check looked exactly like a run that had finished.
+  for (const type of ["GT_ENGAGE_NOTICE", "GT_ENGAGE_RESULT"]) {
+    assert.ok(
+      new RegExp('msg\\.type === "' + type + '"').test(bg),
+      `background.js must handle ${type} — the content script posts it and ` +
+        "nothing listened, which is the same as not sending it",
+    );
+  }
+
+  // AC2, the half that was missing: the human-check path has to tell the SELLER,
+  // in the tab they are looking at. The notice reaches the popup, which may not
+  // be open.
+  const humanAt = content.indexOf("if (humanCheckPresent())");
+  const humanBlock = content.slice(humanAt, content.indexOf("break;", humanAt));
+  assert.ok(
+    /GT\.showBanner\(/.test(humanBlock),
+    "the human-check pause must draw an in-page banner, not only post a message " +
+      "to a popup that may be closed (AC2)",
+  );
+  assert.ok(
+    !/solve|captcha_?service|2captcha|anticaptcha/i.test(humanBlock),
+    "nothing on the human-check path may reach a solver (AC2)",
+  );
+
+  // AC3's configurable floor, which was reachable only through a message no UI
+  // ever sent. A setting the seller cannot change is not configurable.
+  assert.ok(
+    /id="engagePace"/.test(popupHtml) && /GT_ENGAGE_SETTINGS/.test(popupJs),
+    "the pacing floor must be settable from the popup (AC3)",
+  );
+  // And the write must MERGE: a bare { pacingFloorMs } run through clampSettings
+  // alone would reset the three caps to their defaults, so the pace control
+  // would quietly undo a cap the seller had lowered.
+  const setAt = bg.indexOf('msg.type === "GT_ENGAGE_SETTINGS"');
+  const setBlock = bg.slice(setAt, setAt + 1200);
+  assert.ok(
+    /Object\.assign\(\{\}, current\.settings, msg\.settings/.test(setBlock),
+    "GT_ENGAGE_SETTINGS must merge over the stored settings before clamping",
+  );
 }
 
 console.log(
