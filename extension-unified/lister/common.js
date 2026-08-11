@@ -928,7 +928,12 @@
   }
 
   /**
-   * Describe up to 12 controls of one kind as attribute signatures.
+   * Describe up to 30 controls of one kind as attribute signatures.
+   *
+   * 30 rather than the 12 this started at: the sweep exists to name the control
+   * that replaced a broken selector, and on a marketplace page the answer sat
+   * past the twelfth row more often than not — a Grailed listing filled the
+   * first eleven with the follow-heart on each related listing.
    *
    * `value` is never read — that is the seller's listing. A button's own label
    * IS read, capped, because "which button is Publish" is unanswerable without

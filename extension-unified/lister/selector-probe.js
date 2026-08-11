@@ -256,6 +256,13 @@
     Object.keys(ctx || {}).forEach(function (k) { pageCtx[k] = ctx[k]; });
     pageCtx.flowCfg = cfg;
 
+    // The page verdict is computed BEFORE the sweep, because it decides whether
+    // the sweep runs at all. Suppressing only the PRINTING was not enough: the
+    // DOM walk still happened and the signatures still rode in the report
+    // object, so a report built on a marketplace home page carried a
+    // description of that home page's controls that nothing ever asked for.
+    var page = pageCheck((ctx && ctx.platformCfg) || cfg, flow, pageCtx);
+
     // Candidates are collected ONLY for the kinds a required selector missed.
     // A clean flow adds nothing to the report, and a flow blocked on one text
     // input does not list every button on the page.
@@ -280,7 +287,10 @@
 
     var candidates = null;
     var collect = ctx && ctx.candidates;
-    if (typeof collect === "function" && wanted.length > 0) {
+    // `!== false` and not a truthiness check: a null verdict means "cannot
+    // tell", and the sweep is what makes an unknown page worth reporting at all.
+    // Only a page the report has positively called WRONG is skipped.
+    if (typeof collect === "function" && wanted.length > 0 && page.onExpectedPage !== false) {
       candidates = {};
       var kinds = wanted.map(function (e) { return candidateKind(e.selector); });
 
@@ -321,7 +331,7 @@
       // The URL patterns live on the PLATFORM config, not the flow config —
       // `delist` and `engage` are handed their own sub-object — so the platform
       // config rides along in ctx rather than being guessed at from the flow.
-      page: pageCheck((ctx && ctx.platformCfg) || cfg, flow, pageCtx),
+      page: page,
       candidates: candidates,
       deep: deep,
     };

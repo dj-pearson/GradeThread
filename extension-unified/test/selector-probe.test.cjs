@@ -317,15 +317,32 @@ const matchNone = () => false;
 
   // On the WRONG page the candidates are the controls of some other page, so
   // printing them would be an invitation to write a selector for the home page.
+  //
+  // NOT COLLECTED, not merely not printed. Suppressing the printing left the
+  // DOM walk running and left the signatures sitting in the report OBJECT, and
+  // that object is what gets copied and pasted — so a run on a marketplace home
+  // page carried a description of that home page's controls that nobody asked
+  // for and nothing would ever use.
+  asked.length = 0;
   const wrongPage = P.probeFlow(SELECTORS.mercari, "list", found, {
     candidates,
     platformCfg: SELECTORS.mercari,
     origin: "https://www.mercari.com",
     path: "/",
   });
+  assert.strictEqual(wrongPage.page.onExpectedPage, false, "the / page is not the sell form");
+  assert.deepStrictEqual(asked, [], "the collector must not be called on a wrong page");
+  assert.strictEqual(wrongPage.candidates, null, "no signatures ride in the report object");
   assert.ok(!/what IS on the page/.test(
     P.formatProbeReport({ platform: "mercari", flows: [wrongPage] }),
   ));
+
+  // A page the report CANNOT place is still swept: `null` is "cannot tell", and
+  // the sweep is the only thing that makes an unplaceable page worth reporting.
+  asked.length = 0;
+  const unknownPage = P.probeFlow(SELECTORS.mercari, "list", found, { candidates });
+  assert.strictEqual(unknownPage.page.onExpectedPage, null);
+  assert.deepStrictEqual(asked, ["input"], "a null verdict must not suppress the sweep");
 
   // A collector that throws is a missing section, not a dead report.
   const boom = P.probeFlow(SELECTORS.mercari, "list", found, {

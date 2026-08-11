@@ -2102,7 +2102,7 @@
     },
     {
       "id": "US-2484",
-      "passes": false,
+      "passes": true,
       "title": "One-click selector check in the extension popup",
       "description": "As the GradeThread team, we want a seller (or ourselves) to verify a marketplace's selectors from the extension popup on the live sell form, so that enabling a channel stops costing a devtools session per selector and the five written-but-switched-off channels can actually be turned on.",
       "acceptanceCriteria": [
@@ -2116,11 +2116,11 @@
         "The pure report builder has no DOM, no chrome.* and no network — the matcher is injected, so the whole thing is testable with zero dependencies"
       ],
       "priority": 34,
-      "notes": "DONE 2026-08-10: built because five channels (US-2477 Mercari, US-2478 Grailed, US-2479 Vinted, US-2480 Facebook, US-2482 Poshmark engagement) are complete except for one live-browser verification each, and the manual path was a printed checklist plus a dozen querySelector calls in devtools — per channel, and again every time a marketplace moves its form (the selectors file says assume monthly for Mercari). lister/selector-probe.js is the pure report builder (matcher injected); common.js GT.registerProbe supplies document.querySelector and answers GT_LISTER_PROBE; each platform script registers itself; the popup shows the verdict plus a Copy report button. The privacy constraint is the load-bearing one and is tested: the report is written to be PASTED, so it carries the host but never the full URL (which leaks an item id and often a seller handle) and never page content."
+      "notes": "DONE 2026-08-10: built because five channels (US-2477 Mercari, US-2478 Grailed, US-2479 Vinted, US-2480 Facebook, US-2482 Poshmark engagement) are complete except for one live-browser verification each, and the manual path was a printed checklist plus a dozen querySelector calls in devtools — per channel, and again every time a marketplace moves its form (the selectors file says assume monthly for Mercari). lister/selector-probe.js is the pure report builder (matcher injected); common.js GT.registerProbe supplies document.querySelector and answers GT_LISTER_PROBE; each platform script registers itself; the popup shows the verdict plus a Copy report button. The privacy constraint is the load-bearing one and is tested: the report is written to be PASTED, so it carries the host but never the full URL (which leaks an item id and often a seller handle) and never page content. CLOSED 2026-08-10 after a per-criterion audit against the source: all 8 met, evidence in popup.js:856-897 (host gate), selector-probe.js:229-241 (per-selector verdict), :56-65 (post-interaction), :231-239 (invalid reported not thrown), verify-lister-selectors.mjs:205-219 (fast path named)."
     },
     {
       "id": "US-2485",
-      "passes": false,
+      "passes": true,
       "title": "Make a selector report interpretable: the page it was run on, and what replaced a broken selector",
       "description": "As the GradeThread team, we want the selector check to state whether it was run on the page it tests and to return the candidate controls that ARE present when a required selector misses, so that a report can be acted on in one round-trip instead of producing a confident fix for the wrong page.",
       "acceptanceCriteria": [
@@ -2129,16 +2129,16 @@
         "No path is ever printed: the verdict is computed from origin + pathname and only the verdict appears. The query string is never read",
         "When the config carries no pattern, or no path was supplied, the verdict is null and NOTHING is printed — a guess would either dismiss a real break or send someone hunting a selector on a page that never had it",
         "A missing REQUIRED selector returns candidate controls of the matching kind (text input, textarea, file input, select, button), as attribute signatures",
-        "Candidates are collected only for the kinds that missed, capped at 12, and skipped entirely on a page the report has already called wrong",
+        "Candidates are collected only for the kinds that missed, capped at 30 (raised from 12 — on a real Grailed listing the first eleven rows were the follow-heart on each related listing and the page's own control never made the cut), and NOT COLLECTED AT ALL on a page the report has already called wrong",
         "The collector never reads el.value, never serialises markup, and echoes only an allowlist of UI-chrome attributes plus a button label capped at 40 characters. Held by extension-unified/test/selector-probe.test.cjs",
         "The pure report builder still has no DOM, no chrome.* and no network — the candidate collector is injected exactly like the matcher"
       ],
       "priority": 34,
-      "notes": "Written from the first five real reports (2026-08-10). Three of them read \"everything missing\", which looks like three dead channels; the likeliest cause was a seller on a marketplace home page rather than its sell form, and the report could not distinguish those because it carried the host and not the path. The second half is the round-trip cost: a MISS said a selector broke but nothing about what replaced it, so every fix was a guess that needed another manual check to test."
+      "notes": "DONE 2026-08-10: written from the first five real reports. Three of them read \"everything missing\", which looks like three dead channels; the likeliest cause was a seller on a marketplace home page rather than its sell form, and the report could not distinguish those because it carried the host and not the path. The second half is the round-trip cost: a MISS said a selector broke but nothing about what replaced it, so every fix was a guess that needed another manual check to test. CLOSED 2026-08-10: audit found 7 of 8 met and one real gap — the wrong-page rule suppressed only the PRINTING, so the DOM sweep still ran and the signatures still rode in the report OBJECT, which is the thing that gets copied and pasted. pageCheck now runs BEFORE the sweep and gates it (selector-probe.js probeFlow). The gate is `onExpectedPage !== false`, not truthiness: a null verdict means \"cannot tell\" and the sweep is the only thing that makes an unplaceable page worth reporting. Held by a test that was confirmed to fail when the gate is removed."
     },
     {
       "id": "US-2486",
-      "passes": false,
+      "passes": true,
       "title": "Delist across two pages, for the marketplaces that keep delete on a different page",
       "description": "As a FlipDesk seller, I want GradeThread to end a Poshmark or Grailed listing even though the delete control lives on a separate page, so that an item sold elsewhere cannot stay purchasable on a channel just because its delete button is one click further away.",
       "acceptanceCriteria": [
@@ -2152,11 +2152,11 @@
         "A platform declaring navigatesTo must also declare remove and confirm, and its pattern must not match a plain listing URL. Held by extension-unified/test/lister-selectors.test.cjs"
       ],
       "priority": 34,
-      "notes": "Chosen over the alternative (notify the seller to end it by hand) because half-automating the one step that causes double sales is what this feature exists to prevent. Poshmark is wired: menu is [data-et-name=edit_listing] and delete lives on /edit-listing/. The mechanism is complete but the flow is NOT verified — nobody has probed the edit page, so remove/confirm are still the pre-2026-08 guesses. Grailed needs its own investigation: a probe of a live listing found no owner control at all, so its delete is somewhere else entirely."
+      "notes": "DONE 2026-08-10: chosen over the alternative (notify the seller to end it by hand) because half-automating the one step that causes double sales is what this feature exists to prevent. Poshmark is wired: menu is [data-et-name=edit_listing] and delete lives on /edit-listing/. CLOSED 2026-08-10 after a per-criterion audit: all 8 met — selectors.js:120 (navigatesTo), common.js:498-517 (stage recorded and awaited BEFORE the click), :505-516 (failed stage aborts to manual without navigating), job-store.js:151-161 (one-way, idempotent, terminal-safe), common.js:520-522 + background.js:1574-1590 (page one sends no result, deadline extended 90s), common.js:379-388 (destination checked against navigatesTo on origin+pathname), :400-448 (remove -> confirm -> verify). The MECHANISM is what this story owns and it is complete. Two things it does NOT own, both live-browser work: nobody has probed Poshmark's edit page, so its remove/confirm are still the pre-2026-08 guesses; and Grailed has no navigatesTo at all because a probe of a live listing found no owner control anywhere. Both belong to US-2478 and the Poshmark verification pass, not here."
     },
     {
       "id": "US-2487",
-      "passes": false,
+      "passes": true,
       "title": "Watch the page for a control that does not stay",
       "description": "As the GradeThread team, we want the extension to record what APPEARS on a marketplace page over a short window, so that a transient control like a success toast can be identified at all — it is the one selector that cannot be found by looking at a page, because it is gone before anyone can look.",
       "acceptanceCriteria": [
@@ -2165,11 +2165,11 @@
         "A watched node is described by its attribute signature ONLY — never its text, not even for buttons. A toast is a sentence that can name a buyer, a price or a listing",
         "The id attribute is excluded from a watched signature: a per-toast id makes every appearance unique and defeats the dedupe",
         "The watcher disarms itself on a timer as well as on the next mutation. Nothing observes a marketplace page in the background",
-        "Capped at 40 signatures so a busy SPA cannot fill the report",
+        "Capped at 90 signatures so a busy SPA cannot fill the report (raised from 40 with the inner per-node cap: one modal legitimately accounts for ~20 signatures, and two modals in sequence is the flow this exists to see)",
         "Held by extension-unified/test/selector-probe.test.cjs, which asserts the no-text rule against the source of watchSignature"
       ],
       "priority": 34,
-      "notes": "Written after four rounds of asking a human to share a listing, open the popup, tick a checkbox and press a button inside the two seconds a Poshmark toast survives. Every attempt came back describing a page the toast had already left. That is the wrong instrument, not a careless seller: arm it, close the popup, do the thing, come back."
+      "notes": "DONE 2026-08-10: written after four rounds of asking a human to share a listing, open the popup, tick a checkbox and press a button inside the two seconds a Poshmark toast survives. Every attempt came back describing a page the toast had already left. That is the wrong instrument, not a careless seller: arm it, close the popup, do the thing, come back. CLOSED 2026-08-10 after a per-criterion audit: all 7 met — common.js:850-863 (attributes only, no text path for any element type), :858 (id excluded so a per-toast id cannot defeat the dedupe), :924-926 (self-disarm timer as well as expiry). The audit also caught a stale user-facing number: the popup said \"Watch the page for 25s\" and fell back to 25000ms while WATCH_MS had been raised to 60000, so the button undersold the window and made sellers rush. Both fixed (popup.html, popup.js)."
     }
   ]
 }

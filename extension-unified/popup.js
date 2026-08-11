@@ -1025,7 +1025,10 @@ function wireProbe() {
         return;
       }
       verdict.textContent =
-        "Watching for " + Math.round((res.ms || 25000) / 1000) + " seconds. Close this, " +
+        // The fallback must track lister/common.js WATCH_MS. It only shows if
+        // the content script answered without an `ms`, which means a version
+        // skew — and a number that undersells the window makes a seller rush.
+        "Watching for " + Math.round((res.ms || 60000) / 1000) + " seconds. Close this, " +
         "do the thing you want captured — share a listing, open a menu — then " +
         "open this again and press Check selectors.";
     });
