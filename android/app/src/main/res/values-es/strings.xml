@@ -1524,4 +1524,19 @@
         <item quantity="one">Con base en %1$d artículo que pudimos valorar.</item>
         <item quantity="other">Con base en %1$d artículos que pudimos valorar.</item>
     </plurals>
+    <!-- US-2495: the personal half of Sourcing Radar. -->
+    <string name="tools_my_stores">Mis tiendas</string>
+    <string name="tools_my_stores_subtitle">De qué tiendas vino tu inventario y cuánto dejó</string>
+    <string name="stores_title">Mis tiendas</string>
+    <string name="stores_subtitle">De dónde vino tu inventario y qué pasó después de comprarlo.</string>
+    <string name="stores_sort_profit">Más ganancia</string>
+    <string name="stores_sort_roi">Mejor retorno</string>
+    <string name="stores_sort_items">Más artículos</string>
+    <string name="stores_sort_recent">Más reciente</string>
+    <string name="stores_money">Gastaste %1$s y recuperaste %2$s</string>
+    <string name="stores_roi">%1$.1f%% de retorno sobre lo vendido</string>
+    <string name="stores_counts">%1$d artículos comprados, %2$d vendidos</string>
+    <string name="stores_empty">Todavía no hay nada. Asigna una fuente a un artículo y empezará a aparecer.</string>
+    <string name="stores_truncated">Esta es una vista parcial, así que a una tienda le pueden faltar artículos.</string>
+    <string name="stores_unattributed">%1$d artículos no tienen tienda y %2$d visitas no se pudieron ubicar.</string>
 </resources>

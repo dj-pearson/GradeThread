@@ -1668,4 +1668,19 @@
         <item quantity="one">Based on %1$d item we could price.</item>
         <item quantity="other">Based on %1$d items we could price.</item>
     </plurals>
+    <!-- US-2495: the personal half of Sourcing Radar. -->
+    <string name="tools_my_stores">My stores</string>
+    <string name="tools_my_stores_subtitle">Which shops your stock came from, and what it made</string>
+    <string name="stores_title">My stores</string>
+    <string name="stores_subtitle">Where your stock came from, and what it did after you bought it.</string>
+    <string name="stores_sort_profit">Most profit</string>
+    <string name="stores_sort_roi">Best return</string>
+    <string name="stores_sort_items">Most items</string>
+    <string name="stores_sort_recent">Most recent</string>
+    <string name="stores_money">Spent %1$s, made %2$s back</string>
+    <string name="stores_roi">%1$.1f%% return on what sold</string>
+    <string name="stores_counts">%1$d items bought, %2$d sold</string>
+    <string name="stores_empty">Nothing here yet. Add a source to an item and it will start showing up.</string>
+    <string name="stores_truncated">This is a partial view, so a shop may be missing some items.</string>
+    <string name="stores_unattributed">%1$d items have no shop, and %2$d visits could not be placed.</string>
 </resources>

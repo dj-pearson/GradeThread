@@ -448,6 +448,12 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
             )
         }
+        // US-2495: the personal half of Sourcing Radar.
+        composable(ShellRoutes.MY_STORES) {
+            com.gradethread.app.radar.MyStoresScreen(
+                onClose = { navController.popBackStack() },
+            )
+        }
         composable(ShellRoutes.SEARCH) {
             com.gradethread.app.inventory.GlobalSearchScreen(
                 onOpen = { route ->
@@ -474,6 +480,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onReferrals = { navController.navigate(ShellRoutes.REFERRALS) },
                 onSupport = { navController.navigate(ShellRoutes.SUPPORT) },
                 onImport = { navController.navigate(ShellRoutes.IMPORT) },
+                onMyStores = { navController.navigate(ShellRoutes.MY_STORES) },
             )
         }
         // US-1389: CSV / Sheets import.

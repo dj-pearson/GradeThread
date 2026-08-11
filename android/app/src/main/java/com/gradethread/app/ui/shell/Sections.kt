@@ -73,6 +73,9 @@ object ShellRoutes {
     /** US-1389: CSV / Sheets import, reached from Tools. */
     const val IMPORT = "import"
 
+    /** US-2495: which shops actually make money, reached from Tools. */
+    const val MY_STORES = "my-stores"
+
     /** US-2407: the workspace's members and invitations, reached from Settings. */
     const val TEAM = "team"
 

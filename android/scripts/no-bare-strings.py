@@ -67,6 +67,7 @@ SCOPE = [
     "marketplaces/postsale/EbayCasesScreen.kt",
     "marketplaces/ListingEditSheet.kt",
     "money/InventoryEquityCard.kt",
+    "radar/MyStoresScreen.kt",
     "grading/BulkGradeScreen.kt",
     "inventory/InventoryListScreen.kt",
     "marketplaces/promotions/PromotionSheet.kt",
