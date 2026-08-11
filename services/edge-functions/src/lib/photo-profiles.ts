@@ -552,6 +552,55 @@ export function getPhotoProfile(
   return CLOTHING_SUB_PROFILES[group] ?? DEFAULT_PROFILE;
 }
 
+// ── US-2134 AC1: the authenticity macros are only asked for when they are usable ─
+//
+// `serial` and `marking` mean two different things depending on the category,
+// and that is why this filter is scoped rather than global:
+//
+//   • On a WATCH, a HANDBAG, JEWELLERY or a CARD, the serial/reference and the
+//     hallmark are core CONDITION evidence. A watch without its reference number
+//     is under-photographed whatever add-ons anyone bought. Those profiles keep
+//     the slots unconditionally — several even mark them required.
+//   • On CLOTHING they are authenticity extras. The condition grade never reads
+//     them, and until now every clothing seller was asked to "fill the frame
+//     with the date code" whether or not the add-on was available to them at
+//     all. That is the ask this closes.
+//
+// Kept OPTIONAL rather than made required in either direction: a condition grade
+// must never fail because an authenticity slot was skipped (AC2).
+export const AUTHENTICITY_MACRO_TYPES: readonly PhotoStorageType[] = [
+  "serial",
+  "marking",
+];
+
+/** Clothing profiles are the ones built by `clothingProfile` (they share CLOTHING_TAIL). */
+const CLOTHING_CATEGORIES = new Set<string>(
+  Object.values(CLOTHING_SUB_PROFILES).map((p) => p.category),
+);
+
+/**
+ * Strip the clothing authenticity macros when the seller cannot use them.
+ *
+ * PURE, and the eligibility read lives in the route — this file is a static
+ * table and must stay unit-testable without a database.
+ *
+ * `eligible = true` returns the SAME OBJECT, not a copy. That is deliberate:
+ * the eligible path is the pre-US-2134 behaviour and identity makes "we changed
+ * nothing for the sellers who have the add-on" checkable rather than asserted.
+ */
+export function applyAuthenticityMacroVisibility(
+  profile: PhotoProfile,
+  eligible: boolean,
+): PhotoProfile {
+  if (eligible) return profile;
+  if (!CLOTHING_CATEGORIES.has(profile.category)) return profile;
+  const roles = profile.roles.filter(
+    (r) => !AUTHENTICITY_MACRO_TYPES.includes(r.type),
+  );
+  if (roles.length === profile.roles.length) return profile;
+  return { ...profile, roles };
+}
+
 /** Required storage photo types for a category (drives the "photographed" gate). */
 export function requiredPhotoTypesFor(
   category: string | null | undefined,

@@ -510,6 +510,15 @@ app.use("/api/flipdesk/logistics/*", authMiddleware);
 app.use("/api/flipdesk/forecast/*", authMiddleware);
 app.use("/api/flipdesk/equity/*", authMiddleware);
 app.use("/api/flipdesk/photo-profiles/*", authMiddleware);
+// US-2134: photo-profiles stopped being purely static — it now hides the
+// clothing authenticity macros from a seller who cannot use the add-on. That
+// entitlement belongs to the WORKSPACE OWNER, not to whoever is holding the
+// camera, so this needs workspaceOwnerId. Without it the `workspaceOwnerId ??
+// userId` in the route is a dead expression: a member capturing inside a paid
+// workspace would be judged on their own (usually free) plan and lose slots the
+// owner paid for. Absent header = the caller's own id, so solo users are
+// unaffected.
+app.use("/api/flipdesk/photo-profiles/*", workspaceMiddleware);
 
 // US-585: waitlist / beta access gate. Mounted AFTER authMiddleware for each
 // path (so userId/user are set) on the core "do work" surfaces — grading and

@@ -1,23 +1,77 @@
 import { Hono } from "hono";
 import {
+  applyAuthenticityMacroVisibility,
   getPhotoProfile,
   PHOTO_PROFILES,
+  type PhotoProfile,
 } from "../lib/photo-profiles.ts";
+import { isFeatureEnabled } from "../lib/feature-flags.ts";
 
 // Serves the server-authoritative photo profiles (see lib/photo-profiles.ts).
-// Static config — no tenant data — but mounted under /api/flipdesk so it sits
-// behind the same auth middleware as the rest of the surface. Clients fetch the
-// whole table once and cache it; the per-category route is a convenience.
-export const flipdeskPhotoProfilesRoutes = new Hono();
+// Mounted under /api/flipdesk so it sits behind the same auth middleware as the
+// rest of the surface. Clients fetch the whole table once and cache it; the
+// per-category route is a convenience.
+//
+// US-2134: it is no longer PURELY static. The clothing profiles' two
+// authenticity macros (serial / date code, brand stamp) are dropped for a seller
+// who cannot use the authenticity add-on, because asking every clothing seller
+// to "fill the frame with the date code" for a feature they do not have is a
+// capture flow that costs them time and returns nothing.
+//
+// THE ONLY TENANT INPUT IS THE CALLER'S OWN ID. This route reads no row keyed by
+// anything from the request — the flag is resolved for `workspaceOwnerId ??
+// userId` and nothing else, so there is no id-from-the-body path to get wrong
+// (US-268).
+export const flipdeskPhotoProfilesRoutes = new Hono<
+  { Variables: { userId: string; workspaceOwnerId?: string } }
+>();
 
-flipdeskPhotoProfilesRoutes.get("/", (c) =>
-  c.json({ profiles: PHOTO_PROFILES })
-);
+/**
+ * Can this seller use the authenticity add-on at all?
+ *
+ * FAILS OPEN, to the pre-US-2134 behaviour. `isFeatureEnabled` defaults to true
+ * on a missing row or a read error, and that is the right direction here: the
+ * cost of wrongly showing two optional slots is a slightly longer capture list,
+ * while the cost of wrongly hiding them is a seller who paid for the add-on and
+ * was never asked for the photos it needs. One of those is recoverable by
+ * scrolling.
+ *
+ * Note this is ACCOUNT eligibility, not the per-submission opt-in. The add-on is
+ * chosen at grade time on a paid tier (routes/grade.ts), which has not happened
+ * yet when the capture list is being drawn — so the honest question at this
+ * point is "could they use these?", not "did they buy it?".
+ */
+async function authenticityEligible(
+  userId: string | undefined,
+): Promise<boolean> {
+  if (!userId) return true;
+  return await isFeatureEnabled("authenticity_addon", { userId });
+}
+
+flipdeskPhotoProfilesRoutes.get("/", async (c) => {
+  const eligible = await authenticityEligible(
+    c.get("workspaceOwnerId") ?? c.get("userId"),
+  );
+  if (eligible) return c.json({ profiles: PHOTO_PROFILES });
+  const profiles: Record<string, PhotoProfile> = {};
+  for (const [key, profile] of Object.entries(PHOTO_PROFILES)) {
+    profiles[key] = applyAuthenticityMacroVisibility(profile, false);
+  }
+  return c.json({ profiles });
+});
 
 // US-2465: `?garment=` carries the free-text `inventory_items.category`
 // ("blazer", "dress pants"). It is only consulted for clothing, where the
 // item_category alone is too coarse — it is the difference between offering a
 // t-shirt an inseam slot and not. Omitting it keeps the pre-US-2465 behavior.
-flipdeskPhotoProfilesRoutes.get("/:category", (c) =>
-  c.json(getPhotoProfile(c.req.param("category"), c.req.query("garment")))
-);
+flipdeskPhotoProfilesRoutes.get("/:category", async (c) => {
+  const eligible = await authenticityEligible(
+    c.get("workspaceOwnerId") ?? c.get("userId"),
+  );
+  return c.json(
+    applyAuthenticityMacroVisibility(
+      getPhotoProfile(c.req.param("category"), c.req.query("garment")),
+      eligible,
+    ),
+  );
+});
