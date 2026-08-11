@@ -56,10 +56,25 @@
   // Poshmark stops counting — because a cap the seller can push to the exact
   // edge of the tolerance is not a safety limit, it is a dare. The gap is the
   // margin, and it is not configurable for the same reason.
+  // 2026-08-11: the DEFAULTS drop for the first live release. The absolutes are
+  // unchanged — those are the safety ceiling and they were argued for on their
+  // own terms (9000 sits below the ~9500 sellers report as Poshmark's edge, and
+  // the gap is the margin).
+  //
+  // A default is a different question from a ceiling. It is what happens to a
+  // seller who turns this on and changes nothing, on a feature whose confirmation
+  // signal has never been seen working in production — Poshmark's success toast
+  // could not be captured in four attempts, so the meter currently leans on the
+  // share modal closing instead. That is sound reasoning and it is still
+  // reasoning; 250 shares is enough for a real day's closet and small enough
+  // that a wrong count is a rounding error rather than a closet.
+  //
+  // Raise them once a live run has been watched end to end. Raising a default is
+  // one line; explaining a share-jailed closet is not.
   var LIMITS = {
-    share: { default: 5000, absolute: 9000 },
-    follow: { default: 200, absolute: 500 },
-    offer: { default: 100, absolute: 300 },
+    share: { default: 250, absolute: 9000 },
+    follow: { default: 50, absolute: 500 },
+    offer: { default: 25, absolute: 300 },
   };
 
   var ACTIONS = ["share", "follow", "offer"];
