@@ -485,6 +485,37 @@ const matchNone = () => false;
   assert.ok(/PROBE_TEST_ATTRS/.test(tBody),
     "the swept attributes must come from a fixed list, not from el.attributes");
 
+  // Poshmark's listing editor tags all ~150 of its style options — 70s,
+  // Activewear, Balletcore — with data-et-name, and in document order they
+  // filled the entire budget before the page's own controls were reached. So
+  // action-shaped names are hoisted, with document order kept inside each group.
+  assert.ok(/PROBE_ACTIONISH/.test(tBody),
+    "probeTestIds must rank action-shaped names ahead of the rest, or one long " +
+      "tag list buries every control on the page");
+  const actionish = /var PROBE_ACTIONISH = new RegExp\(([\s\S]*?)\n  \);/.exec(common);
+  assert.ok(actionish, "PROBE_ACTIONISH must be declared as a literal");
+  // Rebuild it and check both directions on the values that caused this.
+  // eslint-disable-next-line no-eval
+  const re = eval(`new RegExp(${actionish[1].replace(/,\s*$/, "")})`);
+  for (const control of [
+    "delete_listing", "edit_listing", "modal-close-btn", "confirm-delete",
+    "listing_options", "share", "yes", "no",
+  ]) {
+    assert.ok(re.test(control), `PROBE_ACTIONISH misses the control "${control}"`);
+  }
+  for (const noise of [
+    "70s", "Activewear", "Monochrome", "Notifications", "Trending", "Cottagecore",
+  ]) {
+    assert.ok(!re.test(noise),
+      `PROBE_ACTIONISH hoists the content tag "${noise}". Bare \`no\` matches ` +
+        "Monochrome and bare `end` matches Trending — so the very tags this " +
+        "ranking demotes would be lifted above the controls. A loose ranking is " +
+        "worse than none: it looks like it worked.");
+  }
+  assert.ok(/hits\.concat\(rest\)/.test(tBody),
+    "ranking must CONCATENATE, not filter: a control we failed to anticipate " +
+      "still has to appear, just lower down");
+
   // THE THIRD ROUND OF REPORTS. Both sweeps returned search, chat,
   // notifications, cart, log out and the category nav, then hit their cap —
   // Mercari's truncated exactly where the item's own section started. The

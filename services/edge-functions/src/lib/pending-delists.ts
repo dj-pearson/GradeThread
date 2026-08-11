@@ -17,9 +17,25 @@
 // column. Follow the existing convention (US-268 rule 2, ownership-via-parent).
 
 import { supabaseAdmin } from "./supabase.ts";
+import { EXTENSION_DELIST_PLATFORMS as DELIST_SET } from "./cross-listing-sale.ts";
 
-/** Platforms the extension automates — no marketplace delist API exists. */
-export const EXTENSION_DELIST_PLATFORMS = ["poshmark", "mercari", "grailed"] as const;
+/**
+ * Platforms the extension automates — no marketplace delist API exists.
+ *
+ * DERIVED, not restated. This was its own hand-written list until 2026-08-11,
+ * and the two had silently diverged: US-2479/US-2480 added Vinted and Facebook
+ * to the set in cross-listing-sale.ts and not to the copy here.
+ *
+ * The consequence was not cosmetic. `delistMethodFor` resolved those two to
+ * `extension`, so a sale stamped `delist_requested_at` on the sibling — and
+ * then the query below, filtered by THIS list, never returned it. The seller
+ * was never shown the pending delist, so the sibling stayed live and
+ * purchasable: the exact double sale this module exists to prevent, reached
+ * through a second copy of a list rather than through a missing feature.
+ *
+ * One source of truth, so the next channel cannot repeat it.
+ */
+export const EXTENSION_DELIST_PLATFORMS: readonly string[] = [...DELIST_SET];
 
 export interface PendingDelist {
   listing_id: string;

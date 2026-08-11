@@ -77,9 +77,42 @@ Deno.test("a null item_title survives as null, not the string 'null'", () => {
   assertEquals(out.item_title, null);
 });
 
-Deno.test("only the API-less platforms are in the extension delist set", () => {
+Deno.test("only the API-less platforms are in the extension delist set", async () => {
   // eBay/Shopify/Depop/Etsy are ended via their own APIs by autoEndCrossListings
   // (Etsy as of US-2164) — if one leaked into this list the popup would ask the
   // seller to hand-end a listing the server already closed.
-  assertEquals([...EXTENSION_DELIST_PLATFORMS].sort(), ["grailed", "mercari", "poshmark"]);
+  const { API_DELIST_PLATFORMS } = await import("./_fixtures/api-delist.ts")
+    .catch(() => ({ API_DELIST_PLATFORMS: ["ebay", "shopify", "depop", "etsy"] }));
+  for (const p of API_DELIST_PLATFORMS) {
+    assertEquals(
+      EXTENSION_DELIST_PLATFORMS.includes(p),
+      false,
+      `${p} has a server-side delist API; listing it here would ask the seller ` +
+        "to hand-end something the server already closed",
+    );
+  }
+
+  // THE ASSERTION THAT REPLACED A HARD-CODED LIST (2026-08-11). This used to
+  // spell out ["grailed", "mercari", "poshmark"], which meant the guard could
+  // only ever confirm that a SECOND copy of the list still matched a THIRD copy
+  // written into a test. It did not — Vinted and Facebook were added to the
+  // real set in US-2479/US-2480 and to neither of the others — and the divergence
+  // left a stamped pending delist invisible to the seller, which is a live
+  // sibling after a sale.
+  //
+  // So the guard is now identity: the query's list IS the routing decision's
+  // list, and nothing here restates either.
+  const { EXTENSION_DELIST_PLATFORMS: routing } = await import(
+    "../lib/cross-listing-sale.ts"
+  );
+  assertEquals(
+    [...EXTENSION_DELIST_PLATFORMS].sort(),
+    [...routing].sort(),
+    "the platforms the pending-delist query returns must be exactly the ones " +
+      "delistMethodFor routes to the extension. A platform in one and not the " +
+      "other is either a delist nobody is shown, or a prompt for a listing the " +
+      "extension cannot end.",
+  );
+  // And it must be non-empty, or the identity above is satisfied by two bugs.
+  assertEquals(EXTENSION_DELIST_PLATFORMS.length > 0, true);
 });
