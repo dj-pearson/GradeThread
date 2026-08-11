@@ -109,8 +109,18 @@ const GT_LISTER_SELECTORS = {
         'button.listing__menu, [data-et-name="listing_options"]',
       remove:
         '[data-test="delete-listing"], [data-et-name="delete_listing"], a[href*="delete"]',
+      // 2026-08-11: a probe of the listing editor found the confirm modal —
+      // `[data-test="modal"]` with a `modal-footer` holding a plain "No" and
+      // "Yes" pair. Neither carries a `data-et-name`, which is why every
+      // selector before the last one here missed: they were all looking for a
+      // name that Poshmark does not put on this button.
+      //
+      // Scoped to the footer rather than matched on `btn--primary` alone: the
+      // editor's own "Update" button is also `btn--primary`, and a confirm
+      // selector that can match Save is the worst possible miss on this flow.
       confirm:
-        'button[data-test="confirm-delete"], button.btn--primary[data-et-name="yes"], button[data-et-name="confirm"]',
+        'button[data-test="confirm-delete"], button.btn--primary[data-et-name="yes"], ' +
+        'button[data-et-name="confirm"], [data-test="modal-footer"] button.btn--primary',
       // US-1875 AC2: proof the delete took. Poshmark bounces to the closet, so the
       // URL change is the primary signal; the listing menu vanishing and the
       // success toast are corroboration for any in-place variant.

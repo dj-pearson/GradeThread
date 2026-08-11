@@ -732,13 +732,37 @@
    * is not. Values only, no elements and no text: a test attribute is a
    * developer's own identifier, never anything a seller typed.
    */
+  /**
+   * Values that name an ACTION, hoisted to the top of the sweep.
+   *
+   * Poshmark's listing editor tags all ~150 of its style options — 70s,
+   * Activewear, Balletcore, Cottagecore — with `data-et-name`, and they filled
+   * the whole budget in document order before the page's own controls were
+   * reached. Ranking is the only thing that survives a page like that: a
+   * control called "delete" is never crowded out by a content tag again, and
+   * document order is preserved inside each group so nothing is reordered
+   * arbitrarily.
+   */
+  // The short words are boundaried on purpose. Bare `no` matches Monochrome and
+  // Notifications, bare `end` matches Recommended and Trending — so the very
+  // content tags this ranking exists to demote would have been hoisted above
+  // the controls instead. A loose ranking is worse than none: it looks like it
+  // worked.
+  var PROBE_ACTIONISH = new RegExp(
+    "delete|remove|destroy|discard|archive|unlist|close|confirm|cancel|submit|" +
+      "save|update|publish|edit|menu|option|action|share|offer|follow|" +
+      "\\byes\\b|\\bno\\b|\\bend\\b",
+    "i",
+  );
+
   function probeTestIds() {
-    var out = [];
+    var hits = [];
+    var rest = [];
     var seen = {};
     var nodes = document.querySelectorAll(
       "[data-et-name], [data-test], [data-testid], [data-test-id]",
     );
-    for (var i = 0; i < nodes.length && out.length < 120; i++) {
+    for (var i = 0; i < nodes.length; i++) {
       if (inChrome(nodes[i])) continue;
       for (var a = 0; a < PROBE_TEST_ATTRS.length; a++) {
         var v = nodes[i].getAttribute(PROBE_TEST_ATTRS[a]);
@@ -746,10 +770,10 @@
         var sig = PROBE_TEST_ATTRS[a] + "=" + String(v).slice(0, 60);
         if (seen[sig]) continue;
         seen[sig] = true;
-        out.push(sig);
+        (PROBE_ACTIONISH.test(v) ? hits : rest).push(sig);
       }
     }
-    return out;
+    return hits.concat(rest).slice(0, 120);
   }
 
   /**
