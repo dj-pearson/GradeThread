@@ -1,10 +1,15 @@
 // US-585: public waitlist capture + per-account access status.
 //
-// Mounted at /api/waitlist. Two surfaces:
+// Mounted at /api/waitlist. Three surfaces:
 //   POST /            — anonymous capture from the landing form (rate-limited in
 //                       main.ts). Upserts by lower(email) so re-submitting is
 //                       idempotent and never leaks whether an email already
 //                       exists (always returns the same generic ok).
+//   GET  /status      — anonymous: is the staged-launch gate on right now?
+//                       (US-2449) The public capture form renders ONLY while it
+//                       is, so the site never shows a waitlist CTA beside a live
+//                       "Start Grading Free" button. Returns one boolean and no
+//                       account data, which is why it needs no auth.
 //   GET  /me          — authenticated: does THIS account have access right now?
 //                       Powers the SPA's gated-state UI without it having to
 //                       probe a real endpoint and parse a 403.
@@ -60,6 +65,15 @@ waitlistRoutes.post("/", async (c) => {
   }
 
   return c.json({ ok: true });
+});
+
+// GET /api/waitlist/status — anonymous gate state (US-2449).
+//
+// authMiddleware is mounted on the exact path /api/waitlist/me, so this stays
+// public. It reads the same fleet-wide 30s cache the gate itself uses, so a
+// crawler hitting the prerendered landing page costs no extra query.
+waitlistRoutes.get("/status", async (c) => {
+  return c.json({ gatingActive: await isWaitlistGatingActive() });
 });
 
 // GET /api/waitlist/me — authenticated access check (auth applied in main.ts).

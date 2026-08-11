@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/ai-authenticity.ts
   - src/pages/tools/authenticity-check.tsx
   - services/edge-functions/src/tests/authenticity-claim-register_test.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-11
 tags: [authenticity, legal, compliance, claims]
 summary: The inventory US-2133's substantiation review needs — where each authenticity claim renders, what the pipeline can support, and where our own brand KB contradicts the product.
 ---
@@ -59,6 +59,13 @@ Every one of these is a real constraint in code, not an intention:
 - **Confidence is ceilinged**, and capped harder on a contradiction, on missing
   macro evidence, on thin reference coverage, and on unverified brand tells.
   Caps compose by minimum and never raise.
+  US-2471 taught the photo ROLE to `selectAuthenticityImages`, so a
+  `detail:hardware` shot now outranks a generic `detail` one — and deliberately
+  did **not** add roles to `MACRO_EVIDENCE_TYPES`. That set decides whether
+  `AUTHENTICITY_NO_MACRO_LIMITATION` is appended and whether the missing-macro
+  cap applies, so widening it would RAISE confidence on submissions already
+  assessed and quietly drop a disclosure from their output. Ordering evidence
+  and counting it are separate decisions; only the first is a ranking change.
 - **The public endpoint has two independent gates.** `/tools/authenticity-check`
   requires `PUBLIC_AUTHENTICITY_CHECK_ENABLED` **and** a passing eval run. The
   env flag is the *legal* gate (a human read the copy); it says nothing about

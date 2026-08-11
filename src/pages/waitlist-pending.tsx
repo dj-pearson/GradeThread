@@ -1,14 +1,41 @@
+import { useEffect } from "react";
 import { Link } from "react-router";
 import { Clock, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { signOut } from "@/lib/auth";
+import { useAuthStore } from "@/stores/auth-store";
+import { edgeFetch } from "@/lib/edge-fetch";
 
 // US-585: shown to an authenticated account that is NOT yet approved while the
 // launch gate is active. edge-fetch redirects here on a 403
 // { code: "waitlist_required" }. Public route so it renders even when every
 // gated API call is being blocked.
 export function WaitlistPendingPage() {
+  // US-2449: put this account ON the list it is being told it is on.
+  //
+  // Signup does not create a waitlist_entries row — nothing did except the
+  // public form, and the public form had no importers. So a person who signed
+  // up while the gate was closed landed here reading "you're in the queue"
+  // while /admin/waitlist showed nothing to approve. The page said something
+  // that was not true and the operator had no way to find out.
+  //
+  // POST is idempotent (upsert on lower(email), ignoreDuplicates), so an
+  // already-approved entry is never downgraded and a repeat visit is a no-op.
+  // Failure is deliberately silent: the person is stuck either way and a toast
+  // about a background write they did not ask for helps nobody.
+  const email = useAuthStore((s) => s.user?.email);
+  const fullName = useAuthStore((s) => s.profile?.full_name);
+  useEffect(() => {
+    if (!email) return;
+    void edgeFetch("/api/waitlist", {
+      method: "POST",
+      unauthenticated: true,
+      silentGate: true,
+      json: { email, full_name: fullName || undefined, source: "signup-gated" },
+    }).catch(() => {});
+  }, [email, fullName]);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-brand-gray px-4 dark:bg-brand-night">
       <Card className="w-full max-w-md">

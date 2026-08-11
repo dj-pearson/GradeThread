@@ -19,7 +19,7 @@ code_refs:
   - services/edge-functions/src/lib/prompt-blocks.ts
   - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
-reviewed: 2026-08-09
+reviewed: 2026-08-11
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
@@ -48,6 +48,7 @@ seller input can reach. Rendered OUTSIDE the fence, before it opens:
 | Tag generation (era) | matched against curated `tag_eras` on that same pass | US-2212 |
 | Verified size | label read + measurements mapped to the brand's chart | US-2213 |
 | Category criteria | a fixed per-`garment_category` map in code | US-2222 |
+| Photo role context | a fixed per-`(image_type, image_role)` map in code — see the caveat below | US-2471 |
 
 ## The test for a new block
 
@@ -143,9 +144,45 @@ the flag-gated rollout meaningful: with `GRADING_BASELINES` or `GRADING_TAG_OCR`
 off, the prompt is the previously-evaluated one, not a near-copy.
 
 Each block also appends its own `prompt_version` suffix — `+baseline`, `+fabric`,
-`+visual`, `+tag`, `+cat2`, in that fixed order — so accuracy-tracking can attribute
-an era per block. Suffixes APPEND; reordering them would silently reinterpret every
-version string already recorded against past grades.
+`+visual`, `+tag`, `+cat2`, `+roles`, in that fixed order — so accuracy-tracking can
+attribute an era per block. Suffixes APPEND; reordering them would silently reinterpret
+every version string already recorded against past grades. `+roles` (US-2471) went on
+the end for exactly that reason, not because it belongs last.
+
+## The photo role is a SELLER-CHOSEN selector over server-written sentences
+
+US-2471 (flag `GRADING_PHOTO_ROLES`, **default off**) replaced "this is a detail
+image" with the sentence for the role the seller assigned that slot —
+`detail:fabric`, `label:care`, `detail:hardware` and eleven more, from
+`IMAGE_ROLE_CONTEXT` in `ai-grading.ts`. The text is ours. **The choice of which
+text is theirs**, and that is the US-2217 rule reappearing on a new surface:
+selecting among trusted blocks is as powerful as writing one.
+
+It is weaker than the style-code case, and the reason is worth being precise
+about rather than reassuring about:
+
+- The vocabulary is **closed** (`src/lib/photo-roles.ts`), so no seller string
+  reaches the prompt. A role we do not recognise falls through to the type-level
+  sentence, which is the pre-US-2471 text.
+- A seller already controls **which photos they upload**, so a role cannot
+  fabricate evidence that is not in the frame.
+- But several of these sentences **do direct scoring**, in as many words:
+  `detail:fabric` says "this is the primary evidence for fabric_condition, the
+  heaviest factor in the grade", and `detail:hardware` says the same for
+  `functional_elements`. So a mislabelled slot does not lie about the garment —
+  it redirects which frame the grader treats as authoritative for the 30% factor.
+
+That is the open question the flag exists to hold, and it is a question for the
+canary rather than for a reviewer's intuition: does naming the role improve
+accuracy by more than mislabelled slots cost? Nothing about this is settled by it
+being off today. If it needs hardening, the shape is the one US-2217 already
+used: prefer a role the SERVER can corroborate (the capture profile the photo was
+taken under) over one a seller can retype afterwards.
+
+Note the confidence side is untouched by design: `hasFabricCloseup` and
+`NO_FABRIC_CLOSEUP_CONFIDENCE_CAP` still key off the image TYPE, so a role cannot
+lift a cap. Widening them to roles would let a seller clear a cap by renaming a
+slot, which is a different and worse bargain than the prompt one.
 
 ## A third split, orthogonal to trust: versioned vs not
 

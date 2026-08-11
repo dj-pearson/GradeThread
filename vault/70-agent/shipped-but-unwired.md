@@ -9,9 +9,11 @@ code_refs:
   - services/edge-functions/src/lib/reconcile-fields.ts
   - services/edge-functions/src/lib/rubric.ts
   - src/test/no-dead-column-writes.test.ts
-reviewed: 2026-08-09
+  - src/components/waitlist-form.tsx
+  - src/test/waitlist-capture-reachable.test.ts
+reviewed: 2026-08-11
 tags: [quality, testing, dead-code, gotcha]
-summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, and one was assumed correct because being unwired hid a broken table — telling the shapes apart is the point.
+summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
 
 # Shipped but unwired
@@ -101,6 +103,58 @@ suites, which is what keeps the two copies honest.
 A user changing a brand on **iOS** still gets a corrected item and a stale
 listing title. That is the whole of what remains of US-1995, and it needs a
 macOS session — see [[blocked-work-gates]].
+
+## The unwired thing that was a LOADED SWITCH (US-2449, 2026-08-11)
+
+Every entry above is a module whose absence made something silently *not
+happen*. `src/components/waitlist-form.tsx` was the other shape: an orphan whose
+absence armed a **lockout**.
+
+The staged-launch waitlist shipped complete except for its front door. The
+anonymous capture route (`routes/waitlist.ts`), the per-account gate
+(`lib/access-gate.ts`), the operator queue at `/admin/waitlist` with its nav
+entry, the pending page, the `edge-fetch` 403 branch — all live, all correct,
+all reachable from one `feature_flags` row, `waitlist_gating`. `WaitlistForm`
+had **zero importers**, and the only other mention of it anywhere in the repo
+was a *comment* in `newsletter-signup.tsx` saying it mirrored the same
+prerender-safe dynamic-import pattern.
+
+So flipping one boolean would have gated every non-staff account, while the only
+public way to create the approved row that ungates you rendered nowhere.
+
+**Two things about it are worth carrying forward.**
+
+First, **a caller-less UI component is harder to see than a caller-less
+module.** The audit tool that found the rest of this note,
+`scripts/audit-unwired-exports.mjs`, works the import graph — which is right,
+and which US-1995 already learned the hard way. But a component's *danger* is
+not proportional to its own deadness; it is proportional to what its absence
+leaves armed. Nothing ranked this one, because nothing knew the switch existed.
+
+Second, **the operator-facing half is the half that hides.** With the gate on
+and no capture path, an operator opens `/admin/waitlist` and sees a queue that
+can only ever shrink. An empty queue during a staged launch looks exactly like a
+quiet week. There is no error, no alert, and no way to tell "nobody applied"
+from "nobody *can*".
+
+Also true and separately missed: **signup never wrote a `waitlist_entries` row**
+— nothing did except the form. So a person who signed up while the gate was
+closed was shown a page saying "you're in the queue" while the queue had no
+record of them. The page's claim was false and the operator had no way to find
+out. `waitlist-pending.tsx` now enrols the signed-in account itself.
+
+**The remedy is the invariant, not the wiring.**
+`src/test/waitlist-capture-reachable.test.ts` asserts what nobody had written
+down: *if the flag can be turned on, a public way in must exist.* It discovers
+importers from source with comments stripped (a naive grep reads that
+`newsletter-signup.tsx` comment as a caller, which is precisely how this
+survived), and it fails a **half-retirement** too — deleting the form while
+leaving the flag armed is the failure mode US-2449's own AC2 was written
+against. The form is gated on `useWaitlistGating()` so it renders only while the
+gate is genuinely closed, which keeps US-1949's finding intact: a "join the
+waitlist" button beside a live "Start Grading Free" is a vaporware signal, and
+was rightly removed. A waitlist shown only when the door is actually shut is a
+different, true claim.
 
 ## Deliberately dead — and why that was not enough
 

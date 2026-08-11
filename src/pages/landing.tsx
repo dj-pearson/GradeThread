@@ -39,6 +39,8 @@ import { TrendingFinds } from "@/components/marketing/trending-finds";
 import { HeroBackdrop } from "@/components/marketing/hero-backdrop";
 import { ScrollExperience } from "@/components/marketing/scroll-experience/scroll-experience";
 import { NewsletterSignup } from "@/components/newsletter-signup";
+import { WaitlistForm } from "@/components/waitlist-form";
+import { useWaitlistGating } from "@/hooks/use-waitlist-gating";
 import { FLIPDESK_STAGES } from "@/components/marketing/flipdesk-stages";
 import { LANDING_FAQS } from "@/pages/landing-faqs";
 import {
@@ -582,6 +584,7 @@ function SampleCertificatePreview() {
 }
 
 export function LandingPage() {
+  const waitlistGating = useWaitlistGating();
   return (
     <ScrollExperience>
     <div className="flex min-h-screen flex-col">
@@ -1003,6 +1006,24 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* US-2449: public waitlist capture. Renders ONLY while the staged-launch
+          gate is actually closed — see use-waitlist-gating.ts for why that
+          condition is the whole feature and not an optimisation. */}
+      {waitlistGating && (
+        <section className="bg-brand-navy px-6 py-16 text-center text-white">
+          <h2 className="text-2xl font-extrabold font-display">
+            We're letting people in a group at a time
+          </h2>
+          <p className="mx-auto mt-3 max-w-xl text-white/80">
+            Leave your email and we'll send your invite as soon as a spot opens.
+            No card, no account needed yet.
+          </p>
+          <div className="mx-auto mt-8 max-w-xl">
+            <WaitlistForm source="landing" />
+          </div>
+        </section>
+      )}
 
       {/* US-912: newsletter signup — capture leads before signup (double opt-in). */}
       <section className="px-6 py-16 text-center">
