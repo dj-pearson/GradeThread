@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -43,6 +44,13 @@ fun PayoutReconciliationScreen(
     // No load-on-appear: the state flow is Room-backed, so it already carries
     // the cached comparison on the first frame and re-emits after every sync.
     val state by viewModel.state.collectAsState()
+
+    // US-2414: any MIME type. Drive, Files and the mail apps all report a
+    // downloaded CSV differently, and a strict filter hides the file the seller
+    // is looking straight at.
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument(),
+    ) { uri -> uri?.let(viewModel::importCsv) }
 
     Column(
         Modifier.fillMaxSize().padding(Spacing.md),
@@ -125,6 +133,38 @@ fun PayoutReconciliationScreen(
             }
             items(state.matched, key = { "ok-${it.payout.id}" }) { entry ->
                 PayoutCard(entry, onOpenItem)
+            }
+        }
+
+        // US-2414: the eBay payouts export, so reconciliation is not a job
+        // that can only be finished at a computer.
+        BrandSecondaryButton(
+            text = if (state.importing) {
+                stringResource(R.string.payouts_importing)
+            } else {
+                stringResource(R.string.payouts_import_cta)
+            },
+            enabled = !state.importing,
+            modifier = Modifier.fillMaxWidth(),
+        ) { picker.launch(arrayOf("*/*")) }
+
+        state.importResult?.let { result ->
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    // Duplicates are stated, not hidden: a seller who
+                    // re-uploaded the same export needs to be told nothing was
+                    // counted twice, or they will go looking for the money.
+                    stringResource(
+                        R.string.payouts_import_result,
+                        result.imported,
+                        result.duplicates,
+                        result.skipped,
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = viewModel::dismissImportResult) {
+                    Text(stringResource(R.string.common_dismiss))
+                }
             }
         }
 

@@ -1482,4 +1482,8 @@
     <string name="settings_export">Exportar mis datos</string>
     <string name="settings_export_subtitle">Descarga todo lo que tenemos de tu cuenta y elige dónde guardarlo</string>
     <string name="settings_export_running">Preparando tu archivo…</string>
+    <!-- US-2414: eBay payout CSV import. -->
+    <string name="payouts_import_cta">Importar un CSV de pagos</string>
+    <string name="payouts_importing">Leyendo tu archivo…</string>
+    <string name="payouts_import_result">Se agregaron %1$d pagos. %2$d ya estaban aquí y %3$d líneas no eran pagos.</string>
 </resources>

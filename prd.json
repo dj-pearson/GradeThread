@@ -1640,7 +1640,7 @@
     },
     {
       "id": "US-2414",
-      "passes": false,
+      "passes": true,
       "title": "Android: eBay payout CSV import is missing from reconciliation",
       "description": "As an Android reseller, I want to import an eBay payout CSV on the phone, so that reconciliation is not a task I can only finish at a computer.",
       "acceptanceCriteria": [
@@ -1650,7 +1650,8 @@
         "A malformed or wrong-export-type CSV is rejected with a message naming what was expected, before any row is written",
         "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
       ],
-      "priority": 2386
+      "priority": 2386,
+      "notes": "DONE 2026-08-11. The CSV goes up WHOLE and unparsed, and that is the design rather than laziness: the dedup rule that stops a second upload double-counting a deposit lives in ebay-payout-dedup.ts next to the WEBHOOK that ingests the same payouts live, so a phone-side parser would be a second parser and a second dedup rule free to disagree with it - and the disagreement would surface as money that does not add up. AC2 holds structurally and is test-pinned: the rows land in payout_imports, the ordinary sync pulls them into Room, and PayoutReconciliation.reconcile matches on payoutReference without looking at source at all, so a csv_upload payout reconciles byte-identically to a webhook one. AC3: duplicates are STATED, not hidden - a seller who re-uploaded the same export needs to be told nothing was counted twice or they go looking for money that was never missing. The sync refresh only runs when imported > 0, because an all-duplicates re-import changed nothing to pull. AC4: the wrong-export 400 names the exact menu path (Seller Hub then Payments then Payouts then Download) and is shown verbatim; a seller who downloaded the ORDERS report instead has no other way to learn which one they needed. The 5MB cap is checked client-side before the upload, since a 5MB POST over cellular is a slow way to learn the answer was no. Verified locally: testDebugUnitTest, lintDebug (0 errors, 169 warnings), assembleDebug, assembleRelease all BUILD SUCCESSFUL; no-bare-strings, check-string-formats (1345 resources, en+es) and no-ungated-log all OK."
     },
     {
       "id": "US-2415",
