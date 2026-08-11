@@ -124,6 +124,22 @@ That is why only `type: contract` escalates to an error. A stale contract —
 a wrong rounding rule, an outdated tenant-scoping requirement — gets read as
 authoritative and then implemented. A stale `reference` note merely ages.
 
+It is also **per file, not per line**, and one file makes that expensive:
+`src/lib/constants.ts` is 1500+ lines and is a `code_ref` on at least five
+notes covering photos, plan gating, pricing, the buyer platform and the grading
+scale. Any edit anywhere in it drifts all of them at once, which is how a
+one-line change to a marketplace flag turned CI red three separate times on
+2026-08-10/11 — every time correctly, and every time on notes describing a
+different part of the file.
+
+There is no exemption for this and there should not be: the alternative is
+line-ranged `code_refs`, which go stale on their own the first time someone
+inserts a block above them, and then lie silently. Two practical habits
+instead — **expect it** when you touch a shared constants file, and prefer a
+`code_ref` on the *narrowest* module that carries the fact (a note about
+disclosure copy should point at `src/lib/marketplace-disclosure.ts`, not the
+barrel it used to live in).
+
 Two exemptions:
 - **`status: archived`** notes are exempt. They are supposed to describe old code.
 - **Shallow git clones** disable the check entirely. With `fetch-depth: 1` every
