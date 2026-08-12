@@ -101,6 +101,34 @@ with `install -m 0755` to the path above plus the exact `crontabLine` in the
 manifest; the script needs `FLIPDESK_INTERNAL_JOB_SECRET` in its environment or
 it runs fine and stays invisible here.
 
+> [!important] Measured 2026-08-12: prod reports `unconfigured`. No watchdog is
+> checking in.
+>
+> `GET https://functions.gradethread.com/health/ready` returns, in `features`:
+>
+> ```
+> hostWatchdog: "unconfigured: no host watchdog has ever checked in — an edge
+> hang would not be capped (install scripts/ops/edge-watchdog.sh, US-2447)"
+> ```
+>
+> So the answer is one of: the script is not on the host, it is on the host but
+> not on cron, or it is running without `FLIPDESK_INTERNAL_JOB_SECRET`. All three
+> mean the same thing operationally — **an edge hang is currently uncapped.**
+>
+> **This is AC1 answered from outside, which AC1 said was impossible.** Its
+> wording — "from outside there is no way to distinguish a late watchdog from an
+> absent one, so this cannot be inferred" — was true when it was written and was
+> made false by AC3's own heartbeat. The distinction that remains genuinely
+> unanswerable from outside is *late versus on time*; **absent versus installed**
+> is now a single unauthenticated GET. Worth noting as a pattern: an AC that
+> declares something unknowable is worth re-reading after the story ships the
+> thing that makes it knowable.
+>
+> **It says nothing about 2026-08-09.** The heartbeat shipped after that
+> incident, so "has ever checked in" means "since the heartbeat existed". It
+> cannot retroactively establish whether the watchdog was installed during the
+> outage below. It does make the *next* one diagnosable, which is the whole point.
+
 **Two limits worth stating rather than discovering.** The heartbeat travels
 *through* the service the watchdog protects, so it cannot report during the very
 outage it exists to bound — it answers the steady-state question ("is the

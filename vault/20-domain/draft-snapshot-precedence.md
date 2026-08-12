@@ -10,7 +10,7 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-12
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -61,6 +61,16 @@ pushes the substituted value back into React state so the next save does not
 revert it. The shared-builder guarantee therefore no longer covers every listings
 column the composer writes; it held here only because both call sites were
 patched by hand.
+
+**US-2442 added a third AI producer and it does NOT widen that hole** (2026-08-12).
+`/api/flipdesk/ai/listing-copy` now has a composer button, joining `/extract` and
+`/rewrite`, and all three land in one `AiFillPanel`. `applyAiCopy` only calls
+`setTitle` / `setDescription` — React state — and its toast says "Save the draft
+to keep it", so persistence still goes through `buildListingFields` like any
+typed edit. **The set of listings columns bypassing the shared builder is
+unchanged: still just the `titleSyncPatchFor()` ones.** Stated because this note
+exists to track who writes the row, and a new AI write path is exactly what a
+reader should check — the answer here is that it writes the form, not the row.
 
 > [!note] This obsoleted a fix rather than losing it (2026-08-01)
 > A "smart merge" once lived in `item-canvas.tsx`, propagating canvas edits into
