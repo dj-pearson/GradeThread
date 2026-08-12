@@ -421,6 +421,39 @@ export function lintPrd({ prd, archiveIds = new Set(), archiveMaxId = 0, archive
     );
   }
 
+  // US-2500 (WARNING): a story whose notes declare a [Pn] severity but whose
+  // `priority` field is absent.
+  //
+  // WHY THIS IS NOT COSMETIC. `comparePriority` sorts ASCENDING and puts a story
+  // with no priority LAST, deliberately (vault/70-agent/backlog-priority-contract.md).
+  // So an unranked story is not "unsorted", it is ranked BELOW everything — and
+  // on 2026-08-12 that was true of 35 open stories including NINE tagged [P0]:
+  // unbounded impersonation, a committed private key, a denied call segfaulting
+  // Postgres, sandbox purchases granting production plans. Every one of them sat
+  // under content-marketing work at priority 1998.
+  //
+  // The failure is silent by construction: nothing errors, the list just comes
+  // back in an order that looks authoritative. Anyone working "top of the
+  // backlog" — a human or the Ralph loop — never reaches them.
+  //
+  // WARNING rather than ERROR, and only for stories that TAG a severity: where
+  // to rank a P0 against a launch epic is a product decision, so this names the
+  // gap and refuses to invent the number. A story with no tag and no priority is
+  // genuinely unranked and is not flagged here.
+  const unranked = stories
+    .filter((s) => s.priority === undefined || s.priority === null)
+    .map((s) => ({ id: s.id, tag: (s.notes ?? "").match(/\[(P\d)\]/)?.[1] }))
+    .filter((s) => s.tag);
+  if (unranked.length > 0) {
+    const bySeverity = [...unranked].sort((a, b) => a.tag.localeCompare(b.tag));
+    warnings.push(
+      `${unranked.length} story(ies) declare a [Pn] severity in their notes but have NO priority field, ` +
+        `so comparePriority sorts them LAST — below every ranked story, which is the opposite of what the tag says. ` +
+        `Set priority to match, or drop the tag: ` +
+        bySeverity.map((s) => `${s.id} [${s.tag}]`).join(", "),
+    );
+  }
+
   // Ralph playbook size guard (WARNING — it's read every Ralph iteration)
   if (learningsLines > learningsWarn) {
     warnings.push(`vault/70-agent/ralph-learnings.md is ${learningsLines} lines (> ${learningsWarn}); it is read every Ralph iteration — prune it to keep loop cost down.`);
