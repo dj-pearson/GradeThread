@@ -100,8 +100,24 @@ enum class PhotoSlotType(val wire: String, val label: String) {
             MEASUREMENT_SLEEVE, MEASUREMENT_INSEAM,
         )
 
-        /** Non-defect, non-measurement optionals in display order. */
-        val extras = listOf(TAG2, DETAIL2, DETAIL3, DETAIL4, INTERIOR, FLATLAY, ON_MODEL)
+        /**
+         * Non-defect, non-measurement optionals in display order.
+         *
+         * US-2461: the four numbered slots came out for the same reason the
+         * five `measurement_*` ones did nine lines above, and were missed when
+         * that half was narrowed. A photo tagged "Detail 3" told the grader
+         * nothing about what it showed, and migration 00587 retired it — so the
+         * Add menu was offering four choices the server rewrites the moment
+         * they land. The replacement is a (type, role) pair chosen in the retag
+         * menu, which enumerates real roles ("Hem & stitching", "Made in").
+         */
+        val extras = listOf(INTERIOR, FLATLAY, ON_MODEL)
+
+        /** Kept for [fromWire] round-tripping only — never offered as a choice. */
+        val retiredExtras = listOf(TAG2, DETAIL2, DETAIL3, DETAIL4)
+
+        /** Every type migration 00587 retired: legal to decode, never to offer. */
+        val retired = retiredMeasurements + retiredExtras
 
         fun fromWire(value: String): PhotoSlotType? =
             entries.firstOrNull { it.wire == value }

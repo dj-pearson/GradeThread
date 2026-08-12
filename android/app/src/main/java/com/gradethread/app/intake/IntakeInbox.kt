@@ -43,16 +43,33 @@ object IntakeInbox {
      * then extras. Someone sharing four photos from their camera roll almost
      * always shot them in that order.
      */
-    fun defaultSlots(count: Int): List<PhotoSlotType> {
-        val ordered = PhotoSlotType.defaultSlots +
-            listOf(
-                PhotoSlotType.DETAIL2,
-                PhotoSlotType.DETAIL3,
-                PhotoSlotType.TAG2,
-                PhotoSlotType.FLATLAY,
-            )
-        return ordered.take(count.coerceIn(0, MAX_PHOTOS))
-    }
+    fun defaultSlots(count: Int): List<PhotoSlotType> =
+        (PhotoSlotType.defaultSlots + SPILL_ORDER).take(count.coerceIn(0, MAX_PHOTOS))
+
+    /**
+     * Where the fifth photo onward goes.
+     *
+     * US-2461: this used to be `DETAIL2, DETAIL3, TAG2, FLATLAY`, and the first
+     * three of those are types migration 00587 RETIRED. Nobody chose them — a
+     * share of six photos auto-assigned two of them, so the seller got rows the
+     * server rewrites, on a path with no seller involvement at all. They are
+     * replaced by the live extras rather than by more detail slots.
+     *
+     * Defects come LAST and only after the three neutral extras are used, and
+     * they are here at all only because the alternative is worse: someone who
+     * shares eight photos gets eight slots, and dropping the eighth is a
+     * seller's work vanishing. Dropping an ordinary photo into "Defect 1" is a
+     * claim about the garment they never made, so it happens as late as
+     * possible and never before a neutral slot is free.
+     */
+    private val SPILL_ORDER = listOf(
+        PhotoSlotType.FLATLAY,
+        PhotoSlotType.INTERIOR,
+        PhotoSlotType.ON_MODEL,
+        PhotoSlotType.DEFECT1,
+        PhotoSlotType.DEFECT2,
+        PhotoSlotType.DEFECT3,
+    )
 
     /** What a drain did, so the app can say it out loud. */
     data class DrainResult(
@@ -83,16 +100,7 @@ object IntakeInbox {
         // Ordered candidates: the four defaults, then whatever is already
         // revealed, then the extras a share is allowed to reveal on its own.
         val candidates = (
-            PhotoSlotType.defaultSlots +
-                existing.revealed +
-                listOf(
-                    PhotoSlotType.DETAIL2,
-                    PhotoSlotType.DETAIL3,
-                    PhotoSlotType.DETAIL4,
-                    PhotoSlotType.TAG2,
-                    PhotoSlotType.FLATLAY,
-                    PhotoSlotType.INTERIOR,
-                )
+            PhotoSlotType.defaultSlots + existing.revealed + SPILL_ORDER
             ).distinct()
 
         var added = 0

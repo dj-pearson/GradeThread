@@ -131,8 +131,27 @@ describe("Inventory Equity scope fence (US-1868)", () => {
   it("shows the estimate disclosure on every equity display surface", () => {
     // A display surface = a UI file (component/view) named for equity. The edge
     // libs and routes are not display surfaces and are not required to carry it.
-    const displays = FILES.filter((f) => /\.(tsx|swift|kt)$/.test(f));
+    //
+    // Nor is a TEST. A test that pins the sentence quotes it; a test that pins
+    // the arithmetic has no reason to, and demanding it there teaches the next
+    // person to paste the disclosure into a file nobody reads to make a guard go
+    // green. That is how a fence becomes a ritual. Kotlin and Swift keep tests
+    // in a parallel tree, so the path is the reliable signal.
+    const displays = FILES
+      .filter((f) => /\.(tsx|swift|kt)$/.test(f))
+      .filter((f) => !/(^|\/)(src\/test|test|tests)\//i.test(f))
+      .filter((f) => !/(Test|Tests|\.test|\.spec)\.[^./]+$/.test(f));
     expect(displays.length).toBeGreaterThan(0);
+    // The exclusions above must not be able to empty the set on a platform. If
+    // a client's only equity file is a test, its card is unguarded.
+    for (const tree of ["src/", "ios/", "android/"]) {
+      const anyFile = FILES.some((f) => f.startsWith(tree) && /\.(tsx|swift|kt)$/.test(f));
+      if (!anyFile) continue; // that client has no equity surface yet
+      expect(
+        displays.some((f) => f.startsWith(tree)),
+        `${tree} has equity source but no display surface left after excluding tests`,
+      ).toBe(true);
+    }
     for (const f of displays) {
       // Comments and import lines are stripped first: a file that imports the
       // constant, or merely NAMES it in its header comment, while rendering

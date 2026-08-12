@@ -109,6 +109,27 @@ class EquityService @Inject constructor(
     }
 }
 
+/**
+ * The one sentence, verbatim (US-1868).
+ *
+ * Inventory Equity is DISPLAY-ONLY valuation. Phase 2 — advances against
+ * inventory — is deferred pending legal counsel, and this sentence is the fence:
+ * it says what the number is, and it names the three things it is not. Web
+ * (`src/lib/inventory-equity-disclosure.ts`) and iOS
+ * (`InventoryEquityCopy.estimateDisclosure`) have carried it since the surface
+ * shipped; Android's card went out without it, so the one platform whose seller
+ * could not read the refusal was the one on the phone.
+ *
+ * A Kotlin constant rather than a string resource, deliberately, for the same
+ * reason [QUEUED_NOTICE] is: `src/test/inventory-equity-scope-fence.test.ts`
+ * discovers equity surfaces and requires this text in the SOURCE of each one, so
+ * a translation cannot quietly soften it into a promise the other two do not
+ * make. It is one unbroken literal because that guard normalizes whitespace but
+ * not Kotlin's `+`.
+ */
+const val EQUITY_ESTIMATE_DISCLOSURE: String =
+    "An estimate for planning only, from sold comps and your own sell-through — not an appraisal, an offer, or borrowing capacity. Items without a grade or usable comps are excluded."
+
 /** Presentation rules for the equity card. Pure, so they are testable. */
 object Equity {
 

@@ -483,6 +483,10 @@
     <string name="canvas_run_on_desktop">Ejecutar en mi escritorio</string>
     <string name="canvas_queue_failed">No se pudo poner en cola. Inténtalo de nuevo cuando tengas señal.</string>
     <string name="marketplaces_queue_didnt_run">No se ejecutaron: estaban esperando un navegador de escritorio que nunca se abrió, o fallaron al ejecutarse. No pasó nada en el mercado.</string>
+    <string name="marketplaces_pending_delists_title">Vendido en otro sitio, aún publicado</string>
+    <string name="marketplaces_pending_delists_body">Estos se vendieron en otro canal. Siguen publicados hasta que algo los retire, así que otro comprador todavía puede pagarlos.</string>
+    <string name="marketplaces_delist_queue">Poner en cola para mi escritorio</string>
+    <string name="marketplaces_delist_did_it_myself">Ya lo retiré yo</string>
     <string name="marketplaces_no_listings_cached_yet_sync">Aún no hay anuncios guardados. Sincroniza para traer los que están activos en eBay.</string>
     <string name="marketplaces_rename_this_account">Cambia el nombre de esta cuenta</string>
     <string name="marketplaces_label">Etiqueta</string>

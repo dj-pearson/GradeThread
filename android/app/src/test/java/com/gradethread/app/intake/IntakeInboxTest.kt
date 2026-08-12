@@ -71,10 +71,14 @@ class IntakeInboxTest {
 
     @Test
     fun `overflow past every candidate slot is reported, not silent`() {
+        // US-2461: the four numbered slots that used to pad this fixture are
+        // retired and are no longer candidates, so filling them proved nothing.
+        // What has to be full for a photo to have nowhere to go is the live
+        // spill order: the three neutral extras, then the three defects.
         val filled = (
             PhotoSlotType.defaultSlots + listOf(
-                PhotoSlotType.DETAIL2, PhotoSlotType.DETAIL3, PhotoSlotType.DETAIL4,
-                PhotoSlotType.TAG2, PhotoSlotType.FLATLAY, PhotoSlotType.INTERIOR,
+                PhotoSlotType.FLATLAY, PhotoSlotType.INTERIOR, PhotoSlotType.ON_MODEL,
+                PhotoSlotType.DEFECT1, PhotoSlotType.DEFECT2, PhotoSlotType.DEFECT3,
             )
             ).associate { it.wire to "/camera/${it.wire}.jpg" }
 

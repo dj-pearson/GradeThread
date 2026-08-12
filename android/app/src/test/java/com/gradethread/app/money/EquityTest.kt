@@ -172,4 +172,30 @@ class EquityTest {
         assertEquals(1280.0, Equity.dollars(128000), 1e-9)
         assertEquals(0.01, Equity.dollars(1), 1e-9)
     }
+
+    @Test
+    fun `the disclosure says what the number is not`() {
+        // US-1868: Inventory Equity is display-only valuation. Phase 2 —
+        // advances against inventory — is deferred pending legal counsel, and
+        // this sentence is the fence. It is byte-identical with
+        // EQUITY_ESTIMATE_DISCLOSURE in src/lib/inventory-equity-disclosure.ts
+        // and InventoryEquityCopy.estimateDisclosure on iOS; a paraphrase on one
+        // platform is one platform promising something the other two refuse.
+        assertEquals(
+            "An estimate for planning only, from sold comps and your own sell-through — " +
+                "not an appraisal, an offer, or borrowing capacity. " +
+                "Items without a grade or usable comps are excluded.",
+            EQUITY_ESTIMATE_DISCLOSURE,
+        )
+        // The refusal clause is asserted whole, not as three fragments. Writing
+        // the fragments out again would put the Phase-2 vocabulary in this file
+        // OUTSIDE the sanctioned sentence, which is the exact shape the scope
+        // fence in src/test/inventory-equity-scope-fence.test.ts refuses.
+        assertTrue(
+            "the disclosure must name what this number is NOT",
+            EQUITY_ESTIMATE_DISCLOSURE.contains(
+                "not an appraisal, an offer, or borrowing capacity",
+            ),
+        )
+    }
 }

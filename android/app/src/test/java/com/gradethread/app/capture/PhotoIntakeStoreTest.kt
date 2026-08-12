@@ -108,9 +108,13 @@ class PhotoIntakeStoreTest {
         val store = PhotoIntakeStore()
         val menu = store.hiddenExtraSlots
         assertEquals(PhotoSlotType.DEFECT1, menu.first())
-        val tagIdx = menu.indexOf(PhotoSlotType.TAG2)
+        // US-2461: this used to check TAG2's position. TAG2 is retired and no
+        // longer in the menu at all, so it is checked with a live extra —
+        // INTERIOR — which tests the ORDER rule the name claims rather than the
+        // continued presence of a slot the menu must not offer.
+        val extraIdx = menu.indexOf(PhotoSlotType.INTERIOR)
         val measureIdx = menu.indexOf(PhotoSlotType.MEASUREMENT)
-        assertTrue(tagIdx in 1 until measureIdx)
+        assertTrue(extraIdx in 1 until measureIdx)
     }
 
     @Test

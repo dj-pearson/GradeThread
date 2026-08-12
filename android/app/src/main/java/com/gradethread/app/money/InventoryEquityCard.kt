@@ -150,5 +150,15 @@ fun InventoryEquityCard(
                 }
             }
         }
+
+        // US-1868: last, and never optional. Every branch above that renders a
+        // number falls through to here — the two that return early render no
+        // number at all, so there is nothing to qualify.
+        Text(
+            EQUITY_ESTIMATE_DISCLOSURE,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = Spacing.xs),
+        )
     }
 }
