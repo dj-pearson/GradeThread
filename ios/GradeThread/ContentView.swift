@@ -534,7 +534,10 @@ struct ProtectedRouteShell: View {
         case .signedOut:
             LoginView()
         case .signedIn:
-            MainShell()
+            // US-2017 AC2: the re-acceptance gate wraps the authenticated app.
+            // Only here - a signed-out user has nothing to re-accept, and the
+            // status endpoint reads the caller's own row, so it needs a session.
+            LegalGate { MainShell() }
         }
     }
 }

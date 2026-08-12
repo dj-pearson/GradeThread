@@ -86,24 +86,70 @@ describe("US-2017: legal versions agree across all three surfaces", () => {
   });
 });
 
-describe("US-2017: the iOS re-acceptance gap is recorded, not hidden", () => {
-  it("iOS still does not call /api/legal — the gate is genuinely absent", () => {
-    // Web has legal-gate.tsx; iOS has nothing. This test does NOT pretend that
-    // is fixed. It asserts the gap still exists so the assertion FLIPS (and
-    // this comment gets revisited) the moment someone implements AC2, rather
-    // than the story quietly looking complete because the parity guard is green.
-    // Comments are stripped first: AuthStore.swift's own header now DESCRIBES
-    // the missing gate and names /api/legal, so a raw substring check would
-    // match the documentation of the gap rather than the gap. That mistake has
-    // recurred often enough this session to be the default assumption for any
-    // "must not contain" assertion.
-    const iosCode = read("ios/GradeThread/Auth/AuthStore.swift")
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/\/\/.*$/gm, "");
-    expect(iosCode).not.toContain("/api/legal");
+describe("US-2017 AC2: iOS has a re-acceptance gate", () => {
+  // FLIPPED 2026-08-12. This block used to assert the gap still EXISTED — iOS
+  // calling nothing, so the story could not look complete while the parity
+  // guard was green. The gate now exists, so the assertion has to invert or it
+  // would fail on the fix. Kept in the same file because the two halves are one
+  // rule: agreeing constants are worthless if nobody is ever re-asked.
+  const strip = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+  it("calls the server for the decision rather than comparing versions locally", () => {
+    const gate = strip(read("ios/GradeThread/Auth/LegalGate.swift"));
+    expect(gate, "the gate no longer asks the server whether an acceptance is owed")
+      .toContain("/api/legal/status");
+    expect(gate, "the gate no longer records acceptance").toContain("/api/legal/accept");
+    // The point of asking the server: an operator publishing a re-acceptance
+    // must reach an INSTALLED build with no App Store release. A client that
+    // compared its own hardcoded constant could not.
     expect(
-      read("src/components/auth/legal-gate.tsx"),
-      "the web gate is the reference implementation for AC2",
-    ).toContain("legal");
+      gate,
+      "the gate compares version strings itself, so a new version would need " +
+        "an App Store release to be enforced",
+    ).not.toContain("legalTosVersion");
+  });
+
+  it("cannot be dismissed, and stays up when recording fails", () => {
+    const gate = strip(read("ios/GradeThread/Auth/LegalGate.swift"));
+    expect(
+      gate,
+      "the sheet is dismissable, so a seller can reach the app with nothing " +
+        "recorded — which is the state the gate exists to prevent",
+    ).toContain("interactiveDismissDisabled(true)");
+    // needsAcceptance must NOT be cleared on the failure path.
+    const acceptBody = gate.slice(gate.indexOf("public func accept()"));
+    const clearIdx = acceptBody.indexOf("needsAcceptance = false");
+    const catchIdx = acceptBody.indexOf("} catch {");
+    expect(
+      clearIdx >= 0 && clearIdx < catchIdx,
+      "acceptance is cleared outside the success path, so a failed POST would " +
+        "dismiss the gate having recorded nothing",
+    ).toBe(true);
+  });
+
+  it("fails OPEN on a status read failure", () => {
+    // A network blip is not evidence that the user has not accepted, and
+    // locking a paying seller out of their inventory to protest an unreachable
+    // endpoint is worse than showing the gate one launch later. Same reasoning
+    // as the web gate.
+    const gate = strip(read("ios/GradeThread/Auth/LegalGate.swift"));
+    const refreshBody = gate.slice(
+      gate.indexOf("public func refresh()"),
+      gate.indexOf("public func accept()"),
+    );
+    expect(
+      /catch\s*\{[^}]*needsAcceptance = false/.test(refreshBody),
+      "refresh() does not fail open — a 500 would lock every iOS user out",
+    ).toBe(true);
+  });
+
+  it("is mounted around the authenticated app, not merely defined", () => {
+    // The failure this catches is the one the whole story is about: a gate that
+    // exists in the repo and is never rendered is the same as no gate.
+    expect(
+      strip(read("ios/GradeThread/ContentView.swift")),
+      "LegalGate is not mounted in ContentView, so it never runs",
+    ).toContain("LegalGate");
   });
 });
