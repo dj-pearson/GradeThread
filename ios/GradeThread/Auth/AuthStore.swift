@@ -98,6 +98,16 @@ public final class AuthStore {
             // an iOS-signed-up account looked like it never accepted the legal
             // terms). Keep these IN SYNC with web src/lib/constants.ts
             // LEGAL_VERSIONS and the edge legal.ts mirror.
+            // US-2017: what this actually does, because the sentence above
+            // overstates it. The 00586 trigger reads `tos_version` only to
+            // decide WHETHER a clickwrap happened - `v_clickwrap` is a presence
+            // check - and the version it RECORDS is read from `legal_documents`
+            // in the database. So the string below is a signal, not a value, and
+            // it cannot cause an account to be attested to the wrong version.
+            //
+            // The constants still have to match, which is what
+            // legal-version-parity.test.ts enforces, because they are what the
+            // clients would fall back to if this ever became a value again.
             data["tos_version"] = .string(Self.legalTosVersion)
             data["privacy_version"] = .string(Self.legalPrivacyVersion)
             data["legal_accepted_at"] = .string(
