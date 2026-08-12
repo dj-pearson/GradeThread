@@ -42,7 +42,21 @@ constraint is invisible to PostgREST's schema cache.
 
 Apply order: AFTER 00589.
 
-## ⏳ HELD: 00589_submission_image_role.sql (US-2471 — the photo role reaches the grader)
+## ✅ APPLIED: 00589_submission_image_role.sql (US-2471 — the photo role reaches the grader)
+
+**Measured 2026-08-12, not inferred.** `GET https://functions.gradethread.com/health/ready`
+returns `"schema":{"expected":"00589","applied":"00589","status":"match"}` — that
+is the running edge reading `applied_migrations` through the service-role client,
+i.e. the database's own answer. The column exists in prod and the edge build that
+reads it is deployed. Everything below is kept as the record of what was applied;
+the apply steps are done.
+
+The measurement matters more than the correction. This file said HELD for a day
+after the SQL had run, and the answer was one unauthenticated GET away the whole
+time. Reasoning about prod schema state from commit history is what produced the
+stale entry, and it is not the first time — check the endpoint before writing
+"held" or "applied" here.
+
 
 **Risk: LOW.** One nullable text column on `submission_images`. No enum change,
 no backfill, no constraint, no index, nothing dropped or narrowed. The whole file
