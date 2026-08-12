@@ -42,6 +42,7 @@ import {
   photoTagLabel,
 } from "@/components/flipdesk/photo-tag-select";
 import { usePhotoProfile, type PhotoProfile } from "@/lib/photo-profiles";
+import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
 import { firstPhotoNudge } from "@/lib/photo-standards";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { BulkToneDialog } from "@/components/flipdesk/bulk-tone-dialog";
@@ -582,9 +583,28 @@ function SortablePhoto({
       ? "This photo is still uploading, or its file is missing, so there's nothing to edit yet."
       : null;
 
+  // US-2501: the shoot guidance used to hang off the uploader's slot tiles, and
+  // the composer no longer renders those. It belongs on the photo either way —
+  // the tile now says what this tag wants (the profile hint) and, for a macro
+  // tag, how close to stand and how to light it. A retag changes the advice,
+  // which is exactly what you want when the photo turned out to be a serial
+  // rather than a detail.
+  const slotHint =
+    profile?.roles.find(
+      (r) =>
+        r.type === photo.photo_type &&
+        (r.role ?? null) === (photo.photo_role ?? null),
+    )?.hint ?? null;
+  const guidance = captureGuidanceFor(photo.photo_type);
+  const tileTitle =
+    [slotHint, guidance?.distance, guidance?.lighting]
+      .filter((s): s is string => !!s)
+      .join("\n") || undefined;
+
   return (
     <div
       ref={setNodeRef}
+      title={tileTitle}
       style={{
         transform: CSS.Transform.toString(transform),
         transition,

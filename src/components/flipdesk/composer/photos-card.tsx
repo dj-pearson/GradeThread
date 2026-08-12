@@ -35,9 +35,9 @@ export function PhotosCard({
       <CardHeader>
         <CardTitle>Photos</CardTitle>
         <CardDescription>
-          Drag to reorder, click a photo to view it full size, and use
-          the pencil to rotate, straighten, or crop. The star picks the
-          primary image.
+          Add every photo in one go, then set each one's tag below. Drag to
+          reorder, click a photo to view it full size, and use the pencil to
+          rotate, straighten, or crop. The star picks the primary image.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -50,11 +50,20 @@ export function PhotosCard({
             is the free-text GARMENT word ("blazer", "dress pants") — which is
             exactly what picks the clothing sub-profile. Passing it as `garment`
             says so, instead of casting it to a type it has never held. */}
+        {/* US-2501: slot grids OFF here. By the time an item reaches the
+            composer the photos exist, so the per-tag tiles were a second view
+            of the same set that showed only the FIRST photo of each tag (plus
+            a "×N") directly above a PhotoManager grid listing every one. The
+            header still names any missing required tag, and every photo is
+            tagged, reordered and edited in the one grid below. Prep, Snap
+            Catalog and the AutoLister queue keep the slots — that is where the
+            shoot actually happens and the tiles are the checklist. */}
         <PhotoUploader
           itemId={item.id}
           currentStatus={item.status}
           category={null}
           garment={item.category}
+          showSlots={false}
         />
         <PhotoManager
           itemId={item.id}

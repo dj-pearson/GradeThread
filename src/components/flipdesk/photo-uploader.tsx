@@ -63,6 +63,7 @@ export function PhotoUploader({
   currentStatus,
   category,
   garment,
+  showSlots = true,
   onChange,
 }: {
   itemId: string;
@@ -79,6 +80,21 @@ export function PhotoUploader({
    * coarse — it is what decides whether an inseam slot belongs on screen.
    */
   garment?: string | null;
+  /**
+   * US-2501: render the per-tag slot grids (Required / Optional), or just the
+   * header + the bulk "Add photos" button.
+   *
+   * The grids are shoot-time guidance: one tile per expected tag so you can see
+   * what you still owe the listing. That is the right surface in Prep, Snap
+   * Catalog and the AutoLister queue, where the photos don't exist yet. In the
+   * composer the photos are already taken, and the grid there was a second,
+   * lossy view of the same set — each tile showed only `photos[0]` with a "×N"
+   * count, so the 2nd and 3rd photo of a tag were invisible directly above a
+   * PhotoManager grid that shows every one of them. Off ⇒ the missing required
+   * tags are named in the header instead, and the tiles below are the only
+   * gallery.
+   */
+  showSlots?: boolean;
   /**
    * Fired after the item's photo set actually changes (a successful upload,
    * delete, or in-place edit). Lets a host (e.g. the AutoLister cockpit dialog)
@@ -430,6 +446,13 @@ export function PhotoUploader({
 
   const requiredFilled = requiredTypes.every((t) => byType(t).length > 0);
 
+  // US-2501: with the slot grids off, the dashed amber tiles that used to say
+  // "you still owe a Back shot" are gone, and "2/4 required photos" alone
+  // doesn't say WHICH two. Name them.
+  const missingRequiredLabels = requiredRoles
+    .filter((r) => byType(r.type).length === 0)
+    .map((r) => r.label);
+
   // See the matching note in photo-manager: rendering from the original is only
   // safe when a recipe fully describes the current image.
   const editingRecipe = editingPhoto
@@ -485,7 +508,7 @@ export function PhotoUploader({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="font-medium text-muted-foreground">{profile.label}</span>
         {requiredFilled ? (
           <Badge variant="default" className="gap-1">
@@ -497,6 +520,11 @@ export function PhotoUploader({
             {requiredTypes.filter((t) => byType(t).length > 0).length}/
             {requiredTypes.length} required photos
           </Badge>
+        )}
+        {!showSlots && missingRequiredLabels.length > 0 && (
+          <span className="text-muted-foreground">
+            Still needed: {missingRequiredLabels.join(", ")}
+          </span>
         )}
       </div>
 
@@ -537,48 +565,52 @@ export function PhotoUploader({
         </Button>
       </div>
 
-      <div>
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Required
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {requiredRoles.map((r) => (
-            <PhotoSlot
-              key={slotKey(r.type, r.role)}
-              label={r.label}
-              hint={r.hint}
-              photoType={r.type}
-              photos={bySlot(r)}
-              uploading={uploading === slotKey(r.type, r.role)}
-              onUpload={(f) => upload(f, r)}
-              onRemove={remove}
-              onEdit={setEditingPhoto}
-              required
-            />
-          ))}
-        </div>
-      </div>
+      {showSlots && (
+        <>
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Required
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {requiredRoles.map((r) => (
+                <PhotoSlot
+                  key={slotKey(r.type, r.role)}
+                  label={r.label}
+                  hint={r.hint}
+                  photoType={r.type}
+                  photos={bySlot(r)}
+                  uploading={uploading === slotKey(r.type, r.role)}
+                  onUpload={(f) => upload(f, r)}
+                  onRemove={remove}
+                  onEdit={setEditingPhoto}
+                  required
+                />
+              ))}
+            </div>
+          </div>
 
-      <div>
-        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-          Optional
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {optionalRoles.map((r) => (
-            <PhotoSlot
-              key={slotKey(r.type, r.role)}
-              label={r.label}
-              hint={r.hint}
-              photoType={r.type}
-              photos={bySlot(r)}
-              uploading={uploading === slotKey(r.type, r.role)}
-              onUpload={(f) => upload(f, r)}
-              onRemove={remove}
-              onEdit={setEditingPhoto}
-            />
-          ))}
-        </div>
-      </div>
+          <div>
+            <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Optional
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {optionalRoles.map((r) => (
+                <PhotoSlot
+                  key={slotKey(r.type, r.role)}
+                  label={r.label}
+                  hint={r.hint}
+                  photoType={r.type}
+                  photos={bySlot(r)}
+                  uploading={uploading === slotKey(r.type, r.role)}
+                  onUpload={(f) => upload(f, r)}
+                  onRemove={remove}
+                  onEdit={setEditingPhoto}
+                />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <PhotoEditorDialog
         open={editingPhoto != null}

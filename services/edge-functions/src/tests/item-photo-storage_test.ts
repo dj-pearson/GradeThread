@@ -8,6 +8,10 @@
 //
 // This is a source-guard (grep-style) plus a unit test of the bucket selection.
 import { assert, assertEquals } from "@std/assert";
+// Static import is safe here even though it hoists above the env setup below:
+// publish-preflight.ts is pure and its only ai-listing import is `import type`,
+// so nothing touches the service-role client at load.
+import { dedupeAndCapImages } from "../lib/publish-preflight.ts";
 
 // item-photo-storage.ts imports the service-role supabase client at load, so
 // set dummy env BEFORE the dynamic import (same pattern as the other tests) —
@@ -475,4 +479,71 @@ Deno.test("R2 archival excludes sensitive photo types (public-URL leak guard)", 
     "The archival loop must skip sensitive photo types defensively before " +
       "uploading to R2 — the query filter alone is one edit away from leaking.",
   );
+});
+
+// ── US-2501: duplicate TAGS publish; only internal/frame/private are held back ─
+//
+// The composer's per-tag slot grid is gone, and with it the last surface that
+// implied "one photo per tag" — each tile rendered `photos[0]` and a "×N", so
+// three fabric close-ups looked like one. Sellers publish several shots of the
+// same thing on purpose (four defects, two fabric macros, both sleeves), and
+// nothing in the publish path has ever deduped by tag. This pins that, because
+// "collapse same-tag photos" is a plausible-sounding optimisation that would
+// silently delete photos from live listings.
+//
+// The composition under test is the real one every publish path runs:
+//   filterListablePhotos → publicItemPhotoUrl → dedupeAndCapImages
+Deno.test("US-2501: several photos sharing one tag all reach the marketplace", () => {
+  const rows = [
+    { id: "f1", photo_type: "front", photo_role: null, photo_url: "https://cdn/f1.webp", storage_path: "u/i/f1.webp" },
+    { id: "f2", photo_type: "front", photo_role: null, photo_url: "https://cdn/f2.webp", storage_path: "u/i/f2.webp" },
+    { id: "d1", photo_type: "detail", photo_role: "fabric", photo_url: "https://cdn/d1.webp", storage_path: "u/i/d1.webp" },
+    { id: "d2", photo_type: "detail", photo_role: "fabric", photo_url: "https://cdn/d2.webp", storage_path: "u/i/d2.webp" },
+    { id: "d3", photo_type: "detail", photo_role: "fabric", photo_url: "https://cdn/d3.webp", storage_path: "u/i/d3.webp" },
+    { id: "x1", photo_type: "defect", photo_role: null, photo_url: "https://cdn/x1.webp", storage_path: "u/i/x1.webp" },
+    { id: "x2", photo_type: "defect", photo_role: null, photo_url: "https://cdn/x2.webp", storage_path: "u/i/x2.webp" },
+  ];
+
+  const listable = filterListablePhotos(rows);
+  assertEquals(
+    listable.map((r) => r.id),
+    ["f1", "f2", "d1", "d2", "d3", "x1", "x2"],
+    "filterListablePhotos judges each row on its own tag — it is not a set operation",
+  );
+
+  const { urls, duplicatesRemoved } = dedupeAndCapImages(
+    listable.map(publicItemPhotoUrl),
+  );
+  assertEquals(urls.length, 7);
+  assertEquals(duplicatesRemoved, 0, "same tag, different photos: nothing to de-dup");
+});
+
+// The exclusions are per-row too, so a seller with four receipts loses four
+// photos from the listing and keeps four in the app — not "one internal photo
+// is filtered and the rest slip through", and not "an internal photo present at
+// all suppresses the tag".
+Deno.test("US-2501: repeated internal / card-frame tags are each held back", () => {
+  const rows = [
+    { id: "a", photo_type: "front", photo_role: null, photo_url: "https://cdn/a.webp", storage_path: "u/i/a.webp" },
+    { id: "r1", photo_type: "internal", photo_role: null, photo_url: "https://cdn/r1.webp", storage_path: "u/i/r1.webp" },
+    { id: "r2", photo_type: "internal", photo_role: null, photo_url: "https://cdn/r2.webp", storage_path: "u/i/r2.webp" },
+    { id: "m1", photo_type: "measurement", photo_role: null, photo_url: "https://cdn/m1.webp", storage_path: "u/i/m1.webp" },
+    { id: "m2", photo_type: "measurement", photo_role: null, photo_url: "https://cdn/m2.webp", storage_path: "u/i/m2.webp" },
+    // ...while repeated TAPE shots (a role is present) are ordinary photos.
+    { id: "t1", photo_type: "measurement", photo_role: "chest", photo_url: "https://cdn/t1.webp", storage_path: "u/i/t1.webp" },
+    { id: "t2", photo_type: "measurement", photo_role: "sleeve", photo_url: "https://cdn/t2.webp", storage_path: "u/i/t2.webp" },
+  ];
+  assertEquals(filterListablePhotos(rows).map((r) => r.id), ["a", "t1", "t2"]);
+});
+
+// The one thing that IS collapsed is the same FILE listed twice — that is an
+// eBay 25601 waiting to happen, and it is keyed on the URL, never on the tag.
+Deno.test("US-2501: de-dup keys on the image URL, not the photo tag", () => {
+  const { urls, duplicatesRemoved } = dedupeAndCapImages([
+    "https://cdn/same.webp",
+    "https://cdn/same.webp",
+    "https://cdn/other.webp",
+  ]);
+  assertEquals(urls, ["https://cdn/same.webp", "https://cdn/other.webp"]);
+  assertEquals(duplicatesRemoved, 1);
 });

@@ -9,6 +9,8 @@ code_refs:
   - src/lib/photo-roles.ts
   - services/edge-functions/src/lib/photo-profiles.ts
   - src/components/flipdesk/photo-manager.tsx
+  - src/components/flipdesk/photo-uploader.tsx
+  - services/edge-functions/src/lib/publish-preflight.ts
   - src/lib/images.ts
   - src/lib/item-photo-url.ts
   - services/edge-functions/src/lib/item-photo-storage.ts
@@ -113,6 +115,35 @@ by somebody remembering both.
 Measurement roles are **derived** from `MEASUREMENT_TEMPLATES`, never hand
 listed. Adding a measurement field gets it a photo slot for free, in every
 client.
+
+## A tag is not a slot with room for one photo (US-2501)
+
+Nothing anywhere caps a tag at one photo, and **every photo sharing a tag
+publishes**. Four defect shots, three fabric macros and both sleeves all reach
+eBay, Depop, Etsy and Shopify. The exclusions above are judged **per row**, not
+per tag: a receipt tagged `internal` is dropped and the item's other photos are
+untouched, and a seller with four receipts loses exactly four.
+
+The only collapsing in the publish path is `dedupeAndCapImages`
+(`publish-preflight.ts`), and it keys on the **image URL** — two rows pointing at
+one file, which is eBay error 25601 waiting to happen. It has never keyed on the
+tag. The DB agrees: `00120`'s unique index is
+`(inventory_item_id, storage_path)`.
+
+This is written down because "one photo per tag" is a plausible-sounding thing to
+optimise toward, and doing it would silently delete photos from live listings.
+`item-photo-storage_test.ts` pins the whole composition
+(`filterListablePhotos` → `publicItemPhotoUrl` → `dedupeAndCapImages`) against a
+same-tag set.
+
+> [!note] The composer has no per-tag slot grid
+> `PhotoUploader` renders one tile per expected tag, and each tile shows only
+> `photos[0]` plus a `×N` — fine as a shoot-time checklist, wrong as a gallery.
+> In the composer it sat directly above `PhotoManager`, which lists every photo,
+> so the same set had two views and the lossy one came first. Since US-2501 the
+> composer passes `showSlots={false}`: header, bulk **Add photos**, and one grid
+> where tagging, reordering and editing happen. Prep, Snap Catalog and the
+> AutoLister queue keep the grids — that is where the photos do not exist yet.
 
 ## Two levers, each duplicated across surfaces
 

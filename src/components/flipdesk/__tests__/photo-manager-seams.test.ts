@@ -144,6 +144,16 @@ describe("composer embeds the shared photo toolkit (US-1567)", () => {
     expect(composerSrc).not.toContain("persistOrder");
   });
 
+  // US-2501: the uploader is still mounted (it owns the bulk "Add photos"
+  // button, the required-set badge and the "photographed" status advance) but
+  // its per-tag slot grids are off. Those tiles rendered only the FIRST photo
+  // of each tag, so a seller with three fabric macros saw one tile and a "×N"
+  // sitting directly above a PhotoManager grid showing all three — two views of
+  // one set, one of them lossy. Tagging happens in the grid below now.
+  it("mounts the uploader WITHOUT its slot grid (US-2501)", () => {
+    expect(composerAll).toContain("showSlots={false}");
+  });
+
   it("keeps the primary-photo pick and the live-listing sync contract", () => {
     expect(composerSrc).toContain("onPickPrimary={setPrimaryPhotoId}");
     // The live-listing id is resolved by the page and handed down, so the
