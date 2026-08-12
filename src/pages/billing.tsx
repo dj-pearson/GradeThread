@@ -31,7 +31,7 @@ import {
   useBillingSummary,
   useBillingPortal,
   isTrialing,
-  isAppstoreManaged,
+  storeManaging,
   planLabel,
   ledgerLabel,
   pollBillingSummary,
@@ -229,7 +229,13 @@ export function BillingPage() {
   // US-807: subscription purchased in the iOS app — its lifecycle is owned by
   // Apple, so the web page goes read-only for the subscription (no Stripe CTAs,
   // no Stripe-specific banners) while credit packs + per-grade stay available.
-  const appstoreManaged = isAppstoreManaged(subscription);
+  // US-2126: which store owns the lifecycle, not just "is it Apple". A Google
+  // Play subscriber previously fell through to the Stripe CTAs and got a 409
+  // from a server that already knew better.
+  const managingStore = storeManaging(subscription);
+  const appstoreManaged = managingStore !== null;
+  const storeName = managingStore === "googleplay" ? "Google Play" : "the App Store";
+  const storeApp = managingStore === "googleplay" ? "Android" : "iOS";
   const trialing = !appstoreManaged && isTrialing(subscription);
   const pastDue = !appstoreManaged && subscription.status === "past_due";
   const paused = subscription.status === "paused";
@@ -291,16 +297,18 @@ export function BillingPage() {
         <div className="flex items-start gap-3 rounded-md border border-blue-200 bg-blue-50 p-4 dark:border-blue-900 dark:bg-blue-950/40">
           <Smartphone className="mt-0.5 h-5 w-5 shrink-0 text-blue-600 dark:text-blue-400" />
           <div className="flex-1 text-sm">
-            <p className="font-semibold">Your subscription is managed in the iOS app</p>
+            <p className="font-semibold">
+              Your subscription is managed in the {storeApp} app
+            </p>
             <p className="text-muted-foreground">
-              Your {planLabel(subscription.plan)} plan was purchased through the
-              App Store
+              Your {planLabel(subscription.plan)} plan was purchased through{" "}
+              {storeName}
               {subscription.status === "past_due"
-                ? " and a recent renewal failed — update your payment in the iOS app"
+                ? ` and a recent renewal failed — update your payment in the ${storeApp} app`
                 : ""}
-              . To change, pause, or cancel it, open the GradeThread iOS app and
-              go to Settings → Subscription. Credit packs and per-grade purchases
-              are still available here.
+              . To change, pause, or cancel it, open the GradeThread {storeApp} app
+              and go to Settings → Subscription. Credit packs and per-grade
+              purchases are still available here.
             </p>
           </div>
         </div>
@@ -498,12 +506,14 @@ export function BillingPage() {
 
             <Separator />
 
-            {/* US-807: App Store subscriptions are managed in the iOS app, so
-                we hide every Stripe subscription CTA and point the user there. */}
+            {/* US-807 / US-2126: a store-owned subscription hides every Stripe
+                CTA and names the app to open. Google Play joined this branch in
+                US-2126 — before that a Play subscriber saw all of them and the
+                server refused each one with a 409. */}
             {appstoreManaged ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <Smartphone className="h-4 w-4 shrink-0" />
-                <span>Manage this plan in the GradeThread iOS app.</span>
+                <span>Manage this plan in the GradeThread {storeApp} app.</span>
               </div>
             ) : (
               <div className="flex flex-wrap gap-2">

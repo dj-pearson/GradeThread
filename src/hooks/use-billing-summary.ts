@@ -58,7 +58,11 @@ export interface BillingSummary {
     // plan-change / pause / cancel CTAs (credit packs + per-grade stay active)
     // and the subscribe/downgrade endpoints reject with 409. NULL for users who
     // have never subscribed; 'stripe' for web-billed subscriptions.
-    billing_source: "stripe" | "appstore" | null;
+    // US-2126: 'googleplay' is the THIRD value. The Play verify/RTDN path has
+    // stamped it since US-1366 and this type never learned it, so a Play
+    // subscriber fell through every `=== "appstore"` check and was shown Stripe
+    // CTAs the server then refused with a 409.
+    billing_source: "stripe" | "appstore" | "googleplay" | null;
     appstore_product_id: string | null;
   };
   // US-1799: the buyer SUBSCRIPTION state (Free/Guard/Connoisseur). Separate
@@ -588,10 +592,35 @@ export function isTrialing(s: BillingSummary["subscription"]): boolean {
 // packs and per-grade purchases remain available (they're additive). Mirrors
 // the server guard appstoreSubscriptionBlocksStripe (lib/appstore/precedence.ts).
 export function isAppstoreManaged(s: BillingSummary["subscription"]): boolean {
-  return (
-    s.billing_source === "appstore" &&
-    (s.status === "active" || s.status === "trialing" || s.status === "past_due")
-  );
+  return storeManaging(s) === "appstore";
+}
+
+/**
+ * Which app store owns this subscription's lifecycle, or null for Stripe / none.
+ *
+ * US-2126: Google Play is a third processor, and the server-side precedence
+ * guard has known that since this story's edge half — `googleplaySubscriptionActive`
+ * is wired into all three purchase paths, so a Play subscriber attempting a
+ * Stripe subscribe is refused. The WEB never learned it, so that seller was
+ * still shown "Change plan" and "Cancel" and got a 409 with nothing explaining
+ * it. The double charge was prevented; the dead end was not.
+ *
+ * Returning WHICH store rather than a boolean is deliberate. The page has to
+ * name the app a seller should open, and "managed in the iOS app" shown to
+ * someone who bought on Android is worse than no message at all.
+ *
+ * The entitling statuses mirror `APPSTORE_ENTITLING_STATUSES` in the edge's
+ * `lib/appstore/precedence.ts`, for both stores.
+ */
+export function storeManaging(
+  s: BillingSummary["subscription"],
+): "appstore" | "googleplay" | null {
+  const entitling =
+    s.status === "active" || s.status === "trialing" || s.status === "past_due";
+  if (!entitling) return null;
+  if (s.billing_source === "appstore") return "appstore";
+  if (s.billing_source === "googleplay") return "googleplay";
+  return null;
 }
 
 // Stripe billing webhooks (credit grants, plan changes) land asynchronously a
