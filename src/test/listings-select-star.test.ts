@@ -1,5 +1,7 @@
-// US-2177 AC3: `select("*")` on the 91-column `listings` table is declared, not
-// assumed.
+// US-2177 AC3: `select("*")` on the very wide `listings` table is declared, not
+// assumed. (`node scripts/audit-listings-columns.mjs` prints the current count;
+// it was 91 when this was written and 93 by 2026-08-12. A frozen number in a
+// comment about a growing table is a number that is wrong within the month.)
 //
 // The cost of this table is the WIDTH of its reads. A `select("*")` multiplied
 // by a page of rows is exactly what US-2167 spent a story removing; a
@@ -117,7 +119,8 @@ describe("every unprojected listings read is declared (US-2177)", () => {
 
   it("keeps the list reads projected", () => {
     // The two surfaces that render PAGES of listings. If either ever falls back
-    // to `*`, the 91-column width lands on every row again.
+    // to `*`, the full table width lands on every row again — and that width
+    // only grows.
     const listings = readFileSync(
       resolve(process.cwd(), "src/pages/flipdesk/listings-columns.ts"),
       "utf8",

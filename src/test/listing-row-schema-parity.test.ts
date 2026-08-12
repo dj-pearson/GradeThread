@@ -1,6 +1,9 @@
 // US-2177: ListingRow must not drift behind the `listings` table.
 //
-// THE STATE THIS ENDS. `listings` had 91 columns; `ListingRow` described 75.
+// THE STATE THIS ENDS, as measured when this was written (2026-08-03): `listings`
+// had 91 columns and `ListingRow` described 75. Both numbers are history, not the
+// current shape — the table was at 93 by 2026-08-12, and this test is what keeps
+// the two in step whatever the count is.
 // The 16 it was missing were not obscure — `platform_fields`, `needs_review`,
 // `quality_score`, `marketplace_connection_id`, `inventory_sku` are all in daily
 // use. That is worse than an untyped field, because the code reading them had to
