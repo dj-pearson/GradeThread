@@ -90,5 +90,92 @@ enum InventoryAspectSync {
             ))
             .eq("id", value: itemId)
             .execute()
+
+        // US-2274 AC2: the SECOND store. `listings.item_specifics_override` is
+        // what publish and revise read FIRST, so an item-column edit that landed
+        // only in `inventory_items.ebay_aspects` did not change what actually
+        // ships - which is why a seller had to reopen the specifics editor for
+        // their own Size correction to stick.
+        await mergeColumnAspectsIntoListings(
+            itemId: itemId,
+            columnOwned: res.columnOwned,
+            filled: filled
+        )
+    }
+
+    /// The column-owned aspects worth pushing to the listing override.
+    ///
+    /// PURE, and MERGE-ONLY BY CONSTRUCTION - it can only ever return values to
+    /// SET. That is the whole safety argument for AC2, and it is why this does
+    /// not take the clear-on-blank shape AC4 describes.
+    ///
+    /// The story's own 2026-08-03 warning is the reason: writing a clear-on-blank
+    /// projection into `item_specifics_override` re-opens the bug fixed in
+    /// ea9e27a2. A blank Brand column beside an AI- or hand-typed Brand aspect is
+    /// the ORDINARY state of an iOS-created item, so deleting the aspect there
+    /// produced "Fill required eBay specifics in the composer: Brand" on a
+    /// listing that visibly had Brand. Web reached the same conclusion
+    /// independently: `projectColumnAspectsForSpec` bails on a blank column
+    /// (`ebay-prefill.ts:503`) precisely so it is overwrite-only.
+    ///
+    /// So: only names the server marked `columnOwned` - meaning the column
+    /// currently HAS a value - and only when that value survived reconciliation.
+    /// `columnCleared` is deliberately ignored here; clearing belongs to the
+    /// editor, which owns the column inputs.
+    nonisolated static func listingOverrideMerge(
+        columnOwned: [String],
+        filled: [String: [String]]
+    ) -> [String: [String]] {
+        var out: [String: [String]] = [:]
+        for name in columnOwned {
+            guard let values = filled[name] else { continue }
+            let cleaned = values.filter { !$0.isEmpty }
+            guard !cleaned.isEmpty else { continue }
+            out[name] = cleaned
+        }
+        return out
+    }
+
+    /// Merge those aspects into every listing row this item still publishes from.
+    ///
+    /// Scoped to `draft` and `active`, mirroring the US-1995 title-sync decision:
+    /// a sold or ended listing's specifics record what was actually sold and must
+    /// not be rewritten.
+    private static func mergeColumnAspectsIntoListings(
+        itemId: String,
+        columnOwned: [String],
+        filled: [String: [String]]
+    ) async {
+        let patch = listingOverrideMerge(columnOwned: columnOwned, filled: filled)
+        guard !patch.isEmpty else { return }
+
+        struct ListingRow: Decodable {
+            let id: String
+            let item_specifics_override: [String: [String]]?
+        }
+        let rows: [ListingRow]? = try? await SupabaseShared.client
+            .from("listings")
+            .select("id, item_specifics_override")
+            .eq("inventory_item_id", value: itemId)
+            .in("listing_status", values: ["draft", "active"])
+            .execute()
+            .value
+        guard let rows, !rows.isEmpty else { return }
+
+        for row in rows {
+            var merged = row.item_specifics_override ?? [:]
+            var changed = false
+            for (name, values) in patch where merged[name] != values {
+                merged[name] = values
+                changed = true
+            }
+            guard changed else { continue }
+            struct Patch: Encodable { let item_specifics_override: [String: [String]] }
+            _ = try? await SupabaseShared.client
+                .from("listings")
+                .update(Patch(item_specifics_override: merged))
+                .eq("id", value: row.id)
+                .execute()
+        }
     }
 }
