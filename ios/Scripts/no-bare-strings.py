@@ -24,6 +24,15 @@ import os
 import re
 import sys
 
+# The offenders this script prints are UI copy, so they carry the ellipsis, the
+# arrow and the middle dot that real product text carries. On a Windows console
+# (cp1252) printing one raises UnicodeEncodeError, and the developer sees a
+# traceback where the offender list should be — which is how a red lane went five
+# days without anyone reading past the first line. CI is UTF-8 either way; this
+# is purely so the failure is legible where it is most likely to be ignored.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # US-1155: the String Catalog that build-time loc-string extraction
@@ -144,6 +153,50 @@ BASELINE = frozenset({
     "Type ",
     "Used this month",
     "Verified seller",
+    # ── Thrift Radar (US-1866, added 2026-08-07; baselined 2026-08-12) ────────
+    #
+    # THIS LANE WAS RED ON MAIN FOR FIVE DAYS and nothing in the backlog said so.
+    # US-1866 dropped RadarNearbyView.swift into Prospect, which is IN SCOPE, and
+    # never updated this set — so every iOS CI run since has failed at this step,
+    # after the simulator build, which is the slowest possible place to learn it.
+    # Writing that down rather than quietly appending: a baseline that grows
+    # without anyone noticing the red run has stopped being a review checkpoint.
+    #
+    # These are baselined rather than rewritten because there is no other option
+    # in this repo today — Localizable.xcstrings has ZERO entries, so not one
+    # string in this file has ever been translated, including the US-1224 and
+    # US-1155 ones above. `SWIFT_EMIT_LOC_STRINGS=YES` populates the catalog at
+    # build time on the Mac and the result is not committed. So "localize via a
+    # string key" currently means the same thing as a bare SwiftUI literal, and
+    # what this guard actually buys is a human acknowledging new UI copy.
+    "A store appears once ",
+    "Averages ",
+    "Brand mix",
+    "Condition found here",
+    "Empty radar near you?",
+    "Estimated grades from field scans, not certified grades.",
+    "Hotness, brand mix and busy days come from everyone else's scans. Your own "
+    "stores and your own numbers stay on this list on every plan.",
+    "Loading your stores…",
+    "Loading…",
+    "Location is off for GradeThread. Turn it on in iOS Settings → Privacy → "
+    "Location Services to sort by what is near you. Radar still works without it.",
+    "Nearby",
+    "Nothing on the radar here yet",
+    "Only brands enough different people have scanned appear here. A brand "
+    "missing from this list is not a brand missing from the store.",
+    "Share your location to look around you, or link a source to a store on the "
+    "web so your own places show up here.",
+    "The shared map is on Pro",
+    "These have your money in them but no place yet. Link one on the web "
+    "(FlipDesk → My stores) and it joins this list.",
+    "Weighted toward ",
+    "When it is busy",
+    "Window",
+    "Your history here",
+    "Your own numbers, on every plan. They are not part of the shared map.",
+    "Your store · nothing shared about this place yet",
+    "Your stores that are not on the map",
 })
 
 

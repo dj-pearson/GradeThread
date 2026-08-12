@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2499",
+  "nextId": "US-2500",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1912,6 +1912,21 @@
         "CANNOT BE VERIFIED FROM A WINDOWS CHECKOUT: iOS needs a macOS session and Android CI is the gate. The server side is already correct and needs no change."
       ],
       "notes": "Filed 2026-08-11 out of US-2134 rather than folded into it — it is a client-cache correctness bug on two platforms, not part of making the slots conditional, and it cannot be built or verified here. Severity is deliberately stated as low: nothing tenant-scoped is in the body. The reason it is worth a story anyway is that the ASSUMPTION it rests on (this endpoint is static config) is now false and nothing in either client records that it changed."
+    },
+    {
+      "id": "US-2499",
+      "priority": 1993,
+      "passes": false,
+      "title": "iOS ships English-only while Android ships Spanish, and the localization guard reads as though a migration is under way",
+      "description": "As a Spanish-speaking seller, I want the iOS app in my language, or I want the team to have decided on purpose that it will not be - because today Android speaks Spanish, iOS does not, and no one chose that.",
+      "acceptanceCriteria": [
+        "DECIDE FIRST whether iOS is meant to be localized at all. Android has values-es/ and its CI fails on MissingTranslation, so the two clients already disagree about whether a non-English seller is a customer. That is a product call, not a cleanup",
+        "If iOS IS meant to be localized: Localizable.xcstrings currently has ZERO entries, so decide whether the catalog is committed (translations live in git and can be reviewed) or generated at build time (translations live nowhere). Today it is the second, which is why nothing is translated",
+        "If iOS is NOT meant to be localized: say so in ios/Scripts/no-bare-strings.py, because its docstring describes a migration that is widening and that sentence is what makes the BASELINE read as temporary",
+        "Either way the guard must stop being a step that only fails AFTER the simulator build. It caught US-1866 five days late because it runs at ios-ci.yml:128, behind the slowest job in the lane",
+        "Reconcile the scope: SCOPE_DIRS covers Prospect/Vision/Speech/Settings and the docstring says the other ~670 app-wide strings are deliberately unscoped. Confirm that is still the intent"
+      ],
+      "notes": "[P3][iOS/Localization] Filed 2026-08-12 while fixing a red iOS CI lane. THE MEASUREMENT THAT PROMPTED IT: ios/GradeThread/Localizable.xcstrings parses as valid JSON with sourceLanguage en and strings: {} - zero entries. So not one iOS string has ever been translated, including every string in the US-1224 and US-1155 BASELINE sets that the guard describes as migrated. SWIFT_EMIT_LOC_STRINGS=YES populates the catalog at build time on the Mac and the result is not committed, so the artifact the guard validates is permanently empty by construction. THE CONSEQUENCE FOR THE GUARD, which is why this is worth a story rather than a shrug: no-bare-strings.py tells you to localize via a string key OR update BASELINE, and in this repo those are the same action - a SwiftUI Text(\"...\") IS a LocalizedStringKey, so a bare literal is already as localized as anything gets here. What the guard actually buys is a human acknowledging new UI copy, which is worth having, but the docstring sells it as a migration checkpoint and that framing is what makes each BASELINE addition feel like debt rather than a decision. THE CROSS-PLATFORM HALF: Android does the opposite. values-es/strings.xml is real, lintDebug treats MissingTranslation as an ERROR, and US-2492 (Sourcing Radar on Android, in flight as this was filed) is required to ship Spanish for the SAME feature whose iOS strings are English-only. Two clients, one product, opposite answers about whether a Spanish-speaking seller is a customer - and nobody chose that."
     }
   ]
 }
