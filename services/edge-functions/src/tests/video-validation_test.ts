@@ -354,3 +354,36 @@ Deno.test("US-1980: a truncated box tree does not throw", () => {
   }
   isoBmffVideoCodec(new Uint8Array(0));
 });
+
+Deno.test("US-1980: allowCodecs refuses HEVC with the fix in the message", () => {
+  const hevc = mp4WithTracks(trak("vide", "hvc1"));
+  const verdict = validateVideoUpload(hevc, { allowCodecs: ["avc1", "avc3"] });
+  assertEquals(verdict.ok, false);
+  if (verdict.ok) return;
+  assertEquals(verdict.codec, "hvc1");
+  // The message has to be actionable. "Unsupported codec" sends the seller
+  // nowhere; naming the Camera setting is the whole point of catching this
+  // before the upload rather than after it.
+  assert(/Most Compatible/.test(verdict.reason), verdict.reason);
+  assert(/H\.264/.test(verdict.reason), verdict.reason);
+});
+
+Deno.test("US-1980: allowCodecs passes H.264 and is opt-in", () => {
+  const h264 = mp4WithTracks(trak("vide", "avc1"));
+  assert(validateVideoUpload(h264, { allowCodecs: ["avc1", "avc3"] }).ok);
+  // Absent the option, the codec is reported and nothing is refused on it -
+  // the existing US-1763 grading path must not start rejecting HEVC.
+  const noOpt = validateVideoUpload(mp4WithTracks(trak("vide", "hvc1")), {});
+  assertEquals(noOpt.ok, true);
+  if (noOpt.ok) assertEquals(noOpt.codec, "hvc1");
+});
+
+Deno.test("US-1980: an unreadable codec is never refused", () => {
+  // Fail-open. A faststart-less file hides moov behind mdat, and a caller
+  // holding a prefix would otherwise have every valid upload refused.
+  const verdict = validateVideoUpload(mp4NoMoov("isom"), {
+    allowCodecs: ["avc1"],
+  });
+  assertEquals(verdict.ok, true);
+  if (verdict.ok) assertEquals(verdict.codec, null);
+});

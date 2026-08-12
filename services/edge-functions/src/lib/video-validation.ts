@@ -37,6 +37,13 @@ export interface ValidateVideoOptions {
   maxDurationSeconds?: number;
   // Restrict to a subset of formats.
   allow?: VideoFormat[];
+  /**
+   * US-1980: restrict the video CODEC, not just the container. An .mp4 says
+   * nothing about what is inside it, and eBay's Media API takes H.264 only.
+   * Fail-open: an unreadable codec is allowed through, because a
+   * faststart-less file legitimately hides moov behind mdat.
+   */
+  allowCodecs?: string[];
 }
 
 export type VideoValidationResult =
@@ -46,8 +53,10 @@ export type VideoValidationResult =
     contentType: string;
     ext: string;
     durationSeconds: number | null;
+    /** US-1980: the video sample-entry fourcc, null when unreadable. */
+    codec: string | null;
   }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; codec?: string | null };
 
 function ascii(bytes: Uint8Array, start: number, len: number): string {
   let s = "";
@@ -446,11 +455,28 @@ export function validateVideoUpload(
     }
   }
 
+  // US-1980: an optional codec allowlist, for callers whose downstream is
+  // pickier than the container. eBay's Media API takes H.264 only. Fail-open
+  // when the codec cannot be read - see isoBmffVideoCodec for why - so this
+  // narrows what is REFUSED and never what is required to be readable.
+  const videoCodec = format === "webm" ? null : isoBmffVideoCodec(bytes);
+  if (opts.allowCodecs && videoCodec && !opts.allowCodecs.includes(videoCodec)) {
+    return {
+      ok: false,
+      reason: HEVC_SAMPLE_ENTRIES.has(videoCodec)
+        ? "This video is HEVC (H.265). Re-record with Camera > Formats > Most " +
+          "Compatible, or export it as H.264, and try again."
+        : `Unsupported video codec '${videoCodec}'`,
+      codec: videoCodec,
+    };
+  }
+
   return {
     ok: true,
     format,
     contentType: VIDEO_CONTENT_TYPE[format],
     ext: VIDEO_EXT[format],
     durationSeconds,
+    codec: videoCodec,
   };
 }
