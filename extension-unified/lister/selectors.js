@@ -303,10 +303,12 @@ const GT_LISTER_SELECTORS = {
     },
   },
 
-  // ── Mercari — PHASE 2 (not yet enabled) ───────────────────────────────
-  // Mercari's React SPA rewrites field ids frequently; flagged off until the
-  // selectors are verified against the live sell flow. Until then the content
-  // script reports "coming soon — list manually" rather than guessing.
+  // ── Mercari — PHASE 2, LIVE since 2026-08-11 ──────────────────────────
+  // This heading said "not yet enabled" for a day after the flip, directly
+  // above `enabled: true`. Mercari's React SPA rewrites field ids frequently,
+  // which is why both halves were held until probed against the live flow —
+  // and why a stale "not enabled" here is worth correcting rather than leaving:
+  // it is the first thing anyone reads before touching these selectors.
   mercari: {
     // ON as of 2026-08-11. Both halves: every list selector resolved on
     // mercari.com/sell/, and the delist menu resolved on a live listing.
