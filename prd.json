@@ -1900,22 +1900,6 @@
       "dependsOn": []
     },
     {
-      "id": "US-2494",
-      "priority": 2392,
-      "passes": false,
-      "title": "Three iOS-only endpoints have no owner on any other client",
-      "description": "As the team, we want derive-aspects, AI negotiate and the passport claim token either ported or recorded as deliberately iOS-only, so a reader does not keep rediscovering them as gaps.",
-      "acceptanceCriteria": [
-        "DECIDE FIRST, per endpoint: port to web and Android, or record as iOS-only with the reason. Do not default to whichever is less work",
-        "POST /api/flipdesk/ebay/category/:id/derive-aspects - deterministic, NO-AI aspect refill. Costs zero AI actions, which makes it the cheap sibling of the paid extraction US-2411 shipped on Android",
-        "POST /api/flipdesk/ai/negotiate - AI-drafted offer reply, used by the iOS negotiation inbox",
-        "POST /api/passport/garments/:id/claim-token - mints a buyer claim link",
-        "The decision is written into this story's notes so the next reader does not re-derive it"
-      ],
-      "notes": "[P3][Cross-platform] Filed 2026-08-11 from the US-1299 parity audit. All three are absent from WEB as well as Android, so these are iOS-ahead rather than Android-behind - which is why this is one story and not three parity stories. iOS refs: EbayAspectsService.swift:93 used by SpecificsEditorModel.swift:244; NegotiationDraftService.swift:61 used by NegotiationInboxView.swift:307,421; PassportService.swift:74. Edge: flipdesk-ebay.ts:1961, flipdesk-ai.ts:2026, main.ts:804.",
-      "dependsOn": []
-    },
-    {
       "id": "US-2496",
       "priority": 1992,
       "passes": false,
@@ -1928,19 +1912,6 @@
         "CANNOT BE VERIFIED FROM A WINDOWS CHECKOUT: iOS needs a macOS session and Android CI is the gate. The server side is already correct and needs no change."
       ],
       "notes": "Filed 2026-08-11 out of US-2134 rather than folded into it — it is a client-cache correctness bug on two platforms, not part of making the slots conditional, and it cannot be built or verified here. Severity is deliberately stated as low: nothing tenant-scoped is in the body. The reason it is worth a story anyway is that the ASSUMPTION it rests on (this endpoint is static config) is now false and nothing in either client records that it changed."
-    },
-    {
-      "id": "US-2497",
-      "title": "Start a Poshmark share run from the phone, or say plainly that you cannot",
-      "priority": 640,
-      "passes": false,
-      "acceptanceCriteria": [
-        "Decide and record how a queued share run learns WHICH closet to open, given the extension deliberately does not store the seller's Poshmark handle and will not navigate to a URL that arrived in a message (US-1876)",
-        "If the answer is that it cannot, kind=share is removed from EXTENSION_QUEUE_KINDS in services/edge-functions/src/lib/extension-queue.ts and from the table CHECK constraint, so the API stops accepting work nothing will ever run",
-        "If the answer is that it can, extension-unified/lister/job-store.js RUNNABLE_QUEUE_KINDS gains 'share', background.js drains it into the US-2482 engagement engine behind that engine's OWN clickwrap, and extension-unified/test/lister-jobs.test.cjs covers it",
-        "Either way the seller is never shown a share trigger that queues a row the drain will refuse"
-      ],
-      "notes": "[P2][FlipDesk/Queue] Split out of US-2481 on 2026-08-11. US-2481 AC1 originally said 'publish, delist, share run'; publish and delist ship on both mobile clients, share does not, and the reason is architectural rather than unfinished work. A share run is the US-2482 Poshmark engagement pass. background.js GT_ENGAGE_START (~:1519) refuses unless the ACTIVE TAB already matches cfg.closetUrlPattern, and the extension holds no Poshmark handle by design ('GradeThread's servers see run counts at most, and never a Poshmark page, handle or cookie'). A background drain has no active closet tab and nothing to build one from. The engagement engine also has its own separate clickwrap, accepted IN the extension, which a phone cannot stand in for. Until this is decided, kind=share is accepted by the API and refused by the drain: planDrain puts it in `unsupported` and background.js completes the row with ok:false. That is honest but it is still an API accepting work it cannot do, which is what this story closes one way or the other."
     }
   ]
 }
