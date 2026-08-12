@@ -125,6 +125,13 @@ fun CaptureScreen(
     val intake = store ?: return
     val state by intake.state.collectAsState()
 
+    // US-2498: the strip is the resolved profile's slots, not a compiled-in
+    // list. `apply` is a no-op once the profile matches, so this settles after
+    // one pass and carries any shot already taken into the new strip.
+    val fetchedProfile by publishViewModel.profile.collectAsState()
+    LaunchedEffect(fetchedProfile, intake) { intake.apply(fetchedProfile) }
+    val profile by intake.profile.collectAsState()
+
     if (!granted) {
         // AC4: the denied-state fallback.
         Column(
@@ -194,9 +201,22 @@ fun CaptureScreen(
             )
         }
 
-        // Hint for the active slot.
+        // US-2498 AC2: a slot this build has no capture case for. Saying so is
+        // the whole point — the seller is being offered fewer shots than their
+        // category asks for, and silence reads as "there is nothing else".
+        val unsupported = profile.unsupportedRoleTypes
+        if (unsupported.isNotEmpty()) {
+            Text(
+                stringResource(R.string.capture_slots_need_update, unsupported.size),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
+            )
+        }
+
+        // Hint for the active slot — the profile's wording when it has one.
         Text(
-            state.active.hint,
+            state.activeCaptureSlot.hint,
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = Spacing.md, vertical = Spacing.xs),
         )
@@ -207,9 +227,9 @@ fun CaptureScreen(
             horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = Spacing.md),
         ) {
-            items(intake.visibleSlots, key = { it.wire }) { slot ->
+            items(intake.visibleSlots, key = { it.storageKey }) { slot ->
                 FilterChip(
-                    selected = slot == state.active,
+                    selected = slot == state.activeCaptureSlot,
                     onClick = {
                         haptics.light()
                         intake.setActiveSlot(slot)
@@ -308,7 +328,7 @@ fun CaptureScreen(
                     stringResource(R.string.common_continue)
                 },
                 modifier = Modifier.fillMaxWidth().padding(Spacing.md),
-            ) { if (!publish.publishing) publishViewModel.publish(state) }
+            ) { if (!publish.publishing) publishViewModel.publish(state, profile) }
         }
     }
 }

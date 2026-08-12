@@ -26,8 +26,30 @@ import javax.inject.Inject
 class CapturePublishViewModel @Inject constructor(
     private val publisher: CapturePublisher,
     private val manager: AiExtractionManager,
+    private val profiles: PhotoProfileStore,
     @ApplicationContext private val context: Context,
 ) : ViewModel() {
+
+    /**
+     * US-2498: the server-authoritative photo profile. Camera-first intake has
+     * no item and therefore no category yet, so this resolves the DEFAULT
+     * clothing profile - but the server's, whose roles are named (brand label,
+     * size tag, fabric close-up) instead of the numbered `tag_2` / `detail_2`
+     * slots the strip used to offer.
+     *
+     * Starts on the bundled copy so the first frame renders, and only ever moves
+     * forward: a failed fetch leaves the fallback in place rather than emptying
+     * the strip.
+     */
+    private val _profile = MutableStateFlow(PhotoProfile.clothingFallback)
+    val profile: StateFlow<PhotoProfile> = _profile.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            profiles.loadIfNeeded()
+            _profile.value = profiles.profileFor(null, null)
+        }
+    }
 
     data class State(
         val publishing: Boolean = false,
@@ -39,12 +61,15 @@ class CapturePublishViewModel @Inject constructor(
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
 
-    fun publish(session: PhotoIntakeStore.State) {
+    fun publish(
+        session: PhotoIntakeStore.State,
+        profile: PhotoProfile = PhotoProfile.clothingFallback,
+    ) {
         if (_state.value.publishing) return
         _state.value = State(publishing = true)
 
         viewModelScope.launch {
-            publisher.publish(session)
+            publisher.publish(session, profile)
                 .onSuccess { plan ->
                     // Read synchronously off the active network: a cold
                     // offline start must take the OCR branch immediately

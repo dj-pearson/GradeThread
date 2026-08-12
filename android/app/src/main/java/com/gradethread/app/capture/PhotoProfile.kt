@@ -81,15 +81,38 @@ data class PhotoProfile(
             return if (i == -1) slot to null else slot.substring(0, i) to slot.substring(i + 1)
         }
 
+        /**
+         * US-2498: the bundled copy of the SERVER's clothing profile, role for
+         * role and in the same order — the mirror of
+         * `ios/GradeThread/Capture/PhotoProfile.swift` and of the `clothing`
+         * entry in `src/lib/photo-profiles.ts`.
+         *
+         * It was five unroled slots, which mattered once the capture strip
+         * started reading from here: a seller who opened the camera offline was
+         * offered front, back, one nameless tag and one nameless detail, and the
+         * Add menu had nothing in it but defects. A fallback is the profile a
+         * seller gets on a bad connection, so it has to be the real one.
+         */
         val clothingFallback = PhotoProfile(
             category = "clothing",
             label = "Clothing",
             roles = listOf(
                 PhotoRole("front", "Front", "Lay flat, full front in frame", required = true, icon = "shirt"),
                 PhotoRole("back", "Back", "Same crop as the front shot", required = true, icon = "shirt"),
-                PhotoRole("tag", "Garment Tag", "Care + size label, close enough to read", required = true, icon = "tag"),
-                PhotoRole("detail", "Detail", "Texture, weave, or a distinctive feature", required = true, icon = "search"),
+                PhotoRole("tag", "Brand label", "The maker's logo or wordmark", required = false, icon = "tag", role = "brand"),
+                PhotoRole("tag", "Size tag", "The size itself, close enough to read without zooming", required = false, icon = "tag", role = "size"),
+                PhotoRole("tag", "Care & fabric", "The care label with the fibre content", required = false, icon = "tag", role = "care"),
+                PhotoRole("detail", "Fabric close-up", "Fill the frame with the weave or knit, in even light", required = false, icon = "search", role = "fabric"),
+                PhotoRole("detail", "Hardware", "Zip pull, buttons, rivets or snaps", required = false, icon = "search", role = "hardware"),
+                PhotoRole("detail", "Print or graphic", "The graphic straight on, close enough to show cracking", required = false, icon = "search", role = "print"),
+                PhotoRole("measurement", "Measurement card", "Whole garment flat with the MeasureCard BESIDE it, shot top-down", required = false, icon = "ruler"),
                 PhotoRole("defect", "Defect", "Tight crop on any flaw — be honest", required = false, icon = "alert-triangle"),
+                PhotoRole("interior", "Interior / Lining", "Inside-out: lining, seams, interior tags", required = false, icon = "layers"),
+                PhotoRole("detail", "Hem & stitching", "A hem or seam up close", required = false, icon = "search", role = "hem"),
+                PhotoRole("tag", "Made in / union label", "Origin, union or RN label", required = false, icon = "tag", role = "made_in"),
+                PhotoRole("flatlay", "Flat lay", "Styled flat lay for the listing gallery", required = false, icon = "layout-grid"),
+                PhotoRole("on_hanger", "On hanger", "Hung straight on, showing how it drapes", required = false, icon = "shirt"),
+                PhotoRole("on_model", "On model", "Worn on a model or mannequin", required = false, icon = "user"),
             ),
         )
 

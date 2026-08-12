@@ -54,6 +54,7 @@ class CapturePublisher @Inject constructor(
      */
     suspend fun publish(
         state: PhotoIntakeStore.State,
+        profile: PhotoProfile = PhotoProfile.clothingFallback,
         nowMs: Long = System.currentTimeMillis(),
     ): Result<CapturePublishPlan.Plan> = runCatching {
         val owner = ownerId() ?: error("Not signed in")
@@ -62,6 +63,7 @@ class CapturePublisher @Inject constructor(
             itemId = UUID.randomUUID().toString().lowercase(),
             ownerId = owner,
             nowMs = nowMs,
+            profile = profile,
         )
 
         db.items().upsert(listOf(localRow(plan.itemId, owner, nowMs)))
@@ -91,6 +93,11 @@ class CapturePublisher @Inject constructor(
                     serverType = entry.serverPhotoType,
                     sortOrder = entry.sortOrder,
                     capturedAt = entry.capturedAtMs,
+                    // US-2498: the role half of the pair. Nothing wrote it
+                    // before, so every photo Android captured landed unroled
+                    // and the retag menu was the only way to say what a shot
+                    // showed — even when the seller had picked the named slot.
+                    photoRole = entry.photoRole,
                 ),
             )
         }

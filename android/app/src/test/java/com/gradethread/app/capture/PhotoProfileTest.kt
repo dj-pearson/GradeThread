@@ -52,10 +52,19 @@ class PhotoProfileTest {
     @Test
     fun bundledFallback_matchesTheIosTable() {
         val clothing = PhotoProfile.clothingFallback
+        // US-2498: the bundled copy is the SERVER's clothing profile now, and
+        // the server marks only front and back required — the tag and detail
+        // roles are named, plural and optional. It used to be a five-role stub
+        // whose tag and detail were both required and neither was named.
         assertEquals(
-            listOf(PhotoSlotType.FRONT, PhotoSlotType.BACK, PhotoSlotType.TAG, PhotoSlotType.DETAIL),
+            listOf(PhotoSlotType.FRONT, PhotoSlotType.BACK),
             clothing.requiredSlots,
         )
+        assertEquals(
+            listOf("brand", "size", "care", "made_in"),
+            clothing.roles.filter { it.type == "tag" }.map { it.role },
+        )
+        assertTrue(clothing.roles.any { it.type == "on_hanger" })
         assertTrue(clothing.allowsDefects)
         val other = PhotoProfile.genericFallback
         assertEquals(listOf(PhotoSlotType.FRONT, PhotoSlotType.BACK), other.requiredSlots)

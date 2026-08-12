@@ -1513,6 +1513,7 @@
     <string name="capture_add_photo_slot">Add photo slot</string>
     <string name="capture_permission_blocked">Camera access is off. Enable it in Settings to capture photos \u2014 or add photos from your library instead.</string>
     <string name="capture_permission_needed">Camera permission needed to capture garment photos.</string>
+    <string name="capture_slots_need_update">This category asks for %1$d photo type(s) this app version cannot take yet. Update the app, or add them from a browser.</string>
     <string name="barcode_point_camera">Point the camera at a barcode</string>
     <string name="intake_share_title">Add to GradeThread</string>
     <string name="intake_share_pick">Pick which shot goes where. You can change any of it later.</string>

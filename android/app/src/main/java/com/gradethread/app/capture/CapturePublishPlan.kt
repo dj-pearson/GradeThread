@@ -26,13 +26,16 @@ object CapturePublishPlan {
     const val INITIAL_STATUS = "sourced"
 
     data class UploadEntry(
-        val slot: PhotoSlotType,
+        val slot: CaptureSlot,
         val stagedPath: String,
         val sortOrder: Int,
         val capturedAtMs: Long,
     ) {
         val serverPhotoType: String get() = slot.serverPhotoType
-        val isRequired: Boolean get() = slot in PhotoSlotType.required
+
+        /** `item_photos.photo_role`, or null for a slot that takes none. */
+        val photoRole: String? get() = slot.role
+        val isRequired: Boolean get() = slot.type in PhotoSlotType.required
     }
 
     data class Plan(
@@ -47,8 +50,36 @@ object CapturePublishPlan {
     }
 
     /**
+     * Every slot this session could hold a photo in, in the order they publish.
+     *
+     * US-2498: THE PROFILE OWNS THIS ORDER. It used to be `PhotoSlotType.entries`
+     * — the enum's declaration order — which could only ever describe one
+     * category, and which stopped being able to name a slot at all once two
+     * slots could share a type (`tag:brand` and `tag:size` are both `TAG`).
+     *
+     * Defects come after the profile's own slots because they are close-ups of
+     * a flaw, and a buyer scrolling a gallery should reach the garment first.
+     * Anything captured under a slot this profile does not list — a session that
+     * started under a different category — lands last, in enum order, which is
+     * where the web puts it too.
+     */
+    fun orderedSlots(
+        state: PhotoIntakeStore.State,
+        profile: PhotoProfile,
+    ): List<CaptureSlot> {
+        val known = profile.captureSlots + profile.defectCaptureSlots
+        val leftovers = state.photos.keys
+            .mapNotNull(CaptureSlot::fromStorageKey)
+            .filter { it !in known }
+            .sortedWith(compareBy({ it.type.ordinal }, { it.role ?: "" }))
+        return (known + leftovers).distinct()
+    }
+
+    /**
      * Build the plan.
      *
+     * @param profile the resolved photo profile for the item's category — the
+     *   source of both slot ORDER and the `photo_role` each upload carries.
      * @param nowMs the capture-session publish instant.
      */
     fun build(
@@ -56,23 +87,29 @@ object CapturePublishPlan {
         itemId: String,
         ownerId: String,
         nowMs: Long,
+        profile: PhotoProfile = PhotoProfile.clothingFallback,
     ): Plan {
-        val uploads = PhotoSlotType.entries
-            // DECLARATION ORDER IS THE CANONICAL COVER ORDER — front is the
-            // eBay main image, so sort_order must follow the enum, never the
-            // order the seller happened to shoot in.
-            .mapNotNull { slot -> state.photoFor(slot)?.let { slot to it } }
-            .mapIndexed { index, (slot, path) ->
+        val ordered = orderedSlots(state, profile)
+        val uploads = ordered
+            .mapIndexedNotNull { position, slot ->
+                state.photoFor(slot)?.let { path ->
+                    Triple(slot, path, position)
+                }
+            }
+            .mapIndexed { index, (slot, path, position) ->
                 UploadEntry(
                     slot = slot,
                     stagedPath = path,
                     sortOrder = index,
-                    // Offset by the slot's ordinal, NOT by `index`: the storage
-                    // path is `{user}/{item}/{type}_{ts}.jpg` and defect1–3 all
-                    // collapse to the server type `defect`, so a shared `nowMs`
-                    // would have the three defect shots overwrite each other at
-                    // the same key. The ordinal is stable and unique per slot.
-                    capturedAtMs = nowMs + slot.ordinal,
+                    // Offset by the slot's position in the FULL slot list, not
+                    // by `index`: the storage path is
+                    // `{user}/{item}/{type}_{ts}.jpg`, defect1-3 all collapse to
+                    // the server type `defect`, and a suit's three tag shots all
+                    // collapse to `tag` — so a shared `nowMs` would have them
+                    // overwrite each other at the same key. The position is
+                    // stable per slot, because the list it indexes into is the
+                    // profile's, not the list of what happened to be shot.
+                    capturedAtMs = nowMs + position,
                 )
             }
 

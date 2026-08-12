@@ -50,8 +50,29 @@ class PhotoOrderingTest {
         required: Boolean = false,
     ) = PhotoRole(type, label, "", required = required, icon = "x", role = role)
 
-    /** The bundled clothing default, which is what an unresolved item gets. */
-    private val clothing = PhotoProfile.clothingFallback
+    /**
+     * A small four-slot clothing profile: front, back, one bare tag, one bare
+     * detail, plus defects.
+     *
+     * US-2498: this WAS `PhotoProfile.clothingFallback`, which is now the
+     * server's real clothing profile — sixteen roles, four of them tags. These
+     * tests are about the ordering and slot-offer RULES, and against a
+     * sixteen-role profile every expectation here becomes a list nobody can read
+     * and the rule under test stops being visible. The fixture is the shape the
+     * rules describe; the bundled table's contents are pinned in
+     * `PhotoProfileTest` instead.
+     */
+    private val clothing = PhotoProfile(
+        category = "clothing",
+        label = "Clothing",
+        roles = listOf(
+            role("front", "Front", required = true),
+            role("back", "Back", required = true),
+            role("tag", "Garment Tag", required = true),
+            role("detail", "Detail", required = true),
+            role("defect", "Defect"),
+        ),
+    )
 
     private val suit = PhotoProfile(
         category = "clothing:suit",

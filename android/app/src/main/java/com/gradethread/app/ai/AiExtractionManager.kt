@@ -234,7 +234,11 @@ class AiExtractionManager @Inject constructor(
         itemId: String,
         uploads: List<CapturePublishPlan.UploadEntry>,
     ): File? {
-        val tag = uploads.firstOrNull { it.slot == PhotoSlotType.TAG } ?: return null
+        // US-2498: any TAG slot, whatever role it carries. An `== TAG` check
+        // matched nothing the moment a profile could name three of them
+        // (`tag:brand`, `tag:size`, `tag:care`), which silently turned the OCR
+        // fallback off for every seller with a suit.
+        val tag = uploads.firstOrNull { it.slot.isTagSlot } ?: return null
         return runCatching {
             val source = File(tag.stagedPath)
             if (!source.exists()) return null

@@ -12,65 +12,145 @@ import kotlinx.serialization.json.Json
  * over an immutable [State] snapshot so every rule unit-tests; the CameraX
  * screen observes [state].
  *
+ * US-2498: a slot is a [CaptureSlot] - a (photo_type, photo_role) pair - and
+ * WHICH slots exist comes from the resolved [PhotoProfile], not from a fixed
+ * list of enum cases. A suit profile can therefore hold three separate tag
+ * shots, and a pair of trousers is never offered a sleeve measurement.
+ *
  * Rules carried from iOS:
- *  - the strip shows the 4 default slots + revealed extras; Front+Back block
- *    continue, Tag+Detail are shown but skippable;
+ *  - the strip shows the profile's default slots + revealed extras; the
+ *    profile's blocking slots (front+back) gate continue, the rest are
+ *    skippable;
  *  - a capture lands in the ACTIVE slot then AUTO-ADVANCES to the next empty
  *    visible slot (stays put when everything's filled);
  *  - defects reveal ONE AT A TIME (the Add menu offers a single Defect entry
- *    while any remain hidden); extras/measurements reveal on demand;
+ *    while any remain hidden); every other optional slot reveals on demand;
  *  - the FULL state (photos map + active + revealed slots) persists to Room
  *    so process death/backgrounding recovers the draft.
  */
-class PhotoIntakeStore(initial: State = State()) {
+class PhotoIntakeStore(
+    initial: State = State(),
+    initialProfile: PhotoProfile = PhotoProfile.clothingFallback,
+) {
 
     @Serializable
     data class State(
-        /** slot.wire → captured photo file path. */
+        /** [CaptureSlot.storageKey] → captured photo file path. */
         val photos: Map<String, String> = emptyMap(),
         val activeSlot: String = PhotoSlotType.FRONT.wire,
         val extraSlots: List<String> = emptyList(),
     ) {
+        fun photoFor(slot: CaptureSlot): String? = photos[slot.storageKey]
+
+        /**
+         * The unroled photo for a bare type. A role-less slot's storage key IS
+         * its wire value, so this is the same lookup - kept for the surfaces
+         * that legitimately deal in types alone (the share-target inbox, which
+         * assigns from a picker with no profile in hand).
+         */
         fun photoFor(slot: PhotoSlotType): String? = photos[slot.wire]
+
+        val activeCaptureSlot: CaptureSlot
+            get() = CaptureSlot.fromStorageKey(activeSlot) ?: CaptureSlot(PhotoSlotType.FRONT)
         val active: PhotoSlotType
-            get() = PhotoSlotType.fromWire(activeSlot) ?: PhotoSlotType.FRONT
+            get() = activeCaptureSlot.type
+        val revealedSlots: List<CaptureSlot>
+            get() = extraSlots.mapNotNull(CaptureSlot::fromStorageKey)
         val revealed: List<PhotoSlotType>
-            get() = extraSlots.mapNotNull(PhotoSlotType.Companion::fromWire)
+            get() = revealedSlots.map { it.type }
     }
 
     private val stateFlow = MutableStateFlow(initial)
     val state: StateFlow<State> = stateFlow
 
+    private val profileFlow = MutableStateFlow(initialProfile)
+
+    /**
+     * The resolved profile for this item's category. Drives which slots the
+     * strip offers; starts on the bundled fallback so the first frame renders
+     * while [PhotoProfileStore] fetches the server table.
+     */
+    val profile: StateFlow<PhotoProfile> = profileFlow
+
+    // ── Profile ──────────────────────────────────────────────────────────────
+
+    /**
+     * Swap in a resolved profile.
+     *
+     * Anything already CAPTURED under a slot the new profile does not show by
+     * default is moved into the revealed extras rather than dropped: the photo
+     * exists on disk and the seller took it on purpose, so the strip has to keep
+     * a place for it even when the new profile has never heard of that slot.
+     */
+    fun apply(newProfile: PhotoProfile) {
+        if (newProfile == profileFlow.value) return
+        val current = stateFlow.value
+        val base = newProfile.defaultCaptureSlots.toSet()
+        val carried =
+            (current.revealedSlots + current.photos.keys.mapNotNull(CaptureSlot::fromStorageKey))
+                .distinct()
+                .filter { it !in base }
+                .map { it.storageKey }
+
+        profileFlow.value = newProfile
+        var next = current.copy(extraSlots = carried)
+        if (visibleSlotsOf(next).none { it.storageKey == next.activeSlot }) {
+            val fallback = visibleSlotsOf(next).firstOrNull { next.photoFor(it) == null }
+                ?: visibleSlotsOf(next).firstOrNull()
+                ?: CaptureSlot(PhotoSlotType.FRONT)
+            next = next.copy(activeSlot = fallback.storageKey)
+        }
+        stateFlow.value = next
+    }
+
     // ── Derived (mirrors iOS computed properties) ────────────────────────────
 
-    val visibleSlots: List<PhotoSlotType>
-        get() = PhotoSlotType.defaultSlots + stateFlow.value.revealed
+    private fun visibleSlotsOf(snapshot: State): List<CaptureSlot> =
+        profileFlow.value.defaultCaptureSlots + snapshot.revealedSlots
 
-    val nextEmptySlot: PhotoSlotType?
+    val visibleSlots: List<CaptureSlot>
+        get() = visibleSlotsOf(stateFlow.value)
+
+    val nextEmptySlot: CaptureSlot?
         get() = visibleSlots.firstOrNull { stateFlow.value.photoFor(it) == null }
 
+    /**
+     * The blocking slots for this profile - front + back in every profile
+     * shipped so far, but READ from the profile rather than assumed.
+     */
+    val requiredSlots: List<CaptureSlot>
+        get() = profileFlow.value.captureSlots.filter { it.isBlocking }
+            .ifEmpty { CaptureSlot.blocking }
+
     val allRequiredFilled: Boolean
-        get() = PhotoSlotType.required.all { stateFlow.value.photoFor(it) != null }
+        get() = requiredSlots.all { stateFlow.value.photoFor(it) != null }
 
     /** Drives the exit-confirmation prompt. */
     val hasUnsavedShots: Boolean
         get() = stateFlow.value.photos.isNotEmpty()
 
-    val nextHiddenDefectSlot: PhotoSlotType?
-        get() = PhotoSlotType.defects.firstOrNull { it !in stateFlow.value.revealed }
+    val nextHiddenDefectSlot: CaptureSlot?
+        get() {
+            val revealed = stateFlow.value.revealedSlots
+            return profileFlow.value.defectCaptureSlots.firstOrNull { it !in revealed }
+        }
 
     val canAddDefectSlot: Boolean
         get() = nextHiddenDefectSlot != null
 
-    /** Add-menu entries: the next hidden defect first (one at a time), then
-     *  every unrevealed extra/measurement in canonical order. */
-    val hiddenExtraSlots: List<PhotoSlotType>
+    /**
+     * Add-menu entries: the next hidden defect first (one at a time), then every
+     * profile slot not already in the strip, in profile order.
+     *
+     * US-2498: this used to be `PhotoSlotType.extras + .measurements` - a fixed
+     * list that offered a handbag the same three extras it offered a t-shirt.
+     */
+    val hiddenExtraSlots: List<CaptureSlot>
         get() {
-            val revealed = stateFlow.value.revealed
-            val out = mutableListOf<PhotoSlotType>()
+            val out = mutableListOf<CaptureSlot>()
             nextHiddenDefectSlot?.let(out::add)
-            out += (PhotoSlotType.extras + PhotoSlotType.measurements)
-                .filter { it !in revealed }
+            val shown = visibleSlots.toSet()
+            out += profileFlow.value.optionalCaptureSlots.filter { it !in shown }
             return out
         }
 
@@ -81,35 +161,41 @@ class PhotoIntakeStore(initial: State = State()) {
         val current = stateFlow.value
         val withPhoto = current.copy(photos = current.photos + (current.activeSlot to path))
         stateFlow.value = withPhoto
-        nextEmptySlot?.let { stateFlow.value = withPhoto.copy(activeSlot = it.wire) }
+        nextEmptySlot?.let { stateFlow.value = withPhoto.copy(activeSlot = it.storageKey) }
     }
 
-    fun setPhoto(slot: PhotoSlotType, path: String) {
+    fun setPhoto(slot: CaptureSlot, path: String) {
         val current = stateFlow.value
-        stateFlow.value = current.copy(photos = current.photos + (slot.wire to path))
+        stateFlow.value = current.copy(photos = current.photos + (slot.storageKey to path))
     }
 
-    fun clearPhoto(slot: PhotoSlotType) {
+    fun setPhoto(slot: PhotoSlotType, path: String) = setPhoto(CaptureSlot(slot), path)
+
+    fun clearPhoto(slot: CaptureSlot) {
         val current = stateFlow.value
-        stateFlow.value = current.copy(photos = current.photos - slot.wire)
+        stateFlow.value = current.copy(photos = current.photos - slot.storageKey)
     }
 
-    fun setActiveSlot(slot: PhotoSlotType) {
-        stateFlow.value = stateFlow.value.copy(activeSlot = slot.wire)
+    fun setActiveSlot(slot: CaptureSlot) {
+        stateFlow.value = stateFlow.value.copy(activeSlot = slot.storageKey)
     }
 
-    /** Reveal an optional slot (defect/extra/measurement) and activate it. */
-    fun reveal(slot: PhotoSlotType) {
+    fun setActiveSlot(slot: PhotoSlotType) = setActiveSlot(CaptureSlot(slot))
+
+    /** Reveal an optional slot (defect or profile extra) and activate it. */
+    fun reveal(slot: CaptureSlot) {
         val current = stateFlow.value
-        if (slot.wire in current.extraSlots) {
-            stateFlow.value = current.copy(activeSlot = slot.wire)
+        if (slot.storageKey in current.extraSlots) {
+            stateFlow.value = current.copy(activeSlot = slot.storageKey)
             return
         }
         stateFlow.value = current.copy(
-            extraSlots = current.extraSlots + slot.wire,
-            activeSlot = slot.wire,
+            extraSlots = current.extraSlots + slot.storageKey,
+            activeSlot = slot.storageKey,
         )
     }
+
+    fun reveal(slot: PhotoSlotType) = reveal(CaptureSlot(slot))
 
     // ── Draft persistence (AC3) ──────────────────────────────────────────────
 

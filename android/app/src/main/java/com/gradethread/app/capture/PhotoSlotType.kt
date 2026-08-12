@@ -51,11 +51,30 @@ enum class PhotoSlotType(val wire: String, val label: String) {
      * path arithmetic exactly where it was.
      */
     MEASUREMENT("measurement", "MeasureCard"),
+
+    /**
+     * US-2498 (migration 00587): the two profile roles that had no capture case
+     * at all, so a profile offering them dropped the slot without saying so.
+     * iOS added the same two in US-2470.
+     *
+     * APPENDED for the reason [MEASUREMENT] is: [ordinal] is a stable per-slot
+     * key and the pre-profile ordering has to stay exactly where it was.
+     */
+    ON_HANGER("on_hanger", "On hanger"),
+    SET_PAIR("set_pair", "Set / pair"),
     ;
 
     /** Server item_photos.photo_type — defects collapse to `defect`. */
     val serverPhotoType: String
         get() = if (this in defects) "defect" else wire
+
+    /**
+     * A garment TAG close-up, whatever role it carries. The AI extract's OCR
+     * pass waits on one of these, and once a profile can name three of them
+     * (`tag:brand`, `tag:size`, `tag:care`) an `== TAG` check matches none.
+     */
+    val isTagSlot: Boolean
+        get() = this == TAG || this == TAG2
 
     /** Single-line cue above the strip while this slot is active. */
     val hint: String
@@ -68,6 +87,8 @@ enum class PhotoSlotType(val wire: String, val label: String) {
             // Mirrors the iOS MeasureCard hint word for word: every failure the
             // server's quality gate can report is one of these four things.
             MEASUREMENT -> "Garment flat, MeasureCard BESIDE it - all 4 squares visible, top-down"
+            ON_HANGER -> "Hung as it would be worn - shows how it drapes"
+            SET_PAIR -> "Both pieces together, so the set reads as one item"
             else -> "Optional shot — add what buyers ask about"
         }
 

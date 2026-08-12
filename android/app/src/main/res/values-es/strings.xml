@@ -1368,6 +1368,7 @@
     <string name="capture_add_photo_slot">Agregar espacio de foto</string>
     <string name="capture_permission_blocked">El acceso a la cámara está desactivado. Actívalo en Ajustes para tomar fotos — o agrega fotos desde tu galería.</string>
     <string name="capture_permission_needed">Se necesita permiso de cámara para tomar fotos de prendas.</string>
+    <string name="capture_slots_need_update">Esta categoría pide %1$d tipo(s) de foto que esta versión aún no puede tomar. Actualiza la app o agrégalas desde un navegador.</string>
     <string name="barcode_point_camera">Apunta la cámara a un código de barras</string>
     <string name="intake_share_title">Agregar a GradeThread</string>
     <string name="intake_share_pick">Elige qué foto va en cada lugar. Puedes cambiarlo después.</string>
