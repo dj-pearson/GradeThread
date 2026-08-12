@@ -118,6 +118,26 @@ export const APPROVED_ANCHORS: Record<string, readonly string[]> = {
     "check a grade certificate",
     "verify a grade",
   ],
+  // US-2113: the comparison cluster shipped 16 pages (comparison-guides.ts) and
+  // none of them could be linked to, because the interlinker only emits a body
+  // link when its target has anchors here. The hub plus the two highest-volume
+  // pairs get entries; the other 13 are reachable from the hub, which is what a
+  // hub is for. Adding all 16 would spread anchor rotation thin for no gain.
+  "/compare": [
+    "compare the resale marketplaces",
+    "which marketplace to list on",
+    "the marketplace comparison guides",
+  ],
+  "/compare/poshmark-vs-mercari": [
+    "Poshmark vs Mercari",
+    "how Poshmark and Mercari compare",
+    "the Poshmark and Mercari fee comparison",
+  ],
+  "/compare/mercari-vs-ebay": [
+    "Mercari vs eBay",
+    "how Mercari and eBay compare",
+    "the Mercari and eBay fee comparison",
+  ],
 };
 
 /**
