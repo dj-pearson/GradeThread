@@ -1,5 +1,6 @@
 package com.gradethread.app.verified
 
+import com.gradethread.app.R
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -34,6 +35,76 @@ data class VerifiedProfileResponse(
     val profile: VerifiedProfile = VerifiedProfile(),
     val stats: VerifiedStats = VerifiedStats(),
 )
+
+/**
+ * US-2493: the PUT body. Every field is optional and only the ones present are
+ * written, which is why they are nullable AND why `encodeDefaults` must stay
+ * off for this serializer — sending `"bio": null` for a field the seller did
+ * not touch would CLEAR their bio, because the edge treats present-and-null as
+ * "set it to empty" (`verified.ts` PUT /profile).
+ */
+@Serializable
+data class VerifiedProfileUpdate(
+    val handle: String? = null,
+    @SerialName("display_name") val displayName: String? = null,
+    val bio: String? = null,
+    val enabled: Boolean? = null,
+    @SerialName("show_listings") val showListings: Boolean? = null,
+    @SerialName("embed_in_listings") val embedInListings: Boolean? = null,
+)
+
+/** `GET /api/verified/handle-available?handle=…` */
+@Serializable
+data class HandleAvailability(
+    val available: Boolean = false,
+    val handle: String? = null,
+    /** Why not, in the seller's words. Null when it IS available. */
+    val reason: String? = null,
+)
+
+/**
+ * US-2493: handle rules, mirrored from the server.
+ *
+ * Three copies of this exist on purpose — `parseHandle` in
+ * `services/edge-functions/src/routes/verified.ts`, the web form, and here —
+ * because the DB CHECK constraint from migration 00057 is the real authority
+ * and every surface that lets someone type a handle has to say WHY it is
+ * refused before the round trip. The server still re-validates; this only
+ * decides what the seller reads while typing.
+ */
+object VerifiedHandleRules {
+    const val MIN_LENGTH = 3
+    const val MAX_LENGTH = 30
+
+    /** Lowercase alphanumeric + hyphen, never leading or trailing. */
+    private val PATTERN = Regex("^[a-z0-9]([a-z0-9-]{1,28})[a-z0-9]$")
+
+    /** Handles that would collide with a real route or impersonate us. */
+    private val RESERVED = setOf(
+        "admin", "api", "app", "auth", "billing", "blog", "cert", "dashboard",
+        "gradethread", "flipdesk", "help", "login", "logout", "og", "pricing",
+        "settings", "signup", "support", "verified", "www",
+    )
+
+    /** The normalized handle, or null if it can never be valid. */
+    fun normalize(raw: String): String = raw.trim().lowercase()
+
+    /**
+     * Why this handle is refused, as a string resource id, or null if the
+     * shape is fine. A resource rather than English so the reason translates —
+     * only the "already taken" answer comes from the server, because only the
+     * server knows it.
+     */
+    fun shapeError(raw: String): Int? {
+        val handle = normalize(raw)
+        return when {
+            handle.length !in MIN_LENGTH..MAX_LENGTH -> R.string.verified_handle_length
+            !PATTERN.matches(handle) -> R.string.verified_handle_charset
+            handle in RESERVED -> R.string.verified_handle_reserved
+            else -> null
+        }
+    }
+}
 
 /**
  * Where the seller stands.

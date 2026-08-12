@@ -10,6 +10,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +56,10 @@ class VerifiedViewModel @Inject constructor(
         /** True when what's on screen came from disk, not from the server. */
         val stale: Boolean = false,
         val errorMessage: String? = null,
+        /** US-2493: a write is in flight. */
+        val saving: Boolean = false,
+        /** US-2493: the open editor, or null when nothing is being edited. */
+        val editor: Editor? = null,
     ) {
         val status: VerifiedStatus? get() = profile?.let { VerifiedBadge.status(it) }
 
@@ -70,6 +76,27 @@ class VerifiedViewModel @Inject constructor(
 
         val sinceLabel: String? get() = profile?.let { VerifiedBadge.sinceLabel(it) }
     }
+
+    /**
+     * US-2493: the in-progress edit, held apart from the loaded profile.
+     *
+     * Separate so a failed save leaves what the seller typed intact while the
+     * profile on screen stays whatever the server last confirmed. Merging the
+     * two is how a rejected handle ends up displayed as though it were claimed.
+     */
+    data class Editor(
+        val handle: String = "",
+        val displayName: String = "",
+        val bio: String = "",
+        val checkingHandle: Boolean = false,
+        /** Null = not asked yet. */
+        val handleAvailable: Boolean? = null,
+        /** Why the SHAPE is wrong, as a resource id. */
+        val handleError: Int? = null,
+        /** Why the server refused it — the one reason only it knows. */
+        val handleTakenReason: String? = null,
+        val saving: Boolean = false,
+    )
 
     private val _state = MutableStateFlow(State())
     val state: StateFlow<State> = _state.asStateFlow()
@@ -122,6 +149,156 @@ class VerifiedViewModel @Inject constructor(
 
     fun dismissError() {
         _state.value = _state.value.copy(errorMessage = null)
+    }
+
+    // ── US-2493: the write half ──────────────────────────────────────────────
+
+    /** Open the editor seeded from what is on screen. */
+    fun startEditing() {
+        val profile = _state.value.profile ?: return
+        _state.value = _state.value.copy(
+            editor = Editor(
+                handle = profile.handle.orEmpty(),
+                displayName = profile.displayName.orEmpty(),
+                bio = profile.bio.orEmpty(),
+            ),
+        )
+    }
+
+    fun cancelEditing() {
+        _state.value = _state.value.copy(editor = null)
+    }
+
+    fun editHandle(value: String) = editEditor {
+        // Any edit invalidates the previous answer. Leaving the old one up
+        // would let a seller read "available" about a handle they have since
+        // changed, which is worse than reading nothing.
+        it.copy(handle = value, handleError = null, handleAvailable = null)
+    }
+
+    fun editDisplayName(value: String) = editEditor { it.copy(displayName = value) }
+
+    fun editBio(value: String) = editEditor { it.copy(bio = value) }
+
+    /**
+     * AC2: ask the server whether the handle is free BEFORE saving.
+     *
+     * The shape is checked locally first so an obviously-invalid handle costs
+     * no round trip and gets a reason naming the actual rule it broke.
+     */
+    fun checkHandle() {
+        val editor = _state.value.editor ?: return
+        val shapeError = VerifiedHandleRules.shapeError(editor.handle)
+        if (shapeError != null) {
+            editEditor { it.copy(handleError = shapeError, handleAvailable = null) }
+            return
+        }
+        editEditor { it.copy(checkingHandle = true) }
+        viewModelScope.launch {
+            runCatching { service.handleAvailable(editor.handle) }.fold(
+                onSuccess = { answer ->
+                    editEditor {
+                        it.copy(
+                            checkingHandle = false,
+                            handleAvailable = answer.available,
+                            // "Already taken" is the one reason only the server
+                            // knows, so it is the one that arrives as English
+                            // from the server rather than as a resource.
+                            handleTakenReason = answer.reason.takeIf { _ -> !answer.available },
+                        )
+                    }
+                },
+                onFailure = {
+                    editEditor {
+                        it.copy(checkingHandle = false, handleAvailable = null)
+                    }
+                },
+            )
+        }
+    }
+
+    /**
+     * Save the fields the seller actually changed.
+     *
+     * Only differences are sent. A save that re-sent every field would rewrite
+     * a bio the seller never opened, and on a handle it would trip the server's
+     * uniqueness check against the seller's own existing handle.
+     */
+    fun saveProfile() {
+        val state = _state.value
+        val editor = state.editor ?: return
+        val current = state.profile ?: return
+        if (editor.saving) return
+
+        val handle = VerifiedHandleRules.normalize(editor.handle)
+        val handleChanged = handle.isNotEmpty() && handle != current.handle.orEmpty()
+        if (handleChanged) {
+            val shapeError = VerifiedHandleRules.shapeError(handle)
+            if (shapeError != null) {
+                editEditor { it.copy(handleError = shapeError) }
+                return
+            }
+            if (editor.handleAvailable == false) return // AC2: refused before the save
+        }
+
+        val update = VerifiedProfileUpdate(
+            handle = handle.takeIf { handleChanged },
+            displayName = editor.displayName.trim()
+                .takeIf { it != current.displayName.orEmpty() },
+            bio = editor.bio.trim().takeIf { it != current.bio.orEmpty() },
+        )
+        if (update == VerifiedProfileUpdate()) {
+            _state.value = state.copy(editor = null)
+            return
+        }
+
+        editEditor { it.copy(saving = true) }
+        applyUpdate(update) { _state.value = _state.value.copy(editor = null) }
+    }
+
+    /** Flip one of the three switches. Sent on its own, nothing else touched. */
+    fun setEnabled(value: Boolean) = applyUpdate(VerifiedProfileUpdate(enabled = value))
+
+    fun setShowListings(value: Boolean) =
+        applyUpdate(VerifiedProfileUpdate(showListings = value))
+
+    fun setEmbedInListings(value: Boolean) =
+        applyUpdate(VerifiedProfileUpdate(embedInListings = value))
+
+    private fun applyUpdate(update: VerifiedProfileUpdate, onSuccess: () -> Unit = {}) {
+        if (_state.value.saving) return
+        _state.value = _state.value.copy(saving = true, errorMessage = null)
+        viewModelScope.launch {
+            runCatching { service.update(update) }.fold(
+                onSuccess = { response ->
+                    _state.value = _state.value.copy(
+                        profile = response.profile,
+                        stats = response.stats,
+                        loaded = true,
+                        stale = false,
+                        saving = false,
+                    )
+                    onSuccess()
+                },
+                onFailure = { error ->
+                    // The switch snaps back, because the state on screen came
+                    // from the server and the server did not change. A toggle
+                    // that stayed flipped would claim a profile is public when
+                    // it is not.
+                    _state.value = _state.value.copy(
+                        saving = false,
+                        editor = _state.value.editor?.copy(saving = false),
+                        errorMessage = (error as? EdgeApiError)?.userMessage()
+                            ?: "Couldn't save that. Try again.",
+                    )
+                },
+            )
+        }
+    }
+
+    private inline fun editEditor(block: (Editor) -> Editor) {
+        val editor = _state.value.editor ?: return
+        _state.value = _state.value.copy(editor = block(editor))
     }
 }
 
@@ -215,6 +392,56 @@ fun VerifiedScreen(
             )
         }
 
+        // US-2493: the write half. Until this shipped, an Android seller could
+        // read all four steps of the checklist and do none of them.
+        if (state.profile != null) {
+            val editor = state.editor
+            if (editor == null) {
+                BrandSecondaryButton(
+                    text = stringResource(R.string.verified_edit_profile),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { viewModel.startEditing() }
+            } else {
+                VerifiedEditor(
+                    editor = editor,
+                    onHandle = viewModel::editHandle,
+                    onCheckHandle = viewModel::checkHandle,
+                    onDisplayName = viewModel::editDisplayName,
+                    onBio = viewModel::editBio,
+                    onSave = viewModel::saveProfile,
+                    onCancel = viewModel::cancelEditing,
+                )
+            }
+
+            VerifiedSwitchRow(
+                label = stringResource(R.string.verified_public_profile),
+                // The server refuses to go public without a handle, so the
+                // switch says so instead of offering a tap that returns a 400.
+                detail = if (state.profile?.handle.isNullOrBlank()) {
+                    stringResource(R.string.verified_public_needs_handle)
+                } else {
+                    stringResource(R.string.verified_public_detail)
+                },
+                checked = state.profile?.enabled == true,
+                enabled = !state.saving && !state.profile?.handle.isNullOrBlank(),
+                onCheckedChange = viewModel::setEnabled,
+            )
+            VerifiedSwitchRow(
+                label = stringResource(R.string.verified_show_listings),
+                detail = stringResource(R.string.verified_show_listings_detail),
+                checked = state.profile?.showListings == true,
+                enabled = !state.saving,
+                onCheckedChange = viewModel::setShowListings,
+            )
+            VerifiedSwitchRow(
+                label = stringResource(R.string.verified_embed_in_listings),
+                detail = stringResource(R.string.verified_embed_in_listings_detail),
+                checked = state.profile?.embedInListings == true,
+                enabled = !state.saving,
+                onCheckedChange = viewModel::setEmbedInListings,
+            )
+        }
+
         if (state.requirements.isNotEmpty()) {
             Text(
                 stringResource(R.string.verified_requirements_title),
@@ -275,5 +502,130 @@ fun VerifiedScreen(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
         ) { onClose() }
+    }
+}
+
+/**
+ * US-2493: claim or change a handle, and set the name and bio buyers read.
+ *
+ * The handle field carries its own verdict line, and it is the only field that
+ * does: it is the only one that can be refused for a reason the seller cannot
+ * see by looking at what they typed.
+ */
+@Composable
+private fun VerifiedEditor(
+    editor: VerifiedViewModel.Editor,
+    onHandle: (String) -> Unit,
+    onCheckHandle: () -> Unit,
+    onDisplayName: (String) -> Unit,
+    onBio: (String) -> Unit,
+    onSave: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().cardStyle(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+    ) {
+        OutlinedTextField(
+            value = editor.handle,
+            onValueChange = onHandle,
+            label = { Text(stringResource(R.string.verified_handle_label)) },
+            singleLine = true,
+            supportingText = { Text(stringResource(R.string.verified_handle_help)) },
+            isError = editor.handleError != null || editor.handleAvailable == false,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        // One line, three possible states, and never two at once: the shape is
+        // wrong, the server says taken, or it is free.
+        when {
+            editor.handleError != null -> Text(
+                stringResource(editor.handleError),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            editor.handleAvailable == false -> Text(
+                editor.handleTakenReason ?: stringResource(R.string.verified_handle_taken),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+            editor.handleAvailable == true -> Text(
+                stringResource(R.string.verified_handle_free),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        BrandSecondaryButton(
+            text = if (editor.checkingHandle) {
+                stringResource(R.string.verified_handle_checking)
+            } else {
+                stringResource(R.string.verified_handle_check)
+            },
+            enabled = !editor.checkingHandle && editor.handle.isNotBlank(),
+            modifier = Modifier.fillMaxWidth(),
+        ) { onCheckHandle() }
+
+        OutlinedTextField(
+            value = editor.displayName,
+            onValueChange = onDisplayName,
+            label = { Text(stringResource(R.string.verified_display_name_label)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = editor.bio,
+            onValueChange = onBio,
+            label = { Text(stringResource(R.string.verified_bio_label)) },
+            supportingText = {
+                Text(stringResource(R.string.verified_bio_help, editor.bio.length, MAX_BIO))
+            },
+            isError = editor.bio.length > MAX_BIO,
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        BrandSecondaryButton(
+            text = if (editor.saving) {
+                stringResource(R.string.common_saving)
+            } else {
+                stringResource(R.string.common_save)
+            },
+            // AC2 again, at the last gate: a handle the server has already said
+            // is taken cannot be submitted at all.
+            enabled = !editor.saving &&
+                editor.handleAvailable != false &&
+                editor.bio.length <= MAX_BIO,
+            modifier = Modifier.fillMaxWidth(),
+        ) { onSave() }
+        BrandSecondaryButton(
+            text = stringResource(R.string.common_cancel),
+            enabled = !editor.saving,
+            modifier = Modifier.fillMaxWidth(),
+        ) { onCancel() }
+    }
+}
+
+/** Mirrors MAX_BIO in services/edge-functions/src/routes/verified.ts. */
+private const val MAX_BIO = 280
+
+@Composable
+private fun VerifiedSwitchRow(
+    label: String,
+    detail: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth().cardStyle(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
     }
 }

@@ -18,15 +18,30 @@ private val Context.verifiedDataStore by preferencesDataStore(name = "verified_p
 /**
  * US-1375: the seller's own verification status.
  *
- * Read-only on purpose. Editing the handle, the bio and the public toggle
- * happens on the web; this surface exists so a seller can see where they stand
- * and what is left to do without going and looking for it.
+ * US-2493: no longer read-only. It was, and the reason given was that editing
+ * "happens on the web" — but a seller who signs up on their phone then has a
+ * badge screen that can only ever tell them to go and find a computer to claim
+ * a handle, which is the first step of four. iOS has had the write since
+ * US-1375; this closes the gap the US-1299 parity audit found.
  */
 interface VerifiedProviding {
     suspend fun profile(): VerifiedProfileResponse
 
     /** The last successful read, or null. Survives a cold start. */
     suspend fun cached(): VerifiedProfileResponse?
+
+    /**
+     * Write the fields that are present. A null field is NOT sent, so it is
+     * left alone — see [VerifiedProfileUpdate].
+     */
+    suspend fun update(update: VerifiedProfileUpdate): VerifiedProfileResponse
+
+    /**
+     * Is this handle free? Asked BEFORE the save (US-2493 AC2), because a
+     * rejection that arrives after the seller has committed is a rejection
+     * they have to undo.
+     */
+    suspend fun handleAvailable(handle: String): HandleAvailability
 }
 
 @Singleton
@@ -37,7 +52,17 @@ class VerifiedService @Inject constructor(
 
     companion object {
         const val PATH = "/api/verified/profile"
+        const val HANDLE_PATH = "/api/verified/handle-available"
         private val json = Json { ignoreUnknownKeys = true }
+
+        /**
+         * encodeDefaults is OFF, and that is load-bearing. Every field of
+         * [VerifiedProfileUpdate] defaults to null, and the edge reads
+         * present-and-null as "clear it" — so encoding defaults would send the
+         * whole object on every save and wipe the bio of anyone who only
+         * toggled their profile public.
+         */
+        private val writeJson = Json { encodeDefaults = false; explicitNulls = false }
     }
 
     override suspend fun profile(): VerifiedProfileResponse {
@@ -53,6 +78,23 @@ class VerifiedService @Inject constructor(
     }
 
     override suspend fun cached(): VerifiedProfileResponse? = store.load()
+
+    override suspend fun update(update: VerifiedProfileUpdate): VerifiedProfileResponse {
+        val body = writeJson.encodeToString(VerifiedProfileUpdate.serializer(), update)
+        edge.putRaw(PATH, body)
+        // The PUT returns the updated columns but not the stats, so the read is
+        // re-issued rather than patched locally. One shape, one decode path,
+        // and the cache is written by the same code that always wrote it.
+        return profile()
+    }
+
+    override suspend fun handleAvailable(handle: String): HandleAvailability {
+        val raw = edge.getRaw(
+            HANDLE_PATH,
+            query = mapOf("handle" to VerifiedHandleRules.normalize(handle)),
+        )
+        return json.decodeFromString(HandleAvailability.serializer(), raw)
+    }
 }
 
 /**
