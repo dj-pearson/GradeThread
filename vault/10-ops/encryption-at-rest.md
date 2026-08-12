@@ -9,9 +9,11 @@ code_refs:
   - services/edge-functions/src/lib/api-key.ts
   - services/edge-functions/src/lib/recovery-codes.ts
   - services/edge-functions/src/lib/cert-integrity.ts
+  - services/edge-functions/src/lib/measure-card-pii.ts
+  - services/edge-functions/src/lib/user-shipping-pii.ts
   - scripts/ops/backup-postgres.sh
   - scripts/ops/backup-storage.sh
-reviewed: 2026-08-08
+reviewed: 2026-08-12
 tags: [security, encryption, compliance, pii]
 summary: Exactly which GradeThread data is encrypted at rest, by what mechanism, and with which key reference — plus the gaps, stated plainly.
 ---
@@ -23,11 +25,15 @@ fresh code audit. A fresh audit under time pressure is how a posture gets
 overstated, and an overstatement in a signed questionnaire is a much more
 expensive mistake than a disclosed gap.
 
-**The one-line summary: OAuth tokens and a handful of cache values are encrypted
-by the application. Nothing else is.** Photos, database rows, offsite backups
-and the Postgres volume itself sit in plaintext on disk. That is a real posture
-with real limits, and this note states them rather than leaving a reviewer to
-find them.
+**The one-line summary: OAuth tokens, a handful of cache values, and the seller's
+postal address and phone are encrypted by the application. Nothing else is.**
+Photos, the rest of the database rows, offsite backups and the Postgres volume
+itself sit in plaintext on disk. That is a real posture with real limits, and
+this note states them rather than leaving a reviewer to find them.
+
+The address and phone half is newer than the rest (US-2417) and its **backfill
+has not been run**, so historical rows are still plaintext. Read the caveat under
+the column table before answering a question about them.
 
 Offsite backups are the one item mid-change: the encryption is written and
 verified but not yet deployed, so today's answer is still "plaintext". Details
@@ -78,11 +84,30 @@ decrypt-only); [[key-rotation]] owns both and owns the dual-key rotation path.
 | `google_photos_connections` | `refresh_token_enc` | `user_id` |
 | `google_photos_import_sessions` | `access_token_enc` | the **session id** |
 | `edge_shared_cache` | `value` (value rows) | the cache key |
+| `measure_card_requests` | `ship_name`, `address_line1`, `address_line2`, `city`, `postal_code` | the owner `user_id` |
+| `users` | `ship_from_address` (jsonb, stored as an envelope string) | the owner `user_id` |
+| `users` | `business_phone` | the owner `user_id` |
 
 `marketplace_connections` is shared by all five marketplace connectors — eBay,
 Etsy, Depop, Shopify and Whatnot — so one row shape covers every seller
 marketplace token. `edge_shared_cache` encrypts by default; the flag can be
 disabled per cache and no current caller does.
+
+The last three rows are the US-2417 PII columns, handled by
+`lib/measure-card-pii.ts` and `lib/user-shipping-pii.ts` rather than by calling
+`crypto-aes.ts` directly. Two things a questionnaire answer has to say about
+them:
+
+- **`measure_card_requests.state` and `.country` are deliberately NOT encrypted.**
+  The fulfilment export filters by region, and encrypting those two would turn a
+  filtered query into a full-table decrypt. That is a stated trade, not an
+  oversight — see `measure-card-pii.ts:31`.
+- **Ciphertext is complete only once the backfills have run.** New writes go
+  through the helpers, but historical rows stay plaintext until
+  `scripts/backfill-measure-card-pii.ts` and `scripts/backfill-user-shipping-pii.ts`
+  are run against prod with `EDGE_ENCRYPTION_KEY` set. Both read paths tolerate
+  either form, so the mixed state is safe — but "these columns are encrypted" is
+  only true of the whole table after the backfill. Check before answering.
 
 That table is the complete list. There is no `pgcrypto` usage anywhere and no
 other ciphertext column in `supabase/migrations/`.
@@ -116,10 +141,13 @@ Stated deliberately. An omission a reviewer discovers themselves costs far more
 than one disclosed up front, and the honest version is defensible: the volume is
 the control, and the volume is currently the gap.
 
-- **Postal addresses** — `measure_card_requests` (`ship_name`, `address_line1`,
-  `address_line2`, `city`, `state`, `postal_code`, `country`) and
-  `users.ship_from_address` (jsonb).
-- **Phone numbers** — `users.business_phone`, `consignors.contact_phone`.
+- **Postal addresses, partly** — `measure_card_requests.state` and `.country`
+  only. The other five (`ship_name`, `address_line1`, `address_line2`, `city`,
+  `postal_code`) moved to AES-GCM under `EDGE_ENCRYPTION_KEY` in US-2417; `state`
+  and `country` stay plaintext **on purpose**, because the fulfilment export
+  filters by region and encrypting them would make that a full-table decrypt.
+- **Phone numbers** — `consignors.contact_phone`. (`users.business_phone` is
+  encrypted, US-2417.)
 - **Identity and contact** — `users.email` / `full_name` / `business_name`,
   `consignors.name` / `contact_email`, `guarantee_claims.claimant_*`,
   `sales.buyer_username` / `buyer_notes`, `workspace_invitations.email`,

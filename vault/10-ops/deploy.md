@@ -179,9 +179,32 @@ chunks after a successful deploy.
 
 This cost multiple debugging turns once on a fix that had shipped correctly.
 
+## If you are rebuilding the host, not just deploying to it
+
+Everything above assumes the VPS already exists. If you are provisioning a new
+one, **this is the only moment volume encryption is cheap**, and neither volume
+has it today (US-2415):
+
+- the Postgres data directory, and
+- Supabase Storage's `STORAGE_DIR`, which holds every uploaded photo.
+
+Both sit in plaintext on the Contabo disk, so a pulled or reclaimed drive
+discloses both. Full-disk encryption cannot be added later without downtime and
+a restore, which is why it belongs in the provisioning step rather than in a
+follow-up ticket — and why it is written here, in the runbook a rebuild actually
+follows, rather than only in the note that owns the fact.
+
+[[encryption-at-rest]] owns the inventory and the current posture. Two decisions
+have to be made before enabling it, and both have an uptime consequence: how the
+volume is unlocked at boot (a keyfile on the same disk protects against a
+reclaimed drive but not a live compromise; clevis/tang or a manual passphrase
+each trade automation for reboot behaviour), and where that key lives — which is
+[[key-rotation]]'s to record once it exists.
+
 ## Related
 
 - [[rollback]] — the reverse of this, per surface; read it *before* you need it
+- [[encryption-at-rest]] — what is and is not encrypted, including both volumes
 - [[launch-checklist]] — the pre-launch gate this assumes has passed
 - [[backups]] — take one before any forward-only migration
 - [[migrations-process]] — the DB step of the order above
