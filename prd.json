@@ -1819,20 +1819,6 @@
       "notes": "IN PROGRESS 2026-08-10: extension-unified/lister/facebook.js with ARIA-anchored selectors (Marketplace class names are hashed and churn every deploy); submit is Next, not publish, because auto-publishing with a guessed category gets a listing removed and an account flagged. MARKETPLACE_MECHANISM.facebook and MARKETPLACE_TIER.facebook both moved to extension in one commit; facebook added to EXTENSION_DELIST_PLATFORMS, LISTER_EXTENSION_PLATFORMS, EXTENSION_CROSS_LISTING_PLATFORMS and marketplace-specs (spec + condition bucket map, edge mirror synced). manifest host_permissions + content script added, and depth.test.cjs's host guard now DERIVES its allowlist from selectors.js instead of a frozen literal. Disclosure copy notes Meta's platform terms. BLOCKED ON A HUMAN for the enable."
     },
     {
-      "id": "US-2496",
-      "priority": 1992,
-      "passes": false,
-      "title": "Mobile caches the photo-profile table for an hour keyed on path only, and it stopped being static",
-      "description": "Found 2026-08-11 by the tenant-isolation audit of US-2134. GET /api/flipdesk/photo-profiles used to return a constant, so both mobile clients cache it keyed on the PATH alone with a 1h TTL and clear it on nothing. US-2134 made the body per-seller — the clothing authenticity macros are hidden from an account that cannot use the add-on — so the cache key is now missing a dimension it needs. android/.../capture/PhotoProfile.kt:168 fetches with cacheTtlMillis=3_600_000 and EdgeApi.kt:88 keys with cacheKey(path, query); TtlCache.clear() exists at EdgeApi.kt:359 and nothing calls it, SessionScope.signOutWipe passes clearances=emptyList() (SettingsViewModel.kt:287), and switchWorkspace does not clear it either. iOS PhotoProfile.swift:156 guards on a process-lifetime loaded flag plus cacheTTL 3600. Sign out of account B and into account A on the same process within the hour and A is shown B slot list. THIS IS STALENESS, NOT DISCLOSURE — the body carries no tenant data at all, only which optional capture slots appear — which is why it is filed rather than treated as an incident. Web is already correct: queryClient.clear() runs on sign-out (use-auth.ts:232) and on workspace switch (use-workspace.ts:46).",
-      "acceptanceCriteria": [
-        "The photo-profile cache is invalidated on sign-out AND on workspace switch, on both mobile clients — the entitlement belongs to the workspace owner, so switching workspaces changes the correct answer just as signing out does.",
-        "Either the cache key carries the account/workspace dimension, or the clear is wired — decide which, and say why. A key that includes the owner is self-healing; a clear depends on every future exit path remembering.",
-        "A guard so a per-user response cannot be cached under an account-blind key again: the audit found TtlCache.clear() already existed and had zero callers, which is the shape that made this invisible.",
-        "CANNOT BE VERIFIED FROM A WINDOWS CHECKOUT: iOS needs a macOS session and Android CI is the gate. The server side is already correct and needs no change."
-      ],
-      "notes": "Filed 2026-08-11 out of US-2134 rather than folded into it — it is a client-cache correctness bug on two platforms, not part of making the slots conditional, and it cannot be built or verified here. Severity is deliberately stated as low: nothing tenant-scoped is in the body. The reason it is worth a story anyway is that the ASSUMPTION it rests on (this endpoint is static config) is now false and nothing in either client records that it changed."
-    },
-    {
       "id": "US-2499",
       "priority": 1993,
       "passes": false,
