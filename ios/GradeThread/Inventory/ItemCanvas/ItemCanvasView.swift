@@ -1793,16 +1793,35 @@ struct ItemCanvasView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             } else {
-                ForEach(state.draft.compSet) { comp in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(currencyFormatter.formatDisplay(comp.price))
+                // US-2090 AC2: editable in place. These were read-only Text rows
+                // with only `.onDelete`, so fixing a typo in a saved comp meant
+                // deleting it and retyping all three fields - and the delete is
+                // the destructive half, so the cheapest correction was also the
+                // one that loses data if the re-add is interrupted.
+                //
+                // Binding straight into `state.draft.compSet` is what makes the
+                // existing save path pick these up: the canvas already diffs the
+                // draft against `original`, so an edited comp marks the item
+                // dirty exactly like any other field. No new persistence.
+                ForEach($state.draft.compSet) { $comp in
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(currencyFormatter.symbol).foregroundStyle(.secondary)
+                            TextField(
+                                "Price",
+                                text: compPriceBinding(for: $comp)
+                            )
+                            .keyboardType(.decimalPad)
                             .font(.subheadline.weight(.semibold))
-                        if let source = comp.source, !source.isEmpty {
-                            Text(source).font(.caption).foregroundStyle(.secondary)
                         }
-                        if let url = comp.url, !url.isEmpty {
-                            Text(url).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        }
+                        TextField("Source (e.g. eBay sold)", text: optionalText($comp.source))
+                            .font(.caption)
+                            .textInputAutocapitalization(.words)
+                        TextField("URL (optional)", text: optionalText($comp.url))
+                            .font(.caption2)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
                     }
                 }
                 .onDelete { offsets in
@@ -1835,6 +1854,41 @@ struct ItemCanvasView: View {
             Text("Comparable sales kept with this item — separate from the live eBay comp lookup above.")
                 .font(.caption)
         }
+    }
+
+    /// US-2090 AC2: a `Binding<String>` over an optional field, so a TextField
+    /// can edit it directly.
+    ///
+    /// Writes back `nil` for an all-whitespace entry rather than `""`. The wire
+    /// shape treats absent and empty differently - `ItemComp.source` is
+    /// `String?` and the encoder omits nil - so storing `""` would round-trip a
+    /// present-but-empty field where there had been none.
+    private func optionalText(_ source: Binding<String?>) -> Binding<String> {
+        Binding(
+            get: { source.wrappedValue ?? "" },
+            set: { source.wrappedValue = $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+        )
+    }
+
+    /// US-2090 AC2: a `Binding<String>` over a comp's price.
+    ///
+    /// REFUSES an unparseable entry instead of writing zero, and that is the
+    /// point rather than politeness. The field is edited by keystroke, so a
+    /// seller clearing it to retype passes through "" and "1" on the way - and
+    /// coercing those to 0 would silently rewrite a real comp price to nothing,
+    /// which is the same data loss the delete-and-re-add flow had. An
+    /// unparseable value simply leaves the stored price alone; the text the
+    /// seller sees is whatever they typed, and it resolves on the next valid
+    /// keystroke.
+    private func compPriceBinding(for comp: Binding<ItemComp>) -> Binding<String> {
+        Binding(
+            get: { currencyFormatter.formatRaw(comp.wrappedValue.price) },
+            set: {
+                if let parsed = currencyFormatter.parse($0), parsed > 0 {
+                    comp.wrappedValue.price = parsed
+                }
+            }
+        )
     }
 
     private func addComp(state: ItemCanvasState) {
