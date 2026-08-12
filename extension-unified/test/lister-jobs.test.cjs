@@ -373,6 +373,57 @@ console.log("lister-jobs: all assertions passed");
     assert.strictEqual(plan.toRun[0].id, "live");
   }
 
+  // ── a kind this build cannot run: refused and REPORTED, never coerced ─────
+  //
+  // The server accepts kind=share, and the extension cannot run one: an
+  // engagement pass only ever starts in a tab already on the seller's own
+  // closet, and the extension deliberately does not know their handle. The bug
+  // this pins is what happened instead — `kind === "delist" ? "delist" : "list"`
+  // turned a share row into a LIST job, so a request to share a closet opened
+  // the new-listing form and filled it.
+  {
+    const plan = J.planDrain(
+      [row("sh", { kind: "share" }), row("ok")],
+      {},
+      { now: NOW, maxConcurrent: 5 },
+    );
+    assert.deepStrictEqual(
+      plan.unsupported.map((r) => r.id),
+      ["sh"],
+      "an unrunnable kind must be reported, like an expired row is — work that " +
+        "nothing will ever pick up looks, from the phone, exactly like work " +
+        "about to run (US-2165)",
+    );
+    assert.ok(
+      !plan.toRun.some((r) => r.id === "sh"),
+      "a share row must NEVER become a list job",
+    );
+    assert.ok(plan.toRun.some((r) => r.id === "ok"), "the runnable row still runs");
+
+    assert.strictEqual(
+      J.jobFromQueueRow(row("sh", { kind: "share" }), { jobId: "j", tabId: 1, now: NOW }),
+      null,
+      "the translation refuses rather than guessing a kind",
+    );
+    assert.deepStrictEqual(
+      Object.keys(J.RUNNABLE_QUEUE_KINDS).sort(),
+      ["delist", "list"],
+      "adding a runnable kind here means teaching the drain to run it",
+    );
+  }
+
+  // ── an unrunnable row is never reported as merely expired ─────────────────
+  {
+    const plan = J.planDrain([row("sh", { kind: "share", expires_at: past })], {}, { now: NOW });
+    assert.strictEqual(plan.expired.length, 0);
+    assert.strictEqual(
+      plan.unsupported.length,
+      1,
+      "'it timed out' would name the wrong problem and invite the seller to " +
+        "queue it again",
+    );
+  }
+
   // ── a malformed row cannot crash the drain ────────────────────────────────
   {
     const plan = J.planDrain([null, {}, { id: 7 }, row("ok")], {}, { now: NOW });

@@ -1191,6 +1191,26 @@ async function drainQueue() {
       });
     }
 
+    // A kind this build cannot carry out is reported the same way an expired one
+    // is, and for the same reason: a row nothing will ever pick up is
+    // indistinguishable, from the phone, from a row about to run. Before this,
+    // a share row was quietly turned into a LIST job and the seller got a
+    // duplicate listing out of a request to share their closet.
+    for (const row of plan.unsupported || []) {
+      await queueFetch("/" + row.id + "/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          ok: false,
+          result: {
+            unsupported: true,
+            error: "This version of the GradeThread extension can't run a \"" +
+              row.kind + "\" job. Update the extension, or start it from the " +
+              "extension's own window.",
+          },
+        }),
+      });
+    }
+
     for (const row of plan.toRun) {
       const url = self.GT_LISTER_GUARD.newListingUrlForLocale(
         self.GT_LISTER_SELECTORS,
@@ -1235,6 +1255,7 @@ async function drainQueue() {
         tabId: tab.id,
         now: Date.now(),
       });
+      if (!job) continue; // planDrain already filtered these; belt and braces
       await withJobs(async (j) => ({ jobs: self.GT_LISTER_JOBS.put(j, job) }));
       await scheduleJobAlarm(job);
     }

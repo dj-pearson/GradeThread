@@ -186,6 +186,64 @@ fun MarketplacesScreen(
             viewModel.load()
         }
 
+        // US-2481 AC1: sold elsewhere, still live here.
+        //
+        // ABOVE the queue section, because a listing that is still taking money
+        // outranks the record of work already queued. The button order is the
+        // argument: "Queue for my desktop" first, because it is the one that
+        // actually ends the listing; "I ended it myself" second, because it is
+        // the only thing that clears the stamp without the extension and a
+        // stamp cleared on a live listing is the double sale itself.
+        if (state.pendingDelists.isNotEmpty()) {
+            Text(
+                stringResource(R.string.marketplaces_pending_delists_title),
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = Spacing.sm),
+            )
+            Text(
+                stringResource(R.string.marketplaces_pending_delists_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            state.pendingDelists.forEach { row ->
+                val blocked = pendingDelistBlockedReason(row)
+                Column(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
+                    Text(
+                        describePendingDelist(row),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    Text(
+                        blocked ?: QUEUED_NOTICE,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (blocked == null) {
+                            TextButton(
+                                onClick = { viewModel.queueDelist(row) },
+                                enabled = state.delistBusyId == null,
+                            ) {
+                                Text(stringResource(R.string.marketplaces_delist_queue))
+                            }
+                        }
+                        TextButton(
+                            onClick = { viewModel.markDelistDone(row) },
+                            enabled = state.delistBusyId == null,
+                        ) {
+                            Text(stringResource(R.string.marketplaces_delist_did_it_myself))
+                        }
+                    }
+                }
+            }
+            state.delistMessage?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
         // US-2481: extension work this phone queued that the desktop has not
         // run yet. Placed above the listings because it answers the question a
         // seller actually opens this screen with after queuing something at a

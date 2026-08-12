@@ -25,6 +25,8 @@ class MarketplacesViewModel @Inject constructor(
     private val ebaySync: EbaySyncService,
     // US-2481: extension work this phone queued for the seller's desktop.
     private val extensionQueue: ExtensionQueueRepository,
+    // US-2481 AC1: listings that sold elsewhere and are still live.
+    private val pendingDelists: PendingDelistRepository,
     /** US-2490: reprice, revise and end a listing that is already live. */
     private val publish: com.gradethread.app.marketplaces.publish.EbayPublishService,
     db: GradeThreadDb,
@@ -92,6 +94,19 @@ class MarketplacesViewModel @Inject constructor(
          * silence becomes a double sale.
          */
         val queueNeedsAttention: List<ExtensionQueueItem> = emptyList(),
+        /**
+         * US-2481 AC1: sold on another channel, still live on an extension one.
+         *
+         * The stamp behind this has existed since US-717 and was readable only
+         * on the web dashboard. A seller sourcing with a phone could not see
+         * that their Poshmark copy was still up, which is the double sale the
+         * whole queue exists to prevent.
+         */
+        val pendingDelists: List<PendingDelist> = emptyList(),
+        /** The listing whose queue-or-clear is in flight, by listing id. */
+        val delistBusyId: String? = null,
+        /** The last thing that happened to a pending delist, in plain words. */
+        val delistMessage: String? = null,
     ) {
         val hasPrimary: Boolean get() = connections.any { it.isPrimary }
 
@@ -121,6 +136,61 @@ class MarketplacesViewModel @Inject constructor(
             _state.value = _state.value.copy(connections = repository.list(), loading = false)
         }
         refreshQueue()
+        refreshPendingDelists()
+    }
+
+    /**
+     * US-2481 AC1: what sold elsewhere and is still up.
+     *
+     * A failed read leaves the previous list ALONE rather than clearing it. A
+     * network blip must not make a live listing look like it was dealt with.
+     */
+    fun refreshPendingDelists() {
+        viewModelScope.launch {
+            val rows = runCatching { pendingDelists.pending() }.getOrNull() ?: return@launch
+            _state.value = _state.value.copy(pendingDelists = rows)
+        }
+    }
+
+    /** Queue "end this listing" for the desktop extension. */
+    fun queueDelist(row: PendingDelist) {
+        if (_state.value.delistBusyId != null) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(delistBusyId = row.listingId, delistMessage = null)
+            val result = pendingDelists.queueForDesktop(row)
+            _state.value = _state.value.copy(
+                delistBusyId = null,
+                delistMessage = result.fold(
+                    // The notice rides along verbatim. A seller must not leave
+                    // this screen believing the listing is already down.
+                    onSuccess = { "Queued. $QUEUED_NOTICE" },
+                    onFailure = { it.message ?: "Couldn't queue that." },
+                ),
+            )
+            if (result.isSuccess) refreshQueue()
+        }
+    }
+
+    /** "I ended it myself" — the only thing that clears the stamp by hand. */
+    fun markDelistDone(row: PendingDelist) {
+        if (_state.value.delistBusyId != null) return
+        viewModelScope.launch {
+            _state.value = _state.value.copy(delistBusyId = row.listingId, delistMessage = null)
+            val result = pendingDelists.markEndedManually(row.listingId)
+            _state.value = _state.value.copy(
+                delistBusyId = null,
+                pendingDelists = if (result.isSuccess) {
+                    _state.value.pendingDelists.filterNot { it.listingId == row.listingId }
+                } else {
+                    _state.value.pendingDelists
+                },
+                delistMessage = if (result.isSuccess) {
+                    null
+                } else {
+                    "Couldn't clear that. It's still marked as needing to be ended."
+                },
+            )
+        }
     }
 
     /**

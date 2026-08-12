@@ -7,6 +7,7 @@ import {
   EXTENSION_QUEUE_KINDS,
   MAX_QUEUE_DEPTH,
   QUEUE_TTL_MS,
+  QUEUED_NOTICE,
   normalizeQueuePayload,
   planExpiry,
   type ExtensionQueueKind,
@@ -252,10 +253,12 @@ flipdeskExtensionQueueRoutes.post("/", async (c) => {
     // The honest sentence, returned by the API so every client says the same
     // thing (US-2481 AC7). A mobile screen that renders "Done" for a queued job
     // has told the seller their listing is live when it is not.
-    notice:
-      "Queued. This runs the next time you open your desktop browser with the " +
-      "GradeThread extension installed. Nothing happens on Poshmark, Mercari, " +
-      "Grailed, Vinted or Facebook until then.",
+    // ...which means it has to be THE sentence, not a second one written here.
+    // This route used to hand back its own wording (it named the five channels),
+    // so the API and the four client copies of QUEUED_NOTICE said different
+    // things and the byte-identical-copy rule the clients are built around was
+    // enforced everywhere except the source they all mirror.
+    notice: QUEUED_NOTICE,
     expiresInDays: Math.round(QUEUE_TTL_MS / 86_400_000),
   }, 201);
 });

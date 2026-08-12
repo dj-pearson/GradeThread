@@ -59,6 +59,12 @@ struct MarketplacesView: View {
     // US-2481: extension work queued from this phone, waiting on the desktop.
     @State private var queuePending: [ExtensionQueueService.QueueItem] = []
     @State private var queueNeedsAttention: [ExtensionQueueService.QueueItem] = []
+    // US-2481 AC1: listings that sold elsewhere and are STILL LIVE on an
+    // extension channel. Read on the phone for the first time here — the stamp
+    // existed since US-717 but only the web dashboard ever showed it.
+    @State private var pendingDelists: [PendingDelistService.PendingDelist] = []
+    @State private var delistBusyId: String?
+    @State private var delistMessage: String?
 
     var body: some View {
         ScrollView {
@@ -86,6 +92,9 @@ struct MarketplacesView: View {
                 }
                 // US-675: durable home for AutoLister-generated drafts + bulk edit.
                 draftsCard
+                // US-2481 AC1: ABOVE the queue section, because a listing that
+                // is still live outranks the record of work already queued.
+                pendingDelistSection
                 // US-2481: work this phone queued that the desktop has not run.
                 // Placed ABOVE the channel list because it answers the question a
                 // seller actually has when they open this screen after queuing
@@ -112,6 +121,7 @@ struct MarketplacesView: View {
                 // the screen a seller opens to ask "did the thing I queued from
                 // the shop run yet", and a cached answer is the wrong one.
                 await refreshQueue()
+                await refreshPendingDelists()
             }
             // US-1262: a reconnect deep link that mounted this tab is consumed
             // here (its `.onReceive` wasn't subscribed when the signal fired).
@@ -121,6 +131,11 @@ struct MarketplacesView: View {
             if let userId = currentUserId() {
                 await store.refresh(userId: userId)
                 await refreshOrphanCount(userId: userId)
+                // Pull-to-refresh is the gesture for "has it run yet"; before
+                // US-2481 AC1 it was the one path that did not re-read either
+                // list, so the answer stayed whatever it was on first appear.
+                await refreshQueue()
+                await refreshPendingDelists()
             }
         }
         // US-1262: a "reconnect eBay" notification action routes here and posts
@@ -320,6 +335,134 @@ struct MarketplacesView: View {
                 }
             }
         }
+    }
+
+    // US-2481 AC1: sold elsewhere, still live here.
+    //
+    // The order of the two buttons is the argument. "Queue for my desktop" is
+    // first because it is the one that actually ends the listing, and its
+    // caption is the same sentence every other surface uses — a seller must
+    // never leave this screen believing the listing is already down. "I ended
+    // it myself" is second and is the ONLY thing that clears the stamp without
+    // the extension, because a stamp cleared on a listing that is still live is
+    // precisely the double sale this queue exists to prevent.
+    @ViewBuilder
+    private var pendingDelistSection: some View {
+        if !pendingDelists.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Sold elsewhere, still listed")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                Text("These sold on another channel. They're still up here until something ends them, so a second buyer can still pay for them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                ForEach(pendingDelists) { row in
+                    pendingDelistRow(row)
+                }
+
+                if let message = delistMessage {
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pendingDelistRow(_ row: PendingDelistService.PendingDelist) -> some View {
+        let label = Self.phasedChannels.first { $0.id == row.platform }?.label
+            ?? row.platform.capitalized
+        let blocked = PendingDelistService.blockedReason(row)
+        let busy = delistBusyId == row.listingId
+
+        VStack(alignment: .leading, spacing: 8) {
+            Text(row.itemTitle ?? "Untitled item")
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Still live on \(label)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let blocked {
+                // Not a failure state — it is the honest one. There is no
+                // mechanism to end this from a phone, so say what there is.
+                Text(blocked)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(ExtensionQueueService.queuedNotice)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            HStack(spacing: 12) {
+                if blocked == nil {
+                    Button("Queue for my desktop") {
+                        Task { await queueDelist(row) }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Color.brandNavy)
+                    .disabled(busy)
+                }
+                Button("I ended it myself") {
+                    Task { await markDelistDone(row) }
+                }
+                .font(.caption.weight(.semibold))
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .disabled(busy)
+                Spacer()
+                if busy {
+                    ProgressView().controlSize(.small)
+                }
+            }
+        }
+        .padding(12)
+        .cardStyle(.flush)
+    }
+
+    private func refreshPendingDelists() async {
+        do {
+            pendingDelists = try await PendingDelistService.shared.pending()
+        } catch {
+            // Same reasoning as the queue poll: server-side state, next refresh
+            // picks it up. What is NOT done here is clearing the list on a
+            // failed read — a network blip must not make a live listing appear
+            // to have been dealt with.
+        }
+    }
+
+    private func queueDelist(_ row: PendingDelistService.PendingDelist) async {
+        delistBusyId = row.listingId
+        delistMessage = nil
+        do {
+            try await PendingDelistService.shared.queueForDesktop(row)
+            delistMessage = "Queued. \(ExtensionQueueService.queuedNotice)"
+            await refreshQueue()
+        } catch {
+            delistMessage = error.localizedDescription
+        }
+        delistBusyId = nil
+    }
+
+    private func markDelistDone(_ row: PendingDelistService.PendingDelist) async {
+        delistBusyId = row.listingId
+        delistMessage = nil
+        do {
+            try await PendingDelistService.shared.markEndedManually(listingId: row.listingId)
+            pendingDelists.removeAll { $0.listingId == row.listingId }
+        } catch {
+            delistMessage = "Couldn't clear that. It's still marked as needing to be ended."
+        }
+        delistBusyId = nil
     }
 
     private static func describe(_ job: ExtensionQueueService.QueueItem) -> String {

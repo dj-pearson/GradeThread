@@ -335,6 +335,25 @@
   var DRAIN_MAX_CONCURRENT = 1;
 
   /**
+   * The queue kinds this extension can actually carry out.
+   *
+   * The SERVER accepts a third kind, `share`, and that is not a mistake on its
+   * side — the column is the seller's intent, and intent outlives whichever
+   * mechanism happens to exist. What is a mistake is running a kind you cannot
+   * run. A share row means "do an engagement pass over my closet" (US-2482),
+   * and the engagement engine will only ever run in a tab already sitting on
+   * the seller's own closet, because the extension deliberately does not know
+   * their Poshmark handle and will not navigate to a URL that arrived in a
+   * message (US-1876). A background drain has neither, so it cannot start one.
+   *
+   * This list used to be implicit, as `kind === "delist" ? "delist" : "list"`,
+   * which turned a share row into a LIST job: the drain opened the new-listing
+   * form and filled it. A seller who asked for their closet to be shared would
+   * have got a duplicate listing. Unrunnable is reported now, per US-2165.
+   */
+  var RUNNABLE_QUEUE_KINDS = { list: true, delist: true };
+
+  /**
    * Decide which queued rows to start now.
    *
    * Returns:
@@ -344,6 +363,9 @@
    *             the thing the seller most needs told about (AC6).
    *   skipped — rows already in flight in this browser, so a second drain tick
    *             cannot double-run a share job.
+   *   unsupported — rows whose kind this build cannot carry out. Also reported,
+   *             for the same reason: work sitting in a queue that nothing will
+   *             ever pick up looks exactly like work that is about to run.
    */
   function planDrain(rows, jobs, ctx) {
     var now = (ctx && typeof ctx.now === "number") ? ctx.now : 0;
@@ -366,6 +388,7 @@
     var toRun = [];
     var expired = [];
     var skipped = [];
+    var unsupported = [];
     var slots = Math.max(0, max - pendingCount);
 
     var list = Array.isArray(rows) ? rows.slice() : [];
@@ -378,6 +401,14 @@
     for (var i = 0; i < list.length; i++) {
       var row = list[i];
       if (!row || typeof row.id !== "string") continue;
+
+      // Checked BEFORE the clock. A row this build can never run is not waiting
+      // for anything, so calling it "expired" would name the wrong problem and
+      // invite the seller to queue it again.
+      if (!RUNNABLE_QUEUE_KINDS[row.kind]) {
+        unsupported.push(row);
+        continue;
+      }
 
       var expiresAt = Date.parse(row.expires_at);
       if (Number.isFinite(expiresAt) && expiresAt <= now) {
@@ -396,7 +427,12 @@
       slots -= 1;
     }
 
-    return { toRun: toRun, expired: expired, skipped: skipped };
+    return {
+      toRun: toRun,
+      expired: expired,
+      skipped: skipped,
+      unsupported: unsupported,
+    };
   }
 
   /**
@@ -405,8 +441,13 @@
    * The queue speaks the SERVER's language (snake_case columns, an instruction
    * blob); the job runner speaks the extension's. Translating here rather than
    * in the worker means the mapping is testable and there is exactly one of it.
+   *
+   * Only ever called with a row `planDrain` put in `toRun`, so its kind is
+   * already known runnable. Returns null rather than guessing if that stops
+   * being true — guessing is what sent share rows to the new-listing form.
    */
   function jobFromQueueRow(row, o) {
+    if (!row || !RUNNABLE_QUEUE_KINDS[row.kind]) return null;
     return makeJob({
       jobId: o.jobId,
       clientRef: null,
@@ -416,7 +457,7 @@
       // what queueId is for.
       saasTabId: null,
       platform: row.platform,
-      kind: row.kind === "delist" ? "delist" : "list",
+      kind: row.kind,
       payload: Object.assign({}, row.payload || {}, {
         platform: row.platform,
         itemId: row.inventory_item_id || null,
@@ -430,6 +471,7 @@
 
   root.GT_LISTER_JOBS = {
     DRAIN_MAX_CONCURRENT: DRAIN_MAX_CONCURRENT,
+    RUNNABLE_QUEUE_KINDS: RUNNABLE_QUEUE_KINDS,
     planDrain: planDrain,
     jobFromQueueRow: jobFromQueueRow,
     WATCH_TTL_MS: WATCH_TTL_MS,
