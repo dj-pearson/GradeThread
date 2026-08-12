@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/email.ts
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-12
 tags: [legal, billing, subscriptions, compliance, counsel]
 summary: Every place GradeThread tells a customer about a recurring charge or its ending, who drafted the wording, and whether counsel has seen it.
 ---
@@ -38,12 +38,29 @@ gets written after counsel signs off on six.
 | Where | Source | Status |
 |---|---|---|
 | The five-part auto-renewal disclosure rendered at every point of sale | `src/lib/auto-renewal-copy.ts` | agent-drafted, pending review |
+| iOS paywall footer, interval-aware | `ios/GradeThread/Billing/PaywallView.swift` | agent-drafted, pending review |
+| Android paywall, interval-aware | `paywall_renewal_monthly` / `paywall_renewal_yearly` in `android/app/src/main/res/values/strings.xml` (+ `values-es`) | **agent-drafted 2026-08-12, pending review — US-2126** |
 
 One function, four surfaces (pricing page, plan picker, 402 paywall, buyer
 billing), plus the in-place upgrade dialog.
 `src/test/subscription-disclosure-coverage.test.ts` fails if a component that
 calls a subscribe hook does not render it, so a new purchase surface inherits
 the disclosure rather than needing to remember it.
+
+> [!warning] The web coverage test cannot see the mobile paywalls
+> `subscription-disclosure-coverage.test.ts` scans `src/` only. Android shipped
+> Play Billing with a live purchase button and **no disclosure at all** until
+> US-2126 on 2026-08-12, and nothing failed — the guard structurally could not
+> reach it. The same blind spot covers iOS. Until a cross-client equivalent
+> exists, a new mobile purchase surface inherits nothing, and this table is the
+> only record that the mobile copy exists.
+>
+> The mobile wording differs from the web's five-part text on one point that is
+> not a drafting choice: the store, not GradeThread, takes the payment and owns
+> the cancel route, so it names Google Play / the App Store rather than a
+> GradeThread billing page. Counsel should confirm that satisfies ARL's
+> how-to-cancel requirement, since the seller cannot cancel a Play subscription
+> from inside our app at all.
 
 The five things the wording must contain, designed to California's ARL as
 amended by AB 2863: that it continues until cancelled; the recurring amount;

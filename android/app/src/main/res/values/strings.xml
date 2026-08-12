@@ -1304,6 +1304,17 @@
     <string name="paywall_open_web_billing">Open web billing</string>
     <string name="paywall_credits_title">Grading credits</string>
     <string name="paywall_credits_body">One-time packs. They never expire and stack on top of the grades your plan includes.</string>
+    <!--
+      US-2126: the auto-renewal disclosure. Play Billing shipped without one,
+      so a seller could subscribe from this screen with nothing on it saying
+      the plan renews. Modelled on the iOS wording (PaywallView.swift footer)
+      rather than written fresh, because the two stores must not describe the
+      same subscription differently. Interval-aware, same as iOS.
+      Registered in vault/50-business/subscription-copy-review-register.md.
+    -->
+    <string name="paywall_renewal_monthly">Auto-renewing subscription. Google Play charges your account at confirmation and again at the start of each month until you cancel. Cancel anytime in the Play Store under Payments and subscriptions.</string>
+    <string name="paywall_renewal_yearly">Auto-renewing subscription. Google Play charges your account at confirmation and again at the start of each year until you cancel. Cancel anytime in the Play Store under Payments and subscriptions.</string>
+    <string name="paywall_manage_subscription">Manage subscription</string>
     <string name="paywall_already_paid">I already paid</string>
     <string name="paywall_save_percent">Save %1$s%%</string>
     <string name="paywall_buy">Buy</string>

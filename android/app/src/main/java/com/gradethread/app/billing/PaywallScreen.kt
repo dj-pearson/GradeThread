@@ -96,6 +96,39 @@ fun PaywallScreen(
                 )
             }
 
+            // US-2126: the auto-renewal disclosure, directly under the tiers and
+            // ABOVE the credit packs. Position is the point - it has to sit where
+            // the subscribe decision is made, not at the bottom of a scroll under
+            // one-time purchases it does not describe. Play Billing shipped
+            // without this: a seller could subscribe from this screen with
+            // nothing on it saying the plan renews.
+            item {
+                Text(
+                    stringResource(
+                        if (state.interval == SubscriptionInterval.YEARLY) {
+                            R.string.paywall_renewal_yearly
+                        } else {
+                            R.string.paywall_renewal_monthly
+                        },
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = Spacing.sm),
+                )
+            }
+            item {
+                // Play requires the cancel route to be reachable, and "go find it
+                // in the Play Store" is not a route. Deep-links to this app's own
+                // subscription entry rather than the account-wide list.
+                TextButton(
+                    onClick = {
+                        CustomTabsLauncher.open(context, PaywallViewModel.MANAGE_SUBSCRIPTIONS_URL)
+                    },
+                ) {
+                    Text(stringResource(R.string.paywall_manage_subscription))
+                }
+            }
+
             item {
                 Text(
                     stringResource(R.string.paywall_credits_title),

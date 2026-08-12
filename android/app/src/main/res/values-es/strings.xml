@@ -1167,6 +1167,10 @@
     <string name="paywall_open_web_billing">Abrir facturación web</string>
     <string name="paywall_credits_title">Créditos de calificación</string>
     <string name="paywall_credits_body">Paquetes de una sola vez. Nunca caducan y se suman a las calificaciones que incluye tu plan.</string>
+    <!-- US-2126: aviso de renovación automática. Ver values/strings.xml. -->
+    <string name="paywall_renewal_monthly">Suscripción de renovación automática. Google Play cobra a tu cuenta al confirmar y de nuevo al inicio de cada mes hasta que la canceles. Cancélala cuando quieras en Play Store, en Pagos y suscripciones.</string>
+    <string name="paywall_renewal_yearly">Suscripción de renovación automática. Google Play cobra a tu cuenta al confirmar y de nuevo al inicio de cada año hasta que la canceles. Cancélala cuando quieras en Play Store, en Pagos y suscripciones.</string>
+    <string name="paywall_manage_subscription">Gestionar suscripción</string>
     <string name="paywall_already_paid">Ya pagué</string>
     <string name="paywall_save_percent">Ahorra %1$s%%</string>
     <string name="paywall_buy">Comprar</string>

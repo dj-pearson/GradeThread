@@ -113,4 +113,23 @@ class PaywallViewModel @Inject constructor(
     }
 
     fun webBillingUrl(): String = subscriptions.webBillingUrl()
+
+    companion object {
+        /**
+         * US-2126: where a seller cancels.
+         *
+         * The package is hardcoded rather than read from `BuildConfig`, and that
+         * is deliberate: the debug build carries an `applicationIdSuffix` of
+         * `.debug`, and passing `com.gradethread.app.debug` here opens a Play
+         * page for an app that does not exist on the store. The subscription
+         * being managed always belongs to the released package.
+         *
+         * No `sku` is pinned either. Play accepts one, but the seller may hold
+         * any of six products and this screen does not know which - the
+         * account-wide list is the honest destination, and it is one tap from
+         * the specific plan.
+         */
+        const val MANAGE_SUBSCRIPTIONS_URL: String =
+            "https://play.google.com/store/account/subscriptions?package=com.gradethread.app"
+    }
 }
