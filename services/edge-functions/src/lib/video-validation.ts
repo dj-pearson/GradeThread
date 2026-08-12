@@ -188,6 +188,83 @@ function isoBmffDurationSeconds(b: Uint8Array): number | null {
   return null;
 }
 
+/**
+ * The video codec fourcc of the first video track in an ISO-BMFF file, or null
+ * when it cannot be read from the supplied bytes.
+ *
+ * US-1980: eBay's Media API accepts **H.264 only**, and an `.mp4` container
+ * says nothing about what is inside it. iPhones have recorded HEVC by default
+ * since iOS 11 unless the owner changed Camera > Formats to Most Compatible, so
+ * the single most likely real-world upload is a container we accept holding a
+ * codec eBay does not. Without this the rejection lands at the far end, as a
+ * `PROCESSING_FAILED` **after** a 150 MB upload — and that status is
+ * indistinguishable from a corrupt file, so the seller could not even be told
+ * what went wrong.
+ *
+ * Walks `moov > trak > mdia > minf > stbl > stsd` and reads the first sample
+ * entry's type. `avc1` / `avc3` are H.264; `hvc1` / `hev1` are HEVC.
+ *
+ * FAIL-OPEN, like `isoBmffDurationSeconds` above and for the same reason: a
+ * streaming-optimised file can put `moov` after `mdat`, so a caller holding
+ * only a prefix legitimately cannot see it. Null means "unknown", never
+ * "rejected" - refusing on unknown would block valid uploads whose header the
+ * caller did not read far enough to include.
+ *
+ * Returns the FIRST video track. A file with several is not something a seller
+ * produces from a phone, and eBay takes one video per listing anyway.
+ */
+export function isoBmffVideoCodec(b: Uint8Array): string | null {
+  const moov = findBox(b, 0, b.length, "moov");
+  if (!moov) return null;
+  // `trak` repeats: audio tracks come first in plenty of muxers, so scanning
+  // only the first one would read `mp4a` and report the file as non-H.264.
+  let off = moov.contentStart;
+  let guard = 0;
+  while (off + 8 <= moov.contentEnd && guard++ < 64) {
+    const trak = findBox(b, off, moov.contentEnd, "trak");
+    if (!trak) return null;
+    const codec = codecOfTrack(b, trak);
+    if (codec) return codec;
+    off = trak.contentEnd;
+  }
+  return null;
+}
+
+/** The sample-entry fourcc of a `trak`, when that track is a VIDEO track. */
+function codecOfTrack(
+  b: Uint8Array,
+  trak: { contentStart: number; contentEnd: number },
+): string | null {
+  const mdia = findBox(b, trak.contentStart, trak.contentEnd, "mdia");
+  if (!mdia) return null;
+  // `hdlr` says what kind of track this is. Checking it is what stops an audio
+  // track's `mp4a` being reported as the video codec.
+  const hdlr = findBox(b, mdia.contentStart, mdia.contentEnd, "hdlr");
+  if (!hdlr) return null;
+  // version(1)+flags(3) + pre_defined(4) + handler_type(4)
+  const handler = ascii(b, hdlr.contentStart + 8, 4);
+  if (handler !== "vide") return null;
+
+  const minf = findBox(b, mdia.contentStart, mdia.contentEnd, "minf");
+  if (!minf) return null;
+  const stbl = findBox(b, minf.contentStart, minf.contentEnd, "stbl");
+  if (!stbl) return null;
+  const stsd = findBox(b, stbl.contentStart, stbl.contentEnd, "stsd");
+  if (!stsd) return null;
+  // version(1)+flags(3) + entry_count(4), then the first sample entry, which is
+  // itself a box: size(4) + type(4).
+  const first = stsd.contentStart + 8;
+  if (first + 8 > b.length || first + 8 > stsd.contentEnd) return null;
+  const fourcc = ascii(b, first + 4, 4);
+  return fourcc.trim() === "" ? null : fourcc;
+}
+
+/** H.264 sample-entry types. `avc3` differs only in parameter-set placement. */
+export const H264_SAMPLE_ENTRIES = new Set(["avc1", "avc3"]);
+
+/** HEVC sample-entry types, named so the refusal can say what it found. */
+export const HEVC_SAMPLE_ENTRIES = new Set(["hvc1", "hev1"]);
+
 // Find a direct child box of the given type within [start,end). Returns its
 // content span, or null. Defensive against truncated/degenerate sizes.
 function findBox(

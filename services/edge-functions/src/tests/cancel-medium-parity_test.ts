@@ -135,16 +135,49 @@ Deno.test("US-2125 AC4: the web billing page hides Stripe CTAs for in-app plans"
     new URL("../../../../src/pages/billing.tsx", import.meta.url),
   );
   assert(
-    /const appstoreManaged = isAppstoreManaged\(subscription\)/.test(billing),
-    "the billing page no longer computes whether the plan is App Store managed",
+    /const managingStore = storeManaging\(subscription\)/.test(billing),
+    "the billing page no longer computes WHICH store owns the plan",
   );
   assert(
     /\{appstoreManaged \?/.test(billing),
     "the billing page no longer branches its subscription CTAs on it",
   );
   assert(
-    /Manage this plan in the GradeThread iOS app/.test(billing),
-    "the page no longer tells an App Store subscriber where to manage the plan",
+    /Manage this plan in the GradeThread \{storeApp\} app/.test(billing),
+    "the page no longer tells an in-app subscriber where to manage the plan",
+  );
+  // US-2126: Google Play joined this rule, and the assertion has to say so or
+  // the page could regress to Apple-only and still pass. It used to pin the
+  // literal string "GradeThread iOS app", which was correct when Apple was the
+  // only in-app processor and became a way of asserting the bug once Play
+  // shipped: a Play subscriber was shown every Stripe CTA and each one 409d.
+  assert(
+    /googleplay/.test(billing) ||
+      /storeApp = managingStore === "googleplay"/.test(billing),
+    "the billing page no longer distinguishes Google Play, so a Play " +
+      "subscriber is either shown Stripe CTAs the server refuses or told to " +
+      "open the iOS app they do not have",
+  );
+});
+
+Deno.test("US-2126: the web store-ownership check covers BOTH stores", () => {
+  // The helper the page branches on. Pinned separately from the page because a
+  // rename there is loud (the case above fails) while a quietly narrowed
+  // helper is silent - the page keeps calling it and simply stops matching
+  // Play.
+  const hook = Deno.readTextFileSync(
+    new URL("../../../../src/hooks/use-billing-summary.ts", import.meta.url),
+  );
+  for (const source of ["appstore", "googleplay"]) {
+    assert(
+      new RegExp(`billing_source === "${source}"`).test(hook),
+      `storeManaging no longer recognises '${source}'`,
+    );
+  }
+  assert(
+    /"stripe" \| "appstore" \| "googleplay" \| null/.test(hook),
+    "BillingSummary.billing_source no longer types every value the server " +
+      "writes, so a client check on it is exhaustive over the wrong set",
   );
 });
 

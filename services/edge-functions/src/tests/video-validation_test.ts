@@ -3,6 +3,9 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   DEFAULT_MAX_VIDEO_SECONDS,
+  H264_SAMPLE_ENTRIES,
+  HEVC_SAMPLE_ENTRIES,
+  isoBmffVideoCodec,
   validateVideoUpload,
 } from "../lib/video-validation.ts";
 
@@ -258,4 +261,96 @@ Deno.test("allow-list rejects a disallowed-but-valid format", () => {
   const r = validateVideoUpload(webm(5000), { allow: ["mp4", "mov"] });
   assert(!r.ok);
   assert(r.reason.includes("not allowed"));
+});
+
+// ── US-1980: the video codec, for the eBay Media API ───────────────
+//
+// eBay accepts H.264 only, and `.mp4` says nothing about what is inside. These
+// build a real moov > trak > mdia > {hdlr, minf > stbl > stsd} tree, because a
+// fixture that skipped a level would pass against a parser that skipped the
+// same level.
+
+/** hdlr: version+flags(4) + pre_defined(4) + handler_type(4) + the rest. */
+function hdlr(handler: string): number[] {
+  return box("hdlr", [
+    ...u32(0),
+    ...u32(0),
+    ...fourcc(handler),
+    ...new Array(12).fill(0), // reserved
+    0x00, // empty name
+  ]);
+}
+
+/** stsd: version+flags(4) + entry_count(4) + one sample entry box. */
+function stsd(sampleEntry: string): number[] {
+  return box("stsd", [
+    ...u32(0),
+    ...u32(1),
+    ...box(sampleEntry, new Array(70).fill(0)),
+  ]);
+}
+
+function trak(handler: string, sampleEntry: string): number[] {
+  return box(
+    "trak",
+    box("mdia", [
+      ...hdlr(handler),
+      ...box("minf", box("stbl", stsd(sampleEntry))),
+    ]),
+  );
+}
+
+function mp4WithTracks(...tracks: number[][]): Uint8Array {
+  const moov = box("moov", [
+    ...box("mvhd", mvhdV0(600, 6000)),
+    ...tracks.flat(),
+  ]);
+  return new Uint8Array([...ftyp("isom"), ...moov]);
+}
+
+Deno.test("US-1980: an H.264 track reports avc1", () => {
+  assertEquals(
+    isoBmffVideoCodec(mp4WithTracks(trak("vide", "avc1"))),
+    "avc1",
+  );
+  assert(H264_SAMPLE_ENTRIES.has("avc1"));
+  assert(H264_SAMPLE_ENTRIES.has("avc3"));
+});
+
+Deno.test("US-1980: an HEVC track is reported, not silently accepted", () => {
+  // The iPhone default. Caught here or it becomes a PROCESSING_FAILED after a
+  // 150 MB upload, indistinguishable from a corrupt file.
+  const codec = isoBmffVideoCodec(mp4WithTracks(trak("vide", "hvc1")));
+  assertEquals(codec, "hvc1");
+  assert(HEVC_SAMPLE_ENTRIES.has(codec!));
+  assert(!H264_SAMPLE_ENTRIES.has(codec!));
+});
+
+Deno.test("US-1980: an audio track before the video one is skipped", () => {
+  // Plenty of muxers put sound first. Reading the first `trak` blindly reports
+  // `mp4a` and calls a perfectly good H.264 file non-H.264.
+  assertEquals(
+    isoBmffVideoCodec(mp4WithTracks(trak("soun", "mp4a"), trak("vide", "avc1"))),
+    "avc1",
+  );
+});
+
+Deno.test("US-1980: an audio-only file has no video codec", () => {
+  assertEquals(isoBmffVideoCodec(mp4WithTracks(trak("soun", "mp4a"))), null);
+});
+
+Deno.test("US-1980: a trailing moov reads as unknown, never as rejected", () => {
+  // Fail-open, matching the duration parser. A caller holding only a prefix of
+  // a faststart-less file genuinely cannot see the codec, and refusing on
+  // unknown would block valid uploads.
+  assertEquals(isoBmffVideoCodec(mp4NoMoov("isom")), null);
+});
+
+Deno.test("US-1980: a truncated box tree does not throw", () => {
+  // Hostile input reaches this before anything else does.
+  for (const cut of [12, 24, 40, 64]) {
+    const full = mp4WithTracks(trak("vide", "avc1"));
+    isoBmffVideoCodec(full.slice(0, cut));
+  }
+  isoBmffVideoCodec(new Uint8Array(0));
 });
