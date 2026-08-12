@@ -480,6 +480,29 @@ class ItemCanvasViewModel @Inject constructor(
                 // would fold the edits into a version of the item the server
                 // has not seen.
                 val queued = writeBackAspects(itemId, current)
+                // US-2341: the server now holds this edit, so stop defending the
+                // local copy. applyLocally stamps hasLocalChanges = true on every
+                // edit, and the ONLY place it was ever cleared is
+                // MutationReplayer.mirrorLocally - which runs on the offline
+                // REPLAY path. An online save therefore never cleared it, so the
+                // canvas kept reporting unsaved changes and the sync engine's
+                // conflict policy kept defending a row with nothing left to
+                // defend.
+                //
+                // Left SET when the aspect write-back queued: that half really
+                // has not reached the server yet, and this flag is what makes
+                // the next pull treat the local copy as the newer one.
+                //
+                // Re-read rather than reusing the pre-save copy, mirroring
+                // mirrorLocally - a concurrent edit between the write and here
+                // would otherwise be clobbered by a stale row.
+                if (!queued) {
+                    runCatching {
+                        db.items().byId(itemId)?.let {
+                            db.items().upsert(listOf(it.copy(hasLocalChanges = false)))
+                        }
+                    }
+                }
                 _state.value = _state.value.copy(
                     saving = false,
                     original = _state.value.draft,
