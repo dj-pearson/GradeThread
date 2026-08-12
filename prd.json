@@ -735,20 +735,6 @@
       "dependsOn": []
     },
     {
-      "title": "iOS: bulk photo import is strictly serial though a bounded-concurrency helper already exists",
-      "description": "Both PHPicker import paths — AutoListerReviewModel.swift:218-243 and PhotoIntakeView.swift:907-923 — are plain serial for loops awaiting per photo: result.loadImage() (I/O; for iCloud-backed photos a NETWORK round trip each), then PhotoCompressor.compressOffMain (CPU), then a detached DHash.compute (CPU, :238-240). Meanwhile PhotoCompressor.compressBatch(_:maxConcurrent:) (PhotoCompressor.swift:64-91) exists for exactly this — bounded concurrency, per-item autoreleasepool, order-preserving — and a grep of the whole ios/ tree shows its ONLY caller is Inventory/PhotosDropHandler.swift:20. Neither high-volume import path uses it.",
-      "acceptanceCriteria": [
-        "Wrap the whole per-photo unit (load + compress + dHash) in the chunked withTaskGroup shape already used correctly three times in this codebase: PhotoCompressor.compressBatch, DisclosureStore.renderAll (Disclosure/DisclosureStore.swift:88-115) and ReconciliationService (:215-242).",
-        "Keep concurrency modest (3-4) so only a few full-resolution UIImages are resident — that memory property is why compressBatch was written, and parallelising without it trades a latency win for a jetsam risk.",
-        "Preserve input order via the enumerate-and-sort approach at DisclosureStore.swift:106."
-      ],
-      "priority": 1992,
-      "notes": "[P2][iOS/Performance] Found 2026-07-18 by the iOS audit. The dominant cost is loadImage(), not compression: for iCloud-backed photos that is a serialized network fetch per photo, so a 200-photo import is 200 sequential round trips. Symptom: bulk import sits on the spinner for minutes rather than tens of seconds when photos are not local, and it widens the window for the 'still downloading from iCloud' partial-failure path the code already anticipates (:255-259). NOT FIXED HERE — Swift is unbuildable on Windows.\n\nVERIFIED 2026-07-18 — REAL, still open, deliberately NOT fixed blind.\n\nConfirmed at PhotoIntakeView.ingestLibraryPicks (:907): a plain `for result in results` loop awaiting result.loadImage() then compressOffMain per item. Strictly serial, so 200 iCloud-backed photos are 200 sequential network round trips.\n\nRefinement to the story premise: the existing helper CANNOT be applied directly. PhotoCompressor.compressBatch takes [UIImage] — images already in memory — while the bottleneck is loadImage() upstream of it. What compressBatch does provide is the exact PATTERN to copy: a windowed `withTaskGroup(of: (Int, T).self)` writing into a pre-sized results array, which preserves picker order (the loop comment notes order matters for the tray) and bounds residency.\n\nDESIGN CONSTRAINT worth recording, because the obvious implementation is wrong: do NOT load all images first and then call compressBatch. compressBatch own header explains why — it keeps only a few full-resolution UIImages resident so a large drop does not spike memory into a jetsam kill. Loading 200 full-res UIImages up front reintroduces exactly that risk. The correct shape is ONE windowed TaskGroup where each task does loadImage + compress together, so at most maxConcurrent full-res images exist at any moment.\n\nWhy not fixed here: this is ~25 lines of NEW concurrent Swift on the bulk-import path, with ordering and memory-residency invariants, and it cannot be compiled or tested on this Windows checkout. That is a different risk class from the one-word LazyHStack change — needs a macOS session.",
-      "id": "US-2070",
-      "passes": false,
-      "dependsOn": []
-    },
-    {
       "id": "US-2124",
       "priority": 1992,
       "passes": false,
