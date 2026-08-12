@@ -452,7 +452,7 @@ async function recordEvent(
 // showed is wrong: a trial conversion and an in-place upgrade both arrive as
 // subscription.updated.
 const USER_SELECT =
-  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since, buyer_plan, buyer_subscription_id, buyer_subscription_status, buyer_cancel_at_period_end";
+  "id, email, full_name, flipdesk_plan, stripe_customer_id, trial_ends_at, flipdesk_subscription_id, flipdesk_cancel_at_period_end, pending_flipdesk_plan, pending_flipdesk_interval, pending_schedule_id, pending_effective_at, flipdesk_pause_until, cancellation_reason, subscription_status, past_due_since, buyer_plan, buyer_subscription_id, buyer_subscription_status, buyer_cancel_at_period_end, buyer_past_due_since";
 
 async function loadUserByCustomerId(customerId: string) {
   const { data, error } = await supabaseAdmin
@@ -870,6 +870,8 @@ async function applyBuyerSubscriptionChange(
     // US-2453: PRIOR state, for the edge-triggered lifecycle emails below.
     buyer_subscription_status?: string | null;
     buyer_cancel_at_period_end?: boolean | null;
+    /** US-2458 AC5: the prior dunning anchor, preserved across retries. */
+    buyer_past_due_since?: string | null;
   },
   sub: Stripe.Subscription,
   customerId: string,
@@ -894,6 +896,19 @@ async function applyBuyerSubscriptionChange(
       buyer_subscription_id: sub.id,
       buyer_period_end: periodEnd,
       buyer_cancel_at_period_end: sub.cancel_at_period_end ?? false,
+      // US-2458 AC5: the buyer dunning anchor. Same helper and same lifecycle
+      // as the seller clock - set on the FIRST entry into past_due, preserved
+      // across retries so it can actually elapse, cleared on recovery.
+      //
+      // Stamped HERE and nowhere else, on customer.subscription.updated, for
+      // the reason the invoice handlers already record: writing buyer status
+      // from an invoice event would make the stored state depend on Stripe's
+      // delivery order. This column follows the status it anchors.
+      buyer_past_due_since: nextPastDueSince(
+        user.buyer_subscription_status ?? null,
+        user.buyer_past_due_since ?? null,
+        status,
+      ),
       // US-1804: tag the processor so an IAP buyer sub and a Stripe one don't
       // collide, and the buyer IAP verify can refuse to double-bill.
       buyer_billing_source: "stripe",

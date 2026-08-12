@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00591_users_buyer_past_due_since.sql (US-2458 AC5 — the buyer dunning clock)
+
+**Risk: LOWEST of anything here.** One nullable `timestamptz` on `public.users`.
+No backfill, no constraint, no index, nothing dropped or narrowed. The whole
+file is `ADD COLUMN IF NOT EXISTS` plus a `COMMENT`, so it is safe to run twice
+and safe to re-run the whole directory. Same shape as 00589 and as 00091, which
+is its seller twin.
+
+**What it adds.** `users.buyer_past_due_since` — when dunning began for the
+BUYER subscription. `past_due_since` (00091) has anchored the seller equivalent
+for months and the operator past-due panel sorts by it; the buyer product had
+no equivalent, so a buyer whose card failed appeared in **no operator surface**
+and support found out when the customer wrote in.
+
+**It does NOT gate entitlement, deliberately.** The seller column additionally
+drives `effectivePlanFor()` dropping paid caps after the grace window. This one
+is operator visibility only — dropping a buyer's caps on a dunning clock is a
+pricing decision that belongs with US-2458 AC4, and doing it silently inside a
+column addition would be smuggling it in.
+
+**Order is the usual one: SQL first, then the edge.** The webhook in this commit
+writes the new column on every `customer.subscription.updated`, so an edge
+deployed before the column exists would fail that write with 42703 — and that
+handler owns buyer plan/status/period_end, so the whole buyer subscription state
+would stop updating. **No PostgREST reload needed for reads to work, but do it
+anyway** (`NOTIFY pgrst, 'reload schema';`): a COLUMN was added and the admin
+panel selects it by name.
+
+Apply order: AFTER 00590.
+
 ## ⏳ HELD: 00590_extension_queue_drop_share_kind.sql (US-2497 — the queue stops accepting a share run)
 
 **Risk: LOW, with one deliberate DELETE.** No new object, no column, no index.

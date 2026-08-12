@@ -1395,6 +1395,19 @@ adminBillingRoutes.post("/webhook-dead-letters/:id/resolve", requireScope("billi
 // so the AC paths are /billing/reconciliation*.
 // ═══════════════════════════════════════════════════════════════════
 
+/** US-2458 AC5: the buyer twin of PastDueRow. Separate type, separate list. */
+interface BuyerPastDueRow {
+  id: string;
+  email: string;
+  full_name: string | null;
+  buyer_plan: string | null;
+  buyer_subscription_status: string | null;
+  buyer_past_due_since: string | null;
+  buyer_period_end: string | null;
+  buyer_subscription_id: string | null;
+  stripe_customer_id: string | null;
+}
+
 interface PastDueRow {
   id: string;
   email: string;
@@ -1429,6 +1442,41 @@ adminBillingRoutes.get("/billing/reconciliation", requireScope("billing:write"),
     return c.json({ error: "Failed to load past-due accounts" }, 500);
   }
   const pastDue = (pastDueData ?? []) as PastDueRow[];
+
+  // (a2) US-2458 AC5: BUYER past-due accounts.
+  //
+  // A SEPARATE list rather than a widened (a), and that is the whole point of
+  // this story. AC2 kept the seller `subscription` field meaning exactly the
+  // seller subscription, and AC3 exists because conflating the two is the
+  // mistake the reconciliation resync already made once (US-2457 AC5) - it
+  // adopted a buyer subscription into flipdesk_subscription_id, and the remedy
+  // an operator would reach for next could push a FlipDesk price onto someone's
+  // Guard plan. Merging these rows would put that same ambiguity on screen.
+  //
+  // Before this, a buyer whose card failed appeared in NO operator surface at
+  // all: the panel below filters users.subscription_status, which is the seller
+  // column, so support found out when the customer wrote in.
+  const {
+    data: buyerPastDueData,
+    error: buyerPastDueErr,
+    count: buyerPastDueCount,
+  } = await supabaseAdmin
+    .from("users")
+    .select(
+      "id, email, full_name, buyer_plan, buyer_subscription_status, buyer_past_due_since, buyer_period_end, buyer_subscription_id, stripe_customer_id",
+      { count: "exact" },
+    )
+    .in("buyer_subscription_status", ["past_due"])
+    .order("buyer_past_due_since", { ascending: true, nullsFirst: false })
+    .range(offset, offset + limit - 1);
+  if (buyerPastDueErr) {
+    console.error(
+      "[admin-billing] reconciliation buyer past-due query failed:",
+      buyerPastDueErr.message,
+    );
+    return c.json({ error: "Failed to load buyer past-due accounts" }, 500);
+  }
+  const buyerPastDue = (buyerPastDueData ?? []) as BuyerPastDueRow[];
 
   // (b) Recent failed invoices (last 30 days), bounded. Emails resolved in a
   // second scoped query to keep the typed client simple.
@@ -1486,6 +1534,15 @@ adminBillingRoutes.get("/billing/reconciliation", requireScope("billing:write"),
 
   return c.json({
     pastDue: { data: pastDue, total: pastDueCount ?? pastDue.length, limit, offset },
+    // US-2458 AC5: additive, beside `pastDue` rather than merged into it, so
+    // an existing consumer of this endpoint is unchanged and an operator can
+    // always tell which product a row is about.
+    buyerPastDue: {
+      data: buyerPastDue,
+      total: buyerPastDueCount ?? buyerPastDue.length,
+      limit,
+      offset,
+    },
     failedInvoices,
     divergences: { data: divData ?? [], total: divCount ?? (divData?.length ?? 0) },
     lastScanAt: (lastScan as { last_seen_at: string } | null)?.last_seen_at ?? null,

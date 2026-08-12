@@ -145,3 +145,89 @@ Deno.test("US-2458: the field is RENDERED, not just returned", () => {
   const uses = [...card.matchAll(/<SubscriptionSummary\b/g)];
   assert(uses.length === 2, `expected both to use the shared block, found ${uses.length}`);
 });
+
+// ── US-2458 AC5: buyer past-due accounts reach the operator ──────────────
+//
+// The reconciliation panel filters `users.subscription_status`, which is the
+// SELLER column. A buyer whose card failed appeared in no operator surface at
+// all, so support found out when the customer wrote in.
+
+const WEBHOOKS = code(
+  await Deno.readTextFile(new URL("../routes/webhooks.ts", import.meta.url)),
+);
+
+/** The reconciliation route, from its registration to the next one. */
+const RECONCILIATION_ROUTE = (() => {
+  const at = ADMIN_BILLING.indexOf('adminBillingRoutes.get("/billing/reconciliation"');
+  if (at === -1) throw new Error("the reconciliation route was renamed");
+  const next = ADMIN_BILLING.indexOf("adminBillingRoutes.", at + 30);
+  return ADMIN_BILLING.slice(at, next === -1 ? ADMIN_BILLING.length : next);
+})();
+
+Deno.test("US-2458 AC5: buyer past-due accounts are queried at all", () => {
+  assert(
+    /buyer_subscription_status/.test(RECONCILIATION_ROUTE),
+    "the reconciliation panel does not look at buyer_subscription_status, so a " +
+      "buyer in dunning is invisible to support",
+  );
+  assert(
+    /buyer_past_due_since/.test(RECONCILIATION_ROUTE),
+    "the buyer list is not ordered by its dunning anchor, so support cannot " +
+      "tell a card that failed today from one failing for three weeks",
+  );
+});
+
+Deno.test("US-2458 AC5: the two products are separate lists, never merged", () => {
+  // THE POINT OF THE WHOLE STORY. AC3 exists because conflating the two is the
+  // mistake the reconciliation resync already made once (US-2457 AC5): it
+  // adopted a buyer subscription into flipdesk_subscription_id, and the remedy
+  // an operator reaches for next could push a FlipDesk price onto someone's
+  // Guard plan. A merged list would put that ambiguity back on screen.
+  assert(
+    /buyerPastDue:/.test(RECONCILIATION_ROUTE),
+    "the response no longer carries a distinct buyerPastDue list",
+  );
+  assert(
+    /pastDue: \{ data: pastDue/.test(RECONCILIATION_ROUTE),
+    "the seller pastDue list changed shape — AC2 requires the existing field " +
+      "keep its exact meaning so current consumers are unchanged",
+  );
+  // The seller query must still filter the SELLER column only.
+  //
+  // Anchored on CODE, not on the '(a)' / '(a2)' section comments: the shared
+  // `code()` helper strips comments before any of this runs, so a
+  // comment-based slice silently matched nothing and this case failed against
+  // correct code. That is the same class the source-scan helper has been bitten
+  // by twice before.
+  const sellerFilter = RECONCILIATION_ROUTE.indexOf(
+    '.in("subscription_status", ["past_due", "paused"])',
+  );
+  assert(sellerFilter > -1, "the seller past-due filter was restructured");
+  const sellerQuery = RECONCILIATION_ROUTE.slice(
+    Math.max(0, sellerFilter - 600),
+    sellerFilter,
+  );
+  assert(
+    !/buyer_/.test(sellerQuery),
+    "the seller past-due query now reads a buyer column, which is exactly the " +
+      "conflation AC3 forbids",
+  );
+});
+
+Deno.test("US-2458 AC5: the buyer dunning clock is stamped where status is", () => {
+  assert(
+    /buyer_past_due_since: nextPastDueSince\(/.test(WEBHOOKS),
+    "the buyer dunning anchor is not set from nextPastDueSince, so it will not " +
+      "survive a retry and the clock can never elapse",
+  );
+  // It must be stamped beside buyer_subscription_status, NOT from an invoice
+  // handler — the file's own comment explains that writing buyer status from an
+  // invoice event makes the stored state depend on Stripe's delivery order.
+  const at = WEBHOOKS.indexOf("buyer_past_due_since: nextPastDueSince(");
+  const window = WEBHOOKS.slice(Math.max(0, at - 900), at);
+  assert(
+    /buyer_subscription_status: status/.test(window),
+    "the buyer dunning anchor is written somewhere other than the " +
+      "customer.subscription.updated handler that owns buyer status",
+  );
+});
