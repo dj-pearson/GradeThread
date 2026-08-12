@@ -50,6 +50,20 @@ jobs:
       - name: Lint — no raw JPEG encode outside PhotoCompressor (US-2083)
         run: python3 ios/Scripts/no-raw-jpeg-encode.py
 
+      - name: Lint — String Catalog + no NEW bare UI strings in migrated dirs (US-1155)
+        # Localization guard (US-1224 origin, widened in US-1155): validates the
+        # Localizable.xcstrings String Catalog is present + well-formed, and flags
+        # NEW bare Text("…")/Label("…") literals in the migrated directories
+        # (Prospect/Vision/Speech + Settings). Scoped + baselined so it doesn't
+        # flag the remaining ~670 app-wide strings. See ios/Scripts/no-bare-strings.py.
+        #
+        # US-2499: MOVED here, ahead of xcodegen and the simulator build. It used
+        # to run after them, so US-1866 shipping 22 unbaselined strings failed at
+        # the slowest possible point and stayed red on main for five days before
+        # anyone read past the first line. It needs no toolchain and no project,
+        # so there was never a reason for it to wait behind a build.
+        run: python3 ios/Scripts/no-bare-strings.py
+
       - name: Install XcodeGen + xcbeautify
         run: brew install xcodegen xcbeautify
 
@@ -118,14 +132,6 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             build | xcbeautify --renderer github-actions
-
-      - name: Lint — String Catalog + no NEW bare UI strings in migrated dirs (US-1155)
-        # Localization guard (US-1224 origin, widened in US-1155): validates the
-        # Localizable.xcstrings String Catalog is present + well-formed, and flags
-        # NEW bare Text("…")/Label("…") literals in the migrated directories
-        # (Prospect/Vision/Speech + Settings). Scoped + baselined so it doesn't
-        # flag the remaining ~670 app-wide strings. See ios/Scripts/no-bare-strings.py.
-        run: python3 ios/Scripts/no-bare-strings.py
 
       - name: Upload test results
         if: always()
