@@ -153,6 +153,13 @@ function aiErrorToast(err: ApiError): void {
     });
   } else if (err.status === 429) {
     toast.error(err.message || "Monthly AI limit reached.");
+  } else if (err.status === 402) {
+    // The plan gate answers with a machine code (CAP_REACHED / FEATURE_LOCKED)
+    // rather than seller-facing text, so err.message can't be shown here. These
+    // hooks bypass edgeFetch, so nothing else catches a 402 for them either.
+    toast.error("Your plan is out of AI actions.", {
+      description: "Raise the limit from Billing to keep using AI.",
+    });
   } else if (err.status === 502) {
     toast.error("AI is temporarily unavailable. Please try again.");
   } else {
@@ -195,6 +202,41 @@ export function useListingCopy() {
   return useMutation<ListingCopyResponse, ApiError, { item_id: string }>({
     mutationFn: (input) =>
       postJson<ListingCopyResponse>("/api/flipdesk/ai/listing-copy", input),
+    onError: aiErrorToast,
+  });
+}
+
+// US-2494: buyer-facing counter/reply draft plus the pure counter-offer
+// guardrail, in one call (the edge route is US-1168, already live for iOS).
+// `suggested_counter` is the validated price; the *_flags say why it was moved.
+export type NegotiationDraftMode = "counter" | "reply";
+
+export interface NegotiationDraftInput {
+  /** inventory_items UUID, not the eBay item id the offer/message carries. */
+  item_id: string;
+  mode: NegotiationDraftMode;
+  offer_price?: number;
+  currency?: string;
+  buyer_message?: string;
+  proposed_counter?: number;
+}
+
+export interface NegotiationDraftResponse {
+  message: string;
+  suggested_counter: number | null;
+  warnings: string[];
+  below_cost: boolean;
+  at_or_below_offer: boolean;
+  above_asking: boolean;
+  model: string;
+  log_id: string | null;
+  actions_remaining: number;
+}
+
+export function useNegotiationDraft() {
+  return useMutation<NegotiationDraftResponse, ApiError, NegotiationDraftInput>({
+    mutationFn: (input) =>
+      postJson<NegotiationDraftResponse>("/api/flipdesk/ai/negotiate", input),
     onError: aiErrorToast,
   });
 }

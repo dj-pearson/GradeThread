@@ -120,6 +120,7 @@ class ItemCanvasViewModel @Inject constructor(
 
     fun bind(itemId: String) {
         if (_state.value.itemId == itemId) return
+        specCategoryId = null
         _state.value = State(itemId = itemId)
         viewModelScope.launch {
             val item = db.items().byId(itemId)
@@ -174,6 +175,15 @@ class ItemCanvasViewModel @Inject constructor(
             errorMessage = null,
             queuedOffline = false,
         )
+        // US-2494: a spec belongs to one category. Once the seller has asked
+        // for the specifics, moving the item to another category leaves them
+        // editing the wrong list, so re-fetch it (and re-run the free refill).
+        // Untouched while the section is still Idle — nobody has asked yet.
+        if (_state.value.aspectSpec !is AspectSpecState.Idle &&
+            _state.value.draft.ebayCategoryId != specCategoryId
+        ) {
+            loadAspectSpec()
+        }
     }
 
     fun setCategory(category: FlipdeskCategory?) = edit { it.copy(category = category) }
@@ -234,14 +244,71 @@ class ItemCanvasViewModel @Inject constructor(
 
     // ── US-1347: aspects ─────────────────────────────────────────────────
 
+    /**
+     * The category the current [State.aspectSpec] belongs to, so a category
+     * change can re-fetch and a response that lost the race can be dropped.
+     */
+    private var specCategoryId: String? = null
+
     fun loadAspectSpec() {
-        if (_state.value.aspectSpec is AspectSpecState.Loading) return
+        val categoryId = _state.value.draft.ebayCategoryId
+        if (_state.value.aspectSpec is AspectSpecState.Loading && categoryId == specCategoryId) {
+            return
+        }
+        specCategoryId = categoryId
         _state.value = _state.value.copy(aspectSpec = AspectSpecState.Loading)
         viewModelScope.launch {
-            _state.value = _state.value.copy(
-                aspectSpec = aspectSpecs.fetch(_state.value.draft.ebayCategoryId),
-            )
+            val spec = aspectSpecs.fetch(categoryId)
+            if (specCategoryId != categoryId) return@launch
+            _state.value = _state.value.copy(aspectSpec = spec)
+            // US-2494: the free refill runs the moment the spec is on screen,
+            // so the seller sees the gaps the item's own data can answer before
+            // they weigh spending an AI action on the vision fill below it.
+            if (spec is AspectSpecState.Loaded) refillDerived(categoryId)
         }
+    }
+
+    /**
+     * US-2494: re-derive the item-owned specifics. Free — no AI action, no row
+     * written by the server.
+     *
+     * A failure is a silent no-op. This runs unprompted, on open and on a
+     * category change, so an error toast would be noise about something the
+     * seller never asked for; the manual fields and the AI fill both still
+     * work.
+     */
+    private suspend fun refillDerived(categoryId: String?) {
+        val itemId = _state.value.itemId ?: return
+        val id = categoryId?.trim().orEmpty()
+        if (id.isEmpty()) return
+        val before = _state.value.draft
+        val result = runCatching {
+            aspectSpecs.derive(
+                itemId = itemId,
+                categoryId = id,
+                knownAspects = AspectSync.preserved(before.aspects, before.aspectSources),
+            )
+        }.getOrNull() ?: return
+        if (specCategoryId != categoryId) return
+
+        val draft = _state.value.draft
+        val reconciled = AspectSync.reconcileDerived(
+            draft.aspects, draft.aspectSources, result.derived, result.validAspectNames,
+        )
+        val owned = AspectSync.applyColumnAuthority(
+            reconciled.first, reconciled.second,
+            result.derived, result.columnOwned, result.columnCleared,
+        )
+        // The server derived from the PERSISTED row, so its five column-owned
+        // values are one save behind anything the seller is typing right now.
+        // Re-projecting the draft's own columns last is what stops the two
+        // projections from disagreeing on screen; it is also exactly what the
+        // save path does, so nothing here can be undone by pressing Save.
+        val (aspects, sources) = AspectSync.projectColumnAspects(draft, owned.first, owned.second)
+        if (aspects == draft.aspects && sources == draft.aspectSources) return
+        _state.value = _state.value.copy(
+            draft = draft.copy(aspects = aspects, aspectSources = sources),
+        )
     }
 
     // ── US-2411: the two AI proposals ────────────────────────────────────

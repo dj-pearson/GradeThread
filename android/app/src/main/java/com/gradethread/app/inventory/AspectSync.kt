@@ -88,6 +88,98 @@ object AspectSync {
     }
 
     /**
+     * US-2494: the aspects to send as `knownAspects` on a re-derive.
+     *
+     * Only the ones somebody OWNS — typed or AI-filled. Sending the whole map
+     * would tell the server every auto-derived aspect is already answered, and
+     * the refill would then never refresh a value whose column changed, which
+     * is the entire point of running it.
+     */
+    fun preserved(
+        aspects: Map<String, List<String>>,
+        sources: Map<String, Provenance>,
+    ): Map<String, List<String>> = aspects
+        .mapValues { (_, values) -> values.map { it.trim() }.filter { it.isNotEmpty() } }
+        .filter { (name, values) ->
+            values.isNotEmpty() &&
+                (sources[name] == Provenance.MANUAL || sources[name] == Provenance.AI_EXTRACTED)
+        }
+
+    /**
+     * US-2494: fold the server's deterministic gap-fills into the current map.
+     *
+     * A derived value lands only where the aspect is BLANK or already
+     * `inventory_derived` — a manual or AI value is somebody's answer and the
+     * caller has already excluded it from `knownAspects`, so re-deriving over
+     * it here would undo a decision nobody asked to revisit.
+     *
+     * [validNames] is the category's own aspect list. When it is non-empty a
+     * derived name outside it is skipped, so a response that raced a category
+     * change cannot inject a specific this category does not have.
+     */
+    fun reconcileDerived(
+        aspects: Map<String, List<String>>,
+        sources: Map<String, Provenance>,
+        derived: Map<String, List<String>>,
+        validNames: List<String> = emptyList(),
+    ): Pair<Map<String, List<String>>, Map<String, Provenance>> {
+        val allowed = validNames.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        val nextAspects = aspects.toMutableMap()
+        val nextSources = sources.toMutableMap()
+        for ((name, raw) in derived) {
+            if (allowed.isNotEmpty() && name !in allowed) continue
+            val values = raw.map { it.trim() }.filter { it.isNotEmpty() }
+            if (values.isEmpty()) continue
+            val existing = nextAspects[name].orEmpty().filter { it.isNotBlank() }
+            if (existing.isNotEmpty() && sources[name] != Provenance.INVENTORY_DERIVED) continue
+            nextAspects[name] = values
+            nextSources[name] = Provenance.INVENTORY_DERIVED
+        }
+        return nextAspects to nextSources
+    }
+
+    /**
+     * US-2494: force the COLUMNS' authority over the five aspects they own,
+     * after [reconcileDerived] has done the gap-filling.
+     *
+     * Brand, Size, Color, Material and Style are projections of item columns
+     * rather than independent aspects. [reconcileDerived] protects manual and
+     * AI values, which is right for every other aspect and wrong for these
+     * five: it let an AI-filled Brand outrank the seller's own correction on
+     * the item page, so fixing Brand there left the eBay specific stale and
+     * they had to type it in both places.
+     *
+     * The SERVER decides membership ([columnOwned] are the aspects whose column
+     * currently holds a value, [columnCleared] the ones whose column was
+     * blanked), so the mapping stays in the shared registry and no Kotlin table
+     * can drift from it.
+     */
+    fun applyColumnAuthority(
+        aspects: Map<String, List<String>>,
+        sources: Map<String, Provenance>,
+        derived: Map<String, List<String>>,
+        columnOwned: List<String>,
+        columnCleared: List<String>,
+    ): Pair<Map<String, List<String>>, Map<String, Provenance>> {
+        val nextAspects = aspects.toMutableMap()
+        val nextSources = sources.toMutableMap()
+        for (name in columnOwned) {
+            val values = derived[name].orEmpty().map { it.trim() }.filter { it.isNotEmpty() }
+            // No value means the server named the aspect but derived nothing
+            // for it. Leaving it alone is right: columnCleared is how a blanked
+            // column asks for a removal.
+            if (values.isEmpty()) continue
+            nextAspects[name] = values
+            nextSources[name] = Provenance.INVENTORY_DERIVED
+        }
+        for (name in columnCleared) {
+            nextAspects.remove(name)
+            nextSources.remove(name)
+        }
+        return nextAspects to nextSources
+    }
+
+    /**
      * A manual edit from the aspects editor.
      *
      * Marked MANUAL, which outranks both other sources — a value someone typed

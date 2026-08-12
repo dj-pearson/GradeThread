@@ -493,6 +493,12 @@
     <string name="negotiation_send_blocked">Sending offers isn\'t available on this eBay connection yet.</string>
     <string name="negotiation_discount">Discount: %1$d%%</string>
 
+    <!-- US-2494: the AI counter/reply draft. -->
+    <string name="negotiation_draft_with_ai">Draft with AI</string>
+    <string name="negotiation_drafting">Drafting…</string>
+    <string name="negotiation_draft_costs_one_action">Uses 1 AI action.</string>
+    <string name="negotiation_draft_needs_item">Link this listing to an item in your inventory to draft with AI.</string>
+
     <!-- US-2368: templates screen text. -->
     <string name="templates_listing_templates">Listing templates</string>
     <string name="templates_pick_one_publish_screen_fill">Pick one in the publish screen to fill in the parts you type every time.</string>
@@ -1281,6 +1287,17 @@
     <string name="passport_origin">Originally from %1$s (verified)</string>
     <string name="passport_origin_handle">\@%1$s</string>
     <string name="passport_graded">Graded %1$s</string>
+
+    <!-- US-2494: the owner's single-use ownership handoff link. -->
+    <string name="passport_handoff_title">Hand off ownership</string>
+    <string name="passport_handoff_body">Give the buyer a claim link. When they open it, this passport becomes theirs and its history keeps going.</string>
+    <string name="passport_create_claim_link">Create claim link</string>
+    <string name="passport_creating_claim_link">Creating link…</string>
+    <string name="passport_new_claim_link">Create a new link</string>
+    <string name="passport_share_claim_link">Share claim link</string>
+    <string name="passport_copy_claim_link">Copy claim link</string>
+    <string name="passport_claim_link_copied">Claim link copied</string>
+    <string name="passport_claim_link_once">This link works once, and only until %1$s. We can\'t show it again, so share or copy it now.</string>
     <string name="paywall_title">Plans</string>
     <string name="paywall_current_plan">You\'re on %1$s.</string>
     <string name="paywall_already_subscribed">Already subscribed</string>

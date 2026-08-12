@@ -196,6 +196,20 @@ interface ListingDao {
     @Query("SELECT * FROM listings WHERE inventoryItemId = :itemId")
     suspend fun forItem(itemId: String): List<ListingEntity>
 
+    /**
+     * US-2494: the FlipDesk item behind a marketplace listing id.
+     *
+     * The negotiation inbox works in eBay's ids — an offer names the listing,
+     * not the item — while the AI routes take an `inventory_items` id. Without
+     * this hop the client would post eBay's id into a UUID column and read the
+     * resulting 404 as "the item is missing".
+     */
+    @Query(
+        "SELECT inventoryItemId FROM listings " +
+            "WHERE platform = :platform AND platformListingId = :platformListingId LIMIT 1",
+    )
+    suspend fun itemIdForPlatformListing(platformListingId: String, platform: String): String?
+
     /** US-1349: the whole table, for global search. */
     @Query("SELECT * FROM listings")
     suspend fun all(): List<ListingEntity>

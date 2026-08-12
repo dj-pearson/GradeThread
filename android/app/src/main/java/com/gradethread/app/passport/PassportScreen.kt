@@ -1,5 +1,10 @@
 package com.gradethread.app.passport
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,6 +22,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -51,6 +58,22 @@ class PassportViewModel @Inject constructor(
         val loaded: Boolean = false,
         val timeline: PassportTimeline? = null,
         /**
+         * US-2494: the garment behind this passport. Present only when the
+         * owner-scoped resolve walk succeeded, which is what makes it the gate
+         * for the handoff section.
+         */
+        val garmentId: String? = null,
+        val minting: Boolean = false,
+        /**
+         * US-2494: the minted claim link, held in memory for this screen only.
+         *
+         * Never written to DataStore, Room or SavedStateHandle, and never
+         * logged. The server keeps a hash, so a copy that leaves here is the
+         * only copy there will ever be.
+         */
+        val handoff: PassportHandoff? = null,
+        val handoffError: String? = null,
+        /**
          * True when the item simply has no passport.
          *
          * Deliberately NOT an error: most of an inventory is ungraded, and a
@@ -81,8 +104,8 @@ class PassportViewModel @Inject constructor(
         Telemetry.screen("passport")
 
         viewModelScope.launch {
-            val slug = runCatching { service.resolveSlug(itemId) }.getOrNull()
-            if (slug == null) {
+            val ref = runCatching { service.resolve(itemId) }.getOrNull()
+            if (ref == null) {
                 _state.value = _state.value.copy(
                     loading = false,
                     loaded = true,
@@ -90,8 +113,9 @@ class PassportViewModel @Inject constructor(
                 )
                 return@launch
             }
+            _state.value = _state.value.copy(garmentId = ref.garmentId)
 
-            runCatching { service.timeline(slug) }.fold(
+            runCatching { service.timeline(ref.slug) }.fold(
                 onSuccess = { timeline ->
                     _state.value = _state.value.copy(
                         loading = false,
@@ -105,6 +129,33 @@ class PassportViewModel @Inject constructor(
                         loaded = true,
                         errorMessage = (error as? EdgeApiError)?.userMessage()
                             ?: "Couldn't load this item's history.",
+                    )
+                },
+            )
+        }
+    }
+
+    /**
+     * US-2494: mint the buyer's claim link.
+     *
+     * Re-mintable on purpose: the server accepts a second mint, which is the
+     * only way to retire a link that went to the wrong person. Each press
+     * replaces the one on screen, and the old one is no longer shown.
+     */
+    fun mintClaimLink() {
+        val garmentId = _state.value.garmentId ?: return
+        if (_state.value.minting) return
+        _state.value = _state.value.copy(minting = true, handoffError = null, handoff = null)
+        viewModelScope.launch {
+            runCatching { service.mintClaimLink(garmentId) }.fold(
+                onSuccess = {
+                    _state.value = _state.value.copy(minting = false, handoff = it)
+                },
+                onFailure = { error ->
+                    _state.value = _state.value.copy(
+                        minting = false,
+                        handoffError = (error as? EdgeApiError)?.userMessage()
+                            ?: "Couldn't create a claim link just now.",
                     )
                 },
             )
@@ -198,10 +249,110 @@ fun PassportScreen(
             ) { index -> EventCard(state.events[index]) }
         }
 
+        // US-2494: only once the owner-scoped resolve found the garment. On any
+        // other item this is not a section to explain — there is nothing to
+        // hand off.
+        state.garmentId?.let { HandoffSection(state, viewModel::mintClaimLink) }
+
         BrandSecondaryButton(
             text = stringResource(R.string.common_back),
             modifier = Modifier.fillMaxWidth(),
         ) { onClose() }
+    }
+}
+
+/**
+ * US-2494: the owner's handoff.
+ *
+ * The link is shown once and never again — the server keeps only a hash of it —
+ * so the copy says so plainly rather than leaving the seller to find out by
+ * coming back for it.
+ */
+@Composable
+private fun HandoffSection(
+    state: PassportViewModel.State,
+    onMint: () -> Unit,
+) {
+    val context = LocalContext.current
+    val view = LocalView.current
+    val copied = stringResource(R.string.passport_claim_link_copied)
+
+    Column(
+        Modifier.fillMaxWidth().cardStyle(),
+        verticalArrangement = Arrangement.spacedBy(Spacing.xxs),
+    ) {
+        Text(
+            stringResource(R.string.passport_handoff_title),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Medium,
+        )
+        Text(
+            stringResource(R.string.passport_handoff_body),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        state.handoffError?.let {
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        }
+
+        val handoff = state.handoff
+        if (handoff != null) {
+            Text(
+                stringResource(
+                    R.string.passport_claim_link_once,
+                    PassportFormat.longDate(handoff.expiresAt),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            BrandSecondaryButton(
+                text = stringResource(R.string.passport_share_claim_link),
+                modifier = Modifier.fillMaxWidth(),
+            ) { shareText(context, handoff.claimUrl) }
+            BrandSecondaryButton(
+                text = stringResource(R.string.passport_copy_claim_link),
+                modifier = Modifier.fillMaxWidth(),
+            ) { copyClaimLink(context, view, handoff.claimUrl, copied) }
+        }
+
+        BrandSecondaryButton(
+            text = when {
+                state.minting -> stringResource(R.string.passport_creating_claim_link)
+                handoff != null -> stringResource(R.string.passport_new_claim_link)
+                else -> stringResource(R.string.passport_create_claim_link)
+            },
+            enabled = !state.minting,
+            modifier = Modifier.fillMaxWidth(),
+        ) { onMint() }
+    }
+}
+
+/** The system share sheet, with no package targeting. */
+private fun shareText(context: Context, text: String) {
+    val send = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, text)
+    }
+    context.startActivity(Intent.createChooser(send, null))
+}
+
+/**
+ * Copy, and say so below Android 13.
+ *
+ * 13+ shows its own clipboard confirmation, so announcing there would double
+ * it; below 13 there is no system feedback at all, which for a screen-reader
+ * user means the button appears to do nothing.
+ */
+private fun copyClaimLink(
+    context: Context,
+    view: android.view.View,
+    link: String,
+    announcement: String,
+) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    clipboard?.setPrimaryClip(ClipData.newPlainText("GradeThread claim link", link))
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+        view.announceForAccessibility(announcement)
     }
 }
 

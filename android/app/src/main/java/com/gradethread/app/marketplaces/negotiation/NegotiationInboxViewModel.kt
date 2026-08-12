@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.gradethread.app.platform.net.EdgeApiError
 import com.gradethread.app.platform.telemetry.Telemetry
+import com.gradethread.app.sync.db.GradeThreadDb
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -17,6 +18,13 @@ import javax.inject.Inject
 @HiltViewModel
 class NegotiationInboxViewModel @Inject constructor(
     private val service: NegotiationService,
+    /** US-2494: the AI counter/reply draft. One AI action per press. */
+    private val drafter: NegotiationDraftService,
+    /**
+     * US-2494: an offer names an EBAY listing id; the AI route takes a FlipDesk
+     * item id. The synced listings table is where the two meet.
+     */
+    private val db: GradeThreadDb,
 ) : ViewModel() {
 
     sealed interface Phase {
@@ -39,6 +47,16 @@ class NegotiationInboxViewModel @Inject constructor(
         val working: Boolean = false,
         val banner: String? = null,
         val errorMessage: String? = null,
+        /** US-2494: an AI draft is in flight. */
+        val drafting: Boolean = false,
+        /** US-2494: the last draft, until the open form takes it or is closed. */
+        val draft: NegotiationDraft? = null,
+        val draftError: String? = null,
+        /**
+         * US-2494: the listing this offer or message belongs to has no synced
+         * FlipDesk item, so there is nothing to draft against.
+         */
+        val draftNeedsItem: Boolean = false,
     ) {
         val visibleOffers: List<BestOffer>
             get() = NegotiationRules.offersForItem(offers, filterItemId)
@@ -204,6 +222,88 @@ class NegotiationInboxViewModel @Inject constructor(
         }
     }
 
+    // ── US-2494: AI drafting ─────────────────────────────────────────────────
+
+    /**
+     * Draft a counter note and a safe counter price. ONE AI action.
+     *
+     * [proposedCounterText] is whatever the seller has typed so far. It is sent
+     * so the server validates THEIR number rather than only proposing its own —
+     * the at-or-below-offer and above-asking warnings exist for a price a
+     * person chose.
+     */
+    fun draftCounter(offer: BestOffer, proposedCounterText: String) {
+        startDraft(
+            platformListingId = offer.itemId,
+            mode = NegotiationDraftMode.COUNTER,
+            offerPrice = offer.price,
+            currency = offer.currency,
+            buyerMessage = offer.message,
+            proposedCounter = NegotiationRules.counterPrice(proposedCounterText),
+        )
+    }
+
+    /** Draft a reply to a buyer's message. ONE AI action. */
+    fun draftReply(message: BuyerMessage) {
+        startDraft(
+            platformListingId = message.itemId.orEmpty(),
+            mode = NegotiationDraftMode.REPLY,
+            buyerMessage = message.body,
+        )
+    }
+
+    private fun startDraft(
+        platformListingId: String,
+        mode: NegotiationDraftMode,
+        offerPrice: Double? = null,
+        currency: String = "USD",
+        buyerMessage: String? = null,
+        proposedCounter: Double? = null,
+    ) {
+        if (_state.value.drafting) return
+        _state.value = _state.value.copy(
+            drafting = true, draft = null, draftError = null, draftNeedsItem = false,
+        )
+        viewModelScope.launch {
+            val itemId = platformListingId.trim().takeIf { it.isNotEmpty() }?.let {
+                db.listings().itemIdForPlatformListing(it, EBAY_PLATFORM)
+            }
+            if (itemId.isNullOrBlank()) {
+                // Sending eBay's id anyway would be an id the seller may not
+                // own, and the 404 it earns reads as "your item is gone".
+                _state.value = _state.value.copy(drafting = false, draftNeedsItem = true)
+                return@launch
+            }
+            runCatching {
+                drafter.draft(
+                    itemId = itemId,
+                    mode = mode,
+                    offerPrice = offerPrice,
+                    currency = currency,
+                    buyerMessage = buyerMessage,
+                    proposedCounter = proposedCounter,
+                )
+            }
+                .onSuccess { _state.value = _state.value.copy(drafting = false, draft = it) }
+                .onFailure {
+                    _state.value = _state.value.copy(
+                        drafting = false,
+                        draftError = NegotiationDraftService.message(it),
+                    )
+                }
+        }
+    }
+
+    /**
+     * Drop the draft state. Called when a form opens and when it closes, so a
+     * draft written for one offer can never prefill the next one.
+     */
+    fun clearDraft() {
+        _state.value = _state.value.copy(
+            draft = null, draftError = null, draftNeedsItem = false,
+        )
+    }
+
     // ── Messages ─────────────────────────────────────────────────────────────
 
     fun reply(message: BuyerMessage, body: String) {
@@ -309,5 +409,9 @@ class NegotiationInboxViewModel @Inject constructor(
 
     fun dismissMessages() {
         _state.value = _state.value.copy(banner = null, errorMessage = null)
+    }
+
+    private companion object {
+        const val EBAY_PLATFORM = "ebay"
     }
 }

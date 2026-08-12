@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Reply,
   Send,
+  Sparkles,
   Tag,
   X,
 } from "lucide-react";
@@ -32,9 +33,12 @@ import {
   useEbayReplyMessage,
   useEbayRespondOffer,
   useEbaySendOffer,
+  resolveInventoryItemIdForEbayItem,
   type EbayBestOffer,
   type EbayBuyerMessage,
 } from "@/hooks/use-ebay";
+import { useNegotiationDraft } from "@/hooks/use-ai-extract";
+import { applyNegotiationDraft } from "@/pages/flipdesk/negotiation-draft-prefill";
 
 // US-1040/1041: web parity for eBay Best Offers (accept/decline/counter), send
 // offers to interested buyers, and the buyer-message inbox — features that were
@@ -42,6 +46,12 @@ import {
 // US-2236 AC3: high-volume negotiation shouldn't render one flat list. Both the
 // offers and messages lists page client-side at this size.
 const LIST_PAGE_SIZE = 15;
+
+// US-2494: the AI drafter reads the local inventory item (title, asking price,
+// cost), so an offer or message on a listing FlipDesk never imported has nothing
+// to draft from. Said once, used by both forms.
+const NO_LOCAL_ITEM =
+  "This listing isn't linked to a FlipDesk item, so there's nothing for the draft to read.";
 
 function Pager({
   page,
@@ -179,8 +189,13 @@ function BestOffersCard() {
 function OfferRow({ offer }: { offer: EbayBestOffer }) {
   const qc = useQueryClient();
   const respond = useEbayRespondOffer();
+  const draft = useNegotiationDraft();
   const [countering, setCountering] = useState(false);
   const [counterPrice, setCounterPrice] = useState("");
+  const [counterNote, setCounterNote] = useState("");
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const busy = respond.isPending;
+  const cur = offer.currency ?? "USD";
 
   async function act(action: "Accept" | "Decline" | "Counter") {
     const counter = Number(counterPrice);
@@ -194,6 +209,8 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
         itemId: offer.itemId,
         action,
         counterPrice: action === "Counter" ? counter : undefined,
+        message:
+          action === "Counter" ? counterNote.trim() || undefined : undefined,
       });
       await qc.invalidateQueries({ queryKey: ["ebay_best_offers"] });
       toast.success(
@@ -208,8 +225,36 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
     }
   }
 
-  const busy = respond.isPending;
-  const cur = offer.currency ?? "USD";
+  // US-2494: one AI action per press, so this only ever runs from the button.
+  // The offer carries eBay's item id; the drafter needs the local row's UUID.
+  async function draftCounter() {
+    const itemId = await resolveInventoryItemIdForEbayItem(offer.itemId);
+    if (!itemId) {
+      toast.error(NO_LOCAL_ITEM);
+      return;
+    }
+    const typed = Number(counterPrice);
+    const result = await draft
+      .mutateAsync({
+        item_id: itemId,
+        mode: "counter",
+        offer_price: offer.price ?? undefined,
+        currency: cur,
+        buyer_message: offer.message ?? undefined,
+        proposed_counter:
+          Number.isFinite(typed) && typed > 0 ? typed : undefined,
+      })
+      .catch(() => null); // toasted by the hook's shared AI error mapping
+    if (!result) return;
+    const next = applyNegotiationDraft(
+      { price: counterPrice, note: counterNote },
+      result,
+    );
+    setCounterPrice(next.price);
+    setCounterNote(next.note);
+    // JSON boundary: an older edge build without the guardrail omits warnings.
+    setWarnings(result.warnings ?? []);
+  }
 
   return (
     <div className="rounded-md border p-3">
@@ -239,8 +284,8 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
       </div>
 
       {countering ? (
-        <div className="mt-3 space-y-1">
-          <div className="flex items-center gap-2">
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Input
               aria-label="Counter offer price"
               type="number"
@@ -256,9 +301,26 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
             </Button>
             <Button
               size="sm"
+              variant="outline"
+              className="h-8"
+              disabled={busy || draft.isPending}
+              onClick={draftCounter}
+            >
+              {draft.isPending ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-1 h-3.5 w-3.5" />
+              )}
+              Draft with AI
+            </Button>
+            <Button
+              size="sm"
               variant="ghost"
               className="h-8"
-              onClick={() => setCountering(false)}
+              onClick={() => {
+                setCountering(false);
+                setWarnings([]);
+              }}
             >
               Cancel
             </Button>
@@ -284,6 +346,25 @@ function OfferRow({ offer }: { offer: EbayBestOffer }) {
                 </p>
               );
             })()}
+          <Textarea
+            aria-label="Note to the buyer"
+            value={counterNote}
+            onChange={(e) => setCounterNote(e.target.value)}
+            rows={2}
+            placeholder="Optional note to the buyer"
+          />
+          {warnings.length > 0 && (
+            <ul className="space-y-0.5">
+              {warnings.map((w) => (
+                <li key={w} className="text-xs font-medium text-destructive">
+                  {w}
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className="text-xs text-muted-foreground">
+            Drafting spends one AI action and never overwrites what you typed.
+          </p>
         </div>
       ) : (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -592,9 +673,30 @@ function MessagesCard() {
 function MessageRow({ message }: { message: EbayBuyerMessage }) {
   const qc = useQueryClient();
   const reply = useEbayReplyMessage();
+  const draft = useNegotiationDraft();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const canReply = !!message.itemId && !!message.senderUsername;
+
+  // US-2494: one AI action per press. The message carries eBay's item id; the
+  // drafter reads the local inventory row, so resolve one to the other first.
+  async function draftReply() {
+    if (!message.itemId) return;
+    const itemId = await resolveInventoryItemIdForEbayItem(message.itemId);
+    if (!itemId) {
+      toast.error(NO_LOCAL_ITEM);
+      return;
+    }
+    const result = await draft
+      .mutateAsync({
+        item_id: itemId,
+        mode: "reply",
+        buyer_message: message.body ?? undefined,
+      })
+      .catch(() => null); // toasted by the hook's shared AI error mapping
+    if (!result) return;
+    setText(applyNegotiationDraft({ price: "", note: text }, result).note);
+  }
 
   async function send() {
     if (!text.trim()) {
@@ -657,10 +759,26 @@ function MessageRow({ message }: { message: EbayBuyerMessage }) {
               )}
               Send reply
             </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={reply.isPending || draft.isPending}
+              onClick={draftReply}
+            >
+              {draft.isPending ? (
+                <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Sparkles className="mr-2 h-3.5 w-3.5" />
+              )}
+              Draft with AI
+            </Button>
             <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
           </div>
+          <p className="text-xs text-muted-foreground">
+            Drafting spends one AI action and never overwrites what you typed.
+          </p>
         </div>
       ) : (
         <Button

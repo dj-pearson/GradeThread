@@ -437,6 +437,10 @@
     <string name="negotiation_reply_to">Responder a %1$s</string>
     <string name="negotiation_send_blocked">Enviar ofertas todavía no está disponible en esta conexión de eBay.</string>
     <string name="negotiation_discount">Descuento: %1$d%%</string>
+    <string name="negotiation_draft_with_ai">Redactar con IA</string>
+    <string name="negotiation_drafting">Redactando…</string>
+    <string name="negotiation_draft_costs_one_action">Usa 1 acción de IA.</string>
+    <string name="negotiation_draft_needs_item">Vincula esta publicación con un artículo de tu inventario para redactar con IA.</string>
     <string name="templates_listing_templates">Plantillas de publicación</string>
     <string name="templates_pick_one_publish_screen_fill">Elige una en la pantalla de publicar para completar las partes que escribes siempre.</string>
     <string name="templates_that_didn_t_work">Eso no funcionó</string>
@@ -1148,6 +1152,15 @@
     <string name="passport_origin">Originalmente de %1$s (verificado)</string>
     <string name="passport_origin_handle">\@%1$s</string>
     <string name="passport_graded">Calificado %1$s</string>
+    <string name="passport_handoff_title">Transferir la propiedad</string>
+    <string name="passport_handoff_body">Dale al comprador un enlace de reclamo. Cuando lo abra, este pasaporte pasa a ser suyo y su historial continúa.</string>
+    <string name="passport_create_claim_link">Crear enlace de reclamo</string>
+    <string name="passport_creating_claim_link">Creando el enlace…</string>
+    <string name="passport_new_claim_link">Crear un enlace nuevo</string>
+    <string name="passport_share_claim_link">Compartir el enlace de reclamo</string>
+    <string name="passport_copy_claim_link">Copiar el enlace de reclamo</string>
+    <string name="passport_claim_link_copied">Enlace de reclamo copiado</string>
+    <string name="passport_claim_link_once">Este enlace funciona una sola vez y solo hasta el %1$s. No podemos volver a mostrarlo, así que compártelo o cópialo ahora.</string>
     <string name="paywall_title">Planes</string>
     <string name="paywall_current_plan">Estás en %1$s.</string>
     <string name="paywall_already_subscribed">Ya estás suscrito</string>

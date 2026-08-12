@@ -66,6 +66,33 @@ data class AspectSpecResponse(
         get() = aspects.aspects.filter { it.name.isNotEmpty() }
 }
 
+/**
+ * US-2494: the answer from `POST /category/:id/derive-aspects`.
+ *
+ * Free — no AI action, no rows written. The server fills aspect gaps from the
+ * item's own columns, US-821 attributes and US-1503 measurements, then names
+ * the five column-owned aspects separately because those are not gap-fills:
+ * Brand/Size/Color/Material/Style belong to the item's columns and have to
+ * overwrite whatever provenance the aspect currently carries.
+ *
+ * Every field defaults, so an older edge build that returns neither
+ * [columnOwned] nor [columnCleared] decodes to the previous behaviour instead
+ * of failing the whole call.
+ */
+@Serializable
+data class DerivedAspects(
+    val categoryId: String = "",
+    val derived: Map<String, List<String>> = emptyMap(),
+    /** Wire provenance per derived aspect; every gap-fill is `inventory_derived`. */
+    val sources: Map<String, String> = emptyMap(),
+    /** Every aspect name this category exposes. */
+    val validAspectNames: List<String> = emptyList(),
+    /** Overwrite these even when they are currently marked manual or AI. */
+    val columnOwned: List<String> = emptyList(),
+    /** The backing column was blanked — drop these rather than keep a stale value. */
+    val columnCleared: List<String> = emptyList(),
+)
+
 /** What the aspects editor is showing. */
 sealed class AspectSpecState {
     object Idle : AspectSpecState()

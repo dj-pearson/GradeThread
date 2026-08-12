@@ -19,6 +19,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { track } from "@/lib/analytics";
 import { PassportTagPanel } from "@/components/passport/passport-tag-panel";
+import { PassportClaimLinkPanel } from "@/components/passport/passport-claim-link-panel";
 import type { GarmentRow } from "@/types/database";
 
 // US-1120: turn a fresh grade into a Garment Passport conversion surface.
@@ -146,7 +147,10 @@ export function GarmentPassportPanel({
           <PassportTrustHints />
         </CardContent>
       </Card>
+      {/* US-2494: the two owner handoffs sit together. The reusable tag is for a
+          hand-off in person, the single-use link for a garment that ships. */}
       <PassportTagPanel garmentId={garmentId} />
+      <PassportClaimLinkPanel garmentId={garmentId} />
     </div>
   );
 }

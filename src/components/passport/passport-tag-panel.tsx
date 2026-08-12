@@ -78,8 +78,9 @@ export function PassportTagPanel({ garmentId }: PassportTagPanelProps) {
           Physical Passport Tag
         </CardTitle>
         <CardDescription>
-          Attach a scannable tag to this item. Whoever receives it can scan to view
-          the full history and claim ownership — continuing the chain deterministically.
+          Attach a scannable tag for a hand-off in person. Whoever holds the tag can
+          scan it to view the full history and claim ownership, and it keeps working
+          until you reissue or revoke it.
         </CardDescription>
       </CardHeader>
       <CardContent>

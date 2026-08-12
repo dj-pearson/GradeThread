@@ -1861,6 +1861,26 @@ export function useEbayReplyMessage() {
   });
 }
 
+// US-2494: offers and buyer messages are keyed by eBay's item id, but the AI
+// negotiation route reads the LOCAL inventory_items row (title, target price,
+// cost) and so wants that row's UUID. The listings table is the only place the
+// two ids meet. RLS scopes `listings` to the owner, so null means the listing
+// was never synced into FlipDesk (or isn't ours), never someone else's item.
+export async function resolveInventoryItemIdForEbayItem(
+  ebayItemId: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from("listings")
+    .select("inventory_item_id")
+    .eq("platform", "ebay")
+    .eq("platform_listing_id", ebayItemId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const row = (data ?? null) as { inventory_item_id: string | null } | null;
+  return row?.inventory_item_id ?? null;
+}
+
 // ── Returns (US-1043) ───────────────────────────────────────────────
 
 export interface EbayReturn {

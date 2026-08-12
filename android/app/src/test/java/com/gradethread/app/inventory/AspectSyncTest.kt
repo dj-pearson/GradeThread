@@ -91,6 +91,135 @@ class AspectSyncTest {
         assertFalse(aspects.containsKey("Fabric Type"))
     }
 
+    // ── US-2494: the free deterministic refill ───────────────────────────
+
+    @Test
+    fun `a derived value fills a gap and refreshes an auto-derived one`() {
+        val (aspects, sources) = AspectSync.reconcileDerived(
+            mapOf("Department" to listOf("Women")),
+            mapOf("Department" to AspectSync.Provenance.INVENTORY_DERIVED),
+            mapOf("Department" to listOf("Men"), "Pattern" to listOf("Solid")),
+        )
+        assertEquals(listOf("Men"), aspects["Department"])
+        assertEquals(listOf("Solid"), aspects["Pattern"])
+        assertEquals(AspectSync.Provenance.INVENTORY_DERIVED, sources["Pattern"])
+    }
+
+    @Test
+    fun `a refill never overwrites what the seller typed or the AI filled`() {
+        val (aspects, sources) = AspectSync.reconcileDerived(
+            mapOf("Pattern" to listOf("Striped"), "Fit" to listOf("Slim")),
+            mapOf(
+                "Pattern" to AspectSync.Provenance.MANUAL,
+                "Fit" to AspectSync.Provenance.AI_EXTRACTED,
+            ),
+            mapOf("Pattern" to listOf("Solid"), "Fit" to listOf("Regular")),
+        )
+        assertEquals(listOf("Striped"), aspects["Pattern"])
+        assertEquals(listOf("Slim"), aspects["Fit"])
+        assertEquals(AspectSync.Provenance.MANUAL, sources["Pattern"])
+        assertEquals(AspectSync.Provenance.AI_EXTRACTED, sources["Fit"])
+    }
+
+    @Test
+    fun `a derived aspect the category does not expose is skipped`() {
+        // Guards a response that raced a category change: applying it would
+        // show a specific this category has no field for.
+        val (aspects, _) = AspectSync.reconcileDerived(
+            emptyMap(),
+            emptyMap(),
+            mapOf("Inseam" to listOf("32"), "Pattern" to listOf("Solid")),
+            validNames = listOf("Pattern", "  "),
+        )
+        assertEquals(listOf("Solid"), aspects["Pattern"])
+        assertFalse(aspects.containsKey("Inseam"))
+        // An empty list is an older edge build, not "nothing is valid".
+        val (all, _) = AspectSync.reconcileDerived(
+            emptyMap(), emptyMap(), mapOf("Inseam" to listOf("32")),
+        )
+        assertEquals(listOf("32"), all["Inseam"])
+    }
+
+    @Test
+    fun `only manual and AI values are sent back as known`() {
+        val preserved = AspectSync.preserved(
+            mapOf(
+                "Brand" to listOf("Patagonia"),
+                "Pattern" to listOf(" Striped "),
+                "Fit" to listOf("Slim"),
+                "Theme" to listOf("  "),
+            ),
+            mapOf(
+                "Brand" to AspectSync.Provenance.INVENTORY_DERIVED,
+                "Pattern" to AspectSync.Provenance.MANUAL,
+                "Fit" to AspectSync.Provenance.AI_EXTRACTED,
+                "Theme" to AspectSync.Provenance.MANUAL,
+            ),
+        )
+        // Brand is auto-derived, so it must stay refreshable; Theme has no
+        // value left to preserve.
+        assertEquals(setOf("Pattern", "Fit"), preserved.keys)
+        assertEquals(listOf("Striped"), preserved["Pattern"])
+    }
+
+    @Test
+    fun `a column-owned aspect beats a manual or AI value`() {
+        // The seller fixed Brand on the item page. Without this they had to
+        // retype it in the specifics editor too.
+        val reconciled = AspectSync.reconcileDerived(
+            mapOf("Brand" to listOf("Patagonia")),
+            mapOf("Brand" to AspectSync.Provenance.MANUAL),
+            mapOf("Brand" to listOf("Arc'teryx")),
+        )
+        val (aspects, sources) = AspectSync.applyColumnAuthority(
+            reconciled.first,
+            reconciled.second,
+            derived = mapOf("Brand" to listOf("Arc'teryx")),
+            columnOwned = listOf("Brand"),
+            columnCleared = emptyList(),
+        )
+        assertEquals(listOf("Arc'teryx"), aspects["Brand"])
+        assertEquals(AspectSync.Provenance.INVENTORY_DERIVED, sources["Brand"])
+    }
+
+    @Test
+    fun `a blanked column drops its aspect, and a named one with no value is left alone`() {
+        val (aspects, sources) = AspectSync.applyColumnAuthority(
+            mapOf("Brand" to listOf("Patagonia"), "Size" to listOf("M")),
+            mapOf(
+                "Brand" to AspectSync.Provenance.MANUAL,
+                "Size" to AspectSync.Provenance.MANUAL,
+            ),
+            derived = emptyMap(),
+            columnOwned = listOf("Size"),
+            columnCleared = listOf("Brand"),
+        )
+        assertFalse(aspects.containsKey("Brand"))
+        assertFalse(sources.containsKey("Brand"))
+        // columnCleared is how a removal is asked for — an owned name with no
+        // derived value is not one.
+        assertEquals(listOf("M"), aspects["Size"])
+    }
+
+    @Test
+    fun `the local projection agrees with the server's column authority`() {
+        // Both say the same thing about the same five aspects, so running the
+        // projection after the refill can only re-assert it — never fight it.
+        val refilled = AspectSync.applyColumnAuthority(
+            emptyMap(),
+            emptyMap(),
+            derived = mapOf("Brand" to listOf("Patagonia"), "Size" to listOf("M")),
+            columnOwned = listOf("Brand", "Size"),
+            columnCleared = emptyList(),
+        )
+        val (aspects, sources) = AspectSync.projectColumnAspects(
+            draft, refilled.first, refilled.second,
+        )
+        assertEquals(listOf("Patagonia"), aspects["Brand"])
+        assertEquals(listOf("M"), aspects["Size"])
+        assertEquals(AspectSync.Provenance.INVENTORY_DERIVED, sources["Size"])
+    }
+
     // ── manual edits ─────────────────────────────────────────────────────
 
     @Test

@@ -92,7 +92,10 @@ fun NegotiationInboxScreen(
                 state = state,
                 onAccept = viewModel::accept,
                 onDecline = viewModel::decline,
-                onCounter = { countering = it },
+                onCounter = {
+                    viewModel.clearDraft()
+                    countering = it
+                },
                 modifier = Modifier.weight(1f),
             )
             if (state.showSendOffer) {
@@ -108,7 +111,10 @@ fun NegotiationInboxScreen(
         } else {
             MessagesTab(
                 state = state,
-                onReply = { replyingTo = it },
+                onReply = {
+                    viewModel.clearDraft()
+                    replyingTo = it
+                },
                 modifier = Modifier.weight(1f),
             )
         }
@@ -119,11 +125,16 @@ fun NegotiationInboxScreen(
     countering?.let { offer ->
         CounterDialog(
             offer = offer,
-            working = state.working,
-            onDismiss = { countering = null },
+            state = state,
+            onDismiss = {
+                countering = null
+                viewModel.clearDraft()
+            },
+            onDraft = { typedPrice -> viewModel.draftCounter(offer, typedPrice) },
             onSend = { price, note ->
                 viewModel.counter(offer, price, note)
                 countering = null
+                viewModel.clearDraft()
             },
         )
     }
@@ -131,11 +142,16 @@ fun NegotiationInboxScreen(
     replyingTo?.let { message ->
         ReplyDialog(
             message = message,
-            working = state.working,
-            onDismiss = { replyingTo = null },
+            state = state,
+            onDismiss = {
+                replyingTo = null
+                viewModel.clearDraft()
+            },
+            onDraft = { viewModel.draftReply(message) },
             onSend = { body ->
                 viewModel.reply(message, body)
                 replyingTo = null
+                viewModel.clearDraft()
             },
         )
     }
@@ -317,15 +333,33 @@ private fun MessagesTab(
 @Composable
 private fun CounterDialog(
     offer: BestOffer,
-    working: Boolean,
+    state: NegotiationInboxViewModel.State,
     onDismiss: () -> Unit,
+    onDraft: (String) -> Unit,
     onSend: (String, String?) -> Unit,
 ) {
     var price by remember(offer.bestOfferId) {
         mutableStateOf(offer.price?.let { String.format(java.util.Locale.US, "%.2f", it) }.orEmpty())
     }
     var note by remember(offer.bestOfferId) { mutableStateOf("") }
+    // Held locally so editing the price clears them: the server judged ONE
+    // number, and leaving its verdict on screen next to a different one would
+    // be a warning about a price the seller no longer means.
+    var warnings by remember(offer.bestOfferId) { mutableStateOf(emptyList<String>()) }
     val parsed = NegotiationRules.counterPrice(price)
+
+    LaunchedEffect(state.draft) {
+        val draft = state.draft ?: return@LaunchedEffect
+        // Only ever fills a blank. A price or a note the seller already wrote
+        // is their decision, and the draft is a suggestion.
+        if (price.isBlank()) {
+            draft.suggestedCounter?.let {
+                price = String.format(java.util.Locale.US, "%.2f", it)
+            }
+        }
+        if (note.isBlank()) note = draft.message
+        warnings = draft.warnings
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -334,7 +368,10 @@ private fun CounterDialog(
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                 OutlinedTextField(
                     value = price,
-                    onValueChange = { price = it },
+                    onValueChange = {
+                        price = it
+                        warnings = emptyList()
+                    },
                     label = { Text(stringResource(R.string.negotiation_counter_price)) },
                     prefix = { Text(stringResource(R.string.drafts_currency_prefix)) },
                     singleLine = true,
@@ -343,11 +380,26 @@ private fun CounterDialog(
                     ),
                 )
                 parsed?.let { OutcomeLine(it, offer.itemCost) }
-                if (parsed != null && NegotiationRules.losesMoney(parsed, offer.itemCost)) {
+                // The server's warnings already cover the below-cost counter,
+                // with the asking price in view as well, so the local line
+                // stands down while they are showing rather than saying the
+                // same thing twice in different words.
+                if (warnings.isEmpty() &&
+                    parsed != null &&
+                    NegotiationRules.losesMoney(parsed, offer.itemCost)
+                ) {
                     // Not a block — a seller may well want to cut a loss. It
                     // just must not happen by accident.
                     Text(
                         stringResource(R.string.negotiation_this_counter_below_what_item),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                DraftRow(state = state, onDraft = { onDraft(price) })
+                warnings.forEach {
+                    Text(
+                        it,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -361,7 +413,7 @@ private fun CounterDialog(
         },
         confirmButton = {
             TextButton(
-                enabled = parsed != null && !working,
+                enabled = parsed != null && !state.working,
                 onClick = { onSend(price, note.takeIf { it.isNotBlank() }) },
             ) { Text(stringResource(R.string.negotiation_send_counter)) }
         },
@@ -372,12 +424,23 @@ private fun CounterDialog(
 @Composable
 private fun ReplyDialog(
     message: BuyerMessage,
-    working: Boolean,
+    state: NegotiationInboxViewModel.State,
     onDismiss: () -> Unit,
+    onDraft: () -> Unit,
     onSend: (String) -> Unit,
 ) {
     val unknownBuyer = stringResource(R.string.negotiation_a_buyer)
     var body by remember(message.messageId) { mutableStateOf("") }
+
+    LaunchedEffect(state.draft) {
+        val draft = state.draft ?: return@LaunchedEffect
+        if (body.isBlank()) body = draft.message
+        // The draft's warnings are deliberately NOT shown here. They are the
+        // counter-offer guardrail, judged against an offer price a message
+        // reply does not have, so on this form they would caution about a
+        // number nobody named.
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -389,21 +452,63 @@ private fun ReplyDialog(
             )
         },
         text = {
-            OutlinedTextField(
-                value = body,
-                onValueChange = { body = it },
-                label = { Text(stringResource(R.string.negotiation_reply_2)) },
-                minLines = 3,
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                OutlinedTextField(
+                    value = body,
+                    onValueChange = { body = it },
+                    label = { Text(stringResource(R.string.negotiation_reply_2)) },
+                    minLines = 3,
+                )
+                DraftRow(state = state, onDraft = onDraft)
+            }
         },
         confirmButton = {
             TextButton(
-                enabled = body.isNotBlank() && !working,
+                enabled = body.isNotBlank() && !state.working,
                 onClick = { onSend(body) },
             ) { Text(stringResource(R.string.negotiation_send)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.negotiation_cancel)) } },
     )
+}
+
+/**
+ * US-2494: the deliberate "Draft with AI" press, and whatever came back.
+ *
+ * Deliberate because it spends one of the month's AI actions. The cost is
+ * named on the button rather than discovered afterwards on the usage screen.
+ */
+@Composable
+private fun DraftRow(
+    state: NegotiationInboxViewModel.State,
+    onDraft: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xxs)) {
+        BrandSecondaryButton(
+            text = if (state.drafting) {
+                stringResource(R.string.negotiation_drafting)
+            } else {
+                stringResource(R.string.negotiation_draft_with_ai)
+            },
+            enabled = !state.drafting && !state.working,
+            modifier = Modifier.fillMaxWidth(),
+        ) { onDraft() }
+        Hint(stringResource(R.string.negotiation_draft_costs_one_action))
+        if (state.draftNeedsItem) {
+            Text(
+                stringResource(R.string.negotiation_draft_needs_item),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        state.draftError?.let {
+            Text(
+                it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
 }
 
 @Composable
