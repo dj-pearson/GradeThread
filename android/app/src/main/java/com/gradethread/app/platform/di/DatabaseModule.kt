@@ -21,9 +21,15 @@ import javax.inject.Singleton
 
 /**
  * US-1330: the Room graph. Singleton because [DatabaseProvider.open] runs the
- * corruption-recovery chain and publishes a one-time outcome — opening it
- * per-screen (as `CaptureScreen` does inline) would re-run that probe and can
- * hand different call sites different database instances after a RESET.
+ * corruption-recovery chain and publishes a one-time outcome.
+ *
+ * US-2340: that used to be the ONLY thing holding the one-instance rule, and
+ * three call sites bypassed it — `CaptureScreen` inside a `remember`, and
+ * `UploadWorker` twice — so after a RESET they could hold a different database
+ * than everything wired through Hilt. [DatabaseProvider.open] now memoizes the
+ * default store itself, so the rule holds for callers that never heard of Hilt.
+ * This binding stays: it is still the right way to depend on the database, and
+ * it is what makes the dependency visible in a constructor.
  */
 @Module
 @InstallIn(SingletonComponent::class)

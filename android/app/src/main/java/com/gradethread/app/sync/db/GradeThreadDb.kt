@@ -1,6 +1,7 @@
 package com.gradethread.app.sync.db
 
 import android.content.Context
+import android.database.sqlite.SQLiteDatabaseCorruptException
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -90,22 +91,94 @@ object DatabaseProvider {
     /** One-time notice source for the "local data was reset" banner. */
     val outcome: StateFlow<Outcome?> = outcomeFlow
 
+    /**
+     * US-2340 AC1: the ONE production instance.
+     *
+     * [DatabaseModule] provides this as a Hilt `@Singleton` and its comment says
+     * why - re-running the recovery probe per call site can hand two callers
+     * different instances after a RESET. Three sites bypassed Hilt anyway
+     * (`CaptureScreen` inside a `remember`, and `UploadWorker` twice), so the
+     * guarantee lived in a comment rather than in the code.
+     *
+     * Memoized HERE rather than only fixed at those three, because that is
+     * self-healing: a fourth caller cannot reintroduce the bug by not knowing
+     * about Hilt. Keyed on the default name only - a test opening a custom
+     * `dbName` gets a fresh instance, which is what
+     * `corruptStore_recoversDestructivelyThenWorks` needs.
+     */
+    @Volatile
+    private var instance: GradeThreadDb? = null
+
     fun open(context: Context, dbName: String = GradeThreadDb.DB_NAME): GradeThreadDb {
+        if (dbName != GradeThreadDb.DB_NAME) return openUncached(context, dbName)
+        instance?.let { return it }
+        return synchronized(this) {
+            instance ?: openUncached(context.applicationContext, dbName).also { instance = it }
+        }
+    }
+
+    /**
+     * Forces Room's deferred open to happen NOW, so a bad store fails here
+     * rather than at the first query on some screen.
+     *
+     * Injectable ONLY so the recovery ladder is testable. The first version of
+     * the AC3 test tried to induce a real open failure from the filesystem, and
+     * a sabotage proved it worthless: reverting the fix to "delete on any
+     * failure" left it green, because the open had never failed at all. A seam
+     * that can force a SPECIFIC throwable is the difference between testing the
+     * rule and testing nothing.
+     */
+    internal var probe: (GradeThreadDb) -> Unit = { it.openHelper.readableDatabase }
+
+    /**
+     * True when [error] is SQLite telling us the FILE is damaged, rather than
+     * telling us it could not be opened right now.
+     *
+     * US-2340 AC2, and the distinction is the whole story. Step 2 below deletes
+     * the seller's unsynced captures and queued mutations, and it used to run on
+     * ANY step-1 throw: a locked file, low storage, or a missing migration. The
+     * missing-migration case is the sharpest, because `build()` deliberately
+     * does NOT use `fallbackToDestructiveMigration` - [MIGRATION_1_2]'s comment
+     * says outright that destructive fallback "would silently delete their
+     * unsynced captures and queued mutations". Refusing it in the builder and
+     * then doing it in the catch-all is the same data loss by a longer route.
+     *
+     * Walks the cause chain because Room wraps the driver's exception.
+     */
+    private fun isCorruption(error: Throwable?): Boolean {
+        var cause = error
+        var hops = 0
+        while (cause != null && hops < 8) {
+            if (cause is SQLiteDatabaseCorruptException) return true
+            cause = cause.cause
+            hops++
+        }
+        return false
+    }
+
+    private fun openUncached(context: Context, dbName: String): GradeThreadDb {
         // 1. Normal open. Room defers real file access, so probe with a query.
-        runCatching {
+        val first = runCatching {
             val db = build(context, dbName)
-            db.openHelper.readableDatabase // force the open NOW
+            probe(db) // force the open NOW
             outcomeFlow.value = Outcome.NORMAL
             return db
         }
 
-        // 2. One-time destructive recovery: delete the corrupt store + retry.
-        runCatching {
-            context.deleteDatabase(dbName)
-            val db = build(context, dbName)
-            db.openHelper.readableDatabase
-            outcomeFlow.value = Outcome.RESET
-            return db
+        // 2. Destructive recovery, ONLY for a store SQLite says is corrupt.
+        //    Anything else falls through to step 3 with the file left alone, so
+        //    a transient failure costs this session and not the seller's data.
+        if (isCorruption(first.exceptionOrNull())) {
+            runCatching {
+                context.deleteDatabase(dbName)
+                val db = build(context, dbName)
+                // Deliberately the REAL open, not [probe]. Recovery has to prove
+                // the rebuilt store actually works; running it through a test
+                // seam that just threw would prove the opposite.
+                db.openHelper.readableDatabase
+                outcomeFlow.value = Outcome.RESET
+                return db
+            }
         }
 
         // 3. Ephemeral fallback — never crash on data.
