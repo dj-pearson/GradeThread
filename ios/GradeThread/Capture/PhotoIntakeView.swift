@@ -1017,7 +1017,15 @@ struct PhotoIntakeView: View {
             do {
                 let image = try await camera.capturePhoto()
                 // US-636: compress off the main actor.
-                guard let output = await PhotoCompressor.compressOffMain(image) else {
+                // US-2135: at the slot's own cap. `capturedSlot` is pinned above
+                // precisely so an async hop cannot change which slot this is, and
+                // the cap has to follow the same pinned value - reading the live
+                // active slot here would let a strip tap mid-capture compress a
+                // serial shot at the 1600px default.
+                guard let output = await PhotoCompressor.compressOffMain(
+                    image,
+                    maxLongEdge: capturedSlot.uploadMaxLongEdge
+                ) else {
                     captureError = "Couldn't process the photo. Please try again."
                     return
                 }

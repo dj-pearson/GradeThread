@@ -1450,7 +1450,7 @@ adminBillingRoutes.get("/billing/reconciliation", requireScope("billing:write"),
   // seller subscription, and AC3 exists because conflating the two is the
   // mistake the reconciliation resync already made once (US-2457 AC5) - it
   // adopted a buyer subscription into flipdesk_subscription_id, and the remedy
-  // an operator would reach for next could push a FlipDesk price onto someone's
+  // an operator would reach for next could push a FlipDesk price onto that person
   // Guard plan. Merging these rows would put that same ambiguity on screen.
   //
   // Before this, a buyer whose card failed appeared in NO operator surface at

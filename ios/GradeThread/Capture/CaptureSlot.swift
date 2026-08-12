@@ -113,6 +113,30 @@ public struct CaptureSlot: Hashable, Identifiable, Sendable {
     /// on these (see `AIExtractionManager.waitForRequiredUploads`).
     public var isTagSlot: Bool { type.isTagSlot }
 
+    /// US-2135: the long-edge cap this slot's upload is compressed to.
+    ///
+    /// iOS compresses everything to 1600px, and that was LOWERED there
+    /// deliberately for upload speed on mobile data — a real tradeoff, not an
+    /// oversight, which is why this raises the cap only for the slots where fine
+    /// detail IS the evidence rather than raising it globally.
+    ///
+    /// Mirrors `MACRO_UPLOAD_MAX_WIDTH_PX` in `src/lib/macro-photo-quality.ts`,
+    /// keyed on `serverPhotoType` so the two sides use the same key. The numbers
+    /// are pinned against that file by `src/test/ios-upload-caps-parity.test.ts`
+    /// — two copies of a resolution table drift silently, and the symptom is a
+    /// grader quietly getting less to read on one platform.
+    ///
+    /// Authenticity slots get the most: the tell IS the fine detail — a struck
+    /// serial, a maker's mark, stitch pitch. Sized against the 10MB byte ceiling
+    /// both clients enforce.
+    public var uploadMaxLongEdge: CGFloat {
+        switch serverPhotoType {
+        case "serial", "marking", "surface", "corner", "sole": 3600
+        case "tag", "label", "detail", "defect", "interior", "certificate": 3000
+        default: PhotoCompressor.defaultMaxLongEdge
+        }
+    }
+
     /// True for the defect slots, which reveal one at a time.
     public var isDefect: Bool { PhotoSlotType.defects.contains(type) }
 
