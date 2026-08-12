@@ -41,7 +41,13 @@ class EdgeApiTest {
         server.shutdown()
     }
 
-    private fun api(workspaceOwner: String? = null) = EdgeApi(
+    private fun api(
+        workspaceOwner: String? = null,
+        // US-2496: the cache is off without an owner, so every test that
+        // exercises caching has to say whose cache it is. Defaulted here to a
+        // signed-in personal tenant, which is the ordinary case.
+        cacheOwner: String? = "user-a",
+    ) = EdgeApi(
         baseUrl = server.url("/").toString().removeSuffix("/"),
         client = OkHttpClient(),
         tokenProvider = { token },
@@ -52,6 +58,7 @@ class EdgeApiTest {
         workspaceOwnerProvider = { workspaceOwner },
         onPlanGate = { gates += it },
         onPlanWarning = { warnings += it },
+        cacheOwnerProvider = { cacheOwner },
         sleeper = { /* no real sleeping in tests */ },
     )
 
@@ -210,6 +217,75 @@ class EdgeApiTest {
         assertEquals("""{"n":1}""", a.getRaw("/api/list", cacheTtlMillis = 60_000))
         assertEquals("""{"n":1}""", a.getRaw("/api/list", cacheTtlMillis = 60_000))
         assertEquals(1, server.requestCount)
+    }
+
+    /**
+     * US-2496: the same path, the same query, a different tenant - a different
+     * answer. `GET /api/flipdesk/photo-profiles` is served per
+     * `workspaceOwnerId ?? userId`, so an account-blind key handed the second
+     * seller on a device the first seller's entitlement.
+     */
+    @Test
+    fun cachedGet_isNotSharedAcrossOwners() = runTest {
+        server.enqueue(MockResponse().setBody("""{"owner":"a"}"""))
+        server.enqueue(MockResponse().setBody("""{"owner":"b"}"""))
+
+        val a = api(cacheOwner = "user-a")
+        val b = api(cacheOwner = "user-b")
+        assertEquals("""{"owner":"a"}""", a.getRaw("/api/profiles", cacheTtlMillis = 60_000))
+        assertEquals("""{"owner":"b"}""", b.getRaw("/api/profiles", cacheTtlMillis = 60_000))
+        assertEquals(2, server.requestCount)
+    }
+
+    /**
+     * The SAME instance across a workspace switch - the shape a singleton
+     * EdgeApi actually meets, since the instance outlives the selection.
+     */
+    @Test
+    fun cachedGet_reFetchesWhenTheActiveOwnerChanges() = runTest {
+        server.enqueue(MockResponse().setBody("""{"owner":"personal"}"""))
+        server.enqueue(MockResponse().setBody("""{"owner":"team"}"""))
+
+        var owner = "user-a"
+        val shared = EdgeApi(
+            baseUrl = server.url("/").toString().removeSuffix("/"),
+            client = OkHttpClient(),
+            tokenProvider = { token },
+            tokenRefresher = { null },
+            cacheOwnerProvider = { owner },
+            sleeper = {},
+        )
+        assertEquals("""{"owner":"personal"}""", shared.getRaw("/api/profiles", cacheTtlMillis = 60_000))
+        owner = "team-owner"
+        assertEquals("""{"owner":"team"}""", shared.getRaw("/api/profiles", cacheTtlMillis = 60_000))
+        assertEquals(2, server.requestCount)
+    }
+
+    /** No tenant, no caching: an unscoped key is one somebody else can read. */
+    @Test
+    fun cachedGet_doesNotCacheWithoutAnOwner() = runTest {
+        server.enqueue(MockResponse().setBody("""{"n":1}"""))
+        server.enqueue(MockResponse().setBody("""{"n":2}"""))
+        val a = api(cacheOwner = null)
+        assertEquals("""{"n":1}""", a.getRaw("/api/list", cacheTtlMillis = 60_000))
+        assertEquals("""{"n":2}""", a.getRaw("/api/list", cacheTtlMillis = 60_000))
+        assertEquals(2, server.requestCount)
+    }
+
+    /**
+     * The retention half. The key already stops the WRONG ANSWER being served;
+     * this is about not holding the previous account's bytes in memory for an
+     * hour after they sign out.
+     */
+    @Test
+    fun clearAllResponseCaches_dropsEveryInstancesEntries() = runTest {
+        server.enqueue(MockResponse().setBody("""{"n":1}"""))
+        server.enqueue(MockResponse().setBody("""{"n":2}"""))
+        val a = api()
+        assertEquals("""{"n":1}""", a.getRaw("/api/list", cacheTtlMillis = 60_000))
+        EdgeApi.clearAllResponseCaches()
+        assertEquals("""{"n":2}""", a.getRaw("/api/list", cacheTtlMillis = 60_000))
+        assertEquals(2, server.requestCount)
     }
 
     @Test

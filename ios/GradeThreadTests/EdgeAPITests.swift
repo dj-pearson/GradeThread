@@ -20,7 +20,13 @@ final class EdgeAPITests: XCTestCase {
         // production, where `tokenProvider` reflects the token the refresher just
         // minted (SupabaseShared.refreshAccessToken updates the session the
         // provider reads). Required to assert the retry carries the FRESH token.
-        tokenProvider: (@Sendable () async -> String?)? = nil
+        tokenProvider: (@Sendable () async -> String?)? = nil,
+        // US-2496: the response cache is OFF without a resolvable tenant, so a
+        // test that exercises caching has to say whose cache it is. There is no
+        // Supabase session in the test process, and the production default
+        // resolves one, so passing this is what keeps the cache tests testing a
+        // cache rather than silently testing nothing.
+        cacheTenant: String? = "tenant-a"
     ) -> EdgeAPI {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [MockURLProtocol.self]
@@ -29,7 +35,8 @@ final class EdgeAPITests: XCTestCase {
             baseURL: URL(string: "https://example.test")!,
             session: session,
             tokenProvider: tokenProvider ?? { token },
-            tokenRefresher: tokenRefresher
+            tokenRefresher: tokenRefresher,
+            cacheTenantProvider: { cacheTenant }
         )
     }
 
@@ -692,6 +699,46 @@ final class EdgeAPITests: XCTestCase {
 
         let stats = await api.cacheStatsForTesting()
         XCTAssertEqual(stats.entries, 1, "Expired entry should have been purged on the fresh insert")
+    }
+
+    // MARK: - Response cache tenant scoping (US-2496)
+
+    /// The same path, the same query, a different tenant - a different answer.
+    /// `GET /api/flipdesk/photo-profiles` is served per `workspaceOwnerId ??
+    /// userId`, so a key that separated only WORKSPACES handed the second seller
+    /// on a shared phone the first seller's entitlement.
+    func test_responseCache_isNotSharedAcrossTenants() async throws {
+        let calls = CallBox()
+        MockURLProtocol.handler = { request in
+            _ = calls.next()
+            return (
+                HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1",
+                    headerFields: ["Content-Type": "application/json"]
+                )!,
+                Data(#"{"id":"x","title":"y","created_at":"2026-01-01T00:00:00Z"}"#.utf8)
+            )
+        }
+
+        let first = makeAPI(cacheTenant: "owner-a")
+        let second = makeAPI(cacheTenant: "owner-b")
+        let _: Item = try await first.getJSON("/api/flipdesk/photo-profiles", cacheTTL: 60)
+        let _: Item = try await first.getJSON("/api/flipdesk/photo-profiles", cacheTTL: 60)
+        XCTAssertEqual(calls.count, 1, "Same tenant, same key - the second read is a hit")
+
+        let _: Item = try await second.getJSON("/api/flipdesk/photo-profiles", cacheTTL: 60)
+        XCTAssertEqual(calls.count, 2, "A different tenant must not read the first tenant's entry")
+    }
+
+    /// No resolvable tenant, no caching. An unscoped key is one somebody else
+    /// can read, and the hit rate is not worth that.
+    func test_responseCache_doesNotStoreWithoutATenant() async throws {
+        MockURLProtocol.handler = cachedItemHandler()
+        let api = makeAPI(cacheTenant: nil)
+
+        let _: Item = try await api.getJSON("/api/v1/items/1", cacheTTL: 60)
+        let stats = await api.cacheStatsForTesting()
+        XCTAssertEqual(stats.entries, 0, "A response with no tenant must not be cached at all")
     }
 
     // MARK: - Helpers

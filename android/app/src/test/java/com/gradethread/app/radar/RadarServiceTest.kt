@@ -47,6 +47,12 @@ class RadarServiceTest {
             // needs the error the caller sees.
             onPlanGate = { },
             sleeper = { /* no real sleeping in tests */ },
+            // US-2496: the response cache is keyed on the workspace owner and a
+            // null owner means NO caching, fail-closed. Without one here the
+            // "panning back is free" case below would exercise a cache that
+            // never stored anything and pass for the wrong reason on the day
+            // someone broke quantizing.
+            cacheOwnerProvider = { "owner-1" },
         ),
     )
 

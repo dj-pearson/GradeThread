@@ -18,6 +18,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import javax.inject.Named
 import javax.inject.Singleton
 
@@ -37,6 +38,22 @@ object NetworkModule {
     fun provideSupabaseClient(@ApplicationContext context: Context): SupabaseClient =
         SupabaseShared.client(context)
 
+    /**
+     * US-2496: who a cached response belongs to.
+     *
+     * The workspace owner when one is selected, else the signed-in user - the
+     * same `workspaceOwnerId ?? userId` the edge resolves an entitlement for,
+     * which is what makes it the right dimension for the cache key. The
+     * workspace owner ALONE is not enough: it is null in the personal
+     * workspace, so two different sellers signing into the same phone would
+     * share one key.
+     *
+     * Null while signed out, which the cache reads as "do not cache".
+     */
+    private fun tenantOwnerProvider(client: SupabaseClient): () -> String? = {
+        client.auth.currentUserOrNull()?.id?.let(WorkspaceScope::tenantOwnerId)
+    }
+
     @Provides
     @Singleton
     @Named("shared")
@@ -47,6 +64,7 @@ object NetworkModule {
         tokenRefresher = client.edgeTokenRefresher(),
         workspaceOwnerProvider = { WorkspaceScope.activeOwnerId },
         onWorkspaceRevoked = WorkspaceScope::handleAccessRevoked,
+        cacheOwnerProvider = tenantOwnerProvider(client),
     )
 
     /**
@@ -70,11 +88,19 @@ object NetworkModule {
      * that the fetch happens once. A per-screen instance would re-fetch on
      * every navigation and, worse, a screen that failed the fetch would sit on
      * the bundled fallback while the one next to it showed the real table.
+     *
+     * US-2496: process-wide outlives the account, so the table is STAMPED with
+     * the tenant it was fetched for. Without that, the singleton is the bug: it
+     * would hand the next account on this phone the previous one's profile
+     * table, which encodes an entitlement (the authenticity macros) and so
+     * genuinely differs between sellers.
      */
     @Provides
     @Singleton
-    fun providePhotoProfileStore(@Named("shared") api: EdgeApi): PhotoProfileStore =
-        PhotoProfileStore(api)
+    fun providePhotoProfileStore(
+        @Named("shared") api: EdgeApi,
+        client: SupabaseClient,
+    ): PhotoProfileStore = PhotoProfileStore(api, tenantOwnerProvider(client))
 
     @Provides
     @Singleton
@@ -92,5 +118,6 @@ object NetworkModule {
         tokenRefresher = client.edgeTokenRefresher(),
         workspaceOwnerProvider = { WorkspaceScope.activeOwnerId },
         onWorkspaceRevoked = WorkspaceScope::handleAccessRevoked,
+        cacheOwnerProvider = tenantOwnerProvider(client),
     )
 }

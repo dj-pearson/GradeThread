@@ -119,21 +119,63 @@ public struct PhotoProfile: Decodable, Hashable, Identifiable {
 /// Fetches + caches the photo-profile table. Static config → a single fetch
 /// per session (server-cached too). Falls back to the bundled profiles when
 /// the network is unavailable so callers can always resolve a profile.
+///
+/// US-2496: the table is NOT account-blind. `GET /api/flipdesk/photo-profiles`
+/// answers per `workspaceOwnerId ?? userId` - a seller who cannot use the
+/// authenticity add-on is served fewer roles - so a table fetched for one tenant
+/// is the wrong answer for the next one. This store is created once in
+/// ``GradeThreadApp`` and outlives both a sign-out and a workspace switch, so
+/// the table carries the owner it was fetched FOR and is only ever handed back
+/// to that owner. A stale table reads as "not loaded": callers get the bundled
+/// fallback and the next ``loadIfNeeded()`` refetches.
+///
+/// The stamp is the mechanism deliberately, rather than a reset called from the
+/// sign-out and workspace-switch paths. A stamp cannot be forgotten by a future
+/// exit path, and this cache has three of them already (sign-out, workspace
+/// switch, and the involuntary switch when a membership is revoked mid-session).
 @MainActor
 @Observable
 public final class PhotoProfileStore {
-    public private(set) var profiles: [String: PhotoProfile] = PhotoProfile.bundledFallback
-    private var loaded = false
+    /// A loaded table plus the tenant it was loaded for.
+    private struct Loaded {
+        let owner: String
+        let profiles: [String: PhotoProfile]
+    }
 
-    public init() {}
+    private var loaded: Loaded?
+    private let ownerProvider: @MainActor () -> String?
+
+    /// The server table when it belongs to the CURRENT tenant, else the bundled
+    /// fallback. Checked on every read rather than only at load time, because
+    /// the surfaces that display a profile (the item canvas, the photo manager)
+    /// do not all call ``loadIfNeeded()`` first - a check that only ran on load
+    /// would leave them showing the previous account's table until capture was
+    /// opened.
+    public var profiles: [String: PhotoProfile] {
+        guard let owner = ownerProvider(), let loaded, loaded.owner == owner else {
+            return PhotoProfile.bundledFallback
+        }
+        return loaded.profiles
+    }
+
+    /// - Parameter ownerProvider: active workspace owner, else the signed-in
+    ///   user; nil when signed out. Injectable for previews and tests.
+    public init(
+        ownerProvider: @escaping @MainActor () -> String? = {
+            WorkspaceScope.activeOwnerId ?? SupabaseShared.client.auth.currentUser?.id.uuidString
+        }
+    ) {
+        self.ownerProvider = ownerProvider
+    }
 
     /// Resolves the profile for an `item_category`, falling back to clothing
     /// (the historical default) for null/unknown categories.
     public func profile(for category: String?) -> PhotoProfile {
-        if let category, let match = profiles[category] {
+        let table = profiles
+        if let category, let match = table[category] {
             return match
         }
-        return profiles["clothing"] ?? PhotoProfile.clothingFallback
+        return table["clothing"] ?? PhotoProfile.clothingFallback
     }
 
     /// US-2468: resolves the profile for an item, consulting the free-text
@@ -146,30 +188,39 @@ public final class PhotoProfileStore {
     /// `items_full` has no item_category column at all, so the free-text word
     /// is often the only category signal a caller actually has.
     public func profile(for category: String?, garment: String?) -> PhotoProfile {
-        if let category, category != "clothing", let match = profiles[category] {
+        // One snapshot for the whole resolution: re-reading the tenant between
+        // the lookups could mix two tables in one answer.
+        let table = profiles
+        if let category, category != "clothing", let match = table[category] {
             return match
         }
         let group = GarmentGroup.from(garment ?? category)
-        if let key = group.itemCategoryProfileKey, let match = profiles[key] {
+        if let key = group.itemCategoryProfileKey, let match = table[key] {
             return match
         }
-        return profiles[group.clothingProfileKey]
-            ?? profiles["clothing"]
+        return table[group.clothingProfileKey]
+            ?? table["clothing"]
             ?? PhotoProfile.clothingFallback
     }
 
-    /// Loads the table from the edge once. Safe to call repeatedly.
+    /// Loads the table from the edge once PER TENANT. Safe to call repeatedly.
+    /// Signed out there is no tenant to load for, so this is a no-op and callers
+    /// keep the bundled fallback.
     public func loadIfNeeded() async {
-        guard !loaded else { return }
+        guard let owner = ownerProvider() else { return }
+        guard loaded?.owner != owner else { return }
         struct Wrapper: Decodable { let profiles: [String: PhotoProfile] }
         do {
             let resp: Wrapper = try await EdgeAPI.shared.getJSON(
                 "/api/flipdesk/photo-profiles",
                 cacheTTL: 3600
             )
+            // Stamped with the owner resolved BEFORE the request. A switch that
+            // landed mid-flight leaves this table stamped for the tenant it was
+            // actually fetched for, so the new tenant reads it as stale and
+            // refetches - rather than inheriting an answer meant for someone else.
             if !resp.profiles.isEmpty {
-                profiles = resp.profiles
-                loaded = true
+                loaded = Loaded(owner: owner, profiles: resp.profiles)
             }
         } catch {
             // Keep the bundled fallback — non-fatal; we retry next launch.

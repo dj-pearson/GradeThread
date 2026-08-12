@@ -164,4 +164,21 @@ public enum SupabaseShared {
             return classifyTokenError(error)
         }
     }
+
+    /// US-2496: the tenant whose data a cached response belongs to - the active
+    /// workspace owner when one is selected, else the signed-in user.
+    ///
+    /// The workspace owner ALONE is not enough: it is nil in the personal
+    /// workspace, so two sellers signing into the same phone would share one
+    /// cache key. This mirrors `workspaceOwnerId ?? userId`, which is how the
+    /// edge decides what to answer, and `WorkspaceScope.tenantOwnerId(selfId:)`,
+    /// which is how the sync layer scopes a read.
+    ///
+    /// Returns nil when there is no session, or when the session read fails -
+    /// the caller must treat that as "do not cache" rather than substituting a
+    /// shared placeholder.
+    public static func cacheTenantId() async -> String? {
+        if let owner = WorkspaceScope.activeOwnerId { return owner }
+        return try? await client.auth.session.user.id.uuidString
+    }
 }

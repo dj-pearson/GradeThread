@@ -14,6 +14,11 @@ struct ContentView: View {
     /// US-984: shared BG-refresh service; we hand it the live SyncEngine below
     /// so the background task can await the real pull instead of a fixed sleep.
     @Environment(\.backgroundRefreshService) private var backgroundRefreshService
+    /// US-2496: the photo-profile table is per-tenant, and this view owns both
+    /// boundaries that change the tenant. Optional because the `#Preview` at the
+    /// bottom of this file builds a ContentView with no environment, and the
+    /// non-optional form traps rather than returning nil.
+    @Environment(PhotoProfileStore.self) private var photoProfileStore: PhotoProfileStore?
 
     @State private var authStore = AuthStore()
     @State private var networkMonitor = NetworkMonitor()
@@ -111,6 +116,11 @@ struct ContentView: View {
                 case .signedIn(let user):
                     startSyncEngineIfNeeded()
                     startRealtimeIfNeeded(userId: user.id.uuidString)
+                    // US-2496: refetch the photo-profile table for THIS account.
+                    // The store already refuses to serve another tenant's table,
+                    // so this is about warming the right one now rather than at
+                    // whichever screen next happens to ask for it.
+                    Task { await photoProfileStore?.loadIfNeeded() }
                     // US-1156: replay a deep link that arrived during sign-in.
                     if let queued = pendingDeepLink.take() { handleDeepLink(queued) }
                 case .signedOut:
@@ -204,6 +214,10 @@ struct ContentView: View {
                     // US-1647: flush the tenant-keyed EdgeAPI response cache for
                     // the workspace we're leaving.
                     await EdgeAPI.shared.clearCache()
+                    // US-2496: and refetch the photo-profile table, which is
+                    // served per `workspaceOwnerId ?? userId` - the workspace we
+                    // just moved into may not have the same entitlement.
+                    await photoProfileStore?.loadIfNeeded()
                     // US-1211 AC3: drain the prior workspace's queued writes BEFORE
                     // re-scoping so a mutation queued under the old workspace can't
                     // carry into the new workspace's first sync pass. flushPending

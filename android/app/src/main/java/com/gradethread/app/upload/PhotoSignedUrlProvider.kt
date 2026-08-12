@@ -109,9 +109,10 @@ class PhotoSignedUrlProvider(
      * query string, so the PREVIOUS user's private grading-label photos must
      * not stay fetchable for up to a TTL on a shared device.
      *
-     * Register [signOutClearance] in `SessionScope.Hooks.clearances` when the
-     * composition root that assembles those hooks lands — SessionScope has no
-     * caller yet, so this is not wired anywhere today.
+     * US-2496: wired at last, as [signOutClearance] in the
+     * `SessionScope.Hooks.clearances` that `SettingsViewModel.confirmSignOut`
+     * assembles. It sat here unreferenced from US-1329 to US-2496 waiting for a
+     * composition root that had in fact already landed.
      */
     suspend fun clearCache() {
         mutex.withLock { cache.clear() }

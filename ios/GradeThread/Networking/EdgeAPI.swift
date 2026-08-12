@@ -76,6 +76,11 @@ public actor EdgeAPI {
     /// tests can capture the signal; defaults route to ``PlanGateNotifier``.
     private let onPlanGate: @Sendable (PlanGateError) -> Void
     private let onPlanWarning: @Sendable (PlanWarning) -> Void
+    /// US-2496: the tenant a cached response belongs to (workspace owner, else
+    /// the signed-in user). nil means the tenant could not be resolved, and
+    /// then nothing is read from or written to the cache. Injectable so the
+    /// hermetic tests can exercise the cache without a Supabase session.
+    private let cacheTenantProvider: @Sendable () async -> String?
 
     /// US-638: bounded retry budget for transient failures (network / 5xx).
     private static let maxRetries = 2
@@ -117,7 +122,10 @@ public actor EdgeAPI {
         decoder: JSONDecoder = .iso8601,
         encoder: JSONEncoder = .iso8601,
         onPlanGate: @escaping @Sendable (PlanGateError) -> Void = PlanGateNotifier.publish,
-        onPlanWarning: @escaping @Sendable (PlanWarning) -> Void = PlanGateNotifier.publishWarning
+        onPlanWarning: @escaping @Sendable (PlanWarning) -> Void = PlanGateNotifier.publishWarning,
+        cacheTenantProvider: @escaping @Sendable () async -> String? = {
+            await SupabaseShared.cacheTenantId()
+        }
     ) {
         self.baseURL = baseURL
         self.session = session
@@ -127,6 +135,7 @@ public actor EdgeAPI {
         self.encoder = encoder
         self.onPlanGate = onPlanGate
         self.onPlanWarning = onPlanWarning
+        self.cacheTenantProvider = cacheTenantProvider
     }
 
     /// US-805: inspect a response for plan-gate signals — an 80% soft-warn
@@ -382,13 +391,27 @@ public actor EdgeAPI {
         cacheTTL: TimeInterval = 0
     ) async throws -> Data {
         // US-1647: tenant-key the cache so a cached GET can NEVER serve a
-        // different tenant after a sign-out / workspace switch (latent today —
-        // no tenant-scoped GET is cached yet — but the key must be correct
-        // before one is). Pairs with clearCache() on sign-out / workspace switch.
-        let cacheTenant = WorkspaceScope.activeOwnerId ?? "personal"
-        let cacheKey = "\(cacheTenant)|\(method) \(path)?\(Self.canonicalQuery(query))"
+        // different tenant after a sign-out / workspace switch. Pairs with
+        // clearCache() on sign-out / workspace switch.
+        //
+        // US-2496: the tenant is no longer `activeOwnerId ?? "personal"`. That
+        // key separated workspaces but not ACCOUNTS - every personal workspace
+        // on a device shared the literal "personal", so two sellers signing into
+        // the same phone had one key, and only the clearCache() wiring stood
+        // between them. It is now the same `workspaceOwnerId ?? userId` the edge
+        // resolves an entitlement for (photo-profiles is served per that), and
+        // an unresolvable tenant means NO caching rather than a shared bucket.
+        //
+        // Resolved once, before the request, and used for both the read and the
+        // write: resolving twice would file a response under a tenant it was not
+        // fetched for if a switch landed mid-request.
+        var cacheTenant: String?
+        if cacheTTL > 0 { cacheTenant = await cacheTenantProvider() }
+        let cacheKey = cacheTenant.map {
+            "\($0)|\(method) \(path)?\(Self.canonicalQuery(query))"
+        }
         // Serve fresh idempotent GETs from cache (US-638).
-        if cacheTTL > 0, method == "GET", let cached = cacheLookup(cacheKey) {
+        if let cacheKey, method == "GET", let cached = cacheLookup(cacheKey) {
             return cached
         }
 
@@ -436,7 +459,7 @@ public actor EdgeAPI {
                     }
                     throw mapped
                 }
-                if cacheTTL > 0, method == "GET" {
+                if let cacheKey, method == "GET" {
                     cacheStore(cacheKey, data: data, ttl: cacheTTL)
                 }
                 return data
@@ -551,16 +574,20 @@ public actor EdgeAPI {
 
     // MARK: - Response cache (US-995)
 
-    /// Returns the cached bytes for `key` when a fresh entry exists, refreshing
     /// US-1647: flush the entire response cache. Called on sign-out and on a
-    /// workspace switch so cached GETs never persist across tenants at rest
-    /// (the cache is also tenant-keyed, so this is defense in depth + reclaims
-    /// memory the previous tenant's responses held).
+    /// workspace switch.
+    ///
+    /// US-2496: this is DATA RETENTION, not correctness. The tenant-keyed key
+    /// above is what stops one account being served another's answer; what it
+    /// cannot do is release the previous account's response bytes, which sit in
+    /// memory until their TTL runs out. Two separate jobs - do not delete
+    /// either one thinking it duplicates the other.
     public func clearCache() {
         responseCache.removeAll()
         responseCacheBytes = 0
     }
 
+    /// Returns the cached bytes for `key` when a fresh entry exists, refreshing
     /// its LRU stamp. Expired entries are removed eagerly (not just skipped).
     private func cacheLookup(_ key: String) -> Data? {
         guard let entry = responseCache[key] else { return nil }

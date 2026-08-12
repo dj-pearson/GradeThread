@@ -138,24 +138,57 @@ data class PhotoProfile(
  * Fetches + caches the profile table; a single fetch per session (the edge
  * caches server-side too). Bundled profiles guarantee callers can ALWAYS
  * resolve a profile — a fetch failure is non-fatal and retries next session.
+ *
+ * US-2496: the table is NOT account-blind. `GET /api/flipdesk/photo-profiles`
+ * answers per `workspaceOwnerId ?? userId` - a seller who cannot use the
+ * authenticity add-on is served fewer roles - so a table fetched for one tenant
+ * is the wrong answer for the next one. This store is a process-wide singleton
+ * that outlives both a sign-out and a workspace switch, so the table carries
+ * the owner it was fetched FOR ([ownerProvider]) and is only ever handed back
+ * to that owner. A stale table reads as "not loaded": callers get the bundled
+ * fallback and the next [loadIfNeeded] refetches.
+ *
+ * The stamp is the mechanism deliberately, rather than a reset called from the
+ * sign-out and switch paths. A stamp cannot be forgotten by a future exit path,
+ * and this cache has three of them already (sign-out, workspace switch, and the
+ * involuntary switch when a membership is revoked mid-session).
  */
-class PhotoProfileStore(private val api: EdgeApi) {
+class PhotoProfileStore(
+    private val api: EdgeApi,
+    /** Active workspace owner, else the signed-in user; null when signed out. */
+    private val ownerProvider: () -> String? = { null },
+) {
 
     @Serializable
     internal data class Wrapper(val profiles: Map<String, PhotoProfile>)
 
-    @Volatile
-    private var profiles: Map<String, PhotoProfile> = PhotoProfile.bundledFallback
+    /** A loaded table plus the tenant it was loaded for. */
+    private class Loaded(val owner: String?, val profiles: Map<String, PhotoProfile>)
 
     @Volatile
-    private var loaded = false
+    private var loaded: Loaded? = null
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /**
+     * The server table when it belongs to the CURRENT tenant, else the bundled
+     * fallback. Checked on every read rather than only at load time, because
+     * the surfaces that display a profile (retag, the photo manager) do not all
+     * call [loadIfNeeded] first - a check that only ran on load would leave
+     * them showing the previous account's table until capture was opened.
+     */
+    private val profiles: Map<String, PhotoProfile>
+        get() {
+            val owner = ownerProvider() ?: return PhotoProfile.bundledFallback
+            return loaded?.takeIf { it.owner == owner }?.profiles
+                ?: PhotoProfile.bundledFallback
+        }
+
     /** Clothing is the historical default for null/unknown categories. */
     fun profileFor(category: String?): PhotoProfile {
-        category?.let { profiles[it] }?.let { return it }
-        return profiles["clothing"] ?: PhotoProfile.clothingFallback
+        val table = profiles
+        category?.let { table[it] }?.let { return it }
+        return table["clothing"] ?: PhotoProfile.clothingFallback
     }
 
     /**
@@ -174,32 +207,37 @@ class PhotoProfileStore(private val api: EdgeApi) {
      * because it says "clothing" for both.
      */
     fun profileFor(category: String?, garment: String?): PhotoProfile {
+        // One snapshot for the whole resolution: re-reading the tenant between
+        // the lookups could mix two tables in one answer.
+        val table = profiles
         // An explicit, known item_category wins outright.
         if (!category.isNullOrEmpty() && category != "clothing") {
-            profiles[category]?.let { return it }
+            table[category]?.let { return it }
         }
         val group = GarmentGroup.from(garment ?: category)
-        group.itemCategoryProfileKey?.let { key -> profiles[key]?.let { return it } }
-        profiles[group.clothingProfileKey]?.let { return it }
+        group.itemCategoryProfileKey?.let { key -> table[key]?.let { return it } }
+        table[group.clothingProfileKey]?.let { return it }
         return profileFor(category)
     }
 
-    /** Load once from the edge (1h TTL cache); safe to call repeatedly. */
+    /**
+     * Load once PER TENANT from the edge (1h TTL cache); safe to call
+     * repeatedly. Signed out there is no tenant to load for, so this is a no-op
+     * and callers keep the bundled fallback.
+     */
     suspend fun loadIfNeeded() {
-        if (loaded) return
+        val owner = ownerProvider() ?: return
+        if (loaded?.owner == owner) return
         runCatching {
             val body = api.getRaw("/api/flipdesk/photo-profiles", cacheTtlMillis = 3_600_000)
             val wrapper = json.decodeFromString(Wrapper.serializer(), body)
+            // Stamped with the owner resolved BEFORE the request. A switch that
+            // landed mid-flight leaves this table stamped for the tenant it was
+            // actually fetched for, so the new tenant reads it as stale and
+            // refetches - rather than inheriting an answer meant for someone else.
             if (wrapper.profiles.isNotEmpty()) {
-                profiles = wrapper.profiles
-                loaded = true
+                loaded = Loaded(owner, wrapper.profiles)
             }
         } // failure keeps the bundled fallback — retry next session
-    }
-
-    /** Test seam. */
-    internal fun installForTest(table: Map<String, PhotoProfile>) {
-        profiles = table
-        loaded = true
     }
 }

@@ -18,12 +18,22 @@ import com.gradethread.app.platform.net.EdgeApi
  */
 class PhotoProfileTest {
 
-    private fun api(server: MockWebServer) = EdgeApi(
+    /**
+     * US-2496: the owner is a PROVIDER, not a fixed value, because the store
+     * and the EdgeApi under it are both singletons that outlive the account -
+     * the tests have to be able to move the tenant under a live instance.
+     */
+    private fun api(server: MockWebServer, owner: () -> String? = { "user-a" }) = EdgeApi(
         baseUrl = server.url("/").toString().trimEnd('/'),
         client = OkHttpClient(),
         tokenProvider = { "token" },
         tokenRefresher = { "token" },
+        cacheOwnerProvider = owner,
     )
+
+    /** A store for one signed-in tenant. US-2496: there is no tenant-less one. */
+    private fun newStore(server: MockWebServer, owner: () -> String? = { "user-a" }) =
+        PhotoProfileStore(api(server, owner), owner)
 
     // ── Model mapping ──
 
@@ -77,7 +87,7 @@ class PhotoProfileTest {
     fun unknownOrNullCategory_fallsBackToClothing() = runTest {
         val server = MockWebServer()
         server.start()
-        val store = PhotoProfileStore(api(server))
+        val store = newStore(server)
         assertEquals("clothing", store.profileFor(null).category)
         assertEquals("clothing", store.profileFor("weird-category").category)
         assertEquals("other", store.profileFor("other").category)
@@ -96,7 +106,7 @@ class PhotoProfileTest {
                    ]}}}""",
             ),
         )
-        val store = PhotoProfileStore(api(server))
+        val store = newStore(server)
         store.loadIfNeeded()
 
         // AC2: labels/hints update per category once the table lands.
@@ -115,13 +125,74 @@ class PhotoProfileTest {
         val server = MockWebServer()
         server.start()
         server.enqueue(MockResponse().setResponseCode(500).setBody("{}"))
-        val store = PhotoProfileStore(api(server))
+        val store = newStore(server)
         store.loadIfNeeded()
         // Still resolvable — capture never blocks on the network.
         assertEquals("clothing", store.profileFor("clothing").category)
         assertFalse(store.profileFor(null).roles.isEmpty())
         server.shutdown()
     }
+
+    // -- Tenant boundary (US-2496) --
+
+    /**
+     * The store is a process-wide singleton, so the SAME instance sees the
+     * sign-out and the next sign-in. The table it holds encodes an entitlement
+     * (the authenticity macros are dropped for a seller who cannot use them),
+     * so serving the previous account's table to the next one is a wrong
+     * answer, not a stale one.
+     */
+    @Test
+    fun tableIsNotServedToAnotherTenant() = runTest {
+        val server = MockWebServer()
+        server.start()
+        server.enqueue(MockResponse().setBody(watchTable))
+
+        var owner: String? = "user-a"
+        val store = newStore(server) { owner }
+        store.loadIfNeeded()
+        assertEquals("Watches", store.profileFor("watch").label)
+
+        // Sign out: nothing to serve, and nothing to load for.
+        owner = null
+        assertEquals("clothing", store.profileFor("watch").category)
+        store.loadIfNeeded()
+        assertEquals(1, server.requestCount)
+
+        // A different seller on the same phone reads the bundled fallback until
+        // their own table lands - never user-a's.
+        owner = "user-b"
+        assertEquals("clothing", store.profileFor("watch").category)
+
+        server.enqueue(MockResponse().setBody(watchTable))
+        store.loadIfNeeded()
+        assertEquals(2, server.requestCount)
+        assertEquals("Watches", store.profileFor("watch").label)
+        server.shutdown()
+    }
+
+    /** A workspace switch changes the owner, so it refetches like a sign-in. */
+    @Test
+    fun workspaceSwitchRefetchesTheTable() = runTest {
+        val server = MockWebServer()
+        server.start()
+        server.enqueue(MockResponse().setBody(watchTable))
+        server.enqueue(MockResponse().setBody(watchTable))
+
+        var owner = "user-a"
+        val store = newStore(server) { owner }
+        store.loadIfNeeded()
+        store.loadIfNeeded()
+        assertEquals(1, server.requestCount)
+
+        owner = "team-owner-id"
+        store.loadIfNeeded()
+        assertEquals(2, server.requestCount)
+        server.shutdown()
+    }
+
+    private val watchTable = """{"profiles":{"watch":{"category":"watch","label":"Watches",
+        "roles":[{"type":"front","label":"Face","hint":"Dial","required":true,"icon":"watch"}]}}}"""
 
     @Test
     fun wireDecode_toleratesUnknownJsonKeys() {

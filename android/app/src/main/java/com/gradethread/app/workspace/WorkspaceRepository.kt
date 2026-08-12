@@ -1,5 +1,6 @@
 package com.gradethread.app.workspace
 
+import com.gradethread.app.platform.net.EdgeApi
 import com.gradethread.app.platform.telemetry.Telemetry
 import com.gradethread.app.platform.workspace.WorkspaceScope
 import com.gradethread.app.sync.MutationReplayer
@@ -106,6 +107,11 @@ class WorkspaceSwitcher @Inject constructor(
         if (scoped == WorkspaceScope.activeOwnerId) return
 
         WorkspaceScope.setActive(scoped)
+        // US-2496: the edge response cache is keyed by the tenant, so the new
+        // workspace already cannot READ the old one's cached answers. This is
+        // the retention half: the workspace being left holds response bodies in
+        // memory for up to their TTL, and a switch is the moment to let them go.
+        EdgeApi.clearAllResponseCaches()
         sessionScope.switchWorkspace(
             newOwnerId = ownerId,
             hooks = SessionScope.Hooks(

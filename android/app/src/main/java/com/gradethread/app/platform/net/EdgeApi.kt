@@ -57,6 +57,24 @@ class EdgeApi(
      *  revoked — the scope layer drops the stale selection; the error still
      *  surfaces to the caller. */
     private val onWorkspaceRevoked: () -> Unit = {},
+    /**
+     * US-2496: the tenant a cached GET belongs to - the active workspace owner
+     * when one is selected, else the signed-in user. This is the CORRECTNESS
+     * mechanism, and it is self-healing: a different owner is a different key,
+     * so sign-out, sign-in-as-someone-else and a workspace switch are all
+     * covered without any exit path having to remember anything.
+     *
+     * Null means "no tenant resolved", and then nothing is served from the
+     * cache or written to it. Failing closed costs a cache hit; failing open
+     * costs the wrong account's answer. The endpoint that made this concrete -
+     * `GET /api/flipdesk/photo-profiles` - is served per
+     * `workspaceOwnerId ?? userId`, so an unscoped key is a key that can be
+     * read back by somebody else.
+     *
+     * Defaulted to null on purpose: a construction site that forgets to supply
+     * an owner gets NO caching rather than account-blind caching.
+     */
+    private val cacheOwnerProvider: () -> String? = { null },
     private val sleeper: suspend (Long) -> Unit = { delay(it) },
 ) {
 
@@ -64,9 +82,38 @@ class EdgeApi(
 
     private val cache = TtlCache(maxEntries = 64, maxBytes = 4 * 1024 * 1024)
 
+    init {
+        liveCaches.add(cache)
+    }
+
     companion object {
         private const val MAX_RETRIES = 2
         private val JSON_MEDIA = "application/json; charset=utf-8".toMediaType()
+
+        /**
+         * Every live instance's response cache. There are two EdgeApi profiles
+         * today (shared + ai) and a sign-out has to reach both; registering
+         * here means a third profile is covered the day it is added, instead of
+         * depending on whoever adds it noticing the clearance list.
+         *
+         * Strong references are fine: the instances are `@Singleton` and live
+         * as long as the process does.
+         */
+        private val liveCaches = java.util.concurrent.CopyOnWriteArrayList<TtlCache>()
+
+        /**
+         * US-2496: drop every cached response body.
+         *
+         * This is DATA RETENTION, not correctness - the owner-scoped key above
+         * already stops one account's response being served to another. What it
+         * does not do is unhold the previous account's response bytes, which sit
+         * in memory until their TTL expires. On a shared device that is the
+         * outgoing seller's data in the incoming seller's process. Two separate
+         * jobs: do not delete either one thinking it duplicates the other.
+         */
+        fun clearAllResponseCaches() {
+            liveCaches.forEach { it.clear() }
+        }
 
         /** Which (error, method) pairs are safe to retry. Pure; unit-tested. */
         fun shouldRetry(error: EdgeApiError, method: String): Boolean = when (error) {
@@ -85,10 +132,18 @@ class EdgeApi(
         query: Map<String, String> = emptyMap(),
         cacheTtlMillis: Long = 0,
     ): String {
-        val key = cacheKey(path, query)
-        if (cacheTtlMillis > 0) cache.get(key)?.let { return it }
+        // US-2496: the owner is resolved ONCE, before the request, and the same
+        // key is used for the read and the write. Resolving it twice would file
+        // a response under a tenant it was not fetched for if the workspace
+        // changed mid-request. A null key means no tenant, so no caching.
+        val key = if (cacheTtlMillis > 0) {
+            cacheOwnerProvider()?.let { cacheKey(it, path, query) }
+        } else {
+            null
+        }
+        if (key != null) cache.get(key)?.let { return it }
         val body = perform("GET", path, query, body = null)
-        if (cacheTtlMillis > 0) cache.put(key, body, cacheTtlMillis)
+        if (key != null) cache.put(key, body, cacheTtlMillis)
         return body
     }
 
@@ -307,8 +362,10 @@ class EdgeApi(
             })
         }
 
-    private fun cacheKey(path: String, query: Map<String, String>): String =
-        path + "?" + query.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
+    /** The cache key. [owner] leads so the tenant can never be optional. */
+    private fun cacheKey(owner: String, path: String, query: Map<String, String>): String =
+        owner + "|" + path + "?" +
+            query.entries.sortedBy { it.key }.joinToString("&") { "${it.key}=${it.value}" }
 }
 
 /**

@@ -186,6 +186,28 @@ android {
     }
 }
 
+/**
+ * US-2496: two unit tests read SOURCE FILES off disk rather than exercising
+ * compiled classes - `DeleteReconcilerWiringTest` (is the reconciler wired) and
+ * `ResponseCacheTenantGuardTest` (is every response cache tenant-keyed, and does
+ * every cache-clear have a caller). Gradle only knows about the compiled
+ * classpath, so a change that touches ONLY the text they read leaves this task
+ * UP-TO-DATE and the guard silently does not run. That is exactly how a guard
+ * ends up green for the wrong reason.
+ *
+ * The Swift tree is listed because the cache guard scans it too: iOS has no lane
+ * that runs on a Windows checkout, and `ios-ci.yml` enumerates its Python guards
+ * one by one, so this is the only place the cross-client rule is enforced today.
+ */
+tasks.withType<Test>().configureEach {
+    inputs.files(
+        fileTree("src/main/java") { include("**/*.kt") },
+        fileTree("$rootDir/../ios/GradeThread") { include("**/*.swift") },
+    )
+        .withPropertyName("sourceScannedByGuardTests")
+        .withPathSensitivity(PathSensitivity.RELATIVE)
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

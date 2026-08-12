@@ -60,6 +60,10 @@ class SettingsViewModel @Inject constructor(
     private val realtime: com.gradethread.app.sync.RealtimeService,
     /** US-2412: the data-access export. */
     private val accountExport: AccountExportService,
+    /** US-2496: signed URLs for the outgoing account's private photos. */
+    private val photoUrls: com.gradethread.app.upload.PhotoSignedUrlProvider,
+    /** US-2496: the outgoing account's verified-seller profile, on disk. */
+    private val verifiedCache: com.gradethread.app.verified.VerifiedCache,
 ) : ViewModel() {
 
     data class State(
@@ -284,7 +288,25 @@ class SettingsViewModel @Inject constructor(
                         // Upload teardown belongs to its own story;
                         // the row + watermark wipe is what AC2 requires and what
                         // leaks tenant data without it.
-                        clearances = emptyList(),
+                        //
+                        // US-2496: these three are RETENTION, not correctness.
+                        // Correctness is the owner-scoped cache key in EdgeApi,
+                        // which is self-healing - a different owner is a
+                        // different key, so the next account can never be SERVED
+                        // the previous one's answer whether or not anyone
+                        // remembers to add a clearance here. What these drop is
+                        // the outgoing account's BYTES: edge response bodies
+                        // (up to an hour), signed URLs for their private grading
+                        // photos (capability tokens, live until their TTL), and
+                        // their verified-seller profile (on disk, indefinitely).
+                        // On a shared phone that is one seller's data sitting in
+                        // another seller's process. Two separate jobs; do not
+                        // delete either thinking it duplicates the other.
+                        clearances = listOf<suspend () -> Unit>(
+                            { com.gradethread.app.platform.net.EdgeApi.clearAllResponseCaches() },
+                            photoUrls.signOutClearance(),
+                            { runCatching { verifiedCache.clear() } },
+                        ),
                     ),
                 )
             }.isSuccess
