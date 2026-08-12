@@ -1900,20 +1900,6 @@
       "dependsOn": []
     },
     {
-      "id": "US-2493",
-      "priority": 2391,
-      "passes": false,
-      "title": "Android: the Verified profile is read-only, so a handle cannot be set or changed",
-      "description": "As an Android seller, I want to edit my Verified profile and check whether a handle is free, so I am not sent to a browser to finish a profile the app already shows me.",
-      "acceptanceCriteria": [
-        "Android calls PUT /api/verified/profile and GET /api/verified/handle-available; verified/VerifiedService.kt:25-56 exposes profile() and cached() only",
-        "A handle already taken is reported before the save is attempted, not after it is refused",
-        "New strings go through stringResource, the file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
-      ],
-      "notes": "[P3][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Verified/VerifiedService.swift:26,32. Web: src/hooks/use-verified.ts:114. Edge: services/edge-functions/src/routes/verified.ts:72. This is a METHOD-level gap a path scan cannot see - Android has the right path, GET only.",
-      "dependsOn": []
-    },
-    {
       "id": "US-2494",
       "priority": 2392,
       "passes": false,
