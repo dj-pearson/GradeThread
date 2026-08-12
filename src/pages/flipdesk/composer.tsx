@@ -96,9 +96,11 @@ import {
 } from "@/components/flipdesk/ai-fill-panel";
 import {
   useAiRewrite,
+  useListingCopy,
   type AiExtractResponse,
   type RewriteAction,
 } from "@/hooks/use-ai-extract";
+import { listingCopyToFill } from "@/lib/listing-copy-fill";
 import {
   conditionLabel,
 } from "@/lib/listing-ai-diff";
@@ -405,12 +407,17 @@ export function FlipdeskComposerPage({
   const [publishOpen, setPublishOpen] = useState(false);
   // US-552: inline AI rewrite — the in-flight action (for the spinner) and the
   // result fed into AiFillPanel for review/accept.
+  // US-2442: TWO producers now feed that one panel and one apply handler: the
+  // rewrite, which reworks text the seller already has, and listing-copy, which
+  // writes the title and description from scratch. Hence the neutral naming:
+  // the state below is "the AI copy awaiting review", whichever route made it.
   const [rewriteAction, setRewriteAction] = useState<RewriteAction | null>(null);
-  const [rewriteResult, setRewriteResult] = useState<AiExtractResponse | null>(
+  const [aiCopyResult, setAiCopyResult] = useState<AiExtractResponse | null>(
     null,
   );
-  const [rewritePanelOpen, setRewritePanelOpen] = useState(false);
+  const [aiCopyPanelOpen, setAiCopyPanelOpen] = useState(false);
   const aiRewrite = useAiRewrite();
+  const listingCopy = useListingCopy();
   // US-149: multi-marketplace "Push to" picks + per-platform price overrides
   // (string-typed like the main price input; blank = use the main price).
   const [pushPlatforms, setPushPlatforms] = useState<Set<CrossListingPlatform>>(
@@ -1012,6 +1019,10 @@ export function FlipdeskComposerPage({
   // acceptance is logged — nothing is applied silently.
   async function runRewrite(action: RewriteAction) {
     if (!item) return;
+    // US-2442: the two AI copy producers share one review panel, so running
+    // both at once would let the slower answer replace the one the seller is
+    // already reading, and they would have paid an action for each.
+    if (listingCopy.isPending) return;
     setRewriteAction(action);
     try {
       const res = await aiRewrite.mutateAsync({
@@ -1022,8 +1033,8 @@ export function FlipdeskComposerPage({
         // isn't rewritten into prose — it's re-appended verbatim on accept.
         description: splitSellerCredentials(description).body,
       });
-      setRewriteResult(res);
-      setRewritePanelOpen(true);
+      setAiCopyResult(res);
+      setAiCopyPanelOpen(true);
     } catch {
       /* error toast handled by the hook */
     } finally {
@@ -1031,13 +1042,36 @@ export function FlipdeskComposerPage({
     }
   }
 
+  // US-2442: the cold start. Every rewrite action needs text to work on, and
+  // the three title ones are refused outright on an empty title, so an item
+  // that arrives here with a blank title (saved from capture, or carrying only
+  // the US-1569 placeholder) had no AI path at all, which is precisely the case
+  // a seller most wants help with. This route reads the item's columns and its
+  // photos and writes BOTH fields from scratch.
+  //
+  // It answers in its own shape, so listingCopyToFill translates it into the
+  // /extract shape the panel reads. Filling the fields directly would have been
+  // fewer lines and the only AI text on this page that skipped review.
+  async function runListingCopy() {
+    if (!item) return;
+    if (aiRewrite.isPending || listingCopy.isPending) return;
+    try {
+      const res = await listingCopy.mutateAsync({ item_id: item.id });
+      setAiCopyResult(listingCopyToFill(res));
+      setAiCopyPanelOpen(true);
+    } catch {
+      /* error toast handled by the hook (aiErrorToast) */
+    }
+  }
+
   // Apply whatever the seller accepted in AiFillPanel back into the form. Edits
   // remain fully overridable — this just seeds the field with the AI's text.
-  function applyRewrite(accepted: AcceptedField[]) {
+  function applyAiCopy(accepted: AcceptedField[], appliedMessage: string) {
     for (const f of accepted) {
       if (f.field === "title") setTitle(f.value.slice(0, TITLE_MAX));
       else if (f.field === "description") {
-        // A rewrite (esp. "regenerate") writes a fresh description that drops the
+        // A fresh description (from "regenerate", or from listing-copy, which
+        // never sees the old one at all) drops the
         // "Graded by GradeThread — Condition Grade X" line AND the appended
         // GradeThread Verified Seller block. Re-insert both idempotently so the
         // draft/preview keeps showing the grade (the server re-asserts it at
@@ -1048,7 +1082,7 @@ export function FlipdeskComposerPage({
       }
     }
     if (accepted.length > 0) {
-      toast.success("AI rewrite applied. Save the draft to keep it.");
+      toast.success(appliedMessage);
     }
   }
 
@@ -2514,6 +2548,8 @@ export function FlipdeskComposerPage({
             aiRewrite={aiRewrite}
             rewriteAction={rewriteAction}
             runRewrite={(a) => void runRewrite(a)}
+            listingCopy={listingCopy}
+            runListingCopy={() => void runListingCopy()}
             isEbayOrigin={isEbayOrigin}
             ebayOwnedHint={ebayOwnedHint}
           />
@@ -2900,14 +2936,21 @@ export function FlipdeskComposerPage({
       />
 
       {/* US-552: review/accept the AI rewrite — reuses the extract panel so
-          accept-all, confidence tiers, and acceptance logging all carry over. */}
+          accept-all, confidence tiers, and acceptance logging all carry over.
+          US-2442: the listing-copy generator lands here too, translated into the
+          same shape. One panel means the seller reviews generated copy exactly
+          as they review a rewrite, and a field they already filled arrives with
+          its accept switch OFF and a "Replaces current value" line, which is
+          what makes the two-field write safe to offer on a filled form. */}
       <AiFillPanel
-        open={rewritePanelOpen}
-        onOpenChange={setRewritePanelOpen}
-        result={rewriteResult}
+        open={aiCopyPanelOpen}
+        onOpenChange={setAiCopyPanelOpen}
+        result={aiCopyResult}
         currentValues={{ title, description }}
         fieldLabels={{ title: "Title", description: "Description" }}
-        onApply={applyRewrite}
+        onApply={(accepted) =>
+          applyAiCopy(accepted, "AI copy applied. Save the draft to keep it.")
+        }
       />
 
       {/* US-2256: thirteen cards of edits used to vanish on one stray click —

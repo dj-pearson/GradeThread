@@ -28,6 +28,9 @@ export interface TitleCardProps {
   aiRewrite: { isPending: boolean };
   rewriteAction: string | null;
   runRewrite: (action: RewriteAction) => void;
+  /** US-2442: generates a title AND a description from the item (see below). */
+  listingCopy: { isPending: boolean };
+  runListingCopy: () => void;
   /** US-2258: eBay owns the title on a mirror — locks the input AND every write action. */
   isEbayOrigin: boolean;
   ebayOwnedHint: string | undefined;
@@ -48,6 +51,8 @@ export function TitleCard({
   aiRewrite,
   rewriteAction,
   runRewrite,
+  listingCopy,
+  runListingCopy,
   isEbayOrigin,
   ebayOwnedHint,
 }: TitleCardProps) {
@@ -151,6 +156,33 @@ export function TitleCard({
           >
             <Wand2 className="mr-2 h-3 w-3" />
             Suggest title
+          </Button>
+          {/* US-2442: the cold start, and the reason it sits OUTSIDE the AI
+              rewrite menu next door. Every action in that menu operates on text
+              that already exists (all three title ones are refused server-side
+              with "Add a title before rewriting it."), and an item saved from
+              capture reaches this box empty. So this button must never be gated
+              on the field it exists to fill; it is enabled on a blank title by
+              design.
+              It writes the DESCRIPTION as well, which is why the label names
+              both fields: one AI action buys both, and the seller decides that
+              before spending it, not after. */}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isEbayOrigin || listingCopy.isPending || aiRewrite.isPending}
+            title={
+              ebayOwnedHint ??
+              "Writes a fresh title AND buyer description from this item's photos and details, then shows both for review. Uses one AI action."
+            }
+            onClick={runListingCopy}
+          >
+            {listingCopy.isPending ? (
+              <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+            ) : (
+              <Sparkles className="mr-2 h-3 w-3" />
+            )}
+            Write title &amp; description
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
