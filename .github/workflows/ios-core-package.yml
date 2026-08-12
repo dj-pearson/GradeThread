@@ -13,10 +13,17 @@ on:
   push:
     paths:
       - "ios/Packages/GradeThreadCore/**"
+      # US-1995 AC3: TitleSyncFixtureTests asserts the Swift title-sync port
+      # against the SHARED fixture, which lives in the web tree because the
+      # vitest and deno suites assert it too. Without this path the fixture could
+      # gain a case that the Swift port fails and this lane would not run, so the
+      # drift guard would be green for the wrong reason.
+      - "src/test/fixtures/title-sync-cases.json"
       - ".github/workflows/ios-core-package.yml"
   pull_request:
     paths:
       - "ios/Packages/GradeThreadCore/**"
+      - "src/test/fixtures/title-sync-cases.json"
       - ".github/workflows/ios-core-package.yml"
 
 permissions:

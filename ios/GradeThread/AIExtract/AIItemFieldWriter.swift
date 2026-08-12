@@ -1,4 +1,5 @@
 import Foundation
+import GradeThreadCore
 import Supabase
 
 /// Writes AI-extract suggestions onto an `inventory_items` row, and reverts
@@ -80,6 +81,15 @@ enum AIItemFieldWriter {
             default:                 return false
             }
             return true
+        }
+
+        /// Whether this update moves a column whose value can appear in a listing
+        /// title (US-1995). Gates the extra pre-write read in ``write`` so an
+        /// update that only touches description/measurements costs nothing.
+        /// `department` is absent on purpose: it is an `attributes` key here, not
+        /// a column, and travels through ``writeAttributes``.
+        var touchesSyncableTitleField: Bool {
+            brand != nil || size != nil || color != nil || style != nil
         }
     }
 
@@ -282,11 +292,200 @@ enum AIItemFieldWriter {
             update.aiFieldSources = sources
             update.aiEnrichedAt = ISO8601DateFormatter().string(from: .now)
         }
+        // US-1995: capture the pre-write brand/size/color/style BEFORE the update,
+        // because afterwards the columns already hold the new value and the diff
+        // would be empty. Read here rather than taking it from the caller: two of
+        // the three call sites have a Snapshot and one (Size AI on the canvas) does
+        // not, and a caller-side snapshot can be several seconds stale by the time
+        // the write lands. Four columns, gated on actually writing one of them.
+        var priorFields: SyncableFields?
+        if update.touchesSyncableTitleField {
+            priorFields = try? await syncableFields(itemId: itemId)
+        }
+
         try await SupabaseShared.client
             .from("inventory_items")
             .update(update)
             .eq("id", value: itemId)
             .execute()
+
+        if let priorFields {
+            await syncListingTitles(itemId: itemId, before: priorFields, after: update)
+        }
+    }
+
+    // MARK: - Backwards title sync (US-1995 AC3)
+    //
+    // An AI fill that CORRECTS brand/size/color/style used to update the item
+    // column and leave the listing title still selling the old value - the one
+    // field buyers search hardest. US-1891 shipped the fix on the web and the edge
+    // and could not reach iOS, because the logic is a TypeScript module and this is
+    // a Swift app; the port lives in GradeThreadCore (``TitleSync``) and is pinned
+    // to the same behavioural fixture as both JS copies.
+    //
+    // Not every write is a correction. The intake auto-apply is fill-only
+    // (US-2267: `isAutoApplicable` refuses a populated column), so its old value is
+    // blank and `changesFromItemDiff` yields nothing - the substitution is a
+    // provable no-op and this costs one narrow SELECT. The paths that DO overwrite
+    // are Size AI on the canvas (unconditional) and a low-confidence row the seller
+    // ticks by hand in the review sheet. Those are the bug.
+
+    private struct SyncableFields: Decodable {
+        var brand: String? = nil
+        var size: String? = nil
+        var color: String? = nil
+        var style: String? = nil
+    }
+
+    /// One listing that might need its title moved. `title_variants` and
+    /// `ai_generated_snapshot` stay as raw jsonb: the port decides WHETHER they
+    /// move, this layer owns re-attaching a synced title without dropping the
+    /// sibling keys (`label`, `active`) it does not model.
+    private struct TitleSyncListing: Decodable {
+        let id: String
+        let listing_title: String?
+        let listing_origin: String?
+        let listing_status: String?
+        let title_variants: AnyJSON?
+        let ai_generated_snapshot: AnyJSON?
+    }
+
+    /// Sparse: a nil member is skipped by the synthesized encoder, so a patch that
+    /// only flags `needs_review` never nulls the variants.
+    private struct TitleSyncPatchBody: Encodable {
+        let listing_title: String?
+        let title_variants: [AnyJSON]?
+        let needs_review: Bool?
+    }
+
+    private static func syncableFields(itemId: String) async throws -> SyncableFields {
+        let rows: [SyncableFields] = try await SupabaseShared.client
+            .from("inventory_items")
+            .select("brand,size,color,style")
+            .eq("id", value: itemId)
+            .limit(1)
+            .execute()
+            .value
+        return rows.first ?? SyncableFields()
+    }
+
+    /// Applies the item's field corrections to its listing titles.
+    ///
+    /// Best-effort and never throwing: the item write has already succeeded, so a
+    /// failure here must not make the caller report the whole save as failed and
+    /// roll its local mirror back. It breadcrumbs instead.
+    ///
+    /// Scope is the item's DRAFT and ACTIVE listings. Sold/ended rows are left
+    /// alone - their title is a record of what was actually sold, and rewriting it
+    /// would falsify history. That matches the web, where the only surfaces that
+    /// sync (the composer and bulk edit) can only ever open a draft or a live
+    /// listing. ebay-origin rows are refused by the port itself, so the decision
+    /// stays in one place.
+    private static func syncListingTitles(
+        itemId: String,
+        before: SyncableFields,
+        after: FieldUpdate
+    ) async {
+        // An absent key in `after` means "unchanged" and must fall back to the
+        // before value; reading it as nil would manufacture a change out of every
+        // field this write did not touch.
+        let changes = TitleSync.changesFromItemDiff(
+            before: [
+                "brand": before.brand,
+                "size": before.size,
+                "color": before.color,
+                "style": before.style,
+            ],
+            after: [
+                "brand": after.brand ?? before.brand,
+                "size": after.size ?? before.size,
+                "color": after.color ?? before.color,
+                "style": after.style ?? before.style,
+            ]
+        )
+        guard !changes.isEmpty else { return }
+
+        var listings: [TitleSyncListing] = []
+        do {
+            let rows: [TitleSyncListing] = try await SupabaseShared.client
+                .from("listings")
+                .select("id,listing_title,listing_origin,listing_status,title_variants,ai_generated_snapshot")
+                .eq("inventory_item_id", value: itemId)
+                .in("listing_status", values: ["draft", "active"])
+                .execute()
+                .value
+            listings = rows
+        } catch {
+            await breadcrumbTitleSyncFailure(itemId: itemId, error: error)
+            return
+        }
+
+        for listing in listings {
+            let variants = jsonArray(listing.title_variants)
+            let patch = TitleSync.buildTitleSyncPatch(.init(
+                baseTitle: listing.listing_title,
+                variantTitles: variants?.map { jsonString($0, key: "title") },
+                changes: changes,
+                snapshotTitle: jsonString(listing.ai_generated_snapshot, key: "title"),
+                // A live listing is flagged, never silently rewritten - buyers are
+                // already reading those words. It also never ends/relists here.
+                isLive: listing.listing_status == "active",
+                listingOrigin: listing.listing_origin
+            ))
+            guard !patch.isEmpty else { continue }
+
+            var syncedVariants: [AnyJSON]?
+            if let variants, let titles = patch.variantTitles {
+                syncedVariants = rebuildVariants(variants, titles: titles)
+            }
+
+            do {
+                try await SupabaseShared.client
+                    .from("listings")
+                    .update(TitleSyncPatchBody(
+                        listing_title: patch.listingTitle,
+                        title_variants: syncedVariants,
+                        needs_review: patch.needsReview
+                    ))
+                    .eq("id", value: listing.id)
+                    .execute()
+            } catch {
+                await breadcrumbTitleSyncFailure(itemId: itemId, error: error)
+            }
+        }
+    }
+
+    private static func breadcrumbTitleSyncFailure(itemId: String, error: Error) async {
+        // Read the description off the actor hop so only Strings cross it.
+        let reason = error.localizedDescription
+        await MainActor.run {
+            Telemetry.breadcrumb(
+                "AI fill: listing title sync failed for item \(itemId): \(reason)",
+                category: "ai-extract"
+            )
+        }
+    }
+
+    private static func jsonArray(_ value: AnyJSON?) -> [AnyJSON]? {
+        guard let value, case let .array(items) = value else { return nil }
+        return items
+    }
+
+    private static func jsonString(_ value: AnyJSON?, key: String) -> String? {
+        guard let value, case let .object(fields) = value,
+              case let .string(text)? = fields[key] else { return nil }
+        return text
+    }
+
+    /// Put each synced title back on its variant object, leaving every other key
+    /// (and any entry the port declined to touch) exactly as it was.
+    private static func rebuildVariants(_ items: [AnyJSON], titles: [String?]) -> [AnyJSON] {
+        zip(items, titles).map { (item, title) -> AnyJSON in
+            guard let title, case let .object(fields) = item else { return item }
+            var next = fields
+            next["title"] = .string(title)
+            return .object(next)
+        }
     }
 
     /// US-682 title-seed rule, pure + side-effect-free so the "never land on a
