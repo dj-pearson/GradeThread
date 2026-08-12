@@ -90,6 +90,15 @@ struct PhotoIntakeView: View {
     @AccessibilityFocusState private var captureControlFocused: Bool
     private static let libraryPickLimit = 8
 
+    /// US-2070: how many library picks are decoded and compressed at once.
+    ///
+    /// Deliberately the same 3 as `AutoListerReviewModel.importConcurrency`, and
+    /// for the same reason it gives: three at a time keeps at most three
+    /// full-resolution images resident - the bound `PhotoCompressor.compressBatch`
+    /// uses to stay clear of a jetsam kill - while overlapping each photo's
+    /// iCloud download with the previous one's encode.
+    private static let libraryImportConcurrency = 3
+
     private enum PermissionState: Equatable {
         case unknown
         case granted
@@ -923,23 +932,56 @@ struct PhotoIntakeView: View {
         isLoadingLibraryPicks = true
         defer { isLoadingLibraryPicks = false }
 
+        // US-2070: bounded-concurrency import, mirroring
+        // `AutoListerReviewModel.importPicks`. This was strictly serial, so 200
+        // iCloud-backed photos meant 200 sequential round trips with the seller
+        // watching a spinner.
+        //
+        // SLICED rather than one big task group, and NOT "load everything then
+        // compress": both would hold every decoded UIImage in memory at once,
+        // which is the jetsam risk `PhotoCompressor` warns about. Three at a
+        // time is the same width the AutoLister import settled on.
+        //
+        // Order is restored per slice because PHPicker results can finish out of
+        // order and the tray shows the picker's order - the doc comment above
+        // has always promised that, and a task group alone would break it.
         var staged: [PhotoCapture] = []
-        for result in results {
-            guard let image = await result.loadImage() else { continue }
-            guard let output = await PhotoCompressor.compressOffMain(image) else { continue }
-            // Read the original PHAsset capture time before compression strips
-            // EXIF (US-289); fall back to now if the library isn't readable.
-            let capturedAt = result.creationDate() ?? .now
-            staged.append(
-                PhotoCapture(
-                    imageData: output.imageData,
-                    thumbnail: output.thumbnail,
-                    capturedAt: capturedAt,
-                    source: .library,
-                    // US-1547: provenance filename → item_photos.original_filename.
-                    sourceName: result.itemProvider.suggestedName
-                )
-            )
+        var index = 0
+        while index < results.count {
+            let upper = min(index + Self.libraryImportConcurrency, results.count)
+            let slice = Array(results[index..<upper])
+            var batch = [PhotoCapture?](repeating: nil, count: slice.count)
+            await withTaskGroup(of: (Int, PhotoCapture?).self) { group in
+                for (offset, result) in slice.enumerated() {
+                    group.addTask {
+                        guard let image = await result.loadImage() else { return (offset, nil) }
+                        guard let output = await PhotoCompressor.compressOffMain(image) else {
+                            return (offset, nil)
+                        }
+                        // Read the original PHAsset capture time before
+                        // compression strips EXIF (US-289); fall back to now if
+                        // the library isn't readable.
+                        let capturedAt = result.creationDate() ?? .now
+                        return (
+                            offset,
+                            PhotoCapture(
+                                imageData: output.imageData,
+                                thumbnail: output.thumbnail,
+                                capturedAt: capturedAt,
+                                source: .library,
+                                // US-1547: provenance filename →
+                                // item_photos.original_filename.
+                                sourceName: result.itemProvider.suggestedName
+                            )
+                        )
+                    }
+                }
+                for await (offset, capture) in group {
+                    batch[offset] = capture
+                }
+            }
+            staged.append(contentsOf: batch.compactMap { $0 })
+            index = upper
         }
         guard !staged.isEmpty else {
             captureError = "Couldn't read those photos. They may still be downloading from iCloud — try again or pick different ones."
