@@ -59,7 +59,6 @@ class ExtensionQueueTest {
     fun `each kind describes what will actually happen`() {
         assertEquals("List to Poshmark", describeQueuedWork(item("list", "poshmark")))
         assertEquals("End the Mercari listing", describeQueuedWork(item("delist", "mercari")))
-        assertEquals("Share your Poshmark closet", describeQueuedWork(item("share", "poshmark")))
     }
 
     @Test
@@ -82,9 +81,12 @@ class ExtensionQueueTest {
     }
 
     @Test
-    fun `the kinds are exactly the three the extension can run`() {
+    fun `the kinds are exactly the two the extension can run`() {
+        // US-2497: `share` was here and the server refuses it now. A client that
+        // still offers a kind the database rejects queues work that 400s, so this
+        // list is what keeps the four surfaces saying the same thing.
         assertEquals(
-            listOf("list", "delist", "share"),
+            listOf("list", "delist"),
             ExtensionQueueKind.entries.map { it.wire },
         )
     }

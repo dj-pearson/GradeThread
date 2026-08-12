@@ -1096,8 +1096,9 @@ function ExtensionQueueSection() {
 
   const describe = (kind: string, platform: string) => {
     const label = MARKETPLACE_LABELS[platform as keyof typeof MARKETPLACE_LABELS] ?? platform;
+    // No `share` branch: US-2497 removed the kind and deleted its rows, because
+    // a share run needs a human at the browser and a queue cannot supply one.
     if (kind === "delist") return `End the ${label} listing`;
-    if (kind === "share") return `Share your ${label} closet`;
     return `List to ${label}`;
   };
 

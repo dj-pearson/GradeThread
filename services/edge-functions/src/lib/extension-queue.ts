@@ -14,7 +14,27 @@
 // only need the cookie so the desktop can resume" is a sentence that ends with
 // the cloud model this whole design refuses.
 
-export const EXTENSION_QUEUE_KINDS = ["list", "delist", "share"] as const;
+/**
+ * The verbs the desktop extension can actually drain.
+ *
+ * `share` WAS here (US-2481) and was removed by US-2497, because the API was
+ * accepting work nothing would ever run. A Poshmark share run is the US-2482
+ * engagement pass, and that engine starts only against an active tab already on
+ * the seller's own closet: the extension holds no Poshmark handle by design and
+ * refuses to navigate to a URL that arrived in a message (US-1876). A background
+ * drain has no such tab and nothing to build one from.
+ *
+ * The deciding reason is not the missing tab, which could be engineered around.
+ * It is the fourth statement of the engagement clickwrap, which the seller has
+ * to accept before any run: "GradeThread will stop and hand the tab back to me
+ * if Poshmark asks for a human check." A run triggered from a phone has nobody
+ * at the machine to hand it back to. Keeping the kind would mean either breaking
+ * that promise or leaving a run stalled on a check while the seller's phone said
+ * it was queued.
+ *
+ * So a share run stays a supervised action, started from the extension.
+ */
+export const EXTENSION_QUEUE_KINDS = ["list", "delist"] as const;
 export type ExtensionQueueKind = (typeof EXTENSION_QUEUE_KINDS)[number];
 
 /**

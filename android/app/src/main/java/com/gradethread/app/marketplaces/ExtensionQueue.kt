@@ -78,11 +78,18 @@ private data class EnqueueResponse(
 @Serializable
 private data class CancelResponse(val cancelled: String)
 
-/** The three things the desktop extension can actually run. */
+/**
+ * What the desktop extension can actually run.
+ *
+ * `share` was a third case until US-2497. Nothing could ever run it: a Poshmark
+ * engagement pass starts only in a tab already on the seller's own closet, the
+ * extension holds no Poshmark handle by design, and its clickwrap promises to
+ * hand the tab back if Poshmark asks for a human check - which needs a human at
+ * the machine. A phone cannot supply one.
+ */
 enum class ExtensionQueueKind(val wire: String) {
     LIST("list"),
     DELIST("delist"),
-    SHARE("share"),
 }
 
 /**
@@ -163,9 +170,10 @@ class ExtensionQueueRepository @Inject constructor(
 fun describeQueuedWork(item: ExtensionQueueItem): String {
     val label = MARKETPLACE_LABELS[item.platform]
         ?: item.platform.replaceFirstChar { it.uppercase() }
+    // No "share" branch: US-2497 removed the kind and deleted its rows, because
+    // a share run needs a human at the browser and a queue cannot supply one.
     return when (item.kind) {
         "delist" -> "End the $label listing"
-        "share" -> "Share your $label closet"
         else -> "List to $label"
     }
 }

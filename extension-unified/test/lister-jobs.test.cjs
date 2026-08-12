@@ -375,12 +375,12 @@ console.log("lister-jobs: all assertions passed");
 
   // ── a kind this build cannot run: refused and REPORTED, never coerced ─────
   //
-  // The server accepts kind=share, and the extension cannot run one: an
-  // engagement pass only ever starts in a tab already on the seller's own
-  // closet, and the extension deliberately does not know their handle. The bug
-  // this pins is what happened instead — `kind === "delist" ? "delist" : "list"`
-  // turned a share row into a LIST job, so a request to share a closet opened
-  // the new-listing form and filled it.
+  // US-2497 removed kind=share at the server, so `share` is now standing in for
+  // any kind a newer server grows that this build has no branch for. It is still
+  // the right fixture, because it is the case that actually went wrong: with the
+  // old implicit `kind === "delist" ? "delist" : "list"`, a share row became a
+  // LIST job, and a request to share a closet opened the new-listing form and
+  // filled it. Coercing an unknown kind is the failure; reporting it is the fix.
   {
     const plan = J.planDrain(
       [row("sh", { kind: "share" }), row("ok")],

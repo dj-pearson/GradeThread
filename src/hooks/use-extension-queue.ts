@@ -23,7 +23,10 @@ export const QUEUED_NOTICE =
   "This runs the next time you open your desktop browser with the GradeThread " +
   "extension installed. Nothing happens on the marketplace until then.";
 
-export type ExtensionQueueKind = "list" | "delist" | "share";
+// `share` was a third kind until US-2497. It is gone because nothing could run
+// it: an engagement pass needs a human at the browser to take the tab back when
+// Poshmark asks for a check, and a queue drained hours later has nobody there.
+export type ExtensionQueueKind = "list" | "delist";
 
 export interface ExtensionQueueItem {
   id: string;

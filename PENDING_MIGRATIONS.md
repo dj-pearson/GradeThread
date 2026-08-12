@@ -1,5 +1,47 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00590_extension_queue_drop_share_kind.sql (US-2497 — the queue stops accepting a share run)
+
+**Risk: LOW, with one deliberate DELETE.** No new object, no column, no index.
+It narrows one CHECK constraint on `extension_work_queue.kind` from
+`('list','delist','share')` to `('list','delist')`, and first deletes the rows
+carrying the value being removed.
+
+**What it changes, and why the DELETE is there.** `share` was a queue verb that
+nothing could ever drain. The Poshmark engagement pass starts only against an
+active tab already on the seller's own closet; the extension holds no Poshmark
+handle by design and will not navigate to a URL that arrived in a message
+(US-1876). A background drain has neither. The deciding argument is the fourth
+statement of the engagement clickwrap — *"GradeThread will stop and hand the tab
+back to me if Poshmark asks for a human check"* — which cannot be honoured with
+nobody at the machine. The CHECK refuses the VALUE regardless of a row's status,
+so existing `share` rows have to go before the constraint can be narrowed;
+expiring them would not help. They are unrunnable instructions in a work queue,
+not audit records, and the drain already completed the ones it saw with
+`ok:false`.
+
+**How many rows this touches in practice:** the feature shipped 2026-08-10 and no
+client ever offered a share trigger, so this is expected to delete zero rows.
+Check first if you want certainty:
+`psql "$SUPABASE_DB_URL" -c "select status, count(*) from public.extension_work_queue where kind = 'share' group by 1;"`
+
+**Order is the same as every other migration here: SQL first, then the edge.**
+The boot guard is what settles it — an edge build expecting 00590 against a DB
+still at 00589 reports `behind`, burns its grace window and exits, which is a
+Coolify crash-loop and a 503 on every route. `COOLIFY.md` already makes
+`apply-prod-migrations.sh` a pre-deployment command, so the normal path does this
+by construction.
+
+The window between the two is harmless in the other direction: the old edge build
+still advertises `share` in its `kind must be one of:` message and would accept an
+insert the database now refuses, turning a clean 400 into a 500. Nothing sends
+one, so that is a footnote, not a reason to reorder.
+
+**No PostgREST reload needed** — no table, column or RPC changed. A CHECK
+constraint is invisible to PostgREST's schema cache.
+
+Apply order: AFTER 00589.
+
 ## ⏳ HELD: 00589_submission_image_role.sql (US-2471 — the photo role reaches the grader)
 
 **Risk: LOW.** One nullable text column on `submission_images`. No enum change,

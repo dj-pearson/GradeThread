@@ -468,9 +468,10 @@ struct MarketplacesView: View {
     private static func describe(_ job: ExtensionQueueService.QueueItem) -> String {
         let label = phasedChannels.first { $0.id == job.platform }?.label
             ?? job.platform.capitalized
+        // No `share` case: US-2497 removed the kind and deleted its rows, because
+        // a share run needs a human at the browser and a queue cannot supply one.
         switch job.kind {
         case "delist": return "End the \(label) listing"
-        case "share":  return "Share your \(label) closet"
         default:       return "List to \(label)"
         }
     }

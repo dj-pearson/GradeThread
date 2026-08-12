@@ -4871,19 +4871,27 @@ Deno.test({
       { password: "hunter2" },
       { auth: { cookie: "sid=1" } }, // nested — the same leak, one brace deeper
     ]) {
+      // `delist` rather than a kind the route rejects outright: an unknown kind
+      // 400s before the payload is ever read, so the case would go green while
+      // proving nothing about the credential check. The body assertion is there
+      // for the same reason — it is the only thing that says WHICH refusal ran.
       const res = await fetch(`${BASE}/api/flipdesk/extension-queue`, {
         method: "POST",
         headers: authHeaders(B_JWT!),
-        body: JSON.stringify({ kind: "share", platform: "poshmark", payload }),
+        body: JSON.stringify({ kind: "delist", platform: "poshmark", payload }),
       });
       const status = res.status;
-      await res.body?.cancel();
+      const text = await res.text();
       if (status === 402) return; // no plan — gated earlier, still never stored
       assertEquals(
         status,
         400,
         `queueing ${JSON.stringify(payload)} returned ${status}; it must be ` +
           `refused. The queue stores WHAT to do, never a way in.`,
+      );
+      assert(
+        text.includes("never hold a marketplace password"),
+        `queueing ${JSON.stringify(payload)} was refused for some other reason: ${text}`,
       );
     }
   },

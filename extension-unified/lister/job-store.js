@@ -337,16 +337,17 @@
   /**
    * The queue kinds this extension can actually carry out.
    *
-   * The SERVER accepts a third kind, `share`, and that is not a mistake on its
-   * side — the column is the seller's intent, and intent outlives whichever
-   * mechanism happens to exist. What is a mistake is running a kind you cannot
-   * run. A share row means "do an engagement pass over my closet" (US-2482),
-   * and the engagement engine will only ever run in a tab already sitting on
-   * the seller's own closet, because the extension deliberately does not know
+   * The server used to accept a third kind, `share`, and this list was the only
+   * thing stopping it being run as something else. US-2497 removed the kind at
+   * the source: an engagement pass (US-2482) only ever runs in a tab already
+   * sitting on the seller's own closet, the extension deliberately does not know
    * their Poshmark handle and will not navigate to a URL that arrived in a
-   * message (US-1876). A background drain has neither, so it cannot start one.
+   * message (US-1876), and its clickwrap promises to hand the tab back if
+   * Poshmark asks for a human check — which needs a human there to hand it to.
    *
-   * This list used to be implicit, as `kind === "delist" ? "delist" : "list"`,
+   * This list stays explicit anyway, and so does the `unsupported` bucket below.
+   * An older extension build meets a newer server eventually, and the previous
+   * shape of this line was the implicit `kind === "delist" ? "delist" : "list"`,
    * which turned a share row into a LIST job: the drain opened the new-listing
    * form and filled it. A seller who asked for their closet to be shared would
    * have got a duplicate listing. Unrunnable is reported now, per US-2165.

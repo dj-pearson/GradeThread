@@ -242,6 +242,16 @@ Two rules the queue adds:
   that reads like completion for a queued **delist** tells a seller their
   listing was pulled when it is still live, which is the double sale everything
   else here is arranged to prevent.
+- **Only actions that survive the seller being absent may be queued** (US-2497).
+  The queue held a third verb, `share`, for a day. It could never drain: the
+  Poshmark engagement pass starts only against an active tab already on the
+  seller's own closet, and the extension holds no handle and will not navigate to
+  a URL that arrived in a message ([[adr-no-server-side-marketplace-automation]]
+  §3.1, US-1876). The deciding reason was not the missing tab, which is
+  engineerable. It was the fourth statement of the engagement clickwrap — *"stop
+  and hand the tab back to me if Poshmark asks for a human check"* — which cannot
+  be honoured with nobody at the machine. So before adding a verb, ask what it
+  promised the seller, and whether that promise holds while they are elsewhere.
 
 ## The mirror rule (while it lasts)
 

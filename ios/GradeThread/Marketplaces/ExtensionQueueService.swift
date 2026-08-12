@@ -39,10 +39,16 @@ public final class ExtensionQueueService {
         + "GradeThread extension installed. Nothing happens on the marketplace "
         + "until then."
 
+    /// What the desktop extension can actually drain.
+    ///
+    /// `share` was here until US-2497 and is gone because nothing could ever run
+    /// it: the Poshmark engagement pass needs a human at the browser to take the
+    /// tab back when Poshmark asks for a check, which is the fourth thing its
+    /// clickwrap promises. A phone cannot stand in for that. `QueueItem.kind`
+    /// stays a `String` so a historical row still decodes.
     public enum Kind: String, Codable, CaseIterable, Sendable {
         case list
         case delist
-        case share
     }
 
     public struct QueueItem: Codable, Identifiable, Sendable {
