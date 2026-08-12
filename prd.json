@@ -6,38 +6,6 @@
   "archive": "prd.archive.json",
   "userStories": [
     {
-      "id": "US-1299",
-      "priority": -98701,
-      "passes": false,
-      "title": "Android conversion: epic — native Kotlin/Compose client at iOS parity",
-      "description": "As the GradeThread team, we want a native Android client at full feature parity with the iOS app — same Supabase + edge backend, data model, offline-first behavior, and monetization — so Android resellers get the same product. This umbrella tracks the US-1300…US-1396 conversion backlog and its cross-cutting decisions.",
-      "acceptanceCriteria": [
-        "Stack locked: Kotlin + Jetpack Compose + Material 3, Hilt, Room, DataStore, Coroutines/Flow, OkHttp/Retrofit, supabase-kt, CameraX, ML Kit, WorkManager, FCM, Glance, Play Billing (per ANDROID_CONVERSION_PLAN.md)",
-        "Backend dependencies are tracked separately and unblock their stories: POST /api/payments/google/verify, FCM platform in push fan-out, /.well-known/assetlinks.json, Firebase + Play Console app records",
-        "Phases A→I land in order; each child story is independently shippable behind the same auth/sync foundation",
-        "No regression to web or iOS; edge/Supabase contracts are reused unchanged except the called-out backend deps"
-      ],
-      "notes": "[P1][Android/Epic] [iOS→Android conversion plan 2026-06-26] — see ANDROID_CONVERSION_PLAN.md. New native Android (Kotlin/Compose/Material 3) client at parity with the iOS app; this story ports the named iOS surface. Device/Android-toolchain-gated. | 2026-08-06 parity audit (fresh, against the tree): DO NOT CLOSE. All children US-1300..1396 pass, but 'full feature parity' does not hold. AC1 PASSES - every named library is declared in android/gradle/libs.versions.toml AND imported by real code (Retrofit is the only omission and the AC says OkHttp/Retrofit). AC2 PASSES in code: POST /api/payments/google/verify (routes/google-play.ts:109, registered main.ts:1094), FCM branch in the push fan-out (lib/apns.ts:217-225, backed by migration 00320's platform CHECK), /.well-known/assetlinks.json (functions/.well-known/assetlinks.json.ts) - though assetlinks returns 503 until ANDROID_CERT_SHA256 is set on the Pages project, so App Links are not live. AC4 PASSES - no commit touching android/ also touched src/ or ios/. AC3 FAILS. Android calls 39 distinct edge endpoints to iOS's 79. Nine real gaps, now filed and set as dependsOn: US-2407 team management, US-2408 AutoLister sessions (ui/shell/AppShell.kt:521 still renders SectionPlaceholder and the Add sheet navigates there at :638), US-2409 eBay returns/cancellations/disputes, US-2410 Sheets import, US-2411 AI listing-copy + extract-aspects, US-2412 account export, US-2413 aspects write-back, US-2414 payout CSV import, plus the existing US-1576 (photo measurement) and US-2207 (DeleteReconciler has no production caller, so server-side deletes never reach Android). What exists is genuine - zero TODOs and only two placeholder destinations - it is just about half the surface. Close this when those ten pass, or rewrite the title and AC to the surface actually delivered. | 2026-08-11 RE-AUDIT (fresh, against the tree, not against these notes). All TEN named dependencies now pass AND are reachable from the UI - each was checked for a call site and a navigation entry point, and none is shipped-but-unwired. The four literal ACs pass: AC1 (every named library declared in libs.versions.toml and imported by real code), AC2 (google/verify at google-play.ts:110 mounted main.ts:1095, the FCM branch at lib/apns.ts:217-225, assetlinks at functions/.well-known/ - still 503 until ANDROID_CERT_SHA256 is set on the Pages project, so verified App Links are not live), AC4 (the seven commits since 2026-08-01 touching android/ and src/ together are additive - a shared fixture and an extracted pure module, nothing removed). CORRECTION TO THE 2026-08-06 AUDIT: its 'Android calls 39 endpoints to iOS 79' was a RAW STRING-LITERAL count and undercounted Android by roughly 60 percent, because Android composes paths from constants. Re-measured with composed paths resolved transitively: Android 102 distinct endpoints, iOS 107. STILL DO NOT CLOSE AS TITLED - 'full feature parity' does not hold. Sixteen endpoints across six features have no Android caller, now filed as US-2489..US-2494 and set as dependsOn. FIXED IN PASSING 2026-08-11: the ADD route rendered a placeholder saying the feature was still coming, and THREE things reached it - the launcher long-press shortcut (shortcuts.xml:42-50), its Assistant capability (:26) and the public App Link https://gradethread.com/app/add (AndroidManifest.xml:133). Add is a sheet, not a destination; the deep-link collector now opens the sheet, and the registered route renders nothing and pops.",
-      "dependsOn": [
-        "US-1576",
-        "US-2207",
-        "US-2407",
-        "US-2408",
-        "US-2409",
-        "US-2410",
-        "US-2411",
-        "US-2412",
-        "US-2413",
-        "US-2414",
-        "US-2489",
-        "US-2490",
-        "US-2491",
-        "US-2492",
-        "US-2493",
-        "US-2494"
-      ]
-    },
-    {
       "id": "US-1421",
       "title": "[OPERATOR] Obtain eBay restricted scopes so Send-Offers-to-Interested-Buyers works in production",
       "description": "The Negotiation API (find_eligible_items + send_offer_to_interested_buyers) is fully coded but the sell.negotiation scope is omitted from the prod consent request because our prod keyset isn't granted it — so every call 403s. 'Send offer to watchers' is a top sell-through lever that silently does nothing for real sellers.",
@@ -1848,21 +1816,6 @@
         "US-2472"
       ],
       "notes": "IN PROGRESS 2026-08-10: extension-unified/lister/facebook.js with ARIA-anchored selectors (Marketplace class names are hashed and churn every deploy); submit is Next, not publish, because auto-publishing with a guessed category gets a listing removed and an account flagged. MARKETPLACE_MECHANISM.facebook and MARKETPLACE_TIER.facebook both moved to extension in one commit; facebook added to EXTENSION_DELIST_PLATFORMS, LISTER_EXTENSION_PLATFORMS, EXTENSION_CROSS_LISTING_PLATFORMS and marketplace-specs (spec + condition bucket map, edge mirror synced). manifest host_permissions + content script added, and depth.test.cjs's host guard now DERIVES its allowlist from selectors.js instead of a frozen literal. Disclosure copy notes Meta's platform terms. BLOCKED ON A HUMAN for the enable."
-    },
-    {
-      "id": "US-2492",
-      "priority": 2390,
-      "passes": false,
-      "title": "Android: Sourcing Radar is absent entirely",
-      "description": "As an Android reseller, I want the venue map and my store list on the phone, so the feature that is most useful while I am standing in a shop is available on the device I have with me.",
-      "acceptanceCriteria": [
-        "Android calls GET /api/flipdesk/radar/venues, GET /radar/venues/:id and GET /radar/my-stores; today grep for radar under android/app/src/main returns 0 hits",
-        "Location handling reuses the permission pattern the capture flow already uses rather than introducing a second one",
-        "The personal scan log stays the seller's own data - it is covered by the account export (US-2412) and is not shared to the aggregate store by any path the seller did not choose",
-        "New strings go through stringResource, any new Compose file joins SCOPE in android/scripts/no-bare-strings.py, and values-es/strings.xml is updated in the same commit; Android CI green"
-      ],
-      "notes": "[P3][Android/Parity] Filed 2026-08-11 from the US-1299 parity audit. iOS: ios/GradeThread/Prospect/RadarService.swift:55,60,67, view RadarNearbyView.swift:17. Web: src/hooks/use-radar-network.ts:15-16. Edge mount: services/edge-functions/src/main.ts:1130. Note the privacy split the epic already documents: radar_personal_scans is subject data, and the shared event store deliberately has no account column.",
-      "dependsOn": []
     },
     {
       "id": "US-2496",
