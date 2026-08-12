@@ -11,6 +11,9 @@ export interface CommitPhoto {
   file: File | null;
   capturedAt: Date | null;
   photoType: FlipdeskPhotoType;
+  // US-2461: the open-text qualifier stored beside the type. Null for a type
+  // that takes none. Optional so older callers still compile against this shape.
+  photoRole?: string | null;
   // US-289: when the blob is already in storage (iOS-staged), commit references
   // this existing object instead of re-uploading a (missing) in-memory File.
   storagePath?: string | null;
@@ -65,6 +68,7 @@ async function uploadOnePhoto(
       photo_url: pub.publicUrl,
       storage_path: photo.storagePath,
       photo_type: photo.photoType,
+      photo_role: photo.photoRole ?? null,
       sort_order: sortOrder,
       captured_at: photo.capturedAt ? photo.capturedAt.toISOString() : null,
       reconcile_session_id: sessionId,
@@ -134,6 +138,7 @@ async function uploadOnePhoto(
     photo_url: pub.publicUrl,
     storage_path: path,
     photo_type: photo.photoType,
+    photo_role: photo.photoRole ?? null,
     sort_order: sortOrder,
     thumbnail_url: thumbnailUrl,
     thumbnail_storage_path: thumbnailPath,

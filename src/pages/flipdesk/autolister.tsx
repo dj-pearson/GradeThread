@@ -158,9 +158,9 @@ import {
   FLIPDESK_PHOTO_TYPES,
   isNonListablePhotoType,
   FLIPDESK_PLANS,
-  MEASUREMENT_PHOTO_TYPES,
-  PHOTO_TYPE_LABELS,
 } from "@/lib/constants";
+import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
+import { usePhotoProfile } from "@/lib/photo-profiles";
 import { cn } from "@/lib/utils";
 
 // FlipDesk AutoLister (US-316 upload + US-317 grouping). Dump a folder of
@@ -176,15 +176,16 @@ import { cn } from "@/lib/utils";
 // task list for progress UI and claims finished photos into `staged`.
 
 // US-533: per-photo gallery roles. The cover is always "front"; the rest carry
-// a role the AI assigns (and the user can override). US-1551: the role
-// vocabulary is now the FULL canonical photo-type set (measurements, tag_2,
-// detail_2…, interior, universal roles, …) so a photo can be tagged here
-// exactly like in the photo manager / iOS — the AI still only ASSIGNS the
-// basic five (AI_ASSIGNABLE_ROLES); everything else is user-set and survives
-// the AI pass. US-1549: "internal" marks a seller-reference shot (the price
-// tag you paid) — it generates with photo_type 'internal', which the edge
-// excludes from eBay, AI passes, and public surfaces; it sorts last and is
-// never sent to the classify/verify vision calls from here either.
+// a role the AI assigns (and the user can override). US-1551: the vocabulary is
+// the canonical photo-type set, so a photo can be tagged here exactly like in
+// the photo manager / iOS — the AI still only ASSIGNS the basic five
+// (AI_ASSIGNABLE_ROLES); everything else is user-set and survives the AI pass.
+// US-2461: what the seller PICKS from is now the profile-aware picker, not the
+// raw type list, and the storage type carries an open-text qualifier beside it.
+// US-1549: "internal" marks a seller-reference shot (the price tag you paid) —
+// it generates with photo_type 'internal', which the edge excludes from eBay,
+// AI passes, and public surfaces; it sorts last and is never sent to the
+// classify/verify vision calls from here either.
 type PhotoRole = (typeof FLIPDESK_PHOTO_TYPES)[number];
 // Canonical gallery rank — FLIPDESK_PHOTO_TYPES order IS the sort order
 // (front → back → tag → detail → measurements → defect → extras → universal
@@ -193,8 +194,8 @@ const ROLE_ORDER: Record<PhotoRole, number> = Object.fromEntries(
   FLIPDESK_PHOTO_TYPES.map((t, i) => [t, i]),
 ) as Record<PhotoRole, number>;
 // The roles the classify vision call is allowed to (re)assign. Any role
-// OUTSIDE this set was necessarily hand-picked by the seller (measurements,
-// tag_2, internal, …) — the AI never emits those, so an AI re-tag must not
+// OUTSIDE this set was necessarily hand-picked by the seller (measurement,
+// interior, internal, …) — the AI never emits those, so an AI re-tag must not
 // clobber them back to "detail".
 const AI_ASSIGNABLE_ROLES: ReadonlySet<PhotoRole> = new Set([
   "front",
@@ -203,17 +204,11 @@ const AI_ASSIGNABLE_ROLES: ReadonlySet<PhotoRole> = new Set([
   "detail",
   "defect",
 ]);
-// Role-select layout: the basic four first, then measurements, then the rest
-// of the canonical order (extras + universal), with internal kept last.
-// Derived from constants so a new photo type shows up here automatically.
-const CORE_ROLE_OPTIONS: PhotoRole[] = ["back", "tag", "detail", "defect"];
-const MORE_ROLE_OPTIONS: PhotoRole[] = FLIPDESK_PHOTO_TYPES.filter(
-  (t) =>
-    t !== "front" &&
-    t !== "internal" &&
-    !CORE_ROLE_OPTIONS.includes(t) &&
-    !(MEASUREMENT_PHOTO_TYPES as readonly string[]).includes(t),
-);
+// US-2461: the three hand-rolled option lists that used to sit here (core /
+// measurements / more) are gone. They were built by filtering
+// FLIPDESK_PHOTO_TYPES, which means they offered `tag_2`, `detail_2..4` and the
+// five fixed `measurement_*` types — the retired vocabulary — as NEW choices.
+// PhotoTagSelect is the one picker now, and it reads the item's profile.
 
 interface Group {
   id: string;
@@ -228,6 +223,12 @@ interface Group {
   // photoId -> role. Optional so sessions persisted before US-533 (and freshly
   // created groups) round-trip; a missing entry falls back to "detail".
   roles?: Record<string, PhotoRole>;
+  // US-2461: photoId -> the `item_photos.photo_role` qualifier, held ALONGSIDE
+  // the storage type rather than folded into it. That split is the whole point
+  // of the epic: `roles` stays the small stable enum, and the qualifier
+  // ("fabric", "size", "inseam") is open text that ships without a migration.
+  // A photo whose type takes no qualifier simply has no entry.
+  photoRoles?: Record<string, string>;
   // US-1543: true once the seller hand-placed photos (drag-reorder or a
   // positional drop): generate() then writes the photoIds order as sort_order
   // (cover still first) instead of the role-derived order. Roles are kept.
@@ -457,6 +458,41 @@ function MovePhotoMenu({
           ))}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+/**
+ * US-2461: the per-photo tag overlay on a group tile.
+ *
+ * A component rather than an inline `<PhotoTagSelect>` because the picker needs
+ * the item's photo profile, `usePhotoProfile` is a hook, and the tiles render
+ * inside a map. There is no item yet at AutoLister time, so the group NAME is
+ * the garment word — it is the title the seller typed, which is exactly what
+ * the profile resolver reads everywhere else.
+ */
+function GroupPhotoTag({
+  groupName,
+  photoType,
+  photoRole,
+  onChange,
+}: {
+  groupName: string;
+  photoType: PhotoRole;
+  photoRole: string | null;
+  onChange: (type: PhotoRole, role: string | null) => void;
+}) {
+  const garment = groupName.trim() || null;
+  const profile = usePhotoProfile(null, garment);
+  return (
+    <PhotoTagSelect
+      photoType={photoType}
+      photoRole={photoRole}
+      garment={garment}
+      profile={profile}
+      onChange={onChange}
+      ariaLabel="Photo role"
+      className="absolute inset-x-0 bottom-0 h-auto w-full justify-center gap-1 rounded-none border-0 bg-black/60 py-0.5 text-[10px] text-white focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+    />
   );
 }
 
@@ -1440,6 +1476,11 @@ export function FlipdeskAutolisterPage() {
             roles: g.roles
               ? Object.fromEntries(
                   Object.entries(g.roles).filter(([pid]) => !idSet.has(pid)),
+                )
+              : undefined,
+            photoRoles: g.photoRoles
+              ? Object.fromEntries(
+                  Object.entries(g.photoRoles).filter(([pid]) => !idSet.has(pid)),
                 )
               : undefined,
           };
@@ -2474,20 +2515,37 @@ export function FlipdeskAutolisterPage() {
           roles[g.coverId] = "detail";
         }
         roles[photoId] = "front";
-        return { ...g, coverId: photoId, roles };
+        // `front` takes no qualifier, so promoting a photo drops whatever role
+        // it carried — leaving one behind would write (front, "fabric").
+        const photoRoles = { ...(g.photoRoles ?? {}) };
+        delete photoRoles[photoId];
+        if (g.coverId && g.coverId !== photoId) delete photoRoles[g.coverId];
+        return { ...g, coverId: photoId, roles, photoRoles };
       }),
     );
   }
 
-  // US-533: override a non-cover photo's role. (The cover's role is fixed to
-  // "front" — change the front by picking a new cover.)
-  function setPhotoRole(groupId: string, photoId: string, role: PhotoRole) {
+  // US-533: override a non-cover photo's tag. (The cover's is fixed to "front"
+  // — change the front by picking a new cover.) US-2461: the picker now returns
+  // a (type, role) pair, so both maps move together.
+  function setPhotoTag(
+    groupId: string,
+    photoId: string,
+    type: PhotoRole,
+    role: string | null,
+  ) {
     setGroups((prev) =>
-      prev.map((g) =>
-        g.id === groupId
-          ? { ...g, roles: { ...(g.roles ?? {}), [photoId]: role } }
-          : g,
-      ),
+      prev.map((g) => {
+        if (g.id !== groupId) return g;
+        const photoRoles = { ...(g.photoRoles ?? {}) };
+        if (role) photoRoles[photoId] = role;
+        else delete photoRoles[photoId];
+        return {
+          ...g,
+          roles: { ...(g.roles ?? {}), [photoId]: type },
+          photoRoles,
+        };
+      }),
     );
   }
 
@@ -2527,18 +2585,27 @@ export function FlipdeskAutolisterPage() {
           ? json.cover_id
           : g.coverId;
       // US-1549/US-1551: the AI only assigns the basic five roles, so any role
-      // outside that set (internal, measurements, tag_2, …) was hand-picked by
-      // the seller — re-apply those over the AI result instead of letting the
+      // outside that set (internal, measurements, interior, …) was hand-picked
+      // by the seller — re-apply those over the AI result instead of letting the
       // pass demote them to "detail".
+      // US-2461: a QUALIFIED photo counts as hand-picked too. The AI emits bare
+      // types, so "Fabric close-up" comes back as `detail` and would otherwise
+      // survive as a type while its role was silently dropped below.
       const preservedManual = Object.fromEntries(
         Object.entries(g.roles ?? {}).filter(
-          ([, role]) => !AI_ASSIGNABLE_ROLES.has(role),
+          ([pid, role]) =>
+            !AI_ASSIGNABLE_ROLES.has(role) || !!g.photoRoles?.[pid],
         ),
       ) as Record<string, PhotoRole>;
-      updateGroup(groupId, {
-        coverId: cover,
-        roles: { ...(json.roles ?? {}), ...preservedManual },
-      });
+      const roles = { ...(json.roles ?? {}), ...preservedManual };
+      // Drop a qualifier the AI just retyped away from under (the seller's
+      // "Size tag" reclassified as a defect keeps no `size` role).
+      const photoRoles = Object.fromEntries(
+        Object.entries(g.photoRoles ?? {}).filter(
+          ([pid]) => pid in preservedManual && roles[pid] !== "front",
+        ),
+      );
+      updateGroup(groupId, { coverId: cover, roles, photoRoles });
       return true;
     } catch (err) {
       toast.error(
@@ -2672,6 +2739,10 @@ export function FlipdeskAutolisterPage() {
         // (cover still first; roles still label each photo).
         const roleOf = (p: StagedPhoto): PhotoRole =>
           p.id === g.coverId ? "front" : (g.roles?.[p.id] ?? "detail");
+        // US-2461: the qualifier rides alongside the type. The cover is a
+        // `front`, which takes none.
+        const qualifierOf = (p: StagedPhoto): string | null =>
+          p.id === g.coverId ? null : (g.photoRoles?.[p.id] ?? null);
         const ordered = [...photos].sort((a, b) => {
           if (a.id === g.coverId) return -1;
           if (b.id === g.coverId) return 1;
@@ -2725,6 +2796,7 @@ export function FlipdeskAutolisterPage() {
           thumbnail_url: p.thumbnailUrl,
           thumbnail_storage_path: p.thumbnailStoragePath,
           photo_type: roleOf(p),
+          photo_role: qualifierOf(p),
           sort_order: idx,
           width: p.width,
           height: p.height,
@@ -4054,42 +4126,20 @@ export function FlipdeskAutolisterPage() {
                           Front
                         </span>
                       ) : (
-                        <select
-                          value={g.roles?.[pid] ?? "detail"}
-                          onChange={(e) =>
-                            setPhotoRole(g.id, pid, e.target.value as PhotoRole)
+                        // US-2461: the one picker, same as the photo manager.
+                        // The group NAME is the seller's own title, so it is the
+                        // best garment word available here — a group called
+                        // "Levi's 501 jeans" gets an inseam slot and a t-shirt
+                        // group does not. "Front" stays absent: the cover IS the
+                        // front, promoted via the star.
+                        <GroupPhotoTag
+                          groupName={g.name}
+                          photoType={g.roles?.[pid] ?? "detail"}
+                          photoRole={g.photoRoles?.[pid] ?? null}
+                          onChange={(type, role) =>
+                            setPhotoTag(g.id, pid, type, role)
                           }
-                          aria-label="Photo role"
-                          className="absolute inset-x-0 bottom-0 w-full cursor-pointer border-0 bg-black/60 py-0.5 text-center text-[10px] text-white outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                        >
-                          {/* US-1551: the full photo-type vocabulary (same as
-                              the photo manager / iOS), grouped for scanning.
-                              "Front" is absent on purpose — the cover IS the
-                              front; promote via the star. */}
-                          {CORE_ROLE_OPTIONS.map((r) => (
-                            <option key={r} value={r}>
-                              {PHOTO_TYPE_LABELS[r]}
-                            </option>
-                          ))}
-                          <optgroup label="Measurements">
-                            {MEASUREMENT_PHOTO_TYPES.map((r) => (
-                              <option key={r} value={r}>
-                                {PHOTO_TYPE_LABELS[r]}
-                              </option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="More shots">
-                            {MORE_ROLE_OPTIONS.map((r) => (
-                              <option key={r} value={r}>
-                                {PHOTO_TYPE_LABELS[r]}
-                              </option>
-                            ))}
-                          </optgroup>
-                          {/* US-1549: reference-only — not sent to eBay/AI. */}
-                          <option value="internal">
-                            {PHOTO_TYPE_LABELS.internal}
-                          </option>
-                        </select>
+                        />
                       )}
                     </PhotoDragTile>
                   );

@@ -437,4 +437,52 @@ public enum PhotoRoleVocabulary {
             return nil
         }
     }
+
+    // US-2461: which of the roles above belong to which garment group. The lists
+    // above are the flat union of every group — the right shape for LABELLING an
+    // arbitrary stored role, the wrong shape for OFFERING one, since "Handles &
+    // straps" in a t-shirt's menu is exactly the noise the epic set out to
+    // remove. Mirrors DETAIL_ROLES_BY_GROUP / TAG_ROLES_BY_GROUP in
+    // src/lib/photo-roles.ts and the Kotlin `PhotoRoleVocabulary`.
+    private static let baseTagRoleKeys = ["brand", "size", "care", "made_in"]
+    private static let baseDetailRoleKeys =
+        ["fabric", "hem", "hardware", "pocket", "print", "collar"]
+    private static let detailRoleKeysByGroup: [GarmentGroup: [String]] = [
+        .bag: ["handles", "base"],
+        .accessory: ["ends_edges"],
+        .shoes: ["insole"],
+    ]
+    private static let tagRoleKeysByGroup: [GarmentGroup: [String]] = [
+        // Only a suit needs a second size label: it is the only garment that is
+        // genuinely two garments, and a buyer needs both numbers.
+        .suit: ["size_alt"],
+    ]
+
+    /// US-2461: every role a seller may PICK for `type` on a `group` garment, in
+    /// offer order.
+    ///
+    /// `measurement` deliberately returns nothing. Its roles are the group's
+    /// measurement-template fields, which only the server knows — they arrive on
+    /// the photo profile, so the profile is the one authority for them and a
+    /// third copy of the template table would only create a way to disagree.
+    public static func roles(
+        for type: String,
+        group: GarmentGroup
+    ) -> [(key: String, label: String)] {
+        switch type {
+        case "tag":
+            return (baseTagRoleKeys + (tagRoleKeysByGroup[group] ?? []))
+                .compactMap { key in tagRoles.first { $0.key == key } }
+        case "detail":
+            return (baseDetailRoleKeys + (detailRoleKeysByGroup[group] ?? []))
+                .compactMap { key in detailRoles.first { $0.key == key } }
+        default:
+            return []
+        }
+    }
+
+    /// True when `type` carries a qualifier at all — mirrors `typeTakesRole`.
+    public static func takesRole(_ type: String) -> Bool {
+        type == "tag" || type == "detail" || type == "measurement"
+    }
 }

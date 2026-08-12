@@ -1701,6 +1701,10 @@ export interface ReconcileAssignmentSnapshot {
   // Absent for browser-staged photos whose blob lives only in memory.
   storagePath?: string | null;
   photoType?: FlipdeskPhotoType | null;
+  // US-2461: the `item_photos.photo_role` qualifier the seller picked on the
+  // board. Optional so a session snapshot written before this shipped restores
+  // with a null role rather than failing to parse.
+  photoRole?: string | null;
 }
 
 export interface ReconcileSessionRow {

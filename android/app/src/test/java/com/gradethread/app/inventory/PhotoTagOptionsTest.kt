@@ -139,6 +139,51 @@ class PhotoTagOptionsTest {
     }
 
     @Test
+    fun `a role the profile does not suggest is demoted, not hidden`() {
+        // US-2461 AC4. "All types" used to be built from BARE types, so the only
+        // roles a phone could reach were the ones the item's profile happened to
+        // name. The suit profile below suggests `detail:fabric` and three of the
+        // four tag roles — so before this, "Hem & stitching" and "Made in /
+        // union label" were unreachable on Android and reachable on web.
+        val labels = PhotoTagOptions.build("front", null, suit).allTypes.map { it.label }
+        assertTrue("Hem & stitching" in labels)
+        assertTrue("Hardware" in labels)
+        assertTrue("Made in / union label" in labels)
+    }
+
+    @Test
+    fun `a type that takes a role is never offered bare`() {
+        // An unqualified "Detail" would compete with "Fabric close-up" for the
+        // same slot, and a bare `measurement` is the MeasureCard calibration
+        // frame — a different photo, written by a different flow.
+        val menu = PhotoTagOptions.build("front", null, suit)
+        val offered = menu.suggested + menu.allTypes
+        for (t in listOf("tag", "detail", "measurement")) {
+            assertFalse(
+                "a bare $t was offered",
+                offered.any { it.type == t && it.role == null },
+            )
+        }
+    }
+
+    @Test
+    fun `group-specific roles follow the garment, not the whole catalog`() {
+        // "Handles & straps" in a t-shirt's menu is the noise this epic removed.
+        val bag = PhotoProfile(
+            category = "bags",
+            label = "Bags",
+            roles = listOf(role("front", "Front")),
+        )
+        val bagLabels = PhotoTagOptions.build("front", null, bag).allTypes.map { it.label }
+        assertTrue("Handles & straps" in bagLabels)
+        assertFalse("Trouser size tag" in bagLabels)
+
+        val suitLabels = PhotoTagOptions.build("front", null, suit).allTypes.map { it.label }
+        assertFalse("Handles & straps" in suitLabels)
+        assertFalse("Insole" in suitLabels)
+    }
+
+    @Test
     fun `a t-shirt is never offered an inseam and a suit is`() {
         val tee = PhotoProfile(
             category = "clothing:top",

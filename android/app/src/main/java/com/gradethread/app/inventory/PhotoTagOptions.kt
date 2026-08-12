@@ -1,7 +1,9 @@
 package com.gradethread.app.inventory
 
 import com.gradethread.app.capture.FlipdeskPhotoType
+import com.gradethread.app.capture.GarmentGroup
 import com.gradethread.app.capture.PhotoProfile
+import com.gradethread.app.capture.PhotoRoleVocabulary
 
 /**
  * US-2469: the choices a retag menu offers, as data.
@@ -72,10 +74,36 @@ object PhotoTagOptions {
             suggested += Choice(r.type, r.role, r.label)
         }
 
+        // US-2461: "All types" enumerates ROLES, not bare types.
+        //
+        // It used to map every type to `Choice(type, null, …)`, which meant a
+        // role the item's profile did not happen to suggest was UNREACHABLE on
+        // a phone rather than demoted — "Fabric close-up" and "Made in / union
+        // label" simply did not exist unless the profile named them, and the
+        // menu instead offered a bare "Detail" that web deliberately suppresses.
+        // That is hiding, and the AC is that nothing is hidden.
+        //
+        // A type that takes a qualifier contributes one choice PER ROLE and
+        // none for the bare type: picking "Detail" with no qualifier is not
+        // something anyone wants with "Fabric close-up" sitting right there, and
+        // an unqualified option would quietly compete with the qualified ones.
+        val group = GarmentGroup.from(profile.category.substringAfterLast(':'))
         val allTypes = FlipdeskPhotoType.all
             .asSequence()
             .filterNot { FlipdeskPhotoType.isRetired(it) }
-            .map { Choice(it, null, FlipdeskPhotoType.label(it)) }
+            .flatMap { type ->
+                val roles = PhotoRoleVocabulary.rolesFor(type, group)
+                when {
+                    roles.isNotEmpty() ->
+                        roles.asSequence().map { (key, label) -> Choice(type, key, label) }
+                    // `measurement` takes roles, but only the profile knows
+                    // which — so it contributes whatever the profile suggested
+                    // and never a bare, unqualified measurement (which is the
+                    // MeasureCard calibration frame, not a tape close-up).
+                    PhotoRoleVocabulary.takesRole(type) -> emptySequence()
+                    else -> sequenceOf(Choice(type, null, FlipdeskPhotoType.label(type)))
+                }
+            }
             .filterNot { it.slot in seen }
             .sortedBy { it.label.lowercase() }
             .toList()

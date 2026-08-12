@@ -194,4 +194,46 @@ object PhotoRoleVocabulary {
         "measurement" -> "Measure: ${MeasurementCatalog.label(role)}"
         else -> null
     }
+
+    // US-2461: which of the roles above belong to which garment group. The base
+    // lists above are the flat union of every group, which is the right shape
+    // for LABELLING an arbitrary stored role but the wrong shape for OFFERING
+    // one — "Handles & straps" in a t-shirt's menu is exactly the noise the
+    // epic set out to remove. Mirrors DETAIL_ROLES_BY_GROUP / TAG_ROLES_BY_GROUP
+    // in src/lib/photo-roles.ts.
+    private val baseTagRoleKeys = listOf("brand", "size", "care", "made_in")
+    private val baseDetailRoleKeys =
+        listOf("fabric", "hem", "hardware", "pocket", "print", "collar")
+    private val detailRoleKeysByGroup: Map<GarmentGroup, List<String>> = mapOf(
+        GarmentGroup.BAG to listOf("handles", "base"),
+        GarmentGroup.ACCESSORY to listOf("ends_edges"),
+        GarmentGroup.SHOES to listOf("insole"),
+    )
+    private val tagRoleKeysByGroup: Map<GarmentGroup, List<String>> = mapOf(
+        // Only a suit needs a second size label: it is the only garment that is
+        // genuinely two garments, and a buyer needs both numbers.
+        GarmentGroup.SUIT to listOf("size_alt"),
+    )
+
+    /**
+     * US-2461: every role a seller may PICK for [type] on a [group] garment,
+     * as (key, label) pairs in offer order.
+     *
+     * `measurement` deliberately returns nothing. Its roles are the group's
+     * measurement-template fields, which only the server knows — they arrive on
+     * the photo profile, so the profile is the one authority for them and
+     * duplicating the template table on a third client would just create a way
+     * for the two to disagree.
+     */
+    fun rolesFor(type: String, group: GarmentGroup): List<Pair<String, String>> = when (type) {
+        "tag" -> (baseTagRoleKeys + (tagRoleKeysByGroup[group] ?: emptyList()))
+            .mapNotNull { key -> tagRoles.firstOrNull { it.first == key } }
+        "detail" -> (baseDetailRoleKeys + (detailRoleKeysByGroup[group] ?: emptyList()))
+            .mapNotNull { key -> detailRoles.firstOrNull { it.first == key } }
+        else -> emptyList()
+    }
+
+    /** True when [type] carries a qualifier at all — mirrors `typeTakesRole`. */
+    fun takesRole(type: String): Boolean =
+        type == "tag" || type == "detail" || type == "measurement"
 }

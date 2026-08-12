@@ -204,6 +204,10 @@ struct PhotoManagerView: View {
         // must not fault on a table it did not author.
         var seen = Set<String>()
         let suggested = profile.roles
+            // US-2461: a profile is server data this client did not author, so a
+            // stale row naming a retired type must not put it back in the
+            // picker. Web and Android both filter here; iOS did not.
+            .filter { !FlipdeskPhotoType.isRetired($0.type) }
             .map { TagChoice(type: $0.type, role: $0.role, label: $0.label) }
             .filter { seen.insert($0.id).inserted }
         let suggestedIds = seen
@@ -211,13 +215,59 @@ struct PhotoManagerView: View {
         // Everything else, A-Z by label so a rare tag is findable by name.
         // Retired types are never offered as a NEW choice; a photo already on
         // one keeps its old label until it is retagged (see the orphan row).
+        //
+        // US-2461: this enumerates ROLES, not bare types. It used to map every
+        // type to `(type, nil)`, which meant a role the item's profile did not
+        // happen to suggest was UNREACHABLE on a phone rather than demoted —
+        // "Hem & stitching" and "Made in / union label" simply did not exist —
+        // while the menu offered a bare "Detail" that web deliberately
+        // suppresses. That is hiding, and the rule is that nothing is hidden.
+        let group = GarmentGroup.from(
+            profile.category.split(separator: ":").last.map(String.init)
+        )
         let rest = FlipdeskPhotoType.all
             .filter { !FlipdeskPhotoType.isRetired($0) }
-            .map { TagChoice(type: $0, role: nil, label: FlipdeskPhotoType.label(for: $0)) }
+            .flatMap { type -> [TagChoice] in
+                let roles = PhotoRoleVocabulary.roles(for: type, group: group)
+                if !roles.isEmpty {
+                    return roles.map { TagChoice(type: type, role: $0.key, label: $0.label) }
+                }
+                // `measurement` takes roles, but only the profile knows which —
+                // so it contributes whatever the profile suggested and never a
+                // bare, unqualified measurement, which is the MeasureCard
+                // calibration frame rather than a tape close-up.
+                if PhotoRoleVocabulary.takesRole(type) { return [] }
+                return [TagChoice(type: type, role: nil, label: FlipdeskPhotoType.label(for: type))]
+            }
             .filter { !suggestedIds.contains($0.id) }
             .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
 
+        // US-2461: the orphan row. A photo whose current slot is offered by
+        // neither section — a row migration 00587 has not reached, or a bare
+        // `detail` from before the qualifier existed — would otherwise show
+        // nothing checked, leaving the seller unable to tell what they are
+        // changing FROM. The comment above has claimed this row existed since
+        // US-2468; it did not. Web (`photo-tag-select.tsx`) and Android
+        // (`PhotoTagOptions.orphan`) both have it.
+        let offered = suggestedIds.union(rest.map(\.id))
+        let orphan: TagChoice? = offered.contains(current)
+            ? nil
+            : TagChoice(
+                type: photo.photoType,
+                role: photo.photoRole,
+                label: FlipdeskPhotoType.label(
+                    for: photo.photoType,
+                    role: photo.photoRole,
+                    profile: profile
+                )
+            )
+
         Menu {
+            if let orphan {
+                Section {
+                    tagChoiceButton(photo: photo, choice: orphan, current: current)
+                }
+            }
             Section("Suggested · \(profile.label)") {
                 ForEach(suggested) { choice in
                     tagChoiceButton(photo: photo, choice: choice, current: current)

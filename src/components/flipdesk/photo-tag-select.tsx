@@ -109,6 +109,7 @@ export function PhotoTagSelect({
   onChange,
   className,
   ariaLabel = "Photo type",
+  disabled = false,
 }: {
   photoType: FlipdeskPhotoType;
   photoRole: string | null;
@@ -119,6 +120,8 @@ export function PhotoTagSelect({
   onChange: (type: FlipdeskPhotoType, role: string | null) => void;
   className?: string;
   ariaLabel?: string;
+  /** Read-only mode: the current tag still renders, it just cannot be changed. */
+  disabled?: boolean;
 }) {
   const options = allOptions(garment);
   const byslot = new Map(options.map((o) => [o.slot, o]));
@@ -150,6 +153,7 @@ export function PhotoTagSelect({
   return (
     <Select
       value={current}
+      disabled={disabled}
       onValueChange={(v) => {
         const { type, role } = parseSlot(v);
         onChange(type, role);

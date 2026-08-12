@@ -201,6 +201,65 @@ final class ShareInboxTests: XCTestCase {
         )
     }
 
+    /// US-2461: what the share picker OFFERS, as opposed to what the inbox
+    /// accepts. This was the last surface handing a seller a retired numbered
+    /// slot as a new choice — a photo tagged "Detail 3" from the share sheet
+    /// landed as `detail_3` and told the grader nothing about what it showed,
+    /// five months after `PhotoRole.captureSlot` started refusing those.
+    ///
+    /// A third hand mirror, like the one above, because the test target cannot
+    /// import the extension target. What it buys: the assertions below run
+    /// against the MAIN APP's vocabulary, so a role that is offered here but
+    /// unknown to the app fails the build rather than reaching a seller.
+    func test_shareExtensionOfferedSlots_areCurrentAndDecodable() {
+        let offered: [String] = [
+            "front", "back",
+            "tag|brand", "tag|size", "tag|care", "tag|made_in",
+            "detail|fabric", "detail|hem", "detail|hardware",
+            "detail|pocket", "detail|print", "detail|collar",
+            "measurement|chest", "measurement|waist", "measurement|length",
+            "measurement|sleeve", "measurement|inseam",
+            "defect1", "defect2", "defect3",
+            "interior", "flatlay", "on_model", "on_hanger", "set_pair",
+            "measurement",
+            "angle", "sole", "marking", "serial", "accessory",
+            "certificate", "corner", "surface",
+        ]
+
+        for key in offered {
+            guard let slot = CaptureSlot(storageKey: key) else {
+                return XCTFail("offered slot \(key) does not decode as a CaptureSlot")
+            }
+            XCTAssertFalse(
+                FlipdeskPhotoType.isRetired(slot.serverPhotoType),
+                "\(key) offers the retired type \(slot.serverPhotoType)"
+            )
+            if let role = slot.role {
+                XCTAssertNotNil(
+                    PhotoRoleVocabulary.label(type: slot.serverPhotoType, role: role),
+                    "\(key) offers a role the app cannot name"
+                )
+            }
+        }
+
+        // The five numbered measurement slots the picker used to offer are gone,
+        // and every one of them has a (type, role) replacement — no capability
+        // was dropped, only renamed.
+        for retired in ["tag_2", "detail_2", "detail_3", "detail_4",
+                        "measurement_chest", "measurement_waist",
+                        "measurement_length", "measurement_sleeve",
+                        "measurement_inseam"] {
+            XCTAssertFalse(offered.contains(retired), "\(retired) is still offered")
+        }
+        for role in ["chest", "waist", "length", "sleeve", "inseam"] {
+            XCTAssertTrue(offered.contains("measurement|\(role)"), "measurement|\(role) missing")
+        }
+
+        // The inbox contract is unchanged: an older build's batch still decodes.
+        XCTAssertNotNil(CaptureSlot(storageKey: "detail_2"))
+        XCTAssertNotNil(CaptureSlot(storageKey: "measurement_chest"))
+    }
+
     // MARK: - Helpers
 
     /// Inlined version of `IntakeInbox.writeBatch` that writes to an

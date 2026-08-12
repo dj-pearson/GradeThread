@@ -92,7 +92,8 @@ import {
 } from "@/hooks/use-ai-extract";
 import { rankItemMatches } from "@/lib/reconcile-match";
 import { compressImage } from "@/lib/image-utils";
-import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
+import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
+import { usePhotoProfile, type PhotoProfile } from "@/lib/photo-profiles";
 import type { FlipdeskPhotoType, ReconcileAssignmentSnapshot } from "@/types/database";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +102,9 @@ interface DumpPhoto extends ClusterablePhoto {
   previewUrl: string;
   file: File | null;
   photoType: FlipdeskPhotoType;
+  // US-2461: the `item_photos.photo_role` qualifier. Null for a type that takes
+  // none, and for every photo restored from a session saved before this shipped.
+  photoRole: string | null;
   // US-289: set when the blob is already in storage (iOS-staged). Commit
   // references it instead of re-uploading a (missing) in-memory File.
   storagePath?: string | null;
@@ -277,6 +281,7 @@ export function FlipdeskReconcilePage() {
           previewUrl,
           file: null,
           photoType: a.photoType ?? "detail",
+          photoRole: a.photoRole ?? null,
           storagePath: a.storagePath ?? null,
         });
         map[a.id] = { clusterId: a.clusterId, manual: a.manual };
@@ -314,6 +319,7 @@ export function FlipdeskReconcilePage() {
       // US-289: preserve the storage pointer for iOS-staged photos.
       storagePath: p.storagePath ?? null,
       photoType: p.photoType,
+      photoRole: p.photoRole,
     }));
     const t = setTimeout(() => {
       void supabase
@@ -375,6 +381,7 @@ export function FlipdeskReconcilePage() {
             previewUrl: URL.createObjectURL(file),
             file,
             photoType: "detail",
+            photoRole: null,
           });
           if (batch.length >= 12) flush();
         }
@@ -400,8 +407,11 @@ export function FlipdeskReconcilePage() {
     });
   }
 
-  function setPhotoType(id: string, type: FlipdeskPhotoType) {
-    setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, photoType: type } : p)));
+  // US-2461: a tag is a (type, role) pair, so both move together or neither does.
+  function setPhotoType(id: string, type: FlipdeskPhotoType, role: string | null) {
+    setPhotos((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, photoType: type, photoRole: role } : p)),
+    );
   }
 
   const selectedIds = useMemo(() => [...selected], [selected]);
@@ -451,6 +461,7 @@ export function FlipdeskReconcilePage() {
           file: p.file,
           capturedAt: p.capturedAt,
           photoType: p.photoType,
+          photoRole: p.photoRole,
           storagePath: p.storagePath ?? null,
         })),
       }));
@@ -896,7 +907,7 @@ function ClusterCard({
   photos: DumpPhoto[];
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
-  onSetPhotoType: (id: string, t: FlipdeskPhotoType) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType, role: string | null) => void;
   locked: boolean;
   otherClusters: Array<{ id: string; label: string }>;
   onMerge: (fromClusterId: string) => void;
@@ -1131,7 +1142,7 @@ function NeedsSortingZone({
   photos: DumpPhoto[];
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
-  onSetPhotoType: (id: string, t: FlipdeskPhotoType) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType, role: string | null) => void;
 }) {
   const { isOver, setNodeRef } = useDroppable({ id: NEEDS_SORTING_DROP });
   if (photos.length === 0 && !isOver) return null;
@@ -1175,7 +1186,7 @@ function ThumbGrid({
   photos: DumpPhoto[];
   selected: Set<string>;
   onToggleSelect: (id: string) => void;
-  onSetPhotoType: (id: string, t: FlipdeskPhotoType) => void;
+  onSetPhotoType: (id: string, t: FlipdeskPhotoType, role: string | null) => void;
   editable: boolean;
 }) {
   return (
@@ -1186,7 +1197,7 @@ function ThumbGrid({
           photo={p}
           selected={selected.has(p.id)}
           onToggleSelect={() => onToggleSelect(p.id)}
-          onSetPhotoType={(t) => onSetPhotoType(p.id, t)}
+          onSetPhotoType={(t, role) => onSetPhotoType(p.id, t, role)}
           editable={editable}
         />
       ))}
@@ -1204,9 +1215,14 @@ function Thumb({
   photo: DumpPhoto;
   selected: boolean;
   onToggleSelect: () => void;
-  onSetPhotoType: (t: FlipdeskPhotoType) => void;
+  onSetPhotoType: (t: FlipdeskPhotoType, role: string | null) => void;
   editable: boolean;
 }) {
+  // US-2461: the reconcile board holds loose photos that have no item yet, so
+  // there is no garment word to resolve — this is the flat clothing profile,
+  // which is the right default for a board a clothing reseller dumped a card
+  // into. The query is shared, so one fetch serves every thumb.
+  const profile: PhotoProfile = usePhotoProfile(null, null);
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: photo.id,
     disabled: !editable,
@@ -1249,21 +1265,20 @@ function Thumb({
           </div>
         )}
       </div>
-      {/* Inline photo-type correction (US-286). */}
-      <select
-        value={photo.photoType}
-        disabled={!editable}
-        onChange={(e) => onSetPhotoType(e.target.value as FlipdeskPhotoType)}
-        onPointerDown={(e) => e.stopPropagation()}
-        className="w-full rounded border bg-background px-1 py-0.5 text-[10px]"
-        aria-label="Photo type"
-      >
-        {FLIPDESK_PHOTO_TYPES.map((t) => (
-          <option key={t} value={t}>
-            {PHOTO_TYPE_LABELS[t]}
-          </option>
-        ))}
-      </select>
+      {/* Inline photo-type correction (US-286). US-2461: the one picker — this
+          used to map FLIPDESK_PHOTO_TYPES into a flat 28-entry list, retired
+          types and all. */}
+      <div onPointerDown={(e) => e.stopPropagation()}>
+        <PhotoTagSelect
+          photoType={photo.photoType}
+          photoRole={photo.photoRole}
+          profile={profile}
+          onChange={onSetPhotoType}
+          disabled={!editable}
+          ariaLabel="Photo type"
+          className="h-auto w-full px-1 py-0.5 text-[10px]"
+        />
+      </div>
     </div>
   );
 }
