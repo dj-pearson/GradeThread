@@ -5,6 +5,7 @@ import com.gradethread.app.platform.net.EdgeApiError
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Named
 import javax.inject.Singleton
@@ -116,6 +117,17 @@ object MyStoresRules {
      * a chance yet as a shop that failed.
      */
     fun hasFigure(pct: Double?): Boolean = pct != null
+
+    /**
+     * A percentage, to one decimal place, in the reader's locale.
+     *
+     * Formatted here rather than by a `%1$.1f` in the resource, which
+     * `check-string-formats.py` cannot see: its placeholder scan only knows
+     * `%n$s` and `%n$d`, so the float form read as "takes no arguments" and the
+     * call that passed one failed the guard on every run.
+     */
+    fun percent(pct: Double, locale: Locale = Locale.getDefault()): String =
+        String.format(locale, "%.1f", pct)
 
     /**
      * The stores worth showing at the top of a phone screen.

@@ -68,6 +68,8 @@ SCOPE = [
     "marketplaces/ListingEditSheet.kt",
     "money/InventoryEquityCard.kt",
     "radar/MyStoresScreen.kt",
+    "radar/RadarNearbyScreen.kt",
+    "radar/RadarVenueDetailScreen.kt",
     "grading/BulkGradeScreen.kt",
     "inventory/InventoryListScreen.kt",
     "marketplaces/promotions/PromotionSheet.kt",

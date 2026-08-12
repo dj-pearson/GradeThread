@@ -76,6 +76,15 @@ object ShellRoutes {
     /** US-2495: which shops actually make money, reached from Tools. */
     const val MY_STORES = "my-stores"
 
+    /** US-2492: the shared half of Sourcing Radar, reached from Tools. */
+    const val RADAR = "radar"
+
+    /** The graph pattern for one shop on the shared map. */
+    const val RADAR_VENUE_PATTERN = "radar/venue/{venueId}"
+
+    /** US-2492: one shop's aggregate detail, reached from [RADAR]. */
+    fun radarVenue(venueId: String) = "radar/venue/$venueId"
+
     /** US-2407: the workspace's members and invitations, reached from Settings. */
     const val TEAM = "team"
 

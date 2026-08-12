@@ -15,6 +15,14 @@
     <!-- US-1378: push. Requested at a MONEY MOMENT (first sale / first grade),
          never at launch - Android gives one real shot at this dialog. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- US-2492: Sourcing Radar centres its list on where the phone is.
+         COARSE ONLY, and deliberately: the server keeps roughly a one-kilometre
+         cell, and the client rounds the viewport to 0.05 degrees before it
+         leaves the device, so a fine fix would be thrown away twice on the way
+         out. Requested from the "Use my location" button, never on open - the
+         first list is built from the seller's own linked stores, so Radar works
+         with this permission refused. -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
     <!-- US-1331: package visibility (API 30+). Without this, the recognition

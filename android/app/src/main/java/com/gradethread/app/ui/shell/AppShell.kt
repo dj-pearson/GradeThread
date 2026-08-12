@@ -454,6 +454,22 @@ private fun ShellNavHost(navController: NavHostController) {
                 onClose = { navController.popBackStack() },
             )
         }
+        // US-2492: the shared half — what everyone else has found nearby.
+        composable(ShellRoutes.RADAR) {
+            com.gradethread.app.radar.RadarNearbyScreen(
+                onOpenVenue = { id -> navController.navigate(ShellRoutes.radarVenue(id)) },
+                onClose = { navController.popBackStack() },
+            )
+        }
+        composable(
+            ShellRoutes.RADAR_VENUE_PATTERN,
+            arguments = listOf(navArgument("venueId") { type = NavType.StringType }),
+        ) { entry ->
+            com.gradethread.app.radar.RadarVenueDetailScreen(
+                venueId = entry.arguments?.getString("venueId").orEmpty(),
+                onClose = { navController.popBackStack() },
+            )
+        }
         composable(ShellRoutes.SEARCH) {
             com.gradethread.app.inventory.GlobalSearchScreen(
                 onOpen = { route ->
@@ -481,6 +497,7 @@ private fun ShellNavHost(navController: NavHostController) {
                 onSupport = { navController.navigate(ShellRoutes.SUPPORT) },
                 onImport = { navController.navigate(ShellRoutes.IMPORT) },
                 onMyStores = { navController.navigate(ShellRoutes.MY_STORES) },
+                onRadar = { navController.navigate(ShellRoutes.RADAR) },
             )
         }
         // US-1389: CSV / Sheets import.

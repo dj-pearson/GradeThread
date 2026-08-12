@@ -38,6 +38,8 @@ fun ToolsScreen(
     onImport: () -> Unit = {},
     /** US-2495: which shops actually make money. */
     onMyStores: () -> Unit = {},
+    /** US-2492: what everyone else has found in the shops near you. */
+    onRadar: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -53,6 +55,11 @@ fun ToolsScreen(
             title = stringResource(R.string.tools_certified_grades),
             subtitle = stringResource(R.string.tools_every_graded_item_its_report),
             onClick = onGrades,
+        )
+        ToolRow(
+            title = stringResource(R.string.tools_radar),
+            subtitle = stringResource(R.string.tools_radar_subtitle),
+            onClick = onRadar,
         )
         ToolRow(
             title = stringResource(R.string.tools_my_stores),

@@ -175,7 +175,7 @@ private fun StoreCard(store: MyStore) {
         // shop that failed.
         if (MyStoresRules.hasFigure(store.realizedRoiPct)) {
             Text(
-                stringResource(R.string.stores_roi, store.realizedRoiPct!!),
+                stringResource(R.string.stores_roi, MyStoresRules.percent(store.realizedRoiPct!!)),
                 style = MaterialTheme.typography.bodySmall,
             )
         }
