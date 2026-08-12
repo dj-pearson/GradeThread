@@ -1941,19 +1941,6 @@
         "Either way the seller is never shown a share trigger that queues a row the drain will refuse"
       ],
       "notes": "[P2][FlipDesk/Queue] Split out of US-2481 on 2026-08-11. US-2481 AC1 originally said 'publish, delist, share run'; publish and delist ship on both mobile clients, share does not, and the reason is architectural rather than unfinished work. A share run is the US-2482 Poshmark engagement pass. background.js GT_ENGAGE_START (~:1519) refuses unless the ACTIVE TAB already matches cfg.closetUrlPattern, and the extension holds no Poshmark handle by design ('GradeThread's servers see run counts at most, and never a Poshmark page, handle or cookie'). A background drain has no active closet tab and nothing to build one from. The engagement engine also has its own separate clickwrap, accepted IN the extension, which a phone cannot stand in for. Until this is decided, kind=share is accepted by the API and refused by the drain: planDrain puts it in `unsupported` and background.js completes the row with ok:false. That is honest but it is still an API accepting work it cannot do, which is what this story closes one way or the other."
-    },
-    {
-      "id": "US-2498",
-      "title": "Android: drive the capture strip from the photo profile, not a hardcoded slot list",
-      "priority": 2393,
-      "passes": false,
-      "acceptanceCriteria": [
-        "The Android capture strip is built from the fetched photo profile (PhotoProfileStore) for the item's garment group, not from PhotoSlotType.defaultSlots + extras + measurements",
-        "A garment group whose profile names a slot Android has no enum case for is handled explicitly, not dropped silently",
-        "The bundled fallback is used only for first paint and offline, matching src/lib/photo-profiles.ts and ios/GradeThread/Capture/PhotoProfile.swift",
-        "Android CI green: new strings via stringResource, values-es updated in the same commit"
-      ],
-      "notes": "[P3][Android/Parity] Split out of US-2461 on 2026-08-12 after the AC5 re-audit. Android DOES fetch the server profile (PhotoProfileStore.loadIfNeeded, capture/PhotoProfile.kt:168), so US-2461 AC5 is met - but the store has exactly one consumer, inventory/ItemPhotosViewModel.kt:40, which is the RETAG menu. The capture screen still builds its strip from the hardcoded lists in PhotoIntakeStore.kt:46,67-75. iOS closed the same gap in 4bcbb8f7 (US-2470) and web never had it (photo-uploader.tsx:104 builds slots from usePhotoProfile). Consequence today: a seller photographing a handbag on Android is offered the flat clothing strip, so the bag-specific roles the profile names are only reachable by retagging after the fact."
     }
   ]
 }
