@@ -6,7 +6,8 @@ status: current
 source_of_truth: code
 code_refs:
   - ios/GradeThread/Upload/PhotoUploadService.swift
-reviewed: 2026-08-08
+  - ios/GradeThread/Upload/ItemPhotoInsert.swift
+reviewed: 2026-08-12
 tags: [ios, photos, uploads, contract]
 summary: A months-long "AI couldn't process your photos" saga that was four separate bugs, and the rules each one left behind.
 ---
@@ -78,6 +79,35 @@ An upload left in `.failed` was not treated as terminal, so the "wait for
 uploads" gate blocked for its full 180s timeout instead of failing fast. And the
 signed-URL mint POST sent `application/json` with **no body**, which storage
 answers with a 400 — the fix is to send `{}`.
+
+## Two paths write the row, and the second one is invisible
+
+An `item_photos` row leaves this file two ways: the direct upsert on the link
+chain (`ItemPhotoInsert`), and the `LocalPendingMutation` payload the SyncEngine
+replays when that upsert failed or the device was offline. They are separate
+structs. A field added to one is not added to the other, and nothing fails when
+you forget.
+
+`photo_role` is the case that proved it. The SyncEngine replay has **read** that
+field since US-2468 while nothing wrote it, so a replayed photo could only land
+unroled. US-2470 had to add it to `ItemPhotoInsert` **and** to the queued payload
+in the same change; fixing only the insert would have given the online shot a
+role and the offline one a null. That is not a cosmetic gap — a null role reads
+as "card frame", which never reaches a listing (see [[listing-photos]] for that
+rule and for the type/role split itself).
+
+> **Add a field to `ItemPhotoInsert` and to `enqueuePendingMutation`'s payload in
+> the same edit.** The replay is the path nobody exercises by hand, so a field
+> missing there fails only for the users who were offline — and fails silently.
+
+Two consequences of the same change, both visible in this file:
+
+- A slot is a `CaptureSlot` — the `(photo_type, photo_role)` pair — so the queued
+  payload's `slot` is a `storageKey` like `tag|size`, not a bare enum raw value.
+  Pre-US-2470 payloads hold the bare value and decode to the same thing, so the
+  queue survives the upgrade.
+- `enqueueAll` no longer derives `sort_order`; it numbers the caller's order as
+  given. Which order that is belongs to [[listing-photos]].
 
 ## Verifying a fix here
 

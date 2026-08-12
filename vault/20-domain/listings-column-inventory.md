@@ -8,9 +8,9 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-12
 tags: [schema, listings, flipdesk, perf]
-summary: What the listings table's 91 columns are for, why none of them is provably dead, and the rule for reading them.
+summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 # The listings table — column inventory and read policy
@@ -32,12 +32,19 @@ Three things, and the first two contradict what the story assumed.
 
 **Ninety-one columns, not the ~52 the story estimated.** The estimate counted
 11 base plus 41 `ALTER TABLE` statements; several of those statements add more
-than one column.
+than one column. It is **93 as of 2026-08-12** — `category_candidates` (00540)
+and `aspect_coverage` (00541) both landed on 2026-08-07 — and that direction is
+the only one it moves in, which is why the count belongs in the script's output
+and not in this sentence.
 
-**Nothing is provably dead.** Exactly one column — `search_vec` — has zero
-references in application code, and it is not dead: it is a `tsvector`
-maintained by a trigger and read by a GIN index, so Postgres is its only
-consumer. Every other column is referenced by name somewhere.
+**Nothing is provably dead.** The script reports zero columns with no reference
+at all, and that is not the same as every column being read. `search_vec` is
+still the one nothing in application code touches: its only two references are
+the exemption in `src/test/listing-row-schema-parity.test.ts` and the comment in
+`src/types/database.ts` saying why it is absent from the type, both written by
+the 2026-08-03 fix below. It is a `tsvector` maintained by a trigger and read by
+a GIN index, so Postgres remains its only consumer. Every other column is
+referenced by name in code.
 
 So the "drop the dead columns" half of US-2177 has **nothing to drop**, and no
 migration is warranted. That is a finding, not a deferral. The cost of this
@@ -78,12 +85,25 @@ Single-platform fields in the eBay bucket are the obvious candidates for a move
 into the existing `platform_fields` jsonb. **Assessed 2026-08-03: do not move
 them**, and the reason is specific rather than a preference.
 
-Of the 18 eBay-specific columns, **3 are indexed** (`platform_category_id`,
-`platform_offer_id`, `quality_score`) and **7 carry a NOT NULL or a default**
-(those three plus `best_offer_enabled`, `item_specifics_override`,
-`item_specifics_sources`, `synced_to_ebay_at`). A jsonb move gives up the index
-and the constraint on every one of them, and buys back an expression index and a
-check constraint that have to be written and maintained by hand.
+Of the eBay-specific set — the script's own bucket plus the eBay-only fields it
+files under *other* (`best_offer_enabled`, `item_specifics_override`,
+`item_specifics_sources`, the three policy ids) — **3 are indexed**:
+`platform_category_id`, `platform_offer_id` and `quality_score`. A fourth,
+`synced_to_ebay_at`, sits in the predicate of
+the partial index that drives the scheduled-publish worker. A jsonb move gives
+up all four outright and buys back an expression index that has to be written
+and maintained by hand.
+
+The constraint half of that argument is thinner than this note claimed until
+2026-08-12. Only **2 of these columns carry a NOT NULL or a default** —
+`best_offer_enabled` and `item_specifics_sources`, both `NOT NULL DEFAULT` in
+their `ADD COLUMN`. The note previously said seven, counting
+`platform_category_id`, `platform_offer_id`, `quality_score`,
+`synced_to_ebay_at` and `item_specifics_override`; all five are plain nullable
+columns with no default in 00052/00476, so the claim was wrong when it was
+written rather than having drifted. The decision below still holds, but it
+rests on the indexes and on the width benefit already being collected, not on
+constraints that were never there.
 
 What it would buy is narrower rows — and that cost is already gone. Reads
 project (see the policy below), so a wide table costs nothing a projected read
@@ -98,14 +118,16 @@ Revisit only with numbers from prod — row width against actual storage and
 **A list read of `listings` must project its columns. A bounded single-row read
 may use `select("*")`.**
 
-The reason is width, not tidiness: `select("*")` on a 91-column table multiplied
+The reason is width, not tidiness: `select("*")` on a table this wide multiplied
 by a page of rows is the cost US-2167 removed. One row is one row.
 
 `src/test/listings-select-star.test.ts` enforces this by **enumeration** — every
 `select("*")` on `listings` is declared with its justification, and a new one
-fails the build until its author adds it and states why. Three are declared
-today: two bounded detail reads (composer, inventory detail) and the account
-data export.
+fails the build until its author adds it and states why. **Two** are declared
+today: the composer's bounded single-row read (`.maybeSingle()`) and the account
+data export. There were three until US-2362 deleted `src/pages/inventory-detail.tsx`
+on 2026-08-03 and its declaration went with the page — the guard names files as
+strings, so a stale declaration fails with ENOENT rather than passing quietly.
 
 The data export is the interesting exemption. It **must** stay `select("*")`:
 projecting it would silently omit columns from a record a user is legally
