@@ -203,6 +203,13 @@ object MoneyAnalyticsRollup {
             val monthStart = thisMonth.minusMonths(offset.toLong())
             val startMs = monthStart.atStartOfDay(zone).toInstant().toEpochMilli()
             val endMs = monthStart.plusMonths(1).atStartOfDay(zone).toInstant().toEpochMilli()
+            // US-2339: expenses need their OWN boundaries. A sale date is a real
+            // moment and belongs in the device zone; `spentOn` is a calendar
+            // date anchored at UTC midnight, so bucketing it on device-zone
+            // boundaries puts a 1st-of-the-month expense in the previous month
+            // for anyone west of Greenwich. One zone for both is the bug.
+            val expenseStartMs = ExpenseDraft.startOfDayMs(monthStart)
+            val expenseEndMs = ExpenseDraft.startOfDayMs(monthStart.plusMonths(1))
 
             val monthSales = sales.filter {
                 it.saleDate >= startMs && it.saleDate < endMs && SalePnL.isCompleted(it)
@@ -215,7 +222,9 @@ object MoneyAnalyticsRollup {
                 // Expenses are NOT status-filtered — an expense is money that
                 // left regardless of how any sale turned out.
                 expenses = Money.sum(
-                    expenses.filter { it.spentOn >= startMs && it.spentOn < endMs },
+                    expenses.filter {
+                        it.spentOn >= expenseStartMs && it.spentOn < expenseEndMs
+                    },
                 ) { it.amount },
                 costBasis = Money.sum(monthSales) { costById[it.inventoryItemId] ?: 0.0 },
             )

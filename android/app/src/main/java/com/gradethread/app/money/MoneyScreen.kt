@@ -546,6 +546,9 @@ private fun ExpenseRowView(
 private fun formatDate(epochMs: Long, locale: Locale = Locale.getDefault()): String =
     runCatching {
         Instant.ofEpochMilli(epochMs)
-            .atZone(ZoneId.systemDefault())
+            // US-2339: EXPENSE_ZONE, not the device zone. A row shown as
+            // the 11th while the server holds the 12th is the same
+            // off-by-one the sync used to write back.
+            .atZone(ExpenseDraft.EXPENSE_ZONE)
             .format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM).withLocale(locale))
     }.getOrElse { "—" }

@@ -115,6 +115,13 @@ class MoneyViewModel @Inject constructor(
         // and disagree about which day a sale belongs to.
         val now = System.currentTimeMillis()
         val monthStart = DashboardRollup.startOfMonth(now, zone)
+        // US-2339: expenses bucket in EXPENSE_ZONE, not the device zone.
+        // spentOn carries a calendar date anchored at UTC midnight, so a
+        // device-zone month boundary puts a 1st-of-the-month expense in the
+        // previous month for anyone west of Greenwich. iOS reached the same
+        // conclusion in US-1494 - parse and bucket in one zone.
+        val expenseMonthStart =
+            DashboardRollup.startOfMonth(now, ExpenseDraft.EXPENSE_ZONE)
 
         State(
             metrics = MoneyRollup.compute(items, sales, now, zone),
@@ -126,7 +133,7 @@ class MoneyViewModel @Inject constructor(
             sourceRoi = SourceRoiRollup.bySource(items, sales, sources),
             profitRows = MoneyAnalyticsRollup.itemProfitRows(items, sales),
             expenses = expenseRows,
-            expensesThisMonth = Money.sum(expenseRows.filter { it.spentOn >= monthStart }) {
+            expensesThisMonth = Money.sum(expenseRows.filter { it.spentOn >= expenseMonthStart }) {
                 it.amount
             },
             // Drives the empty state. Sales OR expenses count: a seller who has

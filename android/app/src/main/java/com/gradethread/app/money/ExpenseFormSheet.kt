@@ -139,10 +139,11 @@ fun ExpenseFormSheet(
                 enabled = validation == null && dateError == null,
                 modifier = Modifier.fillMaxWidth().padding(bottom = Spacing.xs),
             ) {
+                // US-2339: anchored in EXPENSE_ZONE, not the device zone.
+                // A date typed here and a date pulled from the server have
+                // to mean the same Long, or the next sync moves it.
                 val spentOn = parsedDate
-                    ?.atStartOfDay(ZoneId.systemDefault())
-                    ?.toInstant()
-                    ?.toEpochMilli()
+                    ?.let { ExpenseDraft.startOfDayMs(it) }
                     ?: draft.spentOnMs
                 onSave(draft.copy(spentOnMs = spentOn))
             }

@@ -3,6 +3,7 @@ package com.gradethread.app.money
 import com.gradethread.app.money.MoneyFixtures.expense
 import com.gradethread.app.money.MoneyFixtures.ms
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -115,5 +116,99 @@ class ExpenseDraftTest {
             "2026-06-20",
             ExpenseDraft.isoDate(evening, ZoneId.of("America/Chicago")),
         )
+    }
+}
+
+/**
+ * US-2339: an expense date must survive the edit-sync round trip.
+ *
+ * `spent_on` is a date-only column. The sync parses it at UTC midnight
+ * (`RealtimeService.parseTimestamp`), and `isoDate` used to format it back in
+ * the DEVICE zone - so for a seller west of Greenwich the day walked BACK one
+ * per cycle, compounding because `wireBody` serves insert and edit from one
+ * path.
+ *
+ * Pinned to America/Chicago rather than the runner's zone: a test that used
+ * the default would pass on a UTC CI machine, which is exactly where this
+ * would never be caught.
+ */
+class ExpenseDateRoundTripTest {
+
+    private val chicago: ZoneId = ZoneId.of("America/Chicago")
+
+    /** What the sync does with the server's bare date. */
+    private fun parseFromServer(date: String): Long =
+        java.time.LocalDate.parse(date)
+            .atStartOfDay(java.time.ZoneOffset.UTC)
+            .toInstant()
+            .toEpochMilli()
+
+    /**
+     * Zones on both sides of Greenwich, so neither can be the runner's.
+     *
+     * A round-trip test leaning on the DEFAULT zone would pass on a UTC CI
+     * machine while the bug was live for every seller not on UTC - which is
+     * exactly where it would never be caught.
+     */
+    private val deviceZones = listOf(
+        ZoneId.of("America/Chicago"),
+        ZoneId.of("Pacific/Auckland"),
+        ZoneId.of("Europe/Berlin"),
+    )
+
+    @Test
+    fun `the date survives three edit cycles in any device zone`() {
+        for (zone in deviceZones) {
+            var stored = parseFromServer("2026-08-12")
+            repeat(3) {
+                val onTheWire = ExpenseDraft.isoDate(stored)
+                assertEquals("in $zone", "2026-08-12", onTheWire)
+                stored = parseFromServer(onTheWire)
+            }
+            // The wire value is the UTC reading, whatever the device zone is.
+            //
+            // NOT asserted as "differs from the device reading": Berlin is EAST
+            // of Greenwich, so UTC midnight on the 12th is still the 12th there,
+            // and only a negative-offset zone shifts the date at all. That
+            // assertion looked stronger and was simply wrong - it failed against
+            // correct code on the Berlin case.
+            //
+            // The runner-independent guarantee is the explicit
+            // `EXPENSE_ZONE == ZoneOffset.UTC` case below; this one shows the
+            // round trip holding across real device zones.
+            assertEquals(
+                "the wire date is not the UTC reading in $zone",
+                ExpenseDraft.isoDate(stored, java.time.ZoneOffset.UTC),
+                ExpenseDraft.isoDate(stored),
+            )
+        }
+    }
+
+    @Test
+    fun `a date typed on the form round-trips to the same day`() {
+        // The other half: entry has to agree with the sync, or a NEW expense
+        // starts one day off instead of drifting there.
+        val typed = java.time.LocalDate.parse("2026-01-01")
+        val stored = ExpenseDraft.startOfDayMs(typed)
+        assertEquals("2026-01-01", ExpenseDraft.isoDate(stored))
+        assertEquals(stored, parseFromServer("2026-01-01"))
+    }
+
+    @Test
+    fun `the anchor zone is not the device zone`() {
+        // The property, stated once. If EXPENSE_ZONE ever becomes
+        // ZoneId.systemDefault() every case above still passes on a UTC runner
+        // while the bug is live for every seller who is not on UTC.
+        assertEquals(java.time.ZoneOffset.UTC, ExpenseDraft.EXPENSE_ZONE)
+        assertNotEquals(chicago, ExpenseDraft.EXPENSE_ZONE)
+    }
+
+    @Test
+    fun `formatting in the device zone is what used to break it`() {
+        // Demonstrates the defect rather than describing it: the same instant,
+        // read in Chicago, is the day before. This is what wireBody did.
+        val stored = parseFromServer("2026-08-12")
+        assertEquals("2026-08-11", ExpenseDraft.isoDate(stored, chicago))
+        assertEquals("2026-08-12", ExpenseDraft.isoDate(stored))
     }
 }

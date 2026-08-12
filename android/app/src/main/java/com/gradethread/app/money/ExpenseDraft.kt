@@ -4,6 +4,7 @@ import com.gradethread.app.capture.CurrencyAmount
 import com.gradethread.app.sync.db.ExpenseEntity
 import java.time.Instant
 import java.time.ZoneId
+import java.time.ZoneOffset
 
 /**
  * US-1364: the expense form's state and its validation — pure, so the rules are
@@ -61,7 +62,32 @@ data class ExpenseDraft(
         const val DEFAULT_CATEGORY = "supplies"
 
         /**
-         * Local-date `YYYY-MM-DD` for the server's `spent_on` DATE column.
+         * The zone `spentOn` is anchored in. UTC, everywhere, always.
+         *
+         * US-2339: `spent_on` is a date-only column, and `spentOn` is a Long
+         * carrying a CALENDAR DATE rather than a moment. The round trip was
+         * split across two zones and lost a day per cycle: the sync parses the
+         * server's bare date at UTC midnight
+         * (`RealtimeService.parseTimestamp`), and `isoDate` then formatted it
+         * back in the DEVICE zone. For a seller in Chicago, UTC midnight on the
+         * 12th is 19:00 on the 11th - so the edit wrote back the 11th, the next
+         * pull parsed the 11th, and the next edit wrote the 10th. `wireBody`
+         * serves both insert and edit from one path, so it compounded on every
+         * save.
+         *
+         * iOS settled this in US-1494 and reached the same answer:
+         * `ExpenseStore.bucketingCalendar` is a UTC calendar, with a comment
+         * saying that parsing AND bucketing have to happen in the same zone.
+         * This is that decision, ported - which is what AC2 asks for.
+         *
+         * Everything touching `spentOn` uses this: entry, display, the wire
+         * format, and month bucketing. A device-zone read of any one of them
+         * re-opens the drift.
+         */
+        val EXPENSE_ZONE: ZoneId = ZoneOffset.UTC
+
+        /**
+         * `YYYY-MM-DD` for the server's `spent_on` DATE column.
          *
          * Lives here, not on the repository: it is pure date logic, and behind a
          * class that needs a Supabase client it could only be tested with one.
@@ -69,8 +95,12 @@ data class ExpenseDraft(
          * moves an evening expense to the next day east of Greenwich and to the
          * previous day west of it.
          */
-        fun isoDate(epochMs: Long, zone: ZoneId = ZoneId.systemDefault()): String =
+        fun isoDate(epochMs: Long, zone: ZoneId = EXPENSE_ZONE): String =
             Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate().toString()
+
+        /** The epoch-ms anchor for a calendar date, in [EXPENSE_ZONE]. */
+        fun startOfDayMs(date: java.time.LocalDate): Long =
+            date.atStartOfDay(EXPENSE_ZONE).toInstant().toEpochMilli()
 
         /**
          * Expense categories, mirroring the iOS `ExpenseTypes` picker.
