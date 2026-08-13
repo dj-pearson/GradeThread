@@ -113,6 +113,11 @@ class ComponentScreenshotTest {
         ErrorStateView(
             message = "We couldn't reach the grading service. Check your connection.",
             modifier = Modifier.fillMaxWidth(),
+            // `retry` has no default and is not optional. A golden of the
+            // resting state is what this asserts on, so the lambda is empty --
+            // the retrying state swaps the button for a progress spinner, which
+            // is an animation and would not be stable to diff anyway.
+            retry = {},
         )
     }
 

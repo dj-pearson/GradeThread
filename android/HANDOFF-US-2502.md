@@ -1,7 +1,11 @@
-# US-2502 handoff — finishing the Android-without-Studio setup
+# US-2502 handoff: finishing the Android-without-Studio setup
 
-Everything is written and mostly verified. Four steps remain, all of them
-"run a Gradle task and commit what it produces". Nothing is committed yet.
+Everything is written and committed. Three artifacts still have to be GENERATED
+on a machine with an Android SDK, because they are outputs of a build, not
+source. A cloud session cannot produce them: the sandbox has no Android SDK and
+its network policy blocks `dl.google.com`, so Google's Maven repo (where AGP,
+androidx and Compose all live) is unreachable. Maven Central is reachable, but
+no Android build resolves from Central alone.
 
 ## Run these, in order, from the repo root
 
@@ -25,10 +29,6 @@ Builds are slow on this machine: a cold `assembleDebug` is 17-21 minutes.
 
 ## What to watch for
 
-- **`recordRoborazziDebug` may fail to resolve `GradeThreadTheme(darkTheme=)`
-  or a component signature.** The test is
-  `android/app/src/test/java/com/gradethread/app/ui/ComponentScreenshotTest.kt`;
-  every signature it uses was checked against source, but it has never compiled.
 - **`lintDebug` may still fail after the baseline** if a finding is `fatal`
   (baselines do not suppress fatal). Only `StopShip` is set fatal.
 - **`:app:testDebugUnitTest` has never been run with
@@ -50,13 +50,32 @@ Builds are slow on this machine: a cold `assembleDebug` is 17-21 minutes.
 - the three `.py` guards
 - both workflow YAML files parse; all six new `.mjs` files pass `node --check`
 
+## Checked by reading, not by compiling
+
+`ComponentScreenshotTest.kt` had never compiled. Every symbol it uses was
+re-checked against source and against the published artifacts:
+
+- `GradeThreadTheme(darkTheme=, content=)`, the three `Brand*Button(text=,
+  onClick=)`, `StatusBadge(String)`, `DataRow(label=, value=)`,
+  `InfoCard(title=, body=, tone=)`, `InfoTone.entries`: all match.
+- `captureRoboImage(String, RoborazziOptions, @Composable content)` and
+  `RobolectricDeviceQualifiers.Pixel5` both exist in roborazzi 1.44.0 (verified
+  against the published `.aar`s, not from memory).
+- **One real break, now fixed:** `ErrorStateView` has a required trailing
+  `retry: suspend () -> Unit`. The test omitted it, which would not have
+  compiled. It now passes `retry = {}`.
+
+So `recordRoborazziDebug` should get past compilation. What it can still do is
+fail at RUN time (a missing resource, a Robolectric graphics problem), and that
+cannot be predicted from source.
+
 ## Not done
 
 - `android/app/lint-baseline.xml` (step 1 above)
 - `android/app/src/test/screenshots/*.png` (step 3)
-- the real coverage number (step 4) — `koverLineFloor` is a placeholder 40
+- the real coverage number (step 4). `koverLineFloor` is a provisional 40 and
+  the comment above it says so
 - `npm run verify:android` end to end
-- nothing committed
 
 ## One thing to tell Dj
 
@@ -68,3 +87,11 @@ the daemon. That last one would have overridden `JAVA_HOME` and silently moved
 CI off JDK 17. All five files were reverted. **Close Android Studio before the
 next run**, or it will do it again. Whether to actually take Gradle 8.14.5 is a
 separate decision.
+
+## Unrelated, and worth a look
+
+`assets/14b567c0-...-a8f27b1cc113_result_bwm_video_with_audio.mp4` (19 MB) was
+swept into the US-2502 commit. It has nothing to do with this story, and there is already an
+8.6 MB sibling from an earlier commit. Both are in git history now, so deleting
+them does not shrink the clone, but decide whether they belong in the repo at
+all before more of them land.
