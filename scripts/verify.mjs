@@ -315,6 +315,12 @@ if (on("android")) {
     run("android: lint (warnings as errors)", `${gw} :app:lintDebug`, a);
     run("android: unit tests", `${gw} :app:testDebugUnitTest`, a);
     run("android: coverage floor (kover)", `${gw} :app:koverVerifyDebug`, a);
+    // US-2502: rendered-UI diffs. ADVISORY, matching the `continue-on-error` on
+    // the CI step — see the comment on it in android-ci.yml for the condition
+    // that flips both. Locally it is the more useful of the two runs: the
+    // goldens were recorded on this machine, so a diff here is a real visual
+    // change rather than a font difference between a checkout and a runner.
+    advisory("android: screenshots (roborazzi)", `${gw} :app:verifyRoborazziDebug`, a);
     run("android: assembleDebug", `${gw} :app:assembleDebug`, a);
     // US-1391 AC3: the widget, share target and deep links are reachable only
     // through the merged manifest, so a merge that drops one is a green build

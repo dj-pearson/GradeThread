@@ -29,10 +29,14 @@ plugins {
  * US-2502: the line-coverage floor kover enforces (percent).
  *
  * A single named constant rather than a literal buried in the kover block, so
- * changing it is visible in a diff and has to be argued for. It is set to the
- * MEASURED number at the time it was introduced, not to a target: a floor above
- * what the suite actually reaches gets lowered within a week, and a floor at
- * today's number still catches the change that deletes tests.
+ * changing it is visible in a diff and has to be argued for. It should be the
+ * MEASURED number, not a target: a floor above what the suite actually reaches
+ * gets lowered within a week, and a floor at today's number still catches the
+ * change that deletes tests.
+ *
+ * 40 is PROVISIONAL. The suite has never been measured on a machine with an
+ * Android SDK. Run `node scripts/gradlew.mjs :app:koverLogDebug`, round the
+ * reported line percentage DOWN to the nearest 5, and put it here.
  */
 val koverLineFloor = 40
 
@@ -440,7 +444,8 @@ kover {
         }
         verify {
             rule("line coverage floor") {
-                // Set by scripts/verify-android.mjs guidance; see README.
+                // Measure with `:app:koverLogDebug`, then set the constant
+                // above. `npm run verify:android` enforces it.
                 minBound(koverLineFloor)
             }
         }
