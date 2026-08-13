@@ -79,11 +79,14 @@ abstract class GradeThreadDb : RoomDatabase() {
 object DatabaseProvider {
 
     enum class Outcome {
-        /** Opened normally. */ NORMAL,
+        /** Opened normally. */
+        NORMAL,
 
-        /** The store was corrupt; it was deleted and recreated. */ RESET,
+        /** The store was corrupt; it was deleted and recreated. */
+        RESET,
 
-        /** Persistent storage unusable; running in-memory this session. */ EPHEMERAL,
+        /** Persistent storage unusable; running in-memory this session. */
+        EPHEMERAL,
     }
 
     private val outcomeFlow = MutableStateFlow<Outcome?>(null)
@@ -188,10 +191,7 @@ object DatabaseProvider {
 
     private fun build(context: Context, dbName: String): GradeThreadDb =
         Room.databaseBuilder(context, GradeThreadDb::class.java, dbName)
-            .addMigrations(
-                MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
-                MIGRATION_6_7,
-            )
+            .addMigrations(*ALL_MIGRATIONS)
             .build()
 
     /**
@@ -321,4 +321,26 @@ object DatabaseProvider {
             )
         }
     }
+
+    /**
+     * Every migration, in order, declared ONCE.
+     *
+     * US-2502: [build] used to list them inline and the instrumented migration
+     * test would have listed them again. Two lists means a new migration can be
+     * added to the builder and forgotten in the test, and the test then passes
+     * by validating a migration path the app does not take -- which is worse
+     * than having no test, because it reports success.
+     *
+     * Declared AFTER the migrations it references: companion-object properties
+     * initialize top to bottom, so moving this up would fill the array with
+     * nulls and fail at the first launch, not at compile time.
+     */
+    internal val ALL_MIGRATIONS: Array<androidx.room.migration.Migration> = arrayOf(
+        MIGRATION_1_2,
+        MIGRATION_2_3,
+        MIGRATION_3_4,
+        MIGRATION_4_5,
+        MIGRATION_5_6,
+        MIGRATION_6_7,
+    )
 }

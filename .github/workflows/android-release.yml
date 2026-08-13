@@ -175,3 +175,33 @@ jobs:
           path: android/app/build/outputs/mapping/release/mapping.txt
           if-no-files-found: warn
           retention-days: 90
+
+      # US-2502: the same mapping, sent to Sentry.
+      #
+      # The artifact above makes a stack trace decodable BY HAND, 90 days, by
+      # someone who knows to download it. Sentry needs it to deobfuscate the
+      # crashes it is already collecting through SENTRY_DSN — without the upload
+      # every Android crash in Sentry is a wall of `a.b.c(SourceFile:1)`, which
+      # is indistinguishable from having no crash reporting at all.
+      #
+      # Skipped, not failed, when the token is absent: this lane must stay
+      # runnable before the Sentry project has an auth token issued.
+      - name: Upload the mapping to Sentry
+        if: ${{ env.SENTRY_AUTH_TOKEN != '' && env.SENTRY_ORG != '' && env.SENTRY_PROJECT_ANDROID != '' }}
+        run: |
+          set -euo pipefail
+          MAPPING=app/build/outputs/mapping/release/mapping.txt
+          test -f "$MAPPING"
+          npm install -g @sentry/cli@2
+          # The UUID has to match what the app reports. Sentry derives it from
+          # the file, so upload-proguard is the whole handshake.
+          sentry-cli upload-proguard \
+            --org "$SENTRY_ORG" \
+            --project "$SENTRY_PROJECT_ANDROID" \
+            --version "${ANDROID_VERSION_NAME:-0.1.0}" \
+            "$MAPPING"
+        env:
+          SENTRY_AUTH_TOKEN: ${{ env.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ env.SENTRY_ORG }}
+          SENTRY_PROJECT_ANDROID: ${{ env.SENTRY_PROJECT_ANDROID }}
+          SENTRY_URL: ${{ env.SENTRY_URL }}

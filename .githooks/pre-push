@@ -23,3 +23,34 @@ node scripts/held-migration-gate.mjs
 echo "[pre-push] Running local CI mirror (npm run verify)…"
 echo "[pre-push] Bypass with: git push --no-verify"
 npm run verify
+
+# US-2502: add the Android lane when, and only when, the push carries Android
+# changes.
+#
+# It is minutes of Kotlin + KSP + R8, so making it unconditional would get the
+# whole hook bypassed with --no-verify, which costs more than it saves. Making
+# it conditional is what closes the actual gap: before this, android/** could
+# reach origin with nothing having compiled it locally, and the first thing to
+# find out was a CI run on a push that was already public.
+#
+# The range is what git feeds the hook on stdin (local sha, remote sha). A brand
+# new branch reports the remote side as all-zeros, in which case diff against
+# origin/main instead of against a commit that does not exist.
+ANDROID_TOUCHED=0
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  [ "$local_sha" = "0000000000000000000000000000000000000000" ] && continue
+  if [ "$remote_sha" = "0000000000000000000000000000000000000000" ]; then
+    base=$(git merge-base origin/main "$local_sha" 2>/dev/null || echo "")
+  else
+    base="$remote_sha"
+  fi
+  [ -z "$base" ] && base="origin/main"
+  if git diff --name-only "$base" "$local_sha" 2>/dev/null | grep -q '^android/'; then
+    ANDROID_TOUCHED=1
+  fi
+done
+
+if [ "$ANDROID_TOUCHED" = "1" ]; then
+  echo "[pre-push] android/** changed — running the Android lane…"
+  npm run verify:android
+fi

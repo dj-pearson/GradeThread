@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2502",
+  "nextId": "US-2503",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1708,6 +1708,28 @@
         "Check the same page and /transparency for other process claims asserted in the present tense, rather than fixing only the one that was noticed"
       ],
       "notes": "[P1][Grading/Substantiation] Filed 2026-08-12 by a full-backlog triage, which found it had NO covering story. THE CLAIM, at src/pages/marketing/grading-methodology.tsx:105-107, in the same paragraph as the 0.75 review threshold and the dispute loop: \"every new model version must clear a fixed eval gate against a golden set of expert-graded garments before it grades live items\". THE MACHINE, per US-2301 which is open: AC2 (the golden-set eval runs in CI and fails the build on regression) is NOT done; AC1 (confirm against prod whether grading_eval_cases has ANY rows) is operator-only and unanswered, so the golden set the sentence names cannot currently be shown to exist; AC3 (every prompt version the code can use has a DB row with eval results) is unshipped, and its own scan reports composite_v4 and per_image_v5 as unseeded. US-2301 AC4 exists precisely because an empty golden set is today treated as a clean skip rather than a hard failure - which is the shape that lets a gate report success while gating nothing. WHY THIS IS ITS OWN STORY RATHER THAN A LINE IN US-2301: US-2301 is about making the gate work. This is about what is published while it does not, and those have different owners and different urgency - the copy can be corrected today, the gate cannot. US-2133 is the sibling for authenticity claims; grading had no equivalent. NOT REWRITTEN UNILATERALLY: which way to resolve it is a product call. The honest middle reading is that the sentence is true as POLICY - the grading-engine skill really does require shadow, then an eval gate, then canary, and it is enforced on authors in review - and false as an automatic MECHANISM, which is what a reader takes from \"must clear\". ALSO WORTH CHECKING while in there: the same paragraph links /transparency and says \"We publish the resulting platform-wide accuracy\" - confirm that number is live and derived, not a placeholder."
+    },
+    {
+      "id": "US-2502",
+      "priority": 1180,
+      "passes": false,
+      "title": "The android folder can be verified, formatted, analysed and released without Android Studio",
+      "description": "As the person who ships this app, I want every gate Android Studio hides behind a menu item to be a command that runs on a laptop and in CI, because a check that only exists inside an IDE nobody has open is a check that does not exist.",
+      "acceptanceCriteria": [
+        "node android/scripts/doctor.mjs resolves a JDK (17-23, preferring 17), the SDK and a Python 3, names every candidate it rejected and why, and prints the install command for anything missing. It writes android/local.properties with --fix and never installs anything itself",
+        "npm run verify:android runs the same list as .github/workflows/android-ci.yml in the same order, from the on('android') block in scripts/verify.mjs. The pre-push hook runs it automatically when and only when the push carries android/** changes",
+        "Android Lint is a gate, not a report: warningsAsErrors + checkDependencies + checkReleaseBuilds, with android/app/lint-baseline.xml carrying what already existed. lintRelease runs in CI as well as lintDebug, and the SARIF report is published to code scanning",
+        "detekt runs with the io.nlopez Compose ruleset against config/detekt/detekt.yml and config/detekt/baseline.xml; spotless/ktlint runs ratcheted against origin/main so only new and changed files are checked",
+        "kover enforces a line-coverage floor set to the MEASURED number (koverLineFloor in app/build.gradle.kts), excluding Composables and generated code",
+        "Roborazzi renders the shared UI components to PNG on the JVM in the existing unit-test lane, light and dark, with goldens committed under app/src/test/screenshots. The CI step is continue-on-error until the goldens are recorded on a runner - flipping it is a one-line change and the README says so",
+        "RoomMigrationTest replays the exported schemas against GradeThreadDb.ALL_MIGRATIONS on a real SQLite, including a row-survival case. GradeThreadDb declares the migration list ONCE so the test cannot validate a path the app does not take",
+        "android/scripts/check-room-schemas.mjs fails when a Room version has no committed schema JSON or no Migration object. Versions 3 and 4 are recorded as a known unrecoverable gap, not silently tolerated",
+        "android/scripts/check-merged-manifest.mjs replaces the grep block in android-ci.yml and asserts the widget, share target, SEND_MULTIPLE and VIEW intents survived the merge - runnable locally, and each assertion carries the user-visible symptom",
+        "android/scripts/device.mjs covers logcat (filtered to the app pid), the crash buffer, install/run, screenshot, uiautomator view-hierarchy dump, deep-link launch, app-data clear, and headless AVD create/start. Gradle managed device pixel6api34 runs instrumented tests with no emulator setup at all",
+        "The release lane uploads the R8 mapping to Sentry when SENTRY_AUTH_TOKEN is present, and skips rather than fails when it is not",
+        "android/README.md carries a table mapping each Android Studio feature to its command, and states plainly that the Profiler, the LIVE Layout Inspector hierarchy and interactive breakpoint debugging still need the IDE"
+      ],
+      "notes": "Filed 2026-08-13. Trigger: the local Android build was broken on the loop host - the only JDK was the Android Studio JBR 25, which Gradle 8.13 refuses to run on, and AGP reports that as the bare string 'What went wrong: 25.0.2'. There was no android lane in scripts/verify.mjs at all, so android/** could reach origin having compiled nowhere but CI."
     }
   ]
 }

@@ -62,14 +62,120 @@ Navigation-Compose · Coroutines/Flow. minSdk 26, target/compileSdk 35.
 ## Build
 
 ```bash
-# Windows dev machines (this repo's loop host): toolchain via scoop —
-#   scoop bucket add java && scoop install temurin17-jdk gradle
-# local.properties (gitignored) points sdk.dir at the local Android SDK.
-./gradlew assembleDebug testDebugUnitTest lintDebug
+npm run android:doctor     # find a usable JDK + the SDK, write local.properties
+npm run verify:android     # everything CI runs, in CI's order
 ```
 
-CI: `.github/workflows/android-ci.yml` runs assembleDebug + unit tests + lint
-on every push/PR touching `android/**` (ubuntu image ships the SDK).
+`android:doctor` is the first thing to run on a machine that has never built
+this. It resolves a JDK, the SDK and a Python 3, says which candidates it
+rejected and why, and prints the exact install command for anything missing.
+The failure it exists to prevent is AGP's, which reports an unusable JDK as
+`What went wrong: 25.0.2` and names neither the JDK nor the fact that a JDK is
+the problem. JDK **17** is what CI builds on; 17-23 are accepted, and anything
+newer is rejected because Gradle 8.13 will not run on it.
+
+`verify:android` runs the same list as `.github/workflows/android-ci.yml`, in
+the same order, from the `on("android")` block in `scripts/verify.mjs`. It is
+opt-in rather than part of `npm run verify`, because a cold run is minutes of
+Kotlin + KSP + R8 and the default set has to stay fast enough that people run
+it. **The pre-push hook turns it on automatically when the push carries
+`android/**` changes** — which is the moment it matters, and the gap it closes:
+before US-2502, android code could reach origin with nothing having compiled it
+locally.
+
+## Working without Android Studio (US-2502)
+
+Everything Android Studio does for this project has a command, except three
+things that genuinely need the IDE. The point is not to avoid the IDE — it is
+that a laptop with no IDE, and CI, can reach the same verdict.
+
+| Android Studio | Here |
+|---|---|
+| Sync / first-run setup | `npm run android:doctor` |
+| Build > Make Project | `npm run verify:android`, or `./gradlew :app:assembleDebug` |
+| Reformat Code | `npm run android:format` (spotless + ktlint) |
+| Analyze > Inspect Code (Kotlin) | `./gradlew :app:detekt` — plus the Compose ruleset |
+| Analyze > Inspect Code (Android) | `npm run android:lint` — warnings are errors, baselined |
+| Run tests | `npm run android:test` |
+| Coverage gutter | `npm run android:coverage` → `app/build/reports/kover/` |
+| Compose Preview pane | `npm run android:screenshots` (Roborazzi, renders on the JVM) |
+| Layout Validation (sizes/dark) | the same screenshot tests, light + dark goldens |
+| Layout Inspector — static tree | `npm run android:device hierarchy` (uiautomator dump; it diffs) |
+| Run on device | `npm run android:device run` |
+| Logcat | `npm run android:device logcat` (filtered to this app's pid) |
+| Crash from a build you shipped | `npm run android:device crash` |
+| AVD Manager | `npm run android:device avd create` / `avd start` |
+| Run instrumented tests on a device | `npm run android:e2e` — Gradle boots and tears down the emulator |
+| Database Inspector | schema: `app/schemas/`; migrations: `RoomMigrationTest` |
+| APK Analyzer (download size) | `python3 scripts/abi-size-report.py`, budgeted in `abi-size-budget.json` |
+| Dependency update inspection | `npm run android:updates` |
+| Generate signed bundle | `./gradlew bundleRelease` + `.github/workflows/android-release.yml` |
+| Screenshot | `npm run android:device screenshot` |
+| Deep-link testing | `npm run android:device deeplink <url>` |
+
+**Still needs Android Studio.** Three things, and they are all live-attach
+tooling rather than anything that gates a release:
+
+- the **Profiler** — memory, CPU and energy traces
+- **Layout Inspector's live view hierarchy** — the 3D, attached-to-a-running-app
+  one. The static tree is available above and is the half that diffs.
+- **interactive breakpoint debugging**
+
+### The gates, and what each one is for
+
+Run in this order by both `verify:android` and CI, cheapest first — a formatting
+failure should not cost the eight minutes `assembleRelease` takes to surface.
+
+| Gate | Catches |
+|---|---|
+| `no-ungated-log.py` | a session token or a seller's address written to logcat |
+| `no-bare-strings.py` | UI text that can never be translated |
+| `check-string-formats.py` | a placeholder-count mismatch that throws in one language only |
+| `check-room-schemas.mjs` | a Room version whose schema JSON was never committed |
+| `spotlessCheck` | formatting, on new and changed code only (ratchets against origin/main) |
+| `detekt` | swallowed exceptions, dead code, unstable Compose params |
+| `lintDebug` | leaked contexts, unused resources, known-vulnerable SDK versions |
+| `testDebugUnitTest` | the logic |
+| `koverVerifyDebug` | a change that deletes tests |
+| `verifyRoborazziDebug` | a visual change nobody looked at |
+| `assembleDebug` + `check-merged-manifest.mjs` | a manifest merge that drops the widget, the share target or the deep links |
+| `assembleDebugAndroidTest` | a broken instrumented test source, without an emulator |
+| `assembleRelease` + `lintRelease` | an R8 rule that strips something the app needs at runtime |
+| `bundleRelease` + `abi-size-report.py` | a dependency that doubles the download |
+
+### Baselines
+
+Three of these carry a checked-in baseline, because turning a gate on across an
+existing codebase otherwise means either a thousand-file fix or a gate switched
+off:
+
+- `android/app/lint-baseline.xml`
+- `android/config/detekt/baseline.xml`
+- spotless has no baseline file; it **ratchets** against `origin/main`, so only
+  files you touched are checked. `SPOTLESS_RATCHET=off` for a checkout with no
+  `origin/main`.
+
+Regenerate with `npm run android:baseline`. Do it **in the same commit as
+whatever fixed the findings**. A baseline refreshed on its own is a gate turned
+off quietly, which is the failure mode all three are trying to avoid.
+
+The coverage floor works the same way: `koverLineFloor` in
+`app/build.gradle.kts` is set to the measured number, not to an aspiration.
+Raise it in the same commit as the tests that earned it.
+
+### Screenshot goldens
+
+`app/src/test/screenshots/*.png` are recorded on whoever ran
+`npm run android:screenshots:record`. Robolectric's native graphics ship their
+own font stack, so the output is much more portable than a device screenshot,
+but antialiasing can still differ between a Windows checkout and the Linux CI
+runner — so the CI step is `continue-on-error` for now. To make it a real gate:
+run **Android CI** from the Actions tab with `record_screenshots: true`, download
+the `roborazzi-goldens` artifact, commit it, and delete the `continue-on-error`
+line. Nothing else has to change.
+
+CI: `.github/workflows/android-ci.yml` runs all of the above on every push/PR
+touching `android/**` (the ubuntu image ships the SDK).
 
 ## Package map
 

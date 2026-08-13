@@ -1,7 +1,7 @@
 # US-1300: pinned versions for reproducible builds. Bump deliberately, one at a
 # time, with a green `gradlew assembleDebug test lint` before committing.
 [versions]
-agp = "8.9.2"
+agp = "8.13.2"
 kotlin = "2.1.20"
 ksp = "2.1.20-2.0.0"
 coreKtx = "1.15.0"
@@ -73,6 +73,33 @@ androidxTestRunner = "1.6.2"
 androidxTestExtJunit = "1.2.1"
 espresso = "3.6.1"
 
+# --- Quality tooling (US-2502). Everything below replaces something Android
+# --- Studio does behind a menu item, so it can run on a laptop with no IDE and
+# --- in CI on every push.
+# Detekt = "Analyze > Inspect Code" for Kotlin: complexity, dead code, empty
+# blocks, exception swallowing. Nothing else in this project checks any of it.
+detekt = "1.23.8"
+# Compose-specific detekt rules (unstable collection params, missing modifier,
+# a mutable state hoisting mistake) -- the class of bug that compiles, renders,
+# and just recomposes forever.
+detektCompose = "0.4.28"
+# Spotless drives ktlint = "Reformat Code", as a gate rather than a habit.
+spotless = "7.2.1"
+ktlint = "1.5.0"
+# Kover = the coverage gutter, as a number with a floor under it.
+kover = "0.9.9"
+# Google's Play SDK Index + Compose lint rules run inside Android Lint.
+composeLintChecks = "1.4.3"
+# Report-only "a newer version exists", which is the Studio dependency
+# inspection with no IDE attached.
+versionsPlugin = "0.52.0"
+# Roborazzi renders Composables to PNG on the JVM through Robolectric's native
+# graphics -- no emulator, no device. That is the Compose Preview pane and
+# Layout Validation, as a test that fails when a screen changes shape.
+# Pinned to the 1.44 line: it is the one built against Robolectric 4.14.x,
+# which is what this project already runs.
+roborazzi = "1.44.0"
+
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
@@ -133,6 +160,13 @@ androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-te
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 hilt-android-testing = { group = "com.google.dagger", name = "hilt-android-testing", version.ref = "hilt" }
 
+detekt-compose-rules = { group = "io.nlopez.compose.rules", name = "detekt", version.ref = "detektCompose" }
+compose-lint-checks = { group = "com.slack.lint.compose", name = "compose-lint-checks", version.ref = "composeLintChecks" }
+roborazzi = { group = "io.github.takahirom.roborazzi", name = "roborazzi", version.ref = "roborazzi" }
+roborazzi-compose = { group = "io.github.takahirom.roborazzi", name = "roborazzi-compose", version.ref = "roborazzi" }
+roborazzi-junit-rule = { group = "io.github.takahirom.roborazzi", name = "roborazzi-junit-rule", version.ref = "roborazzi" }
+androidx-room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
@@ -140,3 +174,8 @@ kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "ko
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
+spotless = { id = "com.diffplug.spotless", version.ref = "spotless" }
+kover = { id = "org.jetbrains.kotlinx.kover", version.ref = "kover" }
+versions = { id = "com.github.ben-manes.versions", version.ref = "versionsPlugin" }
+roborazzi = { id = "io.github.takahirom.roborazzi", version.ref = "roborazzi" }

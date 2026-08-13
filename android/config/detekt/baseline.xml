@@ -1,0 +1,500 @@
+<?xml version="1.0" ?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>ComplexCondition:PushMessage.kt$PushActionPlan.Companion$bestOfferId != null &amp;&amp; itemId != null &amp;&amp; price != null &amp;&amp; price &gt; 0</ID>
+    <ID>ComposableParamOrder:GradeReportScreen.kt$GradeReportScreen</ID>
+    <ID>ComposableParamOrder:ItemCanvasScreen.kt$ItemCanvasScreen</ID>
+    <ID>ComposableParamOrder:MoneyScreen.kt$MoneyScreen</ID>
+    <ID>ComposableParamOrder:SettingsScreen.kt$SettingsScreen</ID>
+    <ID>ComposableParamOrder:SyncStatusBar.kt$SyncStatusBar</ID>
+    <ID>ComposableParamOrder:ToolsScreen.kt$ToolsScreen</ID>
+    <ID>CompositionLocalAllowlist:CachedThumbnail.kt$LocalStoragePathResolver</ID>
+    <ID>ConstructorParameterNaming:EdgeApiError.kt$EdgeApiError.Companion.WirePayload$val error_code: String? = null</ID>
+    <ID>ConstructorParameterNaming:ListingDraftService.kt$ListingDraftService.ListingRow$val ebay_condition: String? = null</ID>
+    <ID>ConstructorParameterNaming:ListingDraftService.kt$ListingDraftService.ListingRow$val ebay_condition_description: String? = null</ID>
+    <ID>ConstructorParameterNaming:ListingDraftService.kt$ListingDraftService.ListingRow$val item_specifics_override: Map&lt;String, List&lt;String&gt;&gt;? = null</ID>
+    <ID>ConstructorParameterNaming:ListingDraftService.kt$ListingDraftService.ListingRow$val listing_price: Double? = null</ID>
+    <ID>ConstructorParameterNaming:ListingDraftService.kt$ListingDraftService.ListingRow$val listing_status: String? = null</ID>
+    <ID>ConstructorParameterNaming:ListingDraftService.kt$ListingDraftService.ListingRow$val listing_title: String? = null</ID>
+    <ID>ConstructorParameterNaming:ReconciliationService.kt$ReconciliationService.ActiveListingRow$val platform_listing_id: String? = null</ID>
+    <ID>CyclomaticComplexMethod:BulkPricingScreen.kt$@Composable fun BulkPricingScreen( onClose: () -&gt; Unit = {}, viewModel: BulkPricingViewModel = hiltViewModel(), )</ID>
+    <ID>CyclomaticComplexMethod:CaptureScreen.kt$@Composable fun CaptureScreen( /** US-1334: fired once the item exists and extraction has started. */ onPublished: (String) -&gt; Unit = {}, publishViewModel: CapturePublishViewModel = hiltViewModel(), )</ID>
+    <ID>CyclomaticComplexMethod:EbayCasesScreen.kt$@Composable fun EbayCasesScreen( onClose: () -&gt; Unit = {}, viewModel: EbayCasesViewModel = hiltViewModel(), )</ID>
+    <ID>CyclomaticComplexMethod:EdgeApiError.kt$EdgeApiError.Companion$fun from(statusCode: Int, body: String): EdgeApiError</ID>
+    <ID>CyclomaticComplexMethod:IntakeSubmission.kt$IntakeSubmission$fun mergePatch( state: DetailsIntakeState, existing: ExistingItem, keepExisting: Set&lt;ItemMergePlan.Field&gt;, ): JsonObject</ID>
+    <ID>CyclomaticComplexMethod:InventoryFilter.kt$InventoryFilter$fun matches( item: InventoryItemEntity, criteria: InventoryFilterCriteria, photoItemIds: Set&lt;String&gt;?, nowMillis: Long, ): Boolean</ID>
+    <ID>CyclomaticComplexMethod:ItemCanvasScreen.kt$@OptIn(ExperimentalLayoutApi::class) @Composable fun ItemCanvasScreen( itemId: String, onClose: () -&gt; Unit, onGrade: (String) -&gt; Unit, onOpenReport: (String) -&gt; Unit, /** US-1376: the item's pedigree timeline. */ onOpenPassport: (String) -&gt; Unit = {}, /** US-1344: a duplicate opens as its own canvas. */ onOpenItem: (String) -&gt; Unit, modifier: Modifier = Modifier, viewModel: ItemCanvasViewModel = hiltViewModel(), )</ID>
+    <ID>CyclomaticComplexMethod:ItemDraft.kt$ItemPatch$fun diff(original: ItemDraft, edited: ItemDraft): JsonObject</ID>
+    <ID>CyclomaticComplexMethod:MarketplacesScreen.kt$@Composable fun MarketplacesScreen( modifier: Modifier = Modifier, /** US-1354: opens the offers + messages inbox. */ onOpenNegotiation: () -&gt; Unit = {}, /** US-1355: opens the bulk price editor. */ onOpenBulkPricing: () -&gt; Unit = {}, /** US-1357: opens the post-sale shipping + feedback surface. */ onOpenPostSale: () -&gt; Unit = {}, /** US-1358: opens repricing rules + suggestions. */ onOpenRepricing: () -&gt; Unit = {}, /** US-1359: opens the AutoLister drafts library. */ onOpenDrafts: () -&gt; Unit = {}, /** US-1362: opens the automation rules. */ onOpenAutomations: () -&gt; Unit = {}, viewModel: MarketplacesViewModel = hiltViewModel(), )</ID>
+    <ID>CyclomaticComplexMethod:ProspectScreen.kt$@Composable fun ProspectScreen( onOpenItem: (String) -&gt; Unit = {}, onClose: () -&gt; Unit = {}, viewModel: ProspectViewModel = hiltViewModel(), )</ID>
+    <ID>CyclomaticComplexMethod:VerifiedScreen.kt$@Composable fun VerifiedScreen( onClose: () -&gt; Unit = {}, viewModel: VerifiedViewModel = hiltViewModel(), )</ID>
+    <ID>DestructuringDeclarationWithTooManyEntries:EdgeApi.kt$EdgeApi$val (code, responseBody, warningHeader, retryAfter) = execute(request)</ID>
+    <ID>InstanceOfCheckForException:EdgeApi.kt$EdgeApi$error is EdgeApiError.Unauthorized</ID>
+    <ID>InstanceOfCheckForException:EdgeApi.kt$EdgeApi$error is EdgeApiError.WorkspaceAccessRevoked</ID>
+    <ID>InstanceOfCheckForException:UploadWorker.kt$UploadWorker$t is java.io.IOException</ID>
+    <ID>LambdaParameterEventTrailing:Components.kt$onClick</ID>
+    <ID>LambdaParameterEventTrailing:HomeScreen.kt$onClick</ID>
+    <ID>LambdaParameterInRestartableEffect:AiExtractScreen.kt$onDone</ID>
+    <ID>LambdaParameterInRestartableEffect:BarcodeScanScreen.kt$onDismiss</ID>
+    <ID>LambdaParameterInRestartableEffect:BarcodeScanScreen.kt$onScanned</ID>
+    <ID>LambdaParameterInRestartableEffect:BulkActionBar.kt$onDismiss</ID>
+    <ID>LambdaParameterInRestartableEffect:CaptureScreen.kt$onPublished</ID>
+    <ID>LambdaParameterInRestartableEffect:ItemPhotosSection.kt$onDeleted</ID>
+    <ID>LambdaParameterInRestartableEffect:ItemPhotosSection.kt$onDuplicated</ID>
+    <ID>LambdaParameterInRestartableEffect:LockScreen.kt$onUnlock</ID>
+    <ID>LambdaParameterInRestartableEffect:MeasurementPhotoEditorSheet.kt$onDismiss</ID>
+    <ID>LambdaParameterInRestartableEffect:OnboardingHost.kt$onFirstAction</ID>
+    <ID>LambdaParameterInRestartableEffect:SupportScreen.kt$onOpenTicket</ID>
+    <ID>LambdaParameterInRestartableEffect:TurnstileChallenge.kt$onResult</ID>
+    <ID>LongParameterList:AiExtractFlow.kt$AiExtractFlow$( itemId: String, isOnline: Boolean, photos: List&lt;AiExtractPhoto&gt;, existingValues: Map&lt;String, String&gt;, extract: suspend (List&lt;AiExtractPhoto&gt;) -&gt; AiExtractResponse, ocrLines: suspend () -&gt; List&lt;String&gt;, liveTextOnly: (List&lt;String&gt;) -&gt; AiExtractResponse?, mergeGaps: (AiExtractResponse, List&lt;String&gt;) -&gt; AiExtractResponse, )</ID>
+    <ID>LongParameterList:FulfillmentTest.kt$FulfillmentTest$( id: String, itemId: String = "i-$id", soldAt: Long? = null, saleDate: Long = daysAgo(1), shippedAt: Long? = null, status: String = "completed", platformOrderId: String? = "order-$id", tracking: String? = null, shippingCost: Double? = null, )</ID>
+    <ID>LongParameterList:InventoryDerivation.kt$InventoryDerivation$( items: List&lt;InventoryItemEntity&gt;, stage: InventoryStage, query: String, sort: SortOption, criteria: InventoryFilterCriteria, photoItemIds: Set&lt;String&gt;? = null, serverSearchIds: Set&lt;String&gt;? = null, nowMillis: Long = System.currentTimeMillis(), )</ID>
+    <ID>LongParameterList:InventoryDerivationTest.kt$InventoryDerivationTest$( id: String, status: String = "sourced", title: String = "Item", brand: String? = null, size: String? = null, color: String? = null, sku: String? = null, locationBin: String? = null, sourceId: String? = null, itemCategory: String? = null, grade: Double? = null, acquired: Double? = null, target: Double? = null, listing: Double? = null, createdAt: Long = 1_000L, updatedAt: Long = 1_000L, )</ID>
+    <ID>LongParameterList:InventoryFilter.kt$InventoryFilter$( items: List&lt;InventoryItemEntity&gt;, stage: InventoryStage, query: String, sort: SortOption, criteria: InventoryFilterCriteria, photoItemIds: Set&lt;String&gt;? = null, serverSearchIds: Set&lt;String&gt;? = null, nowMillis: Long = System.currentTimeMillis(), )</ID>
+    <ID>LongParameterList:ListingCardModelTest.kt$ListingCardModelTest$( platform: String = "ebay", price: Double = 48.0, quantity: Int? = 1, status: String = "active", origin: String? = null, offerId: String? = null, url: String? = "https://www.ebay.com/itm/1", publishError: String? = null, )</ID>
+    <ID>LongParameterList:ListingMergeTest.kt$ListingMergeTest$( price: Double = 40.0, status: String = "active", quantity: Int? = 1, origin: String? = null, dirty: Boolean = false, offerId: String? = null, publishError: String? = null, updatedAt: Long = 1_000L, )</ID>
+    <ID>LongParameterList:MoneyFixtures.kt$MoneyFixtures$( id: String, itemId: String, salePrice: Double = 100.0, platformFees: Double = 0.0, paymentProcessingFees: Double? = null, shippingCollected: Double? = null, shippingCost: Double? = null, gradingCost: Double? = null, otherCosts: Double? = null, status: String = "completed", saleDate: Long = 0L, payoutReference: String? = null, payoutAmount: Double? = null, )</ID>
+    <ID>LongParameterList:MoneyFixtures.kt$MoneyFixtures$( id: String, status: String = "cataloged", acquiredPrice: Double? = null, listingPrice: Double? = null, targetPrice: Double? = null, title: String = "Item $id", sourceId: String? = null, acquiredDate: Long? = null, createdAt: Long = 0L, updatedAt: Long = 0L, )</ID>
+    <ID>LongParameterList:RepricingTest.kt$RepricingTest$( name: String = "Weekly trim", enabled: Boolean = true, dropPct: Double = 10.0, intervalDays: Int = 7, floorCents: Int? = 999, confidence: Double? = null, brand: String? = null, minAge: Int = 0, itemId: String? = null, )</ID>
+    <ID>LongParameterList:UploadWorker.kt$UploadWorker.Companion$( stagedPath: String, itemId: String, serverType: String, sortOrder: Int, capturedAt: Long, width: Int? = null, height: Int? = null, photoRole: String? = null, )</ID>
+    <ID>LoopWithTooManyJumpStatements:AiExtractReview.kt$AiExtractReview$for</ID>
+    <ID>LoopWithTooManyJumpStatements:AspectSync.kt$AspectSync$for</ID>
+    <ID>LoopWithTooManyJumpStatements:AutolisterSession.kt$AutolisterGroups$for</ID>
+    <ID>LoopWithTooManyJumpStatements:CaptureSlot.kt$for</ID>
+    <ID>LoopWithTooManyJumpStatements:ConflictPolicy.kt$ConflictPolicy$for</ID>
+    <ID>LoopWithTooManyJumpStatements:DashboardTrend.kt$DashboardTrend$for</ID>
+    <ID>LoopWithTooManyJumpStatements:EdgeApi.kt$EdgeApi$while</ID>
+    <ID>LoopWithTooManyJumpStatements:ListingSpecifics.kt$ListingSpecifics$for</ID>
+    <ID>LoopWithTooManyJumpStatements:MutationQueue.kt$OfflineMutationQueue$for</ID>
+    <ID>LoopWithTooManyJumpStatements:PhotoTagOptions.kt$PhotoTagOptions$for</ID>
+    <ID>LoopWithTooManyJumpStatements:RadarScoring.kt$RadarScoring$for</ID>
+    <ID>LoopWithTooManyJumpStatements:SyncPull.kt$SyncPull$while</ID>
+    <ID>LoopWithTooManyJumpStatements:TemplateApply.kt$TemplateApply$for</ID>
+    <ID>MagicNumber:AnalyticsMetrics.kt$AnalyticsRange.Companion$3650</ID>
+    <ID>MagicNumber:AnalyticsMetrics.kt$AnalyticsRollup$10</ID>
+    <ID>MagicNumber:AnalyticsMetrics.kt$AnalyticsRollup$10.0</ID>
+    <ID>MagicNumber:AnalyticsViewModel.kt$AnalyticsViewModel.State$90</ID>
+    <ID>MagicNumber:AuthFormRules.kt$AuthFormRules$14</ID>
+    <ID>MagicNumber:AuthFormRules.kt$AuthFormRules$4</ID>
+    <ID>MagicNumber:Autolister.kt$Autolister$50</ID>
+    <ID>MagicNumber:Autolister.kt$Autolister$80</ID>
+    <ID>MagicNumber:BulkAction.kt$BulkAction.Companion$10</ID>
+    <ID>MagicNumber:BulkAction.kt$BulkPricing$0.01</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.03</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.3</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.4</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.55</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.6</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.7</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.75</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$0.95</ID>
+    <ID>MagicNumber:CommunityBenchmarks.kt$CommunityRecommendations$3</ID>
+    <ID>MagicNumber:ConsignorService.kt$ConsignorService$50.0</ID>
+    <ID>MagicNumber:DisclosureGeometry.kt$DisclosureGeometry$4</ID>
+    <ID>MagicNumber:DisclosureRenderer.kt$DisclosureRenderer$1.5f</ID>
+    <ID>MagicNumber:DisclosureRenderer.kt$DisclosureRenderer$20f</ID>
+    <ID>MagicNumber:DisclosureRenderer.kt$DisclosureRenderer$3</ID>
+    <ID>MagicNumber:DisclosureRenderer.kt$DisclosureRenderer$6f</ID>
+    <ID>MagicNumber:DraftBulk.kt$DraftBulk$0.99</ID>
+    <ID>MagicNumber:EbayCases.kt$EbayCases$86_400_000.0</ID>
+    <ID>MagicNumber:EbayOAuth.kt$EbayOAuth$16</ID>
+    <ID>MagicNumber:EbaySync.kt$EbaySyncService.Companion$8_000</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeApi$1000</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeApi$200</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeApi$299</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeApi$402</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeApi$429</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeApi$8</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeNetwork$10</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeNetwork$120</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeNetwork$180</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeNetwork$20</ID>
+    <ID>MagicNumber:EdgeApi.kt$EdgeNetwork$60</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$240</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$400</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$401</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$402</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$403</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$404</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$429</ID>
+    <ID>MagicNumber:EdgeApiError.kt$EdgeApiError.Companion$499</ID>
+    <ID>MagicNumber:GradeFactor.kt$GradeScale$0.85</ID>
+    <ID>MagicNumber:GradeReportScreen.kt$0xFF0F3460</ID>
+    <ID>MagicNumber:GradeReportScreen.kt$0xFF10B981</ID>
+    <ID>MagicNumber:GradeReportScreen.kt$0xFFE94560</ID>
+    <ID>MagicNumber:GradeReportScreen.kt$0xFFF59E0B</ID>
+    <ID>MagicNumber:GradeReportScreen.kt$5.0</ID>
+    <ID>MagicNumber:GradeReportScreen.kt$7.0</ID>
+    <ID>MagicNumber:GradeReportScreen.kt$9.5</ID>
+    <ID>MagicNumber:GradeRequestScreen.kt$0xFF0F3460</ID>
+    <ID>MagicNumber:GradeRequestScreen.kt$0xFF10B981</ID>
+    <ID>MagicNumber:GradeRequestScreen.kt$0xFFE94560</ID>
+    <ID>MagicNumber:GradeRequestScreen.kt$0xFFF59E0B</ID>
+    <ID>MagicNumber:GradeRequestScreen.kt$5.0</ID>
+    <ID>MagicNumber:GradeRequestScreen.kt$7.0</ID>
+    <ID>MagicNumber:GradeRequestScreen.kt$9.5</ID>
+    <ID>MagicNumber:GradeThreadDb.kt$DatabaseProvider$8</ID>
+    <ID>MagicNumber:GradesListScreen.kt$0xFF0F3460</ID>
+    <ID>MagicNumber:GradesListScreen.kt$0xFF10B981</ID>
+    <ID>MagicNumber:GradesListScreen.kt$0xFF6B7280</ID>
+    <ID>MagicNumber:GradesListScreen.kt$0xFFE94560</ID>
+    <ID>MagicNumber:GradesListScreen.kt$0xFFF59E0B</ID>
+    <ID>MagicNumber:GradesListScreen.kt$5.0</ID>
+    <ID>MagicNumber:GradesListScreen.kt$7.0</ID>
+    <ID>MagicNumber:GradesListScreen.kt$9.5</ID>
+    <ID>MagicNumber:HapticFeedback.kt$HapticFeedback$90L</ID>
+    <ID>MagicNumber:ImportService.kt$ImportService$120</ID>
+    <ID>MagicNumber:IntakeDrainer.kt$IntakeDrainer$86_400_000L</ID>
+    <ID>MagicNumber:InventoryDerivation.kt$InventoryDerivation$31</ID>
+    <ID>MagicNumber:InventoryDerivation.kt$InventoryDerivation.Companion$31</ID>
+    <ID>MagicNumber:InventoryFilter.kt$InventoryFilter$86_400_000L</ID>
+    <ID>MagicNumber:InventoryListScreen.kt$0xFF0F3460</ID>
+    <ID>MagicNumber:InventoryListScreen.kt$0xFF10B981</ID>
+    <ID>MagicNumber:InventoryListScreen.kt$0xFFE94560</ID>
+    <ID>MagicNumber:InventoryListScreen.kt$0xFFF59E0B</ID>
+    <ID>MagicNumber:InventoryListScreen.kt$5.0</ID>
+    <ID>MagicNumber:InventoryListScreen.kt$7.0</ID>
+    <ID>MagicNumber:InventoryListScreen.kt$9.5</ID>
+    <ID>MagicNumber:ListingPerformance.kt$ListingPerformance$14</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$0.4</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$3</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$4</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$4.0</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$5</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$6</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$7</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$8</ID>
+    <ID>MagicNumber:MeasureGeometry.kt$MeasureGeometry$9</ID>
+    <ID>MagicNumber:MeasureLines.kt$MeasureLines$200.0</ID>
+    <ID>MagicNumber:MeasureService.kt$MeasureService$20</ID>
+    <ID>MagicNumber:MeasureService.kt$MeasureService$40</ID>
+    <ID>MagicNumber:Money.kt$Money$1_000</ID>
+    <ID>MagicNumber:Money.kt$Money$1_000_000</ID>
+    <ID>MagicNumber:MoneyAnalyticsRollup.kt$MoneyAnalyticsRollup$10</ID>
+    <ID>MagicNumber:PaywallPricing.kt$PaywallPricing$12</ID>
+    <ID>MagicNumber:PhotoProcessor.kt$PhotoProcessor$180f</ID>
+    <ID>MagicNumber:PhotoProcessor.kt$PhotoProcessor$270f</ID>
+    <ID>MagicNumber:PhotoProcessor.kt$PhotoProcessor$70</ID>
+    <ID>MagicNumber:PhotoProcessor.kt$PhotoProcessor$90f</ID>
+    <ID>MagicNumber:PhotoSignedUrlProvider.kt$PhotoSignedUrlProvider$1_000L</ID>
+    <ID>MagicNumber:PhotoSignedUrlProvider.kt$PhotoSignedUrlProvider.Companion$10</ID>
+    <ID>MagicNumber:PhotoSignedUrlProvider.kt$PhotoSignedUrlProvider.Companion$20</ID>
+    <ID>MagicNumber:PhotoSignedUrlProvider.kt$PhotoSignedUrlProvider.Companion$30</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarFormat$10</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$0.05</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$0.2</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$0.3</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$0.45</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$0.5</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$0.75</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$14</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$180.0</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$21</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$3</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$31</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$7</ID>
+    <ID>MagicNumber:RadarScoring.kt$RadarScoring$90.0</ID>
+    <ID>MagicNumber:SizeTagInference.kt$SizeTagInference$22</ID>
+    <ID>MagicNumber:SizeTagInference.kt$SizeTagInference$24</ID>
+    <ID>MagicNumber:SizeTagInference.kt$SizeTagInference$40</ID>
+    <ID>MagicNumber:SizeTagInference.kt$SizeTagInference$54</ID>
+    <ID>MagicNumber:SizeTagInference.kt$SizeTagInference$60</ID>
+    <ID>MagicNumber:SnapScreen.kt$0xFF0F3460</ID>
+    <ID>MagicNumber:SnapScreen.kt$0xFF10B981</ID>
+    <ID>MagicNumber:SnapScreen.kt$0xFFE94560</ID>
+    <ID>MagicNumber:SnapScreen.kt$0xFFF59E0B</ID>
+    <ID>MagicNumber:SnapScreen.kt$5.0</ID>
+    <ID>MagicNumber:SnapScreen.kt$7.0</ID>
+    <ID>MagicNumber:SnapScreen.kt$9.5</ID>
+    <ID>MagicNumber:SourceRoiRollup.kt$SourceRoiRollup$6</ID>
+    <ID>MagicNumber:TeamTypes.kt$WorkspaceDate$86_400_000L</ID>
+    <ID>MagicNumber:TeamTypes.kt$WorkspaceEmail$3</ID>
+    <ID>MagicNumber:TokenAccess.kt$8</ID>
+    <ID>MagicNumber:VerifiedTypes.kt$VerifiedBadge$10</ID>
+    <ID>MagicNumber:WidgetCopy.kt$WidgetCopy$24</ID>
+    <ID>MagicNumber:WidgetCopy.kt$WidgetCopy$60</ID>
+    <ID>MagicNumber:WidgetCopy.kt$WidgetCopy$60L</ID>
+    <ID>MagicNumber:WidgetCopy.kt$WidgetCopy$60_000L</ID>
+    <ID>MatchingDeclarationName:A11yAnnounce.kt$A11yAnnouncer</ID>
+    <ID>MatchingDeclarationName:Color.kt$BrandPalette</ID>
+    <ID>MatchingDeclarationName:ConsignmentReportScreen.kt$ConsignmentReportViewModel : ViewModel</ID>
+    <ID>MatchingDeclarationName:FulfillmentScreen.kt$FulfillmentViewModel : ViewModel</ID>
+    <ID>MatchingDeclarationName:InfoCard.kt$InfoTone</ID>
+    <ID>MatchingDeclarationName:ListingCard.kt$ListingCardModel</ID>
+    <ID>MatchingDeclarationName:PassportScreen.kt$PassportViewModel : ViewModel</ID>
+    <ID>MatchingDeclarationName:PlanStepHost.kt$PlanStepViewModel : ViewModel</ID>
+    <ID>MatchingDeclarationName:StatusBadge.kt$StatusStyle</ID>
+    <ID>MatchingDeclarationName:SyncMerge.kt$SyncMerger</ID>
+    <ID>MatchingDeclarationName:TokenAccess.kt$AccessTokenResult</ID>
+    <ID>MatchingDeclarationName:TurnstileChallenge.kt$TurnstileResult</ID>
+    <ID>MatchingDeclarationName:VerifiedScreen.kt$VerifiedViewModel : ViewModel</ID>
+    <ID>MaxLineLength:AiFillReviewSheet.kt$TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.aifill_cancel)) }</ID>
+    <ID>MaxLineLength:AnalyticsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.analytics_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:AutomationsScreen.kt$confirmButton = { TextButton(onClick = viewModel::closeDryRun) { Text(stringResource(R.string.automations_close)) } }</ID>
+    <ID>MaxLineLength:AutomationsScreen.kt$dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.automations_cancel)) } }</ID>
+    <ID>MaxLineLength:AutomationsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.automations_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:BulkGradeScreen.kt$BrandPrimaryButton(text = stringResource(R.string.bulkgrade_close), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:BulkGradeScreen.kt$BrandPrimaryButton(text = stringResource(R.string.bulkgrade_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:BulkGradeScreen.kt$BrandSecondaryButton</ID>
+    <ID>MaxLineLength:BulkGradeScreen.kt$confirmButton = { TextButton(onClick = viewModel::confirmTier) { Text(stringResource(R.string.bulkgrade_use_credits)) } }</ID>
+    <ID>MaxLineLength:BulkPricingScreen.kt$BrandSecondaryButton(text = stringResource(R.string.bulkpricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:BulkPricingScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.bulkpricing_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:CommunityInsightsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.community_back), modifier = Modifier.weight(1f)) { onClose() }</ID>
+    <ID>MaxLineLength:ConsignorsScreen.kt$BrandSecondaryButton</ID>
+    <ID>MaxLineLength:ConsignorsScreen.kt$BrandSecondaryButton(text = stringResource(R.string.consignors_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:ConsignorsScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.consignors_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:DisclosureScreen.kt$BrandSecondaryButton(text = stringResource(R.string.disclosure_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:DisclosureScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.disclosure_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:DraftsLibraryScreen.kt$BrandSecondaryButton(text = stringResource(R.string.drafts_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:DraftsLibraryScreen.kt$TextButton(onClick = onClearSchedule, enabled = !busy) { Text(stringResource(R.string.drafts_unschedule)) }</ID>
+    <ID>MaxLineLength:DraftsLibraryScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.drafts_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:EdgeApiError.kt$EdgeApiError$"Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."</ID>
+    <ID>MaxLineLength:EquityService.kt$"An estimate for planning only, from sold comps and your own sell-through — not an appraisal, an offer, or borrowing capacity. Items without a grade or usable comps are excluded."</ID>
+    <ID>MaxLineLength:FriendlyAuthError.kt$FriendlyAuthError$EMAIL_NOT_CONFIRMED -&gt; "Confirm your email to sign in — check your inbox for the link we sent, or resend it below."</ID>
+    <ID>MaxLineLength:FriendlyAuthError.kt$FriendlyAuthError$EMAIL_UNVERIFIED -&gt; "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."</ID>
+    <ID>MaxLineLength:FriendlyAuthError.kt$FriendlyAuthError$EXPIRED_LINK -&gt; "That link has expired or was already used. Request a fresh one — reset your password or sign in to resend the confirmation."</ID>
+    <ID>MaxLineLength:FriendlyAuthError.kt$FriendlyAuthError$WEAK_PASSWORD -&gt; "That password doesn't meet the requirements. Try a longer one with a mix of letters, numbers, and symbols."</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$"dress\\s*-?\\s*(shirt|blouse|pant|trouser|slack|short|skirt|sock|shoe|boot|belt|tie|watch|coat|jacket|blazer|vest|suit|uniform)"</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(bag|purse|tote|clutch|satchel|crossbody|backpack|rucksack|duffel|duffle|handbag|hobo|pouch|wallet|briefcase)", c)) return BAG</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(hat|cap|beanie|snapback|fitted|trucker|visor|fedora|beret|bucket.?hat|headwear|balaclava)", c)) return HEADWEAR</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(jacket|coat|outerwear|blazer|parka|windbreaker|overcoat|anorak|bomber|vest|gilet|fleece|cardigan|robe|kimono|poncho|cape)", c)) return OUTERWEAR</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo|trunk|slack|bottom)", c)) return BOTTOM</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(shirt|tee|t-shirt|top|blouse|sweater|hoodie|sweatshirt|tank|polo|jersey|henley|pullover|crewneck|longsleeve|long.sleeve|rugby|button.down|button.up|oxford|flannel|thermal)", c)) return TOP</ID>
+    <ID>MaxLineLength:GarmentGroup.kt$GarmentGroup.Companion$if (m("(tie|necktie|bow.?tie|belt|scarf|scarves|glove|mitten|shawl|pocket.?square|cravat|ascot|suspender|accessor)", c)) return ACCESSORY</ID>
+    <ID>MaxLineLength:GradeReportScreen.kt$BrandPrimaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:GradeReportScreen.kt$BrandSecondaryButton(text = stringResource(R.string.gradereport_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:GradeReportScreen.kt$BrandSecondaryButton(text = stringResource(R.string.gradereport_try_again), modifier = Modifier.fillMaxWidth()) { onRetry() }</ID>
+    <ID>MaxLineLength:GradeRequestScreen.kt$BrandPrimaryButton</ID>
+    <ID>MaxLineLength:GradeRequestScreen.kt$BrandPrimaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:GradeRequestScreen.kt$BrandSecondaryButton(text = stringResource(R.string.graderequest_done), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:GradeRequestScreen.kt$BrandSecondaryButton(text = stringResource(R.string.graderequest_try_again), modifier = Modifier.fillMaxWidth()) { it() }</ID>
+    <ID>MaxLineLength:HomeScreen.kt$BrandSecondaryButton</ID>
+    <ID>MaxLineLength:HomeScreen.kt$Text(stringResource(R.string.home_certified_grades), style = MaterialTheme.typography.titleMedium)</ID>
+    <ID>MaxLineLength:InventoryDerivationTest.kt$InventoryDerivationTest$d.filtered(listOf(item("1", updatedAt = 1)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())</ID>
+    <ID>MaxLineLength:InventoryDerivationTest.kt$InventoryDerivationTest$d.filtered(listOf(item("1", updatedAt = 2)), InventoryStage.ALL, "", SortOption.NEWEST, InventoryFilterCriteria())</ID>
+    <ID>MaxLineLength:InventoryListScreen.kt$TextButton(onClick = viewModel::dismissRefreshError) { Text(stringResource(R.string.inventorylist_dismiss)) }</ID>
+    <ID>MaxLineLength:ItemCanvasScreen.kt$BrandPrimaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:ItemCanvasScreen.kt$BrandSecondaryButton(text = stringResource(R.string.canvas_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:ItemCanvasScreen.kt$BrandSecondaryButton(text = stringResource(R.string.canvas_grade), modifier = Modifier.weight(1f)) { onGrade(itemId) }</ID>
+    <ID>MaxLineLength:ItemCanvasScreen.kt$Field(stringResource(R.string.canvas_field_container), draft.container) { v -&gt; viewModel.edit { it.copy(container = v) } }</ID>
+    <ID>MaxLineLength:ItemCanvasScreen.kt$Field(stringResource(R.string.canvas_field_material), draft.material) { v -&gt; viewModel.edit { it.copy(material = v) } }</ID>
+    <ID>MaxLineLength:ItemCanvasScreen.kt$Field(stringResource(R.string.canvas_field_sourced_by), draft.sourcedBy) { v -&gt; viewModel.edit { it.copy(sourcedBy = v) } }</ID>
+    <ID>MaxLineLength:ItemPhotosSection.kt$TextButton(onClick = onMoveRight, contentPadding = tight) { Text(stringResource(R.string.photos_text_2)) }</ID>
+    <ID>MaxLineLength:MarketplacesScreen.kt$dismissButton = { TextButton(onClick = { renaming = null }) { Text(stringResource(R.string.marketplaces_cancel)) } }</ID>
+    <ID>MaxLineLength:MoneyScreen.kt$Text(stringResource(R.string.money_money), style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f))</ID>
+    <ID>MaxLineLength:NegotiationInboxScreen.kt$BrandSecondaryButton(text = stringResource(R.string.negotiation_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:NegotiationInboxScreen.kt$Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text(stringResource(R.string.negotiation_offers)) })</ID>
+    <ID>MaxLineLength:NegotiationInboxScreen.kt$Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text(stringResource(R.string.negotiation_messages)) })</ID>
+    <ID>MaxLineLength:NegotiationInboxScreen.kt$state.loadingEligible -&gt; Text(stringResource(R.string.negotiation_checking_which_listings_are_eligible))</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("defect", "Defect", "Tight crop on any flaw — be honest", required = false, icon = "alert-triangle")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("detail", "Fabric close-up", "Fill the frame with the weave or knit, in even light", required = false, icon = "search", role = "fabric")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("detail", "Hardware", "Zip pull, buttons, rivets or snaps", required = false, icon = "search", role = "hardware")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("detail", "Hem &amp; stitching", "A hem or seam up close", required = false, icon = "search", role = "hem")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("detail", "Print or graphic", "The graphic straight on, close enough to show cracking", required = false, icon = "search", role = "print")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("flatlay", "Flat lay", "Styled flat lay for the listing gallery", required = false, icon = "layout-grid")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("interior", "Interior / Lining", "Inside-out: lining, seams, interior tags", required = false, icon = "layers")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("measurement", "Measurement card", "Whole garment flat with the MeasureCard BESIDE it, shot top-down", required = false, icon = "ruler")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("on_hanger", "On hanger", "Hung straight on, showing how it drapes", required = false, icon = "shirt")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("tag", "Brand label", "The maker's logo or wordmark", required = false, icon = "tag", role = "brand")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("tag", "Care &amp; fabric", "The care label with the fibre content", required = false, icon = "tag", role = "care")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("tag", "Made in / union label", "Origin, union or RN label", required = false, icon = "tag", role = "made_in")</ID>
+    <ID>MaxLineLength:PhotoProfile.kt$PhotoProfile.Companion$PhotoRole("tag", "Size tag", "The size itself, close enough to read without zooming", required = false, icon = "tag", role = "size")</ID>
+    <ID>MaxLineLength:PlanGateTest.kt$PlanGateTest$"""{"error":"CAP_REACHED","cap":"activeListings","used":10,"limit":10,"plan":"free","requiredPlan":"pro"}"""</ID>
+    <ID>MaxLineLength:PostSaleScreen.kt$BrandSecondaryButton(text = stringResource(R.string.postsale_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:PostSaleScreen.kt$dismissButton = { TextButton(onClick = { shipping = null }) { Text(stringResource(R.string.postsale_cancel)) } }</ID>
+    <ID>MaxLineLength:PostSaleScreen.kt$dismissButton = { TextButton(onClick = { thanking = null }) { Text(stringResource(R.string.postsale_cancel)) } }</ID>
+    <ID>MaxLineLength:PostSaleScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.postsale_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:PromotionSheet.kt$BrandSecondaryButton(text = stringResource(R.string.promotion_close), modifier = Modifier.fillMaxWidth()) { onDismiss() }</ID>
+    <ID>MaxLineLength:PromotionSheet.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.promotion_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:ProspectScreen.kt$BrandSecondaryButton</ID>
+    <ID>MaxLineLength:ProspectScreen.kt$BrandSecondaryButton(text = stringResource(R.string.prospect_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:ProspectScreen.kt$TextButton(onClick = { viewModel.removePhoto(photo) }) { Text(stringResource(R.string.prospect_remove)) }</ID>
+    <ID>MaxLineLength:RealtimeService.kt$RealtimeRows$.</ID>
+    <ID>MaxLineLength:ReconciliationScreen.kt$BrandSecondaryButton(text = stringResource(R.string.reconciliation_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:ReconciliationScreen.kt$Text(stringResource(R.string.reconciliation_unmatched_ebay_listings), style = MaterialTheme.typography.titleLarge)</ID>
+    <ID>MaxLineLength:ReconciliationScreen.kt$TextButton(onClick = { confirmCreateAll = false }) { Text(stringResource(R.string.reconciliation_cancel)) }</ID>
+    <ID>MaxLineLength:ReconciliationScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.reconciliation_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:RepricingScreen.kt$BrandSecondaryButton(text = stringResource(R.string.repricing_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:RepricingScreen.kt$dismissButton = { TextButton(onClick = { deleting = null }) { Text(stringResource(R.string.repricing_cancel)) } }</ID>
+    <ID>MaxLineLength:RepricingScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.repricing_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MaxLineLength:ResponseCacheTenantGuardTest.kt$ResponseCacheTenantGuardTest$Regex("""(?m)^[ \t]*((?:@\w+[ \t]+)*(?:public |internal |open |override |final |static |class |suspend )*)(?:fun|func)\s+(\w+)""")</ID>
+    <ID>MaxLineLength:ResponseCacheTenantGuardTest.kt$ResponseCacheTenantGuardTest$private val typeDeclaration = Regex("""(?m)^[ \t]*(?:\w+[ \t]+)*(class|object|interface|actor|struct|enum)\s+(\w+)""")</ID>
+    <ID>MaxLineLength:ScoutScreen.kt$BrandSecondaryButton(text = stringResource(R.string.scout_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:SettingsScreen.kt$TextButton(onClick = viewModel::confirmDeleteAccount) { Text(stringResource(R.string.settings_continue)) }</ID>
+    <ID>MaxLineLength:SnapScreen.kt$BrandPrimaryButton</ID>
+    <ID>MaxLineLength:SnapScreen.kt$BrandSecondaryButton</ID>
+    <ID>MaxLineLength:SnapScreen.kt$BrandSecondaryButton(text = stringResource(R.string.snap_list_it), modifier = Modifier.weight(1f)) { onList() }</ID>
+    <ID>MaxLineLength:SubscriptionServiceTest.kt$SubscriptionServiceTest$fun</ID>
+    <ID>MaxLineLength:TemplatesScreen.kt$BrandSecondaryButton(text = stringResource(R.string.templates_back), modifier = Modifier.fillMaxWidth()) { onClose() }</ID>
+    <ID>MaxLineLength:TemplatesScreen.kt$confirmButton = { TextButton(onClick = viewModel::delete) { Text(stringResource(R.string.templates_delete)) } }</ID>
+    <ID>MaxLineLength:TemplatesScreen.kt$dismissButton = { TextButton(onClick = viewModel::cancelDelete) { Text(stringResource(R.string.templates_keep)) } }</ID>
+    <ID>MaxLineLength:TemplatesScreen.kt$state.errorMessage?.let { InfoCard(stringResource(R.string.templates_that_didn_t_work), it, tone = InfoTone.Error) }</ID>
+    <ID>MayBeConst:BackgroundRefreshWorker.kt$BackgroundRefreshWorker.Companion$/** * Half an hour, with a ten-minute flex window. * * WorkManager's own floor is 15 minutes and it batches work across apps * anyway; the flex lets it ride along with whatever else the system was * already waking for, which is most of the battery saving here. */ val INTERVAL_MINUTES = 30L</ID>
+    <ID>MayBeConst:BackgroundRefreshWorker.kt$BackgroundRefreshWorker.Companion$val FLEX_MINUTES = 10L</ID>
+    <ID>ModifierClickableOrder:InventoryListScreen.kt$clickable(onClick = onClick)</ID>
+    <ID>ModifierMissing:AnalyticsScreen.kt$AnalyticsScreen</ID>
+    <ID>ModifierMissing:AppShell.kt$AppShell</ID>
+    <ID>ModifierMissing:AuthScreen.kt$AuthScreen</ID>
+    <ID>ModifierMissing:AutolisterSessionScreen.kt$AutolisterSessionScreen</ID>
+    <ID>ModifierMissing:AutomationsScreen.kt$AutomationsScreen</ID>
+    <ID>ModifierMissing:BarcodeScanScreen.kt$BarcodeScanScreen</ID>
+    <ID>ModifierMissing:BulkPricingScreen.kt$BulkPricingScreen</ID>
+    <ID>ModifierMissing:CaptureScreen.kt$CaptureScreen</ID>
+    <ID>ModifierMissing:CommunityInsightsScreen.kt$CommunityInsightsScreen</ID>
+    <ID>ModifierMissing:ConsignmentReportScreen.kt$ConsignmentReportScreen</ID>
+    <ID>ModifierMissing:ConsignorPicker.kt$ConsignorPickerSection</ID>
+    <ID>ModifierMissing:ConsignorsScreen.kt$ConsignorsScreen</ID>
+    <ID>ModifierMissing:DisclosureScreen.kt$DisclosureScreen</ID>
+    <ID>ModifierMissing:DraftsLibraryScreen.kt$DraftsLibraryScreen</ID>
+    <ID>ModifierMissing:EbayCasesScreen.kt$EbayCasesScreen</ID>
+    <ID>ModifierMissing:FulfillmentScreen.kt$FulfillmentScreen</ID>
+    <ID>ModifierMissing:ImportScreen.kt$ImportScreen</ID>
+    <ID>ModifierMissing:InventoryListScreen.kt$InventoryListScreen</ID>
+    <ID>ModifierMissing:ListingPerformanceScreen.kt$ListingPerformanceScreen</ID>
+    <ID>ModifierMissing:LockScreen.kt$LockScreen</ID>
+    <ID>ModifierMissing:MyStoresScreen.kt$MyStoresScreen</ID>
+    <ID>ModifierMissing:NegotiationInboxScreen.kt$NegotiationInboxScreen</ID>
+    <ID>ModifierMissing:OnboardingHost.kt$OnboardingHost</ID>
+    <ID>ModifierMissing:PassportScreen.kt$PassportScreen</ID>
+    <ID>ModifierMissing:PayoutReconciliationScreen.kt$PayoutReconciliationScreen</ID>
+    <ID>ModifierMissing:PaywallScreen.kt$PaywallScreen</ID>
+    <ID>ModifierMissing:PlanGateHost.kt$PlanGateHost</ID>
+    <ID>ModifierMissing:PlanStepHost.kt$PlanStepHost</ID>
+    <ID>ModifierMissing:PostSaleScreen.kt$PostSaleScreen</ID>
+    <ID>ModifierMissing:ProspectScreen.kt$ProspectScreen</ID>
+    <ID>ModifierMissing:RadarNearbyScreen.kt$RadarNearbyScreen</ID>
+    <ID>ModifierMissing:RadarVenueDetailScreen.kt$RadarVenueDetailScreen</ID>
+    <ID>ModifierMissing:ReconcileBanner.kt$ReconcileBanner</ID>
+    <ID>ModifierMissing:ReconciliationScreen.kt$ReconciliationScreen</ID>
+    <ID>ModifierMissing:ReferralsScreen.kt$ReferralsScreen</ID>
+    <ID>ModifierMissing:RepricingScreen.kt$RepricingScreen</ID>
+    <ID>ModifierMissing:ScoutScreen.kt$ScoutScreen</ID>
+    <ID>ModifierMissing:SpecificsSection.kt$SpecificsSection</ID>
+    <ID>ModifierMissing:SupportScreen.kt$SupportScreen</ID>
+    <ID>ModifierMissing:SupportThreadScreen.kt$SupportThreadScreen</ID>
+    <ID>ModifierMissing:TeamScreen.kt$TeamScreen</ID>
+    <ID>ModifierMissing:TemplatesScreen.kt$TemplatesScreen</ID>
+    <ID>ModifierMissing:VerifiedScreen.kt$VerifiedScreen</ID>
+    <ID>ModifierMissing:WorkspaceSwitcherRow.kt$WorkspaceSwitcherRow</ID>
+    <ID>ModifierWithoutDefault:Skeleton.kt$modifier</ID>
+    <ID>MultipleEmitters:BulkGradeScreen.kt$ReadyBody</ID>
+    <ID>MultipleEmitters:GradeRequestScreen.kt$ReadyBody</ID>
+    <ID>MultipleEmitters:ItemCanvasScreen.kt$ItemCanvasScreen</ID>
+    <ID>MultipleEmitters:MeasurementPhotoEditorSheet.kt$EditorBody</ID>
+    <ID>MultipleEmitters:PublishSheet.kt$Composer</ID>
+    <ID>MultipleEmitters:PublishSheet.kt$PublishedPanel</ID>
+    <ID>MultipleEmitters:RadarVenueDetailScreen.kt$ReadyDetail</ID>
+    <ID>MultipleEmitters:SettingsScreen.kt$SectionHeader</ID>
+    <ID>MultipleEmitters:SpecificsSection.kt$SpecificField</ID>
+    <ID>MutableStateAutoboxing:MeasurementPhotoEditorSheet.kt$mutableStateOf(0f)</ID>
+    <ID>NewLineAtEndOfFile:CreditTopUpViewModel.kt$com.gradethread.app.billing.CreditTopUpViewModel.kt</ID>
+    <ID>ParameterNaming:AutolisterSessionScreen.kt$onSelected</ID>
+    <ID>ParameterNaming:BarcodeScanScreen.kt$onScanned</ID>
+    <ID>ParameterNaming:CaptureScreen.kt$onPublished</ID>
+    <ID>ParameterNaming:CreditPackSheet.kt$onGranted</ID>
+    <ID>ParameterNaming:ItemPhotosSection.kt$onDeleted</ID>
+    <ID>ParameterNaming:ItemPhotosSection.kt$onDuplicated</ID>
+    <ID>ParameterNaming:ToolsScreen.kt$onVerified</ID>
+    <ID>ReturnCount:CompsService.kt$CompsService$suspend fun lookup(title: String, brand: String?, size: String?): CompsState</ID>
+    <ID>ReturnCount:EdgeApiError.kt$EdgeApiError.Companion$fun from(statusCode: Int, body: String): EdgeApiError</ID>
+    <ID>ReturnCount:GarmentGroup.kt$GarmentGroup.Companion$fun from(category: String?): GarmentGroup</ID>
+    <ID>ReturnCount:InventoryFilter.kt$InventoryFilter$fun matches( item: InventoryItemEntity, criteria: InventoryFilterCriteria, photoItemIds: Set&lt;String&gt;?, nowMillis: Long, ): Boolean</ID>
+    <ID>ReturnCount:UploadWorker.kt$UploadWorker$override suspend fun doWork(): Result</ID>
+    <ID>ReturnCount:VerifiedScreen.kt$VerifiedViewModel$fun saveProfile()</ID>
+    <ID>SwallowedException:CompsService.kt$CompsService$t: Throwable</ID>
+    <ID>SwallowedException:DisputeService.kt$DisputeService$t: Throwable</ID>
+    <ID>SwallowedException:EdgeApi.kt$EdgeApi$e: Exception</ID>
+    <ID>SwallowedException:GradingService.kt$GradingService$t: Throwable</ID>
+    <ID>SwallowedException:ListingCopyService.kt$ListingCopyService$t: Throwable</ID>
+    <ID>SwallowedException:MeasureService.kt$MeasureService$t: Throwable</ID>
+    <ID>SwallowedException:NegotiationDraftService.kt$NegotiationDraftService$t: Throwable</ID>
+    <ID>SwallowedException:SizeAiService.kt$SizeAiService$t: Throwable</ID>
+    <ID>TooGenericExceptionThrown:AiExtractFlowTest.kt$AiExtractFlowTest$throw RuntimeException("502")</ID>
+    <ID>TooGenericExceptionThrown:AiExtractFlowTest.kt$AiExtractFlowTest$throw RuntimeException("boom")</ID>
+    <ID>TooManyFunctions:Daos.kt$ItemDao</ID>
+    <ID>TooManyFunctions:Daos.kt$ListingDao</ID>
+    <ID>UnstableCollections:AnalyticsScreen.kt$List&lt;RoiBucket&gt;</ID>
+    <ID>UnstableCollections:AspectsSection.kt$List&lt;String&gt;</ID>
+    <ID>UnstableCollections:AspectsSection.kt$Map&lt;String, AspectSync.Provenance&gt;</ID>
+    <ID>UnstableCollections:AspectsSection.kt$Map&lt;String, List&lt;String&gt;&gt;</ID>
+    <ID>UnstableCollections:AutolisterSessionScreen.kt$List&lt;SessionPhoto&gt;</ID>
+    <ID>UnstableCollections:AutolisterSessionScreen.kt$Set&lt;String&gt;</ID>
+    <ID>UnstableCollections:BulkGradeScreen.kt$List&lt;String&gt;</ID>
+    <ID>UnstableCollections:Charts.kt$List&lt;BarDatum&gt;</ID>
+    <ID>UnstableCollections:Charts.kt$List&lt;Double&gt;</ID>
+    <ID>UnstableCollections:Charts.kt$List&lt;RankedDatum&gt;</ID>
+    <ID>UnstableCollections:Charts.kt$List&lt;String&gt;</ID>
+    <ID>UnstableCollections:CompsSection.kt$List&lt;ItemComp&gt;</ID>
+    <ID>UnstableCollections:GradeReportScreen.kt$List&lt;GradeDefect&gt;</ID>
+    <ID>UnstableCollections:InventoryFilterSheet.kt$List&lt;InventoryItemEntity&gt;</ID>
+    <ID>UnstableCollections:InventoryFilterSheet.kt$Set&lt;String&gt;</ID>
+    <ID>UnstableCollections:InventoryListScreen.kt$List&lt;InventoryItemEntity&gt;</ID>
+    <ID>UnstableCollections:InventoryListScreen.kt$Set&lt;String&gt;</ID>
+    <ID>UnstableCollections:LabeledDropdown.kt$List&lt;T&gt;</ID>
+    <ID>UnstableCollections:MeasurementsSection.kt$Map&lt;String, Double&gt;</ID>
+    <ID>UnstableCollections:ReconciliationScreen.kt$List&lt;com.gradethread.app.sync.db.InventoryItemEntity&gt;</ID>
+    <ID>UnstableCollections:ShareTargetActivity.kt$List&lt;Uri&gt;</ID>
+    <ID>UnusedImports:AiExtractionManager.kt$import com.gradethread.app.capture.PhotoSlotType</ID>
+    <ID>UnusedImports:AppShell.kt$import androidx.compose.runtime.remember</ID>
+    <ID>UnusedImports:AutomationsScreen.kt$import com.gradethread.app.ui.theme.BrandPrimaryButton</ID>
+    <ID>UnusedImports:Comps.kt$import kotlinx.serialization.json.jsonPrimitive</ID>
+    <ID>UnusedImports:ConsignmentReportScreen.kt$import kotlinx.coroutines.flow.asStateFlow</ID>
+    <ID>UnusedImports:ExpenseFormSheet.kt$import java.time.ZoneId</ID>
+    <ID>UnusedImports:ImportScreen.kt$import androidx.compose.foundation.clickable</ID>
+    <ID>UnusedImports:IntakeRepository.kt$import kotlinx.serialization.json.JsonObject</ID>
+    <ID>UnusedImports:MoneyScreen.kt$import java.time.ZoneId</ID>
+    <ID>UnusedImports:ShareTargetActivity.kt$import android.content.Intent</ID>
+    <ID>UnusedParameter:MoneyAnalyticsRollup.kt$MoneyAnalyticsRollup$nowMs: Long</ID>
+    <ID>UnusedPrivateMember:CachedThumbnail.kt$@Preview(showBackground = true) @Composable private fun CachedThumbnailPreview()</ID>
+    <ID>UnusedPrivateMember:DataRow.kt$@Preview(showBackground = true) @Composable private fun DataRowPreview()</ID>
+    <ID>UnusedPrivateMember:ErrorStateView.kt$@Preview(showBackground = true) @Composable private fun ErrorStatePreview()</ID>
+    <ID>UnusedPrivateMember:FieldValidation.kt$@Preview(showBackground = true) @Composable private fun ValidatedTextFieldPreview()</ID>
+    <ID>UnusedPrivateMember:ImeActionBar.kt$@Preview(showBackground = true) @Composable private fun ImeActionBarPreview()</ID>
+    <ID>UnusedPrivateMember:InfoCard.kt$@Preview(showBackground = true) @Composable private fun InfoCardPreview()</ID>
+    <ID>UnusedPrivateMember:LabeledDropdown.kt$@Preview(showBackground = true) @Composable private fun LabeledDropdownPreview()</ID>
+    <ID>UnusedPrivateMember:ListingCard.kt$@Preview(showBackground = true) @Composable private fun ListingCardPreview()</ID>
+    <ID>UnusedPrivateMember:LockScreen.kt$@Preview(showBackground = true) @Composable private fun LockScreenPreview()</ID>
+    <ID>UnusedPrivateMember:Skeleton.kt$@Preview(showBackground = true) @Composable private fun SkeletonPreview()</ID>
+    <ID>UnusedPrivateMember:StatusBadge.kt$@Preview(showBackground = true) @Composable private fun StatusBadgePreview()</ID>
+    <ID>UnusedPrivateProperty:ListingEditTest.kt$ListingEditTest$private val json = Json { ignoreUnknownKeys = true }</ID>
+    <ID>UnusedPrivateProperty:MoneyViewModel.kt$MoneyViewModel$val monthStart = DashboardRollup.startOfMonth(now, zone)</ID>
+    <ID>UseCheckOrError:EdgeApi.kt$EdgeApi$throw IllegalStateException("unreachable")</ID>
+    <ID>VariableNaming:GradesListViewModel.kt$GradesListViewModel$private val EMPTY: List&lt;InventoryItemEntity&gt; = emptyList()</ID>
+    <ID>ViewModelForwarding:AutolisterSessionScreen.kt$GroupCard(group, state, selected, viewModel) { selected = it }</ID>
+    <ID>ViewModelForwarding:AutolisterSessionScreen.kt$SuggestionCard(s, viewModel)</ID>
+    <ID>ViewModelForwarding:BulkGradeScreen.kt$ReadyBody(state, viewModel)</ID>
+    <ID>ViewModelForwarding:ConsignorsScreen.kt$EditSheet(state, viewModel)</ID>
+    <ID>ViewModelForwarding:DetailsIntakeScreen.kt$NotesFieldWithDictation( value = form.notes, onValueChange = { v -&gt; viewModel.update { it.copy(notes = v) } }, viewModel = viewModel, )</ID>
+    <ID>ViewModelForwarding:DraftsLibraryScreen.kt$BatchPanel(batch, state, viewModel)</ID>
+    <ID>ViewModelForwarding:EbayCasesScreen.kt$CancellationCard(case, state, viewModel, closed = false)</ID>
+    <ID>ViewModelForwarding:EbayCasesScreen.kt$CancellationCard(case, state, viewModel, closed = true)</ID>
+    <ID>ViewModelForwarding:EbayCasesScreen.kt$DisputeCard( dispute = dispute, state = state, viewModel = viewModel, closed = false, onContest = { contesting = dispute }, onEvidence = { evidenceFor = dispute.paymentDisputeId picker.launch( PickVisualMediaRequest( ActivityResultContracts.PickVisualMedia.ImageOnly, ), ) }, )</ID>
+    <ID>ViewModelForwarding:EbayCasesScreen.kt$DisputeCard(dispute, state, viewModel, closed = true, onContest = {}, onEvidence = {})</ID>
+    <ID>ViewModelForwarding:EbayCasesScreen.kt$ReturnCard(case, state, viewModel, closed = false)</ID>
+    <ID>ViewModelForwarding:EbayCasesScreen.kt$ReturnCard(case, state, viewModel, closed = true)</ID>
+    <ID>ViewModelForwarding:GradeRequestScreen.kt$ReadyBody(state, viewModel)</ID>
+    <ID>ViewModelForwarding:ImportScreen.kt$DoneStep(state, viewModel, onDone)</ID>
+    <ID>ViewModelForwarding:ImportScreen.kt$MapStep(state, viewModel)</ID>
+    <ID>ViewModelForwarding:ImportScreen.kt$PickStep(state, viewModel) { picker.launch(arrayOf("*/*")) }</ID>
+    <ID>ViewModelForwarding:ImportScreen.kt$PreviewStep(state, viewModel)</ID>
+    <ID>ViewModelForwarding:ItemCanvasScreen.kt$AiFillAspectsRow(state, viewModel)</ID>
+    <ID>ViewModelForwarding:ItemCanvasScreen.kt$ListingCopyCard(state, viewModel)</ID>
+    <ID>ViewModelForwarding:MeasurementPhotoEditorSheet.kt$EditorBody(state, viewModel, onApply)</ID>
+    <ID>ViewModelForwarding:MeasurementPhotoEditorSheet.kt$MeasureCanvas(state, viewModel)</ID>
+    <ID>ViewModelForwarding:OnboardingHost.kt$ActivationStep(viewModel, onConnectEbay)</ID>
+    <ID>ViewModelForwarding:PayoutReconciliationScreen.kt$QueuedPayoutCard(entry, state.queueBusy, viewModel)</ID>
+    <ID>ViewModelForwarding:PromotionSheet.kt$PromotionPanel(promo, state, viewModel)</ID>
+    <ID>ViewModelForwarding:PromotionSheet.kt$SalePanel(promo, state, viewModel)</ID>
+    <ID>ViewModelForwarding:PublishSheet.kt$Composer(state, viewModel)</ID>
+    <ID>ViewModelForwarding:ReferralsScreen.kt$RedeemSection(state, viewModel)</ID>
+    <ID>ViewModelForwarding:SettingsScreen.kt$FeedbackSheet( onOpenSupport = onOpenSupport, viewModel = feedbackViewModel, )</ID>
+    <ID>ViewModelForwarding:SupportScreen.kt$Composer(state, viewModel)</ID>
+    <ID>ViewModelForwarding:TeamScreen.kt$AcceptLinkCard(url, viewModel)</ID>
+    <ID>ViewModelForwarding:TeamScreen.kt$InvitationRow(invitation, state, viewModel)</ID>
+    <ID>ViewModelForwarding:TeamScreen.kt$InviteSheet(state, viewModel)</ID>
+    <ID>ViewModelForwarding:TeamScreen.kt$MemberRow(member, state, viewModel)</ID>
+    <ID>ViewModelForwarding:TemplatesScreen.kt$EditorSheet(state, viewModel)</ID>
+  </CurrentIssues>
+</SmellBaseline>

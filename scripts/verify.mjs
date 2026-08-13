@@ -8,6 +8,7 @@
 //   node scripts/verify.mjs --edge       # edge/Deno lane only (security.yml deno-check)
 //   node scripts/verify.mjs --db         # migrations lane only (db-migrations.yml) — needs Docker
 //   node scripts/verify.mjs --security   # npm audit + Trivy image scan — needs Docker
+//   node scripts/verify.mjs --android    # Android lane (android-ci.yml) — needs JDK 17 + the SDK
 //   node scripts/verify.mjs --e2e        # add the Playwright e2e suite (ci.yml e2e job)
 //   node scripts/verify.mjs --all        # everything above
 //
@@ -125,7 +126,7 @@ function takeLock() {
 
 const releaseLock = takeLock();
 
-const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault", "--all"]
+const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault", "--android", "--all"]
   .some((f) => flags.has(f));
 const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFlag && ["web", "edge", "db", "vault"].includes(name);
 
@@ -266,6 +267,72 @@ if (on("db")) {
     advisory(
       "db: denied-RPC crash (US-2403)",
       "node scripts/db-denied-rpc-crash-check.mjs",
+    );
+  }
+}
+
+// ── Android — mirrors android-ci.yml "build-and-test" (US-2502) ──────────────
+//
+// Opt-in (`--android` / `npm run verify:android`) rather than part of the
+// default set, because a cold run is minutes of Kotlin + KSP and the default
+// set has to stay fast enough that people actually run it. The pre-push hook
+// turns it on automatically when the push contains android/** changes, which is
+// the moment it matters.
+//
+// Ordered cheapest first: the .py source guards are seconds, spotless and detekt
+// are tens of seconds, and everything after that is a build. A formatting
+// failure should not cost the eight minutes assembleRelease takes to surface.
+if (on("android")) {
+  const androidDir = resolve(root, "android");
+  // Imported lazily so a web-only run never pays for it, and so verify.mjs
+  // still works in a checkout with no android/ directory.
+  const tc = (await import("../android/scripts/toolchain.mjs")).resolveToolchain();
+  if (!tc.ok) {
+    skipped.push(
+      `android: ${tc.problems.join(" ")} Fix with \`node android/scripts/doctor.mjs --fix\`.`,
+    );
+  } else {
+    // spawnSync inherits process.env, so setting these here is what puts the
+    // right JDK in front of Gradle. Without it AGP picks whatever `java` PATH
+    // resolves to and fails with the bare version string as its whole error.
+    Object.assign(process.env, tc.env);
+    const gw = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
+    const py = tc.python;
+    const a = { cwd: androidDir };
+
+    // US-1391/1393/2368: the source guards. Seconds each, and they catch what a
+    // compiler cannot -- a token in logcat, a string that can never be
+    // translated, a format-arity mismatch that throws in one language only.
+    run("android: no ungated logging", `${py} scripts/no-ungated-log.py`, a);
+    run("android: no bare strings (scoped)", `${py} scripts/no-bare-strings.py`, a);
+    run("android: string format arity", `${py} scripts/check-string-formats.py`, a);
+    // US-2502: a Room version whose schema JSON was never committed cannot be
+    // migration-tested, ever. Catch it while the file can still be produced.
+    run("android: room schemas exported", "node scripts/check-room-schemas.mjs", a);
+
+    run("android: format (spotless/ktlint)", `${gw} :app:spotlessCheck`, a);
+    run("android: static analysis (detekt)", `${gw} :app:detekt`, a);
+    run("android: lint (warnings as errors)", `${gw} :app:lintDebug`, a);
+    run("android: unit tests", `${gw} :app:testDebugUnitTest`, a);
+    run("android: coverage floor (kover)", `${gw} :app:koverVerifyDebug`, a);
+    run("android: assembleDebug", `${gw} :app:assembleDebug`, a);
+    // US-1391 AC3: the widget, share target and deep links are reachable only
+    // through the merged manifest, so a merge that drops one is a green build
+    // and a missing feature.
+    run("android: merged manifest keeps system components", "node scripts/check-merged-manifest.mjs", a);
+    // Compiles androidTest without an emulator: a broken test source fails
+    // here rather than only in the non-blocking instrumented lane.
+    run("android: instrumented sources compile", `${gw} :app:assembleDebugAndroidTest`, a);
+    // R8 + the proguard rules + the signing config. Unsigned locally, which
+    // still proves a rule did not strip something the app needs at runtime.
+    run("android: assembleRelease (R8)", `${gw} :app:assembleRelease`, a);
+    run("android: bundleRelease (the shipped artifact)", `${gw} :app:bundleRelease`, a);
+    // US-2150: the self-test first, so a size gate that only ever sees passing
+    // input cannot report PASS forever.
+    run(
+      "android: per-ABI download size",
+      `${py} scripts/abi-size-report.py --self-test && ${py} scripts/abi-size-report.py`,
+      a,
     );
   }
 }

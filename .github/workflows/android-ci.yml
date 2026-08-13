@@ -1,7 +1,15 @@
-# Android CI (US-1300) — the compile gate for the US-1299 conversion backlog.
-# Mirrors the iOS CI role: Windows dev machines verify locally (JDK 17 + Gradle
-# via scoop + the local SDK), and this lane is the neutral second net on every
-# push touching android/**.
+# Android CI (US-1300, extended by US-2502) — the compile gate for android/**.
+#
+# Mirrors the iOS CI role: Windows dev machines verify locally with
+# `npm run verify:android` (which runs this exact list, in this exact order,
+# from scripts/verify.mjs), and this lane is the neutral second net on every
+# push.
+#
+# US-2502 added everything Android Studio used to be the only way to run:
+# formatting, Kotlin static analysis, lint as a gate rather than a report,
+# coverage with a floor, and rendered-UI diffs. If you add a step here, add it
+# to the `on("android")` block in scripts/verify.mjs too — the two lists
+# drifting apart is how "it passed locally" starts meaning nothing.
 name: Android CI
 
 on:
@@ -14,6 +22,12 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/android-ci.yml"
+  workflow_dispatch:
+    inputs:
+      record_screenshots:
+        description: "Re-record the Roborazzi goldens on this runner and upload them"
+        type: boolean
+        default: false
 
 concurrency:
   group: android-ci-${{ github.ref }}
@@ -23,12 +37,21 @@ jobs:
   build-and-test:
     name: assembleDebug + unit tests + lint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Spotless ratchets against origin/main (see app/build.gradle.kts):
+          # on a shallow clone it cannot find the merge base and falls back to
+          # checking every file, which fails on 435 files that predate it.
+          fetch-depth: 0
+
+      - name: Make origin/main resolvable
+        # A PR checkout has the head ref but not necessarily the base branch.
+        run: git fetch --no-tags origin main:refs/remotes/origin/main || true
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -36,21 +59,29 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      # The .mjs guards below run on Node, not on the JVM.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       # The ubuntu-latest image ships the Android SDK; ANDROID_HOME is preset.
       - name: Set up Gradle (cached)
         uses: gradle/actions/setup-gradle@v4
 
+      # ---------------------------------------------------------------- guards
+      # Seconds each, and they catch what no compiler can. All of them run
+      # BEFORE the build, because the build is minutes.
+
       # US-1391: the Android half of the iOS print guard. android.util.Log is
       # NOT stripped by R8 unless a proguard rule removes it, so an ungated
       # Log.d can put a session token or a seller's address into logcat, where
-      # every bug-report capture reads it. Runs BEFORE the build, because it is
-      # seconds and the build is minutes.
+      # every bug-report capture reads it.
       - name: No ungated logging
         run: python3 scripts/no-ungated-log.py
 
       # US-1393: hardcoded UI text can never be translated, and nothing about
       # it looks wrong in review — it renders perfectly in English forever.
-      # Scoped to the converted files; the scope list grows as more land.
       - name: No bare strings (scoped)
         run: python3 scripts/no-bare-strings.py
 
@@ -60,31 +91,106 @@ jobs:
       - name: String format arity
         run: python3 scripts/check-string-formats.py
 
+      # US-2502: a Room version whose schema JSON was never committed can never
+      # be migration-tested, and the file cannot be produced after the fact.
+      # Versions 3 and 4 were already lost that way; this stops the next one.
+      - name: Room schemas exported
+        run: node scripts/check-room-schemas.mjs
+
+      # ------------------------------------------------------- static analysis
+      # US-2502. Cheapest-first: a formatting failure should not cost the eight
+      # minutes assembleRelease takes to surface.
+
+      - name: Format (spotless/ktlint)
+        run: ./gradlew :app:spotlessCheck --stacktrace
+
+      - name: Static analysis (detekt)
+        run: ./gradlew :app:detekt --stacktrace
+
+      # warningsAsErrors + lint-baseline.xml: the baseline holds what already
+      # existed, so this only fires on something the change introduced.
+      - name: Android Lint
+        run: ./gradlew :app:lintDebug --stacktrace
+
+      - name: Publish lint findings to code scanning
+        # SARIF puts each finding on the diff instead of inside a downloaded
+        # zip. Never fails the job — the lint step above is the gate.
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: android/app/build/reports/lint-results-debug.sarif
+          category: android-lint
+
+      # ---------------------------------------------------------------- tests
+      - name: Unit tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
+      # US-2502: a floor, not a target. It cannot catch untested code that was
+      # never written; it does catch a change that deletes tests.
+      - name: Coverage floor (kover)
+        run: ./gradlew :app:koverVerifyDebug --stacktrace
+
+      # US-2502: rendered-UI diffs. NON-BLOCKING for now, deliberately.
+      #
+      # The goldens in src/test/screenshots are recorded on a developer machine.
+      # Robolectric's native graphics carry their own font stack, so the output
+      # is far more portable than a device screenshot, but sub-pixel
+      # antialiasing can still differ between a Windows checkout and this
+      # runner. A gate that is red for a reason nobody can fix from the diff is
+      # a gate everybody learns to ignore.
+      #
+      # Flip `continue-on-error` off once the goldens have been recorded ON A
+      # RUNNER (workflow_dispatch with record_screenshots: true, download the
+      # artifact, commit it) and one full cycle has passed clean. That is the
+      # whole condition — nothing else has to change.
+      - name: Screenshot tests (Roborazzi)
+        if: ${{ !inputs.record_screenshots }}
+        continue-on-error: true
+        run: ./gradlew :app:verifyRoborazziDebug --stacktrace
+
+      - name: Re-record the screenshot goldens
+        if: ${{ inputs.record_screenshots }}
+        run: ./gradlew :app:recordRoborazziDebug --stacktrace
+
+      - name: Upload the re-recorded goldens
+        if: ${{ inputs.record_screenshots }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: roborazzi-goldens
+          path: android/app/src/test/screenshots/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the screenshot diff report
+        # One expression, not `failure() || ${{ ... }}` — literal text beside a
+        # replacement token makes the whole condition truthy, which would run
+        # this on the record path too and upload an empty diff directory.
+        if: ${{ always() && !inputs.record_screenshots }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: roborazzi-report
+          path: android/app/build/outputs/roborazzi/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # ---------------------------------------------------------------- builds
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
-      - name: Unit tests
-        run: ./gradlew testDebugUnitTest --stacktrace
+      # US-1391 AC3: on Android the widget, the share target and the deep links
+      # are components the SYSTEM finds by reading the merged manifest — no app
+      # code calls them. So a merge that drops one is a green build and an app
+      # with no widget in the picker and nothing in the share sheet.
+      - name: Widget, share target and deep links survive the manifest merge
+        run: node scripts/check-merged-manifest.mjs
 
-      - name: Android Lint
-        run: ./gradlew lintDebug --stacktrace
-
-      # US-1391 AC3: on Android the widget and the share target are components
-      # of the same module, so what can actually break them is the MANIFEST
-      # MERGE silently dropping one — which produces a green build and an app
-      # with no widget in the picker and no entry in the share sheet.
-      - name: Widget + share target survive the manifest merge
-        run: |
-          set -euo pipefail
-          MERGED=app/build/intermediates/merged_manifests/debug/processDebugMainManifest/AndroidManifest.xml
-          if [ ! -f "$MERGED" ]; then
-            MERGED=$(find app/build/intermediates -name AndroidManifest.xml -path '*merged_manifest*' | head -n1)
-          fi
-          echo "Checking $MERGED"
-          grep -q 'SellerSnapshotWidgetReceiver' "$MERGED"
-          grep -q 'ShareTargetActivity' "$MERGED"
-          grep -q 'android.intent.action.SEND_MULTIPLE' "$MERGED"
-          echo "widget + share target present"
+      - name: Assemble the instrumented test APK
+        # Compiles androidTest without needing an emulator, so a broken test
+        # source fails HERE, in the blocking lane, rather than only in the
+        # non-blocking emulator job where a red X is easy to scroll past.
+        run: ./gradlew assembleDebugAndroidTest --stacktrace
 
       # US-1391: proves the release lane works — minification, the proguard
       # rules, and the signing config. Unsigned on a PR (no secret is exposed
@@ -98,6 +204,14 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_VERSION_CODE: ${{ github.run_number }}
+
+      # US-2502: the release variant merges a different manifest and runs R8, so
+      # it reaches conclusions lintDebug cannot — a keep rule that is missing,
+      # a resource shrunk away, a permission a release-only dependency added.
+      # Runs after assembleRelease so an R8 failure reports against the cheaper
+      # task first.
+      - name: Android Lint (release variant)
+        run: ./gradlew :app:lintRelease --stacktrace
 
       # US-2150: the artifact that actually ships. A universal APK makes every
       # phone download all four copies of ML Kit's native OCR pipeline; the
@@ -125,6 +239,7 @@ jobs:
           python3 scripts/abi-size-report.py --self-test
           python3 scripts/abi-size-report.py
 
+      # --------------------------------------------------------------- uploads
       - name: Upload release App Bundle
         uses: actions/upload-artifact@v4
         with:
@@ -133,19 +248,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload lint report
-        if: failure()
+      - name: Upload the quality reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lint-report
-          path: android/app/build/reports/lint-results-debug.html
+          name: quality-reports
+          path: |
+            android/app/build/reports/lint-results-debug.html
+            android/app/build/reports/lint-results-release.html
+            android/app/build/reports/detekt/
+            android/app/build/reports/kover/
+            android/app/build/reports/tests/
           if-no-files-found: ignore
-
-      - name: Assemble the instrumented test APK
-        # Compiles androidTest without needing an emulator, so a broken test
-        # source fails HERE, in the blocking lane, rather than only in the
-        # non-blocking emulator job where a red X is easy to scroll past.
-        run: ./gradlew assembleDebugAndroidTest --stacktrace
+          retention-days: 7
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -161,6 +276,12 @@ jobs:
   # required would train everyone to re-run it until it passes, which is worse
   # than not having it. It reports; the blocking lane above still compiles the
   # same test sources, so a genuinely broken test cannot hide here.
+  #
+  # US-2502 note: this job now also carries RoomMigrationTest, which is the only
+  # thing in the repo that proves a Room migration runs against a real SQLite.
+  # It is worth knowing that a migration failure surfaces HERE, in the lane
+  # people are told to treat as advisory — so read this job's result before any
+  # release that contains a schema version bump.
   instrumented:
     name: Critical-flow E2E (emulator, non-blocking)
     runs-on: ubuntu-latest

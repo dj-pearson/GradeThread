@@ -1,0 +1,154 @@
+# Detekt config (US-2502) -- built ON TOP of detekt's defaults
+# (`buildUponDefaultConfig = true`), so this file only records where this
+# project deliberately differs. Everything not mentioned here is on.
+#
+# What detekt is here for: the Kotlin half of Android Studio's "Analyze >
+# Inspect Code". Android Lint checks the ANDROID platform (manifests, resources,
+# API levels, leaked contexts); it says nothing about a swallowed exception, a
+# 400-line function, or a Composable that takes a List and recomposes on every
+# frame. Those are the findings below.
+#
+# Tuning rule: relax a threshold only with a comment saying which real pattern
+# in this codebase it accommodates. A rule turned off because it was noisy once
+# is a rule that will never catch anything again.
+
+build:
+  # A build is red on the FIRST finding. The baseline (config/detekt/baseline.xml)
+  # carries what already existed, so this only ever fires on new code.
+  maxIssues: 0
+
+config:
+  validation: true
+  warningsAsErrors: false
+
+complexity:
+  LongMethod:
+    # Composables legitimately run long: a screen is a single declarative tree
+    # and splitting it purely to satisfy a counter produces worse code.
+    threshold: 120
+    ignoreAnnotated: ["Composable"]
+  LongParameterList:
+    functionThreshold: 8
+    constructorThreshold: 12
+    # A Composable's parameters ARE its API, and a ViewModel's constructor is
+    # the Hilt graph written out.
+    ignoreAnnotated: ["Composable", "Inject", "HiltViewModel"]
+  TooManyFunctions:
+    thresholdInFiles: 40
+    thresholdInClasses: 30
+    thresholdInObjects: 30
+    ignoreAnnotatedFunctions: ["Composable"]
+    ignorePrivate: true
+  CyclomaticComplexMethod:
+    threshold: 20
+    ignoreSingleWhenExpression: true
+  NestedBlockDepth:
+    threshold: 5
+
+exceptions:
+  TooGenericExceptionCaught:
+    # `catch (t: Throwable)` around a sync step or an upload is deliberate here:
+    # the mutation queue must survive anything a marketplace SDK throws.
+    active: false
+  SwallowedException:
+    # This one stays ON. A caught-and-dropped exception is how a failed upload
+    # becomes a photo that silently never appears.
+    active: true
+    ignoredExceptionTypes:
+      - CancellationException
+      - InterruptedException
+      - NumberFormatException
+  ThrowingExceptionsWithoutMessageOrCause:
+    active: true
+
+style:
+  MagicNumber:
+    # dp/sp literals, weights and grade factors are the numbers; naming each one
+    # would be a constants file nobody reads.
+    ignoreAnnotated: ["Composable", "Preview"]
+    ignoreNumbers: ["-1", "0", "1", "2", "100"]
+    ignorePropertyDeclaration: true
+    ignoreCompanionObjectPropertyDeclaration: true
+    ignoreEnums: true
+  MaxLineLength:
+    maxLineLength: 120
+    excludeCommentStatements: false
+  ReturnCount:
+    max: 5
+    excludeGuardClauses: true
+  UnusedPrivateMember:
+    active: true
+  ForbiddenComment:
+    # TODO is a normal working note in this repo; STOPSHIP is Android Lint's job
+    # and it is fatal there.
+    active: false
+  UnusedImports:
+    active: true
+  WildcardImport:
+    active: true
+    excludeImports: ["java.util.*"]
+
+naming:
+  FunctionNaming:
+    # @Composable functions are PascalCase by convention -- this is the single
+    # most common false positive on any Compose codebase.
+    ignoreAnnotated: ["Composable"]
+  TopLevelPropertyNaming:
+    constantPattern: "[A-Z][_A-Z0-9]*"
+
+performance:
+  SpreadOperator:
+    active: false
+
+# ---------------------------------------------------------------------------
+# io.nlopez.compose.rules -- the Compose-specific ruleset. These are the ones
+# that catch a screen which renders correctly and burns a battery: an unstable
+# parameter that defeats skipping, state hoisted the wrong way, a modifier that
+# is never accepted so the caller cannot position the component.
+# ---------------------------------------------------------------------------
+Compose:
+  ComposableAnnotationNaming:
+    active: true
+  ComposableNaming:
+    active: true
+  ComposableParamOrder:
+    active: true
+  ContentEmitterReturningValues:
+    active: true
+  ModifierComposable:
+    active: true
+  ModifierMissing:
+    active: true
+    checkModifiersForVisibility: "only_public"
+  ModifierNaming:
+    active: true
+  ModifierNotUsedAtRoot:
+    active: true
+  ModifierReused:
+    active: true
+  ModifierWithoutDefault:
+    active: true
+  MultipleContentEmitters:
+    active: true
+  MutableParams:
+    active: true
+  MutableStateAutoboxing:
+    active: true
+  MutableStateParam:
+    active: true
+  ParameterNaming:
+    active: true
+  PreviewAnnotationNaming:
+    active: true
+  PreviewPublic:
+    active: true
+  RememberMissing:
+    active: true
+  UnstableCollections:
+    # Reported, not fatal on arrival: fixing every List parameter is a real
+    # refactor and the baseline holds the existing ones.
+    active: true
+  ViewModelForwarding:
+    active: true
+  ViewModelInjection:
+    active: true
