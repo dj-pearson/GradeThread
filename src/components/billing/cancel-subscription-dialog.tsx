@@ -17,7 +17,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { useCancelSubscription } from "@/hooks/use-billing-summary";
+import {
+  useBuyerCancel,
+  useCancelSubscription,
+} from "@/hooks/use-billing-summary";
 import { track } from "@/lib/analytics";
 import { PauseSubscriptionDialog } from "@/components/billing/pause-subscription-dialog";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
@@ -42,13 +45,23 @@ interface CancelSubscriptionDialogProps {
   onOpenChange: (open: boolean) => void;
   /** Used for the "your plan ends on …" copy on the confirm step. */
   periodEnd: string | null;
+  /**
+   * US-2539: which subscription this is cancelling. The buyer plan used to be
+   * cancelled by a single unconfirmed click, with no statement of what happens
+   * at period end and no reason captured — while the seller side had all of it
+   * right here. Same dialog, same reason data, different consequences and
+   * different alternatives.
+   */
+  product?: "flipdesk" | "buyer";
 }
 
 export function CancelSubscriptionDialog({
   open,
   onOpenChange,
   periodEnd,
+  product = "flipdesk",
 }: CancelSubscriptionDialogProps) {
+  const isBuyer = product === "buyer";
   const [step, setStep] = useState<1 | 2>(1);
   const [reason, setReason] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
@@ -58,7 +71,9 @@ export function CancelSubscriptionDialog({
   const [confirmed, setConfirmed] = useState(false);
   const [pauseOpen, setPauseOpen] = useState(false);
   const [planPickerOpen, setPlanPickerOpen] = useState(false);
-  const cancel = useCancelSubscription();
+  const sellerCancel = useCancelSubscription();
+  const buyerCancel = useBuyerCancel();
+  const cancel = isBuyer ? buyerCancel : sellerCancel;
 
   function reset() {
     setStep(1);
@@ -78,7 +93,10 @@ export function CancelSubscriptionDialog({
       { reason: fullReason || undefined },
       {
         onSuccess: () => {
-          track("subscription.cancel_scheduled", { reason: reason || null });
+          track("subscription.cancel_scheduled", {
+            reason: reason || null,
+            product,
+          });
           reset();
           onOpenChange(false);
         },
@@ -117,10 +135,20 @@ export function CancelSubscriptionDialog({
                     What changes at period end
                   </div>
                   <ul className="space-y-1 text-muted-foreground">
-                    <Bullet>Caps drop to the Free tier</Bullet>
-                    <Bullet>Scheduled actions disabled</Bullet>
-                    <Bullet>Sub-accounts removed</Bullet>
-                    <Bullet>API keys disabled</Bullet>
+                    {isBuyer ? (
+                      <>
+                        <Bullet>Condition alerts stop</Bullet>
+                        <Bullet>Watchlist checks stop running</Bullet>
+                        <Bullet>Guarantee cover ends for new purchases</Bullet>
+                      </>
+                    ) : (
+                      <>
+                        <Bullet>Caps drop to the Free tier</Bullet>
+                        <Bullet>Scheduled actions disabled</Bullet>
+                        <Bullet>Sub-accounts removed</Bullet>
+                        <Bullet>API keys disabled</Bullet>
+                      </>
+                    )}
                   </ul>
                 </div>
                 <div className="rounded-md border border-border p-3">
@@ -128,11 +156,23 @@ export function CancelSubscriptionDialog({
                     What you keep
                   </div>
                   <ul className="space-y-1 text-muted-foreground">
-                    <Bullet keep>Your grade credits (never expire)</Bullet>
-                    <Bullet keep>All your inventory + listing data</Bullet>
-                    <Bullet keep>Past grade reports + certificates</Bullet>
+                    {isBuyer ? (
+                      <>
+                        <Bullet keep>Your closet and saved items</Bullet>
+                        <Bullet keep>Rewards already earned</Bullet>
+                        <Bullet keep>Cover on purchases already made</Bullet>
+                      </>
+                    ) : (
+                      <>
+                        <Bullet keep>Your grade credits (never expire)</Bullet>
+                        <Bullet keep>All your inventory + listing data</Bullet>
+                        <Bullet keep>Past grade reports + certificates</Bullet>
+                      </>
+                    )}
                   </ul>
                 </div>
+                {/* US-2539: pause and downgrade are seller-plan features. */}
+                {!isBuyer && (
                 <div className="rounded-md border border-dashed border-border bg-muted/30 p-3">
                   <div className="mb-2 font-semibold">Try a softer landing</div>
                   <div className="flex flex-col gap-2 sm:flex-row">
@@ -162,6 +202,7 @@ export function CancelSubscriptionDialog({
                     </Button>
                   </div>
                 </div>
+                )}
               </div>
 
               <DialogFooter className="flex flex-col gap-2 sm:flex-row sm:justify-between">

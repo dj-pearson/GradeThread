@@ -915,8 +915,26 @@ paymentRoutes.post("/buyer/cancel", async (c) => {
   }
   const stripe = getStripe();
   if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+  // US-2539: the buyer cancel captures a reason, like the seller one has since
+  // US-216. It goes on the SUBSCRIPTION's Stripe metadata and not on
+  // users.cancellation_reason: that column is the seller subscription's, and a
+  // buyer cancelling would silently overwrite why a seller left. One column,
+  // two products, is how churn reporting starts lying.
+  let reason: string | undefined;
   try {
-    await stripe.subscriptions.update(user.buyer_subscription_id, { cancel_at_period_end: true });
+    const body = await c.req.json() as { reason?: unknown };
+    if (typeof body?.reason === "string" && body.reason.trim()) {
+      reason = body.reason.trim().slice(0, 500);
+    }
+  } catch {
+    // No body is the historical caller; a cancel is never blocked on a reason.
+  }
+
+  try {
+    await stripe.subscriptions.update(user.buyer_subscription_id, {
+      cancel_at_period_end: true,
+      ...(reason ? { metadata: { cancellation_reason: reason } } : {}),
+    });
     // Optimistic — the subscription.updated webhook is authoritative.
     await supabaseAdmin.from("users").update({ buyer_cancel_at_period_end: true }).eq("id", userId);
     return c.json({ ok: true, cancel_at_period_end: true });

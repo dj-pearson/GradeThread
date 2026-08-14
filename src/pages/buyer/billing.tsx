@@ -11,6 +11,7 @@ import {
   SkeletonRows,
 } from "@/components/ui/skeletons";
 import { cn } from "@/lib/utils";
+import { CancelSubscriptionDialog } from "@/components/billing/cancel-subscription-dialog";
 import {
   BUYER_PLANS,
   BUYER_PLAN_RANK,
@@ -20,7 +21,7 @@ import {
 import { UsageMeter } from "@/components/billing/usage-meter";
 import { AutoRenewalDisclosure } from "@/components/billing/auto-renewal-disclosure";
 import { UpgradePreviewDialog } from "@/components/billing/upgrade-preview-dialog";
-import { useBillingSummary, useBuyerSubscribe, useBuyerCancel, useBuyerUncancel, useBillingPortal } from "@/hooks/use-billing-summary";
+import { useBillingSummary, useBuyerSubscribe, useBuyerUncancel, useBillingPortal } from "@/hooks/use-billing-summary";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { trackBuyerFunnel } from "@/lib/buyer-analytics";
 
@@ -31,6 +32,21 @@ import { trackBuyerFunnel } from "@/lib/buyer-analytics";
 // is nothing to subscribe to (or cancel) below the bundled tier.
 
 const PLAN_ORDER: BuyerPlanKey[] = ["free", "guard", "connoisseur"];
+
+// US-2539: what a year actually saves, computed from the plans rather than
+// typed into the toggle — a hardcoded percentage is wrong the first time a
+// price moves. Taken from the cheapest PAID plan, which is the one the toggle
+// is most often being used to price.
+function annualSavingPercent(): number {
+  const paid = PLAN_ORDER.map((k) => BUYER_PLANS[k]).filter(
+    (p) => p.priceMonthlyCents > 0 && p.priceYearlyCents > 0,
+  );
+  if (paid.length === 0) return 0;
+  const plan = paid[0]!;
+  const yearAtMonthly = plan.priceMonthlyCents * 12;
+  if (yearAtMonthly <= plan.priceYearlyCents) return 0;
+  return Math.round(((yearAtMonthly - plan.priceYearlyCents) / yearAtMonthly) * 100);
+}
 
 const dollars = (cents: number) =>
   cents === 0 ? "Free" : `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
@@ -53,11 +69,15 @@ export function BuyerBillingPage() {
   const { data: summary, isLoading } = useBillingSummary();
   const ent = useBuyerEntitlements();
   const subscribe = useBuyerSubscribe();
-  const cancel = useBuyerCancel();
   const uncancel = useBuyerUncancel();
   // US-2125: return from Stripe to THIS page, not the seller's.
   const portal = useBillingPortal("buyer");
   const [interval, setInterval] = useState<"monthly" | "yearly">("monthly");
+  // US-2539: cancelling used to be one unconfirmed click on this page, while
+  // the seller side routed every cancellation through a dialog that states
+  // what ends, what is kept, and asks why. Same dialog now.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const annualSavingPct = annualSavingPercent();
   // US-2118: the tier the buyer clicked while ALREADY paying. That click is an
   // in-place change that charges a prorated amount immediately, so it opens the
   // disclosure dialog instead of the mutation. A buyer with no live
@@ -156,10 +176,8 @@ export function BuyerBillingPage() {
               <Button
                 ref={cancelRef}
                 variant="outline"
-                onClick={() => cancel.mutate()}
-                disabled={cancel.isPending}
+                onClick={() => setCancelOpen(true)}
               >
-                {cancel.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Cancel plan
               </Button>
             )}
@@ -225,6 +243,15 @@ export function BuyerBillingPage() {
                 )}
               >
                 {iv}
+                {/* US-2539: the toggle asked the buyer to choose a billing
+                    period without telling them what the yearly one saves. The
+                    number comes from the plans themselves, so it cannot drift
+                    from what is charged. */}
+                {iv === "yearly" && annualSavingPct > 0 && (
+                  <span className="ml-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                    save {annualSavingPct}%
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -253,7 +280,10 @@ export function BuyerBillingPage() {
                   {price > 0 && <span className="text-sm font-normal text-muted-foreground">/{interval === "yearly" ? "yr" : "mo"}</span>}
                 </p>
                 <ul className="mt-3 flex-1 space-y-1.5 text-xs text-muted-foreground">
-                  {plan.features.slice(0, 5).map((f) => (
+                  {/* US-2539: this truncated at five with nothing saying so —
+                      at the point of sale, on the tile the buyer is deciding
+                      from. The lists are short; show them. */}
+                  {plan.features.map((f) => (
                     <li key={f} className="flex items-start gap-1.5">
                       <Check className="mt-0.5 h-3 w-3 flex-shrink-0 text-primary" />
                       {f}
@@ -330,6 +360,16 @@ export function BuyerBillingPage() {
           <a href="/dashboard/account?tab=billing" className="underline">seller billing</a>.
         </p>
       )}
+
+      {/* US-2539: the same two-step dialog the seller cancellation uses —
+          what ends, what is kept, an explicit confirm, and the reason
+          captured onto the subscription. */}
+      <CancelSubscriptionDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        periodEnd={paid?.period_end ?? null}
+        product="buyer"
+      />
     </div>
   );
 }

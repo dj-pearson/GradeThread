@@ -317,9 +317,14 @@ export function useBuyerSubscribe() {
 
 export function useBuyerCancel() {
   const startPoll = usePollBillingSummary();
-  return useMutation<{ ok: true }, Error, void>({
-    mutationFn: async () => {
-      const res = await edgeFetch("/api/payments/buyer/cancel", { method: "POST" });
+  // US-2539: takes the same { reason } the seller cancel does, so both
+  // products can be driven by the one CancelSubscriptionDialog.
+  return useMutation<{ ok: true }, Error, { reason?: string } | void>({
+    mutationFn: async (vars) => {
+      const res = await edgeFetch("/api/payments/buyer/cancel", {
+        method: "POST",
+        json: { reason: vars && "reason" in vars ? vars.reason : undefined },
+      });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || "Failed to cancel subscription.");
       return json;
