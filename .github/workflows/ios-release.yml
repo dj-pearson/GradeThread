@@ -52,8 +52,104 @@ permissions:
   contents: read
 
 jobs:
+  # US-2503: the launch gate, as its own job.
+  #
+  # It used to be step 7 of the 27-step release job. Two things went wrong with
+  # that. A failure left fifteen skipped steps behind it, each rendering its
+  # `env:` block, so the end of the log was ~1500 lines of redacted variable
+  # names and the actual failure was unreachable from the tail — which is how
+  # this gate sat red on 2026-08-14 with nobody able to say why from the log.
+  # And a gate that blocks a release reads better as a check with its own name
+  # than as a step inside "Archive + TestFlight upload".
+  #
+  # The build inputs are UNCHANGED, deliberately. The Infisical import stays,
+  # because the point of this gate is to launch the app as it will be
+  # configured for release; building it with empty config would be a different
+  # app and a weaker gate.
+  launch-smoke:
+    name: Launch smoke (blocks the release)
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Import signing secrets from Infisical
+        uses: Infisical/secrets-action@v1.0.16
+        with:
+          client-id: ${{ secrets.INFISICAL_CLIENT_ID }}
+          client-secret: ${{ secrets.INFISICAL_CLIENT_SECRET }}
+          domain: ${{ secrets.INFISICAL_DOMAIN }}
+          project-slug: grade-thread
+          env-slug: prod
+          secret-path: /
+
+      - name: Select Xcode
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26.x found on this runner. Installed Xcodes:" >&2
+            ls -d /Applications/Xcode_*.app >&2 || true
+            exit 1
+          fi
+          echo "Selecting $XCODE"
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Install XcodeGen + xcbeautify
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Available simulators
+        # `name=iPhone 16` is hardcoded below. "no such device" and "the app
+        # crashed on launch" fail identically from outside xcodebuild.
+        run: xcrun simctl list devices available | sed -n '1,60p'
+
+      - name: Launch-smoke gate (block release on a launch crash)
+        # A release build that compiles + archives cleanly can still CRASH on
+        # launch (a bad SwiftData schema, a fatalError in App.init, a
+        # force-unwrap at startup). The archive/export steps only prove the
+        # binary BUILDS — they never RUN it, so a launch crash would sail
+        # straight into TestFlight. This boots the app in a simulator BEFORE
+        # the archive job starts. Reuses the backend-independent
+        # SmokeUITests/testAppLaunchesToFirstScreen (asserts
+        # XCUIApplication.state == .runningForeground). Unsigned simulator
+        # build, so it is independent of the signing steps that follow.
+        working-directory: ios
+        run: |
+          set -o pipefail
+          if ! xcodebuild \
+            -project GradeThread.xcodeproj \
+            -scheme GradeThreadScreenshots \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -only-testing:GradeThreadUITests/SmokeUITests \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean test 2>&1 | tee "$RUNNER_TEMP/smoke.log" | xcbeautify --renderer github-actions; then
+            echo "----- errors, repeated so the log tail carries them -----"
+            grep -E "error:|(XCTAssert|Failed to|crashed|does not contain|Unable to find|Test Case)" \
+              "$RUNNER_TEMP/smoke.log" | tail -40
+            exit 1
+          fi
+
+      - name: Upload smoke results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-smoke-results
+          path: ios/build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
+
   release:
     name: Archive + TestFlight upload
+    needs: launch-smoke
     # Needs Xcode 26 (iOS 26 SDK) — App Store Connect rejects anything built
     # with an older SDK. Xcode 26 requires macOS 15 (Sequoia), so the runner
     # moved off macos-14.
@@ -104,32 +200,6 @@ jobs:
       - name: Generate Xcode project
         working-directory: ios
         run: xcodegen generate
-
-      - name: Launch-smoke gate (block release on a launch crash)
-        # A release build that compiles + archives cleanly can still CRASH on
-        # launch (a bad SwiftData schema, a fatalError in App.init, a force-unwrap
-        # at startup). The archive/export steps below only prove the binary
-        # BUILDS — they never RUN it, so a launch crash would sail straight into
-        # TestFlight. This gate boots the app in a simulator BEFORE the archive
-        # and fails the whole release if it doesn't reach the foreground, so a
-        # crash-on-launch can never reach testers. Reuses the existing,
-        # backend-independent SmokeUITests/testAppLaunchesToFirstScreen
-        # (asserts XCUIApplication.state == .runningForeground) — the same launch
-        # assertion the CriticalFlow UI lane uses. Unsigned simulator build, so
-        # it's independent of the signing/entitlement steps that follow.
-        working-directory: ios
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -project GradeThread.xcodeproj \
-            -scheme GradeThreadScreenshots \
-            -configuration Debug \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -only-testing:GradeThreadUITests/SmokeUITests \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            clean test | xcbeautify --renderer github-actions
 
       - name: Flip aps-environment to production
         # Entitlements file ships with aps-environment=development so local
