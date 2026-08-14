@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { ExternalLink, X } from "lucide-react";
 import {
   Sheet,
@@ -35,6 +35,7 @@ type Props = {
 
 export function ItemDetailDialog({ item, onClose }: Props) {
   const navigate = useNavigate();
+  const location = useLocation();
   // US-2256: the composer's own guard is React Router's blocker, which only sees
   // ROUTE changes. Dismissing this sheet — the X, the overlay, Escape — is not a
   // navigation, so the sheet has to run the same confirm itself or thirteen cards
@@ -58,7 +59,12 @@ export function ItemDetailDialog({ item, onClose }: Props) {
     setDirty(false);
     onClose();
     if (intent === "fullPage" && id) {
-      navigate(`/dashboard/flipdesk/items/${id}`);
+      // US-2519: carry where we came from, so the item page's Back returns to
+      // this exact inventory view — its mode, tab, search, sort and saved view
+      // all live in the URL, and the item page used to throw them away.
+      navigate(`/dashboard/flipdesk/items/${id}`, {
+        state: { from: `${location.pathname}${location.search}` },
+      });
     }
   }
 

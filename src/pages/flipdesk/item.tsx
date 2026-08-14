@@ -38,6 +38,15 @@ import {
   driftFieldLabel,
   type SyncDriftMarker,
 } from "@/lib/listing-origin";
+import {
+  activeListing,
+  ebayListing,
+  flaggedListings,
+  itemListingsKey,
+  useItemListings,
+} from "@/hooks/use-item-listings";
+import { useItemsList } from "@/hooks/use-items-full";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CrossSurfaceNudge } from "@/components/cross-surface/cross-surface-nudge";
 import { FlipdeskComposerPage } from "@/pages/flipdesk/composer";
 import { ListingAlertMarkers } from "@/components/flipdesk/listing-alert-markers";
@@ -50,6 +59,7 @@ import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
 import { GradeOutcomeCard } from "@/components/flipdesk/grade-outcome-card";
 import { DisclosurePanel } from "@/components/disclosure/disclosure-panel";
 import { RelistSuggestionCard } from "@/components/passport/relist-suggestion-card";
+import { gradeRoiHintWouldRender } from "@/lib/flipdesk-analytics";
 import { ITEM_STATUS_LABELS } from "@/lib/constants";
 import { safeHref } from "@/lib/safe-url";
 
@@ -62,23 +72,64 @@ const HIGH_VALUE_THRESHOLD = 50;
 export function FlipdeskItemPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { hash } = useLocation();
+  const location = useLocation();
+  const { hash } = location;
+
+  // US-2519: back returns to the list the seller actually came from, with its
+  // tab, filters and saved view intact. The inventory surfaces pass their own
+  // location in `state.from`; the hardcoded fallback only applies to a cold deep
+  // link, where there is no history to return to.
+  const backTo =
+    (location.state as { from?: string } | null)?.from ??
+    "/dashboard/flipdesk/items";
 
   // US-2188: one row, not the whole catalog. This page renders exactly one
   // item, so it reads exactly one — the shared list read stays projected and
   // this stays the only place that pays for the heavy columns.
   const { data: item = null, isLoading, isError, refetch } = useItemFull(id);
 
+  // US-2519: which group of panels is showing. The editor is the default, so
+  // the page still opens on what it is for.
+  const [tab, setTab] = useState("details");
+
+  // US-2519: does the data-driven grade hint have something to say? If it does,
+  // the value-only nudge stays quiet — two prompts for one action, side by side,
+  // reads as a bug. The predicate lives with the component so the two cannot
+  // disagree about when it renders.
+  const { data: soldHistory = [] } = useItemsList();
+  const roiHintShows = item
+    ? gradeRoiHintWouldRender(soldHistory, {
+        category: item.category,
+        grade: item.grade_value,
+        priceHint: item.target_price ?? item.list_price ?? item.purchase_price,
+      })
+    : false;
+
+  // The grade panel lives inside the composer, which is on the Details tab. Both
+  // nudges and the #canvas-grading deep link go through here, so switching tab
+  // first is done in exactly one place.
+  function goToGrading() {
+    setTab("details");
+    // After the tab has painted, or there is nothing to scroll to yet.
+    requestAnimationFrame(() => {
+      const el = document.getElementById("canvas-grading");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   // Deep links like /items/:id#canvas-grading (US-859 stale-listing "grade it"
   // nudge) should land on the grade section once the item has rendered.
   useEffect(() => {
     if (!hash || !item) return;
+    // US-2519: the target may be inside a tab that is not mounted. Selecting it
+    // first is what keeps the deep link working now the panels are grouped.
+    if (hash === "#canvas-grading") setTab("details");
     const el = document.getElementById(hash.slice(1));
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [hash, item]);
 
   function goBack() {
-    navigate("/dashboard/flipdesk/items");
+    navigate(backTo);
   }
 
   if (isLoading) {
@@ -139,7 +190,7 @@ export function FlipdeskItemPage() {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <nav className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Link to="/dashboard/flipdesk/items" className="hover:text-foreground">
+          <Link to={backTo} className="hover:text-foreground">
             Items
           </Link>
           <span>/</span>
@@ -152,13 +203,12 @@ export function FlipdeskItemPage() {
         </Badge>
       </div>
 
-      {/* US-1075: cross-surface activation — nudge resellers to grade an
-          ungraded, higher-value item to lift buyer trust and price. Dismissable
-          + event-tracked; suppressed if the user opted out of product messaging.
-          Complements GradeRoiHint (which needs a sold-history sample): this one
-          fires purely on value, so high-value items still get a prompt when the
-          data-driven hint can't render. CTA scrolls to the canvas grade panel. */}
-      {item.grade_value == null &&
+      {/* US-2519: ONE grade nudge, never two. Both of these prompt the same
+          action and scroll to the same panel, and they used to be able to render
+          together — the data-driven one wins when it can, and the value-only one
+          covers the case where the seller's sold history is too thin for it. */}
+      {!roiHintShows &&
+        item.grade_value == null &&
         (item.target_price ?? item.list_price ?? item.purchase_price ?? 0) >=
           HIGH_VALUE_THRESHOLD && (
           <CrossSurfaceNudge
@@ -168,10 +218,7 @@ export function FlipdeskItemPage() {
             description="This is a higher-value item — an independent condition grade reassures buyers and can lift your sale price and speed."
             cta={{
               label: "Grade this item",
-              onAction: () => {
-                const el = document.getElementById("canvas-grading");
-                if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-              },
+              onAction: () => goToGrading(),
             }}
             context={{
               item_id: item.id,
@@ -181,73 +228,83 @@ export function FlipdeskItemPage() {
           />
         )}
 
-      {/* US-856: proactive grade-ROI nudge from the seller's own sold history.
-          CTA scrolls to the canvas grade section. Suppresses itself once the
-          item is graded or when the category sample is too thin. */}
+      {/* US-856: the seller's OWN sold history says what grading this is worth. */}
       <GradeRoiHint
         category={item.category}
         grade={item.grade_value}
         priceHint={item.target_price ?? item.list_price ?? item.purchase_price}
-        onGrade={() => {
-          const el = document.getElementById("canvas-grading");
-          if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-        }}
+        onGrade={goToGrading}
       />
-
-      {/* US-857: once a graded item sells, close the loop — show its grade →
-          realized outcome, plus an account-level graded-vs-ungraded rollup
-          (gated on the share_sale_outcomes opt-in + low-n suppression). */}
-      <GradeOutcomeCard item={item} />
 
       {/* US-2165 / US-1290: a listing we couldn't end, or an apparent double
-          sale. Rendered ABOVE everything else and across EVERY platform (not just
-          eBay) because both mean the same garment can still be bought right
-          now. */}
+          sale. Deliberately ABOVE the tabs and across EVERY platform: both mean
+          the same garment can still be bought right now, which is not something
+          to hide behind a tab the seller may never open. */}
       <ListingAlertsSection itemId={item.id} />
 
-      {/* US-2170: the quality score WITH its breakdown — which lever is weak and
-          what fixing it is worth. The listings table shows the number; this is
-          where a seller can act on it. */}
-      <ListingQualityCard itemId={item.id} />
+      {/* US-2519: twelve stacked panels became four groups. The editor is the
+          default because it is what the page is for; everything else is a thing
+          you go and look at. */}
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList>
+          <TabsTrigger value="details">Details</TabsTrigger>
+          <TabsTrigger value="listing">Listing</TabsTrigger>
+          <TabsTrigger value="grade">Grade</TabsTrigger>
+          <TabsTrigger value="money">Money</TabsTrigger>
+        </TabsList>
 
-      {/* eBay-NATIVE listings can't be revised through GradeThread — this notes
-          that + links to eBay. GradeThread-published listings are edited and
-          pushed inline by the canvas "Save & sync to eBay" button below. */}
-      <EbayNativeNotice itemId={item.id} />
+        <TabsContent value="details" className="mt-6 space-y-6">
+          {/* The ONE item editor, at every status — same fields whether this item
+              is a draft, live on eBay, or sold. Only the footer actions change.
+              The old split (composer for drafts, ItemCanvas here) meant a listed
+              item lost the eBay category + item-specifics editor, so saving it
+              pushed an incomplete specifics map and eBay rejected the revision. */}
+          <FlipdeskComposerPage itemId={item.id} showHeader={false} />
 
-      {/* US-1081: GradeThread-originated live listings — authority badge +
-          non-blocking eBay-drift indicator with a "Re-push to eBay" re-assert. */}
-      <GradethreadListingCard itemId={item.id} itemTitle={item.item_title} />
+          {/* Auto-Disclosure Engine: condition & flaws + annotated defect photos.
+              It edits the listing copy, so it belongs with the editor. */}
+          <DisclosurePanel itemId={item.id} />
+        </TabsContent>
 
-      <PromotionSaleCard itemId={item.id} />
+        <TabsContent value="listing" className="mt-6 space-y-6">
+          {/* US-2170: the quality score WITH its breakdown — which lever is weak
+              and what fixing it is worth. */}
+          <ListingQualityCard itemId={item.id} />
 
-      <LeaveFeedbackCard itemId={item.id} />
+          {/* eBay-NATIVE listings can't be revised through GradeThread. */}
+          <EbayNativeNotice itemId={item.id} />
 
-      {/* The ONE item editor, at every status — same fields whether this item is
-          a draft, live on eBay, or sold. Only the footer actions change. The old
-          split (composer for drafts, ItemCanvas here) meant a listed item lost
-          the eBay category + item-specifics editor, so saving it pushed an
-          incomplete specifics map and eBay rejected the revision. */}
-      <FlipdeskComposerPage itemId={item.id} showHeader={false} />
+          {/* US-1081: GradeThread-originated live listings — authority badge +
+              non-blocking eBay-drift indicator with a "Re-push to eBay". */}
+          <GradethreadListingCard itemId={item.id} itemTitle={item.item_title} />
 
-      {/* US-848: grade-anchored value from the public Condition Index curve. */}
-      <ConditionIndexValueHint
-        brand={item.brand}
-        category={item.category}
-        title={item.item_title}
-        grade={item.grade_value}
-      />
+          {/* US-150: per-listing opt-out from the price-drop/promo scheduler. */}
+          <AutomationOptOutCard itemId={item.id} />
+        </TabsContent>
 
-      {/* US-1099: relist detection — if these listing photos visually match a
-          garment we've already graded, suggest continuing its passport chain
-          (suggestion-only; never auto-links). */}
-      <RelistSuggestionCard itemId={item.id} />
+        <TabsContent value="grade" className="mt-6 space-y-6">
+          {/* US-857: once a graded item sells, close the loop — its grade vs the
+              realized outcome, plus the account-level rollup. */}
+          <GradeOutcomeCard item={item} />
 
-      {/* Auto-Disclosure Engine: condition & flaws + annotated defect photos. */}
-      <DisclosurePanel itemId={item.id} />
+          {/* US-848: grade-anchored value from the public Condition Index. */}
+          <ConditionIndexValueHint
+            brand={item.brand}
+            category={item.category}
+            title={item.item_title}
+            grade={item.grade_value}
+          />
 
-      {/* US-150: per-listing opt-out from the price-drop/promo scheduler. */}
-      <AutomationOptOutCard itemId={item.id} />
+          {/* US-1099: relist detection — if these photos match a garment we have
+              already graded, offer to continue its passport chain. */}
+          <RelistSuggestionCard itemId={item.id} />
+        </TabsContent>
+
+        <TabsContent value="money" className="mt-6 space-y-6">
+          <PromotionSaleCard itemId={item.id} />
+          <LeaveFeedbackCard itemId={item.id} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -260,36 +317,9 @@ export function FlipdeskItemPage() {
 // unified canvas Save now owns the GradeThread-published sync path.
 function EbayNativeNotice({ itemId }: { itemId: string }) {
   const { data: ebayConnection } = useEbayConnection();
-
-  const { data: listing } = useQuery({
-    queryKey: ["item_ebay_native_notice", itemId],
-    queryFn: async (): Promise<{
-      platform_offer_id: string | null;
-      platform_listing_id: string | null;
-      listing_url: string | null;
-      batch_id: string | null;
-      synced_to_ebay_at: string | null;
-    } | null> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "platform_offer_id, platform_listing_id, listing_url, batch_id, synced_to_ebay_at",
-        )
-        .eq("inventory_item_id", itemId)
-        .eq("listing_status", "active")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return (data ?? null) as unknown as {
-        platform_offer_id: string | null;
-        platform_listing_id: string | null;
-        listing_url: string | null;
-        batch_id: string | null;
-        synced_to_ebay_at: string | null;
-      } | null;
-    },
-  });
+  // US-2519: one shared read for the whole page, not a fourth copy of it.
+  const { data: rows = [] } = useItemListings(itemId);
+  const listing = activeListing(rows);
 
   if (!ebayConnection || !listing) return null;
 
@@ -348,30 +378,11 @@ function EbayNativeNotice({ itemId }: { itemId: string }) {
 // RLS on listings is owner-scoped through inventory_items, so the plain read
 // returns only this user's rows.
 function ListingAlertsSection({ itemId }: { itemId: string }) {
-  interface FlaggedListingRow {
-    id: string;
-    platform: string;
-    listing_url: string | null;
-    platform_fields: Record<string, unknown> | null;
-  }
-
-  const { data: flagged = [] } = useQuery({
-    queryKey: ["item_listing_alerts", itemId],
-    queryFn: async (): Promise<FlaggedListingRow[]> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("id, platform, listing_url, platform_fields")
-        .eq("inventory_item_id", itemId);
-      if (error) throw error;
-      const rows = (data ?? []) as unknown as FlaggedListingRow[];
-      // Filter client-side: `platform_fields ? 'key'` isn't expressible through
-      // the supabase-js builder, and an item has a handful of listings at most.
-      return rows.filter((r) => {
-        const pf = r.platform_fields ?? {};
-        return Boolean(pf.delist_unresolved) || Boolean(pf.oversell_conflict);
-      });
-    },
-  });
+  // US-2519: the shared page read. The `platform_fields ? 'key'` filter was
+  // never expressible through the supabase-js builder anyway, so this always
+  // filtered in the client — it just used to pay for its own round trip first.
+  const { data: rows = [] } = useItemListings(itemId);
+  const flagged = flaggedListings(rows);
 
   if (flagged.length === 0) return null;
 
@@ -440,41 +451,12 @@ function GradethreadListingCard({
   const { data: ebayConnection } = useEbayConnection();
   const revise = useEbayReviseListing();
 
-  type GtListingRow = {
-    id: string;
-    platform_offer_id: string | null;
-    platform_listing_id: string | null;
-    listing_url: string | null;
-    listing_status: string | null;
-    listing_title: string | null;
-    listing_description: string | null;
-    listing_price: number | null;
-    quantity: number | null;
-    batch_id: string | null;
-    synced_to_ebay_at: string | null;
-    platform_fields: Record<string, unknown> | null;
-    publish_error: string | null;
-    publish_failed_at: string | null;
-  };
-
-  const queryKey = ["item_gt_listing", itemId];
-  const { data: listing } = useQuery({
-    queryKey,
-    queryFn: async (): Promise<GtListingRow | null> => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select(
-          "id, platform_offer_id, platform_listing_id, listing_url, listing_status, listing_title, listing_description, listing_price, quantity, batch_id, synced_to_ebay_at, platform_fields, publish_error, publish_failed_at",
-        )
-        .eq("inventory_item_id", itemId)
-        .eq("platform", "ebay")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return (data ?? null) as unknown as GtListingRow | null;
-    },
-  });
+  // US-2519: the shared page read, filtered here instead of in SQL. The key is
+  // the shared one, so a revise invalidates every panel at once rather than
+  // leaving three of them showing the pre-revise row.
+  const queryKey = itemListingsKey(itemId);
+  const { data: rows = [] } = useItemListings(itemId);
+  const listing = ebayListing(rows);
 
   if (!ebayConnection || !listing) return null;
 
@@ -682,34 +664,17 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
   const queryClient = useQueryClient();
   const { data: ebayConnection } = useEbayConnection();
 
-  const { data: listing } = useQuery({
-    queryKey: ["item_ebay_listing", itemId],
-    queryFn: async (): Promise<
-      { id: string; markdownActive: boolean } | null
-    > => {
-      const { data, error } = await supabase
-        .from("listings")
-        .select("id, platform_listing_id, platform_fields")
-        .eq("inventory_item_id", itemId)
-        .eq("listing_status", "active")
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) return null;
-      const row = data as unknown as {
-        id: string;
-        platform_listing_id: string | null;
-        platform_fields: { markdown_promotion_id?: unknown } | null;
-      };
-      if (!row.platform_listing_id) return null; // not truly live on eBay
-      return {
-        id: row.id,
-        markdownActive: typeof row.platform_fields?.markdown_promotion_id ===
-          "string",
-      };
-    },
-  });
+  // US-2519: the shared page read. A listing with no platform_listing_id is not
+  // truly live on eBay, so there is nothing to promote or discount.
+  const { data: rows = [] } = useItemListings(itemId);
+  const active = activeListing(rows);
+  const listing = active?.platform_listing_id
+    ? {
+        id: active.id,
+        markdownActive:
+          typeof active.platform_fields?.markdown_promotion_id === "string",
+      }
+    : null;
 
   const listingId = listing?.id ?? null;
   const { data: promo } = useEbayPromotion(listingId, !!ebayConnection);
@@ -756,7 +721,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
     try {
       await startSale.mutateAsync({ listingId: listingId!, percentOff: pct });
       toast.success(`Sale started — ${pct}% off with a SALE badge.`);
-      queryClient.invalidateQueries({ queryKey: ["item_ebay_listing", itemId] });
+      queryClient.invalidateQueries({ queryKey: itemListingsKey(itemId) });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't start the Sale.");
     }
@@ -765,7 +730,7 @@ function PromotionSaleCard({ itemId }: { itemId: string }) {
     try {
       await endSale.mutateAsync({ listingId: listingId! });
       toast.success("Sale ended — original price restored.");
-      queryClient.invalidateQueries({ queryKey: ["item_ebay_listing", itemId] });
+      queryClient.invalidateQueries({ queryKey: itemListingsKey(itemId) });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Couldn't end the Sale.");
     }

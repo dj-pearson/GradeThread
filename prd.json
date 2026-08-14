@@ -1759,20 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2519",
-      "passes": false,
-      "title": "The item page fires four queries at one listing row and stacks twelve panels",
-      "description": "As a seller, I want the item page to load once and be navigable, so that the app's most-used screen is not a twelve-card scroll.",
-      "acceptanceCriteria": [
-        "ListingAlertsSection (item.tsx:361), EbayNativeNotice (:273), PromotionSaleCard (:690) and GradethreadListingCard each query the listings table for the same inventory_item_id independently.",
-        "Those reads are consolidated into one shared query the panels subscribe to.",
-        "The twelve stacked panels (:131-251) are grouped into tabs — Details, Listing, Grade, Money — with the composer remaining the default view.",
-        "Back returns to the inventory view the seller arrived from, preserving tab, filter and saved view, instead of the hardcoded /dashboard/flipdesk/items at :81.",
-        "Only one 'grade this item' nudge renders at a time; CrossSurfaceNudge (:164) and GradeRoiHint (:187) currently can both appear and both scroll to #canvas-grading."
-      ],
-      "priority": 1924
-    },
-    {
       "id": "US-2520",
       "passes": false,
       "title": "Web AutoLister is one 3,750-line component with 64 hooks",

@@ -292,6 +292,29 @@ export interface GradeRoiQuery {
  * Returns null when the category has no sold history at all; callers should
  * additionally suppress display unless `meaningful` is true (low-n guard).
  */
+/**
+ * US-2519: whether <GradeRoiHint> would render anything for these inputs.
+ *
+ * The item page carries a second, value-only grade nudge for the case where the
+ * seller's sold history is too thin for this one. They prompt the same action
+ * and scroll to the same panel, so they used to be able to appear together and
+ * read as a bug. This is the hint's own render condition, kept beside the
+ * estimate it depends on rather than restated at the call site — the component
+ * asserts the same four checks in the same order.
+ */
+export function gradeRoiHintWouldRender(
+  items: ItemRoiFields[],
+  query: GradeRoiQuery & { grade?: number | null },
+): boolean {
+  if (query.grade != null) return false;
+  const estimate = gradeRoiEstimate(items, query);
+  if (!estimate || !estimate.meaningful) return false;
+  const priceUp = estimate.priceLift != null && estimate.priceLift > 0;
+  const fasterDays =
+    estimate.daysFaster != null && Math.round(estimate.daysFaster) >= 1;
+  return priceUp || fasterDays;
+}
+
 export function gradeRoiEstimate(
   items: ItemRoiFields[],
   query: GradeRoiQuery,
