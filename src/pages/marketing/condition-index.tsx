@@ -1,0 +1,317 @@
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router";
+import { LineChart, TrendingUp } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { MarketingLayout } from "@/components/marketing/marketing-layout";
+import { edgeApiUrl } from "@/lib/edge-api";
+import { SITE_URL } from "@/lib/seo/public-routes";
+
+// US-2506: the SPA renderer for the public Condition Index (US-621).
+//
+// Same Model B as /finds and /leaderboards: in production a visitor gets the
+// edge-SSR Pages Function (functions/condition-index/[[path]].ts); this route is
+// the in-app / dev renderer. BOTH read the SAME payload
+// (/api/grading/public/condition-index[/slug]), so neither can show a curve the
+// other can't.
+//
+// Without this route the footer's "Condition Index" link — which
+// MarketingLayout renders on every public page — was a react-router <Link>
+// pointing at a path the router did not know, so a client-side click never
+// reached the Pages Function and fell through to the * catch-all 404.
+//
+// Deliberately NOT registered in PUBLIC_ROUTES: the curves are dynamic, so they
+// are edge-rendered rather than prerendered at build (same as /cert/:id).
+
+interface HubItem {
+  slug: string;
+  label: string;
+  brand: string;
+  currency: string;
+  headlineMedianCents: number | null;
+  totalSampleSize: number;
+  refreshedAt: string;
+}
+
+interface CurvePoint {
+  grade: number;
+  lowCents: number | null;
+  medianCents: number | null;
+  highCents: number | null;
+  sampleSize: number;
+}
+
+interface CurveDto {
+  slug: string;
+  label: string;
+  brand: string;
+  currency: string;
+  points: CurvePoint[];
+  totalSampleSize: number;
+  refreshedAt: string;
+}
+
+function dollars(cents: number | null): string {
+  if (cents == null) return "—";
+  return `$${(cents / 100).toFixed(0)}`;
+}
+
+function refreshedLabel(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  return new Date(t).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+/** Shared loader. `null` slug = the hub. */
+function useConditionIndex<T>(path: string): {
+  data: T | null;
+  loading: boolean;
+  error: boolean;
+  notFound: boolean;
+  retry: () => void;
+} {
+  const [data, setData] = useState<T | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+
+  const retry = useCallback(() => setAttempt((n) => n + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(false);
+    setNotFound(false);
+    (async () => {
+      try {
+        const res = await fetch(`${edgeApiUrl()}${path}`);
+        if (cancelled) return;
+        // US-1131: a 404 is "no such curve" (empty state); anything else is a
+        // fetch failure (retryable error) — never the same screen.
+        if (res.status === 404) {
+          setNotFound(true);
+          return;
+        }
+        if (!res.ok) {
+          setError(true);
+          return;
+        }
+        setData((await res.json()) as T);
+      } catch {
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [path, attempt]);
+
+  return { data, loading, error, notFound, retry };
+}
+
+export function ConditionIndexHubPage() {
+  const { data, loading, error, retry } = useConditionIndex<{ items: HubItem[] }>(
+    "/api/grading/public/condition-index",
+  );
+  const items = data?.items ?? [];
+
+  return (
+    <MarketingLayout
+      title="Condition Index"
+      description="What pre-owned clothing actually sells for at each condition grade, from real graded sales. A price-vs-grade curve per item, refreshed as new sales land."
+      canonicalPath="/condition-index"
+    >
+      <section className="px-6 py-16 lg:py-20">
+        <div className="mx-auto max-w-3xl">
+          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
+            The Condition Index
+          </h1>
+          <p className="mt-6 text-lg text-muted-foreground">
+            What pre-owned clothing actually sells for at each condition grade.
+            Every curve below is built from real graded sales — the median, the
+            range, and how many sales it rests on, so you can see how much the
+            number is worth trusting.
+          </p>
+        </div>
+      </section>
+
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-4xl">
+          {error ? (
+            <ErrorState
+              title="Couldn't load the Condition Index"
+              description="The curves are still there — we just couldn't fetch them right now."
+              onRetry={retry}
+            />
+          ) : loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <Skeleton key={i} className="h-16 w-full" />
+              ))}
+            </div>
+          ) : items.length === 0 ? (
+            <EmptyState
+              icon={LineChart}
+              title="No curves published yet"
+              description="A curve appears here once an item has enough graded sales behind it to be worth publishing."
+            />
+          ) : (
+            <ul className="divide-y rounded-lg border bg-background">
+              {items.map((item) => (
+                <li key={item.slug}>
+                  <Link
+                    to={`/condition-index/${item.slug}`}
+                    className="flex items-center justify-between gap-4 px-4 py-4 transition-colors hover:bg-muted/50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate font-medium">
+                        {item.label}
+                      </span>
+                      <span className="block text-sm text-muted-foreground">
+                        {item.brand} · {item.totalSampleSize} graded sale
+                        {item.totalSampleSize === 1 ? "" : "s"}
+                      </span>
+                    </span>
+                    <span className="flex-shrink-0 text-right">
+                      <span className="block font-semibold tabular-nums">
+                        {dollars(item.headlineMedianCents)}
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        median at 8.0
+                      </span>
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+    </MarketingLayout>
+  );
+}
+
+export function ConditionIndexItemPage() {
+  const { slug } = useParams<{ slug: string }>();
+  const { data, loading, error, notFound, retry } = useConditionIndex<{
+    curve: CurveDto;
+  }>(`/api/grading/public/condition-index/${encodeURIComponent(slug ?? "")}`);
+  const curve = data?.curve ?? null;
+
+  const title = curve ? `${curve.label} — price by condition grade` : "Condition Index";
+  const points = curve ? [...curve.points].sort((a, b) => b.grade - a.grade) : [];
+
+  return (
+    <MarketingLayout
+      title={title}
+      description={
+        curve
+          ? `What a ${curve.label} sells for at each GradeThread condition grade, from ${curve.totalSampleSize} real graded sales.`
+          : "What pre-owned clothing sells for at each condition grade, from real graded sales."
+      }
+      canonicalPath={`/condition-index/${slug ?? ""}`}
+      breadcrumbs={[
+        { name: "GradeThread", url: `${SITE_URL}/` },
+        { name: "Condition Index", url: `${SITE_URL}/condition-index` },
+        { name: curve?.label ?? "Item", url: `${SITE_URL}/condition-index/${slug ?? ""}` },
+      ]}
+      // A curve we couldn't load, or one that doesn't exist, must not be offered
+      // to a crawler as a finding.
+      noindex={!curve}
+    >
+      <section className="px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          {error ? (
+            <ErrorState
+              title="Couldn't load this curve"
+              description="This is a connection problem, not a missing item."
+              onRetry={retry}
+            />
+          ) : notFound ? (
+            <EmptyState
+              icon={LineChart}
+              title="No curve for that item"
+              description="It may not have enough graded sales behind it yet."
+              action={{ label: "Browse the Condition Index", to: "/condition-index" }}
+            />
+          ) : loading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-10 w-2/3" />
+              <Skeleton className="h-6 w-1/3" />
+              <Skeleton className="h-64 w-full" />
+            </div>
+          ) : curve ? (
+            <>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">
+                {curve.label}
+              </h1>
+              <p className="mt-3 flex flex-wrap items-center gap-2 text-muted-foreground">
+                <Badge variant="secondary">{curve.brand}</Badge>
+                <span>
+                  {curve.totalSampleSize} graded sale
+                  {curve.totalSampleSize === 1 ? "" : "s"}
+                </span>
+                {refreshedLabel(curve.refreshedAt) && (
+                  <span>· refreshed {refreshedLabel(curve.refreshedAt)}</span>
+                )}
+              </p>
+
+              <div className="mt-8 overflow-x-auto rounded-lg border">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50 text-left">
+                    <tr>
+                      <th className="px-4 py-2 font-medium">Grade</th>
+                      <th className="px-4 py-2 font-medium">Range</th>
+                      <th className="px-4 py-2 font-medium">Median</th>
+                      <th className="px-4 py-2 font-medium">Sales</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {points.map((p) => (
+                      <tr key={p.grade} className="border-t">
+                        <td className="px-4 py-2 font-semibold tabular-nums">
+                          {p.grade.toFixed(1)}
+                        </td>
+                        <td className="px-4 py-2 tabular-nums text-muted-foreground">
+                          {dollars(p.lowCents)} – {dollars(p.highCents)}
+                        </td>
+                        <td className="px-4 py-2 font-medium tabular-nums">
+                          {dollars(p.medianCents)}
+                        </td>
+                        <td className="px-4 py-2 tabular-nums text-muted-foreground">
+                          {p.sampleSize}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <p className="mt-6 text-sm text-muted-foreground">
+                Medians are drawn from completed sales of graded items. A row
+                resting on few sales is directional, not a price guarantee.
+              </p>
+
+              <Link
+                to="/grading/scale"
+                className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium text-brand-navy hover:underline dark:text-foreground"
+              >
+                <TrendingUp className="h-4 w-4" />
+                See how the 1.0–10.0 grading scale works
+              </Link>
+            </>
+          ) : null}
+        </div>
+      </section>
+    </MarketingLayout>
+  );
+}

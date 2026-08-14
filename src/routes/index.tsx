@@ -100,6 +100,14 @@ const WhereToSellPage = lazy(() => import("@/pages/marketing/where-to-sell").the
 const CrosslistingAppsPage = lazy(() => import("@/pages/marketing/crosslisting-apps").then(m => ({ default: m.CrosslistingAppsPage })));
 const CompetitorAlternativePage = lazy(() => import("@/pages/marketing/competitor-alternative").then(m => ({ default: m.CompetitorAlternativePage })));
 const ConditionChartPage = lazy(() => import("@/pages/marketing/condition-chart").then(m => ({ default: m.ConditionChartPage })));
+// US-2506: SPA renderers for the public Condition Index. Prod serves the
+// edge-SSR Pages Function (functions/condition-index/[[path]].ts); these routes
+// are the dev / in-app fallback. Without them the footer's "Condition Index"
+// link — rendered by MarketingLayout on EVERY public page — was a react-router
+// Link to a path the router didn't know, so it fell through to the * 404.
+// Dynamic, so NOT registered in PUBLIC_ROUTES (same as /finds, /leaderboards).
+const ConditionIndexHubPage = lazy(() => import("@/pages/marketing/condition-index").then(m => ({ default: m.ConditionIndexHubPage })));
+const ConditionIndexItemPage = lazy(() => import("@/pages/marketing/condition-index").then(m => ({ default: m.ConditionIndexItemPage })));
 const GradeCheckerPage = lazy(() => import("@/pages/tools/grade-checker").then(m => ({ default: m.GradeCheckerPage })));
 const AuthenticityCheckPage = lazy(() => import("@/pages/tools/authenticity-check").then(m => ({ default: m.AuthenticityCheckPage })));
 const FitCheckerPage = lazy(() => import("@/pages/tools/fit-checker").then(m => ({ default: m.FitCheckerPage })));
@@ -344,6 +352,10 @@ export const router = createBrowserRouter([
       { path: "/grading/graded-clothing-meaning", element: <SuspenseWrapper><GradedClothingMeaningPage /></SuspenseWrapper> },
       { path: "/grading/vs-authentication", element: <SuspenseWrapper><VsAuthenticationPage /></SuspenseWrapper> },
       { path: "/transparency", element: <SuspenseWrapper><TransparencyPage /></SuspenseWrapper> },
+      // US-2506: the Condition Index. Static hub registered before the dynamic
+      // slug route so the two-segment item path can't swallow the hub.
+      { path: "/condition-index", element: <SuspenseWrapper><ConditionIndexHubPage /></SuspenseWrapper> },
+      { path: "/condition-index/:slug", element: <SuspenseWrapper><ConditionIndexItemPage /></SuspenseWrapper> },
       { path: "/resale-condition-report", element: <SuspenseWrapper><ResaleConditionReportPage /></SuspenseWrapper> },
       { path: "/state-of-durability", element: <SuspenseWrapper><StateOfDurabilityPage /></SuspenseWrapper> },
       { path: "/sitemap", element: <SuspenseWrapper><HtmlSitemapPage /></SuspenseWrapper> },

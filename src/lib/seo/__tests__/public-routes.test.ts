@@ -49,6 +49,15 @@ const AUTH_OR_FLOW_EXACT = new Set([
   // sitemap by leaderboardUrls(). Registering it here would bake a stale
   // snapshot into dist/ that _routes.json never serves and list the path twice.
   "/leaderboards",
+  // US-2506: the public Condition Index. Same treatment, same reason as /finds
+  // and /leaderboards — the price-vs-grade curves are rebuilt as graded sales
+  // land, so the page is edge-SSR'd by functions/condition-index/[[path]].ts and
+  // listed in the sitemap by conditionIndexUrls() (functions/_shared/sitemap.ts:448).
+  // It only gained a router path at all so the footer link MarketingLayout puts
+  // on every public page stops falling through to the SPA 404; registering it
+  // here would bake a stale snapshot into dist/ that _routes.json never serves
+  // and list the path in the sitemap twice.
+  "/condition-index",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */

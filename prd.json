@@ -1774,7 +1774,7 @@
     },
     {
       "id": "US-2506",
-      "passes": false,
+      "passes": true,
       "title": "The Condition Index footer link 404s on every public page",
       "description": "As a visitor, I want the Condition Index link in the footer to open the Condition Index, so that a link on every page of the site is not broken.",
       "acceptanceCriteria": [
@@ -1783,7 +1783,8 @@
         "A route test asserts /condition-index resolves to the Condition Index page and not NotFoundPage.",
         "Every other FooterLink target in marketing-layout.tsx is checked against the router and any other unrouted path is fixed in the same pass."
       ],
-      "priority": 1806
+      "priority": 1806,
+      "notes": "Done 2026-08-14. Added src/pages/marketing/condition-index.tsx (hub + :slug SPA renderers reading the same /api/grading/public/condition-index payload the Pages Function uses) and registered both routes in src/routes/index.tsx. New guard src/lib/seo/__tests__/footer-links-routed.test.ts checks EVERY marketing header/footer Link target against the router — proven to fail without the fix, and it confirmed /condition-index was the only unrouted one (AC4). Exempted /condition-index in public-routes.test.ts alongside /finds and /leaderboards: it is edge-SSR'd and already listed by conditionIndexUrls(), so registering it in PUBLIC_ROUTES would bake a stale snapshot and duplicate the sitemap entry. tsc -b clean, lint 0 errors, ui:check 0 findings, 852 SEO/prerender tests pass."
     },
     {
       "id": "US-2507",
