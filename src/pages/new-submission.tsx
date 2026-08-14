@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { BadgeCheck, Camera, Check, ChevronLeft, ChevronRight, Loader2, ShieldCheck, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Card,
   CardContent,
@@ -1046,12 +1047,10 @@ export function NewSubmissionPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">New Submission</h1>
-        <p className="text-muted-foreground">
-          Submit a garment for AI-powered condition grading.
-        </p>
-      </div>
+      <PageHeader
+        title="New Submission"
+        subtitle="Submit a garment for AI-powered condition grading."
+      />
 
       {pendingDraft ? (
         /* US-951: a saved draft was found — offer to resume or start fresh

@@ -424,7 +424,7 @@ function AdminSidebarBody({
 function AdminSidebarHeader() {
   return (
     <div className="flex h-16 items-center gap-2 px-6">
-      <img src="/logo_icon.png" alt="GradeThread" className="h-7" />
+      <img src="/logo_icon.png" width={512} height={512} alt="GradeThread" className="h-7" />
       <span className="text-sm font-bold tracking-wide text-white/90">ADMIN</span>
     </div>
   );

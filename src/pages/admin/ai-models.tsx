@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -998,39 +999,41 @@ export function AdminAiModelsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Brain className="h-6 w-6 text-brand-red-text" />
-          <h1 className="text-2xl font-bold">AI Models</h1>
-          <Badge variant="secondary" className="ml-2">
-            {versions.length} versions
-          </Badge>
-          {reviewWindowTruncated && (
-            <Badge
+      <PageHeader
+        icon={Brain}
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            AI Models
+            <Badge variant="secondary">{versions.length} versions</Badge>
+            {reviewWindowTruncated && (
+              <Badge
+                variant="outline"
+                className="border-amber-300 text-amber-700 dark:border-amber-900/50 dark:text-amber-400"
+                title={`Statistics on this page cover the ${REVIEW_LIMIT.toLocaleString()} most recent human reviews. Older reviews exist and are not included.`}
+              >
+                Last {REVIEW_LIMIT.toLocaleString()} reviews
+              </Badge>
+            )}
+          </span>
+        }
+        actions={
+          <>
+            <Button
               variant="outline"
-              className="ml-1 border-amber-300 text-amber-700 dark:border-amber-900/50 dark:text-amber-400"
-              title={`Statistics on this page cover the ${REVIEW_LIMIT.toLocaleString()} most recent human reviews. Older reviews exist and are not included.`}
+              size="sm"
+              onClick={() => setCompareDialogOpen(true)}
+              disabled={versions.length < 2}
             >
-              Last {REVIEW_LIMIT.toLocaleString()} reviews
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCompareDialogOpen(true)}
-            disabled={versions.length < 2}
-          >
-            <Columns2 className="mr-2 h-4 w-4" />
-            Compare
-          </Button>
-          <Button size="sm" onClick={() => setShowCreateDialog(true)}>
-            <Plus className="mr-2 h-4 w-4" />
-            New Version
-          </Button>
-        </div>
-      </div>
+              <Columns2 className="mr-2 h-4 w-4" />
+              Compare
+            </Button>
+            <Button size="sm" onClick={() => setShowCreateDialog(true)}>
+              <Plus className="mr-2 h-4 w-4" />
+              New Version
+            </Button>
+          </>
+        }
+      />
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

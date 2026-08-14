@@ -158,7 +158,7 @@ export function GrowthDashboardPage() {
       ) : (
         <>
           <div>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <h2 className="mb-3 text-base font-semibold text-foreground">
               Campaigns
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -180,7 +180,7 @@ export function GrowthDashboardPage() {
           </div>
 
           <div>
-            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <h2 className="mb-3 text-base font-semibold text-foreground">
               Announcements & Referrals
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

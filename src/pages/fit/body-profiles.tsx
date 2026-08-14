@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Plus, Ruler, Star, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -157,29 +158,26 @@ export function BodyProfilesPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
-      <header className="mb-6 flex items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Ruler className="h-6 w-6" /> My measurements
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Save your body measurements once, then check whether an item will fit in a tap. Private to
-            your account.
-          </p>
-        </div>
-        <div className="flex items-center gap-1 rounded-lg border p-1 text-sm">
-          {(["in", "cm"] as const).map((u) => (
-            <button
-              key={u}
-              type="button"
-              onClick={() => setUnit(u)}
-              className={`rounded px-2 py-1 ${unit === u ? "bg-brand-navy text-white dark:bg-foreground dark:text-background" : "text-muted-foreground"}`}
-            >
-              {u}
-            </button>
-          ))}
-        </div>
-      </header>
+      <PageHeader
+        className="mb-6"
+        icon={Ruler}
+        title="My measurements"
+        subtitle="Save your body measurements once, then check whether an item will fit in a tap. Private to your account."
+        actions={
+          <div className="flex items-center gap-1 rounded-lg border p-1 text-sm">
+            {(["in", "cm"] as const).map((u) => (
+              <button
+                key={u}
+                type="button"
+                onClick={() => setUnit(u)}
+                className={`rounded px-2 py-1 ${unit === u ? "bg-brand-navy text-white dark:bg-foreground dark:text-background" : "text-muted-foreground"}`}
+              >
+                {u}
+              </button>
+            ))}
+          </div>
+        }
+      />
 
       {isLoading ? (
         <div className="flex justify-center py-12">

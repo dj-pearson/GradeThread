@@ -213,7 +213,7 @@ export function BuyerGrowthPage() {
       />
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           Funnel
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -245,7 +245,7 @@ export function BuyerGrowthPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           Recurring revenue
         </h2>
         <div className="grid gap-4 sm:grid-cols-3">
@@ -268,7 +268,7 @@ export function BuyerGrowthPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           Feature adoption
         </h2>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

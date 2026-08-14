@@ -1841,7 +1841,7 @@
     },
     {
       "id": "US-2542",
-      "passes": false,
+      "passes": true,
       "title": "UI craft-floor sweep: 106 tracked-uppercase eyebrows and 23 hand-rolled page titles",
       "description": "As a user, I want the product to look like one product, so that section headers and page titles are consistent.",
       "acceptanceCriteria": [
@@ -1851,7 +1851,8 @@
         "Three logo <img> tags with no width or height are fixed: not-found.tsx:20, accept-invite.tsx:279 and layouts/auth-layout.tsx:27.",
         "Gradients are confirmed not to be a problem — only 2 uses exist app-wide; this AC exists so the sweep does not introduce any."
       ],
-      "priority": 2400
+      "priority": 2400,
+      "notes": "Sweep done. 17 pages moved to the shared PageHeader (10 admin, new-submission, bulk-submission x2 headers, snap, flipdesk search + measure-card + marketplaces-google, fit/body-profiles). 4 detail pages are deliberately NOT converted: flipdesk/intake, admin/task-board, admin/user-detail, admin/ops-runbooks all put a back button left of the title, and PageHeader has no back slot; it lives under src/components/ui/ which is generated and not hand-edited, so converting them would nest a button inside the h1. Give PageHeader a real back prop first. Tracked-uppercase HEADINGS: 26 converted to weight+size across 12 files, count 106 -> 80, and zero h1-h6 now use the pattern. The remaining 80 are kept on purpose: they are 10-11px data labels inside cards and table cells (SKU, STATUS), where small caps is a legible convention rather than a heading pretending to be one. 13 logo img tags got real intrinsic width/height read from the PNG headers (logo_primary and logo_white 1806x376, logo_icon 512x512) so the header stops jumping on decode. Gradients verified at exactly 2 bg-gradient tints and 0 bg-clip-text. Guard: src/test/ui-craft-floor.test.ts, 22 cases, shrink-only ratchet on the label count, proven red on a missed h4 in photo-upload.tsx."
     },
     {
       "id": "US-2543",

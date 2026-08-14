@@ -1104,7 +1104,7 @@ function ExtensionQueueSection() {
 
   return (
     <section>
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      <h2 className="mb-3 text-base font-semibold text-foreground">
         Queued for your desktop
       </h2>
 
@@ -1398,7 +1398,7 @@ export function FlipdeskMarketplacesPage() {
 
       {/* Active — eBay setup + sync */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           Active
         </h2>
         <div className="space-y-4">
@@ -1422,7 +1422,7 @@ export function FlipdeskMarketplacesPage() {
 
       {/* More ways to sync — Google Sheets + CSV fallback */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           More ways to sync
         </h2>
         <div className="space-y-2">
@@ -1453,7 +1453,7 @@ export function FlipdeskMarketplacesPage() {
 
       {/* Cross-listing behavior (US-149) */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           Cross-listing
         </h2>
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
@@ -1477,7 +1477,7 @@ export function FlipdeskMarketplacesPage() {
 
       {/* Grade authority signal — text only (eBay-policy pivot) */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           Grade promotion
         </h2>
         <div className="rounded-lg border p-3 text-sm">
@@ -1500,7 +1500,7 @@ export function FlipdeskMarketplacesPage() {
       <ExtensionQueueSection />
 
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           Connect via browser extension
         </h2>
         <div className="mb-3 flex items-start gap-3 rounded-lg border p-3">
@@ -1536,7 +1536,7 @@ export function FlipdeskMarketplacesPage() {
           automation, and a seller comparing the two should be able to read both
           in the same words. */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           How your API connections work
         </h2>
         <div className="space-y-2">
@@ -1550,7 +1550,7 @@ export function FlipdeskMarketplacesPage() {
           channels with no integration yet. Muted rows, never a fake connect
           flow for an unbuilt API path. */}
       <section>
-        <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="mb-3 text-base font-semibold text-foreground">
           Coming soon
         </h2>
         <div className="space-y-2">

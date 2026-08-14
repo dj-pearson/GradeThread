@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Users, Loader2, Crosshair } from "lucide-react";
@@ -195,14 +196,17 @@ export function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <Users className="h-6 w-6 text-brand-red-text" />
-        <h1 className="text-2xl font-bold">User Management</h1>
-        <Badge variant="secondary" className="ml-2">
-          {totalCount} user{totalCount !== 1 ? "s" : ""}
-        </Badge>
-      </div>
+      <PageHeader
+        icon={Users}
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            User Management
+            <Badge variant="secondary">
+              {totalCount} user{totalCount !== 1 ? "s" : ""}
+            </Badge>
+          </span>
+        }
+      />
 
       {/* Global lookup (US-581) — jump to any account by a unique identifier. */}
       <Card>

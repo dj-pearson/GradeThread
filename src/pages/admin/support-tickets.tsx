@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -227,17 +228,12 @@ export function AdminSupportTicketsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Ticket className="h-6 w-6 text-brand-red-text" />
-            Support tickets
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            User-opened requests. Triage, reply, and resolve.
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
+      <PageHeader
+        icon={Ticket}
+        title="Support tickets"
+        subtitle="User-opened requests. Triage, reply, and resolve."
+        actions={
+          <>
           <label htmlFor="st-mine-only" className="flex cursor-pointer items-center gap-2 text-sm">
             <Checkbox
               id="st-mine-only"
@@ -271,8 +267,9 @@ export function AdminSupportTicketsPage() {
               setMineOnly(f.mineOnly === true);
             }}
           />
-        </div>
-      </div>
+          </>
+        }
+      />
 
       <Card>
         <CardContent className="p-0">

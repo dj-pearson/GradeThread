@@ -125,7 +125,7 @@ export function BuyerDemandPage() {
       </Card>
 
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Your wants ({wants.length})</h2>
+        <h2 className="text-base font-semibold text-foreground">Your wants ({wants.length})</h2>
         {isLoading ? (
           <div className="flex justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
         ) : isError ? (

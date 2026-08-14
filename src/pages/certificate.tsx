@@ -644,6 +644,8 @@ export function CertificatePage() {
           <div className="flex items-center gap-3">
             <img
               src="/logo_white.png"
+              width={1806}
+              height={376}
               alt="GradeThread"
               className="h-8"
             />

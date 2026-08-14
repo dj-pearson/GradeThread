@@ -11,6 +11,7 @@ import {
   Clock,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -191,18 +192,18 @@ export function FlipdeskSearchPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
-          <Search className="h-6 w-6 text-brand-red-text" />
-          Search
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Search across item titles, brands, SKUs, descriptions, condition
-          notes, listings, and sales. Use quotes for an exact phrase,{" "}
-          <code className="rounded bg-muted px-1">-word</code> to exclude, or{" "}
-          <code className="rounded bg-muted px-1">OR</code> between terms.
-        </p>
-      </div>
+      <PageHeader
+        icon={Search}
+        title="Search"
+        subtitle={
+          <>
+            Search across item titles, brands, SKUs, descriptions, condition
+            notes, listings, and sales. Use quotes for an exact phrase,{" "}
+            <code className="rounded bg-muted px-1">-word</code> to exclude, or{" "}
+            <code className="rounded bg-muted px-1">OR</code> between terms.
+          </>
+        }
+      />
 
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

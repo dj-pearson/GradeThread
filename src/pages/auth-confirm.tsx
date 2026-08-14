@@ -33,7 +33,7 @@ function AuthShell({ children }: { children: React.ReactNode }) {
       <SEO title="Confirming your email" noindex />
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">
-          <img src="/logo_primary.png" alt="GradeThread" className="h-10" />
+          <img src="/logo_primary.png" width={1806} height={376} alt="GradeThread" className="h-10" />
         </div>
         {children}
       </div>

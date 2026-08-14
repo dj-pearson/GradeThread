@@ -810,7 +810,7 @@ export function PhotoUpload({
         return (
           <div key={group} className="space-y-2">
             <div>
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <h4 className="text-sm font-semibold text-foreground">
                 {title}
               </h4>
               {hint && (

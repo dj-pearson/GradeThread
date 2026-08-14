@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -64,15 +65,11 @@ export function SnapToValuePage() {
 
   return (
     <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
-      <div className="space-y-1">
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Sparkles className="h-6 w-6 text-brand-red-text" /> Snap to Value
-        </h1>
-        <p className="text-muted-foreground">
-          Snap a photo of any garment and get an instant AI condition grade plus a
-          condition-adjusted resale value range — in seconds, free.
-        </p>
-      </div>
+      <PageHeader
+        icon={Sparkles}
+        title="Snap to Value"
+        subtitle="Snap a photo of any garment and get an instant AI condition grade plus a condition-adjusted resale value range — in seconds, free."
+      />
 
       {/* US-744: offer the PWA install affordance on Snap too (mobile capture is
           a real workflow, not just a FlipDesk feature). Renders only when the

@@ -28,6 +28,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -512,23 +513,25 @@ export function AdminGradingQueuePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ClipboardCheck className="h-6 w-6 text-brand-red-text" />
-          <h1 className="text-2xl font-bold">Grading Review Queue</h1>
-          {items.length > 0 && (
-            <Badge variant="destructive" className="ml-2">
-              {items.length} pending
+      <PageHeader
+        icon={ClipboardCheck}
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            Grading Review Queue
+            {items.length > 0 && (
+              <Badge variant="destructive">{items.length} pending</Badge>
+            )}
+          </span>
+        }
+        actions={
+          items.length > 0 ? (
+            <Badge variant="secondary" className={`${oldestTone} px-3 py-1 text-sm`}>
+              <Clock className="mr-1 h-3.5 w-3.5" />
+              Oldest waiting {formatWaitingTime(queueAge * 1000)}
             </Badge>
-          )}
-        </div>
-        {items.length > 0 && (
-          <Badge variant="secondary" className={`${oldestTone} text-sm px-3 py-1`}>
-            <Clock className="mr-1 h-3.5 w-3.5" />
-            Oldest waiting {formatWaitingTime(queueAge * 1000)}
-          </Badge>
-        )}
-      </div>
+          ) : undefined
+        }
+      />
 
       <p className="text-sm text-muted-foreground">
         Low-confidence grades (confidence &lt; 0.75) flagged for human review. Claim an item to

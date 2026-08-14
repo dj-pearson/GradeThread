@@ -572,7 +572,7 @@ export function BuyerRewardsPage() {
       </Card>
 
       <div className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           Your linked purchases
         </h2>
         {isLoading ? (

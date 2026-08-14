@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { PageHeader } from "@/components/ui/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -246,32 +247,32 @@ export function AdminSupportPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Headset className="h-6 w-6 text-brand-red-text" />
-            AI Escalations
-          </h1>
-          <p className="text-sm text-muted-foreground">
+      <PageHeader
+        icon={Headset}
+        title="AI Escalations"
+        subtitle={
+          <>
             Escalated AI-assistant conversations awaiting a human.
             {filter === "escalated" && escalatedCount > 0
               ? ` ${escalatedCount} escalated.`
               : ""}
-          </p>
-        </div>
-        <Select value={filter} onValueChange={(v) => setFilter(v as StatusFilter)}>
-          <SelectTrigger className="w-48" aria-label="Filter conversations by status">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {STATUS_FILTERS.map((f) => (
-              <SelectItem key={f.value} value={f.value}>
-                {f.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+          </>
+        }
+        actions={
+          <Select value={filter} onValueChange={(v) => setFilter(v as StatusFilter)}>
+            <SelectTrigger className="w-48" aria-label="Filter conversations by status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {STATUS_FILTERS.map((f) => (
+                <SelectItem key={f.value} value={f.value}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
+      />
 
       <Card>
         <CardContent className="p-0">

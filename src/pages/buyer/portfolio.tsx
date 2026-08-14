@@ -269,7 +269,7 @@ export function BuyerPortfolioPage() {
 
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             Your closet ({items.length})
           </h2>
           {isAnalytics ? (

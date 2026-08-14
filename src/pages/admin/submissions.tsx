@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -382,33 +383,37 @@ export function AdminSubmissionsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <FileText className="h-6 w-6 text-brand-red-text" />
-          <h1 className="text-2xl font-bold">All Submissions</h1>
-          <Badge variant="secondary" className="ml-2">
-            {filtered.length} submission{filtered.length !== 1 ? "s" : ""}
-          </Badge>
-          {items.length >= SUBMISSION_LIMIT && (
-            /* US-2025: the filters run client-side over the loaded window, so
-               say when the window is full. Otherwise "0 pending" is
-               indistinguishable from "0 pending in the newest 2,000". */
-            <Badge
-              variant="outline"
-              className="ml-1 border-amber-300 text-amber-700 dark:border-amber-900/50 dark:text-amber-400"
-              title={`Showing the ${SUBMISSION_LIMIT.toLocaleString()} most recent submissions. Filters apply to this window only — older submissions exist and are not searched.`}
-            >
-              Newest {SUBMISSION_LIMIT.toLocaleString()}
+      <PageHeader
+        icon={FileText}
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            All Submissions
+            <Badge variant="secondary">
+              {filtered.length} submission{filtered.length !== 1 ? "s" : ""}
             </Badge>
-          )}
-        </div>
-        {overdueSubmissions.length > 0 && (
-          <Badge variant="destructive" className="flex items-center gap-1">
-            <AlertTriangle className="h-3 w-3" />
-            {overdueSubmissions.length} overdue
-          </Badge>
-        )}
-      </div>
+            {items.length >= SUBMISSION_LIMIT && (
+              /* US-2025: the filters run client-side over the loaded window, so
+                 say when the window is full. Otherwise "0 pending" is
+                 indistinguishable from "0 pending in the newest 2,000". */
+              <Badge
+                variant="outline"
+                className="border-amber-300 text-amber-700 dark:border-amber-900/50 dark:text-amber-400"
+                title={`Showing the ${SUBMISSION_LIMIT.toLocaleString()} most recent submissions. Filters apply to this window only — older submissions exist and are not searched.`}
+              >
+                Newest {SUBMISSION_LIMIT.toLocaleString()}
+              </Badge>
+            )}
+          </span>
+        }
+        actions={
+          overdueSubmissions.length > 0 ? (
+            <Badge variant="destructive" className="flex items-center gap-1">
+              <AlertTriangle className="h-3 w-3" />
+              {overdueSubmissions.length} overdue
+            </Badge>
+          ) : undefined
+        }
+      />
 
       {/* Search and Filters */}
       <Card>

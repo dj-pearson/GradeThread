@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -217,22 +218,24 @@ export function AdminClaimsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <ShieldCheck className="h-6 w-6 text-brand-red-text" />
-          <h1 className="text-2xl font-bold">Guarantee Claims</h1>
-          {counts.submitted > 0 && (
-            <Badge variant="destructive" className="ml-2">
-              {counts.submitted} new
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline">{counts.under_review} reviewing</Badge>
-          <Badge variant="outline">{counts.approved} approved</Badge>
-          <Badge variant="outline">{counts.rejected} rejected</Badge>
-        </div>
-      </div>
+      <PageHeader
+        icon={ShieldCheck}
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            Guarantee Claims
+            {counts.submitted > 0 && (
+              <Badge variant="destructive">{counts.submitted} new</Badge>
+            )}
+          </span>
+        }
+        actions={
+          <>
+            <Badge variant="outline">{counts.under_review} reviewing</Badge>
+            <Badge variant="outline">{counts.approved} approved</Badge>
+            <Badge variant="outline">{counts.rejected} rejected</Badge>
+          </>
+        }
+      />
 
       <Card>
         <CardHeader className="pb-3">

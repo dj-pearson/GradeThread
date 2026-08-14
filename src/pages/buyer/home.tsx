@@ -158,7 +158,7 @@ export function BuyerHomePage() {
       <BuyerImpactCard />
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           Get started
         </h2>
         <div className="grid gap-4 sm:grid-cols-3">
@@ -184,7 +184,7 @@ export function BuyerHomePage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           Your confidence suite
         </h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

@@ -141,7 +141,7 @@ export function ConditionCurve({ points }: { points: ConditionCurvePoint[] }) {
   return (
     <section>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+        <h2 className="text-base font-semibold text-foreground">
           Condition over time
         </h2>
         <Badge variant="outline" className="gap-1 font-normal">

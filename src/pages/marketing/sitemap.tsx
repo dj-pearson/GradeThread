@@ -159,7 +159,7 @@ export function HtmlSitemapPage() {
           <div className="mt-12 grid gap-10 sm:grid-cols-2 lg:grid-cols-3">
             {sections.map((section) => (
               <div key={section.title}>
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-foreground/70">
+                <h2 className="text-base font-semibold text-foreground">
                   {section.title}
                 </h2>
                 <ul className="mt-4 space-y-2 text-sm">

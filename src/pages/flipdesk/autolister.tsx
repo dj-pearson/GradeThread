@@ -3104,7 +3104,7 @@ export function FlipdeskAutolisterPage() {
       {/* Ungrouped staging area */}
       <div>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <h2 className="text-base font-semibold text-foreground">
             Ungrouped photos {ungrouped.length > 0 && `(${ungrouped.length})`}
           </h2>
           <div className="flex flex-wrap items-center gap-2">
@@ -3414,7 +3414,7 @@ export function FlipdeskAutolisterPage() {
       {groups.length > 0 && (
         <div className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+            <h2 className="text-base font-semibold text-foreground">
               Listings to generate ({groups.length})
             </h2>
             <div className="flex items-center gap-2">

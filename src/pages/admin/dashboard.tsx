@@ -4,6 +4,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { CHART_PALETTE } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -113,17 +114,16 @@ export function AdminDashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <LayoutDashboard className="h-6 w-6 text-brand-red-text" />
-          <h1 className="text-2xl font-bold">Admin Dashboard</h1>
-        </div>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <RefreshCw className="h-3.5 w-3.5" />
-          <span>Auto-refreshes every 60s</span>
-        </div>
-      </div>
+      <PageHeader
+        icon={LayoutDashboard}
+        title="Admin Dashboard"
+        actions={
+          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Auto-refreshes every 60s
+          </span>
+        }
+      />
 
       <Tabs defaultValue="overview" className="space-y-6">
         <TabsList>

@@ -72,6 +72,8 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
               <img
                 src="/logo_primary.png"
+                width={1806}
+                height={376}
                 alt="GradeThread"
                 className="mt-4 h-6"
                 onError={(e) => {
@@ -160,7 +162,7 @@ export function RouteErrorFallback() {
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
             <AlertTriangle className="h-8 w-8 text-destructive" />
           </div>
-          <img src="/logo_primary.png" alt="GradeThread" className="mt-4 h-6" />
+          <img src="/logo_primary.png" width={1806} height={376} alt="GradeThread" className="mt-4 h-6" />
           <h3 className="mt-4 text-lg font-medium">Page Error</h3>
           <p className="mt-2 text-sm text-muted-foreground">
             This page encountered an error. Please try again.

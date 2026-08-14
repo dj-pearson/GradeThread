@@ -116,6 +116,8 @@ export function AuthCallbackPage() {
       <div className="text-center">
         <img
           src="/logo_primary.png"
+          width={1806}
+          height={376}
           alt="GradeThread"
           className="mx-auto mb-8 h-10"
         />

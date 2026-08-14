@@ -17,7 +17,7 @@ export function NotFoundPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
       <SEO title="Page not found" noindex />
-      <img src="/logo_primary.png" alt="GradeThread" className="h-7" />
+      <img src="/logo_primary.png" width={1806} height={376} alt="GradeThread" className="h-7" />
       <h1 className="mt-8 text-6xl font-bold text-brand-navy dark:text-foreground">404</h1>
       <p className="mt-4 max-w-md text-lg text-muted-foreground">
         We couldn&apos;t find that page. It may have moved, or the link might be

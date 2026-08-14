@@ -20,6 +20,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -127,18 +128,11 @@ export function FlipdeskMarketplacesGooglePage() {
           <ArrowLeft className="h-4 w-4" />
           Back to Marketplaces
         </Link>
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600 text-white">
-            <FileSpreadsheet className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">Google Sheets sync</h1>
-            <p className="text-sm text-muted-foreground">
-              Connect a Google account so FlipDesk can keep a live sync
-              spreadsheet on your Drive.
-            </p>
-          </div>
-        </div>
+        <PageHeader
+          icon={FileSpreadsheet}
+          title="Google Sheets sync"
+          subtitle="Connect a Google account so FlipDesk can keep a live sync spreadsheet on your Drive."
+        />
       </div>
 
       {notConfigured ? (

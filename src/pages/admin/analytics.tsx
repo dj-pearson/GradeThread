@@ -11,6 +11,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Meter } from "@/components/ui/meter";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -165,42 +166,37 @@ export function AdminAnalyticsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header + period selector */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <BarChart3 className="h-6 w-6 text-brand-red-text" />
-          <div>
-            <h1 className="text-2xl font-bold">Funnel &amp; Retention</h1>
-            <p className="text-sm text-muted-foreground">
-              Activation funnel and weekly cohort retention from our own data.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {PERIOD_LABELS.map((p) => (
+      <PageHeader
+        icon={BarChart3}
+        title="Funnel & Retention"
+        subtitle="Activation funnel and weekly cohort retention from our own data."
+        actions={
+          <>
+            {PERIOD_LABELS.map((p) => (
+              <Button
+                key={p.key}
+                size="sm"
+                variant={period === p.key ? "default" : "outline"}
+                onClick={() => setPeriod(p.key)}
+              >
+                {p.label}
+              </Button>
+            ))}
             <Button
-              key={p.key}
               size="sm"
-              variant={period === p.key ? "default" : "outline"}
-              onClick={() => setPeriod(p.key)}
+              variant="outline"
+              onClick={refetchAll}
+              disabled={isFetching}
             >
-              {p.label}
+              {isFetching ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5" />
+              )}
             </Button>
-          ))}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={refetchAll}
-            disabled={isFetching}
-          >
-            {isFetching ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <RefreshCw className="h-3.5 w-3.5" />
-            )}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+      />
 
       {period === "custom" && (
         <Card>

@@ -29,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
 import { ErrorState } from "@/components/ui/error-state";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Select,
   SelectContent,
@@ -161,18 +162,11 @@ export function FlipdeskMeasureCardPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 p-4 md:p-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Ruler className="h-6 w-6" />
-          MeasureCard
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          The calibration card that turns one flat-lay photo into garment
-          measurements, estimated from the photo — auto-extracted,
-          drag-adjustable (review before listing), and printed onto a clean
-          buyer-facing measurements photo.
-        </p>
-      </div>
+      <PageHeader
+        icon={Ruler}
+        title="MeasureCard"
+        subtitle="The calibration card that turns one flat-lay photo into garment measurements, estimated from the photo — auto-extracted, drag-adjustable (review before listing), and printed onto a clean buyer-facing measurements photo."
+      />
 
       <Card>
         <CardHeader>

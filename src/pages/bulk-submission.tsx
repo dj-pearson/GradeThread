@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   Card,
   CardContent,
@@ -508,12 +509,10 @@ export function BulkSubmissionPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to Submissions
         </Link>
-        <div>
-          <h1 className="text-2xl font-bold">Bulk Submission Upload</h1>
-          <p className="text-muted-foreground">
-            Grade large batches of garments at once.
-          </p>
-        </div>
+        <PageHeader
+          title="Bulk Submission Upload"
+          subtitle="Grade large batches of garments at once."
+        />
         <Card>
           <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
             <div className="rounded-full bg-muted p-3">
@@ -559,13 +558,10 @@ export function BulkSubmissionPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to Submissions
         </Link>
-        <div>
-          <h1 className="text-2xl font-bold">Bulk Submission Upload</h1>
-          <p className="text-muted-foreground">
-            Upload a CSV of garment info and a ZIP of photos to grade many
-            items at once.
-          </p>
-        </div>
+        <PageHeader
+          title="Bulk Submission Upload"
+          subtitle="Upload a CSV of garment info and a ZIP of photos to grade many items at once."
+        />
       </div>
 
       {/* Step 1: Uploads */}

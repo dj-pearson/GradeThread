@@ -463,7 +463,7 @@ export function PassportPage() {
             <Card>
               <CardContent className="space-y-3 p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                  <h2 className="text-base font-semibold text-foreground">
                     Chain strength
                   </h2>
                   <Badge
@@ -498,7 +498,7 @@ export function PassportPage() {
 
         {/* Provenance timeline */}
         <section>
-          <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          <h2 className="mb-4 text-base font-semibold text-foreground">
             Provenance timeline
           </h2>
           {data.events.length === 0 ? (

@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/table";
 import { ClickableRow } from "@/components/clickable-row";
 import { Badge } from "@/components/ui/badge";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -634,22 +635,24 @@ export function AdminDisputesPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Scale className="h-6 w-6 text-brand-red-text" />
-          <h1 className="text-2xl font-bold">Disputes</h1>
-          {openCount > 0 && (
-            <Badge variant="destructive" className="ml-2">
-              {openCount} open
-            </Badge>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline">{underReviewCount} reviewing</Badge>
-          <Badge variant="outline">{resolvedCount} resolved</Badge>
-          <Badge variant="outline">{rejectedCount} rejected</Badge>
-        </div>
-      </div>
+      <PageHeader
+        icon={Scale}
+        title={
+          <span className="flex flex-wrap items-center gap-2">
+            Disputes
+            {openCount > 0 && (
+              <Badge variant="destructive">{openCount} open</Badge>
+            )}
+          </span>
+        }
+        actions={
+          <>
+            <Badge variant="outline">{underReviewCount} reviewing</Badge>
+            <Badge variant="outline">{resolvedCount} resolved</Badge>
+            <Badge variant="outline">{rejectedCount} rejected</Badge>
+          </>
+        }
+      />
 
       {/* Stats Cards */}
       <div className="grid gap-4 sm:grid-cols-4">
