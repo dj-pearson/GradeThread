@@ -497,9 +497,15 @@ carry-forward. Findings below are gaps, not rewrites.
 - **P3** Claiming transfers ownership and is a single unconfirmed click (`tag-scan.tsx:103`).
 
 ### /embed/grade/:id (`src/pages/embed-grade.tsx`)
-- **P2** No `<SEO noindex>`. The route sits outside `RootLayout` (`routes/index.tsx:609-613`)
-  and renders no SEO component at all, so a public URL that duplicates certificate content
-  is crawlable. (Note: `logo`, `support` and `color` params *are* properly sanitized —
+- **P2 — ~~crawlable~~ CORRECTED (US-2549).** The page renders no SEO component, which is
+  what I checked, but it was never crawlable: `/embed/*` is routed to Pages Functions
+  (`public/_routes.json`), `functions/embed/grade/[id].ts` delegates every non-`.js`
+  request to `serveSpaShell`, and that helper sends `x-robots-tag: noindex, nofollow` on
+  every response (US-2045). A header outranks a meta tag, so the strongest available
+  mechanism was already in place. The finding was written from the SPA route in isolation;
+  the serving path is what decides indexing. `<SEO noindex>` was still added as the stated
+  decision in the page, and the guard pins the HEADER as the thing that must not be
+  removed. (Note: `logo`, `support` and `color` params *are* properly sanitized —
   `embed-grade.tsx:55-59` — so the obvious injection vector is already closed.)
 - **P3** `company` is rendered unvalidated as the card's header (`embed-grade.tsx:134`), so a
   crafted URL can show any brand name on a gradethread.com page. Text-only, so low severity,
@@ -510,9 +516,13 @@ carry-forward. Findings below are gaps, not rewrites.
   surface, but it means the card is unreadable embedded on a dark site.
 
 ### /leaderboard (`src/pages/referral-leaderboard.tsx`) and /waitlist-pending
-- **P2** Neither page renders an `<SEO>` component, so both are public routes with no title,
-  no description and no `noindex` decision. `/waitlist-pending` in particular should not be
-  indexable.
+- **P2 — ~~no decision~~ CORRECTED (US-2529, confirmed again in US-2549).** Both already
+  have one, in different places, which is why a grep for `<SEO` in the two page files found
+  nothing. `/leaderboard` renders inside `MarketingLayout`, which emits the SEO block for
+  it. `/waitlist-pending` is served by its own Pages Function through `serveSpaShell`
+  (`x-robots-tag: noindex, nofollow`) and is listed in `DISALLOWED_PATHS` in
+  `functions/_shared/seo-config.ts`. Pinned in `src/test/embed-grade-indexing.test.ts` so
+  neither is re-filed.
 
 ### /not-found (`src/pages/not-found.tsx`)
 - **P3** `InShellNotFound` (`not-found.tsx:53-76`) drops the helpful-links nav the root 404

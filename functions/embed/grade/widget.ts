@@ -90,10 +90,55 @@ export interface EmbedBranding {
 }
 
 /** Extract + validate the branding params from the widget request URL. */
+/** Mirrors EMBED_COMPANY_MAX in src/lib/return-to.ts (US-2549). */
+export const EMBED_COMPANY_MAX = 80;
+
+/**
+ * The partner name, made safe to display. Escaped on render, so this is not
+ * about XSS — it is about a craftable URL putting arbitrary text in the header
+ * of a gradethread.com card. Drops control characters and the Unicode
+ * bidi/invisible set (an RTL override renders text the source does not say),
+ * collapses whitespace so a name cannot pad the attribution off the card, and
+ * caps the length.
+ *
+ * Deliberately duplicated from src/lib/return-to.ts rather than imported: this
+ * tree is bundled separately by Pages Functions and shares no module graph with
+ * the SPA. src/test/embed-grade-indexing.test.ts asserts the two stay identical, which
+ * is what keeps the widget and the standalone page rendering the same header
+ * for the same URL.
+ */
+export function safeEmbedCompany(raw: string | null | undefined): string | null {
+  const cleaned = (raw ?? "")
+    // The ORDER carries the whole result, and both ways round are wrong in a
+    // different way.
+    //
+    // 1. Invisibles that are NOT whitespace go first — the bidi controls, the
+    //    zero-width marks, the soft hyphen, the BOM. They must vanish, not
+    //    become a space, or "Ni<BOM>ke" reads as "Ni ke". Several of these
+    //    (the BOM among them) are \s to JS, so a whitespace pass would have
+    //    turned them into spaces before anything could strip them.
+    .replace(/[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, "")
+    // U+034F (combining grapheme joiner) is stripped on its own: inside a
+    // character class it trips no-misleading-character-class, because a
+    // combining mark in a class is usually a mistake. Here it is not.
+    .replace(/\u034F/g, "")
+    // 2. Real whitespace collapses to one space. A tab and a newline are C0
+    //    CONTROL characters, so doing this after step 3 would delete the only
+    //    thing separating two words: "Acme\nVintage" became "AcmeVintage".
+    .replace(/\s+/g, " ")
+    // 3. Whatever control characters are left are non-whitespace by now.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    // 4. Again, because removing something can leave a double space behind.
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  return cleaned.slice(0, EMBED_COMPANY_MAX);
+}
+
 export function readEmbedBranding(url: URL): EmbedBranding {
-  const company = url.searchParams.get("company");
   return {
-    company: company && company.trim() ? company.trim().slice(0, 80) : null,
+    company: safeEmbedCompany(url.searchParams.get("company")),
     color: safeEmbedColor(url.searchParams.get("color")),
     logo: safeEmbedHttpsUrl(url.searchParams.get("logo")),
     support: safeEmbedHttpsUrl(url.searchParams.get("support")),

@@ -95,6 +95,9 @@ async function acquireValidateSlot(slotRef: { current: number }): Promise<void> 
   }
 }
 
+const RUNNING_SUBTITLE =
+  "AI is generating your listings — this page updates automatically.";
+
 export function FlipdeskAutolisterQueuePage() {
   const [params] = useSearchParams();
   const batchId = params.get("batch");
@@ -645,15 +648,11 @@ export function FlipdeskAutolisterQueuePage() {
       <BatchNav batchId={batchId} current="queue" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          {/* This screen is its OWN route (/autolister/queue), reached from a
-              batch rather than from the AutoLister host, so it owns the h1. */}
+          {/* Its OWN route (/autolister/queue), reached from a batch rather
+              than from the AutoLister host, so it owns the h1. */}
           <PageHeader
             title="Generating listings"
-            subtitle={
-              isRunning
-                ? "AI is generating your listings — this page updates automatically."
-                : "Batch complete."
-            }
+            subtitle={isRunning ? RUNNING_SUBTITLE : "Batch complete."}
           />
           {/* US-550: confidence-tier summary. */}
           {!isRunning && succeededJobs.length > 0 && (

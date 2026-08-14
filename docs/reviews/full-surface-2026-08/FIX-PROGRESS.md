@@ -183,7 +183,11 @@ unless a story is blocked; if blocked, note why and move to the next.
       generalised to PageHostContext; 7 children moved off a hand-rolled h1;
       shared HostViewSkeleton; Analytics range lifted AND the query string kept
       across tab clicks; guard `src/test/tab-host-headers.test.ts` (46 cases, 29 red)
-- [ ] US-2549 (2414) Embed widget missing noindex
+- [x] US-2549 (2414) Embed widget missing noindex - SHA3 - the noindex was ALREADY
+      there as an x-robots-tag header (finding corrected); added the stated decision,
+      a shared safeEmbedCompany that strips bidi/invisibles and is compared body-for-body
+      against the server widget, a skeleton and a retry; guard
+      `src/test/embed-grade-indexing.test.ts` (12 cases, 10 red)
 - [ ] US-2550 (2416) Failed integrity check gives buyer nothing to do
 - [ ] US-2551 (2418) Anonymous tag claim
 - [ ] US-2552 (2420) Buyer onboarding taxonomy
@@ -452,6 +456,30 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2549
+- Indexing is decided by the SERVING PATH, not by the page file. The finding said
+  "no SEO component, therefore crawlable" — but `/embed/*` goes through Pages
+  Functions, which delegate to `serveSpaShell`, which has sent
+  `x-robots-tag: noindex, nofollow` since US-2045. Before filing an indexing bug,
+  check `public/_routes.json` and the function that owns the path; a header beats
+  every meta tag and is invisible from `src/`.
+- Two copies of a rule need a test that COMPARES them, not one that restates the
+  rule. The first version of the parity check asserted the literal regex strings,
+  which makes the test a third copy: it passes while both files drift together
+  away from what it meant. Extracting both function bodies and asserting equality
+  is shorter and actually enforces the property.
+- Order of operations in a sanitiser is the whole result, and both orders are
+  wrong in different ways. A newline is a C0 CONTROL character, so stripping
+  controls first deleted the only thing separating two words. Several invisibles
+  (the BOM among them) are `\s` to JavaScript, so collapsing whitespace first
+  turned them into spaces. The working order is: strip non-space invisibles,
+  collapse whitespace, strip what controls remain, collapse again. Both halves
+  were found by test cases, not by reading.
+- A ratchet from an earlier story will catch the NEXT story. US-2548's PageHeader
+  conversion pushed autolister-queue.tsx one line over the shrink-only ceiling
+  US-2520 set. Fixed by tightening the block, never by raising the number. Run the
+  ratchet suites after any edit to a file one of them names.
 
 ### Lessons from US-2548
 - A suppression context suppresses YOU too. The first cut put each host's own

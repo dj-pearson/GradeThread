@@ -76,3 +76,55 @@ export function safeEmbedUrl(raw: string | null | undefined): string | null {
   }
   return url.protocol === "https:" ? url.href : null;
 }
+
+/** How long a partner company name may be before it is cut (US-2549). */
+export const EMBED_COMPANY_MAX = 80;
+
+/**
+ * The partner name shown as the embed card's header, made safe to display.
+ *
+ * `?company=` is as craftable as `?logo=` and `?support=`, and it was the one
+ * branding value passed straight through: any string, any length, rendered as
+ * the header of a page on gradethread.com. React escapes it, so this is not an
+ * XSS hole — it is a TRUST hole. The rules, in the order of what they stop:
+ *
+ *  - control characters and the Unicode bidi/invisible set are dropped. A
+ *    right-to-left override inside a name renders text the source does not say,
+ *    which is the entire point of putting one in a brand name.
+ *  - whitespace collapses, so a name cannot be padded out to push the
+ *    GradeThread attribution off the card.
+ *  - the result is capped at EMBED_COMPANY_MAX, matching the server-rendered
+ *    widget (functions/embed/grade/widget.ts) so the two renderings of the same
+ *    URL cannot disagree.
+ *
+ * Returns null for an empty or whitespace-only value so the caller falls back
+ * to the neutral header.
+ */
+export function safeEmbedCompany(raw: string | null | undefined): string | null {
+  const cleaned = (raw ?? "")
+    // The ORDER carries the whole result, and both ways round are wrong in a
+    // different way.
+    //
+    // 1. Invisibles that are NOT whitespace go first — the bidi controls, the
+    //    zero-width marks, the soft hyphen, the BOM. They must vanish, not
+    //    become a space, or "Ni<BOM>ke" reads as "Ni ke". Several of these
+    //    (the BOM among them) are \s to JS, so a whitespace pass would have
+    //    turned them into spaces before anything could strip them.
+    .replace(/[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g, "")
+    // U+034F (combining grapheme joiner) is stripped on its own: inside a
+    // character class it trips no-misleading-character-class, because a
+    // combining mark in a class is usually a mistake. Here it is not.
+    .replace(/\u034F/g, "")
+    // 2. Real whitespace collapses to one space. A tab and a newline are C0
+    //    CONTROL characters, so doing this after step 3 would delete the only
+    //    thing separating two words: "Acme\nVintage" became "AcmeVintage".
+    .replace(/\s+/g, " ")
+    // 3. Whatever control characters are left are non-whitespace by now.
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    // 4. Again, because removing something can leave a double space behind.
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return null;
+  return cleaned.slice(0, EMBED_COMPANY_MAX);
+}
