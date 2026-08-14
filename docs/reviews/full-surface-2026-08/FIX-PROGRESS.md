@@ -172,7 +172,7 @@ unless a story is blocked; if blocked, note why and move to the next.
 - [x] US-2543 (2402) Long secondary pages need structure - `9ee344d9` - rewards 9->3 tabs, referrals 8->3, verified 7->3, marketplaces 8->3; connection summary + profile preview added; promo code moved to Billing; guard `src/test/long-page-structure.test.ts` (16 cases, 12 red)
 - [x] US-2544 (2404) Submissions: no search, permanent empty disputes - `76ed6c1d` - search + date range applied to BOTH sort branches, visible sort direction, row selection + selected-CSV, phone card layout, disputes collapse on empty; guard `src/test/submissions-list-filters.test.ts` (17 cases, 14 red)
 - [x] US-2545 (2406) Submission detail: no lightbox - `30ac87b4` - same ImageLightbox as the certificate, two-buttons-one-destination collapsed to one, five post-grade cards into one "What's next" section; guard `src/test/submission-detail-evidence.test.ts` (10 cases, 7 red)
-- [ ] US-2546 (2408) Intake: no photos, no guard
+- [x] US-2546 (2408) Intake: no photos, no guard - `f204e6a9` - IntakePhotoStager on the main form uploading through an EXTRACTED shared core (`src/lib/item-photo-upload.ts`), navigation guard, MeasurementForm persisted to `inventory_items.measurements`, real `required` attribute; guard `src/test/intake-capture-and-guard.test.ts` (13 cases, 12 red)
 - [ ] US-2547 (2410) Overview tiles promise a filter that isn't applied
 - [ ] US-2548 (2412) Tabbed hosts show no name
 - [ ] US-2549 (2414) Embed widget missing noindex
@@ -444,3 +444,23 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2546
+- A form that creates the parent row cannot upload children from it. Photos need
+  an inventory_item_id that does not exist until save, so the shape is: stage in
+  memory, upload immediately after the insert returns the id, and report a photo
+  failure as "saved, but N photos didn't upload" - never as a failed save, or
+  the seller catalogues the item twice.
+- Before adding an upload path, EXTRACT the one that exists. photo-uploader.tsx
+  held 160 lines of normalize/compress/store/thumbnail/insert; a second copy
+  would have meant two EXIF-orientation stories, two thumbnail sizes and two
+  storage path formats, with only one of them ever getting fixed.
+- `lastIndexOf("    </div>
+  );
+}")` finds the LAST component in the file, which
+  in a page with helper components at the bottom is not the page. Anchor the
+  search to the start of the helpers: `lastIndexOf(TAIL, indexOf("
+function Helper("))`.
+- Keep an unsaved-work guard NARROW. Blocking when nothing is at stake trains
+  people to click through the dialog, which is how a guard silently stops
+  working. Compare against the INITIAL form state, not against emptiness.
