@@ -73,7 +73,7 @@ export async function personalizeJourneyIntro(
           model,
           inputTokens: response.usage.input_tokens,
           outputTokens: response.usage.output_tokens,
-          cacheCreationTokens: 0,
+          cacheWriteTokens: 0,
           cacheReadTokens: 0,
         },
       }],

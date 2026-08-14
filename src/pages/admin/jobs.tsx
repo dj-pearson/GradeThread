@@ -37,13 +37,18 @@ import {
   Loader2,
   RotateCcw,
   XCircle,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
 } from "lucide-react";
+import { Link } from "react-router";
 import { PageHeader } from "@/components/ui/page-header";
 
-// US-584 — admin job/queue monitoring + manual retry/cancel + cron health.
+// US-584 — admin job/queue monitoring + manual retry/cancel.
+//
+// US-2558: cron health and dead letters USED to be tabs here, reading
+// /api/admin/jobs/crons and /api/admin/jobs/dead-letters. Both were read-only
+// copies of /admin/ops/jobs and /admin/ops/dead-letters, which carry the
+// actions — Run-now behind an MFA step-up, and replay/re-queue/discard. An
+// operator triaging from the copy could only watch. They link out now; folding
+// the ops pages in here instead would have deleted those actions.
 
 type JobKind = "grading" | "sync" | "autolister" | "publish" | "email" | "repricing";
 
@@ -62,38 +67,11 @@ interface JobRow {
   can_cancel: boolean;
 }
 
-interface CronRow {
-  name: string;
-  label: string;
-  schedule: string;
-  category: string;
-  endpoint: string;
-  recorded: boolean;
-  next_run_at: string | null;
-  last_run_at: string | null;
-  last_status: string | null;
-  last_http_status: number | null;
-  last_duration_ms: number | null;
-}
 
-interface DeadLetters {
-  webhooks: Array<{
-    id: string;
-    provider: string;
-    event_id: string;
-    event_type: string | null;
-    error_message: string | null;
-    created_at: string;
-  }>;
-  emails: Array<{
-    id: string;
-    recipient: string;
-    category: string;
-    attempts: number;
-    max_attempts: number;
-    last_error: string | null;
-    updated_at: string;
-  }>;
+// US-2558: the webhook + email families are gone from here. They were the same
+// two /admin/ops/dead-letters shows WITH replay, and this page could only
+// display them. What is left is the pair nothing else showed at all.
+interface FailedBatches {
   failed_generation_batches: Array<{ id: string; user_id: string; item_count: number; failed_count: number; error: string | null; updated_at: string }>;
   failed_publish_batches: Array<{ id: string; user_id: string; item_count: number; failed_count: number; error: string | null; updated_at: string }>;
 }
@@ -169,15 +147,9 @@ export function AdminJobsPage() {
     refetchInterval: visible ? 20_000 : false,
   });
 
-  const cronQuery = useQuery({
-    queryKey: ["admin-jobs-crons"],
-    queryFn: () => getJson<{ crons: CronRow[]; server_now: string }>("/api/admin/jobs/crons"),
-    refetchInterval: visible ? 30_000 : false,
-  });
-
-  const deadQuery = useQuery({
-    queryKey: ["admin-jobs-dead-letters"],
-    queryFn: () => getJson<DeadLetters>("/api/admin/jobs/dead-letters"),
+  const batchQuery = useQuery({
+    queryKey: ["admin-jobs-failed-batches"],
+    queryFn: () => getJson<FailedBatches>("/api/admin/jobs/failed-batches"),
     refetchInterval: visible ? 30_000 : false,
   });
 
@@ -195,7 +167,9 @@ export function AdminJobsPage() {
       toast.success(`Job ${pending.action === "retry" ? "re-queued" : "cancelled"}`);
       setPending(null);
       void jobsQuery.refetch();
-      void deadQuery.refetch();
+      // The failed-batch list is unaffected by a retry/cancel of a JOB, so it
+      // is not refetched here — it used to be, because this line named the
+      // dead-letter query that lived on the removed tab.
     } catch (err) {
       toast.error(err instanceof Error ? err.message : `${pending.action} failed`);
     } finally {
@@ -223,8 +197,7 @@ export function AdminJobsPage() {
       <Tabs defaultValue="jobs">
         <TabsList>
           <TabsTrigger value="jobs">Jobs</TabsTrigger>
-          <TabsTrigger value="crons">Cron Health</TabsTrigger>
-          <TabsTrigger value="dead">Dead Letters</TabsTrigger>
+          <TabsTrigger value="batches">Failed batches</TabsTrigger>
         </TabsList>
 
         {/* ── Jobs ── */}
@@ -343,112 +316,46 @@ export function AdminJobsPage() {
         </TabsContent>
 
         {/* ── Cron health ── */}
-        <TabsContent value="crons">
+        {/* US-2558: Cron Health and Dead Letters were READ-ONLY copies of
+            /admin/ops/jobs and /admin/ops/dead-letters. The ops pages carry the
+            actions — a super-admin Run-now behind an MFA step-up, and real
+            replay/re-queue/discard — so triaging from the copy meant looking at
+            a problem you could not touch. They link out instead of folding the
+            ops pages in here, which would have deleted those actions. */}
+        <TabsContent value="batches" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Scheduled jobs</CardTitle>
+              <CardTitle className="text-base">Elsewhere</CardTitle>
               <CardDescription>
-                Last run is captured for <code>/api/jobs/*</code> crons; eBay/Google crons show schedule &amp; next run only.
+                Cron health, webhook dead-letters and dead-lettered emails live on
+                the ops pages, which can act on them.
               </CardDescription>
             </CardHeader>
-            <CardContent className="p-0">
-              {cronQuery.isLoading ? (
-                <div className="space-y-2 p-4">
-                  {Array.from({ length: 8 }).map((_, i) => (
-                    <Skeleton key={i} className="h-10" />
-                  ))}
-                </div>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Job</TableHead>
-                      <TableHead>Schedule</TableHead>
-                      <TableHead>Last run</TableHead>
-                      <TableHead>Outcome</TableHead>
-                      <TableHead>Next run</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(cronQuery.data?.crons ?? []).map((cr) => (
-                      <TableRow key={cr.name}>
-                        <TableCell className="font-medium">
-                          {cr.label}
-                          <span className="ml-1 text-xs text-muted-foreground">{cr.category}</span>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">{cr.schedule}</TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          {cr.recorded ? relativeAge(cr.last_run_at) : <span className="italic">n/a</span>}
-                        </TableCell>
-                        <TableCell>
-                          {cr.last_status == null ? (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          ) : cr.last_status === "success" ? (
-                            <span className="flex items-center gap-1 text-xs text-emerald-600">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              {cr.last_duration_ms != null ? `${cr.last_duration_ms}ms` : "ok"}
-                            </span>
-                          ) : (
-                            <span className="flex items-center gap-1 text-xs text-destructive">
-                              <AlertTriangle className="h-3.5 w-3.5" />
-                              {cr.last_http_status ?? cr.last_status}
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
-                          <Clock className="mr-1 inline h-3 w-3" />
-                          {relativeAge(cr.next_run_at)}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
+            <CardContent className="flex flex-wrap gap-2">
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/admin/ops/jobs">Cron health, with Run now</Link>
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link to="/admin/ops/dead-letters">Dead letters, with replay</Link>
+              </Button>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        {/* ── Dead letters ── */}
-        <TabsContent value="dead" className="space-y-4">
-          <DeadLetterCard
-            title="Webhook dead-letters"
-            description="Provider events that failed handling and were parked for manual replay."
-            empty={(deadQuery.data?.webhooks.length ?? 0) === 0}
-            loading={deadQuery.isLoading}
-          >
-            {(deadQuery.data?.webhooks ?? []).map((w) => (
-              <TableRow key={w.id}>
-                <TableCell>
-                  <Badge variant="outline">{w.provider}</Badge>
-                </TableCell>
-                <TableCell className="font-mono text-xs">{w.event_type ?? w.event_id}</TableCell>
-                <TableCell className="max-w-md truncate text-xs text-muted-foreground" title={w.error_message ?? ""}>
-                  {w.error_message ?? "—"}
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{relativeAge(w.created_at)}</TableCell>
-              </TableRow>
-            ))}
-          </DeadLetterCard>
-
-          <DeadLetterCard
-            title="Dead-lettered emails"
-            description="Transactional emails that exhausted their retry budget."
-            empty={(deadQuery.data?.emails.length ?? 0) === 0}
-            loading={deadQuery.isLoading}
-          >
-            {(deadQuery.data?.emails ?? []).map((e) => (
-              <TableRow key={e.id}>
-                <TableCell>
-                  <Badge variant="outline">{e.category}</Badge>
-                </TableCell>
-                <TableCell className="text-xs">{e.recipient}</TableCell>
-                <TableCell className="max-w-md truncate text-xs text-muted-foreground" title={e.last_error ?? ""}>
-                  {e.last_error ?? "—"} <span className="text-muted-foreground">({e.attempts}/{e.max_attempts})</span>
-                </TableCell>
-                <TableCell className="whitespace-nowrap text-sm text-muted-foreground">{relativeAge(e.updated_at)}</TableCell>
-              </TableRow>
-            ))}
-          </DeadLetterCard>
+          {/* These two were already being FETCHED by this page and rendered by
+              nothing — two queries every 30 seconds for a blind spot. A failed
+              batch is retried by its own reclaim cron, so this stays a read. */}
+          <FailedBatchCard
+            title="Failed AutoLister generations"
+            description="Generation batches that ended in failed. The reclaim cron retries a stalled batch; these are the ones it gave up on."
+            rows={batchQuery.data?.failed_generation_batches ?? []}
+            loading={batchQuery.isLoading}
+          />
+          <FailedBatchCard
+            title="Failed publish batches"
+            description="Bulk publish batches that ended in failed."
+            rows={batchQuery.data?.failed_publish_batches ?? []}
+            loading={batchQuery.isLoading}
+          />
         </TabsContent>
       </Tabs>
 
@@ -487,18 +394,29 @@ export function AdminJobsPage() {
   );
 }
 
-function DeadLetterCard({
+interface FailedBatchRow {
+  id: string;
+  user_id: string;
+  item_count: number;
+  failed_count: number;
+  error: string | null;
+  updated_at: string;
+}
+
+// US-2558: replaced DeadLetterCard, which rendered webhook + email rows this
+// page no longer shows. The columns are the ones an operator needs to decide
+// whether a failed batch is one seller's problem or everyone's: whose it is,
+// how much of it failed, and what it said.
+function FailedBatchCard({
   title,
   description,
-  empty,
+  rows,
   loading,
-  children,
 }: {
   title: string;
   description: string;
-  empty: boolean;
+  rows: FailedBatchRow[];
   loading: boolean;
-  children: React.ReactNode;
 }) {
   return (
     <Card>
@@ -513,20 +431,51 @@ function DeadLetterCard({
               <Skeleton key={i} className="h-10" />
             ))}
           </div>
-        ) : empty ? (
-          <p className="p-8 text-center text-sm text-muted-foreground">Nothing parked — all clear.</p>
+        ) : rows.length === 0 ? (
+          <p className="p-8 text-center text-sm text-muted-foreground">
+            Nothing failed — all clear.
+          </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Source</TableHead>
-                <TableHead>Reference</TableHead>
-                <TableHead>Error</TableHead>
-                <TableHead>Age</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>{children}</TableBody>
-          </Table>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Batch</TableHead>
+                  <TableHead>Owner</TableHead>
+                  <TableHead>Failed</TableHead>
+                  <TableHead>Error</TableHead>
+                  <TableHead>Age</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((b) => (
+                  <TableRow key={b.id}>
+                    <TableCell className="font-mono text-xs">{b.id.slice(0, 8)}</TableCell>
+                    <TableCell>
+                      <Link
+                        to={`/admin/users/${b.user_id}`}
+                        className="font-mono text-xs hover:underline"
+                      >
+                        {b.user_id.slice(0, 8)}
+                      </Link>
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {b.failed_count} of {b.item_count}
+                    </TableCell>
+                    <TableCell
+                      className="max-w-md truncate text-xs text-muted-foreground"
+                      title={b.error ?? ""}
+                    >
+                      {b.error ?? "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {new Date(b.updated_at).toLocaleString()}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         )}
       </CardContent>
     </Card>

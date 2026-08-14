@@ -26,7 +26,7 @@ import {
   withEdgeCache,
   type PagesEnv,
 } from "../_shared/blog-render";
-import { certNotFoundResponse } from "./cert-not-found";
+import { certNotFoundResponse, certRevisedResponse } from "./cert-not-found";
 import { aiDisclosureNoticeHtml } from "../_shared/ai-disclosure";
 import { conditionAuthenticityNoticeHtml } from "../_shared/condition-authenticity";
 import { INTEGRITY_TIER_BASIS, LEVEL_FLAIR_BASIS } from "../_shared/status-basis";
@@ -154,6 +154,24 @@ async function renderCertificate(context: Ctx): Promise<Response> {
     }
     throw e;
   }
+  // US-2569: a REVISED certificate is not a missing one. The upstream answers
+  // 200 with `revised: true` when a regrade retired this number, and the buyer
+  // holding the hangtag it is printed on deserves to be told where the current
+  // grade is rather than shown a 404 that reads as "this was never real".
+  const revised = data as unknown as {
+    revised?: boolean;
+    message?: string;
+    current_certificate_id?: string | null;
+    current_certificate_number?: string | null;
+  } | null;
+  if (revised?.revised) {
+    return certRevisedResponse(env, {
+      message: revised.message ?? "This certificate was replaced.",
+      current_certificate_id: revised.current_certificate_id ?? null,
+      current_certificate_number: revised.current_certificate_number ?? null,
+    });
+  }
+
   // Reaching here means the upstream ANSWERED and the cert genuinely is not
   // there (or is withheld) — the one case that deserves the branded 404.
   if (!data?.certificate) return certNotFoundResponse(env);

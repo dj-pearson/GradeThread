@@ -253,3 +253,33 @@ export function computeBatchCredits(
   }
   return credits;
 }
+
+// ── US-2564: the charge key for a FlipDesk bulk grade ────────────────────
+//
+// The web and API paths derive their idempotency key from something the SERVER
+// mints — `grade_pay:<submissionId>` (US-2298), `grade-batch-job:<jobId>`
+// (US-2289) — and that works there because the id already exists when the key is
+// needed. The FlipDesk bulk path cannot do that: it creates a submission per
+// item inside the charging loop, so a retried batch mints a fresh submission for
+// every item and every derived key is new. Twenty items retried is forty
+// charges.
+//
+// So the stable half has to come from the CLIENT. The SPA mints one
+// `batch_key` at the click and reuses it verbatim on retry; the item id makes it
+// unique per garment within the batch. Same batch retried → same key per item →
+// the RPC's duplicate check finds the prior ledger row and debits nothing.
+//
+// Returns NULL, never "", when no batch_key was sent. The caller passes that
+// straight through, and `debit_grade_credits` takes its NULL path — byte-for-byte
+// the behaviour before this existed. An empty string would be a real key that
+// every keyless caller shared, so the FIRST such charge would suppress every
+// later one across the whole product. That is why this is a function and not an
+// inline template literal.
+export function bulkChargeKey(
+  batchKey: string | null | undefined,
+  inventoryItemId: string,
+): string | null {
+  const trimmed = (batchKey ?? "").trim();
+  if (!trimmed) return null;
+  return `fd-bulk:${trimmed}:${inventoryItemId}`;
+}

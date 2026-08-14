@@ -1870,22 +1870,6 @@
       ]
     },
     {
-      "id": "US-2558",
-      "passes": false,
-      "title": "Admin jobs and dead-letters are shown twice, and the weaker copy has no actions",
-      "description": "As an operator, I want the jobs and dead-letter views that can actually DO something, so that I do not triage from a read-only copy.",
-      "acceptanceCriteria": [
-        "/admin/jobs (Jobs and Queues) has tabs Jobs, Cron Health and Dead Letters at jobs.tsx:225-227. /admin/ops/jobs (Background Jobs) and /admin/ops/dead-letters cover the same two subjects.",
-        "The ops pages are the RICHER ones and must survive: ops-jobs.tsx:145 has a super-admin Run-now with server-side MFA step-up, and ops-dead-letters.tsx:165,419 has real replay/re-queue with a per-item replayable flag. jobs.tsx's Dead Letters tab only DESCRIBES parked events (jobs.tsx:415) — it is read-only.",
-        "Resolve by removing the two read-only tabs from /admin/jobs and linking out to the pages that can act, NOT by folding the ops pages into it — folding would delete Run-now and replay.",
-        "Verify no operator flow depends on the removed tabs before deleting them; jobs.tsx is 534 lines and its Jobs tab stays."
-      ],
-      "priority": 2432,
-      "dependsOn": [
-        "US-2512"
-      ]
-    },
-    {
       "id": "US-2559",
       "passes": false,
       "title": "Four admin clusters are one domain spread across 16 nav entries",

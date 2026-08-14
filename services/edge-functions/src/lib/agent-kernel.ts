@@ -526,7 +526,7 @@ export async function runAgent(
       model,
       inputTokens: tokensIn,
       outputTokens: tokensOut,
-      cacheCreationTokens: 0,
+      cacheWriteTokens: 0,
       cacheReadTokens: 0,
     });
 

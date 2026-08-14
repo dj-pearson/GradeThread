@@ -8,6 +8,7 @@ import {
 } from "../lib/disclosure.ts";
 import { readImageDimensions, validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
+import { ensureCertificateNumber } from "../lib/cert-number.ts";
 
 // Auto-Disclosure Engine endpoints. Everything is scoped through the OWNING
 // inventory_item: we verify the caller owns the item (user_id === owner) before
@@ -143,6 +144,14 @@ flipdeskDisclosureRoutes.get("/item/:itemId", async (c) => {
       overall_score: report.overall_score,
       grade_tier: report.grade_tier,
       certificate_id: report.certificate_id,
+      // US-2567: the human-readable GT-XXXXXXX. The preview canvas burns this
+      // into its legend exactly as the worker does, so the seller sees the
+      // artifact that will actually ship rather than an unstamped rehearsal of
+      // it. ensureCertificateNumber backfills a certified report that predates
+      // migration 00307 rather than showing a blank.
+      certificate_number: report.certificate_id
+        ? await ensureCertificateNumber(report.certificate_id)
+        : null,
     },
     disclosure: {
       plain: disclosure.plain,

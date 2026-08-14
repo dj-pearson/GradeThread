@@ -279,22 +279,21 @@ adminJobsRoutes.get("/", async (c) => {
   return c.json({ jobs });
 });
 
-// GET /dead-letters — backlog drill-down: webhook dead-letters (unresolved),
-// dead-lettered emails, and failed AutoLister/publish batches.
-adminJobsRoutes.get("/dead-letters", async (c) => {
-  const [webhooks, emails, gen, pub] = await Promise.all([
-    supabaseAdmin
-      .from("webhook_dead_letters")
-      .select("id, provider, event_id, event_type, error_message, status, created_at")
-      .eq("status", "unresolved")
-      .order("created_at", { ascending: false })
-      .limit(100),
-    supabaseAdmin
-      .from("email_deliveries")
-      .select("id, recipient, category, subject, attempts, max_attempts, last_error, updated_at")
-      .eq("status", "dead_letter")
-      .order("updated_at", { ascending: false })
-      .limit(100),
+// GET /failed-batches — AutoLister generation + publish batches that ended in
+// `failed`. Read-only by nature: a batch is retried by its own reclaim path,
+// not by re-queueing a webhook.
+// US-2558: the webhook and email families were REMOVED from this response.
+//
+// They are the same two /api/admin/ops/dead-letters serves, and that endpoint
+// backs a page with real replay, re-queue and discard. This one is read-only,
+// so an operator triaging here could only look. Both were fetched on every
+// 30-second poll of a page that now links out to the surface which can act.
+//
+// What stayed is what nothing else shows: failed AutoLister generation and
+// publish batches. Those were being fetched here already and rendered by NO
+// page at all — two queries per poll for a blind spot.
+adminJobsRoutes.get("/failed-batches", async (c) => {
+  const [gen, pub] = await Promise.all([
     supabaseAdmin
       .from("listing_generation_batches")
       .select("id, user_id, status, item_count, failed_count, error, updated_at")
@@ -309,8 +308,6 @@ adminJobsRoutes.get("/dead-letters", async (c) => {
       .limit(50),
   ]);
   return c.json({
-    webhooks: webhooks.data ?? [],
-    emails: emails.data ?? [],
     failed_generation_batches: gen.data ?? [],
     failed_publish_batches: pub.data ?? [],
   });

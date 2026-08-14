@@ -164,7 +164,7 @@ async function recordImageSpend(model: string, size: string, quality: string, la
       model,
       inputTokens: 0,
       outputTokens: estimateImageTokens(size, quality),
-      cacheCreationTokens: 0,
+      cacheWriteTokens: 0,
       cacheReadTokens: 0,
     },
     latencyMs,

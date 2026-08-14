@@ -72,7 +72,7 @@ Deno.test("computeCostUsd prices input/output/cache tokens from the table", () =
     model: "claude-sonnet-4-6",
     inputTokens: 1_000_000,
     outputTokens: 1_000_000,
-    cacheCreationTokens: 0,
+    cacheWriteTokens: 0,
     cacheReadTokens: 0,
   });
   assertEquals(cost, 18);
@@ -83,7 +83,7 @@ Deno.test("computeCostUsd is 0 (not NaN) for an unknown model", () => {
     model: "some-unlisted-model",
     inputTokens: 5_000,
     outputTokens: 5_000,
-    cacheCreationTokens: 0,
+    cacheWriteTokens: 0,
     cacheReadTokens: 0,
   });
   assertEquals(cost, 0);

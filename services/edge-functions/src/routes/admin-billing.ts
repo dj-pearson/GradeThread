@@ -434,14 +434,28 @@ adminBillingRoutes.get("/billing/users/:id/ledger", requireScope("billing:write"
     : 50;
   const offset = Number.isFinite(offsetRaw) && offsetRaw > 0 ? Math.trunc(offsetRaw) : 0;
 
+  // US-2562: a MISSING users row is not an error here — it is the case this
+  // endpoint exists to serve.
+  //
+  // Migration 00595 removed the cascading foreign key so the ledger outlives the
+  // account, and that bought nothing while this handler 404'd the moment
+  // public.users had no row: the retained transactions were unreachable through
+  // the only surface that reads them, and a dispute filed after a deletion is
+  // exactly when someone opens this page.
+  //
+  // `single()` is now `maybeSingle()`, and the guard distinguishes a real read
+  // failure (still fatal) from an absent account (serve the ledger, mark it
+  // erased). The ledger query below never joined users, so nothing else moves.
   const { data: targetUser, error: userError } = await supabaseAdmin
     .from("users")
     .select("id, email, grade_credit_balance")
     .eq("id", targetUserId)
-    .single();
-  if (userError || !targetUser) {
-    return c.json({ error: "User not found" }, 404);
+    .maybeSingle();
+  if (userError) {
+    console.error("[admin-billing] ledger user lookup failed:", userError);
+    return c.json({ error: "Failed to load ledger" }, 500);
   }
+  const accountErased = !targetUser;
 
   const { data, count, error } = await supabaseAdmin
     .from("grade_credit_transactions")
@@ -472,11 +486,18 @@ adminBillingRoutes.get("/billing/users/:id/ledger", requireScope("billing:write"
   }
 
   return c.json({
-    user: {
-      id: targetUser.id,
-      email: targetUser.email,
-      grade_credit_balance: targetUser.grade_credit_balance,
-    },
+    // US-2562: null when the account has been erased. The id is echoed from the
+    // request rather than the row so the caller always gets back the subject it
+    // asked about, and `account_erased` is explicit rather than something the
+    // UI has to infer from a null email — an inferred deletion reads as a bug.
+    user: targetUser
+      ? {
+        id: targetUser.id,
+        email: targetUser.email,
+        grade_credit_balance: targetUser.grade_credit_balance,
+      }
+      : { id: targetUserId, email: null, grade_credit_balance: null },
+    account_erased: accountErased,
     data: data ?? [],
     page: { limit, offset, total },
     invariant_ok: invariantOk,

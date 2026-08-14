@@ -60,6 +60,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
+import { bulkBatchKey } from "@/lib/bulk-batch-key";
 import { useAuthStore } from "@/stores/auth-store";
 import { useItemsList, itemsListQueryKey } from "@/hooks/use-items-full";
 import { useUrlSearchInput } from "@/hooks/use-url-param-state";
@@ -1241,6 +1242,18 @@ function BulkGradeDialog({
   const [validation, setValidation] = useState<ValidationResult | null>(null);
 
   const itemIds = useMemo(() => (items ?? []).map((i) => i.id), [items]);
+
+  // US-2564: one charge token per SELECTION, not per attempt.
+  //
+  // Grading is billed per garment, and a failed submit is the thing a seller
+  // retries hardest — so the token has to survive the retry that a fresh mint
+  // would defeat. Deriving it from the item set and tier (rather than useState)
+  // makes it stable across re-renders, across as many presses of Submit as the
+  // user makes, and across closing and reopening the sheet; it changes the
+  // moment they pick different items or a different tier, which is exactly when
+  // a NEW set of charges is correct.
+  const batchKey = useMemo(() => bulkBatchKey(itemIds, tier), [itemIds, tier]);
+
   const titleById = useMemo(() => {
     const m = new Map<string, string | null>();
     for (const i of items ?? []) m.set(i.id, i.item_title);
@@ -1279,6 +1292,7 @@ function BulkGradeDialog({
       const res = await submit.mutateAsync({
         inventoryItemIds: itemIds,
         tier,
+        batchKey: batchKey ?? undefined,
       });
       const results: BatchResult[] = res.results.map((r) =>
         r.ok

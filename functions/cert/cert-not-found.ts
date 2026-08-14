@@ -23,3 +23,57 @@ export function certNotFoundResponse(env: PagesEnv): Response {
     canonicalPath: "/verified",
   });
 }
+
+/**
+ * US-2569: the REVISED certificate page.
+ *
+ * A regrade retires the old certificate, and until now that made its URL answer
+ * the branded 404 above — which is the wrong answer twice over. It tells a buyer
+ * holding a hangtag that the number they were told to trust is worthless, and it
+ * deindexes a URL that is still the correct entry point for that garment.
+ *
+ * This says what actually happened and where the current grade is. 200, not 404
+ * or 301: the page has real content (the revision history), and a redirect would
+ * silently swap the certificate under a buyer who is trying to check a specific
+ * number.
+ */
+export function certRevisedResponse(
+  env: PagesEnv,
+  revision: {
+    message: string;
+    current_certificate_id: string | null;
+    current_certificate_number: string | null;
+  },
+): Response {
+  const link = revision.current_certificate_id
+    ? `<a href="/cert/${encodeURIComponent(revision.current_certificate_id)}">` +
+      `View the current grade${
+        revision.current_certificate_number
+          ? ` (${escapeHtml(revision.current_certificate_number)})`
+          : ""
+      } &rarr;</a>`
+    : '<a href="/verify">Check another certificate &rarr;</a>';
+
+  return notFoundResponse(env, {
+    title: "Certificate revised — GradeThread",
+    heading: "This certificate was revised",
+    message: `${escapeHtml(revision.message)} ${link}`,
+    canonicalPath: revision.current_certificate_id
+      ? `/cert/${revision.current_certificate_id}`
+      : "/verify",
+    status: 200,
+    // Indexable: the canonical points at the CURRENT certificate, so a crawler
+    // that already has this URL follows the revision forward instead of dropping
+    // a link that is still the right entry point for this garment.
+    noindex: false,
+  });
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}

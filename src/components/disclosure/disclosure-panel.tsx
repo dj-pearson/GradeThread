@@ -146,12 +146,26 @@ export function DisclosurePanel({ itemId }: { itemId: string }) {
           <div className="space-y-3">
             <div className="text-sm font-medium">Annotated defect photos</div>
             <p className="text-xs text-muted-foreground">
-              Numbered callouts mark each flaw. Download or attach them to your
-              listing so buyers see exactly what they're getting.
+              Numbered callouts mark each flaw, stamped with your certificate
+              number. Download or attach them to your listing so buyers see
+              exactly what they're getting.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               {photos.map((p) => (
-                <AnnotatedPhoto key={p.image_type} photo={p} itemId={itemId} />
+                <AnnotatedPhoto
+                  key={p.image_type}
+                  photo={p}
+                  itemId={itemId}
+                  // US-2567: the same stamp the AutoLister worker burns in, so
+                  // this preview is the artifact rather than a rehearsal of it.
+                  stamp={data?.grade
+                    ? {
+                      certificateNumber: data.grade.certificate_number ?? null,
+                      overallScore: data.grade.overall_score,
+                      gradeTier: data.grade.grade_tier,
+                    }
+                    : null}
+                />
               ))}
             </div>
           </div>

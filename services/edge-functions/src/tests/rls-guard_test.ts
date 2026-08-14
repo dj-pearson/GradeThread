@@ -55,6 +55,20 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2569: the certificate revision history. Deny-all even though what it
+  // records ends up on a PUBLIC page, and that is the point: the public
+  // certificate endpoint reads it service-role and then re-applies
+  // isCertificateWithheld to the successor. A direct read policy would let
+  // anyone walk a revision chain to a grade that is currently withheld for
+  // moderation — turning the revision trail into the way around the hold.
+  "grade_report_revisions",
+  // US-2563: the public API's Idempotency-Key replay records. Deny-all, and the
+  // read side is the one that matters: response_body holds the verbatim 2xx of
+  // a prior call, so a readable table would hand any authenticated session the
+  // stored grade payloads of whoever else happened to be mid-retry. The
+  // middleware reaches it through the service-role client only. Its owner column
+  // is `owner_user_id` per the convention below.
+  "api_idempotency_records",
   // US-2324: the marketplace sync quarantine. Deny-all in both directions.
   // Readable, it would show a seller the raw provider error text for their own
   // orders; writable, it would let them clear their own quarantine and re-poison

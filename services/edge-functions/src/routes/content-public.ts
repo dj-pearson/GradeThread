@@ -13,6 +13,12 @@ import {
 } from "../lib/certificate-gallery.ts";
 import { normalizeCertNumber } from "../lib/cert-number.ts";
 import {
+  resolveRevisionChain,
+  type RevisionResolution,
+  revisionMessage,
+  type RevisionRow,
+} from "../lib/cert-revision.ts";
+import {
   CERTIFICATE_REPORT_REASONS,
   composeCertificateReportReason,
   enqueueModerationFlag,
@@ -897,6 +903,97 @@ async function loadCertSellerIntegrity(
 // ── GET /certificates/:id ─────────────────────────────────────────
 // Public certificate by certificate_id. Returns 404 for any id that doesn't
 // map to a certified (public) report — never leaks a private report.
+
+// ── US-2569: a retired certificate resolves to its successor ───────────────
+//
+// A regrade nulls the old report's certificate_id (00150 + regradeSubmission),
+// and every public read filters on `certificate_id IS NOT NULL` — so before
+// 00600 the retired number resolved to nothing at all. That is the wrong answer
+// for a trust surface: a buyer holding a hangtag with that number printed on it
+// learns the number cannot be relied on, which is the only thing the product
+// sells.
+//
+// `match` is the column to look the retired certificate up by — its id for
+// /certificates/:id, its number for /certificates/by-number/:number.
+//
+// ⚠ THE WITHHOLD RULES STILL APPLY, and this is the part worth being careful
+// about: a revision must never become a way to read around a moderation hold.
+// The successor's submission is checked with the SAME isCertificateWithheld
+// predicate a live certificate goes through, and a withheld successor answers
+// "pending" rather than naming it.
+const REVISION_COLUMNS =
+  // submission_id is selected because the chain walk below needs every revision
+  // for the same garment, not just the one that matched.
+  "submission_id, superseded_report_id, superseded_certificate_id, superseded_certificate_number, " +
+  "superseded_overall_score, superseded_grade_tier, superseding_report_id, " +
+  "superseding_certificate_id, superseding_certificate_number, " +
+  "superseding_overall_score, superseding_grade_tier, reason, superseded_at";
+
+async function loadRevisionResolution(
+  match: { certificateId: string } | { certificateNumber: string },
+): Promise<RevisionResolution | null> {
+  const base = supabaseAdmin.from("grade_report_revisions").select(REVISION_COLUMNS);
+  const query = "certificateId" in match
+    ? base.eq("superseded_certificate_id", match.certificateId)
+    : base.eq("superseded_certificate_number", match.certificateNumber);
+
+  const { data, error } = await query.maybeSingle();
+  if (error || !data) return null;
+  const start = data as unknown as RevisionRow;
+
+  // Every revision for this garment, so a chain of regrades walks all the way to
+  // the live grade rather than stopping at a certificate that is itself retired.
+  const { data: siblings } = await supabaseAdmin
+    .from("grade_report_revisions")
+    .select(REVISION_COLUMNS)
+    .eq("submission_id", (data as unknown as { submission_id?: string }).submission_id ?? "")
+    .limit(50);
+  const byRetired = new Map<string, RevisionRow>();
+  for (const row of ((siblings ?? []) as unknown as RevisionRow[])) {
+    byRetired.set(row.superseded_report_id, row);
+  }
+
+  const resolution = resolveRevisionChain(start, byRetired);
+  if (resolution.status !== "revised") return resolution;
+
+  // The successor must pass the same publicity gate a live certificate does.
+  const { data: successor } = await supabaseAdmin
+    .from("grade_reports")
+    .select("submission_id")
+    .eq("certificate_id", resolution.currentCertificateId)
+    .not("certificate_id", "is", null)
+    .maybeSingle();
+  if (!successor) {
+    return { status: "pending", revisedAt: resolution.revisedAt, hops: resolution.hops };
+  }
+  const { data: sub } = await supabaseAdmin
+    .from("submissions")
+    .select("flagged, moderation_status, status")
+    .eq("id", (successor as { submission_id: string }).submission_id)
+    .maybeSingle();
+  if (isCertificateWithheld(sub as never)) {
+    return { status: "pending", revisedAt: resolution.revisedAt, hops: resolution.hops };
+  }
+  return resolution;
+}
+
+/** The revised-certificate body, shared by the id and number lookups. */
+function revisionBody(resolution: RevisionResolution) {
+  return {
+    revised: true,
+    status: resolution.status,
+    message: revisionMessage(resolution),
+    revised_at: resolution.revisedAt,
+    current_certificate_id: resolution.status === "revised"
+      ? resolution.currentCertificateId
+      : null,
+    current_certificate_number: resolution.status === "revised"
+      ? resolution.currentCertificateNumber
+      : null,
+    history: resolution.hops,
+  };
+}
+
 contentPublicRoutes.get("/certificates/:id", async (c) => {
   const certId = c.req.param("id");
   // A non-UUID can never match a row; answer 404 rather than letting Postgres
@@ -905,7 +1002,14 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
 
   const { data: report, error } = await loadPublicCertReport(certId);
   if (error) return publicError(c, error, "query");
-  if (!report) return c.json({ error: "Not found" }, 404);
+  if (!report) {
+    // US-2569: before answering 404, ask whether this certificate was REVISED.
+    // 200 with a revised body rather than a 301: the client needs the history
+    // and the "new grade pending" state, and a redirect can express neither.
+    const revision = await loadRevisionResolution({ certificateId: certId });
+    if (revision) return c.json(revisionBody(revision), 200);
+    return c.json({ error: "Not found" }, 404);
+  }
   const rep = report as unknown as CertReportRow;
 
   // Garment metadata from the parent submission (title/brand/category +
@@ -1553,7 +1657,15 @@ contentPublicRoutes.get("/certificates/by-number/:number", async (c) => {
     .not("certificate_id", "is", null)
     .maybeSingle();
   if (error) return publicError(c, error, "query");
-  if (!report) return c.json({ found: false }, 404);
+  if (!report) {
+    // US-2569 AC5: the number on a hangtag outlives the certificate it was
+    // issued against. Resolve it to the successor rather than saying not found.
+    const revision = await loadRevisionResolution({ certificateNumber: number });
+    if (revision) {
+      return c.json({ found: false, ...revisionBody(revision) }, 200);
+    }
+    return c.json({ found: false }, 404);
+  }
   const rep = report as unknown as {
     certificate_id: string;
     submission_id: string;

@@ -1,6 +1,13 @@
-import Anthropic from "@anthropic-ai/sdk";
+// US-2568: THIS MODULE NO LONGER IMPORTS THE ANTHROPIC SDK AT ALL.
+//
+// That is the measurable outcome of the story, not a side effect: the file that
+// earns the revenue now depends on lib/ai-provider.ts — a request shape, a
+// response shape and normalized usage — and on nothing a vendor publishes.
+// Swapping providers is a new adapter plus a config value; it is not an edit
+// here. A drift test (ai-provider-drift_test.ts) fails if the import returns.
+import { getGradingProvider } from "./ai-provider-anthropic.ts";
+import type { AiContentBlock, AiSystemBlock } from "./ai-provider.ts";
 import {
-  getAnthropicClient,
   getDefaultModel,
   getGradingCompositeModel,
   type GradingEffort,
@@ -946,6 +953,21 @@ function normalizeQuality(raw: unknown): PerImageQuality {
 
 type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
 
+/**
+ * US-2568: an Anthropic image source becomes a provider-neutral image block.
+ *
+ * parseImageInput still returns the SDK-shaped source because it is also what
+ * the URL/base64 sniffing produces; this is the one-line translation at the
+ * boundary rather than a second parser.
+ */
+function toProviderImage(
+  source: { type: "base64"; media_type: string; data: string } | { type: "url"; url: string },
+): AiContentBlock {
+  return source.type === "url"
+    ? { type: "image_url", url: source.url }
+    : { type: "image", mediaType: source.media_type, base64: source.data };
+}
+
 function parseImageInput(imageUrl: string): {
   type: "base64";
   media_type: ImageMediaType;
@@ -1249,7 +1271,6 @@ export async function analyzeImage(
   // the GRADING_PHOTO_ROLES gate off) leaves the prompt byte-identical.
   imageRole?: string | null,
 ): Promise<PerImageAnalysis> {
-  const client = getAnthropicClient();
   const startTime = Date.now();
   const imageSource = parseImageInput(imageUrl);
   const model = modelOverride && isAllowedGradingModel(modelOverride)
@@ -1328,30 +1349,30 @@ export async function analyzeImage(
   // Cache the (static) system prompt so repeated per-image calls within a
   // submission — and across submissions inside the 5-min cache window —
   // don't re-bill the prompt tokens. Mirrors the FlipDesk extractor.
-  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
-    ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
-    : { type: "text", text: prompt.text };
+  const systemBlock: AiSystemBlock = { text: prompt.text, cache: isCachingEnabled() };
 
   try {
-    // US-414: getAnthropicClient() routes every messages.create through the
-    // global concurrency + daily-ceiling + retry limiter, so this per-image
-    // call (run under Promise.all — the path the audit flagged) is bounded.
-    const response = await client.messages.create({
+    // US-414 + US-2568: the provider wraps getAnthropicClient(), so this call
+    // still goes through the global concurrency + daily-ceiling + retry limiter
+    // — which is what bounds these per-image calls under Promise.all (the path
+    // the US-414 audit flagged). The seam is a translation layer, not a client.
+    const response = await getGradingProvider().complete({
       model,
       // Headroom so the added authenticity + per-defect taxonomy/size fields
       // can't truncate the JSON (truncation → parse failure → grade fails).
-      max_tokens: 2048,
+      maxTokens: 2048,
       ...(temperature !== undefined ? { temperature } : {}),
-      output_config: outputConfig,
+      // The vendor's placement of these (effort inside output_config, schema
+      // inside output_config.format, and no `name` key at all) is the adapter's
+      // problem now. gradingTuning still decides the VALUES.
+      jsonSchema: { name: "image_analysis", schema: outputConfig.format.schema },
+      ...(outputConfig.effort ? { effort: outputConfig.effort } : {}),
       system: [systemBlock],
       messages: [
         {
           role: "user",
           content: [
-            {
-              type: "image",
-              source: imageSource,
-            },
+            toProviderImage(imageSource),
             {
               type: "text",
               text: buildUserPrompt(
@@ -1374,13 +1395,14 @@ export async function analyzeImage(
     // Log API usage
     console.log(
       `[AI Grading] analyzeImage | image_type=${imageType} | garment_type=${garmentType} | ` +
-        `input_tokens=${response.usage.input_tokens} | output_tokens=${response.usage.output_tokens} | ` +
+        `input_tokens=${response.usage.inputTokens} | output_tokens=${response.usage.outputTokens} | ` +
         `latency_ms=${latencyMs}`,
     );
 
-    // Extract text content from response
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
+    // US-2568: the provider concatenates every text block, so an empty string is
+    // the same condition the old "no text block" check caught — stated directly.
+    const textBlock = { text: response.text };
+    if (!response.text) {
       throw new Error("No text content in API response");
     }
 
@@ -2634,7 +2656,6 @@ export async function compositeGrade(
   // Default false → byte-identical for every submission that has a close-up.
   fabricCloseupMissing = false,
 ): Promise<CompositeGradeResult> {
-  const client = getAnthropicClient();
   const startTime = Date.now();
   const compositeModel = modelOverride && isAllowedGradingModel(modelOverride)
     ? modelOverride
@@ -2767,23 +2788,19 @@ export async function compositeGrade(
   // Cache the static composite system prompt (tier definitions + weights + the
   // active exemplar block). Prompt-caching amortizes the block's token cost
   // across grades inside the 5-min window (US-1067 token savings).
-  const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
-    ? {
-      type: "text",
-      text: systemText,
-      cache_control: { type: "ephemeral" },
-    }
-    : { type: "text", text: systemText };
+  const systemBlock: AiSystemBlock = { text: systemText, cache: isCachingEnabled() };
 
   try {
-    // US-414: bounded by the global limiter via getAnthropicClient().
-    const response = await client.messages.create({
+    // US-414 + US-2568: bounded by the global limiter, which the provider
+    // inherits by wrapping getAnthropicClient() rather than building its own.
+    const response = await getGradingProvider().complete({
       model: compositeModel,
       // Headroom for the longer buyer_writeup (US-759) plus the per-defect
       // taxonomy/size fields (US-1027/1028) so the JSON can't truncate.
-      max_tokens: 3072,
+      maxTokens: 3072,
       ...(temperature !== undefined ? { temperature } : {}),
-      output_config: outputConfig,
+      jsonSchema: { name: "composite_grade", schema: outputConfig.format.schema },
+      ...(outputConfig.effort ? { effort: outputConfig.effort } : {}),
       system: [systemBlock],
       messages: [
         {
@@ -2792,23 +2809,28 @@ export async function compositeGrade(
           // blocks + the prompt (with the verification addendum); without
           // them it stays the plain text prompt — byte-identical to before.
           content: verificationImages.length === 0
-            ? buildCompositeUserPrompt(
-              perImageResults,
-              garmentInfo,
-              baselineBlock,
-              fabricBlock,
-              tagBlock,
-              compositeBlocks,
-            )
+            // A bare string was legal on the SDK; the neutral shape is always a
+            // block list, so the single text block says the same thing.
+            ? [{
+              type: "text" as const,
+              text: buildCompositeUserPrompt(
+                perImageResults,
+                garmentInfo,
+                baselineBlock,
+                fabricBlock,
+                tagBlock,
+                compositeBlocks,
+              ),
+            }]
             : [
               ...verificationImages.flatMap(
-                (img): Anthropic.ContentBlockParam[] => [
+                (img): AiContentBlock[] => [
                   { type: "text", text: `Photo (${img.imageType}):` },
-                  { type: "image", source: parseImageInput(img.dataUri) },
+                  toProviderImage(parseImageInput(img.dataUri)),
                 ],
               ),
               {
-                type: "text",
+                type: "text" as const,
                 text: buildCompositeUserPrompt(
                   perImageResults,
                   garmentInfo,
@@ -2829,13 +2851,12 @@ export async function compositeGrade(
       `[AI Grading] compositeGrade | model=${compositeModel} | ` +
         `garment_type=${garmentInfo.garment_type} | ` +
         `images=${perImageResults.length} | ` +
-        `input_tokens=${response.usage.input_tokens} | output_tokens=${response.usage.output_tokens} | ` +
+        `input_tokens=${response.usage.inputTokens} | output_tokens=${response.usage.outputTokens} | ` +
         `latency_ms=${latencyMs}`,
     );
 
-    // Extract text content
-    const textBlock = response.content.find((block) => block.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
+    const textBlock = { text: response.text };
+    if (!response.text) {
       throw new Error("No text content in composite grade API response");
     }
 

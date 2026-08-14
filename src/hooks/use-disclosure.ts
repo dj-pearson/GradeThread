@@ -40,6 +40,10 @@ export interface DisclosureData {
     overall_score: number;
     grade_tier: string;
     certificate_id: string | null;
+    // US-2567: the human-readable GT-XXXXXXX burned into every asset in the
+    // evidence pack. Null for an uncertified grade, which prints no stamp
+    // rather than an empty one.
+    certificate_number?: string | null;
   };
   disclosure?: {
     plain: string;

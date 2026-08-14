@@ -8,6 +8,7 @@ import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import { isAiBudgetExhausted } from "../lib/ai-budget-gate.ts";
 import { validateJson, z } from "../lib/validation.ts";
 import {
+  bulkChargeKey,
   computeBatchCredits,
   effectivePlanFor,
   INCLUDED_STANDARD_PER_MONTH,
@@ -477,6 +478,21 @@ const submitBodySchema = z.object({
     )
     .min(1, "items must be a non-empty array")
     .max(200, "a batch may contain at most 200 items"),
+  // US-2564: the client's stable token for THIS bulk submit, derived from the
+  // selection + tier so it survives a retry. Optional, so an older client keeps
+  // working exactly as before — see bulkChargeKey() for why absent must mean
+  // null and never "".
+  //
+  // `.nullish()`, not `.optional()`, and the difference is load-bearing across
+  // three clients. `.optional()` accepts a MISSING key and rejects an explicit
+  // `null`, and whether a client sends one or the other is a serializer setting
+  // nobody thinks about: Android's kotlinx Json currently has
+  // `explicitNulls = false` (so it omits), and a future flip of that flag would
+  // 400 every single-item grade from the app with no CI able to catch it —
+  // the edge suite does not run the mobile serializers. Accepting both makes the
+  // contract independent of that setting. bulkChargeKey() already maps null,
+  // undefined and blank to the same no-key behaviour.
+  batch_key: z.string().trim().min(1).max(255).nullish(),
 }).strict();
 
 // Pre-flight validation. Returns per-item readiness + total cost + plan
@@ -755,7 +771,15 @@ flipdeskGradingRoutes.post("/submit", async (c) => {
       //     Batch validation already confirmed the owner can afford this, but
       //     a concurrent submission could have drained credits in between, so
       //     handle the checkout-required case per item.
-      const precedence = await runPaymentPrecedence(ownerId, submissionId, tier);
+      // US-2564: keyed on the CLIENT's batch token plus the item, so a retried
+      // batch charges once per garment instead of once per attempt. Null when no
+      // batch_key was sent, which is the pre-US-2564 behaviour exactly.
+      const precedence = await runPaymentPrecedence(
+        ownerId,
+        submissionId,
+        tier,
+        bulkChargeKey(parsed.data.batch_key, item.inventory_item_id),
+      );
       if (!precedence.paid) {
         // Nothing was charged — drop the empty submission and report it.
         await supabaseAdmin.from("submissions").delete().eq("id", submissionId);

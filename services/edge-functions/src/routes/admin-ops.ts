@@ -284,6 +284,27 @@ adminOpsRoutes.get("/health", async (c) => {
     } catch (err) {
       captureException(err, { tags: { area: "ops-health:pipeline" } });
     }
+
+    // US-2565: read whether the credit ledger's append-only trigger is still
+    // present and enabled. Attached here rather than added to system_health()
+    // for the same reason `pipeline` is — that RPC is a stable contract and this
+    // is a cheap, separate question.
+    //
+    // An RPC error leaves the field NULL, which the tile renders as "unknown"
+    // rather than as "not enforced". That distinction matters on a deploy where
+    // the edge is ahead of the SQL: the function does not exist yet, and paging
+    // an operator about a missing guard that was never applied would train them
+    // to ignore the tile that exists to be believed.
+    try {
+      const { data, error } = await supabaseAdmin.rpc("ledger_append_only_enforced");
+      metrics.ledgerAppendOnly = error ? null : (data === true);
+      if (error) {
+        captureException(error, { tags: { area: "ops-health:ledger-append-only" } });
+      }
+    } catch (err) {
+      metrics.ledgerAppendOnly = null;
+      captureException(err, { tags: { area: "ops-health:ledger-append-only" } });
+    }
   }
 
   // DB unreachable or RPC failed → a minimal red report (don't 500: the

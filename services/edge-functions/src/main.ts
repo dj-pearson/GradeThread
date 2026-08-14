@@ -232,6 +232,7 @@ import { ebayAuthMiddleware } from "./middleware/ebay-auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { maintenanceGuard } from "./middleware/maintenance.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
+import { apiIdempotencyMiddleware } from "./middleware/api-idempotency.ts";
 import { rateLimiter, pagesOriginBypass } from "./middleware/rate-limit.ts";
 import { getSetting, getSettingSync } from "./lib/system-settings.ts";
 import { refreshOverrideCache } from "./lib/rate-limit-overrides.ts";
@@ -1081,6 +1082,15 @@ app.use(
     errorBody: apiV1RateLimitBody,
   }),
 );
+// US-2563: Idempotency-Key replay protection.
+//
+// AFTER apiKeyAuthMiddleware, which is what puts userId/apiKeyId on the context
+// this middleware scopes its records by, and AFTER the rate limiter, so a flood
+// of retries is shed before any of it reaches the table. BEFORE apiUsageMiddleware
+// deliberately: a replayed request did not consume a grade, and logging it as a
+// billable call would make the usage ledger count the retry the replay exists to
+// make free.
+app.use("/api/v1/*", apiIdempotencyMiddleware);
 // US-596: append a usage-ledger row per authenticated /api/v1 call (after the
 // auth + rate-limit gates, so only billable calls are logged) — powers the
 // partner usage/billing dashboard. Fire-and-forget; never blocks the response.

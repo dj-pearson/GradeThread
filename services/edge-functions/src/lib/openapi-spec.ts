@@ -45,6 +45,34 @@ const errorResponse = {
   content: { "application/json": { schema: envelope({ type: "null" }) } },
 };
 
+// US-2563. Declared per-operation rather than as a blanket header so it appears
+// in the generated client for the calls that actually charge, which is where an
+// integrator needs to see it.
+const idempotencyKeyParam = {
+  name: "Idempotency-Key",
+  in: "header",
+  required: false,
+  schema: { type: "string", maxLength: 255 },
+  description:
+    "Any unique string (a UUID is fine), reused verbatim on retry. Without one, a retried " +
+    "request is a second garment and a second charge. Retained 24 hours.",
+};
+
+const idempotencyResponses = {
+  "409": {
+    ...errorResponse,
+    description:
+      "A request with this Idempotency-Key is still being processed (IDEMPOTENCY_IN_PROGRESS). " +
+      "Honour Retry-After.",
+  },
+  "422": {
+    ...errorResponse,
+    description:
+      "This Idempotency-Key was already used with a different request body " +
+      "(IDEMPOTENCY_KEY_REUSED). Mint a new key per distinct request.",
+  },
+};
+
 export const OPENAPI_SPEC = {
   openapi: "3.1.0",
   info: {
@@ -57,7 +85,20 @@ export const OPENAPI_SPEC = {
       "\n\nAuthenticate with the `X-API-Key` header (Business plan). A free, deterministic " +
       "sandbox lives under `/api/v1/sandbox/*` (same auth + scopes, no credits, no writes). " +
       "Rate limits are per-key, per-minute, split into read (GET) and write budgets; the " +
-      "monthly call quota is reported by `GET /api/v1/usage`. Human docs: https://gradethread.com/developers",
+      "monthly call quota is reported by `GET /api/v1/usage`." +
+      "\n\n### Idempotency\n\n" +
+      "Every write (`POST`/`PUT`/`PATCH`/`DELETE`) accepts an `Idempotency-Key` header — any " +
+      "unique string up to 255 characters, a UUID being the obvious choice. **Send one on every " +
+      "call that costs money and reuse it verbatim when you retry.** Grading is billed per " +
+      "garment, so a retry without a key is a second garment and a second charge; with a key, " +
+      "the original response is replayed and nothing is charged.\n\n" +
+      "- Same key, same body, still running → `409` (`IDEMPOTENCY_IN_PROGRESS`) with `Retry-After`.\n" +
+      "- Same key, same body, finished → the original status and body, plus `Idempotent-Replay: true`.\n" +
+      "- Same key, **different** body → `422` (`IDEMPOTENCY_KEY_REUSED`). Mint a new key per request.\n" +
+      "- Only successful (2xx) responses are stored. A `4xx`/`5xx` releases the key so your retry " +
+      "is a real attempt.\n\n" +
+      "Keys are retained for 24 hours. Beyond that, reconcile with `GET /api/v1/grades` rather " +
+      "than resubmitting. Human docs: https://gradethread.com/developers",
     contact: { name: "GradeThread Developer Support", url: "https://gradethread.com/developers" },
   },
   servers: [{ url: PROD_SERVER, description: "Production" }],
@@ -79,6 +120,7 @@ export const OPENAPI_SPEC = {
           "covers it, returns 402. Images may be `url` (https) or base64. Requires `front`, `back`, " +
           "`label`, and at least one `detail*` image; max 14 images.",
         security: [{ ApiKeyAuth: ["submit"] }],
+        parameters: [idempotencyKeyParam],
         requestBody: {
           required: true,
           content: {
@@ -100,6 +142,7 @@ export const OPENAPI_SPEC = {
             content: { "application/json": { schema: envelope({ type: "null" }) } },
           },
           "403": errorResponse,
+          ...idempotencyResponses,
           "503": { ...errorResponse, description: "Grading temporarily unavailable" },
         },
       },
@@ -151,8 +194,11 @@ export const OPENAPI_SPEC = {
           "Validates every garment (same rules as a single grade) and rejects the whole batch on any " +
           "invalid one. Returns immediately; each garment is graded in the background and charged " +
           "individually. Poll `GET /api/v1/grades/batch/{id}`. A `grade.completed` webhook also fires " +
-          "per garment. Prefer image URLs over base64 in a batch.",
+          "per garment. Prefer image URLs over base64 in a batch." +
+          "\n\n**Send an `Idempotency-Key`.** A retry without one re-enqueues every garment in " +
+          "the batch and charges for all of them again.",
         security: [{ ApiKeyAuth: ["submit"] }],
+        parameters: [idempotencyKeyParam],
         requestBody: {
           required: true,
           content: {
@@ -183,6 +229,7 @@ export const OPENAPI_SPEC = {
           },
           "400": errorResponse,
           "403": errorResponse,
+          ...idempotencyResponses,
           "503": errorResponse,
         },
       },

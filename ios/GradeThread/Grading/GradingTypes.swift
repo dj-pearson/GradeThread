@@ -155,12 +155,69 @@ struct GradingRequestBody: Encodable {
     }
     let items: [Item]
 
+    /// US-2564: the charge token for THIS bulk submit.
+    ///
+    /// Grading is billed per garment and the edge keys its credit debit on
+    /// `batch_key` + item id, so a retried batch charges once per garment rather
+    /// than once per attempt. Nil for the single-item paths, which the edge
+    /// treats exactly as it did before this field existed. `JSONEncoder` omits a
+    /// nil Optional, so nothing is sent — and that matters: an empty string
+    /// would be a REAL key shared by every keyless caller, so the first such
+    /// charge would suppress every later one.
+    let batchKey: String?
+
     init(inventoryItemId: String, tier: GradeTierOption) {
         self.items = [Item(inventoryItemId: inventoryItemId, tier: tier.rawValue)]
+        self.batchKey = nil
     }
 
     /// Batch variant for bulk grading from inventory multi-select.
     init(itemIds: [String], tier: GradeTierOption) {
         self.items = itemIds.map { Item(inventoryItemId: $0, tier: tier.rawValue) }
+        self.batchKey = GradingRequestBody.bulkBatchKey(itemIds, tier: tier.rawValue)
+    }
+
+    /// A stable, bounded charge token for (selection, tier).
+    ///
+    /// Mirrors `src/lib/bulk-batch-key.ts` on web and `GradingRequestBody
+    /// .bulkBatchKey` on Android, deliberately down to the constants. The three
+    /// clients do not need to agree on the VALUE — each only dedupes against its
+    /// own retries — but they do need to agree on the BEHAVIOUR, or the same
+    /// user action means different things depending on which app they used.
+    ///
+    /// Deterministic rather than a fresh UUID, because a UUID per attempt is the
+    /// defect: a failed submit is the thing a seller retries hardest, and a new
+    /// token on each press makes every retry a fresh set of charges.
+    /// Order-insensitive, since the same garments picked in a different order are
+    /// the same batch.
+    ///
+    /// The ids are DIGESTED, not carried: joining 200 UUIDs is ~7.4 KB and the
+    /// edge's `.strict()` schema caps `batch_key` at 255 characters. FNV-1a is
+    /// not cryptographic and does not need to be. Two independently-seeded
+    /// passes plus the item count give enough discrimination that two different
+    /// selections never share a token, which matters because a collision would
+    /// silently drop a garment from a batch.
+    ///
+    /// Hashes over UTF-16 code units to match JS `charCodeAt`; `UInt32` with
+    /// `&*` wraps, matching `Math.imul`.
+    static func bulkBatchKey(_ inventoryItemIds: [String], tier: String) -> String? {
+        guard !inventoryItemIds.isEmpty else { return nil }
+        let canonical = "\(tier)|" + inventoryItemIds.sorted().joined(separator: ",")
+        let a = fnv1a(canonical, seed: 0x811C_9DC5)
+        let b = fnv1a(canonical, seed: 0x9E37_79B9)
+        return "fdbulk-\(inventoryItemIds.count)-\(hex32(a))-\(hex32(b))"
+    }
+
+    private static func fnv1a(_ input: String, seed: UInt32) -> UInt32 {
+        var hash = seed
+        for unit in input.utf16 {
+            hash ^= UInt32(unit)
+            hash = hash &* 0x0100_0193
+        }
+        return hash
+    }
+
+    private static func hex32(_ value: UInt32) -> String {
+        String(format: "%08x", value)
     }
 }

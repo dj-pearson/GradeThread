@@ -83,6 +83,15 @@ export interface HealthMetrics {
   // system_health() RPC doesn't return it; the /health route computes it and
   // attaches it before building the report, so older payloads degrade to 0.
   pipeline?: { backlog: number };
+  // US-2565: is the credit ledger's append-only trigger present AND enabled?
+  //
+  // Same shape as `pipeline` and for the same reason: system_health() does not
+  // return it, the /health route reads ledger_append_only_enforced() and
+  // attaches it, and a payload without the field degrades to "unknown" rather
+  // than to a false green. `null` is a THIRD state, not a synonym for false —
+  // "we could not tell" and "the guard is gone" are different incidents and the
+  // tile says which.
+  ledgerAppendOnly?: boolean | null;
   trends: {
     jobFailuresByDay: DayPoint[];
     submissionErrorsByDay: Array<{ day: string; total: number; failed: number }>;
@@ -183,6 +192,54 @@ export function overallStatus(tiles: HealthTile[]): HealthStatus {
   return worst;
 }
 
+/**
+ * US-2565: is the credit ledger still immutable?
+ *
+ * The append-only trigger (migration 00597) is the only thing stopping an
+ * UPDATE or DELETE on grade_credit_transactions, service_role included. A guard
+ * nobody can see the state of is a guard that gets dropped during some future
+ * incident and never restored — so this puts it on the dashboard, where "the
+ * ledger is immutable" becomes a measurement rather than a belief.
+ *
+ * RED, not amber, when it is gone. This is the difference between a ledger that
+ * is evidence in a dispute and one that is merely a log, and there is no partial
+ * version of that.
+ *
+ * `null` is UNKNOWN and deliberately not red: before 00597 is applied the RPC
+ * does not exist, and a deploy-order gap must not page anyone. "unknown" also
+ * never worsens the overall status (see overallStatus), which is the right
+ * behaviour for a fact we failed to read rather than one we read as bad.
+ */
+export function ledgerAppendOnlyTile(enforced: boolean | null | undefined): HealthTile {
+  if (enforced === true) {
+    return {
+      key: "ledgerAppendOnly",
+      label: "Ledger immutability",
+      status: "green",
+      value: "enforced",
+      detail: "grade_credit_transactions rejects UPDATE/DELETE for every role",
+    };
+  }
+  if (enforced === false) {
+    return {
+      key: "ledgerAppendOnly",
+      label: "Ledger immutability",
+      status: "red",
+      value: "NOT enforced",
+      detail:
+        "the append-only trigger is missing or disabled — the credit ledger can " +
+        "be rewritten. Re-apply migration 00597.",
+    };
+  }
+  return {
+    key: "ledgerAppendOnly",
+    label: "Ledger immutability",
+    status: "unknown",
+    value: "unknown",
+    detail: "ledger_append_only_enforced() did not answer (migration 00597 applied?)",
+  };
+}
+
 // Build the full report from the RPC payload + runtime. Pure + total: tolerates
 // missing fields (treats them as 0 / empty) so a partial payload never throws.
 export function buildHealthReport(metrics: HealthMetrics, runtime: EdgeRuntime): HealthReport {
@@ -260,6 +317,7 @@ export function buildHealthReport(metrics: HealthMetrics, runtime: EdgeRuntime):
       value: `${pipelineBacklog}`,
       detail: "failed / stuck generation & publish backlog (US-899)",
     },
+    ledgerAppendOnlyTile(metrics.ledgerAppendOnly),
   ];
 
   return {

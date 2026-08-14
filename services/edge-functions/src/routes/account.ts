@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
+import { retainFinancialRecords } from "../lib/financial-retention.ts";
+import { captureException } from "../lib/observability.ts";
 import { sendAccountDeletedEmail } from "../lib/email.ts";
 import { type AuthAssuranceClaims, isAal2 } from "../lib/jwt-claims.ts";
 import {
@@ -595,6 +597,72 @@ accountRoutes.post("/delete", async (c) => {
     }
   }
 
+  // 0. US-2562: THE FINANCIAL RECORD, BEFORE ANYTHING IS DESTROYED.
+  //
+  //    Migration 00595 removed the cascading foreign keys, so the credit ledger
+  //    and the subscription-event trail now survive this endpoint on their own.
+  //    Two things still have to happen explicitly: count what is being retained
+  //    (step 3's log proves the retention with that number), and REDACT
+  //    flipdesk_subscription_events.raw_payload, which is the verbatim Stripe
+  //    object and carries customer email and billing address. The cascade used
+  //    to remove those rows entirely; keeping them means stripping that column
+  //    by hand, or 00595 has quietly converted an erasure into a retention.
+  //
+  //    ⚠ THIS RUNS FIRST, ahead of the storage purge and the Stripe customer
+  //    delete, and the position is the point. A redaction failure refuses the
+  //    erasure, and "refuse" is only a safe answer while the account is still
+  //    whole — the same check after step 1 would leave a half-erased account
+  //    whose photos are gone and whose PII is not.
+  //
+  //    The sequence and its two different failure policies live in
+  //    lib/financial-retention.ts so the refusal branch is testable without a
+  //    database; everything here is the service-role adapter.
+  const retention = await retainFinancialRecords(userId, {
+    countLedgerRows: async (id) => {
+      const { count, error } = await supabaseAdmin
+        .from("grade_credit_transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", id);
+      return { count: count ?? null, error: error ? error.message : null };
+    },
+    redactSubscriptionEvents: async (id) => {
+      const { data, error } = await supabaseAdmin.rpc(
+        "redact_subscription_event_pii",
+        { p_user_id: id },
+      );
+      return {
+        redacted: typeof data === "number" ? data : null,
+        error: error ? error.message : null,
+      };
+    },
+    report: (message, err) => {
+      console.error(message, err instanceof Error ? err.message : (err ?? ""));
+      if (err !== undefined) {
+        captureException(err, {
+          route: "account.delete",
+          tags: { phase: "financial-retention", user: userId },
+        });
+      }
+    },
+  });
+  if (!retention.ok) {
+    // Nothing has been touched. Say so plainly — a user who thinks a failed
+    // deletion partially happened will file a support ticket about data we
+    // still hold, and they would be right to.
+    console.error(
+      `[account/delete] REFUSING to erase ${userId}: ${retention.reason}`,
+    );
+    return c.json(
+      {
+        error:
+          "We could not complete the deletion right now. Nothing was removed " +
+          "from your account. Please try again in a few minutes.",
+        code: "retention_precondition_failed",
+      },
+      503,
+    );
+  }
+
   // 1. Remove storage objects (no user_id column on storage; derive paths from
   //    the owned DB rows before the cascade deletes them).
   const [subs, items] = await Promise.all([
@@ -665,6 +733,15 @@ accountRoutes.post("/delete", async (c) => {
         had_stripe_customer: !!user?.stripe_customer_id,
         stripe_deleted: stripeDeleted,
         storage_purged: storagePurged,
+        // US-2562: the retention, recorded as numbers rather than asserted in a
+        // comment. `stripe_customer_id` is the join key a representment starts
+        // from — an opaque Stripe handle, not PII, and the reason
+        // had_stripe_customer alone was never enough to work a dispute from.
+        // A null ledger count means the count read failed, NOT that the account
+        // had no transactions; the rows are retained either way.
+        stripe_customer_id: user?.stripe_customer_id ?? null,
+        ledger_rows_retained: retention.ledgerRowsRetained,
+        subscription_events_redacted: retention.subscriptionEventsRedacted,
       });
     if (logErr) {
       // Don't abort erasure over a logging failure — the user's right to be

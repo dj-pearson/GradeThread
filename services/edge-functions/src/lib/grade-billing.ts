@@ -22,6 +22,7 @@ import {
 // Re-export the pure pricing surface so existing importers of grade-billing.ts
 // don't need to change.
 export {
+  bulkChargeKey,
   computeBatchCredits,
   CREDIT_PACKS,
   effectivePlanFor,

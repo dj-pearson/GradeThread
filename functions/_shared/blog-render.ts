@@ -700,6 +700,14 @@ export function notFoundResponse(
     heading?: string;
     message?: string;
     canonicalPath?: string;
+    /**
+     * US-2569: override the 404. A REVISED certificate is not a missing page —
+     * it has real content (where the current grade lives) and a canonical URL
+     * worth keeping in the index, so it answers 200 and drops the noindex.
+     * Everything else keeps the 404 + noindex default.
+     */
+    status?: number;
+    noindex?: boolean;
   },
 ): Response {
   const base = siteUrl(env);
@@ -709,13 +717,16 @@ export function notFoundResponse(
       description: "The page you're looking for doesn't exist.",
       canonicalUrl: `${base}${opts?.canonicalPath ?? "/"}`,
       twitterSite: twitterSiteHandle(env),
-      noindex: true,
+      noindex: opts?.noindex ?? true,
       bodyHtml: `<main class="container"><h1>${opts?.heading ?? "404"}</h1><p>${
         opts?.message ??
         `We couldn't find that page. <a href="/">Go to GradeThread &rarr;</a>`
       }</p></main>`,
     }),
-    { status: 404, headers: { "Content-Type": "text/html; charset=utf-8" } },
+    {
+      status: opts?.status ?? 404,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    },
   );
 }
 

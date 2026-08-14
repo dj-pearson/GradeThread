@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeAuthHeaders } from "@/lib/edge-fetch";
+import { bulkBatchKey } from "@/lib/bulk-batch-key";
 import { useAuthStore } from "@/stores/auth-store";
 
 export type GradingTier = "standard" | "premium" | "express";
@@ -122,9 +123,9 @@ export function useSubmitForGrading() {
   return useMutation<
     SubmitResult,
     Error & { status?: number; validation?: ValidationResult },
-    { inventoryItemId: string; tier: GradingTier }
+    { inventoryItemId: string; tier: GradingTier; batchKey?: string }
   >({
-    mutationFn: async ({ inventoryItemId, tier }) => {
+    mutationFn: async ({ inventoryItemId, tier, batchKey }) => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/grading/submit`,
         {
@@ -132,6 +133,16 @@ export function useSubmitForGrading() {
           headers: await edgeAuthHeaders(),
           body: JSON.stringify({
             items: [{ inventory_item_id: inventoryItemId, tier }],
+            // US-2564: the charge is keyed on this, so pressing Grade twice on
+            // the same item at the same tier debits once.
+            //
+            // DERIVED, not a fresh UUID. A per-attempt token is unique by
+            // definition, which makes it useless for the case that actually
+            // costs money — the seller whose first press failed and who presses
+            // again. bulkBatchKey over the single id gives the same stability
+            // the bulk sheet has, and changes with the tier so a genuine upgrade
+            // re-grade still goes through.
+            batch_key: batchKey ?? bulkBatchKey([inventoryItemId], tier),
           }),
         },
       );
@@ -191,9 +202,9 @@ export function useSubmitGradingBulk() {
   return useMutation<
     SubmitResult,
     Error & { status?: number; validation?: ValidationResult },
-    { inventoryItemIds: string[]; tier: GradingTier }
+    { inventoryItemIds: string[]; tier: GradingTier; batchKey?: string }
   >({
-    mutationFn: async ({ inventoryItemIds, tier }) => {
+    mutationFn: async ({ inventoryItemIds, tier, batchKey }) => {
       const res = await fetch(`${edgeApiUrl()}/api/flipdesk/grading/submit`, {
         method: "POST",
         headers: await edgeAuthHeaders(),
@@ -202,6 +213,12 @@ export function useSubmitGradingBulk() {
             inventory_item_id: id,
             tier,
           })),
+          // US-2564: the caller passes the token it holds for this selection;
+          // the fallback derives the same thing from the arguments, so a caller
+          // that forgets is still protected. Never a fresh UUID — a per-attempt
+          // token is unique by definition and would make every retry a new set
+          // of charges, which is the defect this closes.
+          batch_key: batchKey ?? bulkBatchKey(inventoryItemIds, tier),
         }),
       });
       const json = await res.json().catch(() => ({}));

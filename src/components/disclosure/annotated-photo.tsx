@@ -3,6 +3,7 @@ import { Download, Loader2, ImagePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useSaveAnnotatedPhoto, type DisclosurePhoto } from "@/hooks/use-disclosure";
+import { type EvidenceStamp, stampLine } from "@/lib/evidence-stamp";
 
 // Renders an AI-annotated defect photo: the garment image with a numbered
 // callout box over each localized defect (and a numbered legend underneath for
@@ -24,13 +25,19 @@ function severityColor(s: string): string {
 const MAX_CANVAS_W = 900;
 const LEGEND_LINE_H = 26;
 const LEGEND_PAD = 14;
+// US-2567: the provenance stamp's own line under the legend. Mirrors
+// STAMP_LINE_H in services/edge-functions/src/lib/defect-annotations.ts so the
+// preview and the shipped image lay out the same.
+const STAMP_LINE_H = 24;
 
 export function AnnotatedPhoto({
   photo,
   itemId,
+  stamp,
 }: {
   photo: DisclosurePhoto;
   itemId: string;
+  stamp?: EvidenceStamp | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
@@ -50,7 +57,9 @@ export function AnnotatedPhoto({
       const scale = Math.min(1, MAX_CANVAS_W / img.naturalWidth);
       const w = Math.round(img.naturalWidth * scale);
       const h = Math.round(img.naturalHeight * scale);
-      const legendH = LEGEND_PAD * 2 + photo.annotations.length * LEGEND_LINE_H + 24;
+      const line = stampLine(stamp);
+      const legendH = LEGEND_PAD * 2 + photo.annotations.length * LEGEND_LINE_H + 24 +
+        (line ? STAMP_LINE_H : 0);
       canvas.width = w;
       canvas.height = h + legendH;
 
@@ -116,6 +125,17 @@ export function AnnotatedPhoto({
         ctx.fillText(`${a.issue}${loc} — ${a.severity}`, LEGEND_PAD + 26, y);
       });
 
+      if (line) {
+        // Under the legend, never across the garment: a stamp over the photo
+        // would obscure the flaw the image exists to show.
+        const stampY = legendTop + 24 + photo.annotations.length * LEGEND_LINE_H +
+          STAMP_LINE_H / 2;
+        ctx.textAlign = "left";
+        ctx.fillStyle = "#0C1E36";
+        ctx.font = `600 ${Math.max(12, Math.round(w / 62))}px system-ui, sans-serif`;
+        ctx.fillText(line, LEGEND_PAD, stampY);
+      }
+
       setReady(true);
     };
     img.onerror = () => {
@@ -128,7 +148,7 @@ export function AnnotatedPhoto({
     return () => {
       cancelled = true;
     };
-  }, [photo]);
+  }, [photo, stamp]);
 
   const exportDataUrl = useCallback((): string | null => {
     const canvas = canvasRef.current;

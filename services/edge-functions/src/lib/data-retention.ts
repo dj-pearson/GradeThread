@@ -151,6 +151,8 @@ export async function handleDataRetentionCron(c: {
   // US-2363: generated newsletter imagery from issues that were never sent.
   let newsletterIssuesSwept = 0;
   let newsletterObjectsDeleted = 0;
+  // US-2563: rows dropped from api_idempotency_records this run.
+  let idempotencyRecordsPruned = 0;
   try {
     const result = await purgeExpiredGradingPii();
     // US-584: keep the cron-run ledger bounded (30-day window). Best-effort —
@@ -304,9 +306,35 @@ export async function handleDataRetentionCron(c: {
       captureException(err, { route: "data-retention.newsletter_assets" });
     }
 
+    // US-2563: bound api_idempotency_records. One row per mutating /api/v1 call,
+    // written forever with nothing to remove it — the same slow leak US-2021
+    // found in email_deliveries, caught before it grew rather than after.
+    //
+    // 24 hours is the retention the OpenAPI spec promises integrators, so the
+    // window is a published contract and not a storage tuning knob: shortening it
+    // here would silently break a client whose retry policy runs longer than the
+    // table now remembers.
+    //
+    // Best-effort, like every other prune in this handler: it must never be the
+    // reason the PII purge reports failure.
+    try {
+      const { data: pruned, error: pruneErr } = await supabaseAdmin.rpc(
+        "prune_api_idempotency_records",
+        {},
+      );
+      if (pruneErr) {
+        captureException(pruneErr, { route: "data-retention.api_idempotency" });
+      } else {
+        idempotencyRecordsPruned = typeof pruned === "number" ? pruned : 0;
+      }
+    } catch (err) {
+      captureException(err, { route: "data-retention.api_idempotency" });
+    }
+
     return c.json({
       ok: true,
       ...result,
+      api_idempotency_records_pruned: idempotencyRecordsPruned,
       retention_stalled: stall?.alert ?? false,
       retention_stall_consecutive: stall?.consecutive ?? 0,
       // US-2021: report what the sweep actually did. A capped run that reports

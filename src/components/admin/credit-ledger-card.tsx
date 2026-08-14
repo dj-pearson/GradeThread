@@ -63,7 +63,16 @@ interface LedgerRow {
 }
 
 interface LedgerResponse {
-  user: { id: string; email: string; grade_credit_balance: number };
+  // US-2562: email and balance are null once the account is erased. The ledger
+  // outlives the account by design — migration 00595 removed the cascading
+  // foreign key precisely so a dispute filed after a deletion still has records
+  // to work from — so this card has to render a subject that no longer exists.
+  user: {
+    id: string;
+    email: string | null;
+    grade_credit_balance: number | null;
+  };
+  account_erased?: boolean;
   data: LedgerRow[];
   page: { limit: number; offset: number; total: number };
   invariant_ok: boolean | null;
@@ -220,9 +229,12 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
           Credits &amp; Ledger
         </CardTitle>
         <CardDescription>
-          Append-only grade-credit ledger. Manual adjustments and pack refunds are
-          audited, require a fresh authenticator confirmation, and keep the wallet
-          balance consistent.
+          Append-only grade-credit ledger, enforced by the database: no row here
+          can be edited or deleted, by anyone. Correct a mistake by adding a
+          compensating entry &mdash; an Admin grant to give credits back, a Refund
+          to reverse a charge &mdash; so the original stays visible and the balance
+          still adds up. Adjustments are audited and need a fresh authenticator
+          confirmation.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -231,9 +243,14 @@ export function CreditLedgerCard({ userId }: CreditLedgerCardProps) {
           <div className="rounded-lg border p-3">
             <p className="text-xs text-muted-foreground">Current balance</p>
             <p className="mt-0.5 text-2xl font-bold">
-              {balance === undefined ? "—" : balance}
+              {balance === undefined || balance === null ? "—" : balance}
             </p>
           </div>
+          {ledger.data?.account_erased === true && (
+            <Badge variant="outline">
+              Account erased &mdash; records retained
+            </Badge>
+          )}
           {ledger.data?.invariant_ok === true && (
             <Badge variant="secondary" className="bg-green-100 text-green-700 dark:bg-green-950/50 dark:text-green-300">
               Ledger consistent

@@ -1,5 +1,52 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ✅ APPLIED: 00600_grade_report_revisions.sql (US-2569 — a regraded certificate is revised, not vanished, applied 2026-08-14 — owner-confirmed)
+
+**Measured 2026-08-14T18:40Z, not inferred.**
+`GET https://functions.gradethread.com/health/ready` returns
+`"schema":{"expected":"00593","applied":"00600","status":"ahead"}`.
+
+**⚠ THE EDGE HAS NOT BEEN REDEPLOYED.** That `expected: 00593` is the RUNNING
+container, which predates every migration from 00594 on. Until it is redeployed
+the revision writes in `lib/grading-pipeline.ts` are not live, so a regrade in
+this window still retires a certificate with no record — the defect this story
+fixes. Redeploy the edge before regrading anything.
+
+**What `applied: 00600` does and does not prove.** It is the MAXIMUM recorded
+version, so it confirms 00600 itself landed. It does not, on its own, prove
+00594–00599 each landed — `applied_migrations` could in principle hold a
+mid-sequence gap (the US-2009 guard exists for exactly that). The entries below
+are left as HELD until that is checked; run
+`select version from public.applied_migrations where version >= '00594' order by version;`
+to confirm and flip them.
+
+**Risk was: LOW.** One new deny-all table, five indexes, one trigger. Nothing
+existing is altered, narrowed or dropped, and no backfill runs. Safe to run
+twice.
+
+**What it adds.** `public.grade_report_revisions` records each supersede: the
+retired report's certificate id, number, score and tier, plus the replacement's
+once it lands. A `BEFORE UPDATE OR DELETE` trigger freezes the superseded half
+and permits the resolution to be set exactly once; DELETE is refused outright.
+
+**⚠ THE EDGE MUST NOT DEPLOY AHEAD OF THIS ONE.** `lib/grading-pipeline.ts`
+writes to the table on every regrade and updates it on every completed grade. On
+a database without 00600 both fail with 42P01. Both are best-effort and logged,
+so grading itself keeps working — but every certificate retired in that window
+loses its revision record permanently and will 404 for good, which is the exact
+defect this story exists to fix.
+
+**Nothing in the frontend reads it directly.** The `/cert/:id` Pages Function
+reads the `revised` flag from the edge response, so a Cloudflare Pages deploy
+ahead of the SQL degrades to today's branded 404 rather than breaking.
+
+**Backfill: none, and none is possible.** Certificates retired before this
+migration had their `certificate_id` nulled with nothing recorded, so their
+numbers are unrecoverable. Those URLs keep 404ing. Only regrades from here
+forward resolve.
+
+Apply order: AFTER 00599.
+
 ## ⏳ HELD: 00599_moderation_certificate_reports.sql (US-2550 — a buyer can report a certificate)
 
 **Risk: LOW, with one enum caveat.** One `ALTER TYPE … ADD VALUE IF NOT EXISTS`
@@ -38,7 +85,7 @@ and would not help: the rollback for this one is a frontend revert.
 
 Apply order: AFTER 00598.
 
-## ⏳ HELD: 00595 – 00598 (the pre-launch money + evidence audit, US-2562..US-2566)
+## ⏳ HELD: 00595 – 00598 (the pre-launch money + evidence audit, US-2562..US-2567)
 
 **Apply strictly in NNNNN order, after 00594.** `scripts/apply-prod-migrations.sh`
 does that for you; all four are idempotent and safe to re-run.
@@ -92,12 +139,22 @@ the trade being made.
 Rollback if it does bite: `DROP TRIGGER grade_credit_transactions_append_only ON
 public.grade_credit_transactions;` and nothing else is affected.
 
-### 00598_item_photos_derivation_provenance.sql — **Risk: LOW**
+### 00598_item_photos_derivation_provenance.sql — **Risk: LOW schema, ORDERED deploy**
 
 Six nullable columns and two partial indexes on `item_photos`. Nothing existing
-is altered, narrowed or dropped, and no backfill runs. The derived rows written
-before this migration keep their `__auto_` filenames and are re-derived on the
-next annotation pass.
+is altered, narrowed or dropped, and no backfill runs. Derived rows written
+before this migration keep their `disclosure_auto_` filenames and are pruned and
+re-derived on the next annotation pass.
+
+**⚠ THE EDGE MUST NOT DEPLOY AHEAD OF THIS ONE.** `lib/defect-annotations.ts`
+(US-2566) now WRITES all six columns on every `item_photos` insert it makes. On
+a database without 00598 that insert fails with 42703, and the annotation loop
+swallows per-photo insert errors by design — so an opted-in item would quietly
+ship with no disclosure imagery and nothing would look broken. Apply the SQL,
+reload PostgREST, then deploy.
+
+Nothing in the frontend reads the new columns, so a Cloudflare Pages deploy is
+unaffected either way.
 
 ### Runbook for the set
 

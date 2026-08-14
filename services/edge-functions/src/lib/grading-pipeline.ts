@@ -55,7 +55,10 @@ import { TIER_SLA_HOURS } from "./grade-pricing.ts";
 import { notifyAdminsGradeReviewNeeded } from "./grade-review-notify.ts";
 import { autoApproveThreshold, shouldAutoApprove } from "./grade-auto-approve.ts";
 import { submitUrls, certificateUrl } from "./indexnow.ts";
-import { generateUniqueCertNumber } from "./cert-number.ts";
+import {
+  generateUniqueCertNumber,
+  isCertificateNumberConflict,
+} from "./cert-number.ts";
 import {
   appendRegradeEvent,
   createSingleHopPassport,
@@ -653,6 +656,13 @@ export async function reverseChargeForUngradedSubmission(
 // reasonably soon. MAX_ATTEMPTS — how many times a poison submission (one that
 // crashes the container every run) is resumed before the reaper fails + refunds
 // it for good. Both must match the values the reaper uses (stuck-submissions.ts).
+// US-2570: how many times a grade_reports insert may regenerate its certificate
+// number before giving up. Three is not a tuning knob so much as a sanity bound:
+// two independent collisions in a row is ~1e-9 at current volume, so a third
+// failure means something other than chance and should surface as an error
+// rather than be retried into a loop.
+export const CERT_NUMBER_INSERT_ATTEMPTS = 3;
+
 export function gradingLeaseSeconds(): number {
   const raw = Number(Deno.env.get("GRADING_LEASE_SECONDS"));
   return Number.isFinite(raw) && raw > 0 ? raw : 900; // 15 min
@@ -790,17 +800,66 @@ export const defaultRegradeStore: RegradeStore = {
     );
   },
   supersedePriorReports: async (submissionId) => {
+    // US-2569: read the CERTIFIED FACTS FIRST. The update below nulls
+    // certificate_id, and once it has there is nothing left to record — the
+    // number a buyer has printed on a hangtag would be unrecoverable, which is
+    // precisely the state that made a regraded certificate 404.
     const { data: active } = await supabaseAdmin
       .from("grade_reports")
-      .select("id, certificate_id")
+      .select(
+        "id, certificate_id, certificate_number, overall_score, grade_tier",
+      )
       .eq("submission_id", submissionId)
       .is("superseded_at", null);
-    const rows = (active ?? []) as Array<{ id: string; certificate_id: string | null }>;
+    const rows = (active ?? []) as Array<{
+      id: string;
+      certificate_id: string | null;
+      certificate_number: string | null;
+      overall_score: number | string | null;
+      grade_tier: string | null;
+    }>;
     const ids = rows.map((r) => r.id);
     if (ids.length > 0) {
+      const supersededAt = new Date().toISOString();
+
+      // Record BEFORE retiring, so a crash between the two leaves a revision
+      // row pointing at a still-live certificate (harmless — the public path
+      // prefers the live report) rather than a retired certificate with no
+      // record (a 404 nobody can explain).
+      const { error: revErr } = await supabaseAdmin
+        .from("grade_report_revisions")
+        .upsert(
+          rows.map((r) => ({
+            submission_id: submissionId,
+            superseded_report_id: r.id,
+            superseded_certificate_id: r.certificate_id,
+            superseded_certificate_number: r.certificate_number,
+            superseded_overall_score: r.overall_score,
+            superseded_grade_tier: r.grade_tier,
+            reason: "regrade",
+            superseded_at: supersededAt,
+          })),
+          // One row per retired report (00600's unique index). A replayed
+          // regrade must not raise here and abort the supersede it is part of.
+          { onConflict: "superseded_report_id", ignoreDuplicates: true },
+        );
+      if (revErr) {
+        // Non-fatal, and loudly so. The regrade must still proceed — refusing
+        // would leave the submission stuck with a stale report — but a missing
+        // revision row means that certificate will 404 for good.
+        console.error(
+          `[Pipeline] REVISION RECORD FAILED for submission ${submissionId} — ` +
+            `retired certificate(s) will not resolve: ${revErr.message}`,
+        );
+        captureException(revErr, {
+          route: "grading.supersede",
+          extra: { submissionId, reportIds: ids },
+        });
+      }
+
       await supabaseAdmin
         .from("grade_reports")
-        .update({ superseded_at: new Date().toISOString(), certificate_id: null })
+        .update({ superseded_at: supersededAt, certificate_id: null })
         .in("id", ids);
       // Regrade retires the old cert(s) — drop their edge-stored rendered images.
       for (const r of rows) {
@@ -2767,7 +2826,25 @@ export async function processSubmission(submissionId: string) {
       authenticity_verdict_confidence: authenticityAssessment?.verdict_confidence ?? null,
     });
 
-    const { data: gradeReport, error: reportError } = await supabaseAdmin
+    // US-2570: a certificate-number collision must not fail a PAID grade.
+    //
+    // generateUniqueCertNumber() does a SELECT-then-INSERT, so the real
+    // uniqueness guarantee has always been the partial unique index (00307), not
+    // its ten-attempt loop. A collision therefore surfaced here as "Failed to
+    // create grade report record" — the money came back via
+    // reverseChargeForUngradedSubmission, but the customer lost the grade they
+    // waited for and had to resubmit. At 32^7 that is ~3e-5 per grade once a
+    // million certificates exist: rare enough to have gone unnoticed, common
+    // enough at volume to be somebody's Tuesday.
+    //
+    // Regenerating the NUMBER is safe: cert-integrity hashes certificate_id, not
+    // the number, so `integrity` computed above stays valid across a retry.
+    let certificateNumberAttempt = certificateNumber;
+    let gradeReport: { id: string } | null = null;
+    let reportError: { code?: string | null; message?: string | null } | null = null;
+
+    for (let attempt = 0; attempt < CERT_NUMBER_INSERT_ATTEMPTS; attempt++) {
+      const inserted = await supabaseAdmin
       .from("grade_reports")
       .insert({
         submission_id: submissionId,
@@ -2890,7 +2967,7 @@ export async function processSubmission(submissionId: string) {
         // entirely is what makes this commit safe to deploy ahead of the SQL.
         ...(tagRead ? { tag_read: tagRead } : {}),
         certificate_id: certificateId,
-        certificate_number: certificateNumber,
+        certificate_number: certificateNumberAttempt,
         // US-333: tamper-evident integrity columns (migration 00068).
         content_hash: integrity.content_hash,
         content_signature: integrity.content_signature,
@@ -2899,9 +2976,72 @@ export async function processSubmission(submissionId: string) {
       .select()
       .single();
 
+      gradeReport = inserted.data as { id: string } | null;
+      reportError = inserted.error;
+      if (!reportError) break;
+
+      // Anything that is NOT a certificate-number collision is a real failure.
+      // Narrowed by CONSTRAINT NAME rather than by 23505 alone, so this can
+      // never quietly paper over a different integrity violation.
+      if (!isCertificateNumberConflict(reportError)) break;
+
+      // Measurable: without this line the collision rate is invisible, and the
+      // decision to widen the code space would have no evidence behind it.
+      console.warn(
+        `[Pipeline] certificate number collision on ${certificateNumberAttempt} ` +
+          `for submission ${submissionId} (attempt ${attempt + 1}/` +
+          `${CERT_NUMBER_INSERT_ATTEMPTS}) — regenerating.`,
+      );
+      certificateNumberAttempt = await generateUniqueCertNumber();
+    }
+
     if (reportError || !gradeReport) {
       console.error("[Pipeline] Failed to create grade report:", reportError);
+      // Exhausting the retries still throws, so the existing refund path is
+      // unchanged: reverseChargeForUngradedSubmission returns the money exactly
+      // as it did before this retry existed.
       throw new Error("Failed to create grade report record");
+    }
+
+    // US-2569: RESOLVE any open revision for this submission.
+    //
+    // The supersede that retired the previous certificate ran minutes ago, when
+    // this replacement did not exist yet, so its row was written with the
+    // superseding half NULL. Filling it here is what turns "revised, new grade
+    // pending" into "the current grade is GT-XXXXXXX" on the retired
+    // certificate's public page.
+    //
+    // Only rows that are still unresolved are touched: 00600's trigger refuses a
+    // second resolution, so re-pointing an already-resolved revision would raise
+    // — and this runs on every completed grade for the submission, including
+    // ones that superseded nothing.
+    //
+    // Best-effort. A paid, completed grade must not fail because a history row
+    // could not be updated; the cost of the failure is one certificate that
+    // keeps saying "pending", which is still truthful.
+    {
+      const { error: resolveErr } = await supabaseAdmin
+        .from("grade_report_revisions")
+        .update({
+          superseding_report_id: gradeReport.id,
+          superseding_certificate_id: certificateId,
+          superseding_certificate_number: certificateNumber,
+          superseding_overall_score: compositeResult.overall_score,
+          superseding_grade_tier: compositeResult.grade_tier,
+          resolved_at: new Date().toISOString(),
+        })
+        .eq("submission_id", submission.id)
+        .is("superseding_report_id", null);
+      if (resolveErr) {
+        console.error(
+          `[Pipeline] revision resolve failed for submission ${submission.id}:`,
+          resolveErr.message,
+        );
+        captureException(resolveErr, {
+          route: "grading.revision-resolve",
+          extra: { submissionId: submission.id, reportId: gradeReport.id },
+        });
+      }
     }
 
     // US-932: the "grade_completed" / "first_grade" drip + activation events now
@@ -3112,7 +3252,7 @@ export async function processSubmission(submissionId: string) {
             // in practice the whole count is plain input tokens anyway.
             inputTokens: tagOcr.tokensIn,
             outputTokens: tagOcr.tokensOut,
-            cacheCreationTokens: 0,
+            cacheWriteTokens: 0,
             cacheReadTokens: 0,
           },
         }],
@@ -3135,7 +3275,7 @@ export async function processSubmission(submissionId: string) {
             // tokensIn already sums plain + cache read + cache creation.
             inputTokens: sizeEstimate.tokensIn,
             outputTokens: sizeEstimate.tokensOut,
-            cacheCreationTokens: 0,
+            cacheWriteTokens: 0,
             cacheReadTokens: 0,
           },
         }],

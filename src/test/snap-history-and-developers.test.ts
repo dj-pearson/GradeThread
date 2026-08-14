@@ -54,11 +54,11 @@ describe("a snap survives a reload (US-2554 AC1, AC2)", () => {
     appendSnapHistory(result(9), { brand: "Arc'teryx" });
     const history = readSnapHistory();
     expect(history).toHaveLength(2);
-    expect(history[0].brand).toBe("Arc'teryx");
-    expect(history[0].grade).toBe(9);
-    expect(history[1].valueCents).toBe(4200);
+    expect(history[0]?.brand).toBe("Arc'teryx");
+    expect(history[0]?.grade).toBe(9);
+    expect(history[1]?.valueCents).toBe(4200);
     // The whole result rides along, so revisiting one shows what it showed.
-    expect(history[1].result.grade.overall_score).toBe(7.5);
+    expect(history[1]?.result.grade.overall_score).toBe(7.5);
   });
 
   it("does not keep the photo", () => {
@@ -75,7 +75,7 @@ describe("a snap survives a reload (US-2554 AC1, AC2)", () => {
     for (let i = 0; i < 30; i++) appendSnapHistory(result(5), { brand: `b${i}` });
     expect(readSnapHistory().length).toBeLessThanOrEqual(20);
     // And the newest survived, not the oldest.
-    expect(readSnapHistory()[0].brand).toBe("b29");
+    expect(readSnapHistory()[0]?.brand).toBe("b29");
   });
 
   it("survives a corrupt or hostile stored value", () => {
@@ -90,7 +90,7 @@ describe("a snap survives a reload (US-2554 AC1, AC2)", () => {
   it("entries can be removed individually and wholesale", () => {
     appendSnapHistory(result(6), { brand: "keep" });
     appendSnapHistory(result(7), { brand: "drop" });
-    const dropId = readSnapHistory()[0].id;
+    const dropId = readSnapHistory()[0]!.id;
     expect(removeSnapHistoryEntry(dropId).map((e) => e.brand)).toEqual(["keep"]);
     clearSnapHistory();
     expect(readSnapHistory()).toEqual([]);
