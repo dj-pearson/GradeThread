@@ -4,6 +4,7 @@ import { AlertTriangle, Loader2, PiggyBank, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -50,7 +51,7 @@ const pct = (r: number | null) => (r == null ? "—" : `${(r * 100).toFixed(1)}%
 
 export function AdminGuaranteePoolPage() {
   const queryClient = useQueryClient();
-  const { data, isLoading } = useQuery<PoolData>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<PoolData>({
     queryKey: ["admin-guarantee-pool"],
     queryFn: async () => {
       const res = await edgeFetch("/api/admin/guarantee-pool");
@@ -76,6 +77,20 @@ export function AdminGuaranteePoolPage() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to resolve the claim."),
   });
+
+  // US-2507: on an error `isLoading` is false and `data` is undefined, so this
+  // page used to `return null` — a completely blank screen with no heading, no
+  // message and nothing to click. Say what happened instead.
+  if (isError) {
+    return (
+      <ErrorState
+        title="Couldn't load the guarantee pool"
+        description="The pool and its periods are intact — we just couldn't fetch them right now."
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
 
   if (isLoading) {
     return (

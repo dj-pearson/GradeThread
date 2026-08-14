@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -211,7 +212,7 @@ export function GrowthAnnouncementsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Announcement | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["growth-announcements"],
     queryFn: async (): Promise<{ announcements: Announcement[] }> => {
       const res = await edgeFetch("/api/admin/growth/announcements");
@@ -253,7 +254,16 @@ export function GrowthAnnouncementsPage() {
         }
       />
 
-      {isLoading ? (
+      {/* US-2507: before the empty branch — "No announcements yet" on a failed
+          load invites an operator to publish a duplicate. */}
+      {isError ? (
+        <ErrorState
+          title="Couldn't load announcements"
+          description="They're still live — we just couldn't fetch them right now."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      ) : isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : !data || data.announcements.length === 0 ? (
         <Card><CardContent className="p-10 text-center text-muted-foreground">No announcements yet.</CardContent></Card>

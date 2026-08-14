@@ -13,6 +13,7 @@ import { SearchInput } from "@/components/search-input";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -131,7 +132,7 @@ export function AdminClaimsPage() {
   const [resolution, setResolution] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-claims"],
     queryFn: async () => {
       const res = await edgeFetch("/api/admin/claims");
@@ -261,7 +262,20 @@ export function AdminClaimsPage() {
         </CardContent>
       </Card>
 
-      {isLoading ? (
+      {/* US-2507: an errored read rendered an empty claims queue, and an empty
+          guarantee-claims queue is a thing an operator is glad to believe. */}
+      {isError ? (
+        <Card>
+          <CardContent className="pt-6">
+            <ErrorState
+              title="Couldn't load guarantee claims"
+              description="Claims are still open — we just couldn't fetch them right now."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <Card>
           <CardContent className="pt-6">
             <div className="space-y-3">

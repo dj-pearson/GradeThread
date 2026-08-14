@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -84,7 +85,7 @@ function userLabel(u: UserLite | null, fallback: string): string {
 }
 
 export function AdminRateLimitsPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-rate-limits-console"],
     queryFn: async (): Promise<ConsoleResponse> => {
       const res = await edgeFetch("/api/admin/safety/rate-limits?limit=25");
@@ -117,7 +118,17 @@ export function AdminRateLimitsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          {isLoading ? (
+          {/* US-2507: an errored read rendered an empty limits view, which on
+              this page reads as "nothing is being rate-limited". */}
+          {isError ? (
+            <ErrorState
+              className="py-10"
+              title="Couldn't load rate limits"
+              description="They're still enforced — we just couldn't fetch them right now."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          ) : isLoading ? (
             <div className="p-6">
               <Skeleton className="h-24" />
             </div>

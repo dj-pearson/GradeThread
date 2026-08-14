@@ -37,13 +37,8 @@ const KNOWN_SILENT_READS: string[] = [
   "src/pages/admin/analytics.tsx",
   "src/pages/admin/authenticity.tsx",
   "src/pages/admin/brand-knowledge.tsx",
-  "src/pages/admin/category-map.tsx",
-  "src/pages/admin/claims.tsx",
-  "src/pages/admin/growth/announcements.tsx",
   "src/pages/admin/growth/reward-north-star.tsx",
-  "src/pages/admin/guarantee-pool.tsx",
   "src/pages/admin/jobs.tsx",
-  "src/pages/admin/rate-limits.tsx",
   "src/pages/admin/system.tsx",
   "src/pages/admin/user-detail.tsx",
 ];

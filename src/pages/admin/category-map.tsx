@@ -2,6 +2,7 @@ import { useId, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,7 +96,7 @@ export function AdminCategoryMapPage() {
   const [deleteTarget, setDeleteTarget] = useState<Mapping | null>(null);
   const [deleting, setDeleting] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-category-map"],
     queryFn: async (): Promise<Mapping[]> => {
       const res = await edgeFetch("/api/admin/category-map");
@@ -229,7 +230,18 @@ export function AdminCategoryMapPage() {
 
       <Card>
         <CardContent className="p-0">
-          {isLoading ? (
+          {isError ? (
+            /* US-2507: before the empty branch — a failed load otherwise reads
+               as "no mappings configured", and the seed/AI layer silently
+               taking over is exactly what an operator would then assume. */
+            <ErrorState
+              className="py-10"
+              title="Couldn't load the category map"
+              description="The mappings are still in place — we just couldn't fetch them right now."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          ) : isLoading ? (
             <div className="space-y-3 p-4">
               {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
             </div>
