@@ -4896,3 +4896,43 @@ Deno.test({
     }
   },
 });
+
+Deno.test({
+  // US-2518: the durable CSV import. Its run rows carry a payload of the
+  // seller's whole catalog file, and its undo DELETES inventory, so both ends
+  // have to be owner-scoped: B may not read A's run and may not undo it.
+  name: "B cannot read or undo A's CSV import run",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_IMPORT_RUN_ID"),
+  fn: async () => {
+    const read = await fetch(
+      `${BASE}/api/flipdesk/import/runs/${Deno.env.get("TEST_USER_A_IMPORT_RUN_ID")}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    assertDenied(read.status, "GET /api/flipdesk/import/runs/:id");
+
+    const undo = await fetch(
+      `${BASE}/api/flipdesk/import/runs/${Deno.env.get("TEST_USER_A_IMPORT_RUN_ID")}/undo`,
+      { method: "POST", headers: authHeaders(B_JWT!) },
+    );
+    assertDenied(undo.status, "POST /api/flipdesk/import/runs/:id/undo");
+  },
+});
+
+Deno.test({
+  // The list endpoint is scoped by the token, not by a parameter, so the
+  // property is that A's runs never appear in B's list.
+  name: "A's import runs never appear in B's import list",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_IMPORT_RUN_ID"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/import/runs`, {
+      headers: authHeaders(B_JWT!),
+    });
+    if (res.status !== 200) return; // denied outright is also a pass
+    const body = await res.json() as { runs?: Array<{ id: string }> };
+    const ids = (body.runs ?? []).map((r) => r.id);
+    assert(
+      !ids.includes(Deno.env.get("TEST_USER_A_IMPORT_RUN_ID")!),
+      `B's import list contained A's run ${Deno.env.get("TEST_USER_A_IMPORT_RUN_ID")}`,
+    );
+  },
+});

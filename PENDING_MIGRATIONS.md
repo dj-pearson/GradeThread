@@ -1,5 +1,46 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00592_flipdesk_import_runs.sql (US-2518 — the durable, reversible CSV import)
+
+**Risk: LOW.** Two brand-new tables, two indexes, one trigger, two SELECT-only
+RLS policies. Nothing existing is altered, narrowed or dropped, and no row is
+backfilled or deleted. Every statement is `IF NOT EXISTS` or is preceded by a
+`DROP … IF EXISTS`, so it is safe to run twice and safe to re-run the whole
+directory.
+
+**What it adds.** `flipdesk_import_runs` is one CSV inventory import: its
+status, its progress counters, and the mapped rows themselves, so the worker no
+longer needs the browser to stay open. `flipdesk_import_effects` is one row per
+change the run made — created an item, or filled blank columns on an existing one
+along with the values those columns held before. That second table is the entire
+reason an import can now be undone.
+
+**Order matters more than usual, and the frontend is the reason.** The page in
+this commit stops importing in the browser and posts to
+`POST /api/flipdesk/import/runs` instead. Cloudflare Pages auto-deploys the
+frontend the moment this is pushed, so between that deploy and the edge deploy
+the Import button would 404 — the old client-side loop is GONE, not
+feature-flagged. Apply in this order and that gap never opens:
+
+1. Run the SQL.
+2. `NOTIFY pgrst, 'reload schema';` — two tables were created and the edge
+   selects their columns by name through PostgREST.
+3. Deploy the edge (its boot guard now expects 00592).
+4. Register the new Coolify scheduled task,
+   `*/5 * * * *` → `POST /api/jobs/flipdesk-import-reclaim` with the
+   `X-Internal-Job-Secret` header. The regenerated table in
+   `services/edge-functions/COOLIFY.md` has the exact command. Without this
+   task, an import whose container dies is never resumed — which is the failure
+   the whole story exists to remove.
+5. THEN push.
+
+**RLS is SELECT-only on purpose.** Sellers may read their own runs; every write
+goes through the edge on the service-role client. A client that could insert an
+effect row could undo an import it never ran, and undo deletes inventory.
+
+Apply order: AFTER 00591.
+
+
 ## ✅ APPLIED: 00591_users_buyer_past_due_since.sql (US-2458 AC5 — the buyer dunning clock, applied 2026-08-14 — owner-confirmed)
 
 **Risk: LOWEST of anything here.** One nullable `timestamptz` on `public.users`.

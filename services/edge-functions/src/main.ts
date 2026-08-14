@@ -36,6 +36,10 @@ import { flipdeskImageRoutes } from "./routes/flipdesk-images.ts";
 import { flipdeskListingsRoutes } from "./routes/flipdesk-listings.ts";
 import { flipdeskReconciliationRoutes } from "./routes/flipdesk-reconciliation.ts";
 import { flipdeskSheetsRoutes } from "./routes/flipdesk-sheets.ts";
+import {
+  flipdeskImportRoutes,
+  handleImportReclaimCron,
+} from "./routes/flipdesk-import.ts";
 import { flipdeskAiRoutes } from "./routes/flipdesk-ai.ts";
 import { flipdeskScoutRoutes } from "./routes/flipdesk-scout.ts";
 import { flipdeskRadarRoutes } from "./routes/flipdesk-radar.ts";
@@ -482,6 +486,7 @@ app.use("/api/flipdesk/extension-queue", authMiddleware);
 app.use("/api/flipdesk/extension-queue/*", authMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
+app.use("/api/flipdesk/import/*", authMiddleware);
 app.use("/api/flipdesk/ai/*", authMiddleware);
 app.use("/api/flipdesk/scout/*", authMiddleware);
 // US-1863: Thrift Radar network layer (read-only aggregates). Authed like
@@ -635,6 +640,7 @@ app.use("/api/flipdesk/grading/submissions/*", workspaceMiddleware);
 app.use("/api/flipdesk/images/*", workspaceMiddleware);
 app.use("/api/flipdesk/listings/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", workspaceMiddleware);
+app.use("/api/flipdesk/import/*", workspaceMiddleware);
 app.use("/api/flipdesk/ai/*", workspaceMiddleware);
 app.use("/api/flipdesk/scout/*", workspaceMiddleware);
 app.use("/api/flipdesk/radar/*", workspaceMiddleware);
@@ -962,6 +968,7 @@ app.use("/api/flipdesk/extension-queue", rateLimiter(60, 60_000, "flipdesk-ext-q
 app.use("/api/flipdesk/extension-queue/*", rateLimiter(60, 60_000, "flipdesk-ext-queue"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
+app.use("/api/flipdesk/import/*", rateLimiter(30, 60_000, "flipdesk-import"));
 app.use("/api/flipdesk/google/oauth/start", rateLimiter(10, 60_000, "google-oauth"));
 app.use("/api/flipdesk/google/sheet/*", rateLimiter(15, 60_000, "google-sheet"));
 app.use("/api/content/scheduler/*", rateLimiter(60, 60_000, "content-scheduler"));
@@ -1133,6 +1140,9 @@ app.route("/api/flipdesk/images", flipdeskImageRoutes);
 app.route("/api/flipdesk/listings", flipdeskListingsRoutes);
 app.route("/api/flipdesk/reconciliation", flipdeskReconciliationRoutes);
 app.route("/api/flipdesk/sheets", flipdeskSheetsRoutes);
+// US-2518: durable CSV inventory import. The browser posts the mapped rows and
+// polls; the worker survives the tab closing and every run is reversible.
+app.route("/api/flipdesk/import", flipdeskImportRoutes);
 app.route("/api/flipdesk/ai", flipdeskAiRoutes);
 app.route("/api/flipdesk/scout", flipdeskScoutRoutes);
 // US-1863: Thrift Radar aggregates — venue list by bounding box + venue detail.
@@ -1190,6 +1200,9 @@ app.post("/api/jobs/publish-batch-reclaim", (c) => handlePublishBatchReclaimCron
 // US-1790 B2B batch-grading reclaim sweeper. Same job-secret gating; resumes
 // durable grading batches whose worker died mid-run so no garment is stranded.
 app.post("/api/jobs/grading-batch-reclaim", (c) => handleGradingBatchReclaimCron(c));
+// US-2518 CSV-import reclaim sweeper. Same job-secret gating; resumes an import
+// whose container died, from the row effects it had already recorded.
+app.post("/api/jobs/flipdesk-import-reclaim", (c) => handleImportReclaimCron(c));
 // US-1518 thumbnail backfill. Generates 320px thumbnails for item_photos missing
 // one (existing photos + new iOS uploads); drain-to-zero scheduler. Same gate.
 app.post("/api/jobs/thumbnail-backfill", (c) => handleThumbnailBackfillCron(c));

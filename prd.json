@@ -1759,20 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2518",
-      "passes": false,
-      "title": "CSV import runs in the browser, warns you not to close the tab, and cannot be undone",
-      "description": "As a seller importing inventory, I want the import to survive me closing the tab and to be reversible, so that a bad column mapping does not permanently overwrite my catalog.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/import.tsx runs the whole import in a client loop and tells the user 'Don't close this tab' (:766). It matches on SKU and updates existing items (:368) with no rollback.",
-        "The import runs as a durable server-side job using the same batch/claim/heartbeat contract as the AutoLister worker, so closing the tab does not kill it.",
-        "An import is reversible: the run records what it inserted and what it overwrote, and offers an undo.",
-        "A downloadable CSV template is offered next to the upload control.",
-        "The hand-rolled progress bar (:756-765) uses the shared Progress component."
-      ],
-      "priority": 1922
-    },
-    {
       "id": "US-2519",
       "passes": false,
       "title": "The item page fires four queries at one listing row and stacks twelve panels",

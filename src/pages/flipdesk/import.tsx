@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import {
   Upload,
@@ -6,6 +6,8 @@ import {
   AlertCircle,
   CheckCircle2,
   Link2,
+  Download,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -35,7 +37,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/lib/supabase";
+import { Progress } from "@/components/ui/progress";
+import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useFetchGoogleSheet } from "@/hooks/use-sheet-import";
@@ -50,57 +53,110 @@ import {
   parseDate,
   type ImportField,
 } from "@/lib/import-mapping";
-import type {
-  InventoryItemInsert,
-  ListingInsert,
-  SaleInsert,
-  ItemComp,
-} from "@/types/database";
 
 type ImportRow = {
   raw: string[];
   mapped: Partial<Record<ImportField, string>>;
 };
 
-type ImportResult = {
-  inserted: number;
-  updated: number;
-  skipped: number;
-  failed: number;
-  errors: { row: number; message: string }[];
+// US-2518: the run row the server owns. The browser polls it; it no longer does
+// the importing, so closing the tab costs nothing.
+type ImportRun = {
+  id: string;
+  status: "pending" | "running" | "completed" | "failed" | "undone";
+  total_rows: number;
+  processed_rows: number;
+  inserted_count: number;
+  updated_count: number;
+  skipped_count: number;
+  failed_count: number;
+  errors?: { row: number; message: string }[];
+  error?: string | null;
+  undone_at?: string | null;
 };
 
-type Progress =
-  | { phase: "idle" }
-  | { phase: "preflight"; message: string }
-  | { phase: "running"; current: number; total: number; message: string }
-  | { phase: "done" };
+// The header row of the downloadable template. Header text matches what
+// guessField() recognises, so a seller who starts here gets every column mapped
+// without touching a dropdown.
+const TEMPLATE_HEADERS = [
+  "Item #",
+  "Container",
+  "Item Title",
+  "Item Description",
+  "Brand",
+  "Style",
+  "Size",
+  "Notes",
+  "Category",
+  "Source",
+  "Sourced By",
+  "Purchase Date",
+  "Purchase Price",
+  "List Date",
+  "List Price",
+  "Link",
+  "Sale Date",
+  "Sale Price",
+  "Fees",
+  "Tax",
+  "Shipping Cost",
+  "Net Profit",
+  "Payout",
+  "Status",
+  "Tracking",
+];
 
-// Fill-only import (US-1082) — CSV is the lowest authority "never leave it
-// blank" backstop. Matches the shared `isBlank` semantics from the edge
-// `sync-precedence.ts` (US-1076): null / undefined / whitespace-only ⇒ blank.
-function isBlank(v: unknown): boolean {
-  return v === null || v === undefined || String(v).trim() === "";
+const TEMPLATE_EXAMPLE = [
+  "GT-0001",
+  "A1",
+  "Lululemon Align Pant",
+  "Barely worn, no pilling",
+  "Lululemon",
+  "Align",
+  "6",
+  "Small mark on left cuff",
+  "clothing",
+  "Goodwill on 5th",
+  "Dj",
+  "2026-01-14",
+  "6.99",
+  "2026-01-20",
+  "68.00",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "listed",
+  "",
+];
+
+function csvCell(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
 }
 
-// inventory_items columns a re-import may FILL on an existing row (matched by
-// SKU). Deliberately excludes GRADETHREAD_OWNED_ITEM_FIELDS — `sku` (the match
-// key), `source_id`, `condition_notes`, `acquired_price`, `acquired_date` — which
-// no CSV import may write (vault/20-domain/sync-source-of-truth.md). Listing/sale rows are not
-// touched on re-import either; eBay-owned fields live on `listings`, so an
-// import never fills them and never pushes to eBay.
-const FILL_ITEM_FIELDS = [
-  "title",
-  "container",
-  "description",
-  "brand",
-  "style",
-  "size",
-  "item_category",
-  "sourced_by",
-  "status",
-] as const;
-type FillItemField = (typeof FILL_ITEM_FIELDS)[number];
+function downloadTemplate(): void {
+  const csv = [TEMPLATE_HEADERS, TEMPLATE_EXAMPLE]
+    .map((row) => row.map(csvCell).join(","))
+    .join("\r\n");
+  const url = URL.createObjectURL(
+    new Blob([csv], { type: "text/csv;charset=utf-8" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "gradethread-inventory-template.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// US-2518: the fill-only rule (US-1082) and the list of columns a re-import may
+// write now live where the writing happens —
+// services/edge-functions/src/lib/inventory-import.ts. They were here because
+// the import ran in the browser; keeping a second copy would be two sources of
+// truth for which columns a CSV is allowed to touch.
 
 function buildMapped(
   row: string[],
@@ -128,8 +184,11 @@ export function FlipdeskImportPage() {
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ImportField[]>([]);
   const [importing, setImporting] = useState(false);
-  const [progress, setProgress] = useState<Progress>({ phase: "idle" });
-  const [result, setResult] = useState<ImportResult | null>(null);
+  // US-2518: the server's run, polled. `run` is the whole progress and result
+  // surface now — a browser refresh mid-import picks it back up.
+  const [run, setRun] = useState<ImportRun | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const pollRef = useRef<number | null>(null);
   const fetchSheet = useFetchGoogleSheet();
 
   async function handleFetchSheet() {
@@ -158,7 +217,7 @@ export function FlipdeskImportPage() {
     setHeaders(h);
     setRows(r);
     setMapping(h.map(guessField));
-    setResult(null);
+    setRun(null);
     toast.success(`Detected ${h.length} columns, ${r.length} rows.`);
   }
 
@@ -190,6 +249,58 @@ export function FlipdeskImportPage() {
   const previewRows = mappedRows.slice(0, 10);
   const titleFieldMapped = mapping.includes("title");
 
+  // US-2518 — build the payload the durable worker consumes. The browser still
+  // owns the parsing and the mapping (that is a UI), but it hands over resolved
+  // values so the server never has to guess at a date format.
+  function buildPayload() {
+    return mappedRows.map((r, i) => {
+      const m = r.mapped;
+      const listPrice = parsePrice(m.list_price ?? "");
+      const listDate = m.list_date ? parseDate(m.list_date) : null;
+      const salePrice = parsePrice(m.sale_price ?? "");
+      const saleDate = m.sale_date ? parseDate(m.sale_date) : null;
+      return {
+        row: i + 2,
+        title: m.title ?? null,
+        sku: m.sku ?? null,
+        container: m.container ?? null,
+        description: m.description ?? null,
+        brand: m.brand ?? null,
+        style: m.style ?? null,
+        size: m.size ?? null,
+        condition_notes: m.condition_notes ?? null,
+        comps_note: m.comps ?? null,
+        item_category: m.item_category ? normalizeCategory(m.item_category) : null,
+        status: m.status ? normalizeStatus(m.status) : null,
+        source_name: m.source ?? null,
+        sourced_by: m.sourced_by ?? null,
+        acquired_price: parsePrice(m.purchase_price ?? ""),
+        acquired_date: m.purchase_date ? parseDate(m.purchase_date) : null,
+        listing:
+          listPrice !== null || listDate !== null || m.link
+            ? {
+                listing_price: listPrice,
+                listing_url: m.link ?? null,
+                listed_at: listDate,
+              }
+            : null,
+        sale:
+          salePrice !== null || saleDate !== null
+            ? {
+                sale_price: salePrice,
+                platform_fees: parsePrice(m.fees ?? ""),
+                tax: parsePrice(m.tax ?? ""),
+                shipping_cost: parsePrice(m.shipping_cost ?? ""),
+                net_profit: parsePrice(m.net_profit ?? ""),
+                payout_amount: parsePrice(m.payout ?? ""),
+                tracking_number: m.tracking ?? null,
+                sold_at: saleDate,
+              }
+            : null,
+      };
+    });
+  }
+
   async function handleImport() {
     if (!user || !workspaceOwnerId) {
       toast.error("You must be signed in.");
@@ -205,285 +316,124 @@ export function FlipdeskImportPage() {
     }
 
     setImporting(true);
-    setResult(null);
-    const errors: { row: number; message: string }[] = [];
-    let inserted = 0;
-    let updated = 0;
-    let skipped = 0;
-
+    setRun(null);
     try {
-      // ── Phase 1: pre-resolve all unique sources in one pass ─────────
-      setProgress({ phase: "preflight", message: "Resolving sources…" });
-      const sourceCache = new Map<string, string>();
-      const uniqueSources = Array.from(
-        new Set(
-          mappedRows
-            .map((r) => r.mapped.source?.trim())
-            .filter((s): s is string => !!s),
-        ),
-      );
-      // Call rpc as a method on `supabase` — extracting it as a standalone
-      // function loses `this` and the client crashes reading `this.rest`.
-      const supabaseAny = supabase as unknown as {
-        rpc: (
-          fn: string,
-          args: Record<string, unknown>,
-        ) => Promise<{ data: string | null; error: Error | null }>;
+      const res = await edgeFetch("/api/flipdesk/import/runs", {
+        method: "POST",
+        json: { rows: buildPayload(), origin: sheetUrl.trim() ? "sheet" : "csv" },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        run_id?: string;
+        total_rows?: number;
+        error?: string;
       };
-      for (const name of uniqueSources) {
-        const { data: sid, error: sErr } = await supabaseAny.rpc(
-          "get_or_create_source",
-          {
-            p_user_id: workspaceOwnerId,
-            p_name: name,
-            p_source_type: "other",
-          },
-        );
-        if (sErr) {
-          errors.push({ row: 0, message: `Source "${name}": ${sErr.message}` });
-          continue;
-        }
-        if (sid) sourceCache.set(name, sid);
+      if (!res.ok || !json.run_id) {
+        throw new Error(json.error || "Could not start the import.");
       }
-
-      // ── Phase 2: pre-fetch existing SKUs so we route INSERT vs UPDATE ─
-      setProgress({ phase: "preflight", message: "Checking for duplicates…" });
-      const skus = Array.from(
-        new Set(
-          mappedRows
-            .map((r) => r.mapped.sku?.trim())
-            .filter((s): s is string => !!s),
-        ),
-      );
-
-      type ExistingRow = { id: string; sku: string | null } & Partial<
-        Record<FillItemField, unknown>
-      >;
-      const existingMap = new Map<string, ExistingRow>(); // sku → existing row
-      const insertedSkus = new Set<string>(); // SKUs inserted during this run
-      // Pull the fillable columns so we can compute the blank-only patch.
-      const lookupSelect = ["id", "sku", ...FILL_ITEM_FIELDS].join(", ");
-      // Chunk small to stay well under PostgREST URL length even with
-      // unusual chars in SKUs that need percent-encoding.
-      const CHUNK = 50;
-      for (let i = 0; i < skus.length; i += CHUNK) {
-        const chunk = skus.slice(i, i + CHUNK);
-        const { data, error: lookupErr } = await supabase
-          .from("inventory_items")
-          .select(lookupSelect)
-          .eq("user_id", workspaceOwnerId)
-          .in("sku", chunk);
-        if (lookupErr) throw lookupErr;
-        for (const row of (data ?? []) as ExistingRow[]) {
-          if (row.sku) existingMap.set(row.sku, row);
-        }
-      }
-
-      // ── Phase 3: process rows sequentially with live progress ─────
-      for (let i = 0; i < mappedRows.length; i++) {
-        const item = mappedRows[i];
-        if (!item) continue;
-        const { mapped } = item;
-        const title = mapped.title;
-        if (!title) {
-          errors.push({ row: i + 2, message: "Missing item title" });
-          continue;
-        }
-
-        setProgress({
-          phase: "running",
-          current: i + 1,
-          total: mappedRows.length,
-          message: `Row ${i + 1} of ${mappedRows.length}`,
-        });
-
-        try {
-          const sourceName = mapped.source?.trim();
-          const sourceId = sourceName
-            ? sourceCache.get(sourceName) ?? null
-            : null;
-
-          const comp_set: ItemComp[] = mapped.comps
-            ? [{ price: 0, notes: mapped.comps }]
-            : [];
-
-          const purchaseDate = mapped.purchase_date
-            ? parseDate(mapped.purchase_date)
-            : null;
-          const status = mapped.status ? normalizeStatus(mapped.status) : null;
-          const category = mapped.item_category
-            ? normalizeCategory(mapped.item_category)
-            : null;
-
-          const sku = mapped.sku?.trim() ?? null;
-          const itemPayload: InventoryItemInsert = {
-            user_id: workspaceOwnerId,
-            title,
-            sku,
-            container: mapped.container ?? null,
-            description: mapped.description ?? null,
-            brand: mapped.brand ?? null,
-            style: mapped.style ?? null,
-            size: mapped.size ?? null,
-            condition_notes: mapped.condition_notes ?? null,
-            item_category: category,
-            source_id: sourceId,
-            sourced_by: mapped.sourced_by ?? null,
-            acquired_date: purchaseDate,
-            acquired_price: parsePrice(mapped.purchase_price ?? "") ?? null,
-            status: status ?? "acquired",
-            comp_set,
-          };
-
-          // Existing SKU → fill-only enrich (US-1082): write each fillable
-          // column ONLY where the existing row is blank; never overwrite a
-          // populated value. Listings/sales are left untouched on re-import.
-          if (sku) {
-            const existing = existingMap.get(sku);
-            if (existing) {
-              const payloadRecord = itemPayload as unknown as Record<
-                string,
-                unknown
-              >;
-              const patch: Record<string, unknown> = {};
-              for (const field of FILL_ITEM_FIELDS) {
-                const incoming = payloadRecord[field];
-                if (isBlank(existing[field]) && !isBlank(incoming)) {
-                  patch[field] = incoming;
-                }
-              }
-              if (Object.keys(patch).length > 0) {
-                const { error: upErr } = await supabase
-                  .from("inventory_items")
-                  .update(patch as never)
-                  .eq("id", existing.id)
-                  .eq("user_id", workspaceOwnerId);
-                if (upErr) throw upErr;
-                updated++;
-              } else {
-                skipped++;
-              }
-              continue;
-            }
-            // Already inserted earlier in THIS import (duplicate SKU in the
-            // same file) — nothing to fill on a row we just created.
-            if (insertedSkus.has(sku)) {
-              skipped++;
-              continue;
-            }
-          }
-
-          const { data: itemRow, error: itemErr } = await supabase
-            .from("inventory_items")
-            .insert(itemPayload as never)
-            .select("id")
-            .single();
-
-          if (itemErr) {
-            // Defensive 409 fallback: if INSERT conflicts on SKU unique index
-            // (pre-flight missed it, e.g., a concurrent import in another
-            // tab), treat as already existing and skip.
-            const errObj = itemErr as { code?: string };
-            if (errObj.code === "23505" && sku) {
-              insertedSkus.add(sku); // mark so future dupes also skip
-              skipped++;
-              continue;
-            }
-            throw itemErr;
-          }
-
-          const newId = (itemRow as { id: string } | null)?.id;
-          if (!newId) throw new Error("Insert returned no id");
-          const itemId: string = newId;
-          inserted++;
-          if (sku) insertedSkus.add(sku);
-
-          // Only insert listings/sales for NEW items. Re-imports skip these.
-          const listPrice = parsePrice(mapped.list_price ?? "");
-          const listDate = mapped.list_date
-            ? parseDate(mapped.list_date)
-            : null;
-          if (listPrice !== null || listDate !== null || mapped.link) {
-            const listingInsert: ListingInsert = {
-              inventory_item_id: itemId,
-              platform: "ebay",
-              // US-1077: CSV is a linking source recorded through GradeThread —
-              // origin defaults to GradeThread (keeps the row fully editable).
-              listing_origin: "gradethread",
-              listing_price: listPrice ?? 0,
-              listing_url: mapped.link ?? null,
-              listed_at: listDate ?? undefined,
-              is_active: status === "listed",
-            };
-            const { error: lErr } = await supabase
-              .from("listings")
-              .insert(listingInsert as never);
-            if (lErr) throw lErr;
-          }
-
-          const salePrice = parsePrice(mapped.sale_price ?? "");
-          const saleDate = mapped.sale_date
-            ? parseDate(mapped.sale_date)
-            : null;
-          if (salePrice !== null || saleDate !== null) {
-            const saleInsert: SaleInsert = {
-              inventory_item_id: itemId,
-              sale_price: salePrice ?? 0,
-              platform_fees: parsePrice(mapped.fees ?? "") ?? 0,
-              tax: parsePrice(mapped.tax ?? "") ?? 0,
-              shipping_cost: parsePrice(mapped.shipping_cost ?? "") ?? 0,
-              net_profit: parsePrice(mapped.net_profit ?? "") ?? null,
-              payout_amount: parsePrice(mapped.payout ?? "") ?? null,
-              tracking_number: mapped.tracking ?? null,
-              sold_at: saleDate,
-              sale_date: saleDate ?? undefined,
-            };
-            const { error: sErr } = await supabase
-              .from("sales")
-              .insert(saleInsert as never);
-            if (sErr) throw sErr;
-          }
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          errors.push({ row: i + 2, message });
-        }
-      }
+      setRun({
+        id: json.run_id,
+        status: "pending",
+        total_rows: json.total_rows ?? mappedRows.length,
+        processed_rows: 0,
+        inserted_count: 0,
+        updated_count: 0,
+        skipped_count: 0,
+        failed_count: 0,
+      });
+      toast.success("Import started. You can close this tab — it keeps going.");
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Log full error to console so it's visible in DevTools even if the
-      // result panel is collapsed.
-      if (import.meta.env.DEV) console.error("[FlipDesk import] pre-flight failed:", err);
-      errors.push({ row: 0, message: `Pre-flight failed: ${message}` });
+      setImporting(false);
+      toast.error(err instanceof Error ? err.message : String(err));
     }
+  }
 
-    setImporting(false);
-    setProgress({ phase: "done" });
-    setResult({
-      inserted,
-      updated,
-      skipped,
-      failed: errors.length,
-      errors,
-    });
-    if (errors.length === 0) {
-      toast.success(
-        `Imported ${inserted} new${
-          updated > 0 ? `, filled ${updated} existing` : ""
-        }${skipped > 0 ? `, skipped ${skipped} unchanged` : ""}.`,
-      );
-    } else {
-      // Surface the first error message in the toast so the user doesn't
-      // have to dig into the result panel for the diagnostic.
-      const first = errors[0];
-      const firstMsg = first?.message ?? "unknown error";
-      toast.warning(
-        `Imported ${inserted}, filled ${updated}, skipped ${skipped}, failed ${errors.length}. First error: ${firstMsg}`,
-        { duration: 12_000 },
-      );
-      // Log each error to console for easy copy-paste.
-      for (const e of errors) {
-        if (import.meta.env.DEV) console.error(`[FlipDesk import] row ${e.row}: ${e.message}`);
+  // Poll the run until it terminalizes. The run is the source of truth, so a
+  // refresh, a flaky connection or a closed laptop lid changes nothing about
+  // whether the import finishes.
+  useEffect(() => {
+    const id = run?.id;
+    const open = run?.status === "pending" || run?.status === "running";
+    if (!id || !open) {
+      if (pollRef.current !== null) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
       }
+      return;
+    }
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await edgeFetch(`/api/flipdesk/import/runs/${id}`, {
+          silentGate: true,
+        });
+        if (!res.ok) return;
+        const json = (await res.json()) as { run?: ImportRun };
+        if (cancelled || !json.run) return;
+        setRun(json.run);
+        if (json.run.status !== "pending" && json.run.status !== "running") {
+          setImporting(false);
+          if (json.run.failed_count > 0 || json.run.status === "failed") {
+            toast.warning(
+              `Imported ${json.run.inserted_count}, filled ${json.run.updated_count}, failed ${json.run.failed_count}.`,
+              { duration: 12_000 },
+            );
+          } else {
+            toast.success(
+              `Imported ${json.run.inserted_count} new${
+                json.run.updated_count > 0
+                  ? `, filled ${json.run.updated_count} existing`
+                  : ""
+              }.`,
+            );
+          }
+        }
+      } catch {
+        // A failed poll is not a failed import — the run keeps going.
+      }
+    };
+    void tick();
+    pollRef.current = window.setInterval(() => void tick(), 2000);
+    return () => {
+      cancelled = true;
+      if (pollRef.current !== null) {
+        window.clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [run?.id, run?.status]);
+
+  // US-2518 — put the catalog back. Items the run created are deleted, columns
+  // it filled are restored to what they held, and anything since published to a
+  // marketplace is left alone and reported.
+  async function handleUndo() {
+    if (!run) return;
+    setUndoing(true);
+    try {
+      const res = await edgeFetch(`/api/flipdesk/import/runs/${run.id}/undo`, {
+        method: "POST",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        deleted_items?: number;
+        restored_items?: number;
+        kept_published?: number;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(json.error || "Undo failed.");
+      setRun({ ...run, status: "undone", undone_at: new Date().toISOString() });
+      const kept = json.kept_published ?? 0;
+      toast.success(
+        `Undone: ${json.deleted_items ?? 0} deleted, ${json.restored_items ?? 0} restored.`,
+        kept > 0
+          ? {
+              description: `${kept} item${kept === 1 ? "" : "s"} kept — already published to a marketplace.`,
+              duration: 12_000,
+            }
+          : undefined,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setUndoing(false);
     }
   }
 
@@ -571,6 +521,19 @@ export function FlipdeskImportPage() {
             <p className="mt-2 text-xs text-muted-foreground">
               In Google Sheets: File → Download → Comma-separated values (.csv)
             </p>
+            {/* US-2518: a seller with no spreadsheet yet had nothing to start
+                from, and had to guess at column names. These headers are the
+                ones guessField() recognises, so a file built on this maps
+                itself. */}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mt-2"
+              onClick={downloadTemplate}
+            >
+              <Download className="mr-2 h-4 w-4" />
+              Download the CSV template
+            </Button>
           </div>
 
           <div className="relative">
@@ -723,8 +686,7 @@ A1	GT-0001	Lululemon Align Pant	..."
               setHeaders([]);
               setRows([]);
               setMapping([]);
-              setResult(null);
-              setProgress({ phase: "idle" });
+              setRun(null);
             }}
           >
             Reset
@@ -736,8 +698,8 @@ A1	GT-0001	Lululemon Align Pant	..."
         </div>
       )}
 
-      {/* Progress */}
-      {importing && progress.phase !== "idle" && progress.phase !== "done" && (
+      {/* Progress — the server's counters, not the browser's. */}
+      {run && (run.status === "pending" || run.status === "running") && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -745,63 +707,90 @@ A1	GT-0001	Lululemon Align Pant	..."
               Importing…
             </CardTitle>
             <CardDescription>
-              {progress.phase === "preflight"
-                ? progress.message
-                : `${progress.message} (${Math.round(
-                    (progress.current / progress.total) * 100,
-                  )}%)`}
+              {run.processed_rows} of {run.total_rows} rows
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-brand-navy transition-all"
-                style={{
-                  width:
-                    progress.phase === "running"
-                      ? `${(progress.current / progress.total) * 100}%`
-                      : "10%",
-                }}
-              />
-            </div>
+            <Progress
+              value={
+                run.total_rows > 0
+                  ? (run.processed_rows / run.total_rows) * 100
+                  : 5
+              }
+            />
+            {/* US-2518: this used to warn the seller to keep the tab open. The
+                worker holds the rows now, so leaving is genuinely safe. */}
             <p className="mt-2 text-xs text-muted-foreground">
-              Don't close this tab — re-imports of the same SKUs will update
-              existing items, but it's faster to let this finish.
+              This runs on our servers. You can close this tab or leave the
+              page; the import keeps going and you can undo the whole thing
+              afterwards.
             </p>
           </CardContent>
         </Card>
       )}
 
       {/* Results */}
-      {result && (
+      {run && run.status !== "pending" && run.status !== "running" && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              {result.failed === 0 ? (
+              {run.failed_count === 0 && run.status !== "failed" ? (
                 <CheckCircle2 className="h-5 w-5 text-emerald-600 dark:text-emerald-400" />
               ) : (
                 <AlertCircle className="h-5 w-5 text-destructive" />
               )}
-              Import complete
+              {run.status === "undone"
+                ? "Import undone"
+                : run.status === "failed"
+                  ? "Import stopped"
+                  : "Import complete"}
             </CardTitle>
             <CardDescription>
-              {result.inserted} new · {result.updated} filled ·{" "}
-              {result.skipped} unchanged · {result.failed} failed
+              {run.inserted_count} new · {run.updated_count} filled ·{" "}
+              {run.skipped_count} unchanged · {run.failed_count} failed
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {result.errors.length > 0 && (
+            {run.error && (
+              <p className="text-sm text-destructive">{run.error}</p>
+            )}
+            {(run.errors ?? []).length > 0 && (
               <div className="max-h-64 overflow-y-auto rounded-md border bg-muted/30 p-3 text-xs">
-                {result.errors.map((e, i) => (
+                {(run.errors ?? []).map((e, i) => (
                   <div key={i} className="font-mono">
                     Row {e.row}: {e.message}
                   </div>
                 ))}
               </div>
             )}
-            <Button onClick={() => navigate("/dashboard/flipdesk/items")}>
-              View items
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={() => navigate("/dashboard/flipdesk/items")}>
+                View items
+              </Button>
+              {/* US-2518: a wrong column mapping used to be permanent. */}
+              {run.status !== "undone" &&
+                run.inserted_count + run.updated_count > 0 && (
+                  <Button
+                    variant="outline"
+                    onClick={handleUndo}
+                    disabled={undoing}
+                  >
+                    {undoing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Undo2 className="mr-2 h-4 w-4" />
+                    )}
+                    Undo this import
+                  </Button>
+                )}
+            </div>
+            {run.status !== "undone" && (
+              <p className="text-xs text-muted-foreground">
+                Undo deletes the items this import created and puts back the
+                values it filled in. Anything you have already published to a
+                marketplace is left alone.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

@@ -263,6 +263,18 @@ async function main(): Promise<void> {
     default_split_pct: 50,
   });
 
+  // US-2518: a CSV import run owned by A. Its payload is A's catalog file and
+  // its undo deletes inventory, so both the read and the undo need a case. A
+  // completed run, because undo refuses one still in flight — otherwise the
+  // case would pass on the wrong refusal.
+  out.TEST_USER_A_IMPORT_RUN_ID = await insert("flipdesk_import_runs", {
+    user_id: aId,
+    status: "completed",
+    origin: "csv",
+    total_rows: 1,
+    processed_rows: 1,
+  });
+
   // US-2228: an operating expense owned by A. The receipt routes hang off this
   // row, and a plain insert is enough — the denial comes from the ownership
   // load, which runs before the body is read and does not care whether a

@@ -92,6 +92,9 @@ export const CRON_REGISTRY: CronDef[] = [
   { name: "publish-batch-reclaim", label: "Publish-batch reclaim", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/jobs/publish-batch-reclaim", recorded: true },
   // US-1790: B2B batch-grading reclaim — resumes stale grading batches.
   { name: "grading-batch-reclaim", label: "Grading-batch reclaim", schedule: "*/5 * * * *", category: "grading", endpoint: "/api/jobs/grading-batch-reclaim", recorded: true },
+  // US-2518: CSV inventory-import reclaim — resumes a run whose worker died, so
+  // a closed tab or a redeploy never strands a half-imported catalog.
+  { name: "flipdesk-import-reclaim", label: "CSV import reclaim", schedule: "*/5 * * * *", category: "maintenance", endpoint: "/api/jobs/flipdesk-import-reclaim", recorded: true },
   { name: "grading-monitor", label: "Grading regression monitor", schedule: "0 */12 * * *", category: "grading", endpoint: "/api/jobs/grading-monitor", recorded: true },
   // US-1773: cross-garment durability aggregation (daily) backing the public durability rankings.
   { name: "durability-aggregate", label: "Durability aggregation", schedule: "0 2 * * *", category: "grading", endpoint: "/api/jobs/durability-aggregate", recorded: true },
