@@ -211,7 +211,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       self-hide; one step REPLACED because it could never complete; new
       BuyerActivity reads two feeds that already existed; extension link points
       at the Web Store; guard `src/test/buyer-home-activity.test.ts` (12 cases)
-- [x] US-2554 (2424) Snap history + API keys placement - SHA8 - snaps kept in a
+- [x] US-2554 (2424) Snap history + API keys placement - 3f4ec7ec - snaps kept in a
       DEVICE-local history (reasoned, stated on screen, photo never stored),
       /dashboard/developers is a real destination with a sidebar entry while
       /dashboard/api-keys stays for the Stripe return, plus the three P3s;
