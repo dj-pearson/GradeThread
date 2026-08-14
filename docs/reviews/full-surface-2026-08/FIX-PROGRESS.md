@@ -484,6 +484,30 @@ unless a story is blocked; if blocked, note why and move to the next.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
 
+### Lessons from US-2559
+- Group by the JOB a page does, not by the word in its label. "Assistant
+  monitoring" sat in the AI cluster because it starts with AI; it is the abuse
+  console for the support bot. Reading its PageHeader subtitle took ten seconds
+  and removed a page from the merge. Third time this loop that a consolidation
+  shrank on contact with the code (US-2510, US-2512, now this).
+- A merge is the cheapest time to find an unreachable page. safety-signals was
+  ROUTED with no sidebar entry anywhere - reachable only by typing the URL -
+  and that only surfaced because the cluster had to be enumerated. Worth asking
+  of any nav change: which routes have no entry pointing at them?
+- When a story says a control must stay immediate, "default tab" is a real
+  answer. The payout kill switch had to survive the merge un-buried; making
+  Economics the default view means /admin/rewards opens on it, which is one
+  click closer than the old sidebar entry rather than one further away.
+- The guard from a previous story caught this one before the tests did.
+  US-2513's prefix rule rejected the label "AI" because it is a whole-word
+  prefix of "AI Escalations" - the general-case-vs-specific ambiguity it was
+  written for. Renamed to "AI Platform". Guards from earlier stories are the
+  cheapest review available; run the admin ones after any nav edit.
+- Assert the ANTI-goal, not just the goal. The merge's real risk is a page
+  quietly dropped instead of moved, so the guard names all sixteen and fails if
+  any host stops mounting one. "Nothing was deleted" is only a promise until
+  something checks it.
+
 ### Lessons from US-2558
 - "Verify nothing depends on it before deleting" found something nobody was
   looking for. The read-only tab was a duplicate, yes — but its ENDPOINT also
