@@ -1,6 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 import { Link } from "react-router";
-import { useItemsList } from "@/hooks/use-items-full";
 import { useRepricingSuggestions } from "@/hooks/use-repricing";
 import { ErrorState } from "@/components/ui/error-state";
 import {
@@ -31,32 +30,38 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion } from "@/components/ui/skeletons";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   ITEM_STATUS_LABELS,
   FLIPDESK_PIPELINE,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { NorthStarCard } from "@/components/flipdesk/north-star-card";
 import { CommunityInsightsWidget } from "@/components/flipdesk/community-insights-widget";
+import { useUrlParamState } from "@/hooks/use-url-param-state";
+import {
+  DEFAULT_OVERVIEW_RANGE,
+  isOverviewRangeId,
+  overviewRangeDef,
+  OVERVIEW_RANGES,
+} from "@/lib/overview-range";
+import {
+  useFlipdeskOverview,
+  OVERVIEW_AGING_DAYS,
+  type OverviewAgingRow,
+  type OverviewStaleRow,
+} from "@/hooks/use-flipdesk-overview";
 import type { ItemStatus } from "@/types/database";
-import type { ItemListRow } from "@/lib/item-list-columns";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEK_MS = 7 * DAY_MS;
-const AGING_THRESHOLD_DAYS = 14;
-
-// Statuses still "in progress" — used to count aging items and inventory value.
-const ACTIVE_STATUSES = new Set<ItemStatus>([
-  "sourced",
-  "acquired",
-  "cataloged",
-  "measured",
-  "photographed",
-  "grading",
-  "graded",
-  "comped",
-  "drafted",
-  "listed",
-]);
+// How many rows each list card shows before "show all" (US-2547). The aggregate
+// returns up to OVERVIEW_LIST_LIMIT, so "all" means "all it sent" — the copy
+// says so when the account has more than that.
+const PREVIEW_ROWS = 5;
 
 function fmtMoney(n: number | null | undefined): string {
   if (n == null || isNaN(n)) return "$0.00";
@@ -67,13 +72,6 @@ function fmtMoneyShort(n: number | null | undefined): string {
   if (n == null || isNaN(n)) return "$0";
   if (Math.abs(n) >= 1000) return `$${(n / 1000).toFixed(1)}k`;
   return `$${Math.round(n)}`;
-}
-
-function daysSince(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (isNaN(t)) return null;
-  return Math.floor((Date.now() - t) / DAY_MS);
 }
 
 // US-859: dismissed stale-listing nudges, persisted per browser so a seller who
@@ -116,14 +114,26 @@ function useDismissedStaleNudges() {
 }
 
 export function FlipdeskOverviewPage() {
-  // Shared items_full read — single source of truth across FlipDesk (US-419).
+  // US-2547: the reporting window lives in the URL so a seller can bookmark
+  // "last 30 days" and hand the link to a partner.
+  const [rangeParam, setRangeParam] = useUrlParamState(
+    "range",
+    DEFAULT_OVERVIEW_RANGE,
+  );
+  const range = isOverviewRangeId(rangeParam)
+    ? rangeParam
+    : DEFAULT_OVERVIEW_RANGE;
+  const rangeDef = overviewRangeDef(range);
+
+  // US-2547: every figure below is aggregated in SQL. This page used to read
+  // every items_full row the account owned and loop it in the browser.
   const {
-    data: items = [],
+    data: metrics,
     isLoading,
     isError,
     isFetching,
     refetch,
-  } = useItemsList();
+  } = useFlipdeskOverview(range);
 
   // US-859: dismissible "grade to boost trust" / "reprice or relist" nudges on
   // stale listings. Reuse the existing repricing suggestions where available so
@@ -132,118 +142,18 @@ export function FlipdeskOverviewPage() {
   const { dismissed: dismissedNudges, dismiss: dismissNudge } =
     useDismissedStaleNudges();
   const { data: repriceSuggestions = [] } = useRepricingSuggestions();
-  const repriceByItem = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of repriceSuggestions) {
-      if (s.reason_code === "OK") continue;
-      if (!map.has(s.inventory_item_id)) {
-        map.set(s.inventory_item_id, s.message);
-      }
+  const repriceByItem = new Map<string, string>();
+  for (const s of repriceSuggestions) {
+    if (s.reason_code === "OK") continue;
+    if (!repriceByItem.has(s.inventory_item_id)) {
+      repriceByItem.set(s.inventory_item_id, s.message);
     }
-    return map;
-  }, [repriceSuggestions]);
+  }
 
-  const stats = useMemo(() => {
-    const now = Date.now();
-    const weekAgo = now - WEEK_MS;
-
-    const byStatus = new Map<ItemStatus, number>();
-    let listedThisWeek = 0;
-    let soldThisWeek = 0;
-    let soldRevenueThisWeek = 0;
-    let netProfitThisWeek = 0;
-    let inventoryValue = 0;
-    const agingItems: Array<{ item: ItemListRow; days: number }> = [];
-    // US-151: active listings that have been live > 14 days with zero watchers —
-    // strong "dud" signal worth a price drop or relist.
-    const staleListings: Array<{ item: ItemListRow; days: number }> = [];
-    const brandProfit = new Map<string, { profit: number; sold: number }>();
-
-    for (const it of items) {
-      byStatus.set(it.status, (byStatus.get(it.status) ?? 0) + 1);
-
-      const listedAt = it.list_date ? new Date(it.list_date).getTime() : null;
-      if (listedAt && listedAt >= weekAgo) listedThisWeek++;
-
-      if (
-        it.listing_status === "active" &&
-        listedAt != null &&
-        (it.listing_watchers ?? 0) === 0
-      ) {
-        const listedDays = Math.floor((now - listedAt) / DAY_MS);
-        if (listedDays >= AGING_THRESHOLD_DAYS) {
-          staleListings.push({ item: it, days: listedDays });
-        }
-      }
-
-      // Only COMPLETED sales count — a cancelled/refunded order was never a
-      // real sale (00111 adds items_full.sale_status).
-      const soldAt = it.sale_date ? new Date(it.sale_date).getTime() : null;
-      const isCompletedSale = it.sale_status === "completed";
-      if (soldAt && soldAt >= weekAgo && isCompletedSale) {
-        soldThisWeek++;
-        soldRevenueThisWeek += it.sale_price ?? 0;
-        netProfitThisWeek += it.net_profit ?? 0;
-      }
-
-      // Inventory value = MARKET value (matches eBay): active listing price,
-      // falling back to target_price when not yet listed — NOT cost basis.
-      if (ACTIVE_STATUSES.has(it.status)) {
-        inventoryValue += it.list_price ?? it.target_price ?? 0;
-      }
-
-      const updatedDays = daysSince(it.updated_at);
-      if (
-        ACTIVE_STATUSES.has(it.status) &&
-        updatedDays != null &&
-        updatedDays >= AGING_THRESHOLD_DAYS
-      ) {
-        agingItems.push({ item: it, days: updatedDays });
-      }
-
-      if (it.brand && it.net_profit != null && soldAt && isCompletedSale) {
-        const key = it.brand;
-        const existing = brandProfit.get(key) ?? { profit: 0, sold: 0 };
-        brandProfit.set(key, {
-          profit: existing.profit + it.net_profit,
-          sold: existing.sold + 1,
-        });
-      }
-    }
-
-    agingItems.sort((a, b) => b.days - a.days);
-    staleListings.sort((a, b) => b.days - a.days);
-
-    const topBrands = [...brandProfit.entries()]
-      .map(([brand, v]) => ({ brand, ...v }))
-      .sort((a, b) => b.profit - a.profit)
-      .slice(0, 5);
-
-    const recentSales = items
-      .filter((it) => it.sale_date)
-      .sort((a, b) => {
-        const at = a.sale_date ? new Date(a.sale_date).getTime() : 0;
-        const bt = b.sale_date ? new Date(b.sale_date).getTime() : 0;
-        return bt - at;
-      })
-      .slice(0, 6);
-
-    return {
-      total: items.length,
-      byStatus,
-      listedThisWeek,
-      soldThisWeek,
-      soldRevenueThisWeek,
-      netProfitThisWeek,
-      inventoryValue,
-      agingItems: agingItems.slice(0, 5),
-      agingCount: agingItems.length,
-      staleListings: staleListings.slice(0, 5),
-      staleCount: staleListings.length,
-      topBrands,
-      recentSales,
-    };
-  }, [items]);
+  const agingRows = metrics?.agingItems ?? [];
+  const staleRows = metrics?.staleListings ?? [];
+  const [showAllAging, setShowAllAging] = useState(false);
+  const [showAllStale, setShowAllStale] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -252,6 +162,25 @@ export function FlipdeskOverviewPage() {
         subtitle="What's moving, what's stuck, and what's making money."
         actions={
           <>
+            <Select
+              value={range}
+              onValueChange={(v) => {
+                setRangeParam(v);
+                setShowAllAging(false);
+                setShowAllStale(false);
+              }}
+            >
+              <SelectTrigger className="w-[150px]" aria-label="Reporting period">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {OVERVIEW_RANGES.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Button variant="outline" asChild>
               <Link to="/dashboard/flipdesk/import">
                 <Upload className="mr-2 h-4 w-4" />
@@ -284,51 +213,67 @@ export function FlipdeskOverviewPage() {
       {/* North Star (US-597): weekly items-listed goal + streak. The PRD North
           Star is Items-Listed-Per-Week — surface + gamify it front and center. */}
       <div className="max-w-md">
-        <NorthStarCard items={items} />
+        <NorthStarCard
+          weeks={metrics?.listWeeks ?? []}
+          lifetimeListed={metrics?.lifetimeListed}
+        />
       </div>
 
       {/* Top metrics */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          icon={<Package className="h-5 w-5" />}
-          label="Total items"
-          value={stats.total.toLocaleString()}
-          sub={fmtMoney(stats.inventoryValue) + " inventory value"}
-          to="/dashboard/flipdesk/items?status=all"
-        />
-        <StatCard
-          icon={<TrendingUp className="h-5 w-5" />}
-          label="Listed this week"
-          value={stats.listedThisWeek.toLocaleString()}
-          sub="items moved to listed in last 7d"
-          to="/dashboard/flipdesk/items?status=listed"
-        />
-        <StatCard
-          icon={<Tag className="h-5 w-5" />}
-          label="Sold this week"
-          value={stats.soldThisWeek.toLocaleString()}
-          sub={fmtMoney(stats.soldRevenueThisWeek) + " gross"}
-          to="/dashboard/flipdesk/items?status=sold"
-        />
-        <StatCard
-          icon={<DollarSign className="h-5 w-5" />}
-          label="Net profit (7d)"
-          value={fmtMoney(stats.netProfitThisWeek)}
-          sub={
-            stats.soldThisWeek > 0
-              ? `${fmtMoneyShort(stats.netProfitThisWeek / stats.soldThisWeek)} avg / item`
-              : "no sales this week"
-          }
-          to="/dashboard/flipdesk/items?status=completed"
-        />
-      </div>
+      {isLoading ? (
+        <LoadingRegion label="Loading your numbers">
+          <div
+            className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+            aria-hidden="true"
+          >
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[104px] w-full rounded-lg" />
+            ))}
+          </div>
+        </LoadingRegion>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            icon={<Package className="h-5 w-5" />}
+            label="Total items"
+            value={(metrics?.total ?? 0).toLocaleString()}
+            sub={fmtMoney(metrics?.inventoryValue) + " inventory value, now"}
+            to="/dashboard/flipdesk/items?status=all"
+          />
+          <StatCard
+            icon={<TrendingUp className="h-5 w-5" />}
+            label="Listed"
+            value={(metrics?.listedInRange ?? 0).toLocaleString()}
+            sub={`items moved to listed ${rangeDef.phrase}`}
+            to="/dashboard/flipdesk/items?status=listed"
+          />
+          <StatCard
+            icon={<Tag className="h-5 w-5" />}
+            label="Sold"
+            value={(metrics?.soldInRange ?? 0).toLocaleString()}
+            sub={`${fmtMoney(metrics?.grossInRange)} gross ${rangeDef.phrase}`}
+            to="/dashboard/flipdesk/items?status=sold"
+          />
+          <StatCard
+            icon={<DollarSign className="h-5 w-5" />}
+            label="Net profit"
+            value={fmtMoney(metrics?.netInRange)}
+            sub={
+              (metrics?.soldInRange ?? 0) > 0
+                ? `${fmtMoneyShort((metrics?.netInRange ?? 0) / (metrics?.soldInRange ?? 1))} avg / item`
+                : `no sales ${rangeDef.phrase}`
+            }
+            to="/dashboard/flipdesk/items?tab=sold"
+          />
+        </div>
+      )}
 
       {/* Pipeline status grid */}
       <Card>
         <CardHeader>
           <CardTitle>Pipeline</CardTitle>
           <CardDescription>
-            Click a stage to filter the items view.
+            Click a stage to see the items in it.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -346,7 +291,7 @@ export function FlipdeskOverviewPage() {
           ) : (
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
               {FLIPDESK_PIPELINE.map((step) => {
-                const count = stats.byStatus.get(step.status) ?? 0;
+                const count = metrics?.byStatus?.[step.status] ?? 0;
                 return (
                   <Link
                     key={step.status}
@@ -391,42 +336,41 @@ export function FlipdeskOverviewPage() {
                   Aging items
                 </CardTitle>
                 <CardDescription>
-                  Stuck in the same status &gt; {AGING_THRESHOLD_DAYS} days
+                  Stuck in the same status &gt; {OVERVIEW_AGING_DAYS} days, right now
                 </CardDescription>
               </div>
-              <Badge variant={stats.agingCount > 0 ? "destructive" : "outline"}>
-                {stats.agingCount}
+              <Badge
+                variant={
+                  (metrics?.agingCount ?? 0) > 0 ? "destructive" : "outline"
+                }
+              >
+                {metrics?.agingCount ?? 0}
               </Badge>
             </div>
           </CardHeader>
           <CardContent>
-            {stats.agingItems.length === 0 ? (
+            {agingRows.length === 0 ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
                 Nothing stuck. Pipeline is flowing.
               </div>
             ) : (
-              <ul className="space-y-2 text-sm">
-                {stats.agingItems.map(({ item, days }) => (
-                  <li
-                    key={item.id}
-                    className="flex items-center justify-between gap-3 rounded-md border p-2 hover:bg-muted/40"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate font-medium">
-                        {item.item_title}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {ITEM_STATUS_LABELS[item.status]}
-                        {item.brand ? ` · ${item.brand}` : ""}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-destructive">
-                      <AlertCircle className="h-3 w-3" />
-                      {days}d
-                    </div>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <ul className="space-y-2 text-sm">
+                  {(showAllAging
+                    ? agingRows
+                    : agingRows.slice(0, PREVIEW_ROWS)
+                  ).map((row) => (
+                    <AgingRow key={row.id} row={row} />
+                  ))}
+                </ul>
+                <ShowAllToggle
+                  shown={agingRows.length}
+                  total={metrics?.agingCount ?? agingRows.length}
+                  expanded={showAllAging}
+                  onToggle={() => setShowAllAging((v) => !v)}
+                  noun="aging items"
+                />
+              </>
             )}
           </CardContent>
         </Card>
@@ -436,17 +380,17 @@ export function FlipdeskOverviewPage() {
           <CardHeader>
             <CardTitle>Top brands by profit</CardTitle>
             <CardDescription>
-              All-time net profit per brand on sold items
+              Net profit per brand on items sold {rangeDef.phrase}
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {stats.topBrands.length === 0 ? (
+            {(metrics?.topBrands ?? []).length === 0 ? (
               <div className="py-6 text-center text-sm text-muted-foreground">
-                No sold items with brand + net profit yet.
+                No sold items with brand + net profit {rangeDef.phrase}.
               </div>
             ) : (
               <ul className="space-y-2 text-sm">
-                {stats.topBrands.map((b) => (
+                {(metrics?.topBrands ?? []).map((b) => (
                   <li
                     key={b.brand}
                     className="flex items-center justify-between rounded-md border p-2 hover:bg-muted/40"
@@ -478,12 +422,16 @@ export function FlipdeskOverviewPage() {
                 Stale listings
               </CardTitle>
               <CardDescription>
-                Active &gt; {AGING_THRESHOLD_DAYS} days with zero watchers
+                Active &gt; {OVERVIEW_AGING_DAYS} days with zero watchers, right now
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant={stats.staleCount > 0 ? "destructive" : "outline"}>
-                {stats.staleCount}
+              <Badge
+                variant={
+                  (metrics?.staleCount ?? 0) > 0 ? "destructive" : "outline"
+                }
+              >
+                {metrics?.staleCount ?? 0}
               </Badge>
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/dashboard/flipdesk/analytics/performance">
@@ -495,45 +443,56 @@ export function FlipdeskOverviewPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {stats.staleListings.length === 0 ? (
+          {staleRows.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               No stale listings. Everything's getting eyes.
             </div>
           ) : (
-            <ul className="space-y-2 text-sm">
-              {stats.staleListings.map(({ item, days }) => (
-                <li
-                  key={item.id}
-                  className="space-y-2 rounded-md border p-2 hover:bg-muted/40"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <Link
-                        to={`/dashboard/flipdesk/items/${item.id}`}
-                        className="block truncate font-medium hover:underline"
-                      >
-                        {item.item_title}
-                      </Link>
-                      <div className="text-xs text-muted-foreground">
-                        {fmtMoney(item.list_price)}
-                        {item.brand ? ` · ${item.brand}` : ""}
+            <>
+              <ul className="space-y-2 text-sm">
+                {(showAllStale ? staleRows : staleRows.slice(0, PREVIEW_ROWS)).map(
+                  (row) => (
+                    <li
+                      key={row.id}
+                      className="space-y-2 rounded-md border p-2 hover:bg-muted/40"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <Link
+                            to={`/dashboard/flipdesk/items/${row.id}`}
+                            className="block truncate font-medium hover:underline"
+                          >
+                            {row.item_title}
+                          </Link>
+                          <div className="text-xs text-muted-foreground">
+                            {fmtMoney(row.list_price)}
+                            {row.brand ? ` · ${row.brand}` : ""}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-destructive">
+                          <Clock className="h-3 w-3" />
+                          {row.days}d listed
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-destructive">
-                      <Clock className="h-3 w-3" />
-                      {days}d listed
-                    </div>
-                  </div>
-                  {!dismissedNudges.has(item.id) && (
-                    <StaleNudge
-                      item={item}
-                      repriceMessage={repriceByItem.get(item.id) ?? null}
-                      onDismiss={() => dismissNudge(item.id)}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
+                      {!dismissedNudges.has(row.id) && (
+                        <StaleNudge
+                          row={row}
+                          repriceMessage={repriceByItem.get(row.id) ?? null}
+                          onDismiss={() => dismissNudge(row.id)}
+                        />
+                      )}
+                    </li>
+                  ),
+                )}
+              </ul>
+              <ShowAllToggle
+                shown={staleRows.length}
+                total={metrics?.staleCount ?? staleRows.length}
+                expanded={showAllStale}
+                onToggle={() => setShowAllStale((v) => !v)}
+                noun="stale listings"
+              />
+            </>
           )}
         </CardContent>
       </Card>
@@ -542,22 +501,27 @@ export function FlipdeskOverviewPage() {
       <Card>
         <CardHeader>
           <CardTitle>Recent sales</CardTitle>
-          <CardDescription>Last 6 items sold</CardDescription>
+          <CardDescription>Last 6 items sold {rangeDef.phrase}</CardDescription>
         </CardHeader>
         <CardContent>
-          {stats.recentSales.length === 0 ? (
+          {(metrics?.recentSales ?? []).length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
-              No sales yet.
+              No sales {rangeDef.phrase}.
             </div>
           ) : (
             <ul className="divide-y">
-              {stats.recentSales.map((it) => (
+              {(metrics?.recentSales ?? []).map((it) => (
                 <li
                   key={it.id}
                   className="flex items-center justify-between gap-3 py-2 text-sm"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{it.item_title}</div>
+                    <Link
+                      to={`/dashboard/flipdesk/items/${it.id}`}
+                      className="block truncate font-medium hover:underline"
+                    >
+                      {it.item_title}
+                    </Link>
                     <div className="text-xs text-muted-foreground">
                       {it.sale_date?.slice(0, 10)}
                       {it.brand ? ` · ${it.brand}` : ""}
@@ -585,6 +549,77 @@ export function FlipdeskOverviewPage() {
   );
 }
 
+/**
+ * "Show all" for a card that previews five of N (US-2547).
+ *
+ * `shown` is what the aggregate actually sent and `total` is what exists, and
+ * they differ once an account passes the aggregate's row cap. Saying "show all
+ * 50" when 214 items are stuck would be the same broken promise as the pipeline
+ * tile that offered a filter it could not apply, so the copy names both numbers
+ * and points at the list that can show the rest.
+ */
+function ShowAllToggle({
+  shown,
+  total,
+  expanded,
+  onToggle,
+  noun,
+}: {
+  shown: number;
+  total: number;
+  expanded: boolean;
+  onToggle: () => void;
+  noun: string;
+}) {
+  if (shown <= PREVIEW_ROWS) return null;
+  const capped = total > shown;
+  return (
+    <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+      <Button variant="ghost" size="sm" onClick={onToggle}>
+        {expanded
+          ? "Show fewer"
+          : capped
+            ? `Show ${shown} of ${total} ${noun}`
+            : `Show all ${shown} ${noun}`}
+      </Button>
+      {capped && expanded && (
+        <Button variant="ghost" size="sm" asChild>
+          <Link to="/dashboard/flipdesk/items">
+            See every item
+            <ArrowRight className="ml-1 h-3 w-3" />
+          </Link>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// An aging row links to its item, the same as a stale row does. They were the
+// same shape of row with only one of them clickable, so the fix for a stuck
+// item was one click away on one card and a search away on the other.
+function AgingRow({ row }: { row: OverviewAgingRow }) {
+  return (
+    <li className="flex items-center justify-between gap-3 rounded-md border p-2 hover:bg-muted/40">
+      <div className="min-w-0 flex-1">
+        <Link
+          to={`/dashboard/flipdesk/items/${row.id}`}
+          className="block truncate font-medium hover:underline"
+        >
+          {row.item_title}
+        </Link>
+        <div className="text-xs text-muted-foreground">
+          {ITEM_STATUS_LABELS[row.status as ItemStatus] ?? row.status}
+          {row.brand ? ` · ${row.brand}` : ""}
+        </div>
+      </div>
+      <div className="flex items-center gap-2 text-xs text-destructive">
+        <AlertCircle className="h-3 w-3" />
+        {row.days}d
+      </div>
+    </li>
+  );
+}
+
 function StatCard({
   icon,
   label,
@@ -604,7 +639,7 @@ function StatCard({
       className="group rounded-lg border bg-card p-4 transition-colors hover:border-brand-navy"
     >
       <div className="flex items-center justify-between text-muted-foreground">
-        <div className="flex items-center gap-2 text-xs uppercase tracking-wide">
+        <div className="flex items-center gap-2 text-xs font-medium">
           {icon}
           {label}
         </div>
@@ -621,15 +656,15 @@ function StatCard({
 // get a reprice/relist prompt (preferring a concrete repricing suggestion when
 // one exists). Dismissible via the X — persisted per browser by the caller.
 function StaleNudge({
-  item,
+  row,
   repriceMessage,
   onDismiss,
 }: {
-  item: ItemListRow;
+  row: OverviewStaleRow;
   repriceMessage: string | null;
   onDismiss: () => void;
 }) {
-  const isGraded = item.grade_value != null;
+  const isGraded = row.grade_value != null;
 
   const icon = isGraded ? (
     <TrendingDown className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-navy dark:text-foreground" />
@@ -646,7 +681,7 @@ function StaleNudge({
     ? { label: "Reprice", to: "/dashboard/flipdesk/pricing?tab=repricing" }
     : {
         label: "Grade it",
-        to: `/dashboard/flipdesk/items/${item.id}#canvas-grading`,
+        to: `/dashboard/flipdesk/items/${row.id}#canvas-grading`,
       };
 
   return (

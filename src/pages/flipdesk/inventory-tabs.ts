@@ -30,10 +30,17 @@ export function statusParamToTab(status: string | null | undefined): TabId | nul
       return "drafts";
     case "listed":
       return "active";
-    // A recorded sale ("sold" item status / "completed" sale state) lives in Sold.
     case "sold":
-    case "completed":
       return "sold";
+    // US-2547: `completed` is an ITEM status (the last pipeline stage), and NO
+    // tab predicate matches it — Sold is `status = 'sold'`. It used to route
+    // here because the string also names a SALE state, so the Completed tile
+    // counted items the destination could not show, and the count read as a
+    // filter that had eaten every row. It lands on All (the only tab that
+    // includes it) with a narrowing; the money card that meant the sale state
+    // now names `?tab=sold` directly instead of borrowing this word.
+    case "completed":
+      return "all";
     case "shipped":
       return "shipped";
     case "returned":
@@ -82,6 +89,37 @@ export const TO_LIST_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
   "graded",
   "comped",
 ]);
+
+/**
+ * Stages a tab folds in with others, so a `?status=` deep link to one needs a
+ * narrowing filter on top of the tab (US-2547).
+ *
+ * The nine pre-listed stages all share To List, and `completed` only appears
+ * inside All. Every other stage IS its own tab, where a filter rule would be a
+ * chip that removes nothing.
+ */
+const FOLDED_STAGE_STATUSES: ReadonlySet<ItemStatus> = new Set<ItemStatus>([
+  ...TO_LIST_STATUSES,
+  "completed",
+]);
+
+/**
+ * The stage a `?status=` deep link asked for, when its tab shows more than it.
+ *
+ * Overview's pipeline grid says "click a stage to see the items in it" and links
+ * `?status=measured`. Without this the click landed on every unlisted item — a
+ * tile reading "Measured 12" opening a list of 200. The caller turns this into a
+ * `status eq <stage>` rule on top of the tab, which is a filter the seller can
+ * see and clear.
+ */
+export function stageFilterStatusFromParam(
+  status: string | null | undefined,
+): ItemStatus | null {
+  if (!status) return null;
+  return FOLDED_STAGE_STATUSES.has(status as ItemStatus)
+    ? (status as ItemStatus)
+    : null;
+}
 
 /**
  * Item statuses that mean "being prepped / drafted, not on a marketplace".

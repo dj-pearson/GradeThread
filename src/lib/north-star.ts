@@ -90,6 +90,68 @@ export function computeNorthStar(
     cursor -= WEEK_MS;
   }
 
+  return assemble({ listedThisWeek, lifetimeListed, streakWeeks, goal });
+}
+
+/** One Monday-anchored week and how many items were listed in it. */
+export interface WeekBucket {
+  /** Monday of the week as YYYY-MM-DD — the same key `weekKey` produces. */
+  week: string;
+  count: number;
+}
+
+/**
+ * The same surface, from week buckets instead of one date per item (US-2547).
+ *
+ * The Overview no longer holds every item in the browser, so the streak walk
+ * gets pre-grouped weeks from `flipdesk_overview_metrics`, which buckets on
+ * `date_trunc('week', … at time zone <viewer>)` — Monday-anchored in the
+ * viewer's zone, which is exactly what `weekKey` computes here.
+ *
+ * `lifetimeListed` is passed separately rather than summed from the buckets:
+ * the aggregate caps the buckets at two years, and summing a capped list would
+ * quietly walk an old account's milestone backwards.
+ */
+export function computeNorthStarFromWeeks(
+  weeks: readonly WeekBucket[],
+  opts: { goal?: number; now?: Date; lifetimeListed?: number } = {},
+): NorthStarStats {
+  const goal = opts.goal ?? NORTH_STAR_WEEKLY_GOAL;
+  const now = opts.now ?? new Date();
+
+  const counts = new Map<string, number>();
+  for (const b of weeks) {
+    if (!b || typeof b.week !== "string") continue;
+    const n = Number(b.count);
+    if (!Number.isFinite(n) || n <= 0) continue;
+    counts.set(b.week, (counts.get(b.week) ?? 0) + n);
+  }
+
+  const currentWeekStart = startOfWeek(now).getTime();
+  const listedThisWeek = counts.get(weekKey(new Date(currentWeekStart))) ?? 0;
+
+  let streakWeeks = 0;
+  let cursor = currentWeekStart;
+  // An empty CURRENT week doesn't break the chain — the week isn't over yet.
+  if (!counts.has(weekKey(new Date(cursor)))) cursor -= WEEK_MS;
+  while (counts.has(weekKey(new Date(cursor)))) {
+    streakWeeks++;
+    cursor -= WEEK_MS;
+  }
+
+  const lifetimeListed =
+    opts.lifetimeListed ?? [...counts.values()].reduce((a, b) => a + b, 0);
+
+  return assemble({ listedThisWeek, lifetimeListed, streakWeeks, goal });
+}
+
+function assemble(input: {
+  listedThisWeek: number;
+  lifetimeListed: number;
+  streakWeeks: number;
+  goal: number;
+}): NorthStarStats {
+  const { listedThisWeek, lifetimeListed, streakWeeks, goal } = input;
   const nextMilestone =
     NORTH_STAR_MILESTONES.find((m) => m > lifetimeListed) ?? null;
 

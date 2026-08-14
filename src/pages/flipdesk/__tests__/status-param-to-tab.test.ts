@@ -9,12 +9,16 @@ import { FLIPDESK_PIPELINE } from "@/lib/constants";
 
 describe("statusParamToTab (US-1429 stage-link routing)", () => {
   it("maps the Overview stat-card statuses to their tabs", () => {
-    // Total items → All; Listed this week → Active; Sold this week → Sold;
-    // Net profit (completed sales) → Sold.
+    // Total items → All; Listed → Active; Sold → Sold.
     expect(statusParamToTab("all")).toBe("all");
     expect(statusParamToTab("listed")).toBe("active");
     expect(statusParamToTab("sold")).toBe("sold");
-    expect(statusParamToTab("completed")).toBe("sold");
+    // US-2547: `completed` used to route here as a SALE state, for the Net
+    // profit card. It is also the last ITEM status, and the Sold tab is
+    // `status = 'sold'` — so the pipeline's Completed tile counted rows the
+    // destination could not show. The word now means the item status and lands
+    // on All (which includes it); the money card names `?tab=sold` outright.
+    expect(statusParamToTab("completed")).toBe("all");
   });
 
   it("maps every pre-listed prep stage to the To List tab", () => {

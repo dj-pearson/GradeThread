@@ -100,6 +100,8 @@ import { useDocumentVisible } from "@/hooks/use-document-visible";
 import {
   type TabId,
   statusParamToTab,
+  // US-2547: the narrowing a folded stage deep-link needs.
+  stageFilterStatusFromParam,
   // US-2178: the tab predicates and the two status sets now live in the sibling
   // module so they can be unit-tested without importing this whole page.
   TABS,
@@ -287,7 +289,29 @@ export function FlipdeskListingsPage() {
   const { data: savedViews = [] } = useSavedViews();
   const [filterQuery, setFilterQuery] = useState<FilterQuery>(() => {
     const f = searchParams.get("filter");
-    return (f && decodeQuery(f)) || EMPTY_QUERY;
+    const decoded = (f && decodeQuery(f)) || null;
+    if (decoded) return decoded;
+    // US-2547: Overview's pipeline tiles link `?status=<stage>`, and eight of
+    // those stages share the To List tab. Seed the advanced filter so the tile's
+    // count and the list it opens agree. It goes through the SAME filter the
+    // seller can see and clear (the effect below writes it to `?filter=`), not
+    // a hidden second predicate — an invisible filter is how a list starts
+    // lying about what it contains.
+    const stage = stageFilterStatusFromParam(searchParams.get("status"));
+    if (stage) {
+      return {
+        combinator: "and",
+        rules: [
+          {
+            id: Math.random().toString(36).slice(2),
+            field: "status",
+            op: "eq",
+            value: stage,
+          },
+        ],
+      };
+    }
+    return EMPTY_QUERY;
   });
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [aiEnrichOpen, setAiEnrichOpen] = useState(false);

@@ -1,6 +1,48 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⏳ HELD: 00593_support_ticket_attachments.sql (US-2525 — images on a support ticket)
+## ⏳ HELD: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account)
+
+**Risk: LOW.** One new `CREATE OR REPLACE FUNCTION`. No table, no column, no
+index, no policy, no backfill; nothing existing is altered, narrowed or dropped.
+Safe to run twice and safe to re-run the whole directory.
+
+**What it adds.** `public.flipdesk_overview_metrics(p_from, p_to, p_tz,
+p_aging_days, p_limit)` returns the FlipDesk Overview as one jsonb document:
+per-status pipeline counts, the range-bound flow figures (listed / sold / gross /
+net / top brands / recent sales), the state-of-now lists (inventory value, aging
+items, stale listings) and the Monday-anchored week buckets the North Star streak
+walks. It reads `items_full` and is SECURITY INVOKER, so RLS scopes every figure
+to the caller exactly as the browser-side read did.
+
+**⚠ THE FRONTEND IN THIS COMMIT CALLS IT.** `src/pages/flipdesk/overview.tsx` no
+longer reads `items_full` at all — the old client-side loop is GONE, not
+feature-flagged. Cloudflare Pages auto-deploys the frontend the moment this is
+pushed, so between that deploy and the SQL, /dashboard/flipdesk answers PGRST202
+("function does not exist") and the page renders its error state on every load.
+The edge does not call this function, so the edge deploy is only about the boot
+guard.
+
+1. Run the SQL.
+2. `NOTIFY pgrst, 'reload schema';` — **required**, not optional. A new RPC is
+   invisible to PostgREST until its schema cache reloads, and the page calls it
+   through PostgREST.
+3. Deploy the edge (its boot guard now expects 00594).
+4. THEN push.
+
+**Nothing to roll back.** Dropping the function would leave the page broken, so
+the rollback for this one is a frontend revert, not a DROP.
+
+Apply order: AFTER 00593 (already applied).
+
+
+## ✅ APPLIED: 00593_support_ticket_attachments.sql (US-2525 — images on a support ticket, applied 2026-08-14)
+
+**Measured 2026-08-14, not inferred.** `GET https://functions.gradethread.com/health/ready`
+returns `"schema":{"expected":"00593","applied":"00593","status":"match"}`, and
+`origin/main` carries every commit through 4cf70df7 — so the SQL ran, the edge
+that expects it is deployed, and the push it was gating has happened. Everything
+below is kept as the record of what was applied.
+
 
 **Risk: LOWEST of the two held here.** One additive `jsonb` column with a
 default, on `support_ticket_messages`. No table, no index, no policy, no
@@ -35,7 +77,11 @@ Filed separately rather than shipped blind from a Windows checkout.
 Apply order: AFTER 00592.
 
 
-## ⏳ HELD: 00592_flipdesk_import_runs.sql (US-2518 — the durable, reversible CSV import)
+## ✅ APPLIED: 00592_flipdesk_import_runs.sql (US-2518 — the durable, reversible CSV import, applied 2026-08-14)
+
+**Measured 2026-08-14** by the same `/health/ready` read as 00593 above: prod
+reports applied 00593, which is after this one. Everything below is the record.
+
 
 **Risk: LOW.** Two brand-new tables, two indexes, one trigger, two SELECT-only
 RLS policies. Nothing existing is altered, narrowed or dropped, and no row is

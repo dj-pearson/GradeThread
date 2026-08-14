@@ -173,7 +173,11 @@ unless a story is blocked; if blocked, note why and move to the next.
 - [x] US-2544 (2404) Submissions: no search, permanent empty disputes - `76ed6c1d` - search + date range applied to BOTH sort branches, visible sort direction, row selection + selected-CSV, phone card layout, disputes collapse on empty; guard `src/test/submissions-list-filters.test.ts` (17 cases, 14 red)
 - [x] US-2545 (2406) Submission detail: no lightbox - `30ac87b4` - same ImageLightbox as the certificate, two-buttons-one-destination collapsed to one, five post-grade cards into one "What's next" section; guard `src/test/submission-detail-evidence.test.ts` (10 cases, 7 red)
 - [x] US-2546 (2408) Intake: no photos, no guard - `f204e6a9` - IntakePhotoStager on the main form uploading through an EXTRACTED shared core (`src/lib/item-photo-upload.ts`), navigation guard, MeasurementForm persisted to `inventory_items.measurements`, real `required` attribute; guard `src/test/intake-capture-and-guard.test.ts` (13 cases, 12 red)
-- [ ] US-2547 (2410) Overview tiles promise a filter that isn't applied
+- [x] US-2547 (2410) Overview tiles promise a filter that isn't applied - SHA - stage
+      tiles narrow via the VISIBLE filter, one server aggregate (migration 00594,
+      HELD) replaces the whole-account loop, date range in ?range=, show-all on
+      both list cards; guard `src/test/overview-stage-and-range.test.ts` (15 cases,
+      12 red)
 - [ ] US-2548 (2412) Tabbed hosts show no name
 - [ ] US-2549 (2414) Embed widget missing noindex
 - [ ] US-2550 (2416) Failed integrity check gives buyer nothing to do
@@ -444,6 +448,34 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2547
+- A "click X to filter" tile is worth checking in BOTH directions. Chasing the
+  destination turned up a second, worse bug the review had missed: the item
+  status `completed` mapped to the Sold tab, whose predicate is
+  `status = 'sold'`, so the Completed tile counted rows NO tab could show. One
+  string was doing two jobs — an item stage and a sale state — and the money
+  card was the one that meant the other. Ask what a param MEANS at each end
+  before trusting a mapping table.
+- Write the narrowing into the filter the user can SEE. A hidden second
+  predicate would have made the chip count and the rows disagree, which is how a
+  list starts lying about what it contains. The seeded rule shows up in
+  `?filter=`, and the server-side RPC already applies it.
+- Moving a page off a full-table read strands whatever ELSE was reading it for
+  free. NorthStarCard was "no extra fetch" only because Overview already held
+  every item; it now takes pre-grouped weeks, and the lifetime total travels
+  separately because the aggregate caps the buckets at two years.
+- `npm run vault:lint` was already RED on main before this story started, from
+  earlier commits in this loop (one error, three warnings). The lesson recorded
+  three iterations ago said to run it after any commit touching a note's
+  code_refs, and it still rotted. Run it EVERY iteration, not only when you
+  think you touched one — reading a note's claim against the diff takes a
+  minute, and all four here were cosmetic.
+- Docker is down on this host, so `verify:db` cannot prove the SQL parses. For a
+  held migration that is acceptable (the owner applies it by hand and sees any
+  error immediately), but write the SQL defensively: bounds cross-joined in as
+  columns rather than scalar subqueries repeated inside a dozen FILTER clauses,
+  and `to_jsonb` over `row_to_json`.
 
 ### Lessons from US-2546
 - A form that creates the parent row cannot upload children from it. Photos need

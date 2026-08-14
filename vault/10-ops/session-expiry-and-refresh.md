@@ -8,7 +8,7 @@ code_refs:
   - src/lib/auth-token.ts
   - src/lib/idle-logout.ts
   - src/lib/edge-fetch.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-14
 tags: [auth, session, gotrue, ops]
 summary: "Session expired" about an hour in is a refresh that failed to recover, not an expiry policy — and the durable fixes are prod GoTrue env vars this repo cannot reach.
 ---

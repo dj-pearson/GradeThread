@@ -5,24 +5,29 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { computeNorthStar } from "@/lib/north-star";
+import { computeNorthStarFromWeeks, type WeekBucket } from "@/lib/north-star";
 import { NORTH_STAR_WEEKLY_GOAL } from "@/lib/constants";
 
 
-// US-597: surface + gamify the "Items Listed Per Week" North Star. Reads each
-// item's list_date (= listings.listed_at) to show weekly goal progress and a
-// "don't break the chain" listing streak. Pure-computed from the shared
-// items_full read — no extra fetch.
+// US-597: surface + gamify the "Items Listed Per Week" North Star — weekly goal
+// progress plus a "don't break the chain" listing streak.
+//
+// US-2547 moved the input from one list_date per item to pre-grouped weeks. The
+// card used to be free because the Overview already held every item; once that
+// page stopped reading the whole account, keeping it item-shaped would have been
+// the only reason left to fetch the full set.
 export function NorthStarCard({
-  items,
+  weeks,
+  lifetimeListed,
   goal = NORTH_STAR_WEEKLY_GOAL,
 }: {
-  items: readonly { list_date: string | null }[];
+  weeks: readonly WeekBucket[];
+  lifetimeListed?: number;
   goal?: number;
 }) {
   const stats = useMemo(
-    () => computeNorthStar(items.map((it) => it.list_date), { goal }),
-    [items, goal],
+    () => computeNorthStarFromWeeks(weeks, { goal, lifetimeListed }),
+    [weeks, goal, lifetimeListed],
   );
 
   const remaining = Math.max(0, stats.goal - stats.listedThisWeek);

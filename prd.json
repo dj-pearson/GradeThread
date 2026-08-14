@@ -1840,20 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2547",
-      "passes": false,
-      "title": "Overview pipeline tiles promise a filter the destination cannot apply",
-      "description": "As a seller, I want clicking a pipeline stage to show that stage, so that the tile's count and the resulting list agree.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/overview.tsx:331 says 'Click a stage to filter the items view' and each tile links to ?status=<stage>, but statusParamToTab (src/pages/flipdesk/inventory-tabs.ts:41-49) collapses all nine pre-list stages into one to_list tab. A tile reading 'Measured 12' lands on every unlisted item.",
-        "A stage tile filters to that stage.",
-        "Overview metrics stop being computed by looping the entire item list in the browser (:162-212) and come from a server aggregate.",
-        "A date range is offered; today every metric is hardcoded to 'this week' or all-time.",
-        "Aging items and stale listings offer a 'view all' rather than showing five of N with a count badge."
-      ],
-      "priority": 2410
-    },
-    {
       "id": "US-2548",
       "passes": false,
       "title": "The tabbed FlipDesk hosts never show their own name",
