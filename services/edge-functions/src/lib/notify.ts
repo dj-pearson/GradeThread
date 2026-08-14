@@ -37,6 +37,11 @@ export type NotificationType =
   | "offer_responded"
   | "return_opened"
   | "dispute_opened"
+  // US-2560: a buyer asked to cancel an order (Post-Order). It sits beside
+  // return_opened rather than inside it because the seller's decision is a
+  // different one — approve and the sale is gone before it ships, reject and
+  // you are on record refusing — and eBay runs its own clock on it.
+  | "cancellation_requested"
   // US-1803: buyer-side categories — the delivery layer for the buyer feature
   // epics (alerts / rewards / guarantee / portfolio).
   | "buyer_condition_alert"
@@ -83,6 +88,17 @@ export const PREF_KEY: Record<NotificationType, string | null> = {
   offer_responded: "offers",
   return_opened: "returns",
   dispute_opened: "returns",
+  // US-2560: the `returns` gate, not a new one — but its SETTINGS COPY had to
+  // change to earn that, and did (src/lib/notification-preferences.ts). The
+  // sentence used to read "when a buyer opens a return, a return changes status,
+  // or a payment dispute is opened", which does not cover a cancellation. Adding
+  // a type under a category whose description does not describe it makes a
+  // sentence the user already agreed to retroactively false — the same test
+  // reward_nudge and integrity_tier_change failed, and they got their own
+  // categories. This one passes because a cancellation genuinely is the same
+  // family of post-order case, so the honest fix is to widen the sentence rather
+  // than add a fifth switch to the same screen.
+  cancellation_requested: "returns",
   // US-1803: each buyer category gates on its own notification_preferences key
   // (code-defaulted ON in the frontend DEFAULT_NOTIFICATION_PREFERENCES).
   buyer_condition_alert: "buyer_alerts",

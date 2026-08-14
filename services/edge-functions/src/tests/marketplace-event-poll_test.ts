@@ -24,7 +24,7 @@ import type { MarketplacePollDeps } from "../lib/marketplace-event-poll.ts";
 // semantics, so re-polling identical data dedups.
 function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
   const seen = new Set<string>();
-  const fired = { offer: 0, return: 0, dispute: 0 };
+  const fired = { offer: 0, return: 0, dispute: 0, cancellation: 0 };
   const deps: MarketplacePollDeps = {
     fetchOffers: () =>
       Promise.resolve([
@@ -59,6 +59,19 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
           buyerUsername: "b",
         },
       ]),
+    // US-2560: a buyer-requested cancellation in an OPEN state — the case that
+    // notified nobody, because no poll source read searchCancellations().
+    fetchCancellations: () =>
+      Promise.resolve([
+        {
+          cancelId: "c1",
+          state: "CANCEL_REQUESTED",
+          orderId: "ord1",
+          reason: "BUYER_CANCEL_ORDER",
+          requestorType: "BUYER",
+          creationDate: null,
+        },
+      ]),
     claim: (userId, kind, externalId, status) => {
       const key = `${userId}|${kind}|${externalId}|${status}`;
       if (seen.has(key)) return Promise.resolve(false);
@@ -84,6 +97,10 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
       fired.dispute++;
       return Promise.resolve();
     },
+    notifyCancellation: () => {
+      fired.cancellation++;
+      return Promise.resolve();
+    },
     ...over,
   };
   return { deps, fired, seen };
@@ -92,17 +109,17 @@ function makeDeps(over: Partial<MarketplacePollDeps> = {}) {
 Deno.test("first poll notifies once per source", async () => {
   const { deps, fired } = makeDeps();
   const r = await pollMarketplaceEventsForUser("u1", deps);
-  assertEquals(r, { offers: 1, returns: 1, disputes: 1, errors: [] });
-  assertEquals(fired, { offer: 1, return: 1, dispute: 1 });
+  assertEquals(r, { offers: 1, returns: 1, disputes: 1, cancellations: 1, errors: [] });
+  assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1 });
 });
 
 Deno.test("re-polling identical data fires NO new notifications (idempotent)", async () => {
   const { deps, fired } = makeDeps();
   await pollMarketplaceEventsForUser("u1", deps);
   const r2 = await pollMarketplaceEventsForUser("u1", deps);
-  assertEquals(r2, { offers: 0, returns: 0, disputes: 0, errors: [] });
+  assertEquals(r2, { offers: 0, returns: 0, disputes: 0, cancellations: 0, errors: [] });
   // Still only one of each across BOTH polls.
-  assertEquals(fired, { offer: 1, return: 1, dispute: 1 });
+  assertEquals(fired, { offer: 1, return: 1, dispute: 1, cancellation: 1 });
 });
 
 Deno.test("a CLOSED dispute is not notified", async () => {
@@ -136,7 +153,7 @@ Deno.test("one source throwing does not block the others", async () => {
   assertEquals(r.disputes, 1);
   assertEquals(r.returns, 0);
   assert(r.errors.some((e) => e.startsWith("returns:")));
-  assertEquals(fired, { offer: 1, return: 0, dispute: 1 });
+  assertEquals(fired, { offer: 1, return: 0, dispute: 1, cancellation: 1 });
 });
 
 // ── US-2319 AC3: claim → work → RELEASE ON FAILURE ─────────────────────────
@@ -241,4 +258,130 @@ Deno.test("US-2319: releasing is optional, and its absence is the OLD behaviour"
   const r = await pollMarketplaceEventsForUser("u1", deps);
   assertEquals(r.offers, 0);
   assert(r.errors.some((e) => e.includes("offer o1")));
+});
+
+// ── US-2560: the cancellation source ───────────────────────────────────────
+//
+// searchCancellations() existed and no poll source called it, so a buyer asking
+// to cancel notified nobody. These pin the three decisions that made adding the
+// source non-obvious: the dedupe (the AC's own requirement), the state filter
+// agreeing with what the Post-sale page calls open, and the requestor check.
+
+Deno.test("US-2560: re-polling the same cancellation fires no second notification", async () => {
+  const { deps, fired } = makeDeps();
+  const r1 = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r1.cancellations, 1);
+
+  const r2 = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r2.cancellations, 0, "the same cancellation notified twice");
+  assertEquals(fired.cancellation, 1, "the emitter ran again across two polls");
+
+  // A third, because a dedupe that only holds for one repeat is not a dedupe.
+  await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(fired.cancellation, 1);
+});
+
+Deno.test("US-2560: a CLOSED cancellation is not notified", async () => {
+  // CANCEL_CLOSED contains the terminal marker CLOSED. The check has to match
+  // the STATE, not the word "cancel" — every one of these states contains that.
+  const { deps, fired } = makeDeps({
+    fetchCancellations: () =>
+      Promise.resolve([
+        {
+          cancelId: "c2",
+          state: "CANCEL_CLOSED",
+          orderId: "ord2",
+          reason: "BUYER_CANCEL_ORDER",
+          requestorType: "BUYER",
+          creationDate: null,
+        },
+      ]),
+  });
+  const r = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r.cancellations, 0);
+  assertEquals(fired.cancellation, 0);
+});
+
+Deno.test("US-2560: a SELLER-initiated cancellation does not notify the seller", async () => {
+  // Otherwise every Approve pressed on the Post-sale page mails the seller to
+  // tell them what they just did.
+  const { deps, fired } = makeDeps({
+    fetchCancellations: () =>
+      Promise.resolve([
+        {
+          cancelId: "c3",
+          state: "CANCEL_REQUESTED",
+          orderId: "ord3",
+          reason: "OUT_OF_STOCK_OR_CANNOT_FULFILL",
+          requestorType: "SELLER",
+          creationDate: null,
+        },
+      ]),
+  });
+  const r = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r.cancellations, 0);
+  assertEquals(fired.cancellation, 0);
+});
+
+Deno.test("US-2560: an UNKNOWN requestor still notifies", async () => {
+  // Same asymmetry as the state rule. A missed cancellation costs the seller an
+  // order they never got to decide about; a spurious one costs a glance.
+  const { deps } = makeDeps({
+    fetchCancellations: () =>
+      Promise.resolve([
+        {
+          cancelId: "c4",
+          state: "CANCEL_REQUESTED",
+          orderId: "ord4",
+          reason: null,
+          requestorType: null,
+          creationDate: null,
+        },
+      ]),
+  });
+  const r = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r.cancellations, 1);
+});
+
+Deno.test("US-2560: a failed cancellation notification releases its claim", async () => {
+  let attempts = 0;
+  const { deps, seen } = makeDeps({
+    notifyCancellation: () => {
+      attempts++;
+      return Promise.reject(new Error("smtp down"));
+    },
+  });
+
+  const r1 = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r1.cancellations, 0);
+  assert(r1.errors.some((e) => e.includes("cancellation c1")));
+  assert(
+    !seen.has("u1|cancellation|c1|requested"),
+    "the claim survived a failed send — this cancellation is never retried",
+  );
+
+  await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(attempts, 2, "the second poll did not retry the failed cancellation");
+});
+
+Deno.test("US-2560: the cancellation source is isolated like the other three", async () => {
+  const { deps, fired } = makeDeps({
+    fetchCancellations: () => Promise.reject(new Error("token expired")),
+  });
+  const r = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r.offers, 1);
+  assertEquals(r.returns, 1);
+  assertEquals(r.disputes, 1);
+  assertEquals(r.cancellations, 0);
+  assert(r.errors.some((e) => e.startsWith("cancellations:")));
+  assertEquals(fired.cancellation, 0);
+});
+
+Deno.test("US-2560: an omitted cancellation fetcher is a no-op, not a crash", async () => {
+  // The seam defaults safe, same as `release`. Every fake written before this
+  // story omits both new deps and must keep working.
+  const { deps } = makeDeps({ fetchCancellations: undefined });
+  const r = await pollMarketplaceEventsForUser("u1", deps);
+  assertEquals(r.cancellations, 0);
+  assertEquals(r.errors.filter((e) => e.startsWith("cancellations:")).length, 0);
 });

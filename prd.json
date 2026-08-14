@@ -1859,22 +1859,6 @@
       ]
     },
     {
-      "id": "US-2560",
-      "passes": false,
-      "title": "A buyer cancellation reaches no notification channel",
-      "description": "As a seller, I want a cancellation request to reach me the way a return does, so that I find out before eBay's clock runs out rather than by opening Post-sale.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/lib/marketplace-event-poll.ts polls offers, returns and payment disputes. searchCancellations() exists in ebay-postorder.ts and is used by the Post-sale page, but no poll source reads it, so a cancellation request notifies nobody.",
-        "The poll gains a cancellation source with the same claim-before-deliver dedupe, per-event try/catch and release-on-failure as the other three.",
-        "A new notification_type enum value (ALTER TYPE ... ADD VALUE IF NOT EXISTS) ships with the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer. The edge must not filter on the new value before the migration applies.",
-        "PREF_KEY maps it to the existing 'returns' gate, whose copy already covers post-order cases, plus in-app, email and push builders alongside buildReturnOpened.",
-        "marketplace-event-poll_test.ts gains a case proving a re-poll of the same cancellation fires no second notification."
-      ],
-      "dependsOn": [
-        "US-2521"
-      ]
-    },
-    {
       "id": "US-2561",
       "passes": false,
       "title": "iOS support tickets: attachments and close",

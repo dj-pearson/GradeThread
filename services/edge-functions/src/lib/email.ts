@@ -1967,6 +1967,48 @@ export async function sendReturnOpenedEmail(
   });
 }
 
+interface CancellationRequestedData {
+  userName: string;
+  orderLabel: string; // order id or item
+  reason: string | null;
+}
+
+// US-2560: a buyer asked to cancel before the order ships.
+//
+// Deliberately NOT worded as a return. The seller's decision is different and so
+// is the window: approving ends the sale and refunds, rejecting is a refusal on
+// record, and eBay approves it for them if they do neither. The CTA points at
+// Post-sale, where both buttons already live.
+export async function sendCancellationRequestedEmail(
+  to: string,
+  data: CancellationRequestedData,
+): Promise<boolean> {
+  const reason = data.reason
+    ? `<p style="margin: 0 0 16px; color: #666; font-size: 14px;">Reason: <strong>${
+      escapeHtml(data.reason.replace(/_/g, " "))
+    }</strong></p>`
+    : "";
+  const content = `
+    <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
+      A buyer asked to cancel an order
+    </h2>
+    <p style="margin: 0 0 16px; color: #666; font-size: 15px; line-height: 1.5;">
+      Hi ${escapeHtml(data.userName)}, a cancellation was requested on
+      <strong>${escapeHtml(data.orderLabel)}</strong>. Approve it to refund the
+      buyer, or reject it if the item has already shipped. eBay closes the
+      request on its own if you do neither.
+    </p>
+    ${reason}
+    ${ctaButton("Review the request", `${SITE_URL}/dashboard/flipdesk/post-sale`)}
+  `;
+  return await sendEmail({
+    to,
+    subject: `Cancellation requested: ${data.orderLabel}`,
+    html: emailLayout(content),
+    category: "cancellation_requested",
+  });
+}
+
 interface DisputeOpenedData {
   userName: string;
   orderLabel: string; // order id or item

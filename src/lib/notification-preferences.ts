@@ -97,8 +97,14 @@ export const NOTIFICATION_TYPES: NotificationTypeMeta[] = [
   {
     key: "returns",
     label: "Returns & disputes",
+    // US-2560 widened this. It listed returns and disputes and nothing else, so
+    // routing cancellation_requested here would have delivered a message this
+    // sentence does not promise — and, worse, would have silently taken
+    // cancellations away from anyone who had turned the toggle off for returns.
+    // A category's copy is the agreement; widen it in the same commit as the
+    // type, or the type needs its own category.
     description:
-      "When a buyer opens a return, a return changes status, or a payment dispute is opened.",
+      "When a buyer opens a return or asks to cancel an order, a return changes status, or a payment dispute is opened.",
     channels: ["email", "in_app", "push"],
   },
   {
@@ -290,6 +296,12 @@ export const NOTIFICATION_EVENT_CATALOG: NotificationEventMeta[] = [
     type: "dispute_opened",
     label: "Payment dispute opened",
     description: "A buyer opened a payment dispute or chargeback.",
+    prefKey: "returns",
+  },
+  {
+    type: "cancellation_requested",
+    label: "Cancellation requested",
+    description: "A buyer asked to cancel an order before it ships (eBay Post-Order).",
     prefKey: "returns",
   },
   {

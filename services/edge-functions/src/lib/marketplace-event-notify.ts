@@ -1,11 +1,17 @@
-// Marketplace offer / return / dispute notifications across all channels (US-1055).
+// Marketplace offer / return / cancellation / dispute notifications across all
+// channels (US-1055).
 //
-// These four events are time-sensitive and were previously silent:
+// These five events are time-sensitive and were previously silent:
 //   • offer_received   — a buyer sent a best offer on a listing.
 //   • offer_responded  — that offer was accepted / declined / countered.
 //   • return_opened    — a buyer opened a return (Post-Order API).
 //   • dispute_opened   — a payment dispute / chargeback was opened (the seller
 //                        must respond before eBay's respondByDate).
+//   • cancellation_requested — a buyer asked to cancel before the order ships
+//                        (US-2560). searchCancellations() had existed since the
+//                        Post-sale page shipped and NO poll source read it, so
+//                        this was the one post-order case a seller could only
+//                        learn about by opening the page and looking.
 //
 // Two concerns live here:
 //   1. claimMarketplaceEvent — the idempotency primitive. The poll re-fetches the
@@ -23,19 +29,24 @@
 import { supabaseAdmin } from "./supabase.ts";
 import { notifyUser, type NotifyInput, PREF_KEY } from "./notify.ts";
 import {
+  sendCancellationRequestedEmail,
   sendDisputeOpenedEmail,
   sendOfferReceivedEmail,
   sendOfferRespondedEmail,
   sendReturnOpenedEmail,
 } from "./email.ts";
 import {
+  pushCancellationRequested,
   pushDisputeOpened,
   pushOfferReceived,
   pushOfferResponded,
   pushReturnOpened,
 } from "./transactional-push.ts";
 
-export type MarketplaceEventKind = "offer" | "return" | "dispute";
+// US-2560 added "cancellation". `source_kind` is a TEXT column (00247), not an
+// enum, so widening this union needs no migration — the enum that does is
+// notification_type, and that is 00601.
+export type MarketplaceEventKind = "offer" | "return" | "dispute" | "cancellation";
 
 // ── Idempotency ─────────────────────────────────────────────────────
 
@@ -306,6 +317,30 @@ export function buildReturnOpened(ev: ReturnOpenedEvent): NotifyInput {
   };
 }
 
+export interface CancellationRequestedEvent {
+  userId: string;
+  cancelId: string;
+  orderLabel: string | null;
+  reason: string | null;
+}
+
+export function buildCancellationRequested(ev: CancellationRequestedEvent): NotifyInput {
+  const order = ev.orderLabel?.trim() || "an order";
+  // eBay reasons arrive SCREAMING_SNAKE (BUYER_CANCEL_ORDER, ORDER_UNPAID). The
+  // post-sale page already spells them out with the same replace; doing it here
+  // too keeps the notification from being the one place that shows the raw
+  // token.
+  const reason = ev.reason?.trim().replace(/_/g, " ").toLowerCase();
+  return {
+    type: "cancellation_requested",
+    title: "Cancellation requested",
+    message: reason
+      ? `A buyer asked to cancel ${order} (${reason}). Approve or reject it before eBay decides for you.`
+      : `A buyer asked to cancel ${order}. Approve or reject it before eBay decides for you.`,
+    link: POST_SALE_LINK,
+  };
+}
+
 export interface DisputeOpenedEvent {
   userId: string;
   disputeId: string;
@@ -382,6 +417,22 @@ export function notifyReturnOpened(
         reason: ev.reason,
       }),
     push: (userId) => pushReturnOpened(userId, ev.itemLabel),
+  }, deps);
+}
+
+export function notifyCancellationRequested(
+  ev: CancellationRequestedEvent,
+  deps: MarketplaceNotifyDeps = defaultDeps,
+): Promise<void> {
+  return deliver(ev.userId, {
+    inApp: buildCancellationRequested(ev),
+    email: (to, userName) =>
+      sendCancellationRequestedEmail(to, {
+        userName,
+        orderLabel: ev.orderLabel?.trim() || "an order",
+        reason: ev.reason,
+      }),
+    push: (userId) => pushCancellationRequested(userId, ev.orderLabel),
   }, deps);
 }
 

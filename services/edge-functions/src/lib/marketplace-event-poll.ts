@@ -1,5 +1,6 @@
 // Marketplace-event poll (US-1055): the recurring source that surfaces NEW
-// offers, returns, and payment disputes from eBay and notifies the seller.
+// offers, returns, cancellation requests and payment disputes from eBay and
+// notifies the seller.
 //
 // eBay's webhook stream tells us "something changed" but not "a return was just
 // opened" with enough structure to notify cleanly, so a poll re-reads the open
@@ -14,12 +15,20 @@
 // disabled feature never breaks the others or the cron.
 
 import { getBestOffers, type IncomingBestOffer } from "./ebay-trading.ts";
-import { type ReturnSummary, searchReturns } from "./ebay-postorder.ts";
-import { type PaymentDisputeSummary, searchPaymentDisputes } from "./ebay-disputes.ts";
 import {
+  type CancellationSummary,
+  type ReturnSummary,
+  searchCancellations,
+  searchReturns,
+} from "./ebay-postorder.ts";
+import { type PaymentDisputeSummary, searchPaymentDisputes } from "./ebay-disputes.ts";
+import { isClosedCase } from "./post-sale-state.ts";
+import {
+  type CancellationRequestedEvent,
   claimMarketplaceEvent,
   type DisputeOpenedEvent,
   type MarketplaceEventKind,
+  notifyCancellationRequested,
   notifyDisputeOpened,
   notifyOfferReceived,
   notifyReturnOpened,
@@ -32,6 +41,7 @@ export interface MarketplacePollResult {
   offers: number;
   returns: number;
   disputes: number;
+  cancellations: number;
   errors: string[];
 }
 
@@ -42,6 +52,10 @@ export interface MarketplacePollDeps {
   fetchOffers: (userId: string) => Promise<IncomingBestOffer[]>;
   fetchReturns: (userId: string) => Promise<ReturnSummary[]>;
   fetchDisputes: (userId: string) => Promise<PaymentDisputeSummary[]>;
+  // US-2560. Optional so every existing fake keeps type-checking; an omitted
+  // fetcher yields no cancellations rather than a crash, which is the safe way
+  // for a seam to default and is what the other optional deps here already do.
+  fetchCancellations?: (userId: string) => Promise<CancellationSummary[]>;
   claim: (
     userId: string,
     kind: MarketplaceEventKind,
@@ -66,17 +80,20 @@ export interface MarketplacePollDeps {
   notifyOffer: (ev: OfferReceivedEvent) => Promise<void>;
   notifyReturn: (ev: ReturnOpenedEvent) => Promise<void>;
   notifyDispute: (ev: DisputeOpenedEvent) => Promise<void>;
+  notifyCancellation?: (ev: CancellationRequestedEvent) => Promise<void>;
 }
 
 const defaultDeps: MarketplacePollDeps = {
   fetchOffers: getBestOffers,
   fetchReturns: (userId) => searchReturns(userId, { limit: 100 }),
   fetchDisputes: (userId) => searchPaymentDisputes(userId, { limit: 100 }),
+  fetchCancellations: (userId) => searchCancellations(userId, { limit: 100 }),
   claim: claimMarketplaceEvent,
   release: releaseMarketplaceEvent,
   notifyOffer: notifyOfferReceived,
   notifyReturn: notifyReturnOpened,
   notifyDispute: notifyDisputeOpened,
+  notifyCancellation: notifyCancellationRequested,
 };
 
 // A dispute in one of these states still needs the seller's attention; CLOSED /
@@ -97,7 +114,13 @@ export async function pollMarketplaceEventsForUser(
   ownerId: string,
   deps: MarketplacePollDeps = defaultDeps,
 ): Promise<MarketplacePollResult> {
-  const result: MarketplacePollResult = { offers: 0, returns: 0, disputes: 0, errors: [] };
+  const result: MarketplacePollResult = {
+    offers: 0,
+    returns: 0,
+    disputes: 0,
+    cancellations: 0,
+    errors: [],
+  };
 
   // ── Offers ────────────────────────────────────────────────────────
   try {
@@ -172,6 +195,61 @@ export async function pollMarketplaceEventsForUser(
     result.errors.push(`returns: ${err instanceof Error ? err.message : String(err)}`);
   }
 
+  // ── Cancellation requests (Post-Order) ────────────────────────────
+  //
+  // US-2560. searchCancellations() had been in ebay-postorder.ts since the
+  // Post-sale page shipped, and no poll source read it — so this was the one
+  // post-order case a seller could only find by going and looking, while eBay
+  // ran a clock on it.
+  try {
+    const cancellations = (await deps.fetchCancellations?.(ownerId)) ?? [];
+    for (const ca of cancellations) {
+      if (!ca.cancelId) continue;
+
+      // A cancellation the SELLER started is their own action. Notifying them
+      // about it would fire on every Approve they press from the Post-sale page
+      // — the notification arriving to tell them what they just did. Unknown
+      // still notifies, per the default-open asymmetry the state rule uses.
+      if (ca.requestorType?.trim().toUpperCase() === "SELLER") continue;
+
+      // Closed cases are history. Unlike the dispute source above this is a
+      // DENYLIST on terminal words rather than an allowlist of open states,
+      // because it has to agree with what the Post-sale page calls open — a
+      // notification whose row the page files under "Show closed" sends the
+      // seller looking for work that appears not to exist.
+      if (isClosedCase(ca.state)) continue;
+
+      const fresh = await deps.claim(
+        ownerId,
+        "cancellation",
+        ca.cancelId,
+        "requested",
+        "cancellation_requested",
+        // A cancellation is keyed to an ORDER, not a listing — same as a
+        // dispute, so the item link stays honestly null rather than borrowing
+        // the order id into a column that means something else.
+        null,
+      );
+      if (!fresh) continue;
+      try {
+        await deps.notifyCancellation?.({
+          userId: ownerId,
+          cancelId: ca.cancelId,
+          orderLabel: ca.orderId,
+          reason: ca.reason,
+        });
+        result.cancellations++;
+      } catch (err) {
+        await deps.release?.(ownerId, "cancellation", ca.cancelId, "requested");
+        result.errors.push(
+          `cancellation ${ca.cancelId}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    result.errors.push(`cancellations: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // ── Payment disputes ──────────────────────────────────────────────
   try {
     // fetchDisputes (searchPaymentDisputes) already treats the eBay "no
@@ -218,18 +296,29 @@ export async function pollMarketplaceEventsForUser(
  */
 export async function sweepMarketplaceEvents(
   loadOwnerIds: () => Promise<string[]>,
-): Promise<{ users: number; offers: number; returns: number; disputes: number; errors: number }> {
+): Promise<
+  {
+    users: number;
+    offers: number;
+    returns: number;
+    disputes: number;
+    cancellations: number;
+    errors: number;
+  }
+> {
   const ownerIds = await loadOwnerIds();
   let offers = 0;
   let returns = 0;
   let disputes = 0;
+  let cancellations = 0;
   let errors = 0;
   for (const ownerId of ownerIds) {
     const r = await pollMarketplaceEventsForUser(ownerId);
     offers += r.offers;
     returns += r.returns;
     disputes += r.disputes;
+    cancellations += r.cancellations;
     errors += r.errors.length;
   }
-  return { users: ownerIds.length, offers, returns, disputes, errors };
+  return { users: ownerIds.length, offers, returns, disputes, cancellations, errors };
 }

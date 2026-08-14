@@ -112,6 +112,21 @@ export function pushReturnOpened(userId: string, itemLabel?: string | null): Pro
   });
 }
 
+/** A buyer asked to cancel an order before it ships. */
+export function pushCancellationRequested(
+  userId: string,
+  orderLabel?: string | null,
+): Promise<void> {
+  return safePush(userId, {
+    title: "Cancellation requested",
+    body: orderLabel
+      ? `A buyer asked to cancel ${orderLabel}. Approve or reject before eBay does.`
+      : "A buyer asked to cancel an order. Approve or reject before eBay does.",
+    category: "cancellation.requested",
+    data: { kind: "cancellation_requested" },
+  });
+}
+
 /** A payment dispute / chargeback was opened — deadline-bearing. */
 export function pushDisputeOpened(userId: string, orderLabel?: string | null): Promise<void> {
   return safePush(userId, {

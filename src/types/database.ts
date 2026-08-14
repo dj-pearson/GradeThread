@@ -152,6 +152,8 @@ export type NotificationType =
   | "offer_responded"
   | "return_opened"
   | "dispute_opened"
+  // US-2560: a buyer asked to cancel an order (eBay Post-Order).
+  | "cancellation_requested"
   // US-1803: buyer-side notification categories.
   | "buyer_condition_alert"
   | "buyer_reward"

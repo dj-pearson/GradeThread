@@ -1,5 +1,52 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00601_cancellation_requested_notification.sql (US-2560 — a buyer cancellation reaches no notification channel)
+
+**Risk: LOW — the lowest kind there is.** One `ALTER TYPE notification_type ADD
+VALUE IF NOT EXISTS 'cancellation_requested'`. No table is created, altered or
+dropped, no data moves, no backfill runs, no index is built. It takes a
+momentary lock on the type and returns. Safe to run twice.
+
+**Apply order:** after 00600. It depends on nothing but the `notification_type`
+enum, which has existed since 00007.
+
+```sql
+ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'cancellation_requested';
+```
+
+**`NOTIFY pgrst, 'reload schema';` — yes.** An enum changed, so PostgREST's
+cached schema is stale until you send it.
+
+**The deploy order matters in ONE direction, and only one.** The edge INSERTS
+this value (`notifyUser`, from `lib/marketplace-event-notify.ts`). On a database
+that does not have it the insert fails with 22P02 and the notification is lost.
+Nothing FILTERS on the value anywhere, so the reverse — a database that has it
+while an older edge runs — is a plain no-op.
+
+The `EXPECTED_SCHEMA_VERSION` bump to `00601` in the same commit is what enforces
+that direction: the edge boot guard refuses to start against a database still on
+00600. So the order is SQL first, then redeploy the edge, then push.
+
+**The frontend is safe to auto-deploy ahead of the SQL**, unlike 00592. Nothing
+in `src/` queries this value. `src/types/database.ts` gains it as a TypeScript
+union member and `src/lib/notification-preferences.ts` gains a catalog row, both
+of which are inert until a notification of that type exists to render.
+
+**What breaks if you deploy the EDGE without applying it — and it is worse than
+"nothing happens", so do not skip the order above.** Checked rather than assumed:
+`deliver()` in `marketplace-event-notify.ts` wraps the in-app write in its own
+try/catch and **logs without rethrowing**, so a failed insert never reaches the
+poll's per-event catch. `notifyCancellation` resolves as a success, the claim
+row stays, and the next poll reads it as already delivered. That cancellation is
+then never notified again — permanently, not until the enum lands.
+
+This is pre-existing behaviour shared by all five event types, not something this
+story introduced, and the schema-version boot guard is what makes it
+unreachable: an edge expecting 00601 will not start against a 00600 database.
+It is written down here because "the migration is only an enum value" reads like
+the safe kind of held migration, and the failure mode if the order is reversed is
+silent and unrecoverable rather than loud.
+
 ## ✅ APPLIED: 00600_grade_report_revisions.sql (US-2569 — a regraded certificate is revised, not vanished, applied 2026-08-14 — owner-confirmed)
 
 **Measured 2026-08-14T18:40Z, not inferred.**
