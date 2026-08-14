@@ -97,9 +97,26 @@ function bodies(src) {
  * A handler that only MENTIONS an audit call in a note explaining why it does
  * not audit would otherwise read as audited — the exact inversion this report
  * exists to avoid, and one this session has now hit in both directions.
+ *
+ * ONE pass, and that is the whole point. Removing block comments first and line
+ * comments second reads fine and is wrong: a `/*` written inside a `//` comment
+ * opens a block the first pass then runs to the next `*` + `/` anywhere in the
+ * file. admin-billing.ts line 59 does exactly that — "of /users/*, /billing/*"
+ * in a routing note — and it deleted 57 KB of the 72 KB file, taking 17 of its
+ * 21 route registrations with it. The three routes left visible were the last
+ * three, which is why the guard reported freshly-added and correctly-audited
+ * reconciliation routes as unaudited.
+ *
+ * So: whichever of string literal / line comment / block comment starts first
+ * wins. String literals are KEPT — route paths and table names are read out of
+ * them downstream — and a comment marker inside one can no longer open
+ * anything.
  */
 function strip(src) {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/[^\n]*/g, "$1");
+  return src.replace(
+    /("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`)|\/\/[^\n]*|\/\*[\s\S]*?\*\//g,
+    (match, stringLiteral) => stringLiteral ?? "",
+  );
 }
 
 /**
