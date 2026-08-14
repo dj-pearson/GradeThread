@@ -30,6 +30,9 @@ const ADMIN_ROOTS = ["src/pages/admin", "src/pages/content"];
  * page cannot join it, and removing a page from the list is enforced the moment
  * it is fixed. Delete entries as they are fixed; when the list is empty, delete
  * it and make the assertion absolute.
+ *
+ * The remaining nine are tracked by US-2555 — they each run 3-6 independent
+ * queries, so they need a per-section error branch rather than one banner.
  */
 const KNOWN_SILENT_READS: string[] = [
   "src/pages/admin/ads.tsx",
