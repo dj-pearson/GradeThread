@@ -167,8 +167,22 @@ export async function edgeFetch(
       if (data.error_code === "workspace_mfa_required") {
         toast.error("Two-factor authentication required", {
           id: "workspace_mfa_required",
+          // US-2532 AC3: render the SERVER's explanation, not a local copy.
+          //
+          // The edge already sends one (lib/workspace-roles.ts, the
+          // workspace_mfa_required deny), and this used to ignore it and
+          // hardcode a near-identical sentence. Two wordings of one message is
+          // a drift waiting to happen — and it made "a blocked member sees the
+          // same explanation on iOS as on web" unsatisfiable by construction,
+          // because iOS would have had to invent a third.
+          //
+          // The literal stays as a fallback for an older edge that sends only
+          // the code, so a version skew degrades to the previous wording rather
+          // than to an empty toast.
           description:
-            "This workspace requires 2FA for your role. Enable it in Settings, then sign in again.",
+            typeof data.error === "string" && data.error.trim()
+              ? data.error
+              : "This workspace requires 2FA for your role. Enable it in Settings, then sign in again.",
           duration: 8000,
           action: {
             label: "Open Settings",
