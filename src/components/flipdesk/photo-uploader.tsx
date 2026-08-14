@@ -19,15 +19,9 @@ import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { usePhotoProfile } from "@/lib/photo-profiles";
 import { advanceItemStatus } from "@/lib/status-writer";
 import { nextUploadSortOrder } from "@/lib/photo-order";
-import { compressImage } from "@/lib/image-utils";
-import {
-  assessMacroPhoto,
-  measureMacroPhoto,
-  uploadMaxWidthFor,
-  type MacroQualityAssessment,
-} from "@/lib/macro-photo-quality";
+import { uploadItemPhoto } from "@/lib/item-photo-upload";
+import type { MacroQualityAssessment } from "@/lib/macro-photo-quality";
 import { captureGuidanceFor } from "@/lib/macro-capture-guidance";
-import { normalizeToImageFile } from "@/lib/media-intake";
 import { ItemPhotoImg } from "@/components/flipdesk/item-photo-img";
 import {
   useItemPhotoDisplayUrl,
@@ -45,18 +39,6 @@ import type {
   ItemCategory,
   ItemStatus,
 } from "@/types/database";
-
-function extOf(file: File): string {
-  const m = file.name.match(/\.([a-z0-9]+)$/i);
-  return m ? m[1]!.toLowerCase() : "jpg";
-}
-
-function extForBlobType(mimeType: string, fallback: string): string {
-  if (mimeType === "image/webp") return "webp";
-  if (mimeType === "image/png") return "png";
-  if (mimeType === "image/jpeg") return "jpg";
-  return fallback;
-}
 
 export function PhotoUploader({
   itemId,
@@ -152,11 +134,10 @@ export function PhotoUploader({
   const byType = (t: FlipdeskPhotoType) =>
     photos.filter((p) => p.photo_type === t);
 
-  // The shared upload core — normalize → compress → store → thumbnail → insert
-  // one photo row. Takes an explicit `sortOrder` so the bulk path can sequence a
-  // whole batch deterministically without waiting for the query cache to refresh
-  // between files. Returns the original + stored byte sizes for the caller's
-  // "saved N%" note. Throws on failure; callers own the toast + status advance.
+  // US-2546: the upload core moved to src/lib/item-photo-upload.ts so the
+  // FlipDesk intake form can stage photos and upload them the moment the item
+  // row exists, WITHOUT growing a second implementation. This wrapper keeps the
+  // component's call sites unchanged.
   async function processAndUpload(
     picked: File,
     photoType: FlipdeskPhotoType,
@@ -168,148 +149,14 @@ export function PhotoUploader({
     macro: MacroQualityAssessment;
   }> {
     if (!user) throw new Error("You must be signed in.");
-    // US-1300: normalize odd iPhone inputs first — a Live Photo exported as a
-    // .mov/.mp4 video becomes a still JPEG frame and HEIC/HEIF becomes JPEG, so
-    // the canvas compress/upload path below gets a decodable image.
-    const file = await normalizeToImageFile(picked);
-
-    // Compress + strip EXIF client-side via canvas re-encode. Falls back
-    // to the original file if decode fails (e.g. HEIC in Chrome), so
-    // iOS users who pick a HEIC photo still upload successfully — iOS
-    // Safari does this conversion natively at the file-input layer in
-    // most cases anyway.
-    const originalSize = file.size;
-    let body: Blob = file;
-    let bodyType = file.type;
-    let ext = extOf(file);
-    let width: number | null = null;
-    let height: number | null = null;
-    let thumbBlob: Blob | null = null;
-    let thumbType = "image/webp";
-    try {
-      // US-2135: macro slots keep more pixels than a general condition photo.
-      // Non-macro slots get the unchanged 2400 default — AC5 is explicit that
-      // the increase must NOT be global, because the upload-speed tradeoff that
-      // motivated the low cap is real on mobile data.
-      const main = await compressImage(
-        file,
-        uploadMaxWidthFor(photoType, photoRole),
-        0.85,
-      );
-      // Always prefer the canvas-baked output: compressImage applies EXIF
-      // orientation to the PIXELS (upright) and strips metadata, so the
-      // stored image renders the right way up everywhere — including eBay,
-      // which ignores EXIF orientation tags. Falling back to the original
-      // only to dodge a marginally larger file would re-introduce
-      // sideways/upside-down photos, so correctness wins over a few KB.
-      if (main.blob.size > 0) {
-        body = main.blob;
-        bodyType = main.blob.type || "image/webp";
-        ext = extForBlobType(bodyType, ext);
-      }
-      width = main.width;
-      height = main.height;
-
-      // Thumbnail — 320w is the sweet spot for grid views and avatar-sized
-      // previews. Quality 0.7 because perceptual quality at that size is
-      // already saturated. Same canvas pipeline = same EXIF-stripped result.
-      try {
-        const thumb = await compressImage(file, 320, 0.7);
-        if (thumb.blob.size > 0) {
-          thumbBlob = thumb.blob;
-          thumbType = thumb.blob.type || "image/webp";
-        }
-      } catch (thumbErr) {
-        // US-1487: expected best-effort fallback — don't log unconditionally
-        // in production (US-784).
-        if (import.meta.env.DEV) {
-          console.warn("[photo-uploader] thumbnail gen failed:", thumbErr);
-        }
-      }
-    } catch (compressErr) {
-      if (import.meta.env.DEV) {
-        console.warn(
-          "[photo-uploader] compress failed, uploading original:",
-          compressErr,
-        );
-      }
-    }
-
-    // Millisecond timestamp alone collides when a bulk batch uploads several
-    // files of the SAME assigned type in the same tick; a short random suffix
-    // keeps every storage path (and thus the upsert:false insert) unique.
-    const ts = Date.now();
-    const rand = Math.random().toString(36).slice(2, 7);
-    const ownerFolder = workspaceOwnerId ?? user.id;
-    const path = `${ownerFolder}/${itemId}/${photoType}_${ts}_${rand}.${ext}`;
-    const { error: upErr } = await supabase.storage
-      .from("item-photos")
-      .upload(path, body, {
-        upsert: false,
-        contentType: bodyType || undefined,
-      });
-    if (upErr) throw upErr;
-
-    const { data: pub } = supabase.storage.from("item-photos").getPublicUrl(path);
-
-    // Best-effort thumbnail upload. If it fails, we still have the full
-    // image — frontend falls back to photo_url via `thumbnail_url ?? photo_url`.
-    let thumbnailUrl: string | null = null;
-    let thumbnailPath: string | null = null;
-    if (thumbBlob) {
-      thumbnailPath = `${ownerFolder}/${itemId}/thumbs/${photoType}_${ts}_${rand}.${extForBlobType(thumbType, "webp")}`;
-      const { error: thumbUpErr } = await supabase.storage
-        .from("item-photos")
-        .upload(thumbnailPath, thumbBlob, {
-          upsert: false,
-          contentType: thumbType,
-        });
-      if (thumbUpErr) {
-        if (import.meta.env.DEV) {
-          console.warn(
-            "[photo-uploader] thumbnail upload failed:",
-            thumbUpErr.message,
-          );
-        }
-        thumbnailPath = null;
-      } else {
-        thumbnailUrl = supabase.storage
-          .from("item-photos")
-          .getPublicUrl(thumbnailPath).data.publicUrl;
-      }
-    }
-
-    const { error: insErr } = await supabase.from("item_photos").insert({
-      inventory_item_id: itemId,
-      photo_url: pub.publicUrl,
-      storage_path: path,
-      photo_type: photoType,
-      // US-2462: the qualifier saying what this photo shows. NULL for a slot
-      // that takes none — see src/lib/photo-roles.ts.
-      photo_role: photoRole ?? null,
-      // Canonical default order: Front → Back → Tag → Detail … so the
-      // listing's photo order (and eBay cover) is sensible without any
-      // manual drag. A later reorder densifies sort_order and wins.
-      sort_order: sortOrder,
-      thumbnail_url: thumbnailUrl,
-      thumbnail_storage_path: thumbnailPath,
-      width,
-      height,
-      bytes: body.size,
-    } as never);
-    if (insErr) throw insErr;
-
-    // US-2136: assess the macro slots (tag, serial, marking, surface, …) on the
-    // bytes we actually stored, not the camera original — compressImage caps at
-    // 2400px, so a distant serial shot can arrive fine and be stored soft. The
-    // seller is nudged AFTER the upload rather than blocked before it: Claude
-    // Vision reads a marginal photo better than any client-side check, and a
-    // false "retake this" is what teaches sellers to ignore the nudge.
-    const macro = assessMacroPhoto(
-      await measureMacroPhoto(body, photoType, photoRole),
-    );
-
-    return { originalSize, storedSize: body.size, macro };
+    return uploadItemPhoto({
+      file: picked,
+      itemId,
+      ownerFolder: workspaceOwnerId ?? user.id,
+      photoType,
+      sortOrder,
+      photoRole,
+    });
   }
 
   // After a batch of one or more new photos of `newTypes`, advance the item to

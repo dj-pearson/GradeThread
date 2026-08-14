@@ -37041,6 +37041,21 @@
       ],
       "priority": 2406,
       "notes": "AC2: the submitted-photo grid now opens the SAME ImageLightbox the public certificate uses (src/components/certificate/image-lightbox.tsx) rather than getting a second viewer, so zoom, arrow-key/swipe stepping, the focus trap and download all come along; each thumbnail is a real button with its own aria-label, and the lightbox is fed the unfiltered images array so a click on photo 3 opens photo 3. The gap was sharp: the seller who PAID for the grade could only see 150px thumbnails while any buyer holding the public link could open the same photos full screen. AC3: 'Use this grade in a listing' and 'View item' pointed at the same place. /dashboard/inventory/:id is InventoryItemRedirect, which rewrites straight to /dashboard/flipdesk/items/:id, and since US-2519 there IS only one item editor, so a second link cannot lead anywhere else. Collapsed to ONE button, 'Open item to use this grade'; the guard asserts the redirect assumption rather than just commenting it. AC4: the five post-grade cards (graded photo, showcase consent, share certificate, garment passport, FlipDesk nudge) were each gated on the same completed+gradeReport condition and stacked, so the last sat below three screens of report detail; they are now one <section> under a 'What's next' heading with ONE gate. The dispute card and the photo grid stay outside it deliberately, being status and evidence rather than next steps. Guard: src/test/submission-detail-evidence.test.ts, 10 cases, 7 proven red."
+    },
+    {
+      "id": "US-2546",
+      "passes": true,
+      "title": "FlipDesk intake has no photos and no unsaved-work guard",
+      "description": "As a seller cataloguing an item, I want to shoot it on the intake form and be warned before losing it, so that intake matches what the phone already does.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/intake.tsx has no photo field on the default form — photos require switching to ?mode=snap or reopening the item afterwards.",
+        "Photo capture is available on the main intake form.",
+        "Navigating away from a filled form warns first; today Cancel and Back at :445 and :764 abandon it silently, while iOS offers draft resume and an explicit discard confirmation (ios/GradeThread/DetailsIntake/DetailsIntakeView.swift:103-118).",
+        "Measurements can be entered at intake, since 'measured' is a pipeline status with its own page.",
+        "Required fields use the required attribute rather than an asterisk in the label text (:538)."
+      ],
+      "priority": 2408,
+      "notes": "All five ACs. AC2: new IntakePhotoStager on the main form. Photos cannot be uploaded before save (item_photos needs an inventory_item_id), so they are staged in memory with an assigned type and uploaded the instant the row comes back. Crucially this is NOT a second uploader: the normalize/compress/store/thumbnail/insert core was EXTRACTED out of photo-uploader.tsx into src/lib/item-photo-upload.ts and both call it, so there is one EXIF-orientation story, one thumbnail size and one storage path format. Camera input uses capture=environment on a phone, ordinary multi-picker otherwise. A photo failure after a successful insert reports as 'saved the item, but N photos did not upload' rather than a failed save, because the item exists and telling them otherwise makes them catalogue it twice. AC3: useNavigationGuard(dirty) + an AlertDialog; dirty is deliberately narrow (not saving AND form differs from INITIAL OR staged photos OR measurements) because a dialog that fires on an untouched form is one people learn to click through; the copy names the photo count, since photos are the only part that cannot be retyped. AC4: the shared MeasurementForm is mounted and the values are WRITTEN to inventory_items.measurements, and both Save-and-add-another reset paths clear staged photos and measurements so the next item in a batch does not inherit them. AC5: Field gained a real required prop setting required + aria-required, with the asterisk marked aria-hidden; 'Title *' became label=Title required. Guard: src/test/intake-capture-and-guard.test.ts, 13 cases, 12 proven red."
     }
   ]
 }

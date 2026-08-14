@@ -22,6 +22,16 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -52,6 +62,13 @@ import {
 import { useProductLookup } from "@/hooks/use-product-lookup";
 import { BarcodeScannerDialog } from "@/components/flipdesk/barcode-scanner-dialog";
 import { GradeRoiHint } from "@/components/flipdesk/grade-roi-hint";
+import { MeasurementForm } from "@/components/flipdesk/measurement-form";
+import {
+  IntakePhotoStager,
+  type StagedPhoto,
+} from "@/components/flipdesk/intake-photo-stager";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { uploadItemPhoto } from "@/lib/item-photo-upload";
 import {
   ITEM_CATEGORIES,
   ITEM_CATEGORY_LABELS,
@@ -145,6 +162,13 @@ export function FlipdeskIntakePage() {
   const [params] = useSearchParams();
   const [form, setForm] = useState<FormState>(INITIAL);
   const [saving, setSaving] = useState(false);
+  // US-2546 AC2: photos staged in memory until the item row exists.
+  const [stagedPhotos, setStagedPhotos] = useState<StagedPhoto[]>([]);
+  // US-2546 AC4: "measured" is a pipeline status with its own page, so intake
+  // may as well capture the numbers when the garment is already on the table.
+  const [measurements, setMeasurements] = useState<
+    Record<string, number | string>
+  >({});
   const offline = useOfflineIntakeSync();
 
   // AI Fill state
@@ -159,6 +183,21 @@ export function FlipdeskIntakePage() {
   // US-598: barcode/UPC scan-to-autofill.
   const productLookup = useProductLookup();
   const [scannerOpen, setScannerOpen] = useState(false);
+
+  // US-2546 AC3: Cancel and Back used to abandon a filled form in silence,
+  // while iOS has offered draft resume and an explicit discard confirmation
+  // since DetailsIntakeView. `dirty` is deliberately narrow: it is true only
+  // when there is something a seller would be upset to lose, so the dialog
+  // never fires on an untouched form. Staged photos count double - they cannot
+  // be recovered from anywhere.
+  const dirty =
+    !saving &&
+    (stagedPhotos.length > 0 ||
+      Object.entries(form).some(
+        ([k, v]) => v !== INITIAL[k as keyof FormState],
+      ) ||
+      Object.keys(measurements).length > 0);
+  const guard = useNavigationGuard(dirty);
 
   // Alternate intake modes are separate workspaces.
   if (params.get("mode") === "bulk") return <BulkIntake />;
@@ -370,6 +409,9 @@ export function FlipdeskIntakePage() {
         description: trimOrNull(form.description),
         condition_notes: trimOrNull(form.condition_notes),
         status: form.status,
+        // US-2546 AC4: captured at intake rather than on a later visit to prep.
+        measurements:
+          Object.keys(measurements).length > 0 ? measurements : undefined,
         ai_field_sources: hasAiFields ? aiFieldSources : undefined,
         ai_enriched_at: hasAiFields ? new Date().toISOString() : undefined,
       };
@@ -391,6 +433,8 @@ export function FlipdeskIntakePage() {
         setAiFields(new Set());
         setAiMeta({});
         setAiResult(null);
+        setStagedPhotos([]);
+        setMeasurements({});
         return;
       }
 
@@ -401,6 +445,38 @@ export function FlipdeskIntakePage() {
         .single();
       if (error) throw error;
       const newId = (row as { id: string } | null)?.id;
+
+      // US-2546 AC2: the staged photos go up through the SAME core the item
+      // page uses (src/lib/item-photo-upload.ts). A failure here must not read
+      // as a failed save — the item exists, so say what happened and let the
+      // seller finish on the item page.
+      if (newId && stagedPhotos.length > 0) {
+        let uploaded = 0;
+        for (const [i, staged] of stagedPhotos.entries()) {
+          try {
+            await uploadItemPhoto({
+              file: staged.file,
+              itemId: newId,
+              ownerFolder: workspaceOwnerId,
+              photoType: staged.photoType,
+              sortOrder: i,
+            });
+            uploaded++;
+          } catch (photoErr) {
+            if (import.meta.env.DEV) {
+              console.warn("[intake] photo upload failed:", photoErr);
+            }
+          }
+        }
+        await qc.invalidateQueries({ queryKey: ["item_photos", newId] });
+        if (uploaded < stagedPhotos.length) {
+          toast.warning(
+            `Saved the item, but ${stagedPhotos.length - uploaded} photo${
+              stagedPhotos.length - uploaded === 1 ? "" : "s"
+            } didn't upload. Add them from the item page.`,
+          );
+        }
+      }
 
       await qc.invalidateQueries({ queryKey: ["items_full"] });
       await qc.invalidateQueries({ queryKey: ["sources"] });
@@ -426,6 +502,8 @@ export function FlipdeskIntakePage() {
         setAiFields(new Set());
         setAiMeta({});
         setAiResult(null);
+        setStagedPhotos([]);
+        setMeasurements({});
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -535,7 +613,8 @@ export function FlipdeskIntakePage() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
-              label="Title *"
+              label="Title"
+              required
               value={form.title}
               onChange={(v) => patch("title", v)}
               placeholder="e.g. Lululemon Align Pant"
@@ -748,6 +827,47 @@ export function FlipdeskIntakePage() {
         </CardContent>
       </Card>
 
+      {/* US-2546 AC2: shoot the item here. The phone app has always taken
+          photos at intake; the web form made you save, find the item again and
+          open it, or switch to a different form at ?mode=snap. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Photos</CardTitle>
+          <CardDescription>
+            Optional. They upload as soon as the item is saved, and the full
+            slot grid is on the item page once the category is settled.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <IntakePhotoStager
+            photos={stagedPhotos}
+            onChange={setStagedPhotos}
+            disabled={saving}
+          />
+        </CardContent>
+      </Card>
+
+      {/* US-2546 AC4: "measured" is a pipeline status with its own page, and
+          the garment is already on the table at intake. Capturing the numbers
+          now saves handling it twice. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Measurements</CardTitle>
+          <CardDescription>
+            Optional. Fill what you have — the rest can be added on the prep
+            page or measured from a photo later.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <MeasurementForm
+            category={form.item_category || null}
+            brand={form.brand || null}
+            values={measurements}
+            onChange={setMeasurements}
+          />
+        </CardContent>
+      </Card>
+
       {/* US-856: grade-ROI nudge for the category being catalogued. Renders
           only when the seller's own sold history supports a lift; routes into
           the certified-grade submission flow. */}
@@ -802,6 +922,37 @@ export function FlipdeskIntakePage() {
         onOpenChange={setScannerOpen}
         onDetected={handleScanDetected}
       />
+
+      {/* US-2546 AC3: Cancel, Back and the sidebar all route through here now.
+          `dirty` is narrow on purpose — a dialog that fires on an untouched
+          form is a dialog people learn to click through. */}
+      <AlertDialog
+        open={guard.blocked}
+        onOpenChange={(open) => {
+          if (!open) guard.cancelLeave();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {stagedPhotos.length > 0
+                ? `This item hasn't been saved, and ${stagedPhotos.length} photo${
+                    stagedPhotos.length === 1 ? "" : "s"
+                  } you added here would have to be taken again.`
+                : "This item hasn't been saved yet. Everything you typed will be lost."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={guard.cancelLeave}>
+              Keep editing
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={guard.confirmLeave}>
+              Leave and discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -821,6 +972,7 @@ function Field({
   type = "text",
   placeholder,
   aiMarked = false,
+  required = false,
 }: {
   label: string;
   value: string;
@@ -828,6 +980,13 @@ function Field({
   type?: "text" | "date" | "number";
   placeholder?: string;
   aiMarked?: boolean;
+  /**
+   * US-2546 AC5: sets the real `required` attribute rather than a "*" typed
+   * into the label. An asterisk in label TEXT is announced as the word "star"
+   * and carries no constraint; `required` is what a screen reader reports and
+   * what the browser validates against.
+   */
+  required?: boolean;
 }) {
   // US-2335: one id per instance, from useId — NOT a slug of the label. Two
   // fields can legitimately carry the same label text, and a duplicate id
@@ -838,12 +997,19 @@ function Field({
     <div className="space-y-1">
       <Label htmlFor={id}>
         {label}
+        {required && (
+          <span aria-hidden="true" className="ml-0.5 text-destructive">
+            *
+          </span>
+        )}
         {aiMarked && <AiMark />}
       </Label>
       <Input
         id={id}
         type={type}
         value={value}
+        required={required}
+        aria-required={required || undefined}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />

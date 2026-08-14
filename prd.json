@@ -1840,20 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2546",
-      "passes": false,
-      "title": "FlipDesk intake has no photos and no unsaved-work guard",
-      "description": "As a seller cataloguing an item, I want to shoot it on the intake form and be warned before losing it, so that intake matches what the phone already does.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/intake.tsx has no photo field on the default form — photos require switching to ?mode=snap or reopening the item afterwards.",
-        "Photo capture is available on the main intake form.",
-        "Navigating away from a filled form warns first; today Cancel and Back at :445 and :764 abandon it silently, while iOS offers draft resume and an explicit discard confirmation (ios/GradeThread/DetailsIntake/DetailsIntakeView.swift:103-118).",
-        "Measurements can be entered at intake, since 'measured' is a pipeline status with its own page.",
-        "Required fields use the required attribute rather than an asterisk in the label text (:538)."
-      ],
-      "priority": 2408
-    },
-    {
       "id": "US-2547",
       "passes": false,
       "title": "Overview pipeline tiles promise a filter the destination cannot apply",
