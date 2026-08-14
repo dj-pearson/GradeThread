@@ -200,7 +200,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       is confirmed, failures are told apart by status via a shared
       `src/lib/claim-failure.ts`, and /claim/:token stopped claiming on mount;
       guard `src/test/tag-claim-requires-account.test.ts` (13 cases, 9 red)
-- [x] US-2552 (2420) Buyer onboarding taxonomy - SHA6 - FOUR surfaces wrote the
+- [x] US-2552 (2420) Buyer onboarding taxonomy - 50f06260 - FOUR surfaces wrote the
       same criteria four ways (13 hardcoded / 19 hardcoded / two free-text); one
       shared CategoryPicker over one taxonomy, server drops and REPORTS what
       cannot match, sizes per group, and a want finally shows what it matched;
