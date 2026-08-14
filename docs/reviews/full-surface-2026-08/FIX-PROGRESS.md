@@ -33,8 +33,8 @@ Work in priority order (ASCENDING — lowest number first). Do not skip ahead
 unless a story is blocked; if blocked, note why and move to the next.
 
 ### P1 — do these first
-- [ ] US-2503 (1800) iOS buyer tools unreachable — DEFERRED, see note below
-- [ ] US-2504 (1802) Walk-around video grading web-only — DEFERRED, see note below
+- [~] US-2503 (1800) iOS buyer tools unreachable — SLICE 1 SHIPPED `74a2be2a` (still OPEN): `GET /api/buyer/entitlements` serves the resolved payload from the existing edge resolver, so iOS gates from ONE source rather than a Swift copy of the matrix (AC3 was not satisfiable without it). Fail-safe to FREE, no-store, 2 tenant-isolation cases. Guard `src/test/buyer-entitlements-contract.test.ts`. AC2/AC4/AC5 still need macOS.
+- [~] US-2504 (1802) Walk-around video grading web-only — SLICE 1 SHIPPED `994561a1` (still OPEN): `src/lib/video-grading-contract.ts` pins the multipart field names, the exact opt-in string and the abstain response. **AC3 needs no iOS work** — the no-charge guarantee is the SERVER's (`failVideoGrading` returns before payment and refunds the buyer debit). Guard `src/test/video-grading-contract.test.ts`. AC2's recorder + AC4's progress still need macOS.
 - [x] US-2505 (1804) Human-review claim lock bypassable — DONE d97a307d
 - [x] US-2506 (1806) /condition-index 404s on every public page — DONE 117e99cc
 
@@ -73,11 +73,11 @@ unless a story is blocked; if blocked, note why and move to the next.
       in nav AND page heading; 3 were already resolved by US-2512/2505/2558. Guard now
       rejects a label that is a whole-word PREFIX of another — the shape this defect
       actually takes.
-- [ ] US-2559 (2434) Four admin clusters (rewards 5, newsletter 4, AI 4, abuse 3) into
-      tabbed hosts — VERIFIED distinct, so it is a merge not a de-dupe; keep
-      reward-economics' payout kill switch immediate
-
-### P2 — page level
+- [x] US-2559 (2434) Four admin clusters into tabbed hosts - `af5d1865` - 16 nav entries
+      → 4 hosts via ONE shared `AdminTabHost`; all 16 pages still mounted as tabs;
+      Economics is the rewards DEFAULT so the payout kill switch stays immediate; 15
+      retired paths redirect with `?view=`. Guard `src/test/admin-host-consolidation.test.ts`.
+      Adapted to the merged `PageHostContext` in `d997dc75`.
 - [x] US-2514 (1914) Pricing page has no buy button — DONE 7f5e451e. 11 prices now each
       carry a CTA; added the RECEIVING side for ?tier= and ?buy=credits so no CTA
       passes a param its destination ignores. Monthly/annual toggle added.
@@ -127,7 +127,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       drafting, just stating what the code calls, so no counsel needed. Added Google,
       Apple, Etsy, Depop, Whatnot, Shopify. The new host-vs-list guard found a 7th I had
       missed (api.remove.bg, optional, uploads a garment photo when its key is set).
-- [~] US-2528 (1942) Terms predate 4 products — BLOCKED ON COUNSEL (its own AC5 says so).
+- [~] US-2528 (1942) Terms predate 4 products — STILL BLOCKED ON COUNSEL (its own AC5). FOLLOW-UP `2aade3a8`: drift guard `src/test/legal-extension-disclosure-parity.test.ts` (honest in both states; enforces four-fact parity the moment a section lands) + the AC4 date check. **Corrected a flag I raised myself**: the AUP's scraping clause is scoped to "the Service", NOT the marketplaces, so no carve-out is needed.
       Engineering half DONE 9aa82ce6: docs/legal/terms-update-brief-2026-08.md, all four
       gaps verified against the code, draft language marked draft, terms.tsx untouched.
       ⚠ DO NOT close this without the user's counsel signing off on the copy.
@@ -138,10 +138,10 @@ unless a story is blocked; if blocked, note why and move to the next.
 - [x] US-2530 (1946) No password reveal / strength — DONE 3b589dff. Shared PasswordField
       in components/AUTH (components/ui is hook-blocked as shadcn-generated), all 4
       inputs, meter on signup+reset only, persistent role=alert sign-in error.
-- [~] US-2531 (1948) Shopify web-only — DEFERRED (iOS, unverifiable here)
-- [~] US-2532 (1950) Workspace 2FA policy web-only — DEFERRED (iOS)
-- [~] US-2533 (1952) Return analytics web-only — DEFERRED (iOS)
-- [~] US-2534 (1954) iOS a11y labels missing — DEFERRED (iOS). All four noted in prd.json: no swiftc/xcodebuild on Windows, and the macOS lane only runs on a PUSH this branch must not make while 00592/00593 are held.
+- [~] US-2531 (1948) Shopify web-only — SLICE SHIPPED `f6bfbb77` (still OPEN). **Premise mostly STALE**: the iOS screen ALREADY badges Shopify "Live · manage on web" and the paywall never mentions marketplaces, so AC3 was already satisfied. Real gap is only the "and links there" half. Guard `src/test/ios-marketplace-capability-parity.test.ts`; verified to BITE.
+- [~] US-2532 (1950) Workspace 2FA policy web-only — SLICE SHIPPED `6b19b3ca` (still OPEN). **Found a real WEB bug**: the edge sends the blocked-member explanation and `edge-fetch.ts` threw it away for a hardcoded near-duplicate that had ALREADY drifted — making AC3 impossible. Fixed. iOS half verified PURELY UI. Guard `src/test/workspace-mfa-policy-parity.test.ts`.
+- [~] US-2533 (1952) Return analytics web-only — SLICE SHIPPED `fb8995fd` (still OPEN). AC2 needs NO protocol work (RPC is SECURITY INVOKER, granted to `authenticated`). **The risk is the CLAIM**: the RPC returns raw counts and the honesty rules (sample floor 10; never a multiplier when graded is equal/worse/zero-divisor) live in TS. Guard `src/test/return-analytics-claim-rules.test.ts`; verified to BITE twice.
+- [~] US-2534 (1954) iOS a11y labels missing — SLICE SHIPPED `d7b69221` (still OPEN). Premise VERIFIED (all 8 screens at zero) with a path CORRECTION: AIExtractView.swift is in `AIExtract/`, not `Analytics/`. Guard `src/test/ios-accessibility-ratchet.test.ts` makes the debt measurable and protects the 68 files that DO carry labels. Baseline 171 real call sites, not the 185 a bare grep reports. Verified to BITE. AC2 still needs Swift.
 - [~] US-2535 (1956) Onboarding taxonomies diverge — DEFERRED (iOS) + a PRODUCT DECISION
       the owner must make first: iOS asks reseller/grader/store, the DB CHECK allows
       seller/buyer/consignment/developer, and 2 of the 3 collapse. 3 options + my
@@ -752,3 +752,39 @@ function Helper("))`.
 - Keep an unsaved-work guard NARROW. Blocking when nothing is at stake trains
   people to click through the dialog, which is how a guard silently stops
   working. Compare against the INITIAL form state, not against emptiness.
+
+## ⚠ Concurrent-agent collision, 2026-08-14
+
+A second agent worked this same review in parallel and PUSHED. It landed
+US-2542, US-2544..US-2556 and US-2558 — the same stories this session had also
+implemented locally — plus new stories US-2562..US-2570.
+
+Resolution: **their published history won for every overlapping story.** 18 of
+the 34 local commits were duplicate implementations and were dropped; the 8
+unique ones (US-2503, US-2504, US-2528, US-2531, US-2532, US-2533, US-2534,
+US-2559) were replayed on top. The dropped work is preserved on the local
+branch `claude-local-backup-2026-08-14` if anything needs recovering.
+
+The decisive factor was MIGRATION NUMBERS: both sides had written a `00594` and
+a `00595`, different files each. Numbers on published history cannot be
+renumbered, so the local pair had to go. Their 00594–00599 are the ones held in
+`PENDING_MIGRATIONS.md`.
+
+One code adaptation was needed: the local US-2559 host carried its own
+`TabHostContext` from a parallel take on US-2548, while the published branch had
+generalised the same idea as `PageHostContext` and wired `page-header.tsx` to
+it. Two contexts would have meant a hosted page suppressing its title for one
+host and not the other, so the local one was dropped.
+
+### Lessons
+- **Check `git log origin/main..HEAD` and `HEAD..origin/main` before starting a
+  story, not after 34 commits.** A concurrent agent on the same tree is a known
+  hazard here and the cost of noticing late is an entire duplicate branch.
+- **Duplicate migration numbers decide the merge for you.** Published numbers
+  cannot move, so whichever side is unpushed loses its migration and everything
+  built on it. That alone is a reason to push early or to claim numbers late.
+- Back the branch up BEFORE `git reset --hard`. `claude-local-backup-2026-08-14`
+  cost one command and made an irreversible-looking step reversible.
+- During a cherry-pick, `--ours` is HEAD and `--theirs` is the commit being
+  picked. Getting that backwards silently discards the wrong side of a JSON
+  file; the archives were merged by comparing id sets instead of trusting either.
