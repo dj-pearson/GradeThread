@@ -146,10 +146,15 @@ unless a story is blocked; if blocked, note why and move to the next.
 - [~] US-2532 (1950) Workspace 2FA policy web-only — SLICE SHIPPED `6b19b3ca` (still OPEN). **Found a real WEB bug**: the edge sends the blocked-member explanation and `edge-fetch.ts` threw it away for a hardcoded near-duplicate that had ALREADY drifted — making AC3 impossible. Fixed. iOS half verified PURELY UI. Guard `src/test/workspace-mfa-policy-parity.test.ts`.
 - [~] US-2533 (1952) Return analytics web-only — SLICE SHIPPED `fb8995fd` (still OPEN). AC2 needs NO protocol work (RPC is SECURITY INVOKER, granted to `authenticated`). **The risk is the CLAIM**: the RPC returns raw counts and the honesty rules (sample floor 10; never a multiplier when graded is equal/worse/zero-divisor) live in TS. Guard `src/test/return-analytics-claim-rules.test.ts`; verified to BITE twice.
 - [~] US-2534 (1954) iOS a11y labels missing — SLICE SHIPPED `d7b69221` (still OPEN). Premise VERIFIED (all 8 screens at zero) with a path CORRECTION: AIExtractView.swift is in `AIExtract/`, not `Analytics/`. Guard `src/test/ios-accessibility-ratchet.test.ts` makes the debt measurable and protects the 68 files that DO carry labels. Baseline 171 real call sites, not the 185 a bare grep reports. Verified to BITE. AC2 still needs Swift.
-- [~] US-2535 (1956) Onboarding taxonomies diverge — DEFERRED (iOS) + a PRODUCT DECISION
-      the owner must make first: iOS asks reseller/grader/store, the DB CHECK allows
-      seller/buyer/consignment/developer, and 2 of the 3 collapse. 3 options + my
-      recommendation are in the prd note. No code written.
+- [~] US-2535 (1956) Onboarding taxonomies diverge — **DECISION MADE** (owner,
+      2026-08-14): option A, all three iOS answers map to `seller`, volume stays
+      telemetry. SLICE SHIPPED `bab70b6a` (still OPEN): `src/lib/use-case-taxonomy.ts`
+      pins the four canonical values (mirroring the 00022 CHECK), the mapping, and an
+      `isWritableUseCase` guard. Verified iOS needs NO protocol work — web writes the
+      column directly under RLS — and AC4 needs no dashboard change, though persisting
+      still matters because `activation-checklist.tsx` branches on `seller` explicitly.
+      Guard `src/test/use-case-taxonomy.test.ts` (11 cases) reads the Swift enum body so
+      a 4th answer fails red. AC3's Swift write still needs macOS.
 - [x] US-2536 (1958) Content editors lose unsaved fields — DONE a581d9e0. Shared
       useNavigationGuard on both, dialog NAMES the dirty fields, off while saving.
 - [x] US-2537 (1960) Dashboard: 8 promos before the data — DONE 1ad35cdc. Data first,
@@ -840,3 +845,21 @@ host and not the other, so the local one was dropped.
 - During a cherry-pick, `--ours` is HEAD and `--theirs` is the commit being
   picked. Getting that backwards silently discards the wrong side of a JSON
   file; the archives were merged by comparing id sets instead of trusting either.
+
+### Lessons from US-2535 slice
+- **A decision buried in a prd note is not a decision requested.** These three
+  options and my recommendation sat unanswered for several iterations while I
+  re-read them each time and moved on. Putting the question directly to the
+  owner unblocked it in one exchange. Ask, don't file.
+- My drift check was VACUOUS on first write. It filtered the Swift enum cases
+  down to the ones already known to the map before comparing — so a NEW iOS
+  answer, the exact thing it existed to catch, was filtered out and the test
+  stayed green. Found only by adding a fourth case and watching nothing happen.
+  **Break the thing the guard is for, every time, not just something nearby.**
+- Anything named `useX` trips `react-hooks/rules-of-hooks` the moment it is
+  called in a loop. `useCaseFromIosAnswer` was a pure function and still failed
+  lint from the test that iterated the three answers. Renamed to
+  `iosAnswerToUseCase`, with the reason in the doc comment so it stays renamed.
+- Check whether the gap is protocol or UI before scoping it. Web writes
+  `users.use_case` straight through supabase-js under RLS, so the iOS half is a
+  single write — not an endpoint, not a contract.
