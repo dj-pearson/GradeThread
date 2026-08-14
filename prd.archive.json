@@ -36597,6 +36597,21 @@
       ],
       "priority": 1904,
       "notes": "Done 2026-08-14 (commit below). All five pages now render BuyerPlaceholderPage with their entitlement flag: alerts (conditionAlerts), portfolio (wardrobePortfolio), guarantee (purchaseGuarantee), rewards (rewards), demand (demandBoard). The copies had genuinely drifted — three used a Button-asChild-Link, guarantee used a raw Link hand-styled to look like a button, and each restated 'part of a higher buyer plan' in its own words; the shared component owns that sentence and the billing link now. Dropped the imports this orphaned (Lock in all five, plus react-router Link in demand which had no uses left). Second half, and the more consequential one: the /buyer/* catch-all no longer renders BuyerPlaceholderPage as its 404. That component's UNLOCKED branch draws a Sparkles icon over 'is coming soon to your buyer dashboard', so a mistyped buyer URL told the user the feature was merely unshipped. It renders InShellNotFound now, homed to /buyer — the same component the seller side has used since US-443. New guard src/test/buyer-paywall-shared.test.ts covers both halves and was PROVEN red against the pre-fix tree, naming all five pages and the route. tsc -b clean, lint 0 errors, ui:check 0, 3617 web tests pass."
+    },
+    {
+      "id": "US-2510",
+      "passes": true,
+      "title": "Nothing in the customer apps tells a user something needs them",
+      "description": "As a seller or buyer, I want to be told when something needs my attention, so that I do not have to open every page to find out.",
+      "acceptanceCriteria": [
+        "A notification bell exists for operators only (src/components/admin/admin-notification-bell.tsx). No seller or buyer surface has a notification centre or a sidebar badge.",
+        "Ship a customer-facing notification centre covering at minimum: a buyer message awaiting reply (counted today only on flipdesk/offers.tsx:607), an open return or cancellation request (flipdesk/post-sale.tsx), a support reply (support-tickets.tsx), a grade finishing or returning needs_photos, and a buyer alert match.",
+        "Unread counts badge the sidebar entry on web and the tab bar on iOS.",
+        "The notification read model is tenant-scoped per US-268 and its edge route has a tenant-isolation_test.ts case.",
+        "Any new table ships the US-1108 migration triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and a self-record footer."
+      ],
+      "priority": 1906,
+      "notes": "Done 2026-08-14 (commit below), but READ THIS: AC1 was FALSE and my review finding behind it was wrong. A customer notification centre already existed and was already mounted — src/components/dashboard/notification-center.tsx, in the seller header at components/dashboard/header.tsx:67, with unread counts, mark-read and mark-all-read. The notifications table, its RLS scoped to auth.uid(), its type enum and a notifyUser helper with 26 callers all predate the review. I concluded otherwise from grepping for NotificationBell and useNotifications; the component is called NotificationCenter. Lesson: grep for the capability, not the name you expect. So AC5 does not apply either — there is no new table and no migration. What was ACTUALLY missing and IS fixed here: the BUYER shell carried no notification affordance at all, which mattered because US-1803 notifyBuyer fans condition-alert matches, reward grants, guarantee and portfolio events into that same table — those rows were being written with nowhere in the buyer app to read them. buyer-layout.tsx now renders NotificationCenter, and src/test/notification-center-mounted.test.ts asserts BOTH shells do (proven red against the pre-fix buyer layout). RE-SCOPED to US-2556 (priority 1907, i.e. next): AC2's offer/return/cancellation events and AC3's iOS tab badge. Those are genuinely absent — offer_received, offer_responded, return_opened and return_requested exist as enum values that nothing emits — and the fix needs dedupe design, because the hourly automations cron would otherwise re-notify the same unanswered offer every hour. tsc -b clean, lint 0 errors, ui:check 0, 3619 web tests pass."
     }
   ]
 }

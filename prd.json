@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2556",
+  "nextId": "US-2557",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1759,20 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2510",
-      "passes": false,
-      "title": "Nothing in the customer apps tells a user something needs them",
-      "description": "As a seller or buyer, I want to be told when something needs my attention, so that I do not have to open every page to find out.",
-      "acceptanceCriteria": [
-        "A notification bell exists for operators only (src/components/admin/admin-notification-bell.tsx). No seller or buyer surface has a notification centre or a sidebar badge.",
-        "Ship a customer-facing notification centre covering at minimum: a buyer message awaiting reply (counted today only on flipdesk/offers.tsx:607), an open return or cancellation request (flipdesk/post-sale.tsx), a support reply (support-tickets.tsx), a grade finishing or returning needs_photos, and a buyer alert match.",
-        "Unread counts badge the sidebar entry on web and the tab bar on iOS.",
-        "The notification read model is tenant-scoped per US-268 and its edge route has a tenant-isolation_test.ts case.",
-        "Any new table ships the US-1108 migration triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and a self-record footer."
-      ],
-      "priority": 1906
-    },
-    {
       "id": "US-2511",
       "passes": false,
       "title": "Five account pages are reachable at two URLs and one of them has no tabs",
@@ -2366,6 +2352,20 @@
         "No behaviour change to the two HARD assertions above it — empty-state-on-error and infinite-skeleton-on-error stay allowlist-free."
       ],
       "priority": 2430
+    },
+    {
+      "id": "US-2556",
+      "passes": false,
+      "title": "Offers, returns and cancellations never emit a notification, and iOS has no badge",
+      "description": "As a seller, I want to be told when a buyer messages me or opens a return, so that the most time-sensitive things in the app are not invisible until I happen to open a page.",
+      "acceptanceCriteria": [
+        "The notification_type enum already carries offer_received, offer_responded, return_opened and return_requested (migrations 00246/00247), and nothing emits any of them — a grep for a notifyUser call with those types returns zero. The only place an unanswered buyer message is counted is flipdesk/offers.tsx:607, on that page.",
+        "The hourly automation-rules cron (routes/flipdesk-automations.ts) already reads a marketplace-event ledger for offer_received and return_opened at :297,:317,:478 and already calls notifyUser at :881,:1054 — but only when a user-configured RULE matches. Emit a notification on arrival, independently of whether any rule exists.",
+        "Dedupe is mandatory, not optional: the cron runs hourly, so emitting per-evaluation would notify the same offer every hour until it is answered. Use the buyer_notification_log UNIQUE (user_id, dedupe_key) claim pattern from migration 00412, keyed on the marketplace event id.",
+        "A test asserts a second evaluation of the same unanswered offer or open return produces exactly one notifications row.",
+        "iOS shows an unread count on the tab bar. No badge API is used anywhere in ios/GradeThread today. iOS cannot be built from the Windows checkout — the macOS CI lane is the gate."
+      ],
+      "priority": 1907
     }
   ]
 }

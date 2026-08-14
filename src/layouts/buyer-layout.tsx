@@ -1,6 +1,7 @@
 import { Outlet, Link } from "react-router";
 import { Store } from "lucide-react";
 import { BuyerSidebar } from "@/components/buyer/buyer-sidebar";
+import { NotificationCenter } from "@/components/dashboard/notification-center";
 import { RouteErrorBoundary } from "@/components/error-boundary";
 import { PastDueBanner } from "@/components/billing/past-due-banner";
 import { useAuthStore } from "@/stores/auth-store";
@@ -27,13 +28,22 @@ export function BuyerLayout() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <header className="flex h-14 shrink-0 items-center justify-between border-b border-border bg-background px-6">
           <span className="text-sm font-semibold">Buyer</span>
-          <Link
-            to="/dashboard"
-            className="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <Store className="h-4 w-4" />
-            {isSeller ? "Switch to selling" : "Start selling"}
-          </Link>
+          <div className="flex items-center gap-2">
+            {/* US-2510: the buyer app had no notification affordance at all. The
+                seller header has carried NotificationCenter since US-2455-era
+                work, and both apps share one `notifications` table scoped by
+                RLS to auth.uid() — so a buyer's condition-alert matches, reward
+                grants and guarantee updates were being WRITTEN (US-1803
+                notifyBuyer fans out to this feed) with nowhere to read them. */}
+            <NotificationCenter />
+            <Link
+              to="/dashboard"
+              className="flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground/80 transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Store className="h-4 w-4" />
+              {isSeller ? "Switch to selling" : "Start selling"}
+            </Link>
+          </div>
         </header>
         <main
           id="buyer-main"
