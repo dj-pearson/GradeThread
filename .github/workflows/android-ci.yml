@@ -126,6 +126,32 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
+      # Gradle's failure line is "There were failing tests. See the report at:
+      # file:///…/index.html" — a path on a runner that no longer exists. The
+      # HTML lands in the quality-reports artifact, so the answer IS available;
+      # it just costs a download and an unzip before anyone knows which test
+      # broke. Print the names and the assertion into the log instead, where
+      # the failure is already being read.
+      - name: Name the failing unit tests
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+
+          shown = 0
+          for path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
+              for case in ET.parse(path).getroot().iter("testcase"):
+                  for bad in list(case.findall("failure")) + list(case.findall("error")):
+                      shown += 1
+                      print(f"\n✗ {case.get('classname')} > {case.get('name')}")
+                      print(f"  {bad.get('message') or bad.get('type') or ''}".rstrip())
+                      body = (bad.text or "").strip().splitlines()
+                      for line in body[:12]:
+                          print(f"  {line}")
+          print(f"\n{shown} failing test(s)." if shown else "\nNo failing testcase in the XML results.")
+          PY
+
       # US-2502: a floor, not a target. It cannot catch untested code that was
       # never written; it does catch a change that deletes tests.
       - name: Coverage floor (kover)
