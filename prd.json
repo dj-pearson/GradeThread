@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2503",
+  "nextId": "US-2555",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1730,6 +1730,694 @@
         "android/README.md carries a table mapping each Android Studio feature to its command, and states plainly that the Profiler, the LIVE Layout Inspector hierarchy and interactive breakpoint debugging still need the IDE"
       ],
       "notes": "Filed 2026-08-13. Trigger: the local Android build was broken on the loop host - the only JDK was the Android Studio JBR 25, which Gradle 8.13 refuses to run on, and AGP reports that as the bare string 'What went wrong: 25.0.2'. There was no android lane in scripts/verify.mjs at all, so android/** could reach origin having compiled nowhere but CI."
+    },
+    {
+      "id": "US-2503",
+      "passes": false,
+      "title": "iOS sells buyer tools in every plan and ships no way to use them",
+      "description": "As a FlipDesk subscriber on iPhone, I want the buyer tools my plan includes, so that I get what the pricing page sold me.",
+      "acceptanceCriteria": [
+        "src/lib/constants.ts SELLER_PLAN_BUYER_TIER bundles Guard into Starter/Pro and Connoisseur into Business, and /pricing states 'Every FlipDesk plan includes buyer tools'. A grep of ios/**/*.swift for conditionAlert, fitPrediction, portfolio, trustScore, purchaseGuarantee and demandBoard currently returns zero matches.",
+        "Ship iOS screens for the app-deliverable bundled capabilities: condition alerts, closet portfolio, buyer trust score and purchase-guarantee coverage. The browser-extension second opinion is out of scope (desktop-only by nature) and must be stated as such on the iOS plan screen.",
+        "Each new iOS screen reads its gate from the same buyer entitlement payload the web useBuyerEntitlements hook consumes, so a plan change is reflected on both clients without a second source of truth.",
+        "An iOS UI or unit test asserts that a Business-tier entitlement payload unlocks the Connoisseur-gated screens and a free payload locks them.",
+        "The iOS plan screen lists exactly the bundled buyer capabilities that iOS can actually deliver — no bullet advertises a screen that does not exist."
+      ],
+      "priority": 1800
+    },
+    {
+      "id": "US-2504",
+      "passes": false,
+      "title": "Walk-around video grading is web-only, on the platform without the camera",
+      "description": "As a seller grading on my phone, I want to record one walk-around clip instead of staging four photos, so that I can grade an item in one pass.",
+      "acceptanceCriteria": [
+        "src/pages/new-submission.tsx:217 offers captureMode 'photos' | 'video' and POSTs video plus video_grading=true to /api/grade/submit. A grep of ios/**/*.swift for AVCaptureMovie, videoURL, walkaround or video_grading returns zero matches.",
+        "iOS capture offers a walk-around video mode that posts the same multipart fields the web path sends (video, video_grading, video_slot_marks, video_capture_source).",
+        "A clip that yields no usable required view lands the submission in needs_photos and is not charged, matching the web behaviour at new-submission.tsx:877-892.",
+        "Upload progress is shown for the clip; a 60 MB upload with no feedback is indistinguishable from a hang."
+      ],
+      "priority": 1802
+    },
+    {
+      "id": "US-2505",
+      "passes": false,
+      "title": "The human-review claim lock is bypassable and two admin pages drive it",
+      "description": "As a grading operator, I want a claimed report to be locked to me, so that two reviewers cannot both finalize the same grade.",
+      "acceptanceCriteria": [
+        "/admin/grading (src/pages/admin/grading.tsx) and /admin/reviews (src/pages/admin/reviews.tsx) both call approve, adjust and send-back on /api/admin/grading/review/:id; only grading.tsx also calls claim and release.",
+        "services/edge-functions/src/routes/admin-grading.ts POST /review/:id/approve loads the report and finalizes without checking the claim. Enforce it: approving, adjusting or sending back a report claimed by another reviewer returns 409.",
+        "A tenant-isolation_test.ts or admin-grading test case asserts the 409 when a second admin id attempts the action on a claimed report.",
+        "Consolidate the two surfaces onto one route so the workflow has a single implementation; the retired path redirects rather than 404s.",
+        "Duplicate human_reviews rows for a single decision are no longer possible — a test asserts one row per finalized report."
+      ],
+      "priority": 1804
+    },
+    {
+      "id": "US-2506",
+      "passes": false,
+      "title": "The Condition Index footer link 404s on every public page",
+      "description": "As a visitor, I want the Condition Index link in the footer to open the Condition Index, so that a link on every page of the site is not broken.",
+      "acceptanceCriteria": [
+        "src/components/marketing/marketing-layout.tsx renders <FooterLink to=\"/condition-index\">, which is a react-router Link. /condition-index is served only by functions/condition-index/[[path]].ts and has no SPA route, so a client-side click falls through to the * catch-all and renders NotFoundPage.",
+        "Register an SPA route for /condition-index and /condition-index/:slug, following the pattern /finds and /leaderboards already use at src/routes/index.tsx:284,291.",
+        "A route test asserts /condition-index resolves to the Condition Index page and not NotFoundPage.",
+        "Every other FooterLink target in marketing-layout.tsx is checked against the router and any other unrouted path is fixed in the same pass."
+      ],
+      "priority": 1806
+    },
+    {
+      "id": "US-2507",
+      "passes": false,
+      "title": "Admin sweep: a failed load tells the operator there is no data",
+      "description": "As an operator, I want a failed query to say it failed, so that I do not act on an empty screen that is actually an outage.",
+      "acceptanceCriteria": [
+        "Across src/pages/admin/**/*.tsx (88 files) zero use the shared ErrorState component and only 26 read isError. Proven case: admin/growth/quests.tsx:427-441 renders 'No quests yet — Create one' when the query errors.",
+        "Every admin page with a useQuery renders ErrorState with a working refetch on isError, before its empty-state branch.",
+        "A guard test (mirroring the existing SEO/prerender guard style) fails the build if a page under src/pages/admin renders an empty state without an isError branch ahead of it.",
+        "The audit covers src/pages/content/*.tsx and src/pages/admin/growth/*.tsx, which are in the same 88."
+      ],
+      "priority": 1900
+    },
+    {
+      "id": "US-2508",
+      "passes": false,
+      "title": "Buyer app retries by reloading the whole page",
+      "description": "As a buyer, I want Try again to retry the request, so that I do not lose what I typed.",
+      "acceptanceCriteria": [
+        "Seven ErrorState onRetry handlers call window.location.reload(): buyer/alerts.tsx:386,422,486; buyer/portfolio.tsx:321; buyer/guarantee.tsx:133; buyer/demand.tsx:138; buyer/rewards.tsx:593.",
+        "Each is replaced with the query's own refetch, matching the pattern used across the seller app.",
+        "buyer/alerts.tsx's three independent error branches share one boundary rather than three.",
+        "A lint rule or unit test asserts no ErrorState onRetry in src/pages/buyer calls window.location.reload."
+      ],
+      "priority": 1902
+    },
+    {
+      "id": "US-2509",
+      "passes": false,
+      "title": "Five buyer pages hand-roll the paywall that a shared component already renders",
+      "description": "As a buyer, I want a consistent upgrade prompt, so that the locked state looks like one product.",
+      "acceptanceCriteria": [
+        "BuyerPlaceholderPage (src/pages/buyer/placeholder.tsx:35-50) renders the entitlement-aware locked state. Five pages reimplement it inline: alerts.tsx:242, portfolio.tsx:136, guarantee.tsx:95, rewards.tsx:478, demand.tsx:37-50.",
+        "All five render BuyerPlaceholderPage with the correct requiresFlag instead of a bespoke card.",
+        "The buyer /buyer/* catch-all stops rendering the coming-soon component as a 404 (routes/index.tsx:578) and renders a real not-found, matching InShellNotFound on the seller side."
+      ],
+      "priority": 1904
+    },
+    {
+      "id": "US-2510",
+      "passes": false,
+      "title": "Nothing in the customer apps tells a user something needs them",
+      "description": "As a seller or buyer, I want to be told when something needs my attention, so that I do not have to open every page to find out.",
+      "acceptanceCriteria": [
+        "A notification bell exists for operators only (src/components/admin/admin-notification-bell.tsx). No seller or buyer surface has a notification centre or a sidebar badge.",
+        "Ship a customer-facing notification centre covering at minimum: a buyer message awaiting reply (counted today only on flipdesk/offers.tsx:607), an open return or cancellation request (flipdesk/post-sale.tsx), a support reply (support-tickets.tsx), a grade finishing or returning needs_photos, and a buyer alert match.",
+        "Unread counts badge the sidebar entry on web and the tab bar on iOS.",
+        "The notification read model is tenant-scoped per US-268 and its edge route has a tenant-isolation_test.ts case.",
+        "Any new table ships the US-1108 migration triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and a self-record footer."
+      ],
+      "priority": 1906
+    },
+    {
+      "id": "US-2511",
+      "passes": false,
+      "title": "Five account pages are reachable at two URLs and one of them has no tabs",
+      "description": "As a seller, I want one Account destination, so that an in-app link does not drop me on a version of the page with no navigation.",
+      "acceptanceCriteria": [
+        "settings, billing, team, api-keys and referrals are each routed standalone (src/routes/index.tsx:542-549) and as a tab of the Account hub (src/pages/account.tsx:56-74). The sidebar correctly links only the hub.",
+        "12 in-app links still target the standalone routes (9 to /dashboard/billing, 3 to /dashboard/settings), which render the page without the hub tab strip and with no way back to Account.",
+        "The five standalone routes redirect to /dashboard/account?tab=… preserving any query string, following the TabRedirect pattern already used for the FlipDesk hosts.",
+        "All 12 in-app links are repointed at the hub URL.",
+        "A route test asserts /dashboard/billing redirects to the hub with tab=billing."
+      ],
+      "priority": 1908
+    },
+    {
+      "id": "US-2512",
+      "passes": false,
+      "title": "Ten admin destinations answer 'is the system healthy'",
+      "description": "As an operator in an incident, I want one place to look, so that I am not guessing which of ten pages holds the signal.",
+      "acceptanceCriteria": [
+        "layouts/admin-layout.tsx:79-290 defines 81 nav entries. Ten of them answer system health: Reliability, System, Jobs & Queues, Mission Control, Activity Feed, System Health, Background Jobs, Dead Letters, Runbooks, Maintenance.",
+        "Consolidate into one Operations console with tabs, following the ?view= host pattern proven by flipdesk/money.tsx and flipdesk/pricing.tsx.",
+        "Every retired path redirects into the console with the matching tab, so bookmarks and runbook links keep working.",
+        "The admin sidebar loses at least eight entries."
+      ],
+      "priority": 1910
+    },
+    {
+      "id": "US-2513",
+      "passes": false,
+      "title": "Six pairs of admin pages have names that do not tell them apart",
+      "description": "As an operator, I want each nav entry to name a distinct job, so that I can pick the right one from the sidebar.",
+      "acceptanceCriteria": [
+        "These pairs are separate destinations with indistinguishable names in layouts/admin-layout.tsx: Jobs & Queues vs Background Jobs, System vs System Health, Plans & Pricing vs Pricing & Tiers, Review Queue vs Reviews, Support vs Support Tickets, Knowledge Base vs Knowledge.",
+        "Each pair is either merged or renamed so the label states what the page does.",
+        "Review Queue vs Reviews is resolved by the merge in the claim-lock story rather than a rename.",
+        "Rewards (5 entries), newsletter (4), AI (4) and abuse (3) are each reduced to one destination with tabs."
+      ],
+      "priority": 1912
+    },
+    {
+      "id": "US-2514",
+      "passes": false,
+      "title": "The pricing page has no buy button",
+      "description": "As a visitor on /pricing, I want to buy the thing I just read about, so that I do not have to hunt for a CTA in the header.",
+      "acceptanceCriteria": [
+        "src/pages/marketing/pricing.tsx renders three per-grade tiles (:89-108), four credit packs (:119-129) and four FlipDesk plan tiles (:146-221) — none carries an action.",
+        "Every purchasable tile gets a CTA that lands in the signup or checkout flow with the plan preselected.",
+        "A monthly/annual toggle is added; today only plan.priceMonthlyCents is rendered (:152) so annual pricing is invisible to logged-out visitors even though billing.tsx and buyer/billing.tsx both offer it.",
+        "Any bullet still gated behind ComingSoonBadge (:213) is visually distinct from a shipped feature at the point of sale."
+      ],
+      "priority": 1914
+    },
+    {
+      "id": "US-2515",
+      "passes": false,
+      "title": "Bulk grading upload names two plans that do not exist",
+      "description": "As a seller hitting the bulk-upload paywall, I want to be told which plan to buy, so that I can actually unlock it.",
+      "acceptanceCriteria": [
+        "src/pages/bulk-submission.tsx:61 gates on ['pro','business'] while the locked heading at :402 reads 'Available on Professional & Enterprise' — neither is a live tier name in FLIPDESK_PLANS.",
+        "The gate copy names the real tiers and links to the plan picker with that plan preselected.",
+        "The locked state keeps the 'Back to Submissions' link, which the early return at :386-416 currently drops.",
+        "A test asserts the gate copy is derived from FLIPDESK_PLANS rather than hardcoded."
+      ],
+      "priority": 1916
+    },
+    {
+      "id": "US-2516",
+      "passes": false,
+      "title": "A bulk grading batch charges with no cost preview",
+      "description": "As a seller submitting 80 rows, I want to see what it will cost before it charges, so that I am not surprised by the bill.",
+      "acceptanceCriteria": [
+        "src/pages/new-submission.tsx:1462-1483 shows a per-submission payment estimate. src/pages/bulk-submission.tsx has no equivalent — handleSubmit at :292 loops every valid row straight into /api/grade/submit.",
+        "Before submitting, the preview states how many rows draw included grades, how many draw credits, and the dollar total for any rows that will require checkout.",
+        "The seller must confirm that summary before the loop starts.",
+        "The batch is cancellable mid-run and reports how many rows were submitted before the cancel.",
+        "Failed rows are retryable from the result card without re-uploading the CSV and ZIP."
+      ],
+      "priority": 1918
+    },
+    {
+      "id": "US-2517",
+      "passes": false,
+      "title": "FlipDesk search reports an outage as 'No matches'",
+      "description": "As a seller, I want a failed search to say it failed, so that I do not conclude I have no matching inventory.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/search.tsx:111-113 catches the flipdesk_search RPC error and sets an empty result array, so the UI renders the 'No matches' EmptyState at :175-180.",
+        "A failed RPC renders ErrorState with a retry instead of an empty state.",
+        "Recent searches are offered when the field is empty, matching the iOS behaviour at ios/GradeThread/Inventory/GlobalSearchView.swift:25.",
+        "Results are keyboard-navigable, since each row already renders a return-key affordance at :211."
+      ],
+      "priority": 1920
+    },
+    {
+      "id": "US-2518",
+      "passes": false,
+      "title": "CSV import runs in the browser, warns you not to close the tab, and cannot be undone",
+      "description": "As a seller importing inventory, I want the import to survive me closing the tab and to be reversible, so that a bad column mapping does not permanently overwrite my catalog.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/import.tsx runs the whole import in a client loop and tells the user 'Don't close this tab' (:766). It matches on SKU and updates existing items (:368) with no rollback.",
+        "The import runs as a durable server-side job using the same batch/claim/heartbeat contract as the AutoLister worker, so closing the tab does not kill it.",
+        "An import is reversible: the run records what it inserted and what it overwrote, and offers an undo.",
+        "A downloadable CSV template is offered next to the upload control.",
+        "The hand-rolled progress bar (:756-765) uses the shared Progress component."
+      ],
+      "priority": 1922
+    },
+    {
+      "id": "US-2519",
+      "passes": false,
+      "title": "The item page fires four queries at one listing row and stacks twelve panels",
+      "description": "As a seller, I want the item page to load once and be navigable, so that the app's most-used screen is not a twelve-card scroll.",
+      "acceptanceCriteria": [
+        "ListingAlertsSection (item.tsx:361), EbayNativeNotice (:273), PromotionSaleCard (:690) and GradethreadListingCard each query the listings table for the same inventory_item_id independently.",
+        "Those reads are consolidated into one shared query the panels subscribe to.",
+        "The twelve stacked panels (:131-251) are grouped into tabs — Details, Listing, Grade, Money — with the composer remaining the default view.",
+        "Back returns to the inventory view the seller arrived from, preserving tab, filter and saved view, instead of the hardcoded /dashboard/flipdesk/items at :81.",
+        "Only one 'grade this item' nudge renders at a time; CrossSurfaceNudge (:164) and GradeRoiHint (:187) currently can both appear and both scroll to #canvas-grading."
+      ],
+      "priority": 1924
+    },
+    {
+      "id": "US-2520",
+      "passes": false,
+      "title": "Web AutoLister is one 3,750-line component with 64 hooks",
+      "description": "As a developer, I want AutoLister split into testable pieces, so that a change to one part does not re-render and risk the whole surface.",
+      "acceptanceCriteria": [
+        "FlipdeskAutolisterPage spans src/pages/flipdesk/autolister.tsx:587 to end of file — roughly 3,750 lines with 64 hook calls in a single component.",
+        "Split it along the seam iOS already uses: ios/GradeThread/AutoLister is four files totalling 2,130 lines (AutoListerView 987, AutoListerQueueView 329, DraftsLibraryView 488, DraftsBulkEditView 326).",
+        "autolister-bulk-edit.tsx (1,800 lines / 37 hooks) and autolister-queue.tsx (1,000 lines / 22 hooks) are split in the same pass.",
+        "No behaviour change: the existing autolister tests pass unmodified.",
+        "A batch in flight is navigable between Generate, Queue and Bulk edit via a shared batch-scoped header rather than three unrelated URLs."
+      ],
+      "priority": 1926
+    },
+    {
+      "id": "US-2521",
+      "passes": false,
+      "title": "Return rows never say which item the buyer is returning",
+      "description": "As a seller, I want to see the garment a return is about, so that I am not approving a refund from a return id alone.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/post-sale.tsx:515-525 renders reason, returnId and date. Cancellations at :702-704 render an order id and date.",
+        "Each return and cancellation row shows the item title, a thumbnail and the sale price, resolved through the sales row's inventory_item_id.",
+        "Each row deep-links to the eBay case and to the local item page.",
+        "Open returns and cancellations are surfaced outside this page — see the notification centre story."
+      ],
+      "priority": 1928
+    },
+    {
+      "id": "US-2522",
+      "passes": false,
+      "title": "Scheduled drops is a calendar you cannot schedule from",
+      "description": "As a seller, I want to reschedule or cancel a drop from the calendar, so that I do not have to open each draft to change a time.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/scheduled-drops.tsx renders a month grid where every interaction is a link into the item draft (:345, :379). There is no reschedule, cancel or drag.",
+        "A drop can be rescheduled and cancelled in place, and a day's drops can be shifted as a group.",
+        "A day cell with more drops than it can show renders a '+N more' affordance rather than overflowing (:344).",
+        "The grid carries role=grid and is keyboard-traversable, and 'Upcoming' is not hard-capped at 12 with no way to see the rest (:378)."
+      ],
+      "priority": 1930
+    },
+    {
+      "id": "US-2523",
+      "passes": false,
+      "title": "Settings is fourteen unrelated cards with Delete account at the bottom",
+      "description": "As a seller, I want settings grouped, so that I am not scrolling past cosmetic preferences to reach security.",
+      "acceptanceCriteria": [
+        "src/pages/settings.tsx:613-1500 stacks Profile, Business & Shipping, Notifications, Usage Alerts, AI Item Assistant, Product tour, FlipDesk prefs, Data Export, Formal data requests, Change Password, Active Sessions, Delete account and Storage in one column.",
+        "The page is split into sub-sections — Profile, Preferences, Notifications, Security, Data — inside the Account hub tab.",
+        "Security actions (password, sessions, 2FA, delete account) live together and are not interleaved with cosmetic preferences.",
+        "Delete account is not the last item of a 1,500-line scroll."
+      ],
+      "priority": 1932
+    },
+    {
+      "id": "US-2524",
+      "passes": false,
+      "title": "Billing shows the same usage meters twice and cannot show an invoice",
+      "description": "As a subscriber, I want my receipts in the app, so that I do not have to leave to see what I was charged.",
+      "acceptanceCriteria": [
+        "src/pages/billing.tsx renders three UsageMeters inside the subscription card (:484-504) and again under a heading that reads 'Same data, compact view' (:657-667). One of the two is removed.",
+        "An invoice and receipt history is rendered in-app; today every receipt path is a link to the Stripe portal (:683-690).",
+        "The trialing banner stops hardcoding 'Pro free trial active' (:342) and names the plan actually on trial.",
+        "The store-managed banner deep-links to the App Store or Play subscription settings rather than only telling the user where to look (:309)."
+      ],
+      "priority": 1934
+    },
+    {
+      "id": "US-2525",
+      "passes": false,
+      "title": "Support tickets take no attachments and never refresh",
+      "description": "As a user reporting a problem with a photo, I want to attach the photo, so that support can see what I am talking about.",
+      "acceptanceCriteria": [
+        "Neither src/pages/support-tickets.tsx nor ios/GradeThread/Support/SupportTicketsView.swift supports attachments.",
+        "A ticket and a reply accept image attachments, stored per the US-276 upload path: validateImageUpload then stripImageMetadata then storage.upload, into a private per-user-folder bucket.",
+        "The web thread refetches on an interval or over realtime; today it has neither (support-tickets.tsx:110-121), while iOS already offers pull-to-refresh (:108,339).",
+        "A user can close or resolve their own ticket.",
+        "Both error branches use the shared ErrorState with a retry rather than a bare red line (:270-276, :327-333)."
+      ],
+      "priority": 1936
+    },
+    {
+      "id": "US-2526",
+      "passes": false,
+      "title": "Free tools blame the user's photo when they hit a rate limit",
+      "description": "As a visitor using a free tool, I want to be told I hit a limit, so that I do not retake a photo that was fine.",
+      "acceptanceCriteria": [
+        "src/pages/tools/grade-checker.tsx:137 falls back to \"Couldn't grade that photo. Try a clearer, well-lit shot.\" for any non-OK response, including a quota block. src/pages/snap.tsx:63 already handles this correctly with a SNAP_LIMIT_REACHED branch and an upgrade CTA.",
+        "All three tools under src/pages/tools distinguish a rate-limit response from a grading failure and show a limit message with a signup or upgrade CTA.",
+        "authenticity-check.tsx and fit-checker.tsx render BuyerConversionCTAs so a converting visitor keeps their result, as grade-checker.tsx and whats-it-worth.tsx already do.",
+        "The primary CTA on a finished result goes to signup or the submission flow, not to /how-it-works (grade-checker.tsx:354, authenticity-check.tsx:141,211)."
+      ],
+      "priority": 1938
+    },
+    {
+      "id": "US-2527",
+      "passes": false,
+      "title": "The subprocessor list is missing Google and Apple",
+      "description": "As a customer with a DPA, I want the subprocessor list to be complete, so that the document my contract points at is accurate.",
+      "acceptanceCriteria": [
+        "src/pages/legal/subprocessors.tsx:15-24 lists ten subprocessors and names neither Google nor Apple, while the product ships Google Sheets sync writing to a user's Drive, Google Play billing, Apple in-app purchases and Google Ads. The page is dated April 1, 2026.",
+        "Google and Apple are added with purpose, data categories and location, and the effective date is updated.",
+        "Every third party that receives customer data is cross-checked against services/edge-functions and the vault env reference, not just the ones already listed.",
+        "The DPA page's reference to the subprocessor list still resolves."
+      ],
+      "priority": 1940
+    },
+    {
+      "id": "US-2528",
+      "passes": false,
+      "title": "The Terms of Service predate four shipped products",
+      "description": "As the business, I want the Terms to cover what we actually sell, so that our terms match our product.",
+      "acceptanceCriteria": [
+        "src/pages/legal/terms.tsx is effective April 1, 2026 and contains zero occurrences of 'buyer plan', 'in-app purchase', 'App Store', 'Google Play', 'extension' or 'consignment'.",
+        "Terms cover: buyer subscriptions as a second paid product with its own cancellation; store-billed subscriptions where Apple and Google own refunds and cancellation; the Lister browser extension automating the user's own logged-in marketplace sessions; and consignment, which involves holding third-party goods and paying consignors via Stripe Connect.",
+        "The extension section is consistent with the in-product risk disclosure already written at src/pages/flipdesk/marketplaces.tsx:1495-1532.",
+        "The AUP is reviewed in the same pass; it carries the same April 1, 2026 date.",
+        "This story is legal review, not engineering — it ships when counsel signs off on the copy."
+      ],
+      "priority": 1942
+    },
+    {
+      "id": "US-2529",
+      "passes": false,
+      "title": "No auth page sets a title or an indexing decision",
+      "description": "As a visitor, I want the sign-in page to have a title, so that a saved tab is identifiable and token URLs are not indexable.",
+      "acceptanceCriteria": [
+        "A grep for <SEO or the seo import across src/pages/login.tsx, signup.tsx, reset-password.tsx, auth-confirm.tsx and auth-callback.tsx returns zero matches — five public routes with no title, description or noindex.",
+        "All five render the SEO component with a real title and description.",
+        "/auth/confirm and /auth/callback are noindex — both carry tokens in the URL.",
+        "/waitlist-pending and /leaderboard also render SEO; neither does today."
+      ],
+      "priority": 1944
+    },
+    {
+      "id": "US-2530",
+      "passes": false,
+      "title": "No password field can be revealed and no password gets strength feedback",
+      "description": "As someone signing in on a phone, I want to see the password I typed, so that a typo does not read as a wrong password.",
+      "acceptanceCriteria": [
+        "Four password inputs have no show/hide control: login.tsx:182, signup.tsx:403, reset-password.tsx:292 and :310.",
+        "Each gets a reveal toggle with an accessible label that reflects state.",
+        "Signup and reset show password strength as the user types, rather than rejecting after submit.",
+        "Sign-in failure is shown inline and persistently, matching ios/GradeThread/Auth/LoginView.swift:92-106, instead of the transient toast at login.tsx:92."
+      ],
+      "priority": 1946
+    },
+    {
+      "id": "US-2531",
+      "passes": false,
+      "title": "Shopify can be connected on web but not on iOS",
+      "description": "As a subscriber paying the same price on iPhone, I want to connect my Shopify store, so that my plan works the same on both clients.",
+      "acceptanceCriteria": [
+        "ios/GradeThread/Marketplaces/MarketplacesView.swift:176 states 'Shopify is web-only, and is the sole .api entry in phasedChannels'. The web page renders ShopifySetup at src/pages/flipdesk/marketplaces.tsx:1413.",
+        "iOS offers the Shopify connection flow, or the iOS Marketplaces screen states plainly that Shopify is connected on the web and links there.",
+        "Whichever is chosen, the iOS plan and marketplace screens never imply a capability the client cannot deliver."
+      ],
+      "priority": 1948
+    },
+    {
+      "id": "US-2532",
+      "passes": false,
+      "title": "An owner cannot see or set the workspace 2FA requirement on iOS",
+      "description": "As a workspace owner working from my phone, I want to manage the 2FA requirement, so that a security control is not desktop-only.",
+      "acceptanceCriteria": [
+        "src/pages/team.tsx:449 renders an owner-only WorkspaceMfaPolicyCard (:600-716) backed by /api/workspace/mfa-policy and enforced by workspaceMiddleware. ios/GradeThread/Team/TeamView.swift has invites, role changes and removal but no MFA policy control.",
+        "iOS Team shows the current requirement to owners and lets them change it through the same endpoint.",
+        "A member blocked by the policy sees the same explanation on iOS as on web."
+      ],
+      "priority": 1950
+    },
+    {
+      "id": "US-2533",
+      "passes": false,
+      "title": "Return-reduction analytics is web-only",
+      "description": "As a seller, I want return analytics on my phone, so that the analytics screen is not missing a section I pay for.",
+      "acceptanceCriteria": [
+        "Web has a dedicated tab at /dashboard/flipdesk/analytics/returns. A grep across ios/**/*.swift for return-rate analytics returns nothing; iOS does have grading ROI and sell-through in Analytics/AnalyticsMetrics.swift.",
+        "iOS Analytics gains a return-reduction section driven by the same server rollup the web tab uses.",
+        "The iOS analytics range picker applies to the new section like the others."
+      ],
+      "priority": 1952
+    },
+    {
+      "id": "US-2534",
+      "passes": false,
+      "title": "iOS photo, measurement and listing-kit screens have no accessibility labels",
+      "description": "As a VoiceOver user, I want the photo manager to be operable, so that reordering photos is possible without sight.",
+      "acceptanceCriteria": [
+        "ios/GradeThread/Inventory/ItemCanvas/Photos/PhotoManagerView.swift (505 lines, drag-to-reorder), Marketplaces/ListingKit/ListingKitView.swift and Measure/MeasurementPhotoEditorView.swift each contain zero accessibilityLabel calls.",
+        "Every actionable control on those three screens carries an accessibility label, and drag-reorder exposes an accessible alternative (move up / move down actions).",
+        "Analytics/AIExtractView.swift, Inventory/GlobalSearchView.swift, Scout/ScoutView.swift, Sales/SalesView.swift and Fulfillment/FulfillmentView.swift are audited in the same pass — all currently report zero."
+      ],
+      "priority": 1954
+    },
+    {
+      "id": "US-2535",
+      "passes": false,
+      "title": "The two onboardings ask different questions and iOS throws the answer away",
+      "description": "As a user who answered the onboarding question once, I want both clients to remember it, so that I am not shown a generic dashboard forever.",
+      "acceptanceCriteria": [
+        "Web writes users.use_case as seller | buyer | consignment | developer and personalizes quick actions, feature cards and the first-run CTA from it (src/pages/dashboard.tsx:126-261). iOS asks reseller | grader | store (ios/GradeThread/Onboarding/OnboardingState.swift:14-20) and sends the answer only to telemetry (OnboardingView.swift:183).",
+        "The two clients share one use-case taxonomy.",
+        "iOS persists the choice to the same users.use_case column the web dashboard reads.",
+        "A user who onboards on iOS and then opens the web dashboard sees the persona-tailored version, not the default branch."
+      ],
+      "priority": 1956
+    },
+    {
+      "id": "US-2536",
+      "passes": false,
+      "title": "Blog and social editors lose unsaved title, slug and meta fields",
+      "description": "As a content editor, I want to be warned before leaving with unsaved fields, so that I do not lose work the autosave does not cover.",
+      "acceptanceCriteria": [
+        "src/pages/content/blog-editor.tsx autosaves body HTML on a debounce but other fields 'save on Save click' (:172). Neither blog-editor.tsx nor social-editor.tsx uses useNavigationGuard.",
+        "Both editors guard navigation while any tracked field is dirty, naming what is unsaved — the pattern at src/pages/new-submission.tsx:239 and its dialog at :1606-1637.",
+        "The guard does not fire during an in-flight save."
+      ],
+      "priority": 1958
+    },
+    {
+      "id": "US-2537",
+      "passes": false,
+      "title": "The seller dashboard shows eight promo blocks before the seller's own data",
+      "description": "As a returning seller, I want my submissions and usage first, so that the dashboard is about my business.",
+      "acceptanceCriteria": [
+        "src/pages/dashboard.tsx:456-769 stacks PWA banner, activation checklist, first-run card, quick actions, rewards widget, usage, FlipDesk promo, Discover cards, invite-a-friend and impact tile before the stats and Recent Submissions.",
+        "Recent Submissions and usage move above the promotional blocks.",
+        "Usage is rendered once: UsageMeters at :524 and the hand-built 'Grades Used' card at :580-598 currently show the same number twice.",
+        "gradesPercent at :278 does not divide by zero when a plan's includedStandardGradesPerMonth is 0.",
+        "The 'Add Inventory Item' quick action at :150 targets /dashboard/flipdesk/intake directly instead of a legacy path that redirects."
+      ],
+      "priority": 1960
+    },
+    {
+      "id": "US-2538",
+      "passes": false,
+      "title": "Changing tier after a checkout prompt can create a second submission",
+      "description": "As a seller, I want Change tier to reuse my submission, so that I am not charged for two.",
+      "acceptanceCriteria": [
+        "In src/pages/new-submission.tsx, when the server returns checkoutRequired a submission row already exists. 'Change tier' at :1575 clears checkoutState and returns to the tier picker with Submit live, so pressing Submit again POSTs /api/grade/submit a second time.",
+        "Changing tier after a checkout prompt updates the existing submissionId rather than creating a new submission.",
+        "A test asserts that the checkout-required path followed by a tier change and resubmit produces exactly one submissions row.",
+        "Tier is chosen in one place; today GradePricingSummary at :1062 and the tier grid at :1383-1420 are two controls over the same state two steps apart."
+      ],
+      "priority": 1962
+    },
+    {
+      "id": "US-2539",
+      "passes": false,
+      "title": "Cancelling a buyer plan takes one unconfirmed click",
+      "description": "As a buyer, I want cancellation to confirm and explain, so that I do not lose access by misclick.",
+      "acceptanceCriteria": [
+        "src/pages/buyer/billing.tsx:159 calls cancel.mutate() directly from the button. The seller side routes every cancellation through CancelSubscriptionDialog with a period-end statement, an acknowledgement checkbox, reason capture and an undo banner.",
+        "Buyer cancellation uses the same dialog and captures the same reason data.",
+        "Plan tiles stop truncating features with .slice(0, 5) at the point of sale (:256) with no way to see the rest.",
+        "The monthly/yearly toggle shows the annual saving."
+      ],
+      "priority": 1964
+    },
+    {
+      "id": "US-2540",
+      "passes": false,
+      "title": "The MeasureCard mail form is US-only and never shows the card",
+      "description": "As a seller outside the US, I want to know whether a card can be posted to me, so that I do not fill in a form that cannot be fulfilled.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/measure-card.tsx:282-299 has no country field, State is a free-text input and the postal field is labelled ZIP.",
+        "The form either supports international addresses or states plainly that mailed cards are US-only and points non-US sellers to the print-at-home PDF.",
+        "The page shows a picture of the card; the capture guidance at :42 tells sellers to frame 'all four black squares' without ever showing the object.",
+        "A failed status read no longer returns null (:69), which currently offers 'request a card' to someone whose request is already in flight."
+      ],
+      "priority": 1966
+    },
+    {
+      "id": "US-2541",
+      "passes": false,
+      "title": "Offers, messages and post-sale are eBay-only with no cross-platform story",
+      "description": "As a seller listing on seven platforms, I want to know which platforms these tools cover, so that I do not assume my Poshmark offers are here.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/offers.tsx and post-sale.tsx drive the eBay hooks exclusively while MARKETPLACE_LABELS registers seven platforms.",
+        "Either the surfaces cover the platforms whose APIs allow it, or each page states which platforms it covers and which it does not.",
+        "'No recent messages.' becomes a real EmptyState rather than a bare paragraph (offers.tsx:655)."
+      ],
+      "priority": 1968
+    },
+    {
+      "id": "US-2542",
+      "passes": false,
+      "title": "UI craft-floor sweep: 106 tracked-uppercase eyebrows and 23 hand-rolled page titles",
+      "description": "As a user, I want the product to look like one product, so that section headers and page titles are consistent.",
+      "acceptanceCriteria": [
+        "A grep for 'uppercase tracking' across src/pages and src/components returns 106 matches — the house style guide names this as its most recognizable tell. src/pages/flipdesk/marketplaces.tsx alone uses seven as its entire page structure.",
+        "Section headers use weight and size for emphasis instead of tracked uppercase, or the pattern is deliberately kept and documented once rather than reached for by default.",
+        "23 pages hand-roll an <h1> instead of the shared PageHeader (15 under src/pages/admin, plus new-submission, bulk-submission, snap, search, intake, measure-card, body-profiles and marketplaces-google). All adopt PageHeader.",
+        "Three logo <img> tags with no width or height are fixed: not-found.tsx:20, accept-invite.tsx:279 and layouts/auth-layout.tsx:27.",
+        "Gradients are confirmed not to be a problem — only 2 uses exist app-wide; this AC exists so the sweep does not introduce any."
+      ],
+      "priority": 2400
+    },
+    {
+      "id": "US-2543",
+      "passes": false,
+      "title": "Long secondary pages have no structure",
+      "description": "As a user, I want long configuration pages sectioned, so that I can find one setting without reading all of them.",
+      "acceptanceCriteria": [
+        "src/pages/rewards.tsx stacks 9 panels (:138-340); referrals.tsx stacks 8 (:311-730); flipdesk/verified.tsx stacks 7 (:200-405); flipdesk/marketplaces.tsx stacks 8 prose sections.",
+        "Each is grouped into tabs or collapsible sections with the most-used content first.",
+        "flipdesk/marketplaces.tsx gains a connection-status summary at the top — today an operator cannot see which platforms are connected without reading the whole page.",
+        "flipdesk/verified.tsx shows a preview of the public profile being configured; today the only way to see it is opening a new tab (:354-362).",
+        "The promo-code redeemer moves off referrals.tsx, where it has nothing to do with referrals."
+      ],
+      "priority": 2402
+    },
+    {
+      "id": "US-2544",
+      "passes": false,
+      "title": "Submissions list has no search and shows a permanent empty disputes table",
+      "description": "As a seller with hundreds of submissions, I want to search them, so that I can find one by title or brand.",
+      "acceptanceCriteria": [
+        "src/pages/submissions.tsx:487 titles its filter card with a magnifying-glass icon but offers only two dropdowns — status and garment type. There is no free-text search over title or brand and no date-range filter.",
+        "Text search and a date range are added, and sort direction is visible on the sortable headers (:607, :616 render a static ArrowUpDown).",
+        "The My Disputes table (:709-803) collapses when empty instead of showing a full empty state to every seller who has never filed one.",
+        "Rows are selectable with at least a bulk CSV export of the selection.",
+        "The five-column table has a card fallback on narrow screens (:594)."
+      ],
+      "priority": 2404
+    },
+    {
+      "id": "US-2545",
+      "passes": false,
+      "title": "Submission detail cannot enlarge the photos the grade was based on",
+      "description": "As a seller, I want to zoom the evidence photos, so that I can see what the grader saw.",
+      "acceptanceCriteria": [
+        "src/pages/submission-detail.tsx:1654 renders the submitted-photo grid with no lightbox, while the public certificate page has one (certificate.tsx:814-827).",
+        "The submitted-photo grid opens the same full-screen viewer the certificate uses.",
+        "'Use this grade in a listing' and 'View item' stop pointing at the same destination — :958 targets the FlipDesk item page and :965 targets /dashboard/inventory/:id, which redirects to it.",
+        "The six post-grade cards (:1504-1681) are grouped into one 'what's next' section rather than stacked."
+      ],
+      "priority": 2406
+    },
+    {
+      "id": "US-2546",
+      "passes": false,
+      "title": "FlipDesk intake has no photos and no unsaved-work guard",
+      "description": "As a seller cataloguing an item, I want to shoot it on the intake form and be warned before losing it, so that intake matches what the phone already does.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/intake.tsx has no photo field on the default form — photos require switching to ?mode=snap or reopening the item afterwards.",
+        "Photo capture is available on the main intake form.",
+        "Navigating away from a filled form warns first; today Cancel and Back at :445 and :764 abandon it silently, while iOS offers draft resume and an explicit discard confirmation (ios/GradeThread/DetailsIntake/DetailsIntakeView.swift:103-118).",
+        "Measurements can be entered at intake, since 'measured' is a pipeline status with its own page.",
+        "Required fields use the required attribute rather than an asterisk in the label text (:538)."
+      ],
+      "priority": 2408
+    },
+    {
+      "id": "US-2547",
+      "passes": false,
+      "title": "Overview pipeline tiles promise a filter the destination cannot apply",
+      "description": "As a seller, I want clicking a pipeline stage to show that stage, so that the tile's count and the resulting list agree.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/overview.tsx:331 says 'Click a stage to filter the items view' and each tile links to ?status=<stage>, but statusParamToTab (src/pages/flipdesk/inventory-tabs.ts:41-49) collapses all nine pre-list stages into one to_list tab. A tile reading 'Measured 12' lands on every unlisted item.",
+        "A stage tile filters to that stage.",
+        "Overview metrics stop being computed by looping the entire item list in the browser (:162-212) and come from a server aggregate.",
+        "A date range is offered; today every metric is hardcoded to 'this week' or all-time.",
+        "Aging items and stale listings offer a 'view all' rather than showing five of N with a count badge."
+      ],
+      "priority": 2410
+    },
+    {
+      "id": "US-2548",
+      "passes": false,
+      "title": "The tabbed FlipDesk hosts never show their own name",
+      "description": "As a seller, I want to know which section I am in, so that the page names the destination the sidebar sent me to.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/money.tsx, pricing.tsx, sourcing.tsx and autolister-host.tsx each render a bare TabsList and deliberately no PageHeader, so the screen reads: app header, unlabelled tabs, then the child page's own title. Landing on /dashboard/flipdesk/money shows tabs and a heading that says 'Finances'.",
+        "Each host renders its own title and the hosted child suppresses its heading, or the child heading becomes a section heading under a host title.",
+        "All four hosts replace their bare Loader2 Suspense fallback with a skeleton.",
+        "Analytics lifts its date range to the page so it carries across tabs; today each of the five tabs owns its own range Select."
+      ],
+      "priority": 2412
+    },
+    {
+      "id": "US-2549",
+      "passes": false,
+      "title": "The embed widget and two public pages are missing their indexing decision",
+      "description": "As the business, I want thin duplicate pages kept out of the index, so that certificate content is not competing with itself.",
+      "acceptanceCriteria": [
+        "src/pages/embed-grade.tsx renders outside RootLayout (src/routes/index.tsx:609-613) with no SEO component at all, so a public URL duplicating certificate content is crawlable.",
+        "The embed route is noindex.",
+        "The company query param is validated or escaped before being rendered as the card header (:134); today a crafted URL can display any brand name on a gradethread.com page. logo, support and color are already sanitized at :55-59 and need no change.",
+        "The embed's loading state is a skeleton rather than the bare string 'Loading grade…' (:108), and its error state offers a retry and a link to GradeThread (:113-119)."
+      ],
+      "priority": 2414
+    },
+    {
+      "id": "US-2550",
+      "passes": false,
+      "title": "A certificate that fails its integrity check gives the buyer nothing to do",
+      "description": "As a buyer told not to trust a certificate, I want a way to report it, so that the warning leads somewhere.",
+      "acceptanceCriteria": [
+        "src/pages/certificate.tsx:212-227 renders 'Integrity check failed — do not trust this certificate' with no action. The unsigned state at :240 says 'Contact support' with no link.",
+        "Both states offer a report action that files against the certificate id and a support contact link.",
+        "A report is visible to operators in the admin moderation or fraud surface.",
+        "The seller attribution on the certificate links to their Verified profile where one exists."
+      ],
+      "priority": 2416
+    },
+    {
+      "id": "US-2551",
+      "passes": false,
+      "title": "Anyone who scans a tag is offered ownership of the garment",
+      "description": "As a garment owner, I want claiming to require an account, so that scanning a tag in a shop does not transfer my item.",
+      "acceptanceCriteria": [
+        "src/pages/tag-scan.tsx offers 'Claim this item' to an anonymous visitor and posts with no auth header when signed out (:57-58). Confirm the server behaviour for /api/passport/tag/:code/claim first.",
+        "If the server accepts an anonymous claim, it is gated behind sign-in.",
+        "The claim button explains what claiming does and confirms before transferring ownership (:103).",
+        "Failure states are distinguished: not signed in, already claimed, and network error currently all render 'Couldn't claim this item. Please try again.' (:72).",
+        "The same review applies to src/pages/passport-claim.tsx."
+      ],
+      "priority": 2418
+    },
+    {
+      "id": "US-2552",
+      "passes": false,
+      "title": "Buyer onboarding uses a category list the rest of the app does not",
+      "description": "As a buyer, I want my chosen categories to match alerts, so that the preferences I set actually fire.",
+      "acceptanceCriteria": [
+        "src/pages/buyer/onboarding.tsx:21-24 hardcodes 13 category strings that are neither GARMENT_TYPES nor ITEM_CATEGORIES. Verify what alert matching keys off before changing anything.",
+        "Onboarding categories come from the same taxonomy alert matching uses.",
+        "Sizes stop being stored in a single { all: sizes } bucket (:51) so one size does not apply to every category.",
+        "buyer/demand.tsx's brand, category and keyword inputs get autocomplete against known values; today they are free-text comma lists (:96-105) where a typo silently never matches.",
+        "Posting a want leads somewhere: today it returns a toast count (:76) with no way to see what matched."
+      ],
+      "priority": 2420
+    },
+    {
+      "id": "US-2553",
+      "passes": false,
+      "title": "Buyer home never completes and never shows the buyer's own activity",
+      "description": "As a buyer, I want my home screen to reflect what I have done, so that it stops telling me to do things I have already done.",
+      "acceptanceCriteria": [
+        "src/pages/buyer/home.tsx:80-102 defines FIRST_STEPS as a static array with no completion tracking, so a buyer with five live alerts is still told to 'Create an alert'.",
+        "The get-started cards track completion and self-hide, as ActivationChecklist does on the seller side.",
+        "Buyer home shows the buyer's own activity: recent alert matches, recently verified certificates, watched items.",
+        "'Get the extension' at :86 links to the Chrome Web Store listing rather than to /buyer/settings."
+      ],
+      "priority": 2422
+    },
+    {
+      "id": "US-2554",
+      "passes": false,
+      "title": "Snap results are thrown away and API keys is a product inside a tab",
+      "description": "As a seller, I want my snap history kept and the developer surface to be findable, so that neither is lost in the account area.",
+      "acceptanceCriteria": [
+        "src/pages/snap.tsx keeps no history — every snap is discarded on reload, unlike submissions which persist.",
+        "Snap results are listed and revisitable.",
+        "src/pages/api-keys.tsx renders a keys table, Developer Resources, ApiUsagePanel, ApiOverageCard and WhiteLabelPanel (:440-603) inside an Account tab. It becomes its own top-level Developers destination.",
+        "The two non-interactive Developer Resources tiles stop being styled identically to the one that is a link (:563-592).",
+        "The seven-column keys table gains an overflow-x wrapper (:467) and its empty state uses the shared EmptyState with a CTA (:458-465)."
+      ],
+      "priority": 2424
     }
   ]
 }
