@@ -1,7 +1,8 @@
 // US-2222: category-criteria coverage, and the byte-identity that lets it ship.
 //
-// GARMENT_CATEGORIES has 20 values; GARMENT_CATEGORY_CRITERIA had 8. The other
-// 12 fell through to type-level criteria with no category-specific guidance,
+// GARMENT_CATEGORIES has 22 values (20 when US-2222 was written);
+// GARMENT_CATEGORY_CRITERIA had 8. The other 14 fell through to type-level
+// criteria with no category-specific guidance,
 // so the model was never told that midsole yellowing on a sneaker is oxidation
 // rather than soil, that vachetta patina on a bag is supposed to darken, or
 // that the fold crease on a belt is the defining condition signal.
@@ -11,8 +12,8 @@
 // criteria are interpolated into the per-image USER message, and only the
 // SYSTEM prompt is versioned, overridable, shadowable and canaryable. So the
 // gate is an env flag, and these tests are what make that gate trustworthy —
-// they pin that OFF is genuinely a no-op and that ON touches only the eleven
-// new categories. See the note above GARMENT_CATEGORY_CRITERIA_V2 and US-2432.
+// they pin that OFF is genuinely a no-op and that ON touches only the gated
+// categories (eleven at US-2222, thirteen since US-2571 added neckwear/gloves). See the note above GARMENT_CATEGORY_CRITERIA_V2 and US-2432.
 
 import "./_env.ts"; // US-2379: must come first — ai-grading reaches lib/supabase.ts
 import { assert, assertEquals } from "@std/assert";
@@ -45,6 +46,10 @@ const GARMENT_CATEGORIES = [
   "bag",
   "belt",
   "scarf",
+  // US-2571: added to the taxonomy by US-2224 (00570) and to this mirror never,
+  // so the coverage assertion below could not see that they had no criteria.
+  "neckwear",
+  "gloves",
   "other",
 ] as const;
 
@@ -101,7 +106,7 @@ Deno.test("AC1: every garment category has criteria, except the deliberate 'othe
   );
 
   // "other" is absent ON PURPOSE — it is the value assigned when the category
-  // is unknown, so it may be any of the twenty. Pinning the absence stops a
+  // is unknown, so it may be any of the other twenty-one. Pinning the absence stops a
   // future coverage sweep from "completing" the map with generic filler.
   assertEquals(
     categoryCriteriaFor("other", true),
@@ -127,8 +132,8 @@ Deno.test("AC5: the eight pre-existing categories are byte-identical with the ga
 
 Deno.test("gate OFF is a genuine no-op for every category", () => {
   // The property that makes this commit safe to deploy: with the flag unset,
-  // nothing about any of the twenty prompts differs from pre-US-2222 behaviour.
-  // The eleven new categories must emit no CATEGORY CRITERIA section at all.
+  // nothing about any of the twenty-two prompts differs from pre-US-2222 behaviour.
+  // The thirteen gated categories must emit no CATEGORY CRITERIA section at all.
   for (const c of GARMENT_CATEGORIES) {
     const off = prompt(c, false);
     const hasBlock = off.includes("CATEGORY CRITERIA:");
@@ -142,11 +147,11 @@ Deno.test("gate OFF is a genuine no-op for every category", () => {
   }
 });
 
-Deno.test("gate ON adds a block to each of the eleven new categories", () => {
+Deno.test("gate ON adds a block to each of the thirteen gated categories", () => {
   const NEW = GARMENT_CATEGORIES.filter(
     (c) => c !== "other" && !(PRE_EXISTING as readonly string[]).includes(c),
   );
-  assertEquals(NEW.length, 11, "expected exactly 11 newly-covered categories");
+  assertEquals(NEW.length, 13, "expected exactly 13 newly-covered categories");
 
   for (const c of NEW) {
     const text = categoryCriteriaFor(c, true);
@@ -190,7 +195,7 @@ Deno.test("the two criteria maps are disjoint", async () => {
   const v2 = keysOf("const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {");
 
   assertEquals(base.sort(), [...PRE_EXISTING].sort(), "the shipped eight changed");
-  assertEquals(v2.length, 11, "expected 11 entries in the gated map");
+  assertEquals(v2.length, 13, "expected 13 entries in the gated map");
   assertEquals(
     v2.filter((k) => base.includes(k)),
     [],

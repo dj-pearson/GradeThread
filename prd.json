@@ -1914,21 +1914,6 @@
       "dependsOn": [
         "US-2525"
       ]
-    },
-    {
-      "id": "US-2571",
-      "passes": false,
-      "title": "The AI extractor cannot emit neckwear or gloves, so ties are still filed as other",
-      "description": "As a seller photographing a tie or gloves, I want the extractor to name the right category, so that the accessories rubric grades it instead of the clothing one.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/lib/ai-extract.ts:75 declares its own GARMENT_CATEGORIES, and it is STALE: it stops at 'scarf' plus 'other' and is missing 'neckwear' and 'gloves', which US-2224 (migration 00570) added to the taxonomy in src/lib/constants.ts.",
-        "That list is not decoration. It is interpolated into the extraction prompt (:370), used as the JSON-schema enum for the model's answer (:535 and :1977), and used as the validation allowlist on the way back (:2054). The model is therefore FORBIDDEN from returning neckwear or gloves.",
-        "So the defect US-2224 exists to stop is still live on the extraction path: a tie can only come back as 'other', which routes it into the clothing rubric rather than the accessories one.",
-        "The edge list matches src/lib/constants.ts GARMENT_CATEGORIES, and a test compares the two so they cannot drift again.",
-        "Check the same file's GARMENT_TYPES against the source list while you are there, and check whether any grading map keyed on category (ai-grading.ts:472-535 claims to cover 'every other value') has the same gap.",
-        "Load the grading-engine skill first: this changes what the extractor may output, which is prompt-version territory."
-      ],
-      "priority": 1850
     }
   ]
 }

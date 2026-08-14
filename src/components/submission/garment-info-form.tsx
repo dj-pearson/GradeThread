@@ -30,7 +30,13 @@ const CATEGORY_BY_TYPE: Record<GarmentType, GarmentCategory[]> = {
   outerwear: ["jacket", "coat"],
   dresses: ["dress"],
   footwear: ["sneakers", "boots", "sandals"],
-  accessories: ["hat", "bag", "belt", "scarf", "other"],
+  // US-2571: neckwear and gloves reached the enum in US-2224 (00570) and this
+  // map was never widened, so the two categories existed everywhere except the
+  // one screen a seller uses to choose one. Every category must appear in
+  // exactly one group — src/test/garment-taxonomy-parity.test.ts checks the
+  // partition, because a category in no group is unreachable and a category in
+  // two lets the picker show it twice.
+  accessories: ["hat", "bag", "belt", "scarf", "neckwear", "gloves", "other"],
 };
 
 function formatLabel(value: string): string {

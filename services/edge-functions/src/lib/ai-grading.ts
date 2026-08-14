@@ -476,7 +476,15 @@ const GARMENT_CATEGORY_CRITERIA: Record<string, string> = {
     "DRESS-SPECIFIC: Some designs use intentional raw edges or distressing; most do not. Treat tears, broken zippers, and embellishment loss as genuine defects.",
 };
 
-// US-2222: the remaining 11 of the 20 GARMENT_CATEGORIES.
+// US-2222: the remaining 13 of the 22 GARMENT_CATEGORIES.
+//
+// US-2571 added neckwear and gloves. They were in the taxonomy from US-2224
+// (migration 00570) and in no criteria map, so the closing comment below —
+// "every other value now has an entry" — had quietly become false. They ship
+// here rather than in the base map for the same reason as the other eleven:
+// behind the flag, so nothing reaches a seller on a deploy nobody decided to
+// make. With the gate off they are byte-identical no-ops, which is what makes
+// this safe to land without an eval run.
 //
 // ⚠ A SEPARATE MAP, AND THAT IS THE POINT. These entries are gated behind
 // GRADING_CATEGORY_CRITERIA_V2 (default OFF) and live apart from the eight
@@ -522,7 +530,7 @@ const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {
     "SANDALS-SPECIFIC: The FOOTBED is the condition story. A molded cork or leather footbed takes a permanent impression of the previous wearer's foot — that is genuine use, it does not reverse, and it materially affects resale even when nothing is broken. Record it. Other genuine defects: strap stretch or cracking at the fold, a failed buckle or snap, delaminating cork, sole tread worn smooth, and darkened or stained toe/heel contact areas. INTENTIONAL and NOT defects: contoured or textured footbeds as manufactured, distressed leather straps, and raw-edge cut straps.",
 
   // Non-garment accessories. GARMENT_TYPE_CRITERIA.accessories covers hardware
-  // and stitching; these add per-category calls. ⚠ These four categories are
+  // and stitching; these add per-category calls. ⚠ These six categories are
   // still scored on the five CLOTHING factors — a rubric gap that is NOT closed
   // here; see US-2223 (headwear), US-2224 (neckwear/small accessories) and
   // US-2225 (bags). Better guidance inside the wrong rubric is still an
@@ -535,6 +543,10 @@ const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {
     "BELT-SPECIFIC: The FOLD CREASE at the hole the previous owner used is the defining condition signal — it is permanent, it tells you the fit that belt was worn at, and buyers look for it. Record it rather than treating it as a minor mark. Other genuine defects: elongated or torn holes, keeper-loop loss or stretch, buckle plating wear and prong looseness, cracked or peeling edge paint, and delamination on a bonded-leather belt. INTENTIONAL and NOT defects: distressed, oiled, pull-up and burnished finishes, and deliberately raw-cut edges.",
   scarf:
     "SCARF-SPECIFIC: Genuine defects: pulls and snags (very common on cashmere and silk and often the only defect present), MOTH HOLES on wool and cashmere — small, irregular, usually clustered, and distinct from a single snag — thinning at the fold line, watermarks or rings on silk, and fringe loss or matting. INTENTIONAL and NOT defects: deliberately raw, unfinished, or hand-knotted fringe, loose open-weave and boucle textures, and hand-rolled silk hems, which look uneven by design.",
+  neckwear:
+    "NECKWEAR-SPECIFIC: Ties, bow ties, ascots and cravats. THE ROLL IS THE CONDITION STORY: a tie's blade should hold a soft, rounded edge, and one that has been pressed flat or has a collapsed interlining is damaged even when the silk is spotless — say so, because a photograph of a flat tie looks perfect. Other genuine defects: tipping fraying or unthreading at the blade end, a detached or torn keeper loop, pulls and snags on silk (usually the only defect present), watermarks and rings, pinholes from a tie bar or clip, and staining, which on silk is effectively permanent. INTENTIONAL and NOT defects: knitted ties with square blunt ends, unlined and untipped summer construction on linen and cotton ties, slubbed raw silk and wool texture, hand-rolled edges that look uneven by design, and the deliberate asymmetry of a self-tie bow tie.",
+  gloves:
+    "GLOVES-SPECIFIC: Grade as a PAIR and say when the two differ — the dominant hand wears first, and a mismatched pair is worth less than either glove suggests. Genuine defects: wear-through or thinning at the FINGERTIPS, split seams between the fingers where every glove fails first, fingers stretched permanently out of shape, cracked or dried-out leather, shrinkage and stiffening from having been wet, lining separation, pilling or matting inside, missing or broken wrist snap or button, and darkening at the palm from hand oils. INTENTIONAL and NOT defects: perforations on driving gloves, which are ventilation as manufactured, deliberately raw-cut unlined edges, distressed, oiled and pull-up leather finishes, slouchy unstructured cuffs, and the pre-curved resting shape a leather glove is cut with.",
 };
 
 // ⚠ "other" is DELIBERATELY absent, and the absence is the decision (US-2222).

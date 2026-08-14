@@ -72,11 +72,17 @@ export const GARMENT_TYPES = [
   "footwear",
   "accessories",
 ] as const;
+// US-2571: this list is not documentation. It is interpolated into the
+// extraction prompt, used as the JSON-schema enum for the model's answer, and
+// used as the validation allowlist on the way back — so a value missing here is
+// a value the extractor is FORBIDDEN to return. It sat two values behind
+// US-2224 (migration 00570), which is why a tie could only come back as "other".
+// src/test/garment-taxonomy-parity.test.ts now compares every copy.
 export const GARMENT_CATEGORIES = [
   "t-shirt", "shirt", "blouse", "sweater", "hoodie",
   "jacket", "coat", "jeans", "pants", "shorts",
   "skirt", "dress", "sneakers", "boots", "sandals",
-  "hat", "bag", "belt", "scarf", "other",
+  "hat", "bag", "belt", "scarf", "neckwear", "gloves", "other",
 ] as const;
 
 // ─── Placeholder values are ABSENT, not answers ─────────────────────
@@ -367,7 +373,7 @@ You are given a free-text description and/or photos of a single second-hand item
 Hard rules:
 - Never guess. If the input does not support a field, omit it entirely.
 - item_category MUST be one of: ${ITEM_CATEGORIES.join(", ")}. Never invent a category. Classify from the FRONT photo first (what KIND of product is this?) — the client uses this to pick which photo slots to ask the seller for, so prefer the most specific fit: a handbag/purse is 'bags', a hat/belt/sunglasses sold on its own is 'accessories', a ring/necklace is 'jewelry', a graded or raw trading card is 'sports_cards'. Use 'other' only when nothing else fits.
-- garment_type and garment_category: fill these ONLY when item_category is 'clothing' (apparel that is graded on the clothing rubric). Omit both entirely for any other item_category. garment_type MUST be one of: ${GARMENT_TYPES.join(", ")}. garment_category MUST be one of: ${GARMENT_CATEGORIES.join(", ")} and must be consistent with garment_type (e.g. tops→t-shirt/shirt/blouse/sweater/hoodie; bottoms→jeans/pants/shorts/skirt; outerwear→jacket/coat; dresses→dress; footwear→sneakers/boots/sandals; accessories→hat/bag/belt/scarf/other). Classify from the front/flatlay photo. These power grading readiness, so prefer a confident best-fit over omission when the item is clearly clothing.
+- garment_type and garment_category: fill these ONLY when item_category is 'clothing' (apparel that is graded on the clothing rubric). Omit both entirely for any other item_category. garment_type MUST be one of: ${GARMENT_TYPES.join(", ")}. garment_category MUST be one of: ${GARMENT_CATEGORIES.join(", ")} and must be consistent with garment_type (e.g. tops→t-shirt/shirt/blouse/sweater/hoodie; bottoms→jeans/pants/shorts/skirt; outerwear→jacket/coat; dresses→dress; footwear→sneakers/boots/sandals; accessories→hat/bag/belt/scarf/neckwear/gloves/other). Use 'neckwear' for a tie, bow tie, ascot or cravat, and 'gloves' for any pair of gloves or mittens. Classify from the front/flatlay photo. These power grading readiness, so prefer a confident best-fit over omission when the item is clearly clothing.
 - size: normalize to a common token (XS, S, M, L, XL, XXL, a numeric size, or a shoe size) only when unambiguous; otherwise omit it.
 - brand: the MANUFACTURER / maker of the item (e.g. Patagonia, Nike, Levi's, Lululemon) — usually the logo or wordmark on the brand tag (neck, waistband, or inside collar). A COLLECTION name, product line, style name, or model name is NOT the brand: "Better Sweater", "Dri-FIT", "511", "Heattech", "Sport" are styles/lines, not brands — put those in 'style', never in 'brand'. Care labels frequently print a collection/line name large with the actual maker small or as a tiny wordmark; pick the MAKER. If you can read a style/collection name but cannot confidently identify the actual manufacturer, set 'style' and OMIT 'brand' — do NOT promote a style name into the brand field. Never copy generic tag text ("MADE IN", "100% COTTON", "MACHINE WASH") into brand.
 - title: produce a clean, listing-ready title (brand + key descriptors), not a copy of the raw text.

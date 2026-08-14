@@ -11,7 +11,8 @@
 const GARMENT_TYPES = ["tops", "bottoms", "outerwear", "dresses", "footwear", "accessories"];
 const GARMENT_CATEGORIES = [
   "t-shirt", "shirt", "blouse", "sweater", "hoodie", "jacket", "coat", "jeans", "pants", "shorts",
-  "skirt", "dress", "sneakers", "boots", "sandals", "hat", "bag", "belt", "scarf", "other",
+  "skirt", "dress", "sneakers", "boots", "sandals", "hat", "bag", "belt", "scarf",
+  "neckwear", "gloves", "other",
 ];
 const IMAGE_TYPES = [
   "front", "back", "label", "label_2", "detail", "detail_2", "detail_3", "detail_4", "defect",

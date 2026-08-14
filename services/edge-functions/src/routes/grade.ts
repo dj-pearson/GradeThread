@@ -90,7 +90,7 @@ const GARMENT_CATEGORIES = [
   "t-shirt", "shirt", "blouse", "sweater", "hoodie",
   "jacket", "coat", "jeans", "pants", "shorts",
   "skirt", "dress", "sneakers", "boots", "sandals",
-  "hat", "bag", "belt", "scarf", "other",
+  "hat", "bag", "belt", "scarf", "neckwear", "gloves", "other",
 ] as const;
 // Mirror of IMAGE_TYPES in src/lib/constants.ts (edge runs in a separate Deno
 // project and can't import frontend code). label_2 = second tag shot,
