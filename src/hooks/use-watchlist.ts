@@ -24,6 +24,9 @@ export interface UseWatchlist {
   items: WatchlistItemRow[];
   isLoading: boolean;
   isError: boolean;
+  /** US-2508: so a consumer's ErrorState can retry the query instead of reloading the page. */
+  isFetching: boolean;
+  refetch: () => void;
   /** True when the given target is already on the buyer's watchlist. */
   isWatched: (target_type: WatchlistItemRow["target_type"], target_id: string) => boolean;
   /** Idempotent add (unique on user+target — a repeat is a no-op upsert). */
@@ -105,6 +108,11 @@ export function useWatchlist(): UseWatchlist {
     // error prompts a retry; a false empty state prompts the user to
     // conclude their data is gone.
     isError: query.isError,
+    // US-2508: a retry needs something to call. Without these the consumer's
+    // ErrorState fell back to window.location.reload(), which throws away
+    // whatever the buyer had typed on the page.
+    isFetching: query.isFetching,
+    refetch: query.refetch,
     isWatched: (t, id) => watched.has(watchTargetKey(t, id)),
     watch: (target) => watchMutation.mutateAsync(target),
     unwatch: (t, id) => unwatchMutation.mutateAsync({ target_type: t, target_id: id }),

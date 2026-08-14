@@ -15,6 +15,9 @@ export interface UseBuyerAlertMatches {
   matches: NotificationRow[];
   isLoading: boolean;
   isError: boolean;
+  /** US-2508: so a consumer's ErrorState can retry the query instead of reloading the page. */
+  isFetching: boolean;
+  refetch: () => void;
   /** Mark a single match read (dismiss its unread dot). */
   markRead: (id: string) => Promise<void>;
 }
@@ -63,6 +66,11 @@ export function useBuyerAlertMatches(limit = 30): UseBuyerAlertMatches {
     // error prompts a retry; a false empty state prompts the user to
     // conclude their data is gone.
     isError: query.isError,
+    // US-2508: a retry needs something to call. Without these the consumer's
+    // ErrorState fell back to window.location.reload(), which throws away
+    // whatever the buyer had typed on the page.
+    isFetching: query.isFetching,
+    refetch: query.refetch,
     markRead: (id) => markReadMutation.mutateAsync(id),
   };
 }

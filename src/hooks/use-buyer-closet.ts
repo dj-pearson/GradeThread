@@ -93,6 +93,11 @@ export function useBuyerCloset() {
     // error prompts a retry; a false empty state prompts the user to
     // conclude their data is gone.
     isError: query.isError,
+    // US-2508: a retry needs something to call. Without these the consumer's
+    // ErrorState fell back to window.location.reload(), which throws away
+    // whatever the buyer had typed on the page.
+    isFetching: query.isFetching,
+    refetch: query.refetch,
     addItem: (input: AddClosetInput) => addMutation.mutateAsync(input),
     isAdding: addMutation.isPending,
     removeItem: (id: string) => removeMutation.mutateAsync(id),

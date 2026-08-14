@@ -68,7 +68,7 @@ function videoGradeHref(item: ClosetItemRow): string {
 
 export function BuyerPortfolioPage() {
   const ent = useBuyerEntitlements();
-  const { items, isLoading, isError, addItem, isAdding, removeItem, isRemoving, listItem, isListing, exportCsv } =
+  const { items, isLoading, isError, isFetching, refetch, addItem, isAdding, removeItem, isRemoving, listItem, isListing, exportCsv } =
     useBuyerCloset();
   const { totals, valuationFor } = useBuyerPortfolioValuation();
   // US-1844: coarse public trust signals for the certified items in the closet —
@@ -318,7 +318,8 @@ export function BuyerPortfolioPage() {
           <ErrorState
             title="Couldn't load your closet"
             description="Your items are safe — we just couldn't fetch them right now."
-            onRetry={() => window.location.reload()}
+            onRetry={() => void refetch()}
+            retrying={isFetching}
           />
         ) : items.length === 0 ? (
           <EmptyState

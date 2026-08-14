@@ -383,7 +383,8 @@ export function BuyerAlertsPage() {
             <ErrorState
               title="Couldn't load your saved searches"
               description="Your alerts are still active — we just couldn't fetch them right now."
-              onRetry={() => window.location.reload()}
+              onRetry={() => void searches.refetch()}
+              retrying={searches.isFetching}
             />
           ) : searches.searches.length === 0 ? (
             <EmptyState
@@ -419,7 +420,8 @@ export function BuyerAlertsPage() {
             <ErrorState
               title="Couldn't load your watchlist"
               description="The items you follow are still saved — we just couldn't fetch them right now."
-              onRetry={() => window.location.reload()}
+              onRetry={() => void watchlist.refetch()}
+              retrying={watchlist.isFetching}
             />
           ) : watchlist.items.length === 0 ? (
             <EmptyState
@@ -483,7 +485,8 @@ export function BuyerAlertsPage() {
             <ErrorState
               title="Couldn't load recent matches"
               description="This is a display issue only — your alerts are still running."
-              onRetry={() => window.location.reload()}
+              onRetry={() => void matches.refetch()}
+              retrying={matches.isFetching}
             />
           ) : matches.matches.length === 0 ? (
             <EmptyState

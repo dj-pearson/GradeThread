@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2508",
-      "passes": false,
-      "title": "Buyer app retries by reloading the whole page",
-      "description": "As a buyer, I want Try again to retry the request, so that I do not lose what I typed.",
-      "acceptanceCriteria": [
-        "Seven ErrorState onRetry handlers call window.location.reload(): buyer/alerts.tsx:386,422,486; buyer/portfolio.tsx:321; buyer/guarantee.tsx:133; buyer/demand.tsx:138; buyer/rewards.tsx:593.",
-        "Each is replaced with the query's own refetch, matching the pattern used across the seller app.",
-        "buyer/alerts.tsx's three independent error branches share one boundary rather than three.",
-        "A lint rule or unit test asserts no ErrorState onRetry in src/pages/buyer calls window.location.reload."
-      ],
-      "priority": 1902
-    },
-    {
       "id": "US-2509",
       "passes": false,
       "title": "Five buyer pages hand-roll the paywall that a shared component already renders",

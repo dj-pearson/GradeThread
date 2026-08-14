@@ -83,7 +83,7 @@ function claimTone(status: BuyerGuaranteeClaimStatus): string {
 
 export function BuyerCoveragePage() {
   const ent = useBuyerEntitlements();
-  const { purchases, isLoading, isError } = useBuyerPurchases();
+  const { purchases, isLoading, isError, isFetching, refetch } = useBuyerPurchases();
 
   // Entitlement gate first — mirrors BuyerPlaceholderPage's locked branch so the
   // upgrade path stays identical wherever a buyer meets a gated feature.
@@ -130,7 +130,8 @@ export function BuyerCoveragePage() {
         <ErrorState
           title="Couldn't load your coverage"
           description="Your coverage is unaffected — we just couldn't fetch it right now."
-          onRetry={() => window.location.reload()}
+          onRetry={() => void refetch()}
+          retrying={isFetching}
         />
       ) : (
         <>

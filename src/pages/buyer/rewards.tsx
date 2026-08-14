@@ -463,7 +463,7 @@ export function BuyerRewardsPage() {
   // US-1859: the streak-at-risk nudge deep-links here with ?nudge=<sendId>.
   useNudgeAttribution();
   const ent = useBuyerEntitlements();
-  const { purchases, isLoading, isError, linkPurchase, isLinking, rewardCredits } = useBuyerPurchases();
+  const { purchases, isLoading, isError, isFetching, refetch, linkPurchase, isLinking, rewardCredits } = useBuyerPurchases();
 
   const [certNumber, setCertNumber] = useState("");
   const [price, setPrice] = useState("");
@@ -590,7 +590,8 @@ export function BuyerRewardsPage() {
           <ErrorState
             title="Couldn't load your purchases"
             description="Your linked purchases and rewards are safe — we just couldn't fetch them right now."
-            onRetry={() => window.location.reload()}
+            onRetry={() => void refetch()}
+            retrying={isFetching}
           />
         ) : purchases.length === 0 ? (
           <EmptyState

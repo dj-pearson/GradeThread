@@ -187,6 +187,11 @@ export function useBuyerPurchases() {
     // error prompts a retry; a false empty state prompts the user to
     // conclude their data is gone.
     isError: query.isError,
+    // US-2508: a retry needs something to call. Without these the consumer's
+    // ErrorState fell back to window.location.reload(), which throws away
+    // whatever the buyer had typed on the page.
+    isFetching: query.isFetching,
+    refetch: query.refetch,
     rewardCredits: rewardsQuery.data ?? null,
     linkPurchase: (input: LinkPurchaseInput) => linkMutation.mutateAsync(input),
     isLinking: linkMutation.isPending,

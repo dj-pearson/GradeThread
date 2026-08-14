@@ -15,6 +15,9 @@ export interface UseSavedSearches {
   searches: SavedSearchRow[];
   isLoading: boolean;
   isError: boolean;
+  /** US-2508: so a consumer's ErrorState can retry the query instead of reloading the page. */
+  isFetching: boolean;
+  refetch: () => void;
   /**
    * Create a new search, defaulting criteria from buyer preferences. `criteria`
    * overrides those defaults field by field — used by the US-1843 claim, where
@@ -111,6 +114,11 @@ export function useSavedSearches(): UseSavedSearches {
     // error prompts a retry; a false empty state prompts the user to
     // conclude their data is gone.
     isError: query.isError,
+    // US-2508: a retry needs something to call. Without these the consumer's
+    // ErrorState fell back to window.location.reload(), which throws away
+    // whatever the buyer had typed on the page.
+    isFetching: query.isFetching,
+    refetch: query.refetch,
     create: (label, criteria) => createMutation.mutateAsync({ label, criteria }),
     update: (id, patch) => updateMutation.mutateAsync({ id, patch }),
     remove: (id) => removeMutation.mutateAsync(id),
