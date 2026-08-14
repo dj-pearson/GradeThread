@@ -43,6 +43,11 @@ function pageHeaderTitle(rel: string): string | null {
   return m ? m[1]! : null;
 }
 
+function navLabels(): string[] {
+  const src = readFileSync(resolve(process.cwd(), LAYOUT), "utf8");
+  return [...src.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]!);
+}
+
 function duplicates(values: string[]): string[] {
   const seen = new Map<string, number>();
   for (const v of values) seen.set(v, (seen.get(v) ?? 0) + 1);
@@ -67,14 +72,37 @@ describe("admin destinations are distinguishable by name (US-2512)", () => {
   });
 
   it("no two sidebar entries carry the same label", () => {
-    const src = readFileSync(resolve(process.cwd(), LAYOUT), "utf8");
-    const labels = [...src.matchAll(/label: "([^"]+)"/g)].map((m) => m[1]!);
+    const labels = navLabels();
     expect(labels.length).toBeGreaterThan(50);
 
     const dupes = duplicates(labels);
     expect(
       dupes,
       "duplicate sidebar labels:\n  " + dupes.join("\n  "),
+    ).toEqual([]);
+  });
+
+  // Exact duplicates were never the common case. The real ambiguity was one
+  // label being the other with a word bolted on — "Support" next to "Support
+  // Tickets", "Knowledge" next to "Knowledge Base", "System" next to "System
+  // Health". The shorter one reads as the general case and is nothing of the
+  // kind: /admin/support is escalated AI conversations, /admin/support-tickets
+  // is user-opened tickets, and neither is a superset of the other.
+  it("no sidebar label is a whole-word prefix of another", () => {
+    const labels = navLabels();
+    const offenders: string[] = [];
+    for (const a of labels) {
+      for (const b of labels) {
+        if (a === b) continue;
+        // Whole-word prefix only: "Support" vs "Support Tickets" counts,
+        // "Ads" vs "Adshaped" does not.
+        if (b.startsWith(`${a} `)) offenders.push(`"${a}" is a prefix of "${b}"`);
+      }
+    }
+    expect(
+      [...new Set(offenders)],
+      "one of these labels reads as the general case for the other. Name what " +
+        "each page actually does instead:\n  " + [...new Set(offenders)].join("\n  "),
     ).toEqual([]);
   });
 });

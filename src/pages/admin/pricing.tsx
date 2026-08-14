@@ -317,7 +317,7 @@ export function AdminPricingPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Plans & Pricing"
+        title="Subscription Plans"
         subtitle={
           <>
             FlipDesk plan prices, limits, feature gates, and Stripe price IDs.

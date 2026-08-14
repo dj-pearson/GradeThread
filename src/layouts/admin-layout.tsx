@@ -88,9 +88,9 @@ const adminNavItems = [
   { to: "/admin/claims", icon: ShieldCheck, label: "Guarantee Claims", end: false, superAdminOnly: false },
   { to: "/admin/guarantee-pool", icon: PiggyBank, label: "Guarantee Pool", end: false, superAdminOnly: false },
   { to: "/admin/measure-cards", icon: Ruler, label: "MeasureCards", end: false, superAdminOnly: false },
-  { to: "/admin/support", icon: Headset, label: "Support", end: true, superAdminOnly: false },
+  { to: "/admin/support", icon: Headset, label: "AI Escalations", end: true, superAdminOnly: false },
   { to: "/admin/support-tickets", icon: Ticket, label: "Support Tickets", end: false, superAdminOnly: false },
-  { to: "/admin/support/kb", icon: BookOpen, label: "Knowledge Base", end: false, superAdminOnly: false },
+  { to: "/admin/support/kb", icon: BookOpen, label: "Support Knowledge Base", end: false, superAdminOnly: false },
   { to: "/admin/support/monitoring", icon: Activity, label: "Assistant Monitoring", end: false, superAdminOnly: false },
   { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
   { to: "/admin/ai-spend", icon: Coins, label: "AI Spend", end: false, superAdminOnly: false },
@@ -101,7 +101,7 @@ const adminNavItems = [
   { to: "/admin/keyword-research", icon: Search, label: "Keyword Research", end: false, superAdminOnly: false },
   { to: "/admin/condition-index", icon: LineChart, label: "Condition Index", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
-  { to: "/admin/pricing", icon: DollarSign, label: "Plans & Pricing", end: false, superAdminOnly: false },
+  { to: "/admin/pricing", icon: DollarSign, label: "Subscription Plans", end: false, superAdminOnly: false },
   { to: "/admin/incentives", icon: Gift, label: "Incentives", end: false, superAdminOnly: true },
   { to: "/admin/waitlist", icon: DoorOpen, label: "Waitlist", end: false, superAdminOnly: false },
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
@@ -197,7 +197,7 @@ const opsNavItems = [
   { to: "/admin/ops/roles", icon: KeyRound, label: "Roles & Permissions", end: false },
   // US-1058 notification event catalog — read-only event/channel/volume map.
   { to: "/admin/ops/notifications", icon: Bell, label: "Notification Catalog", end: false },
-  { to: "/admin/ops/pricing", icon: DollarSign, label: "Pricing & Tiers", end: false },
+  { to: "/admin/ops/pricing", icon: DollarSign, label: "Grading & Credit Prices", end: false },
   // US-886 feature flags v2. List/toggle is admin; the targeting rule editor is
   // super_admin + MFA step-up gated server-side.
   { to: "/admin/ops/feature-flags", icon: Flag, label: "Feature Flags", end: false },
@@ -237,7 +237,7 @@ const contentNavItems = [
   { to: "/admin/content/authors", icon: Users, label: "Authors", end: false },
   { to: "/admin/content/social", icon: MessageCircle, label: "Social", end: false },
   { to: "/admin/content/topics", icon: Lightbulb, label: "Topic Bank", end: false },
-  { to: "/admin/content/knowledge", icon: BookOpen, label: "Knowledge", end: false },
+  { to: "/admin/content/knowledge", icon: BookOpen, label: "Content Knowledge", end: false },
   { to: "/admin/content/changelog", icon: Megaphone, label: "What's New", end: false },
   { to: "/admin/content/analytics", icon: Activity, label: "Analytics", end: false },
   { to: "/admin/content/settings", icon: SlidersHorizontal, label: "Content Settings", end: false },

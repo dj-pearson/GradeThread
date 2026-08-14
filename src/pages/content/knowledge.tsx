@@ -35,7 +35,7 @@ export function KnowledgePage() {
     <div className="space-y-4">
       <SEO title="Knowledge Docs" noindex />
       <PageHeader
-        title="Knowledge"
+        title="Content Knowledge"
         subtitle="Reference docs loaded into every AI prompt. Edit voice, style, and SEO pillars here — changes take effect on the next generation."
       />
 

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2559",
+  "nextId": "US-2560",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2513",
-      "passes": false,
-      "title": "Six pairs of admin pages have names that do not tell them apart",
-      "description": "As an operator, I want each nav entry to name a distinct job, so that I can pick the right one from the sidebar.",
-      "acceptanceCriteria": [
-        "These pairs are separate destinations with indistinguishable names in layouts/admin-layout.tsx: Jobs & Queues vs Background Jobs, System vs System Health, Plans & Pricing vs Pricing & Tiers, Review Queue vs Reviews, Support vs Support Tickets, Knowledge Base vs Knowledge.",
-        "Each pair is either merged or renamed so the label states what the page does.",
-        "Review Queue vs Reviews is resolved by the merge in the claim-lock story rather than a rename.",
-        "Rewards (5 entries), newsletter (4), AI (4) and abuse (3) are each reduced to one destination with tabs."
-      ],
-      "priority": 1912
-    },
-    {
       "id": "US-2514",
       "passes": false,
       "title": "The pricing page has no buy button",
@@ -2358,6 +2345,20 @@
       "dependsOn": [
         "US-2512"
       ]
+    },
+    {
+      "id": "US-2559",
+      "passes": false,
+      "title": "Four admin clusters are one domain spread across 16 nav entries",
+      "description": "As an operator, I want each admin domain to be one destination, so that the sidebar is a map of the product rather than a list of pages.",
+      "acceptanceCriteria": [
+        "Rewards is 5 entries (growth/quests, growth/reward-milestones, growth/reward-economics, growth/reward-north-star, incentives), newsletter 4 (newsletter, newsletter-analytics, newsletter-subscribers, suppressions), AI 4 (ai-models, ai-spend, ai-profitability, monitoring), abuse 3 (moderation, fraud, safety-signals). Each cluster is one domain.",
+        "VERIFIED FIRST, unlike the earlier consolidation stories: every page in each cluster does a genuinely distinct job — quests configures quests, reward-milestones configures what a milestone grants, reward-economics owns the BUDGET those grants come out of. This is a tabbed-host merge, not a de-duplication; nothing may be deleted.",
+        "Use the ?view= host pattern from flipdesk/money.tsx, and give the host a title — US-2548 already records that the four FlipDesk hosts render a bare tab strip with no name, so do not repeat that.",
+        "reward-economics.tsx opens with the payout kill switch and today's spend BECAUSE an operator in an incident wants 'is money still leaving?' answered before anything else. Burying it one tab deep is a regression; if it cannot stay immediate, leave it out of the merge and say why.",
+        "Every retired path redirects into its host with the matching tab so runbook links and bookmarks survive."
+      ],
+      "priority": 2434
     }
   ]
 }

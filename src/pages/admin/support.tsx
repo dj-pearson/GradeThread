@@ -250,7 +250,7 @@ export function AdminSupportPage() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
             <Headset className="h-6 w-6 text-brand-red-text" />
-            Support inbox
+            AI Escalations
           </h1>
           <p className="text-sm text-muted-foreground">
             Escalated AI-assistant conversations awaiting a human.

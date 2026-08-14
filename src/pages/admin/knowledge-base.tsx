@@ -296,7 +296,7 @@ export function AdminKnowledgeBasePage() {
     <div className="space-y-6">
       <PageHeader
         icon={BookOpen}
-        title="Knowledge base"
+        title="Support Knowledge Base"
         subtitle="The corpus the AI support assistant speaks from. Only published articles are retrievable by the bot."
         actions={
           <Button onClick={openNew}>

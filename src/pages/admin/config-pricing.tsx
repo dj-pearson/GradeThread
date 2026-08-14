@@ -379,7 +379,7 @@ export function AdminConfigPricingPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Pricing &amp; Tiers"
+        title="Grading &amp; Credit Prices"
         subtitle={
           <>
             Grading-tier prices, credit-pack prices, and per-plan included grades.
