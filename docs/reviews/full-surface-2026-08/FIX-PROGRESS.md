@@ -62,7 +62,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       the title "System Health"; now Platform Health / Infrastructure Health, guarded
       class-wide (no duplicate admin page title or sidebar label).
 - [x] US-2555 (2430) Nine multi-query admin pages render nothing on a failed read
-      - SHA11 - all nine fixed and KNOWN_SILENT_READS DELETED, so the third
+      - b7b0a310 - all nine fixed and KNOWN_SILENT_READS DELETED, so the third
       assertion is absolute like the two above it. Shared
       `src/components/admin/section-read-error.tsx` after the third repetition.
 - [x] US-2558 (2432) /admin/jobs read-only copies - a9d2c326 - both tabs removed and
