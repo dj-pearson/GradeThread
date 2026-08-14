@@ -451,7 +451,7 @@ export function CommandPalette() {
         id: "admin-reviews",
         label: "Admin: Reviews",
         icon: <Star className="h-4 w-4" />,
-        run: () => go("/admin/reviews"),
+        run: () => go("/admin/grading"),
         adminOnly: true,
       },
     ],

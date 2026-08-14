@@ -12,7 +12,7 @@
 // paths here are relative ("users", not "/admin/users"). That costs the data
 // router APIs (loader/action) for this subtree — verified unused: no admin route
 // declared either before the split.
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 import { lazy, SuspenseWrapper } from "./lazy";
 
 // Shared with the /dashboard/* 404 in index.tsx, so that declaration stays put.
@@ -37,7 +37,6 @@ const AdminCategoryMapPage = lazy(() => import("@/pages/admin/category-map").the
 const AdminListingCoveragePage = lazy(() => import("@/pages/admin/listing-coverage").then(m => ({ default: m.AdminListingCoveragePage })));
 const AdminBrandKnowledgePage = lazy(() => import("@/pages/admin/brand-knowledge").then(m => ({ default: m.AdminBrandKnowledgePage })));
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
-const AdminReviewsPage = lazy(() => import("@/pages/admin/reviews").then(m => ({ default: m.AdminReviewsPage })));
 const AdminGradingQueuePage = lazy(() => import("@/pages/admin/grading").then(m => ({ default: m.AdminGradingQueuePage })));
 const AdminAuthenticityPage = lazy(() => import("@/pages/admin/authenticity").then(m => ({ default: m.AdminAuthenticityPage })));
 const AdminAiModelsPage = lazy(() => import("@/pages/admin/ai-models").then(m => ({ default: m.AdminAiModelsPage })));
@@ -119,7 +118,16 @@ export function AdminRoutes() {
       <Route path="brand-knowledge" element={<SuspenseWrapper><AdminBrandKnowledgePage /></SuspenseWrapper>} />
       <Route path="users/:id" element={<SuspenseWrapper><AdminUserDetailPage /></SuspenseWrapper>} />
       <Route path="submissions" element={<SuspenseWrapper><AdminSubmissionsPage /></SuspenseWrapper>} />
-      <Route path="reviews" element={<SuspenseWrapper><AdminReviewsPage /></SuspenseWrapper>} />
+      {/* US-2505: /admin/reviews and /admin/grading were two UIs over the SAME
+          endpoints (approve / adjust / send-back on
+          /api/admin/grading/review/:id), and only /admin/grading claimed the
+          item first — so two operators, one on each page, could both finalize
+          one report. Retired in favour of the Review Queue, which is the
+          superset (claim + release, calibration, exemplar sets, garment
+          baselines) and now carries the confidence filter this page owned.
+          Redirect rather than 404 so bookmarks and notification deep-links keep
+          working. */}
+      <Route path="reviews" element={<Navigate to="/admin/grading" replace />} />
       <Route path="disputes" element={<SuspenseWrapper><AdminDisputesPage /></SuspenseWrapper>} />
       <Route path="claims" element={<SuspenseWrapper><AdminClaimsPage /></SuspenseWrapper>} />
       <Route path="guarantee-pool" element={<SuspenseWrapper><AdminGuaranteePoolPage /></SuspenseWrapper>} />

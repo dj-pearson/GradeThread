@@ -1759,34 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2505",
-      "passes": false,
-      "title": "The human-review claim lock is bypassable and two admin pages drive it",
-      "description": "As a grading operator, I want a claimed report to be locked to me, so that two reviewers cannot both finalize the same grade.",
-      "acceptanceCriteria": [
-        "/admin/grading (src/pages/admin/grading.tsx) and /admin/reviews (src/pages/admin/reviews.tsx) both call approve, adjust and send-back on /api/admin/grading/review/:id; only grading.tsx also calls claim and release.",
-        "services/edge-functions/src/routes/admin-grading.ts POST /review/:id/approve loads the report and finalizes without checking the claim. Enforce it: approving, adjusting or sending back a report claimed by another reviewer returns 409.",
-        "A tenant-isolation_test.ts or admin-grading test case asserts the 409 when a second admin id attempts the action on a claimed report.",
-        "Consolidate the two surfaces onto one route so the workflow has a single implementation; the retired path redirects rather than 404s.",
-        "Duplicate human_reviews rows for a single decision are no longer possible — a test asserts one row per finalized report."
-      ],
-      "priority": 1804
-    },
-    {
-      "id": "US-2506",
-      "passes": true,
-      "title": "The Condition Index footer link 404s on every public page",
-      "description": "As a visitor, I want the Condition Index link in the footer to open the Condition Index, so that a link on every page of the site is not broken.",
-      "acceptanceCriteria": [
-        "src/components/marketing/marketing-layout.tsx renders <FooterLink to=\"/condition-index\">, which is a react-router Link. /condition-index is served only by functions/condition-index/[[path]].ts and has no SPA route, so a client-side click falls through to the * catch-all and renders NotFoundPage.",
-        "Register an SPA route for /condition-index and /condition-index/:slug, following the pattern /finds and /leaderboards already use at src/routes/index.tsx:284,291.",
-        "A route test asserts /condition-index resolves to the Condition Index page and not NotFoundPage.",
-        "Every other FooterLink target in marketing-layout.tsx is checked against the router and any other unrouted path is fixed in the same pass."
-      ],
-      "priority": 1806,
-      "notes": "Done 2026-08-14. Added src/pages/marketing/condition-index.tsx (hub + :slug SPA renderers reading the same /api/grading/public/condition-index payload the Pages Function uses) and registered both routes in src/routes/index.tsx. New guard src/lib/seo/__tests__/footer-links-routed.test.ts checks EVERY marketing header/footer Link target against the router — proven to fail without the fix, and it confirmed /condition-index was the only unrouted one (AC4). Exempted /condition-index in public-routes.test.ts alongside /finds and /leaderboards: it is edge-SSR'd and already listed by conditionIndexUrls(), so registering it in PUBLIC_ROUTES would bake a stale snapshot and duplicate the sitemap entry. tsc -b clean, lint 0 errors, ui:check 0 findings, 852 SEO/prerender tests pass."
-    },
-    {
       "id": "US-2507",
       "passes": false,
       "title": "Admin sweep: a failed load tells the operator there is no data",

@@ -185,6 +185,10 @@ export function AdminGradingQueuePage() {
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  // US-2505: carried over from /admin/reviews when the two review surfaces were
+  // consolidated onto this one. It was the only filter that page had and this
+  // one didn't, so the merge would otherwise have cost operators a control.
+  const [confidenceFilter, setConfidenceFilter] = useState("all");
   // US-1558: information-value ordering is the default; FIFO (Waiting)
   // stays one click away in the header.
   const [sortField, setSortField] = useState<SortField>("info_value");
@@ -239,6 +243,15 @@ export function AdminGradingQueuePage() {
   const filtered = useMemo(() => {
     return items.filter((i) => {
       if (categoryFilter !== "all" && i.garment_category !== categoryFilter) return false;
+      // Same bands /admin/reviews used: high >= 0.85, medium 0.75–0.84, low < 0.75.
+      if (confidenceFilter === "high" && i.confidence_score < 0.85) return false;
+      if (
+        confidenceFilter === "medium" &&
+        (i.confidence_score < 0.75 || i.confidence_score >= 0.85)
+      ) {
+        return false;
+      }
+      if (confidenceFilter === "low" && i.confidence_score >= 0.75) return false;
       if (search) {
         const q = search.toLowerCase();
         const hay = [i.title, i.user_email, i.user_name, i.garment_type]
@@ -249,7 +262,7 @@ export function AdminGradingQueuePage() {
       }
       return true;
     });
-  }, [items, categoryFilter, search]);
+  }, [items, categoryFilter, confidenceFilter, search]);
 
   const sorted = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -546,6 +559,18 @@ export function AdminGradingQueuePage() {
                     {cat}
                   </SelectItem>
                 ))}
+              </SelectContent>
+            </Select>
+            {/* US-2505: ported from the retired /admin/reviews. */}
+            <Select value={confidenceFilter} onValueChange={setConfidenceFilter}>
+              <SelectTrigger aria-label="Filter by confidence">
+                <SelectValue placeholder="All Confidence" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Confidence</SelectItem>
+                <SelectItem value="high">High (&ge; 0.85)</SelectItem>
+                <SelectItem value="medium">Medium (0.75–0.84)</SelectItem>
+                <SelectItem value="low">Low (&lt; 0.75)</SelectItem>
               </SelectContent>
             </Select>
           </div>

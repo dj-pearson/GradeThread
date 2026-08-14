@@ -170,8 +170,18 @@ Deno.test("US-2307: both serving gates take the stage's own model", () => {
   // Comments stripped: both files now explain this at length and name
   // getGradingCompositeModel in the prose, so a raw scan would find the old
   // shape in the explanation of why it was wrong.
+  // US-2505: LINE comments first, then block comments — not the other way round.
+  // admin-grading.ts documents its auth group as `// … /api/admin/*`, and the
+  // `/*` inside that path is not a comment opener, but a block-first strip reads
+  // it as one and deletes everything up to the next `*/`. Whether that swallowed
+  // the assertion below depended on where the nearest `*/` happened to sit, so
+  // adding an unrelated JSDoc block elsewhere in the file could turn this test
+  // red while the code it checks was untouched. Stripping line comments first
+  // removes the false opener before the block pass ever sees it. Verified: the
+  // fixed order still fails when the gate really does regress to
+  // getGradingCompositeModel().
   const strip = (s: string) =>
-    s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/[^\n]*/g, "$1");
+    s.replace(/(^|\s)\/\/[^\n]*/g, "$1").replace(/\/\*[\s\S]*?\*\//g, "");
   const evalLib = strip(read("../lib/grading-eval.ts"));
   const admin = strip(read("../routes/admin-grading.ts"));
 

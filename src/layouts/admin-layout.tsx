@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   Users,
   FileText,
-  MessageSquare,
   BookMarked,
   Scale,
   Headset,
@@ -85,7 +84,6 @@ const adminNavItems = [
   { to: "/admin/submissions", icon: FileText, label: "Submissions", end: false, superAdminOnly: false },
   { to: "/admin/grading", icon: ClipboardCheck, label: "Review Queue", end: false, superAdminOnly: false },
   { to: "/admin/authenticity", icon: ShieldCheck, label: "Authenticity", end: false, superAdminOnly: false },
-  { to: "/admin/reviews", icon: MessageSquare, label: "Reviews", end: false, superAdminOnly: false },
   { to: "/admin/disputes", icon: Scale, label: "Disputes", end: false, superAdminOnly: false },
   { to: "/admin/claims", icon: ShieldCheck, label: "Guarantee Claims", end: false, superAdminOnly: false },
   { to: "/admin/guarantee-pool", icon: PiggyBank, label: "Guarantee Pool", end: false, superAdminOnly: false },
@@ -304,7 +302,9 @@ function AdminSidebarBody({
           >
             <item.icon className="h-5 w-5" />
             <span className="flex-1">{item.label}</span>
-            {item.to === "/admin/reviews" && navBadge(counts.review)}
+            {/* US-2505: the review badge follows the queue now that
+                /admin/reviews is retired. */}
+            {item.to === "/admin/grading" && navBadge(counts.review)}
             {item.to === "/admin/support" && navBadge(counts.escalated)}
             {item.to === "/admin/support-tickets" && navBadge(counts.openTickets)}
           </NavLink>

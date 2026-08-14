@@ -186,13 +186,6 @@ const EXEMPT: Record<string, string> = {
     "row after a status write, so a re-drafted item stops showing its old " +
     "listing. Intra-page cache coherence.",
 
-  "src/pages/admin/reviews.tsx":
-    "The rounding it describes is REAL and already pinned — but not here. " +
-    "US-2034 removed this file's local copy and made it delegate to the ONE " +
-    "shared implementation, which src/lib/__tests__/weighted-grade.test.ts and " +
-    "weighted-grade-parity_test.ts assert against a shared fixture. The comment " +
-    "survives as an explanation of why the delegation exists; there is no " +
-    "second copy left in this file to drift.",
   "services/edge-functions/src/lib/shopify-graphql.ts":
     "Mirrors the four subscribed webhook topics against the inbound receiver's " +
     "switch — both WITHIN the edge project, so a normal import/unit test can " +

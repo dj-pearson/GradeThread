@@ -128,6 +128,7 @@ import {
   RELIABILITY_QUEUE_SELECT,
 } from "../lib/reliability-privacy.ts";
 import { requireScope } from "../lib/scope-guard.ts";
+import { REVIEW_CLAIM_TTL_SEC, reviewClaimVerdict } from "../lib/review-claim.ts";
 import { failUngradedSubmission } from "../lib/stuck-submissions.ts";
 
 // Admin grading-quality + self-improvement surface (US-070/US-073/US-132).
@@ -2773,7 +2774,9 @@ const REVIEW_IMAGE_TTL = 900; // ≤ 900s signed URLs for the private bucket (US
 
 // US-1293: a review claim older than this is stale (the operator walked away) and
 // may be reclaimed, so a crashed/idle session never wedges an item in the queue.
-const REVIEW_CLAIM_TTL_SEC = 15 * 60;
+// US-2505 moved the constant and the staleness rule into ../lib/review-claim.ts
+// so the DECIDING routes enforce exactly the same rule /claim does, and so that
+// rule is unit-testable without a DB.
 
 // `confidence_label` is a computed CASE alias that lives ONLY in the
 // public_certificate VIEW (migration 00082+), never as a grade_reports column —
@@ -3133,6 +3136,77 @@ async function loadReportForReview(reportId: string) {
   };
 }
 
+/**
+ * US-2505: enforce the review claim on the DECIDING routes, not just on /claim.
+ *
+ * The TTL claim (US-1293) was advisory: /claim 409s when someone else holds the
+ * item, but approve, adjust and send-back never looked. /admin/reviews doesn't
+ * call /claim at all, so two operators — one on each admin page — could both
+ * finalize the same report. `finalizeGradeReview` reports `alreadyFinal` so the
+ * GRADE survived, but each decision inserted its own `human_reviews` row,
+ * crediting one outcome to two reviewers in the table the adjust route feeds as
+ * the self-improvement dataset.
+ *
+ * Same staleness rule as /claim: a claim older than the TTL is not a lock, so a
+ * crashed session can never wedge the queue. An unclaimed report is allowed
+ * through — claiming stays optional, it just becomes binding once taken.
+ *
+ * Returns a 409 Response to bail with, or null to proceed.
+ */
+async function assertClaimNotHeldByAnother(
+  c: Parameters<typeof auditLog>[0],
+  reportId: string,
+  adminId: string,
+): Promise<Response | null> {
+  const { data, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("human_reviewed, review_claimed_by, review_claimed_at")
+    .eq("id", reportId)
+    .maybeSingle();
+  // A read failure must not silently unlock the item — fail closed.
+  if (error) {
+    return c.json({ error: "Couldn't verify the review claim. Try again." }, 503);
+  }
+  if (!data) return null; // the caller's own 404 path reports a missing report
+
+  const r = data as {
+    human_reviewed: boolean | null;
+    review_claimed_by: string | null;
+    review_claimed_at: string | null;
+  };
+
+  const verdict = reviewClaimVerdict({
+    humanReviewed: r.human_reviewed,
+    claimedBy: r.review_claimed_by,
+    claimedAt: r.review_claimed_at,
+    adminId,
+    nowMs: Date.now(),
+  });
+  if (verdict === "ok") return null;
+  if (verdict === "already_reviewed") {
+    return c.json(
+      { error: "This grade has already been reviewed.", code: "ALREADY_REVIEWED" },
+      409,
+    );
+  }
+
+  const { data: holder } = await supabaseAdmin
+    .from("users")
+    .select("email, full_name")
+    .eq("id", r.review_claimed_by)
+    .maybeSingle();
+  const h = holder as { email: string; full_name: string | null } | null;
+  return c.json(
+    {
+      error: "Another operator is already reviewing this item.",
+      code: "ALREADY_CLAIMED",
+      claimed_by_email: h?.email ?? null,
+      claimed_by_name: h?.full_name ?? null,
+    },
+    409,
+  );
+}
+
 // POST /review/:id/approve — accept the AI grade as-is and FINALIZE it
 // (mandatory review). Records the human review, then finalizeGradeReview makes
 // the grade official: certificate goes live, the linked item goes 'graded', the
@@ -3142,6 +3216,8 @@ adminGradingRoutes.post("/review/:id/approve", async (c) => {
   if (stepUp) return stepUp;
   const adminId = c.get("userId");
   const reportId = c.req.param("id");
+  const claimed = await assertClaimNotHeldByAnother(c, reportId, adminId);
+  if (claimed) return claimed;
 
   let body: { notes?: unknown };
   try { body = await c.req.json(); } catch { body = {}; }
@@ -3186,6 +3262,8 @@ adminGradingRoutes.post("/review/:id/adjust", async (c) => {
   if (stepUp) return stepUp;
   const adminId = c.get("userId");
   const reportId = c.req.param("id");
+  const claimed = await assertClaimNotHeldByAnother(c, reportId, adminId);
+  if (claimed) return claimed;
 
   let body: {
     factors?: Partial<Record<keyof FactorScores, unknown>>;
@@ -3313,6 +3391,8 @@ adminGradingRoutes.post("/review/:id/send-back", async (c) => {
   if (stepUp) return stepUp;
   const adminId = c.get("userId");
   const reportId = c.req.param("id");
+  const claimed = await assertClaimNotHeldByAnother(c, reportId, adminId);
+  if (claimed) return claimed;
 
   let body: { notes?: unknown };
   try { body = await c.req.json(); } catch { body = {}; }

@@ -62,7 +62,6 @@ const GRID_IMAGES: ReadonlyArray<readonly [string, string]> = [
   ["src/pages/certificate.tsx", "imageUrls[img.id]"],
   ["src/pages/admin/disputes.tsx", "photoUrls[img.id]"],
   ["src/pages/admin/moderation.tsx", "src={img.url}"],
-  ["src/pages/admin/reviews.tsx", "img.signed_url"],
 ];
 
 describe("grid/card images lazy-load (US-413)", () => {
