@@ -1,7 +1,10 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router";
-import { Loader2 } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageHeader } from "@/components/ui/page-header";
+import { PageHostContext } from "@/hooks/use-page-host";
+import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolveAutolisterView } from "@/pages/flipdesk/nav-tabs";
 
 // US-2161: AutoLister and Drafts were two sidebar entries, and Drafts is not a
@@ -31,14 +34,6 @@ const DraftsPage = lazy(() =>
   }))
 );
 
-function ViewLoading() {
-  return (
-    <div className="flex justify-center py-16">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
-
 export function FlipdeskAutolisterHostPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeView = resolveAutolisterView(searchParams.get("view"));
@@ -56,32 +51,42 @@ export function FlipdeskAutolisterHostPage() {
 
   return (
     <div className="space-y-6">
-      <Tabs value={activeView} onValueChange={setActiveView}>
-        <TabsList>
-          <TabsTrigger value="generate">Generate</TabsTrigger>
-          <TabsTrigger value="drafts">Drafts</TabsTrigger>
-        </TabsList>
+      {/* US-2548: the host names itself. Both views carried their own h1 under
+          an unlabelled tab strip, so the page said "Generating listings" and
+          never said AutoLister. */}
+      <PageHeader
+        icon={Sparkles}
+        title="AutoLister"
+        subtitle="Photos in, complete eBay listings out."
+      />
+      <PageHostContext.Provider value={{ embedded: true }}>
+        <Tabs value={activeView} onValueChange={setActiveView}>
+          <TabsList>
+            <TabsTrigger value="generate">Generate</TabsTrigger>
+            <TabsTrigger value="drafts">Drafts</TabsTrigger>
+          </TabsList>
 
-        {/* Only the active view mounts. This one matters more than the other
-            hosts: the AutoLister page owns the upload store and fires the
-            batch queries, and Drafts runs its own listing reads — mounting
-            both on arrival would double the work for a seller who only wanted
-            to check on drafts. */}
-        <TabsContent value="generate" className="mt-6">
-          {activeView === "generate" && (
-            <Suspense fallback={<ViewLoading />}>
-              <AutolisterPage />
-            </Suspense>
-          )}
-        </TabsContent>
-        <TabsContent value="drafts" className="mt-6">
-          {activeView === "drafts" && (
-            <Suspense fallback={<ViewLoading />}>
-              <DraftsPage />
-            </Suspense>
-          )}
-        </TabsContent>
-      </Tabs>
+          {/* Only the active view mounts. This one matters more than the other
+              hosts: the AutoLister page owns the upload store and fires the
+              batch queries, and Drafts runs its own listing reads — mounting
+              both on arrival would double the work for a seller who only wanted
+              to check on drafts. */}
+          <TabsContent value="generate" className="mt-6">
+            {activeView === "generate" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <AutolisterPage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="drafts" className="mt-6">
+            {activeView === "drafts" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <DraftsPage />
+              </Suspense>
+            )}
+          </TabsContent>
+        </Tabs>
+      </PageHostContext.Provider>
     </div>
   );
 }

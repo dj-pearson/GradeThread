@@ -23,8 +23,17 @@ export interface OverviewRangeDef {
   phrase: string;
 }
 
+// Declared apart from the list so the fallback below is a VALUE, not an index
+// into it: under noUncheckedIndexedAccess a [0] lookup is possibly-undefined,
+// and a default range that might not exist is not a default.
+const SEVEN_DAYS: OverviewRangeDef = {
+  id: "d7",
+  label: "7 days",
+  phrase: "in the last 7 days",
+};
+
 export const OVERVIEW_RANGES: readonly OverviewRangeDef[] = [
-  { id: "d7", label: "7 days", phrase: "in the last 7 days" },
+  SEVEN_DAYS,
   { id: "d30", label: "30 days", phrase: "in the last 30 days" },
   { id: "d90", label: "90 days", phrase: "in the last 90 days" },
   { id: "ytd", label: "Year to date", phrase: "so far this year" },
@@ -41,7 +50,7 @@ export function isOverviewRangeId(v: string | null | undefined): v is OverviewRa
 }
 
 export function overviewRangeDef(id: OverviewRangeId): OverviewRangeDef {
-  return OVERVIEW_RANGES.find((r) => r.id === id) ?? OVERVIEW_RANGES[0];
+  return OVERVIEW_RANGES.find((r) => r.id === id) ?? SEVEN_DAYS;
 }
 
 export interface OverviewRangeBounds {

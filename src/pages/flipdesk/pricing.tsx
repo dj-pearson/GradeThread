@@ -1,7 +1,10 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router";
-import { Loader2 } from "lucide-react";
+import { Tag } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageHeader } from "@/components/ui/page-header";
+import { PageHostContext } from "@/hooks/use-page-host";
+import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolvePricingTab } from "@/pages/flipdesk/nav-tabs";
 
 // US-2161: the four pricing surfaces were four sidebar entries — Repricing,
@@ -14,12 +17,10 @@ import { resolvePricingTab } from "@/pages/flipdesk/nav-tabs";
 // deep link, the command palette and flipdesk-search all keep working, and a
 // refresh or a shared link lands on the same tab.
 //
-// The host deliberately renders NO PageHeader of its own. Each tab is the
-// existing page, verbatim — its title, its subtitle, and every action button it
-// owns. Suppressing those headers would have meant restructuring four working
-// pages and relocating their controls, which is how a nav tidy-up turns into a
-// feature regression. A tab strip above a section title is a familiar shape and
-// costs nothing.
+// US-2548: the host names itself. It used to render no PageHeader, so a seller
+// landing here saw an unlabelled tab strip over a page titled "Repricing", and
+// the word "Pricing" only in the sidebar. Each tab keeps every action it owns —
+// PageHeader drops just the duplicate title, via PageHostContext.embedded.
 //
 // Each page is lazy so opening Pricing pulls one tab's bundle, not four.
 
@@ -46,14 +47,6 @@ const AutomationsPage = lazy(() =>
 
 
 
-function TabLoading() {
-  return (
-    <div className="flex justify-center py-16">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
-
 export function FlipdeskPricingPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeTab = resolvePricingTab(searchParams.get("tab"));
@@ -73,45 +66,52 @@ export function FlipdeskPricingPage() {
 
   return (
     <div className="space-y-6">
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList>
-          <TabsTrigger value="repricing">Repricing</TabsTrigger>
-          <TabsTrigger value="bulk">Bulk pricing</TabsTrigger>
-          <TabsTrigger value="suggestions">Price suggestions</TabsTrigger>
-          <TabsTrigger value="automations">Automations</TabsTrigger>
-        </TabsList>
+      <PageHeader
+        icon={Tag}
+        title="Pricing"
+        subtitle="What to charge, and what to change it to."
+      />
+      <PageHostContext.Provider value={{ embedded: true }}>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList>
+            <TabsTrigger value="repricing">Repricing</TabsTrigger>
+            <TabsTrigger value="bulk">Bulk pricing</TabsTrigger>
+            <TabsTrigger value="suggestions">Price suggestions</TabsTrigger>
+            <TabsTrigger value="automations">Automations</TabsTrigger>
+          </TabsList>
 
-        {/* Only the active tab mounts — these pages each run their own queries,
-            and mounting all four would fire every one of them on arrival. */}
-        <TabsContent value="repricing" className="mt-6">
-          {activeTab === "repricing" && (
-            <Suspense fallback={<TabLoading />}>
-              <RepricingPage />
-            </Suspense>
-          )}
-        </TabsContent>
-        <TabsContent value="bulk" className="mt-6">
-          {activeTab === "bulk" && (
-            <Suspense fallback={<TabLoading />}>
-              <BulkPricingPage />
-            </Suspense>
-          )}
-        </TabsContent>
-        <TabsContent value="suggestions" className="mt-6">
-          {activeTab === "suggestions" && (
-            <Suspense fallback={<TabLoading />}>
-              <PriceSuggestionsPage />
-            </Suspense>
-          )}
-        </TabsContent>
-        <TabsContent value="automations" className="mt-6">
-          {activeTab === "automations" && (
-            <Suspense fallback={<TabLoading />}>
-              <AutomationsPage />
-            </Suspense>
-          )}
-        </TabsContent>
-      </Tabs>
+          {/* Only the active tab mounts — these pages each run their own queries,
+              and mounting all four would fire every one of them on arrival. */}
+          <TabsContent value="repricing" className="mt-6">
+            {activeTab === "repricing" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
+                <RepricingPage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="bulk" className="mt-6">
+            {activeTab === "bulk" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
+                <BulkPricingPage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="suggestions" className="mt-6">
+            {activeTab === "suggestions" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
+                <PriceSuggestionsPage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="automations" className="mt-6">
+            {activeTab === "automations" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this tab" />}>
+                <AutomationsPage />
+              </Suspense>
+            )}
+          </TabsContent>
+        </Tabs>
+      </PageHostContext.Provider>
     </div>
   );
 }

@@ -1,7 +1,8 @@
 import { useNavigate, useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspace } from "@/hooks/use-workspace";
-import { AccountHubContext } from "@/hooks/use-account-hub";
+import { PageHostContext } from "@/hooks/use-page-host";
+import { PageHeader } from "@/components/ui/page-header";
 import type { WorkspaceCapability } from "@/lib/workspace-permissions";
 import { SettingsPage } from "@/pages/settings";
 import { BillingPage } from "@/pages/billing";
@@ -12,7 +13,7 @@ import { ReferralsPage } from "@/pages/referrals";
 // Unified Account hub (US-741). One destination with tabs, composed from the
 // existing standalone pages rather than rewriting them — radix Tabs unmounts
 // inactive content, so only the open tab's page mounts/fetches. Children render
-// with AccountHubContext.embedded = true so each page suppresses its own
+// with PageHostContext.embedded = true so each page suppresses its own
 // PageHeader (US-1441) — the tab label names the section, so a per-page heading
 // would just duplicate it and stack a second title under this tab strip.
 const TABS: { value: string; label: string; requires?: WorkspaceCapability }[] =
@@ -74,35 +75,44 @@ export function AccountPage({
   }
 
   return (
-    <AccountHubContext.Provider value={{ embedded: true }}>
-      <Tabs value={tab} onValueChange={onTab} className="space-y-6">
-        <TabsList className="flex-wrap">
-          {visible.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
-              {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        <TabsContent value="settings">
-          <SettingsPage />
-        </TabsContent>
-        {allowed.has("billing") && (
-          <TabsContent value="billing">
-            <BillingPage />
+    <div className="space-y-6">
+      {/* US-2548: the hub names itself. It suppressed every child heading and
+          rendered none of its own, so the screen went straight from the app
+          chrome to a tab strip and "Account" appeared only in the sidebar. */}
+      <PageHeader
+        title="Account"
+        subtitle="Your profile, your plan, your team and your keys."
+      />
+      <PageHostContext.Provider value={{ embedded: true }}>
+        <Tabs value={tab} onValueChange={onTab} className="space-y-6">
+          <TabsList className="flex-wrap">
+            {visible.map((t) => (
+              <TabsTrigger key={t.value} value={t.value}>
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          <TabsContent value="settings">
+            <SettingsPage />
           </TabsContent>
-        )}
-        <TabsContent value="team">
-          <TeamPage />
-        </TabsContent>
-        {allowed.has("api-keys") && (
-          <TabsContent value="api-keys">
-            <ApiKeysPage />
+          {allowed.has("billing") && (
+            <TabsContent value="billing">
+              <BillingPage />
+            </TabsContent>
+          )}
+          <TabsContent value="team">
+            <TeamPage />
           </TabsContent>
-        )}
-        <TabsContent value="referrals">
-          <ReferralsPage />
-        </TabsContent>
-      </Tabs>
-    </AccountHubContext.Provider>
+          {allowed.has("api-keys") && (
+            <TabsContent value="api-keys">
+              <ApiKeysPage />
+            </TabsContent>
+          )}
+          <TabsContent value="referrals">
+            <ReferralsPage />
+          </TabsContent>
+        </Tabs>
+      </PageHostContext.Provider>
+    </div>
   );
 }

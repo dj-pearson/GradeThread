@@ -165,6 +165,7 @@ import { BatchNav } from "./autolister/batch-nav";
 import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
 import { usePhotoProfile } from "@/lib/photo-profiles";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 
 // FlipDesk AutoLister (US-316 upload + US-317 grouping). Dump a folder of
 // photos, group them so each group = one item/listing, then Generate — which
@@ -2915,18 +2916,12 @@ export function FlipdeskAutolisterPage() {
       {/* US-2520: shown only when this session was reached from a running
           batch, so stepping back to stage more photos does not strand it. */}
       <BatchNav batchId={liveBatchId} current="generate" />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="flex items-center gap-2 text-2xl font-bold">
-            <Sparkles className="h-6 w-6 text-brand-red-text" />
-            AutoLister
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Upload a batch of photos, group them into items, and generate
-            complete eBay listings in seconds.
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
+      <PageHeader
+        icon={Sparkles}
+        title="Generate"
+        subtitle="Upload a batch of photos, group them into items, and generate complete eBay listings in seconds."
+        actions={
+          <div className="flex flex-col items-end gap-2">
           <Button
             onClick={openGenerateConfirm}
             disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
@@ -2971,8 +2966,9 @@ export function FlipdeskAutolisterPage() {
               Auto-publish green drafts when done
             </label>
           )}
-        </div>
-      </div>
+          </div>
+        }
+      />
 
       {/* US-2520: the three session-status panels live in
           ./autolister/session-status-panels.tsx — what is waiting from the

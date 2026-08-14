@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
+import { PageHeader } from "@/components/ui/page-header";
 import {
   useScoutAppraise,
   useScoutBuy,
@@ -221,16 +222,17 @@ export function FlipdeskScoutBuyPage() {
 
   return (
     <div className="mx-auto w-full max-w-xl space-y-6 p-4 sm:p-6">
-      <div className="space-y-1">
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Sparkles className="h-6 w-6 text-brand-red-text" /> Scout · Buy Decision
-        </h1>
-        <p className="text-muted-foreground">
-          In the field, before you buy: snap the item (or scan its barcode), add what
-          you'd pay, and get an instant <strong>buy / maybe / skip</strong> with
-          condition, resale range, sell-through, and ROI.
-        </p>
-      </div>
+      <PageHeader
+        icon={Sparkles}
+        title="Buy decision"
+        subtitle={
+          <>
+            In the field, before you buy: snap the item (or scan its barcode), add
+            what you'd pay, and get an instant <strong>buy / maybe / skip</strong>
+            with condition, resale range, sell-through, and ROI.
+          </>
+        }
+      />
 
       <Card>
         <CardContent className="space-y-4 p-4">

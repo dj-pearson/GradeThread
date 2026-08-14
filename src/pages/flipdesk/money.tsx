@@ -1,7 +1,10 @@
 import { lazy, Suspense } from "react";
 import { useSearchParams } from "react-router";
-import { Loader2 } from "lucide-react";
+import { Wallet } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PageHeader } from "@/components/ui/page-header";
+import { PageHostContext } from "@/hooks/use-page-host";
+import { HostViewSkeleton } from "@/components/flipdesk/host-view-skeleton";
 import { resolveMoneyView } from "@/pages/flipdesk/nav-tabs";
 
 // US-2161: Finances, Expenses and Reconcile were three sidebar entries
@@ -17,10 +20,12 @@ import { resolveMoneyView } from "@/pages/flipdesk/nav-tabs";
 // distinct outer parameter, `?view=reconcile&tab=payouts` resolves both levels
 // independently and every existing Reconcile deep link survives untouched.
 //
-// The host renders NO PageHeader of its own — each view is the existing page
-// verbatim, keeping its title and every action it owns. Suppressing those
-// headers would mean restructuring three working pages and relocating their
-// controls, which is how a nav tidy-up becomes a feature regression.
+// US-2548: the host names itself now. It used to render no PageHeader at all,
+// so the screen read: app chrome, an unlabelled row of tabs, then "Finances" —
+// and "Money", the destination the sidebar sent you to, appeared nowhere on
+// the page. The three views keep every action they own; PageHeader drops only
+// their titles when it sees PageHostContext.embedded, which is the mechanism
+// the Account hub has used since US-1441.
 //
 // Each page is lazy, so opening Money pulls one view's bundle rather than
 // three. Finances in particular carries its own charts.
@@ -38,14 +43,6 @@ const ReconcilePage = lazy(() =>
     default: m.FlipdeskReconcilePage,
   }))
 );
-
-function ViewLoading() {
-  return (
-    <div className="flex justify-center py-16">
-      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
 
 export function FlipdeskMoneyPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -71,37 +68,44 @@ export function FlipdeskMoneyPage() {
 
   return (
     <div className="space-y-6">
-      <Tabs value={activeView} onValueChange={setActiveView}>
-        <TabsList>
-          <TabsTrigger value="finances">Finances</TabsTrigger>
-          <TabsTrigger value="expenses">Expenses</TabsTrigger>
-          <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
-        </TabsList>
+      <PageHeader
+        icon={Wallet}
+        title="Money"
+        subtitle="Where it came from, where it went, and what it left you."
+      />
+      <PageHostContext.Provider value={{ embedded: true }}>
+        <Tabs value={activeView} onValueChange={setActiveView}>
+          <TabsList>
+            <TabsTrigger value="finances">Finances</TabsTrigger>
+            <TabsTrigger value="expenses">Expenses</TabsTrigger>
+            <TabsTrigger value="reconcile">Reconcile</TabsTrigger>
+          </TabsList>
 
-        {/* Only the active view mounts — each page runs its own queries, and
-            mounting all three would fire every one of them on arrival. */}
-        <TabsContent value="finances" className="mt-6">
-          {activeView === "finances" && (
-            <Suspense fallback={<ViewLoading />}>
-              <FinancesPage />
-            </Suspense>
-          )}
-        </TabsContent>
-        <TabsContent value="expenses" className="mt-6">
-          {activeView === "expenses" && (
-            <Suspense fallback={<ViewLoading />}>
-              <ExpensesPage />
-            </Suspense>
-          )}
-        </TabsContent>
-        <TabsContent value="reconcile" className="mt-6">
-          {activeView === "reconcile" && (
-            <Suspense fallback={<ViewLoading />}>
-              <ReconcilePage />
-            </Suspense>
-          )}
-        </TabsContent>
-      </Tabs>
+          {/* Only the active view mounts — each page runs its own queries, and
+              mounting all three would fire every one of them on arrival. */}
+          <TabsContent value="finances" className="mt-6">
+            {activeView === "finances" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <FinancesPage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="expenses" className="mt-6">
+            {activeView === "expenses" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <ExpensesPage />
+              </Suspense>
+            )}
+          </TabsContent>
+          <TabsContent value="reconcile" className="mt-6">
+            {activeView === "reconcile" && (
+              <Suspense fallback={<HostViewSkeleton label="Loading this view" />}>
+                <ReconcilePage />
+              </Suspense>
+            )}
+          </TabsContent>
+        </Tabs>
+      </PageHostContext.Provider>
     </div>
   );
 }

@@ -24,6 +24,7 @@ import {
   type ScoutScored,
 } from "@/hooks/use-scout";
 import { ForecastCard } from "@/components/flipdesk/forecast-card";
+import { PageHeader } from "@/components/ui/page-header";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -167,16 +168,11 @@ export function FlipdeskScoutPage() {
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 p-6">
-      <div className="space-y-1">
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Sparkles className="h-6 w-6 text-brand-red-text" /> ScoutAI
-        </h1>
-        <p className="text-muted-foreground">
-          Find underpriced gems. ScoutAI grades live eBay listings from their own
-          photos and flags the ones priced like they're in worse shape than they
-          are — so you buy low and flip with confidence.
-        </p>
-      </div>
+      <PageHeader
+        icon={Sparkles}
+        title="ScoutAI"
+        subtitle="Find underpriced gems. ScoutAI grades live eBay listings from their own photos and flags the ones priced like they are in worse shape than they are, so you buy low and flip with confidence."
+      />
 
       <Card>
         <CardContent className="p-4">

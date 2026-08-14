@@ -156,6 +156,34 @@ function useGroupKeyParam(): [GroupKey, (k: GroupKey) => void] {
 
 const csvDate = (): string => new Date().toISOString().slice(0, 10);
 
+// US-2548: ONE date-range control for the page.
+//
+// Three of the five tabs drew their own copy of this Select. They already
+// shared the value — usePresetParam keeps it in ?preset= (US-2234) — so the
+// duplication was not three states, it was three controls onto one state, each
+// with a different aria-label (the Grading ROI copy was labelled "Sell-through
+// date range"). What actually broke the carry-across was the tab navigation:
+// it pushed a bare pathname and dropped the whole query string, so the range a
+// seller had just set vanished on the next tab.
+const RANGE_TABS = new Set(["sell-through", "grading-roi", "returns"]);
+
+function RangeSelect() {
+  const [preset, setPreset] = usePresetParam();
+  return (
+    <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
+      <SelectTrigger className="w-44" aria-label="Date range">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">All time</SelectItem>
+        <SelectItem value="30d">Last 30 days</SelectItem>
+        <SelectItem value="90d">Last 90 days</SelectItem>
+        <SelectItem value="12mo">Last 12 months</SelectItem>
+      </SelectContent>
+    </Select>
+  );
+}
+
 export function FlipdeskAnalyticsPage() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -178,13 +206,17 @@ export function FlipdeskAnalyticsPage() {
         icon={BarChart3}
         title="Analytics"
         subtitle="What sells, what doesn't, and whether grading pays off."
+        actions={RANGE_TABS.has(tab) ? <RangeSelect /> : null}
       />
 
       <Tabs
         value={tab}
         onValueChange={(v) =>
+          // location.search rides along: the range, the grouping and any other
+          // deep-link state live in the query string, and a bare pathname would
+          // throw all of it away on every tab click.
           navigate(
-            v === "grading-roi"
+            (v === "grading-roi"
               ? "/dashboard/flipdesk/analytics/grading-roi"
               : v === "returns"
                 ? "/dashboard/flipdesk/analytics/returns"
@@ -192,7 +224,7 @@ export function FlipdeskAnalyticsPage() {
                   ? "/dashboard/flipdesk/analytics/performance"
                   : v === "community"
                     ? "/dashboard/flipdesk/analytics/community"
-                    : "/dashboard/flipdesk/analytics",
+                    : "/dashboard/flipdesk/analytics") + location.search,
           )
         }
       >
@@ -249,7 +281,7 @@ function Loading() {
 
 function SellThroughReport() {
   const user = useAuthStore((s) => s.user);
-  const [preset, setPreset] = usePresetParam();
+  const [preset] = usePresetParam();
   const [groupKey, setGroupKey] = useGroupKeyParam();
 
   const periodStart = useMemo(() => presetStart(preset), [preset]);
@@ -317,17 +349,6 @@ function SellThroughReport() {
             <SelectItem value="category">By category</SelectItem>
             <SelectItem value="brand">By brand</SelectItem>
             <SelectItem value="source">By source</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-          <SelectTrigger className="w-44" aria-label="Profit date range">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All time</SelectItem>
-            <SelectItem value="30d">Last 30 days</SelectItem>
-            <SelectItem value="90d">Last 90 days</SelectItem>
-            <SelectItem value="12mo">Last 12 months</SelectItem>
           </SelectContent>
         </Select>
         <Button
@@ -452,7 +473,7 @@ function GradingRoiReport() {
   const user = useAuthStore((s) => s.user);
   // US-2234 (AC3): honour the same period presets as the sibling tabs. The RPCs
   // now take p_period_start (migration 00505); periodStart flows into both.
-  const [preset, setPreset] = usePresetParam();
+  const [preset] = usePresetParam();
   const periodStart = useMemo(() => presetStart(preset), [preset]);
   const { data: buckets = [], isLoading } = useQuery({
     queryKey: ["items_full", "analytics", "grading-roi", user?.id, preset],
@@ -521,17 +542,6 @@ function GradingRoiReport() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-          <SelectTrigger className="w-44" aria-label="Sell-through date range">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All time</SelectItem>
-            <SelectItem value="30d">Last 30 days</SelectItem>
-            <SelectItem value="90d">Last 90 days</SelectItem>
-            <SelectItem value="12mo">Last 12 months</SelectItem>
-          </SelectContent>
-        </Select>
         <Button
           variant="outline"
           size="sm"
@@ -862,7 +872,7 @@ function RoiStatTile({
 // into their listings. Return rate = refunded ÷ fulfilled (shipped) sales.
 function ReturnReductionReport() {
   const user = useAuthStore((s) => s.user);
-  const [preset, setPreset] = usePresetParam();
+  const [preset] = usePresetParam();
 
   const periodStart = useMemo(() => presetStart(preset), [preset]);
   const { data, isLoading } = useQuery({
@@ -911,17 +921,6 @@ function ReturnReductionReport() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={preset} onValueChange={(v) => setPreset(v as Preset)}>
-          <SelectTrigger className="w-44" aria-label="Trends date range">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All time</SelectItem>
-            <SelectItem value="30d">Last 30 days</SelectItem>
-            <SelectItem value="90d">Last 90 days</SelectItem>
-            <SelectItem value="12mo">Last 12 months</SelectItem>
-          </SelectContent>
-        </Select>
         <Button
           variant="outline"
           size="sm"

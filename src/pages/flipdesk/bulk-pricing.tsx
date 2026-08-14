@@ -285,7 +285,7 @@ export function FlipdeskBulkPricingPage() {
   if (!connected) {
     return (
       <div className="mx-auto max-w-4xl space-y-3 py-12 text-center">
-        <h1 className="text-xl font-semibold">Bulk pricing</h1>
+        <h2 className="text-xl font-semibold">Bulk pricing</h2>
         <p className="text-sm text-muted-foreground">
           Connect your eBay account to bulk-update listing prices and quantities.
         </p>

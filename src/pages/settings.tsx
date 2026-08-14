@@ -4,7 +4,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
-import { useAccountHub } from "@/hooks/use-account-hub";
+import { usePageHost } from "@/hooks/use-page-host";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,7 +100,7 @@ const DEFAULT_SETTINGS_TAB: SettingsTab = "profile";
 export function SettingsPage() {
   const { user, profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
-  const { embedded } = useAccountHub();
+  const { embedded } = usePageHost();
   const [searchParams, setSearchParams] = useSearchParams();
   const openFlipdeskTour = useFlipdeskTourStore((s) => s.open);
   const openWelcomeTour = useOnboardingTourStore((s) => s.open);

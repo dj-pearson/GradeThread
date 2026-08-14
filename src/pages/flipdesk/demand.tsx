@@ -3,6 +3,7 @@ import { Loader2, Megaphone } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { useFlipdeskDemand, type DemandFacet } from "@/hooks/use-flipdesk-demand";
+import { PageHeader } from "@/components/ui/page-header";
 
 // US-1831: seller demand signal — what buyers are actively hunting (PII-safe
 // aggregate). Sellers act by sourcing/grading the wanted brand. Dataviz
@@ -69,14 +70,17 @@ export function FlipdeskDemandPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <div className="flex items-center gap-2">
-        <Megaphone className="h-5 w-5 text-primary" />
-        <h1 className="text-2xl font-bold">Buyer Demand</h1>
-      </div>
-      <p className="text-sm text-muted-foreground">
-        What buyers are actively hunting right now ({demand.totalWants} open want{demand.totalWants === 1 ? "" : "s"}). Source
-        and grade these to meet demand — click a brand to scout it.
-      </p>
+      <PageHeader
+        icon={Megaphone}
+        title="Buyer demand"
+        subtitle={
+          <>
+            What buyers are actively hunting right now ({demand.totalWants} open
+            want{demand.totalWants === 1 ? "" : "s"}). Source and grade these to
+            meet demand — click a brand to scout it.
+          </>
+        }
+      />
       <div className="grid gap-6 md:grid-cols-2">
         <FacetBars title="Top wanted brands" facets={demand.brands} max={maxBrand} />
         <FacetBars title="Top wanted categories" facets={demand.categories} max={maxCat} />

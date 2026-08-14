@@ -23,6 +23,7 @@ import {
   Camera,
   ImagePlus,
 } from "lucide-react";
+import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -644,12 +645,16 @@ export function FlipdeskAutolisterQueuePage() {
       <BatchNav batchId={batchId} current="queue" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Generating listings</h1>
-          <p className="text-sm text-muted-foreground">
-            {isRunning
-              ? "AI is generating your listings — this page updates automatically."
-              : "Batch complete."}
-          </p>
+          {/* This screen is its OWN route (/autolister/queue), reached from a
+              batch rather than from the AutoLister host, so it owns the h1. */}
+          <PageHeader
+            title="Generating listings"
+            subtitle={
+              isRunning
+                ? "AI is generating your listings — this page updates automatically."
+                : "Batch complete."
+            }
+          />
           {/* US-550: confidence-tier summary. */}
           {!isRunning && succeededJobs.length > 0 && (
             <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">

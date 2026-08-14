@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAccountHub } from "@/hooks/use-account-hub";
+import { usePageHost } from "@/hooks/use-page-host";
 
 export interface PageHeaderProps {
   /** Page title — rendered as the page's single <h1>. */
@@ -29,10 +29,11 @@ export function PageHeader({
   actions,
   className,
 }: PageHeaderProps) {
-  // US-1441: inside the Account hub, the tab label already names the section —
-  // drop the redundant title/subtitle/icon so two headings don't stack. Actions
-  // (e.g. Team's "Invite member") are still needed, so keep them right-aligned.
-  const { embedded } = useAccountHub();
+  // US-1441 / US-2548: inside a tabbed host, the host's own title plus the tab
+  // label already name the section — drop the redundant title/subtitle/icon so
+  // two headings don't stack. Actions (Team's "Invite member", AutoLister's
+  // "Generate") are still needed, so keep them right-aligned.
+  const { embedded } = usePageHost();
 
   if (embedded) {
     if (!actions) return null;

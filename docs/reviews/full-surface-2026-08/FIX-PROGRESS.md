@@ -178,7 +178,11 @@ unless a story is blocked; if blocked, note why and move to the next.
       HELD) replaces the whole-account loop, date range in ?range=, show-all on
       both list cards; guard `src/test/overview-stage-and-range.test.ts` (15 cases,
       12 red)
-- [ ] US-2548 (2412) Tabbed hosts show no name
+- [x] US-2548 (2412) Tabbed hosts show no name - SHA - five hosts (the four named
+      plus the Account hub) render their own PageHeader; AccountHubContext
+      generalised to PageHostContext; 7 children moved off a hand-rolled h1;
+      shared HostViewSkeleton; Analytics range lifted AND the query string kept
+      across tab clicks; guard `src/test/tab-host-headers.test.ts` (46 cases, 29 red)
 - [ ] US-2549 (2414) Embed widget missing noindex
 - [ ] US-2550 (2416) Failed integrity check gives buyer nothing to do
 - [ ] US-2551 (2418) Anonymous tag claim
@@ -448,6 +452,41 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2548
+- A suppression context suppresses YOU too. The first cut put each host's own
+  PageHeader inside its `PageHostContext.Provider`, and PageHeader returns null
+  when embedded with no actions — so the fix rendered exactly the same broken
+  screen as before. The guard now asserts the header appears BEFORE the provider
+  in the file, which is the cheap textual proxy for "outside it".
+- Half the fix was already built and had a different name. `useAccountHub` had
+  done child-header suppression since US-1441; the four FlipDesk hosts had the
+  OPPOSITE half of the same bug and nobody connected them because the mechanism
+  was named after the one page that used it. Renaming it to PageHostContext cost
+  three importers and turned five separate fixes into one.
+- The guard found the seventh offender again. My hand grep listed six children
+  with a hand-rolled h1 and missed `demand.tsx` entirely, because I built the
+  list from the host files I had open rather than from what the hosts mount.
+- Check whether a "child" is also a ROUTE before demoting its heading.
+  `/autolister/queue` is its own URL reached from a batch, so demoting its h1 to
+  an h2 (which is right for a hosted page) would have left a real page with no
+  title at all. It got a PageHeader instead, and the guard splits HOSTED from
+  STANDALONE so the next person does not have to rediscover the difference.
+- The review's premise on the Analytics range was half wrong, and the true bug
+  was worse. The value was ALREADY shared through `?preset=` (US-2234); what
+  broke it was `navigate("/dashboard/flipdesk/analytics/returns")` dropping the
+  whole query string on every tab click. Lifting the control was still right
+  (three copies, three different aria-labels, two naming the wrong report), but
+  it alone would not have fixed the carry-across the AC asked for.
+- `tsc -b` is INCREMENTAL, and it passed twice on a file it had not rechecked.
+  A `noUncheckedIndexedAccess` error in US-2547's `overview-range.ts` only
+  surfaced during this story, after a stash/pop invalidated the build info.
+  Fixed here. If a story ends with a green `tsc -b`, that is evidence about the
+  files it touched, not a clean bill of health for the tree.
+- The one red suite on main, `react-router-8-contract`, is a STALE LOCAL
+  node_modules: package.json declares ^8.3.0, the installed copy is 7.18.2, and
+  CI runs `npm ci`. Do not "fix" it in code — run `npm ci` if the local suite
+  needs to be honest about it.
 
 ### Lessons from US-2547
 - A "click X to filter" tile is worth checking in BOTH directions. Chasing the

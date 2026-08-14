@@ -37071,6 +37071,20 @@
       ],
       "priority": 2410,
       "notes": "Done 2026-08-14. Stage tiles now open that stage: statusParamToTab still routes, and a new stageFilterStatusFromParam seeds the VISIBLE advanced filter for the eight stages To List folds together, so the tile count and the list agree. The guard found a second defect: item status completed routed to the Sold tab, whose predicate is status = sold, so the Completed tile counted rows NO tab could show - it now lands on All with the narrowing, and the Net-profit card names ?tab=sold outright instead of borrowing the word. Metrics come from a new RPC, flipdesk_overview_metrics (migration 00594, SECURITY INVOKER over items_full), instead of a whole-account read looped in the browser; the North Star card moved to server week buckets so nothing needs the full list any more. Date range added (7d/30d/90d/YTD/all time) in ?range=, and every card states the window it shows. Aging and stale cards got show-all; aging rows are links now, like stale rows. MIGRATION 00594 IS HELD - the page calls the RPC, so apply the SQL and NOTIFY pgrst before any push. Guard: src/test/overview-stage-and-range.test.ts, 15 cases, 12 red before the fix."
+    },
+    {
+      "id": "US-2548",
+      "passes": true,
+      "title": "The tabbed FlipDesk hosts never show their own name",
+      "description": "As a seller, I want to know which section I am in, so that the page names the destination the sidebar sent me to.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/money.tsx, pricing.tsx, sourcing.tsx and autolister-host.tsx each render a bare TabsList and deliberately no PageHeader, so the screen reads: app header, unlabelled tabs, then the child page's own title. Landing on /dashboard/flipdesk/money shows tabs and a heading that says 'Finances'.",
+        "Each host renders its own title and the hosted child suppresses its heading, or the child heading becomes a section heading under a host title.",
+        "All four hosts replace their bare Loader2 Suspense fallback with a skeleton.",
+        "Analytics lifts its date range to the page so it carries across tabs; today each of the five tabs owns its own range Select."
+      ],
+      "priority": 2412,
+      "notes": "Done 2026-08-14. All four hosts (money, pricing, sourcing, autolister-host) now render their own PageHeader, and the Account hub got one too - a fifth instance of the same defect that the story did not name. Suppression reuses the mechanism the Account hub has had since US-1441: the AccountHubContext was renamed to the general PageHostContext (src/hooks/use-page-host.ts) and each host wraps only its Tabs in it, never its own header - inside the provider the host header suppresses itself and renders nothing, which the guard now pins. Seven children hand-rolled a page h1 that no context could suppress and were converted to PageHeader: repricing, scout, scout-buy, autolister, demand (found by the guard, not by my grep), plus bulk-pricing's disconnected state demoted to h2. autolister-queue is its OWN route reached from a batch, so it keeps a real h1 rather than being demoted. Suspense fallbacks moved from a bare Loader2 to a shared HostViewSkeleton. Analytics: the range premise was half wrong - the value was already shared through ?preset= since US-2234, and what actually broke it was tab navigation pushing a bare pathname and dropping the query string. Fixed both: one page-level RangeSelect (the three copies had three different aria-labels, two of them naming the wrong report) and location.search carried across tab clicks. Guard: src/test/tab-host-headers.test.ts, 46 cases, 29 red before the fix."
     }
   ]
 }
