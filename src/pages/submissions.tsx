@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -8,12 +8,18 @@ import {
   ChevronLeft,
   ChevronRight,
   ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
   Search,
+  X,
   Download,
   Flag,
   Layers,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { SearchInput } from "@/components/search-input";
 import { ScoreBandIcon } from "@/components/grade/score-indicator";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PageHeader } from "@/components/ui/page-header";
@@ -49,6 +55,7 @@ import { cn } from "@/lib/utils";
 import { csvBlob, downloadBlob } from "@/lib/download";
 import { escapeCsvCell } from "@/lib/items-csv";
 import { todayLocalDate, toLocalDate } from "@/lib/local-date";
+import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { fetchInChunks } from "@/lib/supabase-batch";
@@ -98,7 +105,9 @@ function LoadingSkeleton() {
   );
 }
 
-async function exportSubmissionsCsv() {
+// US-2544 AC4: pass `ids` to export just the checked rows. Omit it for the
+// whole account, which is what the toolbar button has always done.
+async function exportSubmissionsCsv(ids?: string[]) {
   // US-2204: the export is unpaginated by design, so it is the one submissions
   // read whose row width scales with the whole account. It writes seven columns
   // out of the row, and the grade_reports side is already projected — so project
@@ -116,15 +125,29 @@ async function exportSubmissionsCsv() {
     | "status"
   >;
 
-  // Fetch ALL submissions (no pagination)
-  const { data: submissions, error: subError } = await supabase
-    .from("submissions")
-    .select("id, created_at, title, brand, garment_type, garment_category, status")
-    .order("created_at", { ascending: false });
-
-  if (subError) throw subError;
-
-  const allSubmissions = (submissions ?? []) as ExportSubmission[];
+  // Fetch ALL submissions (no pagination), or just the selected ids. The id
+  // list is chunked for the same reason the grade-report join below is: a
+  // selection can span hundreds of rows and would overflow the request URL.
+  const EXPORT_COLUMNS =
+    "id, created_at, title, brand, garment_type, garment_category, status";
+  let allSubmissions: ExportSubmission[];
+  if (ids) {
+    allSubmissions = await fetchInChunks<ExportSubmission>(ids, async (chunk) => {
+      const { data, error } = await supabase
+        .from("submissions")
+        .select(EXPORT_COLUMNS)
+        .in("id", chunk)
+        .order("created_at", { ascending: false });
+      return { data, error };
+    });
+  } else {
+    const { data: submissions, error: subError } = await supabase
+      .from("submissions")
+      .select(EXPORT_COLUMNS)
+      .order("created_at", { ascending: false });
+    if (subError) throw subError;
+    allSubmissions = (submissions ?? []) as ExportSubmission[];
+  }
 
   if (allSubmissions.length === 0) {
     toast.info("No submissions to export.");
@@ -211,7 +234,12 @@ async function exportSubmissionsCsv() {
   );
 
   const dateStr = todayLocalDate();
-  downloadBlob(csvBlob(csvContent), `gradethread_export_${dateStr}.csv`);
+  downloadBlob(
+    csvBlob(csvContent),
+    ids
+      ? `gradethread_export_${allSubmissions.length}_selected_${dateStr}.csv`
+      : `gradethread_export_${dateStr}.csv`,
+  );
 }
 
 function getDisputeStatusBadgeClasses(status: string): string {
@@ -248,6 +276,40 @@ export function SubmissionsPage() {
   const [garmentTypeFilter, setGarmentTypeFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<SortField>("created_at");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  // US-2544 AC2: free-text search over title + brand, plus a date range. The
+  // draft is what the field shows; `search` is what the query runs on, 300ms
+  // behind it, so typing a nine-character brand does not fire nine queries.
+  const [searchDraft, setSearchDraft] = useState("");
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  // US-2544 AC4: ids picked for a partial export.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSearch(searchDraft);
+      setPage(0);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchDraft]);
+
+  const filtersActive =
+    statusFilter !== "all" ||
+    garmentTypeFilter !== "all" ||
+    searchDraft.trim() !== "" ||
+    dateFrom !== "" ||
+    dateTo !== "";
+
+  function clearFilters() {
+    setStatusFilter("all");
+    setGarmentTypeFilter("all");
+    setSearchDraft("");
+    setSearch("");
+    setDateFrom("");
+    setDateTo("");
+    setPage(0);
+  }
 
   const {
     data,
@@ -261,10 +323,37 @@ export function SubmissionsPage() {
       page,
       statusFilter,
       garmentTypeFilter,
+      search,
+      dateFrom,
+      dateTo,
       sortField,
       sortDirection,
     ],
     queryFn: async () => {
+      // US-2544 AC2: the search and date filters must reach BOTH sort branches.
+      // Defining them once is the only thing stopping the score branch from
+      // quietly ignoring a filter the date branch honours.
+      //
+      // `.or()` on a SELECT is fine on prod PostgREST — it is only rejected on
+      // UPDATE/DELETE (US-1552). sanitizeSearch strips the characters `.or()`
+      // parses as syntax.
+      const withSearchAndDates = <
+        T extends {
+          or: (filter: string) => T;
+          gte: (column: string, value: string) => T;
+          lte: (column: string, value: string) => T;
+        },
+      >(
+        q: T,
+      ): T => {
+        let next = q;
+        const term = sanitizeSearch(search);
+        if (term) next = next.or(`title.ilike.%${term}%,brand.ilike.%${term}%`);
+        if (dateFrom) next = next.gte("created_at", dateFrom);
+        if (dateTo) next = next.lte("created_at", endOfDayIso(dateTo));
+        return next;
+      };
+
       // Fetch the active grade report (overall_score + grade_tier) for a set of
       // submission ids, keyed by submission_id. US-479: only the non-superseded
       // report per submission.
@@ -303,6 +392,7 @@ export function SubmissionsPage() {
           scoreQuery = scoreQuery.eq("status", statusFilter);
         if (garmentTypeFilter !== "all")
           scoreQuery = scoreQuery.eq("garment_type", garmentTypeFilter);
+        scoreQuery = withSearchAndDates(scoreQuery);
         scoreQuery = scoreQuery
           .order("overall_score", {
             ascending: sortDirection === "asc",
@@ -336,6 +426,7 @@ export function SubmissionsPage() {
       if (garmentTypeFilter !== "all") {
         query = query.eq("garment_type", garmentTypeFilter);
       }
+      query = withSearchAndDates(query);
 
       query = query
         .order("created_at", { ascending: sortDirection === "asc" })
@@ -441,6 +532,48 @@ export function SubmissionsPage() {
     setPage(0);
   }
 
+  // US-2544 AC2: both headers used to render the same static ArrowUpDown, so
+  // the table told you it was sortable and never which way it was sorted.
+  function SortIcon({ field }: { field: SortField }) {
+    if (sortField !== field) {
+      return <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />;
+    }
+    return sortDirection === "asc" ? (
+      <ArrowUp className="h-3.5 w-3.5" />
+    ) : (
+      <ArrowDown className="h-3.5 w-3.5" />
+    );
+  }
+
+  function ariaSortFor(field: SortField): "ascending" | "descending" | "none" {
+    if (sortField !== field) return "none";
+    return sortDirection === "asc" ? "ascending" : "descending";
+  }
+
+  // US-2544 AC4. Selection is per-page and deliberately NOT cleared when the
+  // page changes: picking three rows on page 1 and two on page 2 then exporting
+  // all five is the point.
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allOnPageSelected =
+    submissions.length > 0 && submissions.every((s) => selected.has(s.id));
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allOnPageSelected) submissions.forEach((s) => next.delete(s.id));
+      else submissions.forEach((s) => next.add(s.id));
+      return next;
+    });
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -488,7 +621,17 @@ export function SubmissionsPage() {
             Filters
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {/* US-2544 AC1/AC2: the card has always worn a magnifying glass. Now
+              it has the search to go with it. Title and brand are the two
+              columns the table shows that a seller would recognise an item by. */}
+          <SearchInput
+            label="Search submissions by title or brand"
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            placeholder="Search title or brand…"
+            className="w-full"
+          />
           <div className="flex flex-wrap gap-3">
             <div className="w-44">
               <Select
@@ -533,6 +676,46 @@ export function SubmissionsPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            {/* US-2544 AC2: date range. Both bounds are inclusive — see
+                endOfDayIso for why the end needs saying out loud. */}
+            <div className="flex items-center gap-2">
+              <Label htmlFor="date-from" className="text-xs text-muted-foreground">
+                From
+              </Label>
+              <Input
+                id="date-from"
+                type="date"
+                value={dateFrom}
+                max={dateTo || undefined}
+                className="w-40"
+                onChange={(e) => {
+                  setDateFrom(e.target.value);
+                  setPage(0);
+                }}
+              />
+              <Label htmlFor="date-to" className="text-xs text-muted-foreground">
+                To
+              </Label>
+              <Input
+                id="date-to"
+                type="date"
+                value={dateTo}
+                min={dateFrom || undefined}
+                className="w-40"
+                onChange={(e) => {
+                  setDateTo(e.target.value);
+                  setPage(0);
+                }}
+              />
+            </div>
+
+            {filtersActive && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="mr-1 h-4 w-4" />
+                Clear filters
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -563,17 +746,14 @@ export function SubmissionsPage() {
                 "Something went wrong while loading your submissions. This is usually temporary.",
             }}
             empty={
-              statusFilter !== "all" || garmentTypeFilter !== "all" ? (
+              filtersActive ? (
                 <EmptyState
                   icon={FileText}
                   title="No matching submissions"
-                  description="No submissions match the current filters."
+                  description="No submissions match the current search and filters."
                   secondaryAction={{
                     label: "Clear filters",
-                    onClick: () => {
-                      setStatusFilter("all");
-                      setGarmentTypeFilter("all");
-                    },
+                    onClick: clearFilters,
                   }}
                 />
               ) : (
@@ -591,29 +771,131 @@ export function SubmissionsPage() {
             }
           >
             <>
-              <div className="overflow-x-auto">
+              {/* US-2544 AC4: what the checkboxes are for. Only appears once
+                  something is checked, so the toolbar stays quiet otherwise. */}
+              {selected.size > 0 && (
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                  <span className="font-medium">
+                    {selected.size} selected
+                  </span>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={exporting}
+                      onClick={async () => {
+                        setExporting(true);
+                        try {
+                          await exportSubmissionsCsv([...selected]);
+                        } catch {
+                          toast.error("Failed to export the selected submissions.");
+                        } finally {
+                          setExporting(false);
+                        }
+                      }}
+                    >
+                      <Download className="mr-1 h-4 w-4" />
+                      {exporting ? "Exporting…" : "Export selected"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelected(new Set())}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* US-2544 AC5: five columns do not fit a phone, and the old
+                  horizontal scroll hid the grade — the one column a seller
+                  opens this page for. Cards under md, table from md up. */}
+              <ul className="space-y-2 md:hidden">
+                {submissions.map((sub) => (
+                  <li key={sub.id}>
+                    <div className="flex items-start gap-3 rounded-lg border p-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 flex-shrink-0 cursor-pointer"
+                        checked={selected.has(sub.id)}
+                        onChange={() => toggleSelected(sub.id)}
+                        aria-label={`Select ${sub.title}`}
+                      />
+                      <button
+                        className="min-w-0 flex-1 space-y-1 text-left"
+                        onClick={() =>
+                          navigate(`/dashboard/submissions/${sub.id}`)
+                        }
+                      >
+                        <p className="truncate font-medium">{sub.title}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {sub.brand ?? "No brand"} ·{" "}
+                          {new Date(sub.created_at).toLocaleDateString()}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                          <Badge
+                            variant="outline"
+                            className={cn(getStatusBadgeClasses(sub.status))}
+                          >
+                            {formatLabel(sub.status)}
+                          </Badge>
+                          {sub.grade_report && (
+                            <span
+                              className={cn(
+                                "inline-flex items-center gap-1.5 text-sm font-semibold",
+                                getScoreColor(sub.grade_report.overall_score),
+                              )}
+                            >
+                              <ScoreBandIcon
+                                score={sub.grade_report.overall_score}
+                                withLabel={false}
+                              />
+                              {sub.grade_report.overall_score.toFixed(1)}
+                              <span className="text-xs font-medium text-muted-foreground">
+                                {sub.grade_report.grade_tier}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              <div className="hidden overflow-x-auto md:block">
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 cursor-pointer"
+                          checked={allOnPageSelected}
+                          onChange={toggleSelectAll}
+                          aria-label="Select all on this page"
+                        />
+                      </TableHead>
                       <TableHead>Title</TableHead>
                       <TableHead>Brand</TableHead>
                       <TableHead>Status</TableHead>
-                      <TableHead>
+                      <TableHead aria-sort={ariaSortFor("overall_score")}>
                         <button
                           className="inline-flex items-center gap-1 hover:text-foreground"
                           onClick={() => toggleSort("overall_score")}
                         >
                           Grade
-                          <ArrowUpDown className="h-3.5 w-3.5" />
+                          <SortIcon field="overall_score" />
                         </button>
                       </TableHead>
-                      <TableHead>
+                      <TableHead aria-sort={ariaSortFor("created_at")}>
                         <button
                           className="inline-flex items-center gap-1 hover:text-foreground"
                           onClick={() => toggleSort("created_at")}
                         >
                           Date Submitted
-                          <ArrowUpDown className="h-3.5 w-3.5" />
+                          <SortIcon field="created_at" />
                         </button>
                       </TableHead>
                     </TableRow>
@@ -628,6 +910,17 @@ export function SubmissionsPage() {
                         }
                         activateLabel={`View submission ${sub.title}`}
                       >
+                        <TableCell>
+                          {/* ClickableRow already ignores clicks that start
+                              inside a nested input, so this does not navigate. */}
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 cursor-pointer"
+                            checked={selected.has(sub.id)}
+                            onChange={() => toggleSelected(sub.id)}
+                            aria-label={`Select ${sub.title}`}
+                          />
+                        </TableCell>
                         <TableCell className="font-medium">
                           {sub.title}
                         </TableCell>
@@ -705,7 +998,18 @@ export function SubmissionsPage() {
         </CardContent>
       </Card>
 
-      {/* My Disputes */}
+      {/* US-2544 AC3: most sellers never file a dispute, and a full empty state
+          with an icon and a paragraph gave every one of them a permanent
+          card-sized reminder of a thing they had not done. When there is
+          nothing to show, this is one muted line. The error and loading states
+          are unchanged: a dispute that failed to LOAD still has to say so. */}
+      {!disputesError && !disputesLoading && myDisputes.length === 0 ? (
+        <p className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
+          <Flag className="h-3.5 w-3.5 flex-shrink-0" aria-hidden="true" />
+          No disputes filed. You can dispute a grade from its submission within
+          7 days.
+        </p>
+      ) : (
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -730,12 +1034,6 @@ export function SubmissionsPage() {
             />
           ) : disputesLoading ? (
             <LoadingSkeleton />
-          ) : myDisputes.length === 0 ? (
-            <EmptyState
-              icon={Flag}
-              title="No disputes filed"
-              description="If you disagree with a grade, you can dispute it from the submission detail page within 7 days."
-            />
           ) : (
             <div className="overflow-x-auto">
               <Table>
@@ -801,6 +1099,7 @@ export function SubmissionsPage() {
           )}
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

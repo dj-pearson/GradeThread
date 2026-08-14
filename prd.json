@@ -1840,20 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2544",
-      "passes": false,
-      "title": "Submissions list has no search and shows a permanent empty disputes table",
-      "description": "As a seller with hundreds of submissions, I want to search them, so that I can find one by title or brand.",
-      "acceptanceCriteria": [
-        "src/pages/submissions.tsx:487 titles its filter card with a magnifying-glass icon but offers only two dropdowns — status and garment type. There is no free-text search over title or brand and no date-range filter.",
-        "Text search and a date range are added, and sort direction is visible on the sortable headers (:607, :616 render a static ArrowUpDown).",
-        "The My Disputes table (:709-803) collapses when empty instead of showing a full empty state to every seller who has never filed one.",
-        "Rows are selectable with at least a bulk CSV export of the selection.",
-        "The five-column table has a card fallback on narrow screens (:594)."
-      ],
-      "priority": 2404
-    },
-    {
       "id": "US-2545",
       "passes": false,
       "title": "Submission detail cannot enlarge the photos the grade was based on",

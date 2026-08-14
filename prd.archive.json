@@ -37012,6 +37012,21 @@
       ],
       "priority": 2402,
       "notes": "All five ACs. rewards.tsx 9 panels to 3 tabs (Standing default: integrity, loyalty, badges | This season: goals, quests, milestones, past seasons | Perks and boards); the level card stays ABOVE the tabs because it answers where-am-I on every one. referrals.tsx 8 to 3 (Share default | Affiliate | Leaderboard). flipdesk/verified.tsx 7 to 3 (Profile default | Badges | Passport identity). flipdesk/marketplaces.tsx 8 sections to 3 (Connections default | Settings | How channels work), so five screens of reference copy no longer sit between the switches. AC3: new src/components/flipdesk/marketplace-connection-summary.tsx above the tabs, reading useEbayConnection + useEbayConnectionIssue + useShopifyConnection + useGoogleConnection (all already mounted, so no extra requests) and reporting a revoked grant as needs-attention rather than as not-connected, which are different problems. AC4: new src/components/verified/profile-preview.tsx mirrors the real public hero from verified-seller.tsx against the UNSAVED form state, so typing a handle/name/bio shows the result; the standalone stats grid folded into it, removing a panel. Deliberately not faked in the preview: level flair, integrity tier and the storefront grid are server-computed. AC5: the campaign-code box moved to the credits card on billing.tsx as src/components/billing/promo-code-redeemer.tsx (it grants grade credits, so it belongs by the balance, and it invalidates billing_summary); the friend-referral code stays on referrals. Guard: src/test/long-page-structure.test.ts, 16 cases, 12 proven red."
+    },
+    {
+      "id": "US-2544",
+      "passes": true,
+      "title": "Submissions list has no search and shows a permanent empty disputes table",
+      "description": "As a seller with hundreds of submissions, I want to search them, so that I can find one by title or brand.",
+      "acceptanceCriteria": [
+        "src/pages/submissions.tsx:487 titles its filter card with a magnifying-glass icon but offers only two dropdowns — status and garment type. There is no free-text search over title or brand and no date-range filter.",
+        "Text search and a date range are added, and sort direction is visible on the sortable headers (:607, :616 render a static ArrowUpDown).",
+        "The My Disputes table (:709-803) collapses when empty instead of showing a full empty state to every seller who has never filed one.",
+        "Rows are selectable with at least a bulk CSV export of the selection.",
+        "The five-column table has a card fallback on narrow screens (:594)."
+      ],
+      "priority": 2404,
+      "notes": "All five ACs. AC2: SearchInput over title+brand, debounced 300ms, applied via a withSearchAndDates helper called from BOTH sort branches (the score branch is a separate query, so a filter applied to only one silently changes the result set when you click a header); search+dateFrom+dateTo added to the query key; From/To date inputs with an inclusive end bound. Sort direction now renders ArrowUp/ArrowDown on the active column with aria-sort on both headers, replacing the static ArrowUpDown that told you it was sortable but never which way. AC3: the disputes card collapses to one muted line when empty; the error and loading branches are untouched, because collapsing on error would turn an outage into you-have-no-disputes. AC4: per-row checkboxes plus select-all-on-page, a selection toolbar, and Export selected reusing exportSubmissionsCsv(ids?) with the id list chunked through fetchInChunks; the selection deliberately SURVIVES paging so a pick spanning pages exports as one file. AC5: card list under md, table from md up, and the card leads with the grade, which was the column the old horizontal scroll pushed off-screen. Also extracted sanitizeSearch + a new endOfDayIso into src/lib/search-filter.ts and rewired admin/users.tsx to it, so the PostgREST .or() guard has one copy. Guard: src/test/submissions-list-filters.test.ts, 17 cases, 14 proven red."
     }
   ]
 }

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router";
 import { supabase } from "@/lib/supabase";
+import { sanitizeSearch, endOfDayIso } from "@/lib/search-filter";
 import type { UserRow } from "@/types/database";
 import { fetchAdminUserListStats } from "@/lib/admin-aggregates";
 import { FLIPDESK_PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
@@ -83,13 +84,6 @@ interface UserListRow extends UserListColumns {
   last_active: string;
 }
 
-// PostgREST `.or()` parses commas/parens as syntax — strip them from the raw
-// search term so a stray character can't break the filter (ilike still matches
-// the remaining substring).
-function sanitizeSearch(value: string): string {
-  return value.replace(/[,()*]/g, " ").trim();
-}
-
 export function AdminUsersPage() {
   const navigate = useNavigate();
   const [search, setSearch] = useState("");
@@ -164,7 +158,7 @@ export function AdminUsersPage() {
       if (planFilter !== "all") query = query.eq("flipdesk_plan", planFilter);
       if (roleFilter !== "all") query = query.eq("role", roleFilter);
       if (dateFrom) query = query.gte("created_at", dateFrom);
-      if (dateTo) query = query.lte("created_at", `${dateTo}T23:59:59.999Z`);
+      if (dateTo) query = query.lte("created_at", endOfDayIso(dateTo));
 
       query = query
         .order("created_at", { ascending: false })
