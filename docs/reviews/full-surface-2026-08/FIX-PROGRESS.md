@@ -206,7 +206,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       cannot match, sizes per group, and a want finally shows what it matched;
       guard `src/test/buyer-taxonomy.test.ts` (16 cases, 8 red). Filed US-2571
       for a live extractor bug found on the way.
-- [x] US-2553 (2422) Buyer home never completes - SHA7 - steps complete on real
+- [x] US-2553 (2422) Buyer home never completes - 7080c831 - steps complete on real
       signals (extension bridge marker / saved_searches / closet_items) and
       self-hide; one step REPLACED because it could never complete; new
       BuyerActivity reads two feeds that already existed; extension link points
