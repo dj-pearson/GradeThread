@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2526",
-      "passes": false,
-      "title": "Free tools blame the user's photo when they hit a rate limit",
-      "description": "As a visitor using a free tool, I want to be told I hit a limit, so that I do not retake a photo that was fine.",
-      "acceptanceCriteria": [
-        "src/pages/tools/grade-checker.tsx:137 falls back to \"Couldn't grade that photo. Try a clearer, well-lit shot.\" for any non-OK response, including a quota block. src/pages/snap.tsx:63 already handles this correctly with a SNAP_LIMIT_REACHED branch and an upgrade CTA.",
-        "All three tools under src/pages/tools distinguish a rate-limit response from a grading failure and show a limit message with a signup or upgrade CTA.",
-        "authenticity-check.tsx and fit-checker.tsx render BuyerConversionCTAs so a converting visitor keeps their result, as grade-checker.tsx and whats-it-worth.tsx already do.",
-        "The primary CTA on a finished result goes to signup or the submission flow, not to /how-it-works (grade-checker.tsx:354, authenticity-check.tsx:141,211)."
-      ],
-      "priority": 1938
-    },
-    {
       "id": "US-2527",
       "passes": false,
       "title": "The subprocessor list is missing Google and Apple",

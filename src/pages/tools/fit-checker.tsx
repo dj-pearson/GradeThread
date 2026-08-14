@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarketingLayout, MarketingCTA } from "@/components/marketing/marketing-layout";
+import { BuyerConversionCtas } from "@/components/marketing/buyer-conversion-ctas";
 import { FIT_CHECKER_META, FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { track } from "@/lib/analytics";
 import { BODY_MEASUREMENT_FIELDS } from "@/lib/body-profile";
@@ -286,6 +287,18 @@ function FitCheckerTool() {
                   {Math.round(result.confidence * 100)}% confidence from {result.dimensions.length} dimension
                   {result.dimensions.length === 1 ? "" : "s"}.
                 </p>
+                {/* US-2526: someone checking whether a garment will fit them is
+                    a BUYER, and this page only ever offered "save your
+                    measurements". Same conversion moment the other free tools
+                    carry, and it hands the result over so the new account opens
+                    on the item rather than on nothing. */}
+                <BuyerConversionCtas
+                  className="mt-5 bg-background"
+                  tool="grade_checker"
+                  result={{
+                    label: `${GROUPS.find((g) => g.value === group)?.label ?? "Garment"} fit check`,
+                  }}
+                />
                 <div className="mt-5 flex flex-wrap gap-3">
                   <Button size="sm" variant="outline" onClick={() => void onShare()}>
                     {copied ? (

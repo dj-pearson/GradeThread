@@ -9,6 +9,8 @@ import {
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { BuyerConversionCtas } from "@/components/marketing/buyer-conversion-ctas";
+import { ToolLimitNotice } from "@/components/marketing/tool-limit-notice";
+import { isRateLimited } from "@/lib/tool-rate-limit";
 import {
   GRADE_CHECKER_ENDPOINT,
   GRADE_CHECKER_META,
@@ -104,10 +106,13 @@ function GradeCheckerTool() {
   const [brand, setBrand] = useState("");
   const [keyword, setKeyword] = useState("");
   const [copied, setCopied] = useState(false);
+  // US-2526: the free limit is its own state, not an error string.
+  const [limited, setLimited] = useState<string | null | false>(false);
 
   async function onFile(file: File) {
     setBusy(true);
     setError(null);
+    setLimited(false);
     setResult(null);
     try {
       // Dynamic import: media-intake pulls in browser-only HEIC libs — keep it
@@ -131,6 +136,15 @@ function GradeCheckerTool() {
         | { error?: string }
         | null;
       if (!res.ok || !body || !("overallScore" in body)) {
+        // US-2526: a limit is not a bad photo. Telling someone mid-conversion
+        // to retake a shot that was fine sends them away to do work that
+        // cannot help them.
+        if (isRateLimited(res.status, body)) {
+          setLimited(
+            body && "error" in body && body.error ? body.error : null,
+          );
+          return;
+        }
         const msg =
           body && "error" in body && body.error
             ? body.error
@@ -351,7 +365,14 @@ function GradeCheckerTool() {
             />
 
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <Link to="/how-it-works" onClick={() => onCtaClick("certify")}>
+              {/* US-2526: the primary CTA on a finished result went to
+                  /how-it-works — an explainer, from someone who has just
+                  watched it work. It goes to the submission flow now; signup
+                  catches them on the way if they are not signed in. */}
+              <Link
+                to="/dashboard/submissions/new"
+                onClick={() => onCtaClick("certify")}
+              >
                 <Button size="sm">
                   Get a certified grade
                   <ArrowRight className="ml-1 h-4 w-4" />
@@ -375,7 +396,11 @@ function GradeCheckerTool() {
             </div>
           </div>
         )}
-        {error ? <p className="mt-4 text-center text-sm text-brand-red-text">{error}</p> : null}
+        {limited !== false
+          ? <ToolLimitNotice toolLabel="grade checks" message={limited} />
+          : error
+          ? <p className="mt-4 text-center text-sm text-brand-red-text">{error}</p>
+          : null}
       </div>
     </div>
   );

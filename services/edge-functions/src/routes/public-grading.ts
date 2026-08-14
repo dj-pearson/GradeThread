@@ -679,6 +679,12 @@ export function clientIpFor(c: Context): string {
 // NON-retryable state — distinct from a bad-URL 400 (which invited quota-burning
 // retries when the AI ceiling was mis-reported as the user's fault).
 export const AT_CAPACITY_CODE = "at_capacity";
+
+// US-2526: the machine-readable half of a 429. The free tools rendered every
+// non-OK response as a grading failure — "try a clearer, well-lit shot" — so a
+// visitor who had simply used the tool three times went and retook a photo that
+// was fine. A code lets the page say "limit", not "your photo".
+export const RATE_LIMITED_CODE = "rate_limited";
 export function atCapacityBody(): { error: string; code: string; retryable: false } {
   return {
     error: "GradeThread is at capacity right now. Please try again later.",
@@ -782,7 +788,9 @@ publicGradingRoutes.post("/grade-check", async (c) => {
     const ip = clientIpFor(c);
     if (gradeCheckRateLimited(ip, Date.now())) {
       return c.json(
-        { error: "You've reached the free grade-checker limit for now. Try again later." },
+        { error: "You've reached the free grade-checker limit for now. Try again later.",
+          code: RATE_LIMITED_CODE,
+        },
         429,
       );
     }
@@ -986,8 +994,9 @@ publicGradingRoutes.post("/grade-from-url", async (c) => {
             gate.scope === "instance"
               ? "This extension has reached its grading limit for now. Try again later."
               : "You've reached the grading limit for now. Try again later.",
-        },
-        429,
+        code: RATE_LIMITED_CODE,
+      },
+      429,
       );
     }
 
@@ -1207,6 +1216,7 @@ publicGradingRoutes.post("/scan", async (c) => {
           error: gate.scope === "instance"
             ? "This extension has reached its scan limit for now. Try again later."
             : "You've reached the scan limit for now. Try again later.",
+          code: RATE_LIMITED_CODE,
         },
         429,
       );
@@ -1375,8 +1385,10 @@ publicGradingRoutes.post("/authenticity-check", async (c) => {
     const ip = clientIpFor(c);
     if (windowLimited(authCheckHits, ip, Date.now(), AUTH_CHECK_PER_IP_PER_HOUR, AUTH_CHECK_WINDOW_MS)) {
       return c.json(
-        { error: "You've reached the free authenticity-check limit for now. Try again later." },
-        429,
+        { error: "You've reached the free authenticity-check limit for now. Try again later.",
+        code: RATE_LIMITED_CODE,
+      },
+      429,
       );
     }
 
@@ -1616,8 +1628,9 @@ publicGradingRoutes.post("/ingest-listing", async (c) => {
           error: gate.scope === "instance"
             ? "This extension has checked too many listings for now. Try again later."
             : "You've checked too many listings for now. Try again later.",
-        },
-        429,
+        code: RATE_LIMITED_CODE,
+      },
+      429,
       );
     }
 
@@ -1673,6 +1686,7 @@ publicGradingRoutes.post("/ingest-listing", async (c) => {
           error:
             "You've checked a lot of listings today. GradeThread reads listings you're " +
             "browsing, one at a time — try again tomorrow.",
+          code: RATE_LIMITED_CODE,
         },
         429,
       );

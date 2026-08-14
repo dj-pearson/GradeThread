@@ -13,6 +13,9 @@ import {
   AUTHENTICITY_CHECK_META,
   AUTHENTICITY_CHECK_PATH,
 } from "@/lib/seo/authenticity-check";
+import { BuyerConversionCtas } from "@/components/marketing/buyer-conversion-ctas";
+import { ToolLimitNotice } from "@/components/marketing/tool-limit-notice";
+import { isRateLimited } from "@/lib/tool-rate-limit";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { track } from "@/lib/analytics";
 import {
@@ -63,10 +66,13 @@ function AuthenticityCheckTool() {
   const [comingSoon, setComingSoon] = useState(false);
   const [result, setResult] = useState<AuthenticityResult | null>(null);
   const [brand, setBrand] = useState("");
+  // US-2526: the free limit is its own state, not an error string.
+  const [limited, setLimited] = useState<string | null | false>(false);
 
   async function onFiles(files: FileList) {
     setBusy(true);
     setError(null);
+    setLimited(false);
     setComingSoon(false);
     setResult(null);
     try {
@@ -95,6 +101,12 @@ function AuthenticityCheckTool() {
         | { error?: string }
         | null;
       if (!res.ok || !body || !("verdict" in body)) {
+        // US-2526: a limit is not a bad photo. Sending someone off to reshoot
+        // tags and stitching that were fine is the worst possible answer here.
+        if (isRateLimited(res.status, body)) {
+          setLimited(body && "error" in body && body.error ? body.error : null);
+          return;
+        }
         const msg =
           body && "error" in body && body.error
             ? body.error
@@ -138,7 +150,7 @@ function AuthenticityCheckTool() {
               condition grade with a shareable certificate.
             </p>
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <Link to="/how-it-works" onClick={() => onCtaClick("certify")}>
+              <Link to="/dashboard/submissions/new" onClick={() => onCtaClick("certify")}>
                 <Button size="sm">
                   Get a certified grade
                   <ArrowRight className="ml-1 h-4 w-4" />
@@ -207,8 +219,22 @@ function AuthenticityCheckTool() {
             <p className="mt-3 rounded-lg border bg-muted/30 p-4 text-xs text-muted-foreground">
               {result.limitations}
             </p>
+            {/* US-2526: someone checking whether an item is genuine is usually
+                about to BUY it, and this page only ever sold the seller
+                product. Same conversion moment the other two tools carry. */}
+            <BuyerConversionCtas
+              className="mt-5 bg-background"
+              tool="grade_checker"
+              result={{
+                label: brand.trim() || "This item",
+                brand: brand.trim() || null,
+              }}
+            />
             <div className="mt-6 flex flex-wrap justify-center gap-3">
-              <Link to="/how-it-works" onClick={() => onCtaClick("certify")}>
+              <Link
+                to="/dashboard/submissions/new"
+                onClick={() => onCtaClick("certify")}
+              >
                 <Button size="sm">
                   Get a certified grade
                   <ArrowRight className="ml-1 h-4 w-4" />
@@ -232,7 +258,11 @@ function AuthenticityCheckTool() {
             </div>
           </div>
         )}
-        {error ? <p className="mt-4 text-center text-sm text-brand-red-text">{error}</p> : null}
+        {limited !== false
+          ? <ToolLimitNotice toolLabel="authenticity checks" message={limited} />
+          : error
+          ? <p className="mt-4 text-center text-sm text-brand-red-text">{error}</p>
+          : null}
       </div>
     </div>
   );
