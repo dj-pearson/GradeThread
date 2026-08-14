@@ -1,4 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { dirtyFieldLabels, unsavedSummary } from "@/lib/editor-dirty";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useNavigate, useParams } from "react-router";
 import type { Editor as TiptapEditorInstance } from "@tiptap/react";
 import { SEO } from "@/components/seo";
@@ -156,6 +168,60 @@ function Editor({
   // single in-flight write (US-798).
   const bodyTimerRef = useRef<number | undefined>(undefined);
   const [saving, setSaving] = useState(false);
+  // US-2536: every field except the body saves on an explicit Save, so all of
+  // them live only in React state until then. This is what the server last
+  // accepted; the guard below compares it against what is on screen.
+  const [savedMeta, setSavedMeta] = useState<Record<string, string>>({
+    title: initial.title,
+    slug: initial.slug,
+    excerpt: initial.excerpt ?? "",
+    productFocus: initial.product_focus,
+    primaryKw: initial.primary_keyword ?? "",
+    secondaryKw: initial.secondary_keywords.join(", "),
+    seoTitle: initial.seo_title ?? "",
+    seoDescription: initial.seo_description ?? "",
+    heroPrompt: initial.hero_prompt ?? "",
+    tags: (initial.tags ?? []).join(", "),
+    author: initial.author ?? "",
+    authorId: initial.author_id ?? "",
+    keyTakeaways: (initial.key_takeaways ?? []).join("\n"),
+    faqsText: (initial.faqs ?? [])
+      .map((f) => `${f.q} | ${f.a}`)
+      .join("\n"),
+  });
+
+  const currentMeta: Record<string, string> = {
+    title,
+    slug,
+    excerpt,
+    productFocus,
+    primaryKw,
+    secondaryKw,
+    seoTitle,
+    seoDescription,
+    heroPrompt,
+    tags,
+    author,
+    authorId,
+    keyTakeaways,
+    faqsText,
+  };
+  const dirtyLabels = dirtyFieldLabels(currentMeta, savedMeta, {
+    title: "Title",
+    slug: "Slug",
+    excerpt: "Excerpt",
+    productFocus: "Product focus",
+    primaryKw: "Primary keyword",
+    secondaryKw: "Secondary keywords",
+    seoTitle: "SEO title",
+    seoDescription: "SEO description",
+    heroPrompt: "Hero prompt",
+    tags: "Tags",
+    author: "Author",
+    authorId: "Linked author",
+    keyTakeaways: "Key takeaways",
+    faqsText: "FAQs",
+  });
   // US-254: A/B title candidates returned by the last generation. Shown as
   // selectable options until the user picks one (which becomes post.title).
   const [titleSuggestions, setTitleSuggestions] = useState<TitleSuggestion[]>([]);
@@ -165,6 +231,11 @@ function Editor({
   const publish = usePublishBlogPost(postId);
   const generate = useGenerateBlogPost(postId);
   const heroGen = useGenerateHero(postId, "blog");
+  // Not while a save is in flight: the fields are on their way to the server,
+  // and a dialog about work that is being saved is how a guard stops working.
+  const guard = useNavigationGuard(
+    dirtyLabels.length > 0 && !saving && !update.isPending,
+  );
   const preview = useCreatePreviewLink(postId);
   // US-251 / US-252: live-streaming compose + section-regen actions.
   const aiStream = useContentAiStream(editor, postId);
@@ -234,6 +305,7 @@ function Editor({
       faqs: parseFaqs(faqsText),
     });
     lastSavedRef.current = body;
+    setSavedMeta(currentMeta);
     toast.success("Saved.");
   };
 
@@ -630,6 +702,35 @@ function Editor({
           </Button>
         </div>
       </div>
+      {/* US-2536: the body autosaves; the title, slug and SEO fields do not. Leaving used to
+          take them with no warning at all. The dialog NAMES them, because
+          "unsaved changes" is easy to click through and "Title, SEO
+          description" is not. */}
+      <AlertDialog
+        open={guard.blocked}
+        onOpenChange={(open) => {
+          if (!open) guard.cancelLeave();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {unsavedSummary(dirtyLabels)} {dirtyLabels.length === 1 ? "has" : "have"}
+              {" "}unsaved changes. The body text is saved automatically; these
+              fields are not.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={guard.cancelLeave}>
+              Keep editing
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={guard.confirmLeave}>
+              Leave and discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

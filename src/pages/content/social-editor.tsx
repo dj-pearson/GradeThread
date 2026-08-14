@@ -1,4 +1,16 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigationGuard } from "@/hooks/use-navigation-guard";
+import { dirtyFieldLabels, unsavedSummary } from "@/lib/editor-dirty";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useNavigate, useParams } from "react-router";
 import { SEO } from "@/components/seo";
 import { Button } from "@/components/ui/button";
@@ -111,6 +123,27 @@ function SocialEditorInner({
   const [ctaUrl, setCtaUrl] = useState(initial.cta_url ?? "");
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // US-2536: hashtags, the CTA link and the product focus save on an explicit
+  // Save only — the debounced autosave above covers the bodies and nothing
+  // else. This is what the server last accepted.
+  const [savedMeta, setSavedMeta] = useState<Record<string, string>>({
+    productFocus: initial.product_focus,
+    hashtags: initial.hashtags.join(", "),
+    ctaUrl: initial.cta_url ?? "",
+  });
+  const currentMeta: Record<string, string> = {
+    productFocus,
+    hashtags,
+    ctaUrl,
+  };
+  const dirtyLabels = dirtyFieldLabels(currentMeta, savedMeta, {
+    productFocus: "Product focus",
+    hashtags: "Hashtags",
+    ctaUrl: "Link",
+  });
+  const guard = useNavigationGuard(
+    dirtyLabels.length > 0 && !saving && !update.isPending,
+  );
   // Pending body-autosave timer, so an explicit Save can cancel it and stay the
   // single in-flight write (US-798).
   const bodyTimerRef = useRef<number | undefined>(undefined);
@@ -152,6 +185,7 @@ function SocialEditorInner({
       cta_url: ctaUrl || null,
     });
     setDirty(false);
+    setSavedMeta(currentMeta);
     toast.success("Saved.");
   };
 
@@ -384,6 +418,35 @@ Then the body..."
           <Save className="mr-2 h-4 w-4" /> Save meta
         </Button>
       </div>
+      {/* US-2536: the body autosaves; the hashtags and link do not. Leaving used to
+          take them with no warning at all. The dialog NAMES them, because
+          "unsaved changes" is easy to click through and "Hashtags, Link" is
+          not. */}
+      <AlertDialog
+        open={guard.blocked}
+        onOpenChange={(open) => {
+          if (!open) guard.cancelLeave();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {unsavedSummary(dirtyLabels)} {dirtyLabels.length === 1 ? "has" : "have"}
+              {" "}unsaved changes. The body text is saved automatically; these
+              fields are not.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={guard.cancelLeave}>
+              Keep editing
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={guard.confirmLeave}>
+              Leave and discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

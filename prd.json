@@ -1783,7 +1783,8 @@
         "iOS offers the Shopify connection flow, or the iOS Marketplaces screen states plainly that Shopify is connected on the web and links there.",
         "Whichever is chosen, the iOS plan and marketplace screens never imply a capability the client cannot deliver."
       ],
-      "priority": 1948
+      "priority": 1948,
+      "notes": "DEFERRED 2026-08-14 — iOS-only, and this checkout cannot verify Swift. Windows has no swiftc or xcodebuild, and the macOS 'iOS CI' lane only runs on a PUSH, which the standing rule forbids for this branch (it holds migrations 00592 and 00593 awaiting the owner's prod apply). So Swift written here would sit unbuilt and untested in a local commit for an unknown length of time, and the first thing anyone would learn about a syntax error is a red lane after the migrations finally land. That is a worse position than the gap itself. Same reasoning already recorded on US-2503 and US-2504. What is NOT blocked and has been done for the web/edge halves this loop touched: US-2525's edge attachment endpoints are client-agnostic, so the iOS half is a UI story (US-2561) rather than a protocol one. Pick these up in a macOS session, or after the held migrations are applied and the branch can push to CI."
     },
     {
       "id": "US-2532",
@@ -1795,7 +1796,8 @@
         "iOS Team shows the current requirement to owners and lets them change it through the same endpoint.",
         "A member blocked by the policy sees the same explanation on iOS as on web."
       ],
-      "priority": 1950
+      "priority": 1950,
+      "notes": "DEFERRED 2026-08-14 — iOS-only, and this checkout cannot verify Swift. Windows has no swiftc or xcodebuild, and the macOS 'iOS CI' lane only runs on a PUSH, which the standing rule forbids for this branch (it holds migrations 00592 and 00593 awaiting the owner's prod apply). So Swift written here would sit unbuilt and untested in a local commit for an unknown length of time, and the first thing anyone would learn about a syntax error is a red lane after the migrations finally land. That is a worse position than the gap itself. Same reasoning already recorded on US-2503 and US-2504. What is NOT blocked and has been done for the web/edge halves this loop touched: US-2525's edge attachment endpoints are client-agnostic, so the iOS half is a UI story (US-2561) rather than a protocol one. Pick these up in a macOS session, or after the held migrations are applied and the branch can push to CI."
     },
     {
       "id": "US-2533",
@@ -1807,7 +1809,8 @@
         "iOS Analytics gains a return-reduction section driven by the same server rollup the web tab uses.",
         "The iOS analytics range picker applies to the new section like the others."
       ],
-      "priority": 1952
+      "priority": 1952,
+      "notes": "DEFERRED 2026-08-14 — iOS-only, and this checkout cannot verify Swift. Windows has no swiftc or xcodebuild, and the macOS 'iOS CI' lane only runs on a PUSH, which the standing rule forbids for this branch (it holds migrations 00592 and 00593 awaiting the owner's prod apply). So Swift written here would sit unbuilt and untested in a local commit for an unknown length of time, and the first thing anyone would learn about a syntax error is a red lane after the migrations finally land. That is a worse position than the gap itself. Same reasoning already recorded on US-2503 and US-2504. What is NOT blocked and has been done for the web/edge halves this loop touched: US-2525's edge attachment endpoints are client-agnostic, so the iOS half is a UI story (US-2561) rather than a protocol one. Pick these up in a macOS session, or after the held migrations are applied and the branch can push to CI."
     },
     {
       "id": "US-2534",
@@ -1819,7 +1822,8 @@
         "Every actionable control on those three screens carries an accessibility label, and drag-reorder exposes an accessible alternative (move up / move down actions).",
         "Analytics/AIExtractView.swift, Inventory/GlobalSearchView.swift, Scout/ScoutView.swift, Sales/SalesView.swift and Fulfillment/FulfillmentView.swift are audited in the same pass — all currently report zero."
       ],
-      "priority": 1954
+      "priority": 1954,
+      "notes": "DEFERRED 2026-08-14 — iOS-only, and this checkout cannot verify Swift. Windows has no swiftc or xcodebuild, and the macOS 'iOS CI' lane only runs on a PUSH, which the standing rule forbids for this branch (it holds migrations 00592 and 00593 awaiting the owner's prod apply). So Swift written here would sit unbuilt and untested in a local commit for an unknown length of time, and the first thing anyone would learn about a syntax error is a red lane after the migrations finally land. That is a worse position than the gap itself. Same reasoning already recorded on US-2503 and US-2504. What is NOT blocked and has been done for the web/edge halves this loop touched: US-2525's edge attachment endpoints are client-agnostic, so the iOS half is a UI story (US-2561) rather than a protocol one. Pick these up in a macOS session, or after the held migrations are applied and the branch can push to CI."
     },
     {
       "id": "US-2535",
@@ -1832,19 +1836,8 @@
         "iOS persists the choice to the same users.use_case column the web dashboard reads.",
         "A user who onboards on iOS and then opens the web dashboard sees the persona-tailored version, not the default branch."
       ],
-      "priority": 1956
-    },
-    {
-      "id": "US-2536",
-      "passes": false,
-      "title": "Blog and social editors lose unsaved title, slug and meta fields",
-      "description": "As a content editor, I want to be warned before leaving with unsaved fields, so that I do not lose work the autosave does not cover.",
-      "acceptanceCriteria": [
-        "src/pages/content/blog-editor.tsx autosaves body HTML on a debounce but other fields 'save on Save click' (:172). Neither blog-editor.tsx nor social-editor.tsx uses useNavigationGuard.",
-        "Both editors guard navigation while any tracked field is dirty, naming what is unsaved — the pattern at src/pages/new-submission.tsx:239 and its dialog at :1606-1637.",
-        "The guard does not fire during an in-flight save."
-      ],
-      "priority": 1958
+      "priority": 1956,
+      "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
       "id": "US-2537",
