@@ -183,7 +183,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       generalised to PageHostContext; 7 children moved off a hand-rolled h1;
       shared HostViewSkeleton; Analytics range lifted AND the query string kept
       across tab clicks; guard `src/test/tab-host-headers.test.ts` (46 cases, 29 red)
-- [x] US-2549 (2414) Embed widget missing noindex - SHA3 - the noindex was ALREADY
+- [x] US-2549 (2414) Embed widget missing noindex - a9b9a7e1 - the noindex was ALREADY
       there as an x-robots-tag header (finding corrected); added the stated decision,
       a shared safeEmbedCompany that strips bidi/invisibles and is compared body-for-body
       against the server widget, a skeleton and a retry; guard
