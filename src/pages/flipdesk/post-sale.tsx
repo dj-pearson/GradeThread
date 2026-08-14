@@ -34,6 +34,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
+import {
+  caseItemKey,
+  ebayOrderUrl,
+  ebayReturnUrl,
+  useCaseItems,
+} from "@/hooks/use-case-items";
 import {
   useEbayCancellations,
   useEbayConnection,
@@ -370,6 +377,11 @@ function ReturnsCard() {
     [returns],
   );
   const visible = showClosed ? closedReturns : openReturns;
+  // US-2521: what each case is actually about. Resolved for every return, not
+  // just the visible ones, so toggling open/closed does not refetch.
+  const { data: caseItems } = useCaseItems(
+    returns.map((r) => ({ orderId: r.orderId, itemId: r.itemId })),
+  );
   const decide = useEbayDecideReturn();
   const refund = useEbayRefundReturn();
   const partialRefund = useEbayIssueOrderRefund();
@@ -512,15 +524,25 @@ function ReturnsCard() {
               key={r.returnId}
               className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
             >
-              <div className="space-y-1">
+              <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">
                     {r.reason?.replace(/_/g, " ") ?? "Return request"}
                   </span>
                   {r.state && <Badge variant="outline">{r.state.replace(/_/g, " ")}</Badge>}
                 </div>
+                {/* US-2521: the garment, its sale price and the way through to
+                    both the eBay case and the local item. Approving a refund
+                    from a return id alone is how the wrong one gets approved. */}
+                <CaseItemSummary
+                  item={caseItems?.get(
+                    caseItemKey({ orderId: r.orderId, itemId: r.itemId }) ?? "",
+                  )}
+                  caseUrl={ebayReturnUrl(r.returnId)}
+                  caseLabel={`Return ${r.returnId} on eBay`}
+                />
                 <p className="text-xs text-muted-foreground">
-                  Return {r.returnId} · opened {fmtDate(r.creationDate)}
+                  Opened {fmtDate(r.creationDate)}
                 </p>
               </div>
               {/* US-2227: no actions on a closed case. Offering Refund on a
@@ -635,6 +657,11 @@ function CancellationsCard() {
     [cancellations],
   );
   const visible = showClosed ? closedCancels : openCancels;
+  // US-2521: a cancellation identified only by an order id is a refund button
+  // with no subject.
+  const { data: caseItems } = useCaseItems(
+    cancellations.map((c) => ({ orderId: c.orderId, itemId: null })),
+  );
 
   async function act(ca: EbayCancellation, action: "approve" | "reject") {
     if (action === "approve") {
@@ -690,7 +717,7 @@ function CancellationsCard() {
               key={ca.cancelId}
               className="flex flex-col gap-2 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between"
             >
-              <div className="space-y-1">
+              <div className="min-w-0 space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">
                     {ca.reason?.replace(/_/g, " ") ?? "Cancellation"}
@@ -699,8 +726,17 @@ function CancellationsCard() {
                     <Badge variant="outline">{ca.requestorType.toLowerCase()}</Badge>
                   )}
                 </div>
+                {/* US-2521: same problem as the returns rows — Approve here
+                    cancels an order and refunds a buyer. */}
+                {ca.orderId && (
+                  <CaseItemSummary
+                    item={caseItems?.get(ca.orderId)}
+                    caseUrl={ebayOrderUrl(ca.orderId)}
+                    caseLabel={`Order ${ca.orderId} on eBay`}
+                  />
+                )}
                 <p className="text-xs text-muted-foreground">
-                  Order {ca.orderId ?? "—"} · {fmtDate(ca.creationDate)}
+                  {fmtDate(ca.creationDate)}
                 </p>
               </div>
               {/* US-2227: no Approve/Reject on a cancellation eBay has settled. */}

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2560",
+  "nextId": "US-2561",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2521",
-      "passes": false,
-      "title": "Return rows never say which item the buyer is returning",
-      "description": "As a seller, I want to see the garment a return is about, so that I am not approving a refund from a return id alone.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/post-sale.tsx:515-525 renders reason, returnId and date. Cancellations at :702-704 render an order id and date.",
-        "Each return and cancellation row shows the item title, a thumbnail and the sale price, resolved through the sales row's inventory_item_id.",
-        "Each row deep-links to the eBay case and to the local item page.",
-        "Open returns and cancellations are surfaced outside this page — see the notification centre story."
-      ],
-      "priority": 1928
-    },
-    {
       "id": "US-2522",
       "passes": false,
       "title": "Scheduled drops is a calendar you cannot schedule from",
@@ -2264,6 +2251,22 @@
         "Every retired path redirects into its host with the matching tab so runbook links and bookmarks survive."
       ],
       "priority": 2434
+    },
+    {
+      "id": "US-2560",
+      "passes": false,
+      "title": "A buyer cancellation reaches no notification channel",
+      "description": "As a seller, I want a cancellation request to reach me the way a return does, so that I find out before eBay's clock runs out rather than by opening Post-sale.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/marketplace-event-poll.ts polls offers, returns and payment disputes. searchCancellations() exists in ebay-postorder.ts and is used by the Post-sale page, but no poll source reads it, so a cancellation request notifies nobody.",
+        "The poll gains a cancellation source with the same claim-before-deliver dedupe, per-event try/catch and release-on-failure as the other three.",
+        "A new notification_type enum value (ALTER TYPE ... ADD VALUE IF NOT EXISTS) ships with the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer. The edge must not filter on the new value before the migration applies.",
+        "PREF_KEY maps it to the existing 'returns' gate, whose copy already covers post-order cases, plus in-app, email and push builders alongside buildReturnOpened.",
+        "marketplace-event-poll_test.ts gains a case proving a re-poll of the same cancellation fires no second notification."
+      ],
+      "dependsOn": [
+        "US-2521"
+      ]
     }
   ]
 }
