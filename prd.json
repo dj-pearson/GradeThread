@@ -1759,20 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2520",
-      "passes": false,
-      "title": "Web AutoLister is one 3,750-line component with 64 hooks",
-      "description": "As a developer, I want AutoLister split into testable pieces, so that a change to one part does not re-render and risk the whole surface.",
-      "acceptanceCriteria": [
-        "FlipdeskAutolisterPage spans src/pages/flipdesk/autolister.tsx:587 to end of file — roughly 3,750 lines with 64 hook calls in a single component.",
-        "Split it along the seam iOS already uses: ios/GradeThread/AutoLister is four files totalling 2,130 lines (AutoListerView 987, AutoListerQueueView 329, DraftsLibraryView 488, DraftsBulkEditView 326).",
-        "autolister-bulk-edit.tsx (1,800 lines / 37 hooks) and autolister-queue.tsx (1,000 lines / 22 hooks) are split in the same pass.",
-        "No behaviour change: the existing autolister tests pass unmodified.",
-        "A batch in flight is navigable between Generate, Queue and Bulk edit via a shared batch-scoped header rather than three unrelated URLs."
-      ],
-      "priority": 1926
-    },
-    {
       "id": "US-2521",
       "passes": false,
       "title": "Return rows never say which item the buyer is returning",

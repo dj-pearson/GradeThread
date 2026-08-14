@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  Upload,
   Loader2,
   Sparkles,
   Trash2,
@@ -12,14 +11,11 @@ import {
   ImageIcon,
   Combine,
   Wand2,
-  FolderOpen,
-  Images,
   Tags,
   WandSparkles,
   Eraser,
   Undo2,
   Pencil,
-  RotateCcw,
   Camera,
   Ungroup,
   ChevronsDownUp,
@@ -28,8 +24,6 @@ import {
   FolderInput,
   ArrowUpDown,
   Layers,
-  Smartphone,
-  ArrowRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -46,12 +40,10 @@ import {
 } from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { processStagedImage } from "@/lib/image-worker-pool";
-import { isVideoFile } from "@/lib/media-intake";
 import {
   closestCenter,
   DndContext,
@@ -86,14 +78,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   movePhotosToGroup,
   reorderWithinGroup,
@@ -159,6 +143,25 @@ import {
   isNonListablePhotoType,
   FLIPDESK_PLANS,
 } from "@/lib/constants";
+import {
+  GenerateConfirmDialog,
+  ProposeConfirmDialog,
+  VerifyConfirmDialog,
+} from "./autolister/metered-confirm-dialogs";
+import {
+  UploadDropzone,
+  UploadProgressPanel,
+} from "./autolister/upload-panels";
+import {
+  AutoEnhanceBar,
+  StudioBackgroundBar,
+} from "./autolister/batch-photo-tools";
+import {
+  BatchSummaryBar,
+  CoverQualityAdvisory,
+  ParkedBatches,
+} from "./autolister/session-status-panels";
+import { BatchNav } from "./autolister/batch-nav";
 import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
 import { usePhotoProfile } from "@/lib/photo-profiles";
 import { cn } from "@/lib/utils";
@@ -319,9 +322,6 @@ const TRIAGE_CHIPS: { condition: TriageCondition; label: string }[] = [
   { condition: "missing_cover_or_tag", label: "missing cover/tag" },
   { condition: "has_suggestion", label: "AI suggestions" },
 ];
-// Cap on visible per-file upload rows — 600 progress bars is its own jank.
-// Errors always render (they need action); the aggregate header carries totals.
-const UPLOAD_ROWS_CAP = 80;
 
 /**
  * US-1906: the virtualizer's window for this frame, plus the pinned drag source
@@ -589,6 +589,10 @@ export function FlipdeskAutolisterPage() {
   const { workspaceOwnerId } = useWorkspace();
   const ownerId = workspaceOwnerId ?? user?.id ?? null;
   const navigate = useNavigate();
+  // US-2520: set when this session was opened from a running batch (the shared
+  // batch nav carries it). A fresh Generate session has none.
+  const [searchParams] = useSearchParams();
+  const liveBatchId = searchParams.get("batch");
   const qc = useQueryClient();
   const startBatch = useStartAutolisterBatch();
   const coverQa = useRunCoverQa();
@@ -797,6 +801,9 @@ export function FlipdeskAutolisterPage() {
   // US-535: studio background. Mode for the one-tap clean, photos currently
   // being segmented, a batch-busy flag, and one-time model-download progress.
   const [bgMode, setBgMode] = useState<BgMode>("white");
+  // US-2520: photos nothing has been applied to yet — an `original` means the
+  // batch tools already ran on that one, and both bars count the same thing.
+  const untouchedStagedCount = staged.filter((p) => !p.original).length;
   const [bgProcessing, setBgProcessing] = useState<Set<string>>(new Set());
   const [bgBusy, setBgBusy] = useState(false);
   const [modelProgress, setModelProgress] = useState<number | null>(null);
@@ -2905,6 +2912,9 @@ export function FlipdeskAutolisterPage() {
 
   return (
     <div className="space-y-6">
+      {/* US-2520: shown only when this session was reached from a running
+          batch, so stepping back to stage more photos does not strand it. */}
+      <BatchNav batchId={liveBatchId} current="generate" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold">
@@ -2964,121 +2974,29 @@ export function FlipdeskAutolisterPage() {
         </div>
       </div>
 
-      {/* US-2374: batches parked by the phone. The photos are already uploaded
-          and grouped; loading one drops them into this session so the review
-          and the AI spend happen here, on a screen big enough for it. */}
-      {handoffs.length > 0 && (
-        <Card className="space-y-2 p-3">
-          <div className="flex items-center gap-2">
-            <Smartphone className="h-4 w-4 text-brand-red-text" />
-            <span className="text-sm font-medium">Waiting from your phone</span>
-          </div>
-          {handoffs.map((h) => (
-            <div
-              key={h.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2"
-            >
-              <div className="text-sm">
-                <span className="font-semibold">{h.photo_count}</span> photo
-                {h.photo_count === 1 ? "" : "s"}
-                {h.group_count > 0 && (
-                  <>
-                    {" · "}
-                    <span className="font-semibold">{h.group_count}</span> item
-                    {h.group_count === 1 ? "" : "s"} already grouped
-                  </>
-                )}
-                <span className="ml-2 text-xs text-muted-foreground">
-                  {new Date(h.created_at).toLocaleString()}
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  size="sm"
-                  onClick={() => loadHandoff(h.id)}
-                  disabled={loadingHandoffId !== null}
-                >
-                  {loadingHandoffId === h.id ? (
-                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                  ) : (
-                    <ArrowRight className="mr-1 h-4 w-4" />
-                  )}
-                  Load into this session
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => discardHandoff.mutate(h.id)}
-                  disabled={loadingHandoffId !== null}
-                  title="Discard this batch and delete its uploaded photos"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </Card>
-      )}
+      {/* US-2520: the three session-status panels live in
+          ./autolister/session-status-panels.tsx — what is waiting from the
+          phone (US-2374), what the batch adds up to (US-1546), and what is
+          worth fixing before spending AI on it (US-957). */}
+      <ParkedBatches
+        handoffs={handoffs}
+        loadingHandoffId={loadingHandoffId}
+        onLoad={loadHandoff}
+        onDiscard={(id) => discardHandoff.mutate(id)}
+      />
 
-      {/* US-1546: sticky batch summary — the state of play stays visible while
-          scrolling a 600-photo session, with warning chips that jump to the
-          offending group. */}
       {(staged.length > 0 || groups.length > 0) && (
-        <div className="sticky top-16 z-20 rounded-lg border bg-background/95 px-3 py-2 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-background/80">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <span>
-              <span className="font-semibold">{staged.length}</span> photo{staged.length === 1 ? "" : "s"}
-            </span>
-            <span>
-              <span className="font-semibold">{listableCount}</span> listing{listableCount === 1 ? "" : "s"} to generate
-            </span>
-            <span className={cn(ungrouped.length > 0 && "text-amber-700 dark:text-amber-300")}>
-              <span className="font-semibold">{ungrouped.length}</span> ungrouped
-            </span>
-            <span className="text-muted-foreground">
-              ~{listableCount} AI action{listableCount === 1 ? "" : "s"}
-              {aiActionsRemaining != null ? ` of ${aiActionsRemaining} left` : ""}
-            </span>
-          </div>
-          {groupWarnings.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {groupWarnings.slice(0, 8).map((w) => (
-                <button
-                  key={w.key}
-                  type="button"
-                  onClick={() => scrollToGroup(w.groupId)}
-                  className="inline-flex max-w-72 items-center gap-1 truncate rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs text-amber-800 hover:bg-amber-500/20 dark:text-amber-200"
-                  title={`${w.label} — click to jump to the group`}
-                >
-                  <Camera className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{w.label}</span>
-                </button>
-              ))}
-              {groupWarnings.length > 8 && (
-                <span className="self-center text-xs text-muted-foreground">
-                  +{groupWarnings.length - 8} more in the Generate checkpoint
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+        <BatchSummaryBar
+          stagedCount={staged.length}
+          listableCount={listableCount}
+          ungroupedCount={ungrouped.length}
+          aiActionsRemaining={aiActionsRemaining}
+          groupWarnings={groupWarnings}
+          onWarningClick={scrollToGroup}
+        />
       )}
 
-      {/* US-957: pre-generation cover-QA advisory. Non-blocking — it never
-          disables Generate, it just nudges a reshoot to save AI quota. */}
-      {entitled && lowCoverCount > 0 && (
-        <Card className="flex items-start gap-2 border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          <Camera className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-amber-800 dark:text-amber-200">
-            <span className="font-medium">
-              {lowCoverCount} item{lowCoverCount === 1 ? "" : "s"} could use a
-              better cover photo.
-            </span>{" "}
-            Reshoot the flagged covers below for sharper listings — or generate
-            anyway, this is only a suggestion.
-          </p>
-        </Card>
-      )}
+      {entitled && <CoverQualityAdvisory lowCoverCount={lowCoverCount} />}
 
       {/* Premium gate (US-323) — shown when the plan doesn't include AutoLister.
           The server also enforces this; this is the in-app upsell. */}
@@ -3110,305 +3028,59 @@ export function FlipdeskAutolisterPage() {
         </Card>
       )}
 
-      {/* Upload (US-530: drag-and-drop + folder + paste) */}
-      <Card
-        className={cn("p-4 transition-shadow", dragging && "ring-2 ring-primary")}
-        onDragOver={(e) => {
-          if (!entitled) return;
-          e.preventDefault();
-          setDragging(true);
+      {/* US-2520: getting photos in is its own job, and it now lives in
+          ./autolister/upload-panels.tsx. US-530 drag-and-drop + folder + paste,
+          US-539 per-file progress and retry. */}
+      <UploadDropzone
+        entitled={entitled}
+        dragging={dragging}
+        onDraggingChange={setDragging}
+        fileInputRef={fileInputRef}
+        folderInputRef={folderInputRef}
+        onFiles={(files) => void handleFiles(files)}
+        onDropFiles={(transfer) => {
+          void filesFromDataTransfer(transfer).then((fs) => handleFiles(fs));
         }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          if (!entitled) return;
-          void filesFromDataTransfer(e.dataTransfer).then((fs) => handleFiles(fs));
-        }}
-        onPaste={(e) => {
-          if (!entitled) return;
-          const imgs = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-            f.type.startsWith("image/") || isVideoFile(f),
-          );
-          if (imgs.length > 0) void handleFiles(imgs);
-        }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,.heic,.heif,video/*,.mov,.mp4,.m4v"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            void handleFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <input
-          ref={folderInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          // webkitdirectory/directory are non-standard but widely supported and
-          // not in React's typed attrs — spread them past the type checker.
-          {...({ webkitdirectory: "", directory: "" } as Record<string, string>)}
-          onChange={(e) => {
-            void handleFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={!entitled}
-          className="flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed py-10 text-muted-foreground transition-colors hover:border-primary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-input disabled:hover:text-muted-foreground"
-        >
-          {uploading > 0 ? (
-            <Loader2 className="h-7 w-7 animate-spin" />
-          ) : (
-            <Upload className="h-7 w-7" />
-          )}
-          <span className="text-sm font-medium">
-            {uploading > 0
-              ? `Uploading ${uploading}…`
-              : "Drag photos or a folder here, or click to choose"}
-          </span>
-          <span className="text-xs">
-            iPhone HEIC and Live Photos supported. Resized &amp; compressed in your browser before upload.
-          </span>
-        </button>
-        <div className="mt-2 flex flex-wrap justify-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            onClick={() => folderInputRef.current?.click()}
-            disabled={!entitled}
-          >
-            <FolderOpen className="mr-1.5 h-4 w-4" />
-            Pick a folder
-          </Button>
-          {gpConfigured && (
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                if (gpImporting) gpCancelRef.current?.();
-                else void importFromGooglePhotos();
-              }}
-              disabled={!entitled}
-            >
-              {gpImporting ? (
-                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-              ) : (
-                <Images className="mr-1.5 h-4 w-4" />
-              )}
-              {gpProgress
-                ? gpProgress.total > 0
-                  ? `Bringing over ${gpProgress.done} of ${gpProgress.total} — cancel`
-                  : "Bringing over your photos — cancel"
-                : gpImporting
-                  ? "Waiting for your picks — cancel"
-                  : "Import from Google Photos"}
-            </Button>
-          )}
-        </div>
-      </Card>
+        uploading={uploading}
+        googlePhotos={
+          gpConfigured
+            ? {
+                importing: gpImporting,
+                progress: gpProgress,
+                onImport: () => void importFromGooglePhotos(),
+                onCancel: () => gpCancelRef.current?.(),
+              }
+            : null
+        }
+      />
 
-      {/* US-539: per-file progress bars + per-file failure retry */}
-      {uploadTasks.length > 0 && (
-        <Card className="p-3">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-            <span className="text-sm font-medium">
-              {(() => {
-                // US-1541: honest aggregate — "X of N uploaded — Y failed".
-                const done = uploadTasks.filter((t) => t.status === "done").length;
-                const failed = uploadTasks.filter((t) => t.status === "error").length;
-                const failedSuffix = failed > 0 ? ` — ${failed} failed` : "";
-                if (uploading > 0) {
-                  return `${done} of ${uploadTasks.length} uploaded${failedSuffix}…`;
-                }
-                return failed > 0
-                  ? `${failed} photo${failed === 1 ? "" : "s"} failed`
-                  : `All ${done} uploaded.`;
-              })()}
-            </span>
-            {uploading === 0 && (
-              <div className="flex items-center gap-2">
-                {uploadTasks.some((t) => t.status === "error" && t.retryable !== false) && (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() =>
-                      void retryUploadTasks(
-                        uploadTasks
-                          .filter((t) => t.status === "error" && t.retryable !== false)
-                          .map((t) => t.id),
-                      )
-                    }
-                  >
-                    <RotateCcw className="mr-1 h-4 w-4" />
-                    Retry failed
-                  </Button>
-                )}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => useAutolisterUploadStore.getState().clearTasks()}
-                >
-                  Dismiss all
-                </Button>
-              </div>
-            )}
-          </div>
-          <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
-            {/* US-1541: cap the per-file rows — 600 live progress bars is its
-                own jank. Errors surface first (they need action); completed
-                rows are summarized by the header, and overflow by the footer. */}
-            {(() => {
-              const errors = uploadTasks.filter((t) => t.status === "error");
-              const inFlight = uploadTasks.filter(
-                (t) => t.status !== "error" && t.status !== "done",
-              );
-              const visible = [...errors, ...inFlight].slice(0, UPLOAD_ROWS_CAP);
-              const hidden = errors.length + inFlight.length - visible.length;
-              return (
-                <>
-                  {visible.map((t) => (
-              <div key={t.id} className="flex items-center gap-2 text-xs">
-                <span className="w-36 shrink-0 truncate sm:w-48" title={t.name}>
-                  {t.name}
-                </span>
-                {t.status === "error" ? (
-                  <>
-                    <span
-                      className="min-w-0 flex-1 truncate text-destructive"
-                      title={t.error}
-                    >
-                      {t.error}
-                    </span>
-                    {t.retryable !== false && (
-                      <button
-                        type="button"
-                        title="Retry this photo"
-                        onClick={() => void retryUploadTasks([t.id])}
-                        className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 font-medium text-primary hover:bg-muted"
-                      >
-                        <RotateCcw className="h-3 w-3" />
-                        Retry
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      title="Dismiss"
-                      onClick={() => dismissUploadTask(t.id)}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <Progress value={t.progress} className="h-1.5 min-w-0 flex-1" />
-                    <span className="w-20 shrink-0 text-right text-muted-foreground">
-                      {t.status === "queued" && "Queued"}
-                      {t.status === "processing" && "Processing…"}
-                      {t.status === "uploading" && "Uploading…"}
-                      {t.status === "done" && "Done"}
-                    </span>
-                  </>
-                )}
-              </div>
-                  ))}
-                  {hidden > 0 && (
-                    <p className="pt-1 text-center text-xs text-muted-foreground">
-                      …plus {hidden} more in the queue.
-                    </p>
-                  )}
-                </>
-              );
-            })()}
-          </div>
-        </Card>
-      )}
+      <UploadProgressPanel
+        tasks={uploadTasks}
+        uploading={uploading}
+        onRetry={(ids) => void retryUploadTasks(ids)}
+        onDismiss={dismissUploadTask}
+      />
 
-      {/* US-536: one-tap auto-enhance across the whole batch */}
+      {/* US-2520: both batch photo tools live in
+          ./autolister/batch-photo-tools.tsx — US-536 auto-enhance and US-535
+          on-device studio background. Same shape: one tap, every staged photo,
+          undoable because the original is kept. */}
       {staged.length > 0 && entitled && (
-        <Card className="flex flex-wrap items-center gap-3 p-3">
-          <div className="flex items-center gap-2">
-            <WandSparkles className="h-4 w-4 text-brand-red-text" />
-            <span className="text-sm font-medium">Auto-enhance</span>
-          </div>
-          <Button
-            size="sm"
-            onClick={enhanceAll}
-            disabled={enhanceBusy || staged.every((p) => !!p.original)}
-          >
-            {enhanceBusy ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <WandSparkles className="mr-1 h-4 w-4" />
-            )}
-            Enhance all ({staged.filter((p) => !p.original).length})
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            Auto-crops to the item, white-balances &amp; evens out exposure.
-          </span>
-        </Card>
-      )}
-
-      {/* US-535: one-tap on-device studio background across the whole batch */}
-      {staged.length > 0 && entitled && (
-        <Card className="flex flex-wrap items-center gap-3 p-3">
-          <div className="flex items-center gap-2">
-            <Eraser className="h-4 w-4 text-brand-red-text" />
-            <span className="text-sm font-medium">Studio background</span>
-          </div>
-          <div className="inline-flex overflow-hidden rounded-md border text-xs">
-            <button
-              type="button"
-              onClick={() => setBgMode("white")}
-              className={cn(
-                "px-2.5 py-1",
-                bgMode === "white"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted",
-              )}
-            >
-              Studio white
-            </button>
-            <button
-              type="button"
-              onClick={() => setBgMode("transparent")}
-              className={cn(
-                "border-l px-2.5 py-1",
-                bgMode === "transparent"
-                  ? "bg-primary text-primary-foreground"
-                  : "hover:bg-muted",
-              )}
-            >
-              Transparent
-            </button>
-          </div>
-          <Button
-            size="sm"
-            onClick={() => applyBgToAll(bgMode)}
-            disabled={bgBusy || staged.every((p) => !!p.original)}
-          >
-            {bgBusy ? (
-              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-            ) : (
-              <Eraser className="mr-1 h-4 w-4" />
-            )}
-            Clean all ({staged.filter((p) => !p.original).length})
-          </Button>
-          <span className="text-xs text-muted-foreground">
-            {modelProgress != null
-              ? `Downloading model… ${Math.round(modelProgress * 100)}%`
-              : "Runs in your browser · no per-photo cost · first use downloads a model"}
-          </span>
-        </Card>
+        <>
+          <AutoEnhanceBar
+            untouchedCount={untouchedStagedCount}
+            busy={enhanceBusy}
+            onEnhanceAll={enhanceAll}
+          />
+          <StudioBackgroundBar
+            mode={bgMode}
+            onModeChange={setBgMode}
+            untouchedCount={untouchedStagedCount}
+            busy={bgBusy}
+            modelProgress={modelProgress}
+            onApplyAll={applyBgToAll}
+          />
+        </>
       )}
 
       {/* US-1543: one DnD context spans the ungrouped grid and the group
@@ -4168,150 +3840,46 @@ export function FlipdeskAutolisterPage() {
         </div>
       )}
 
-      {/* US-1546: the pre-generate checkpoint — a final look at the batch
-          before one AI action per listing is spent, with an explicit
-          acknowledgment when photos would be left behind. */}
-      <Dialog open={confirmGenerateOpen} onOpenChange={setConfirmGenerateOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>
-              Generate {listableCount} listing{listableCount === 1 ? "" : "s"}?
-            </DialogTitle>
-            <DialogDescription>
-              {staged.length} photo{staged.length === 1 ? "" : "s"} staged · ~
-              {listableCount} AI action{listableCount === 1 ? "" : "s"}
-              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}
-              {aiActionsRemaining != null && listableCount > aiActionsRemaining
-                ? " — this batch won't fit; trim it or upgrade."
-                : ""}
-            </DialogDescription>
-          </DialogHeader>
+      {/* US-2520: the three metered-action confirms live in
+          ./autolister/metered-confirm-dialogs.tsx. They share one job — never
+          spend an AI action without first saying how many, and how many are
+          left — and keeping them together is what makes that rule checkable. */}
+      <GenerateConfirmDialog
+        open={confirmGenerateOpen}
+        onOpenChange={setConfirmGenerateOpen}
+        listableCount={listableCount}
+        stagedCount={staged.length}
+        ungroupedCount={ungrouped.length}
+        aiActionsRemaining={aiActionsRemaining}
+        groupWarnings={groupWarnings}
+        onWarningClick={scrollToGroup}
+        ackUngrouped={ackUngrouped}
+        onAckUngroupedChange={setAckUngrouped}
+        onGenerate={() => {
+          setConfirmGenerateOpen(false);
+          void generate();
+        }}
+      />
 
-          {groupWarnings.length > 0 && (
-            <div className="max-h-44 space-y-1 overflow-y-auto rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
-              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                {groupWarnings.length} thing{groupWarnings.length === 1 ? "" : "s"} worth a look first:
-              </p>
-              {groupWarnings.map((w) => (
-                <button
-                  key={w.key}
-                  type="button"
-                  onClick={() => scrollToGroup(w.groupId)}
-                  className="block w-full truncate text-left text-xs text-amber-800 underline-offset-2 hover:underline dark:text-amber-200"
-                >
-                  • {w.label}
-                </button>
-              ))}
-            </div>
-          )}
+      <VerifyConfirmDialog
+        confirm={verifyConfirm}
+        onCancel={() => setVerifyConfirm(null)}
+        aiActionsRemaining={aiActionsRemaining}
+        onConfirm={(windows) => {
+          setVerifyConfirm(null);
+          void runVerifyWindows(windows, false);
+        }}
+      />
 
-          {ungrouped.length > 0 && (
-            <label className="flex cursor-pointer items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm">
-              <input
-                type="checkbox"
-                checked={ackUngrouped}
-                onChange={(e) => setAckUngrouped(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded border-input accent-primary"
-              />
-              <span>
-                <span className="font-medium">
-                  {ungrouped.length} photo{ungrouped.length === 1 ? "" : "s"} will NOT be listed
-                </span>{" "}
-                — they're still ungrouped. Generate anyway; they stay staged here.
-              </span>
-            </label>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmGenerateOpen(false)}>
-              Keep editing
-            </Button>
-            <Button
-              onClick={() => {
-                setConfirmGenerateOpen(false);
-                void generate();
-              }}
-              disabled={ungrouped.length > 0 && !ackUngrouped}
-            >
-              <Sparkles className="mr-2 h-4 w-4" />
-              Generate {listableCount} listing{listableCount === 1 ? "" : "s"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* US-1903: metered-action confirm for a multi-window verify pass. Shown
-          before any AI action is spent so the count is never a surprise. */}
-      <Dialog open={!!verifyConfirm} onOpenChange={(o) => !o && setVerifyConfirm(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Verify all {verifyConfirm?.totalGroups} groups?</DialogTitle>
-            <DialogDescription>
-              This session is too large for one AI check, so it runs in{" "}
-              {verifyConfirm?.windowCount} batches — {verifyConfirm?.windowCount} AI action
-              {verifyConfirm?.windowCount === 1 ? "" : "s"}
-              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}. You
-              can stop between batches; suggestions appear as you go.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setVerifyConfirm(null)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={
-                aiActionsRemaining != null &&
-                verifyConfirm != null &&
-                verifyConfirm.windowCount > aiActionsRemaining
-              }
-              onClick={() => {
-                const pending = verifyConfirm;
-                setVerifyConfirm(null);
-                if (pending) void runVerifyWindows(pending.windows, false);
-              }}
-            >
-              <Sparkles className="mr-2 h-4 w-4" />
-              Verify all
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* US-1904: metered-action confirm for a multi-window propose pass. */}
-      <Dialog open={!!proposeConfirm} onOpenChange={(o) => !o && setProposeConfirm(null)}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>AI-group {proposeConfirm?.photoCount} photos?</DialogTitle>
-            <DialogDescription>
-              Too many photos for one AI pass, so it runs in {proposeConfirm?.windowCount} batches —{" "}
-              {proposeConfirm?.windowCount} AI action{proposeConfirm?.windowCount === 1 ? "" : "s"}
-              {aiActionsRemaining != null ? ` of your ${aiActionsRemaining} remaining` : ""}. You can
-              stop between batches; confident items are created (undoable), unsure ones show up to
-              review.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setProposeConfirm(null)}>
-              Cancel
-            </Button>
-            <Button
-              disabled={
-                aiActionsRemaining != null &&
-                proposeConfirm != null &&
-                proposeConfirm.windowCount > aiActionsRemaining
-              }
-              onClick={() => {
-                const pending = proposeConfirm;
-                setProposeConfirm(null);
-                if (pending) void runProposeWindows(pending.windows);
-              }}
-            >
-              <Sparkles className="mr-2 h-4 w-4" />
-              Group them
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ProposeConfirmDialog
+        confirm={proposeConfirm}
+        onCancel={() => setProposeConfirm(null)}
+        aiActionsRemaining={aiActionsRemaining}
+        onConfirm={(windows) => {
+          setProposeConfirm(null);
+          void runProposeWindows(windows);
+        }}
+      />
 
       {/* US-534: crop/rotate/straighten one staged photo. Edits re-enter the
           stage pipeline so both the AI input and the published image use them. */}
