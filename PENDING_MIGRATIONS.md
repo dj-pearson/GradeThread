@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⏳ HELD: 00591_users_buyer_past_due_since.sql (US-2458 AC5 — the buyer dunning clock)
+## ✅ APPLIED: 00591_users_buyer_past_due_since.sql (US-2458 AC5 — the buyer dunning clock, applied 2026-08-14 — owner-confirmed)
 
 **Risk: LOWEST of anything here.** One nullable `timestamptz` on `public.users`.
 No backfill, no constraint, no index, nothing dropped or narrowed. The whole
@@ -30,7 +30,7 @@ panel selects it by name.
 
 Apply order: AFTER 00590.
 
-## ⏳ HELD: 00590_extension_queue_drop_share_kind.sql (US-2497 — the queue stops accepting a share run)
+## ✅ APPLIED: 00590_extension_queue_drop_share_kind.sql (US-2497 — the queue stops accepting a share run, applied 2026-08-14 — owner-confirmed)
 
 **Risk: LOW, with one deliberate DELETE.** No new object, no column, no index.
 It narrows one CHECK constraint on `extension_work_queue.kind` from

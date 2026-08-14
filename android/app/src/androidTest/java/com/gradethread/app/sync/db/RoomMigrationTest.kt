@@ -48,7 +48,7 @@ class RoomMigrationTest {
             DB_NAME,
             CURRENT_VERSION,
             true,
-            *GradeThreadDb.ALL_MIGRATIONS,
+            *DatabaseProvider.ALL_MIGRATIONS,
         )
     }
 
@@ -62,7 +62,7 @@ class RoomMigrationTest {
         for (from in oldestTestable until CURRENT_VERSION) {
             val name = "$DB_NAME-step-$from"
             helper.createDatabase(name, from).close()
-            helper.runMigrationsAndValidate(name, from + 1, true, *GradeThreadDb.ALL_MIGRATIONS)
+            helper.runMigrationsAndValidate(name, from + 1, true, *DatabaseProvider.ALL_MIGRATIONS)
         }
     }
 
@@ -83,7 +83,7 @@ class RoomMigrationTest {
                     "VALUES ('mig-test-1', 'user-1', 'Test jacket', 'sourced', 0, 0, 0)",
             )
         }
-        helper.runMigrationsAndValidate(name, CURRENT_VERSION, true, *GradeThreadDb.ALL_MIGRATIONS)
+        helper.runMigrationsAndValidate(name, CURRENT_VERSION, true, *DatabaseProvider.ALL_MIGRATIONS)
             .use { db ->
                 db.query("SELECT title FROM inventory_items WHERE id = 'mig-test-1'").use { c ->
                     check(c.moveToFirst()) { "the row was lost by a migration" }

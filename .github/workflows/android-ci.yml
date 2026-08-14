@@ -38,6 +38,20 @@ jobs:
     name: assembleDebug + unit tests + lint
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # US-2502: the unit tests build the real Hilt graph, and NetworkModule
+    # constructs SupabaseShared, which asserts BuildConfig.SUPABASE_ANON_KEY is
+    # non-blank. `secret()` in app/build.gradle.kts reads the CI env first, then
+    # local.properties, then an empty placeholder — and a runner has no
+    # local.properties, so the field was "" and 161 tests died in setup with
+    # "SUPABASE_ANON_KEY missing". A dev machine never saw it because
+    # android:doctor writes local.properties.
+    #
+    # Same shape as ci.yml's env block and for the same reason: these are public
+    # client-side config values, the key here is a throwaway placeholder, and
+    # nothing in a Robolectric test opens a socket. The URL is left to its
+    # build.gradle.kts default.
+    env:
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
     defaults:
       run:
         working-directory: android
@@ -126,6 +140,32 @@ jobs:
       - name: Unit tests
         run: ./gradlew :app:testDebugUnitTest --stacktrace
 
+      # Gradle's failure line is "There were failing tests. See the report at:
+      # file:///…/index.html" — a path on a runner that no longer exists. The
+      # HTML lands in the quality-reports artifact, so the answer IS available;
+      # it just costs a download and an unzip before anyone knows which test
+      # broke. Print the names and the assertion into the log instead, where
+      # the failure is already being read.
+      - name: Name the failing unit tests
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          import glob
+          import xml.etree.ElementTree as ET
+
+          shown = 0
+          for path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/*.xml")):
+              for case in ET.parse(path).getroot().iter("testcase"):
+                  for bad in list(case.findall("failure")) + list(case.findall("error")):
+                      shown += 1
+                      print(f"\n✗ {case.get('classname')} > {case.get('name')}")
+                      print(f"  {bad.get('message') or bad.get('type') or ''}".rstrip())
+                      body = (bad.text or "").strip().splitlines()
+                      for line in body[:12]:
+                          print(f"  {line}")
+          print(f"\n{shown} failing test(s)." if shown else "\nNo failing testcase in the XML results.")
+          PY
+
       # US-2502: a floor, not a target. It cannot catch untested code that was
       # never written; it does catch a change that deletes tests.
       - name: Coverage floor (kover)
@@ -190,7 +230,18 @@ jobs:
         # Compiles androidTest without needing an emulator, so a broken test
         # source fails HERE, in the blocking lane, rather than only in the
         # non-blocking emulator job where a red X is easy to scroll past.
-        run: ./gradlew assembleDebugAndroidTest --stacktrace
+        #
+        # The `e:` lines Kotlin prints are followed by ~150 frames of Gradle
+        # stack trace, so the end of a failed log is all frames and none of the
+        # error. Repeat them last.
+        run: |
+          set -o pipefail
+          if ! ./gradlew assembleDebugAndroidTest --stacktrace 2>&1 | tee "$RUNNER_TEMP/androidtest.log"; then
+            echo "----- compiler errors, repeated so the log tail carries them -----"
+            grep -E '^(e: |error: )' "$RUNNER_TEMP/androidtest.log" | head -50 \
+              || echo "(no e:/error: lines — the failure above is not a compile error)"
+            exit 1
+          fi
 
       # US-1391: proves the release lane works — minification, the proguard
       # rules, and the signing config. Unsigned on a PR (no secret is exposed

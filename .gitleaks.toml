@@ -16,6 +16,44 @@ paths = [
   # runtime (never hardcoded). Full-history scan 2026-06-02 confirmed no key
   # material here — only the boundary literals.
   '''services/edge-functions/src/lib/gsc-client\.ts$''',
+
+  # ── US-2284, triaged 2026-08-14. The scheduled full-history scan reported 19
+  # findings and had never been read: 18 of them are fixtures, and burying the
+  # one real finding (extension.pem, below) under eighteen false ones is how a
+  # scheduled scan becomes a check nobody opens.
+  #
+  # Listed FILE BY FILE rather than as a `_test\.` pattern on purpose. A blanket
+  # test-path allowlist would also cover the next test somebody pastes a live
+  # key into, which is a thing that happens; these are the files that trip
+  # today, each checked by reading it.
+  #
+  # Tests whose SUBJECT is a secret-shaped string — the code under test exists
+  # to scrub or verify one, so the literal has to be there:
+  '''services/edge-functions/src/tests/error-redaction_test\.ts$''',
+  '''services/edge-functions/src/tests/observability_test\.ts$''',
+  '''ios/GradeThreadTests/TelemetryTests\.swift$''',
+  '''android/app/src/test/java/com/gradethread/app/platform/telemetry/TelemetryScrubberTest\.kt$''',
+  # Crypto fixtures: a fixed test key for the AES-GCM column encryption, a test
+  # signing key for the Standard Webhooks verifier, a VAPID auth secret. None
+  # opens anything that exists.
+  '''services/edge-functions/src/tests/user-shipping-pii_test\.ts$''',
+  '''services/edge-functions/src/tests/measure-card-pii_test\.ts$''',
+  '''services/edge-functions/src/tests/standard-webhook_test\.ts$''',
+  '''services/edge-functions/src/tests/web-push_test\.ts$''',
+  # fcm_test.ts GENERATES a keypair with crypto.subtle at run time; what trips
+  # the private-key rule is the -----BEGIN PRIVATE KEY----- literal in the
+  # template string that wraps it.
+  '''services/edge-functions/src/tests/fcm_test\.ts$''',
+  # The backlog. Both hits are the words "api-keys" inside a story's prose.
+  '''^prd\.json$''',
+  '''^prd\.archive\.json$''',
+  # Client build config. Every key in it is VITE_-prefixed, which means Vite
+  # compiles it into the browser bundle — the file cannot hold a secret without
+  # that secret already being public. Its own comments say so line by line:
+  # Supabase URL + anon (publishable, RLS-protected) key, Stripe PUBLISHABLE
+  # key, Sentry DSN, PostHog project key. The JWT and generic-api-key hits are
+  # the anon key and the PostHog key.
+  '''^\.env\.production$''',
 ]
 # US-2284 — the extension signing key.
 #

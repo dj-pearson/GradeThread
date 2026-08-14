@@ -72,6 +72,19 @@ select user_id, payload from public.gt_initplan_probe_good;
 analyze public.gt_initplan_probe_good;
 analyze public.gt_initplan_probe_bare;
 
+-- The real table needs the same explicit grant the probes get. Prod has it —
+-- the SPA reads submissions with the anon key — but it comes from Supabase's
+-- ALTER DEFAULT PRIVILEGES, which is attached to the role that CREATED the
+-- object, and on the throwaway stack the applying role is not always that
+-- role. Since 2026-08-08 it has not been: every run since died here on
+-- "permission denied for table submissions" before reaching a single EXPLAIN,
+-- so this check has reported nothing for a week while looking like a
+-- migration failure. Granting inside the transaction that gets rolled back
+-- costs nothing and removes the dependency on who applied the schema. It
+-- cannot mask a real regression either: the question under test is what the
+-- PLANNER does with auth.uid(), and a grant does not change a plan.
+grant select on public.submissions to authenticated;
+
 select set_config(
   'request.jwt.claims',
   json_build_object('sub', '00000000-0000-0000-0000-000000000007', 'role', 'authenticated')::text,

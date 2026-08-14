@@ -94,6 +94,24 @@ const EXEMPT: Record<string, string> = {
     "evaluates a feature-flag rollout against a sample and returns the buckets. " +
     "Changing a flag is PUT /:key, which audits",
 
+  // ── Surfaced 2026-08-14 when strip() stopped eating most of a file. A `/*`
+  // written inside a `//` comment opened a block comment that ran to the next
+  // terminator anywhere below it, so 17 of admin-billing.ts's 21 routes — and
+  // these four — were never scanned at all. Same category as the block above:
+  // each takes a body, computes an answer and persists nothing.
+  "admin-drip.ts POST /campaigns/:campaign/validate":
+    "validates a proposed campaign graph and returns the problems. Saving the " +
+    "graph is the PUT, and that one writes",
+  "admin-drip.ts POST /campaigns/:campaign/preview":
+    "renders one step's HTML for a sample user, from the UNSAVED body the client " +
+    "sends. Nothing is stored and nothing is sent",
+  "admin-drip.ts POST /campaigns/:campaign/regenerate":
+    "asks Claude for draft subject + HTML from a brief and returns it for review. " +
+    "The route's own header says it does not persist; saving is the PUT",
+  "admin-growth.ts POST /segments/preview":
+    "counts who a proposed segment would match. A query with a body because the " +
+    "filter is too big for a query string",
+
   "admin-ads.ts POST /analyze":
     "runs the REPORT-ONLY Claude analysis and stores recommendations. It never " +
     "touches Google Ads — applying a recommendation does, and " +

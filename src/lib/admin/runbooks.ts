@@ -60,12 +60,13 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
-    // Re-read 2026-08-09 against the vault note. The only change since the last
-    // check was the cron COUNT in a parenthetical (75 → 76, the new
-    // expense-recurrence job). This distillation deliberately quotes no count —
-    // it points at Background Jobs for the live registry — so nothing here went
-    // stale. Bumped rather than edited.
-    reviewed: "2026-08-09",
+    // Re-read 2026-08-14 against the vault note. The change since the last
+    // check (US-2415) added a "rebuilding the host" section on volume
+    // encryption at provisioning time. That is a different moment than a
+    // deploy — this distillation is what on-call opens WHILE shipping, and the
+    // order, the per-layer mechanics and the smoke checks all still match.
+    // Bumped rather than edited; [[encryption-at-rest]] owns that inventory.
+    reviewed: "2026-08-14",
     title: "Production deploy order",
     category: "Deploy",
     summary:
