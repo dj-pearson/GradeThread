@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2527",
-      "passes": false,
-      "title": "The subprocessor list is missing Google and Apple",
-      "description": "As a customer with a DPA, I want the subprocessor list to be complete, so that the document my contract points at is accurate.",
-      "acceptanceCriteria": [
-        "src/pages/legal/subprocessors.tsx:15-24 lists ten subprocessors and names neither Google nor Apple, while the product ships Google Sheets sync writing to a user's Drive, Google Play billing, Apple in-app purchases and Google Ads. The page is dated April 1, 2026.",
-        "Google and Apple are added with purpose, data categories and location, and the effective date is updated.",
-        "Every third party that receives customer data is cross-checked against services/edge-functions and the vault env reference, not just the ones already listed.",
-        "The DPA page's reference to the subprocessor list still resolves."
-      ],
-      "priority": 1940
-    },
-    {
       "id": "US-2528",
       "passes": false,
       "title": "The Terms of Service predate four shipped products",
