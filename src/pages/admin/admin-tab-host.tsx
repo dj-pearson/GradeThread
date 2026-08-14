@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
-import { TabHostContext } from "@/hooks/use-account-hub";
+import { PageHostContext } from "@/hooks/use-page-host";
 
 // US-2559: the shape all four consolidated admin hosts share.
 //
@@ -22,7 +22,7 @@ import { TabHostContext } from "@/hooks/use-account-hub";
 //   • Only the ACTIVE view mounts. Each hosted admin page runs its own queries,
 //     several of them polling; mounting all five on arrival would fire every one
 //     of them.
-//   • TabHostContext, so the hosted page drops the title that now duplicates the
+//   • PageHostContext, so the hosted page drops the title that now duplicates the
 //     tab label while KEEPING its actions.
 //   • A skeleton fallback, not a spinner.
 
@@ -78,7 +78,7 @@ export function AdminTabHost<V extends string>({
 
       {banner}
 
-      <TabHostContext.Provider value={{ embedded: true }}>
+      <PageHostContext.Provider value={{ embedded: true }}>
         <Tabs value={active} onValueChange={setActive}>
           <TabsList>
             {views.map((v) => (
@@ -98,7 +98,7 @@ export function AdminTabHost<V extends string>({
             </TabsContent>
           ))}
         </Tabs>
-      </TabHostContext.Provider>
+      </PageHostContext.Provider>
     </div>
   );
 }

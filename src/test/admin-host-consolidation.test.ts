@@ -164,7 +164,7 @@ describe("each host names itself (US-2559 AC3)", () => {
     // here can repeat it.
     const src = read("src/pages/admin/admin-tab-host.tsx");
     expect(src.indexOf("<PageHeader")).toBeLessThan(src.indexOf("<TabsList>"));
-    expect(src).toContain("TabHostContext.Provider");
+    expect(src).toContain("PageHostContext.Provider");
     // Only the active view mounts — these pages poll.
     expect(src).toContain("{active === value && (");
   });
