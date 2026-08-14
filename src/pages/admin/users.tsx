@@ -6,6 +6,7 @@ import type { UserRow } from "@/types/database";
 import { fetchAdminUserListStats } from "@/lib/admin-aggregates";
 import { FLIPDESK_PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -145,7 +146,7 @@ export function AdminUsersPage() {
   // count. Filters/search are pushed into the query, and the per-user
   // submission stats are fetched only for the ~20 ids on the current page (the
   // `admin_user_list_stats` RPC) instead of downloading the submissions table.
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-users", page, search, planFilter, roleFilter, dateFrom, dateTo],
     queryFn: async () => {
       let query = supabase
@@ -351,7 +352,21 @@ export function AdminUsersPage() {
       </Card>
 
       {/* Users table */}
-      {isLoading ? (
+      {/* US-2507: an errored read rendered an empty table with no explanation,
+          which on this page reads as "no users match" — the filters are right
+          above it. */}
+      {isError ? (
+        <Card>
+          <CardContent className="pt-6">
+            <ErrorState
+              title="Couldn't load users"
+              description="They're still there — we just couldn't fetch them right now."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <Card>
           <CardContent className="pt-6">
             <div className="space-y-3">

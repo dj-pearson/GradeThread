@@ -20,6 +20,34 @@ import { resolve, join, sep } from "node:path";
 
 const ADMIN_ROOTS = ["src/pages/admin", "src/pages/content"];
 
+/**
+ * US-2507 ratchet. These pages render NOTHING when a read fails — the weakest
+ * form of the defect: nothing claims "no data", nothing spins, the page just
+ * has holes in it and the operator cannot tell an outage from a quiet day.
+ *
+ * The two HARMFUL shapes above are hard failures with no allowlist, because
+ * they actively mislead. This one is an allowlist that may only SHRINK: a new
+ * page cannot join it, and removing a page from the list is enforced the moment
+ * it is fixed. Delete entries as they are fixed; when the list is empty, delete
+ * it and make the assertion absolute.
+ */
+const KNOWN_SILENT_READS: string[] = [
+  "src/pages/admin/ads.tsx",
+  "src/pages/admin/ai-models.tsx",
+  "src/pages/admin/analytics.tsx",
+  "src/pages/admin/authenticity.tsx",
+  "src/pages/admin/brand-knowledge.tsx",
+  "src/pages/admin/category-map.tsx",
+  "src/pages/admin/claims.tsx",
+  "src/pages/admin/growth/announcements.tsx",
+  "src/pages/admin/growth/reward-north-star.tsx",
+  "src/pages/admin/guarantee-pool.tsx",
+  "src/pages/admin/jobs.tsx",
+  "src/pages/admin/rate-limits.tsx",
+  "src/pages/admin/system.tsx",
+  "src/pages/admin/user-detail.tsx",
+];
+
 function listPages(): string[] {
   const out: string[] = [];
   const walk = (dir: string) => {
@@ -49,6 +77,12 @@ interface PageFacts {
    * BELOW the loading guard and was therefore unreachable.
    */
   loadingSwallowsError: boolean;
+  /**
+   * Does ANYTHING in the page react to a failed read? A `toast.error` inside a
+   * mutation handler does not count — that reports a write the operator just
+   * asked for, not a read that silently returned nothing.
+   */
+  surfacesReadFailure: boolean;
 }
 
 function factsFor(rel: string): PageFacts {
@@ -59,6 +93,14 @@ function factsFor(rel: string): PageFacts {
     rendersEmptyState: /<EmptyState\b|<ContentUnavailable/.test(src),
     rendersErrorState: /<ErrorState\b/.test(src),
     loadingSwallowsError: /isLoading\s*\|\|\s*!\s*\w/.test(src),
+    surfacesReadFailure:
+      /<ErrorState\b/.test(src) ||
+      /\bisError\b/.test(src) ||
+      /\bisLoadingError\b/.test(src) ||
+      // A destructured `error` from useQuery, rendered as `{error ? …}` or
+      // `{error && …}`. Deliberately NOT `json.error` / `err.message`, which are
+      // queryFn plumbing and mutation toasts rather than a read-failure UI.
+      /(^|[^.\w])error\s*(\?|&&)/m.test(src),
   };
 }
 
@@ -96,6 +138,33 @@ describe("admin pages don't report a failed load as an empty one (US-2507)", () 
         "undefined on an ERROR too — so a failed load renders the loading " +
         "skeleton forever. Add an <ErrorState> branch and put it FIRST:\n  " +
         offenders.join("\n  "),
+    ).toEqual([]);
+  });
+
+  // The weakest form, and the last one: the page reacts to a failed read in no
+  // way at all. Nothing claims "no data" and nothing spins — it just renders a
+  // shell with holes in it, and the operator has no way to tell an outage from
+  // a quiet day. A toast.error inside a mutation handler does not count; that
+  // reports a write the operator asked for.
+  it("no NEW page ignores a failed read, and the known list only shrinks", () => {
+    const offenders = pages
+      .filter((p) => p.usesQuery && !p.surfacesReadFailure)
+      .map((p) => p.rel)
+      .sort();
+
+    const added = offenders.filter((f) => !KNOWN_SILENT_READS.includes(f));
+    expect(
+      added,
+      "these are NEW pages that render nothing when a read fails — an outage " +
+        "is indistinguishable from a quiet day. Add an " +
+        "<ErrorState onRetry={refetch}> branch:\n  " + added.join("\n  "),
+    ).toEqual([]);
+
+    const fixed = KNOWN_SILENT_READS.filter((f) => !offenders.includes(f));
+    expect(
+      fixed,
+      "these were fixed — delete them from KNOWN_SILENT_READS so the ratchet " +
+        "keeps its grip:\n  " + fixed.join("\n  "),
     ).toEqual([]);
   });
 });

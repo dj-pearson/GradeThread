@@ -3,6 +3,7 @@ import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { CHART_PALETTE } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -91,7 +92,7 @@ interface AdminDashboardData {
 
 export function AdminDashboardPage() {
   const visible = useDocumentVisible();
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-dashboard"],
     queryFn: async (): Promise<AdminDashboardData> => {
       // US-1565: aggregates are computed on the edge (narrow selects, one
@@ -131,6 +132,18 @@ export function AdminDashboardPage() {
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
+      {/* US-2507: one banner for the whole tab. Every block below reads the
+          same summary query, so without this an errored load rendered three
+          sections of zeroes and dashes with nothing saying why — an outage
+          looked exactly like a quiet day on the busiest admin page. */}
+      {isError && (
+        <ErrorState
+          title="Couldn't load the dashboard summary"
+          description="The numbers below are unavailable, not zero."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      )}
       {/* Primary KPI Cards */}
       {isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

@@ -20,6 +20,7 @@ import type {
   UserRow,
 } from "@/types/database";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -244,7 +245,7 @@ export function AdminDisputesPage() {
 
   // ─── Data Fetching ────────────────────────────────────────────────
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-disputes"],
     queryFn: async () => {
       // US-2025: fetch as a DEPENDENT CASCADE off the disputes actually shown.
@@ -720,7 +721,20 @@ export function AdminDisputesPage() {
       </Card>
 
       {/* Dispute Queue Table */}
-      {isLoading ? (
+      {/* US-2507: a failed read rendered an empty queue, and an empty dispute
+          queue is a thing an operator is happy to believe. */}
+      {isError ? (
+        <Card>
+          <CardContent className="pt-6">
+            <ErrorState
+              title="Couldn't load the dispute queue"
+              description="Disputes are still open — we just couldn't fetch them right now."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          </CardContent>
+        </Card>
+      ) : isLoading ? (
         <Card>
           <CardContent className="pt-6">
             <div className="space-y-3">
