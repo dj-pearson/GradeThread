@@ -8,7 +8,11 @@ import { supabaseAdmin } from "./supabase.ts";
 // return both the mutating patch and its exact inverse so "every write path is
 // logged and reversible" (AC5) is a property of the code, not a convention.
 
-export type ModerationContentType = "listing" | "photo";
+// US-2550 adds "certificate": a buyer report against a PUBLIC certificate.
+// Its content_id is grade_reports.certificate_id — the uuid the buyer is
+// looking at — not the internal report id, so an operator can paste it
+// straight into /cert/:id and see what the reporter saw.
+export type ModerationContentType = "listing" | "photo" | "certificate";
 export type ModerationFlagStatus = "open" | "resolved" | "dismissed";
 
 export interface ContentModerationFlagRow {
@@ -73,13 +77,34 @@ export async function resolvePhotoOwner(
   return owner ?? null;
 }
 
+// A certificate's owner is the seller who submitted the garment. Two hops,
+// because a certificate id identifies a grade_report and the tenant lives on
+// its parent submission.
+export async function resolveCertificateOwner(
+  certificateId: string,
+): Promise<string | null> {
+  const { data: report } = await supabaseAdmin
+    .from("grade_reports")
+    .select("submission_id")
+    .eq("certificate_id", certificateId)
+    .maybeSingle();
+  const submissionId = (report as { submission_id: string } | null)?.submission_id;
+  if (!submissionId) return null;
+  const { data: submission } = await supabaseAdmin
+    .from("submissions")
+    .select("user_id")
+    .eq("id", submissionId)
+    .maybeSingle();
+  return (submission as { user_id: string } | null)?.user_id ?? null;
+}
+
 export function resolveOwner(
   contentType: ModerationContentType,
   contentId: string,
 ): Promise<string | null> {
-  return contentType === "listing"
-    ? resolveListingOwner(contentId)
-    : resolvePhotoOwner(contentId);
+  if (contentType === "listing") return resolveListingOwner(contentId);
+  if (contentType === "certificate") return resolveCertificateOwner(contentId);
+  return resolvePhotoOwner(contentId);
 }
 
 // ── Reversible takedown patches ────────────────────────────────────────────
@@ -110,6 +135,55 @@ export function photoRestorePatch(): { is_hidden: boolean } {
 }
 
 // ── Flag enqueue (reusable producer API) ───────────────────────────────────
+
+/** The report reasons a buyer can pick on a certificate (US-2550). */
+export const CERTIFICATE_REPORT_REASONS = {
+  not_my_item: "The photos are not the item I received",
+  altered: "The grade or details look altered",
+  stolen: "This certificate is being used by someone else",
+  other: "Something else",
+} as const;
+
+export type CertificateReportReason = keyof typeof CERTIFICATE_REPORT_REASONS;
+
+export function isCertificateReportReason(
+  v: unknown,
+): v is CertificateReportReason {
+  // hasOwn, not `in`: `in` walks the prototype chain, so "toString" and
+  // "constructor" passed as valid reasons and the route then stringified a
+  // FUNCTION into the operator queue.
+  return typeof v === "string" && Object.hasOwn(CERTIFICATE_REPORT_REASONS, v);
+}
+
+/** How much free text a reporter may add. Long enough to be useful, short
+ *  enough that the queue stays readable. */
+export const CERTIFICATE_REPORT_NOTE_MAX = 500;
+
+const REPORT_COUNT_RE = /^(\d+) buyer reports?\./;
+
+/**
+ * The reason text for the Nth buyer report on one certificate.
+ *
+ * enqueueModerationFlag deliberately UPDATES the single open flag rather than
+ * piling up rows, which is right for a queue but loses the fact that five
+ * different people reported the same certificate — the strongest signal in the
+ * whole thing. The count is therefore carried in the reason itself, parsed back
+ * out of the existing row and incremented.
+ *
+ * Pure so the counting is testable without a database.
+ */
+export function composeCertificateReportReason(
+  existingReason: string | null,
+  label: string,
+  note: string | null,
+): string {
+  const previous = existingReason?.match(REPORT_COUNT_RE);
+  const count = previous ? Number(previous[1]) + 1 : 1;
+  const trimmed = (note ?? "").replace(/\s+/g, " ").trim();
+  const tail = trimmed ? ` Note: ${trimmed.slice(0, CERTIFICATE_REPORT_NOTE_MAX)}` : "";
+  const plural = count === 1 ? "report" : "reports";
+  return `${count} buyer ${plural}. Latest: ${label}.${tail}`;
+}
 
 export function flagDedupeKey(
   contentType: ModerationContentType,

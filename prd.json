@@ -1840,19 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2550",
-      "passes": false,
-      "title": "A certificate that fails its integrity check gives the buyer nothing to do",
-      "description": "As a buyer told not to trust a certificate, I want a way to report it, so that the warning leads somewhere.",
-      "acceptanceCriteria": [
-        "src/pages/certificate.tsx:212-227 renders 'Integrity check failed — do not trust this certificate' with no action. The unsigned state at :240 says 'Contact support' with no link.",
-        "Both states offer a report action that files against the certificate id and a support contact link.",
-        "A report is visible to operators in the admin moderation or fraud surface.",
-        "The seller attribution on the certificate links to their Verified profile where one exists."
-      ],
-      "priority": 2416
-    },
-    {
       "id": "US-2551",
       "passes": false,
       "title": "Anyone who scans a tag is offered ownership of the garment",
@@ -1998,41 +1985,6 @@
       "dependsOn": [
         "US-2525"
       ]
-    },
-    {
-      "id": "US-2562",
-      "title": "The credit ledger survives account deletion",
-      "description": "As the operator defending a chargeback filed after a customer left, I want that customer's grade-credit ledger and subscription history to still exist, so that I can represent the charge instead of conceding it.",
-      "acceptanceCriteria": [
-        "Migration 00595 is applied: grade_credit_transactions.user_id, grade_credit_transactions.submission_id and flipdesk_subscription_events.user_id no longer carry a foreign key to public.users, so the auth.users cascade cannot reach them.",
-        "POST /api/account/delete calls redact_subscription_event_pii(userId) BEFORE auth.admin.deleteUser, so the verbatim Stripe payloads (which carry email and billing address) are replaced with a redaction marker while event_type/from_plan/to_plan/stripe_event_id/created_at survive as the audit trail.",
-        "The account_deletion_log row written by that endpoint sets stripe_customer_id, ledger_rows_retained (a COUNT of the user's grade_credit_transactions taken before deletion) and subscription_events_redacted (the redaction function's return value) — the retention is provable from the log, not asserted in a comment.",
-        "Every other auth.admin.deleteUser call site in services/edge-functions/src (grep it; the admin-initiated path counts) goes through the same redaction + logging, or is shown not to exist.",
-        "A deno test proves the deletion path calls redaction before deletion and records the counts — the ordering is the whole story, so a test that only checks both happened is not enough.",
-        "src/pages/admin/ can read a deleted account's retained ledger by user id: the admin ledger endpoint does not INNER JOIN users, so an erased account still lists its transactions."
-      ],
-      "priority": 1,
-      "passes": false,
-      "notes": "From the 2026-08-14 staff-level architecture review. Severity CRITICAL: this is the only finding whose damage is irreversible once it happens. The card-network dispute window runs to 120 days; deletion inside it currently leaves account_deletion_log's three booleans and nothing else. Also the cheapest abuse path in the product (grade fifty items, delete, dispute). The fix deliberately does NOT copy rows to an archive table — two sources of truth drift, and a ledger you do not delete is one. Retention basis: financial record under the legal-obligation carve-out to erasure, the same ground account_deletion_log has stood on since 00064; the rows carry no PII once auth.users is gone."
-    },
-    {
-      "id": "US-2563",
-      "title": "Idempotency-Key on the public API",
-      "description": "As an API integrator whose HTTP client retries on timeout, I want a retried grade submission to return the original result instead of grading and charging again, so that a network blip does not cost me twice at $2-3 a garment.",
-      "acceptanceCriteria": [
-        "Migration 00596 is applied and services/edge-functions/src/middleware/api-idempotency.ts exists, mounted on /api/v1/* in main.ts AFTER apiKeyAuthMiddleware (which sets userId/apiKeyId) and AFTER the rate limiter, so a retry flood is shed before it reaches the table.",
-        "GET and HEAD pass through untouched. On POST/PUT/PATCH/DELETE with no Idempotency-Key header the request proceeds unchanged, and a call to POST /grades or POST /grades/batch without one logs a warning naming the user and key.",
-        "Same key + same body, first call: the handler runs and its status + JSON body are stored. Same key + same body, completed: the stored response is replayed verbatim with an Idempotent-Replay: true header and the handler never runs. Same key + different body: 422 IDEMPOTENCY_KEY_REUSED. Same key still in flight: 409 IDEMPOTENCY_IN_PROGRESS with Retry-After.",
-        "The claim is an INSERT that relies on the unique index and reads the existing row on 23505 — NOT a SELECT-then-INSERT, which two concurrent retries would both win.",
-        "A handler that throws, and a handler that answers 4xx/5xx, both DELETE their in_progress claim, so the client's retry is a real attempt rather than a 409 against a request that produced nothing. Only 2xx is recorded as replayable.",
-        "An in_progress claim older than IN_FLIGHT_TTL_MS (120s) is takeable, so a container that died mid-handler does not lock a key out for 24 hours.",
-        "API_IDEMPOTENCY_REQUIRED=true makes the header mandatory on POST /grades and POST /grades/batch with a 400 IDEMPOTENCY_KEY_REQUIRED; default (unset) is advisory so live integrations do not break on deploy.",
-        "lib/openapi-spec.ts documents the header, the three response codes, and the 24h retention window. The maintenance cron calls prune_api_idempotency_records().",
-        "Deno tests cover: fresh claim, replay, fingerprint mismatch, in-flight conflict, stale-claim takeover, and claim release on both throw and non-2xx."
-      ],
-      "priority": 2,
-      "passes": false,
-      "notes": "From the 2026-08-14 review. The derived keys already in place — grade_pay:<submissionId> (US-2298) and grade-batch-job:<jobId> (US-2289) — are correct for what they guard and STRUCTURALLY cannot catch an HTTP retry: by the time either key exists, the retry has already minted a second submission (or a second batch of N jobs) to derive it from. The unit that must be deduplicated is the request, and nothing in the service modelled one. Contract is Stripe's on purpose so integrators do not learn a new one. Read the body for the fingerprint via c.req.raw.clone().text(), not c.req.text(), so Hono's parsed-body cache is left alone for the handler."
     },
     {
       "id": "US-2564",

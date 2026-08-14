@@ -14,7 +14,9 @@ import {
   type ModerationContentType,
   photoHidePatch,
   photoRestorePatch,
+  resolveCertificateOwner,
   resolveListingOwner,
+  resolveOwner,
   resolvePhotoOwner,
 } from "../lib/moderation-queue.ts";
 
@@ -248,6 +250,20 @@ function paginationParams(c: Context<AdminEnv>) {
   return { page, pageSize, view, from: (page - 1) * pageSize };
 }
 
+// US-2550: one place that knows what a content type is, so the three route
+// bodies cannot drift apart the way "must be 'listing' or 'photo'" already
+// had (that string was copied twice and would have needed a third edit).
+const MUST_BE_CONTENT_TYPE =
+  "`content_type` must be 'listing', 'photo' or 'certificate'";
+
+function isModerationContentType(v: unknown): v is ModerationContentType {
+  return v === "listing" || v === "photo" || v === "certificate";
+}
+
+function auditTargetType(t: ModerationContentType): string {
+  return t === "listing" ? "listing" : t === "photo" ? "item_photo" : "certificate";
+}
+
 interface FlagLite {
   id: string;
   content_id: string;
@@ -472,6 +488,210 @@ adminModerationRoutes.get("/photos", async (c: Context<AdminEnv>) => {
   });
 });
 
+
+// GET /certificates — the buyer reports from /cert/:id (US-2550).
+//
+// Flagged-only, deliberately: "recently changed certificates" is not a triage
+// view — a certificate is immutable once issued, so the only thing worth
+// draining here is what somebody reported. Each row carries what an operator
+// needs to judge it without leaving the page: the grade, the garment, the
+// owner, and whether the certificate is already withheld from the public.
+adminModerationRoutes.get("/certificates", async (c: Context<AdminEnv>) => {
+  const { page, pageSize, from } = paginationParams(c);
+  const { flags, total } = await loadOpenFlags("certificate", from, pageSize);
+  if (flags.length === 0) {
+    return c.json({ rows: [], page, pageSize, total: 0, totalPages: 1 });
+  }
+
+  const certIds = flags.map((f) => f.content_id);
+  const { data: reportsRaw, error } = await supabaseAdmin
+    .from("grade_reports")
+    .select("id, certificate_id, submission_id, overall_score, grade_tier, created_at")
+    .in("certificate_id", certIds);
+  if (error) {
+    return failSafe(c, 500, "Couldn't load reported certificates.", error, "admin.moderation.certificates.list");
+  }
+  const reports = (reportsRaw ?? []) as Array<{
+    id: string;
+    certificate_id: string;
+    submission_id: string;
+    overall_score: number;
+    grade_tier: string;
+    created_at: string;
+  }>;
+  const reportByCert = new Map(reports.map((r) => [r.certificate_id, r]));
+
+  const { data: subsRaw } = await supabaseAdmin
+    .from("submissions")
+    .select("id, user_id, title, brand, flagged, moderation_status")
+    .in("id", reports.map((r) => r.submission_id));
+  const subs = (subsRaw ?? []) as Array<{
+    id: string;
+    user_id: string;
+    title: string | null;
+    brand: string | null;
+    flagged: boolean | null;
+    moderation_status: string | null;
+  }>;
+  const subById = new Map(subs.map((s) => [s.id, s]));
+  const users = await loadUserLabels(subs.map((s) => s.user_id));
+
+  const rows = flags.map((flag) => {
+    const report = reportByCert.get(flag.content_id) ?? null;
+    const sub = report ? subById.get(report.submission_id) ?? null : null;
+    return {
+      certificateId: flag.content_id,
+      // Null when the grade behind a reported certificate has since been
+      // deleted. The flag still shows, because the report is the audit trail
+      // and hiding it would make the queue lie about what was reported.
+      gradeReportId: report?.id ?? null,
+      submissionId: report?.submission_id ?? null,
+      overallScore: report?.overall_score ?? null,
+      gradeTier: report?.grade_tier ?? null,
+      issuedAt: report?.created_at ?? null,
+      title: sub?.title ?? null,
+      brand: sub?.brand ?? null,
+      ownerUserId: sub?.user_id ?? null,
+      owner: sub?.user_id ? users.get(sub.user_id) ?? null : null,
+      // US-484: a submission already flagged is withheld from the public cert
+      // path, so the operator can see the report has effectively been acted on.
+      withheld: sub?.flagged === true || sub?.moderation_status === "flagged",
+      flag: {
+        id: flag.id,
+        reason: flag.reason,
+        source: flag.source,
+        createdAt: flag.created_at,
+      },
+    };
+  });
+
+  return c.json({
+    rows,
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  });
+});
+
+// POST /certificates/:id/dismiss — close a buyer report without acting on the
+// content. NOT destructive (nothing is hidden or changed), so no step-up: the
+// destructive path for a certificate is withholding its SUBMISSION, which the
+// existing submission moderation endpoints already own and already step up.
+adminModerationRoutes.post(
+  "/certificates/:id/dismiss",
+  async (c: Context<AdminEnv, "/certificates/:id/dismiss">) => {
+    const certId = c.req.param("id");
+    const body = (await c.req.json().catch(() => ({}))) as { note?: unknown };
+    const note = typeof body.note === "string" ? body.note.trim() : "";
+
+    const ownerUserId = await resolveCertificateOwner(certId);
+    if (!ownerUserId) return c.json({ error: "Certificate not found" }, 404);
+
+    const actorId = c.get("userId");
+    await closeFlagForContent("certificate", certId, actorId, "dismissed", "dismissed");
+    await writeAuditLog(c, {
+      action: "admin.moderation_certificate_dismiss",
+      targetType: "certificate",
+      targetId: certId,
+      details: { owner_user_id: ownerUserId, note: note || null },
+    });
+    return c.json({ ok: true });
+  },
+);
+
+
+// POST /certificates/:id/withhold — pull a reported certificate from the
+// public path. Destructive (public content disappears) → fresh MFA step-up,
+// and reversible by /restore below, which is the contract this whole module
+// advertises: every write path logged, every write path undoable.
+//
+// The mechanism is US-484: the public cert endpoint, the SSR page and the OG
+// image all 404 a certificate whose SUBMISSION is flagged. So the write lands
+// on the submission — there is no separate certificate-visibility column, and
+// inventing one would give the product two answers to "is this cert public".
+adminModerationRoutes.post(
+  "/certificates/:id/withhold",
+  async (c: Context<AdminEnv, "/certificates/:id/withhold">) => {
+    const stepUp = requireStepUp(c);
+    if (stepUp) return stepUp;
+
+    const certId = c.req.param("id");
+    const submissionId = await resolveCertificateSubmission(certId);
+    if (!submissionId) return c.json({ error: "Certificate not found" }, 404);
+    const sub = await loadSubmission(submissionId);
+    if (!sub) return c.json({ error: "Certificate not found" }, 404);
+
+    const patch = { flagged: true, moderation_status: "flagged" };
+    const { error } = await supabaseAdmin
+      .from("submissions")
+      .update(patch)
+      .eq("id", submissionId);
+    if (error) {
+      return failSafe(c, 500, "Couldn't withhold the certificate.", error, "admin.moderation.certificates.withhold");
+    }
+
+    const actorId = c.get("userId");
+    await closeFlagForContent("certificate", certId, actorId, "withheld");
+    await writeAuditLog(c, {
+      action: "admin.moderation_certificate_withhold",
+      targetType: "certificate",
+      targetId: certId,
+      details: { submission_id: submissionId, owner_user_id: sub.user_id },
+      before: { flagged: sub.flagged, moderation_status: sub.moderation_status },
+      after: patch,
+    });
+    return c.json({ ok: true });
+  },
+);
+
+// POST /certificates/:id/restore — the exact inverse. Approving is what the
+// pipeline-flagged path already uses (US-476), so a certificate withheld here
+// and one cleared there end in the same state rather than two near-identical
+// ones nobody can tell apart later.
+adminModerationRoutes.post(
+  "/certificates/:id/restore",
+  async (c: Context<AdminEnv, "/certificates/:id/restore">) => {
+    const certId = c.req.param("id");
+    const submissionId = await resolveCertificateSubmission(certId);
+    if (!submissionId) return c.json({ error: "Certificate not found" }, 404);
+    const sub = await loadSubmission(submissionId);
+    if (!sub) return c.json({ error: "Certificate not found" }, 404);
+
+    const patch = { flagged: false, moderation_status: "approved" };
+    const { error } = await supabaseAdmin
+      .from("submissions")
+      .update(patch)
+      .eq("id", submissionId);
+    if (error) {
+      return failSafe(c, 500, "Couldn't restore the certificate.", error, "admin.moderation.certificates.restore");
+    }
+
+    await writeAuditLog(c, {
+      action: "admin.moderation_certificate_restore",
+      targetType: "certificate",
+      targetId: certId,
+      details: { submission_id: submissionId, owner_user_id: sub.user_id },
+      before: { flagged: sub.flagged, moderation_status: sub.moderation_status },
+      after: patch,
+    });
+    return c.json({ ok: true });
+  },
+);
+
+// certificate_id -> submission_id. Separate from resolveCertificateOwner
+// because the write above needs the submission ROW, not its owner.
+async function resolveCertificateSubmission(
+  certificateId: string,
+): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from("grade_reports")
+    .select("submission_id")
+    .eq("certificate_id", certificateId)
+    .maybeSingle();
+  return (data as { submission_id: string } | null)?.submission_id ?? null;
+}
+
 // POST /listings/:id/takedown — unpublish a listing platform-wide. Destructive
 // (removes public/marketplace content) → fresh MFA step-up. Reversible: restore
 // flips the markers back.
@@ -611,28 +831,30 @@ adminModerationRoutes.post("/notify-owner", async (c: Context<AdminEnv>) => {
   const contentType = body.content_type;
   const contentId = body.content_id;
   const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (contentType !== "listing" && contentType !== "photo") {
-    return c.json({ error: "`content_type` must be 'listing' or 'photo'" }, 400);
+  if (!isModerationContentType(contentType)) {
+    return c.json({ error: MUST_BE_CONTENT_TYPE }, 400);
   }
   if (typeof contentId !== "string" || !contentId) {
     return c.json({ error: "`content_id` is required" }, 400);
   }
   if (!message) return c.json({ error: "`message` is required" }, 400);
 
-  const ownerUserId = contentType === "listing"
-    ? await resolveListingOwner(contentId)
-    : await resolvePhotoOwner(contentId);
+  const ownerUserId = await resolveOwner(contentType, contentId);
   if (!ownerUserId) return c.json({ error: "Content not found" }, 404);
 
   await notifyUser(ownerUserId, {
     type: "system",
     title: "Content moderation notice",
     message,
-    link: contentType === "listing" ? "/dashboard/flipdesk/pipeline" : null,
+    link: contentType === "listing"
+      ? "/dashboard/flipdesk/pipeline"
+      : contentType === "certificate"
+      ? "/dashboard/submissions"
+      : null,
   });
   await writeAuditLog(c, {
     action: "admin.moderation_notify_owner",
-    targetType: contentType === "listing" ? "listing" : "item_photo",
+    targetType: auditTargetType(contentType),
     targetId: contentId,
     details: { owner_user_id: ownerUserId, message },
   });
@@ -657,8 +879,8 @@ adminModerationRoutes.post("/flag", async (c: Context<AdminEnv>) => {
   const source = typeof body.source === "string" && body.source.trim()
     ? body.source.trim()
     : "manual";
-  if (contentType !== "listing" && contentType !== "photo") {
-    return c.json({ error: "`content_type` must be 'listing' or 'photo'" }, 400);
+  if (!isModerationContentType(contentType)) {
+    return c.json({ error: MUST_BE_CONTENT_TYPE }, 400);
   }
   if (typeof contentId !== "string" || !contentId) {
     return c.json({ error: "`content_id` is required" }, 400);
@@ -677,7 +899,7 @@ adminModerationRoutes.post("/flag", async (c: Context<AdminEnv>) => {
 
   await writeAuditLog(c, {
     action: "admin.moderation_flag",
-    targetType: contentType === "listing" ? "listing" : "item_photo",
+    targetType: auditTargetType(contentType),
     targetId: contentId,
     details: { flag_id: flagId, reason, source },
   });

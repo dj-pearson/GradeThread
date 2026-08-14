@@ -4973,3 +4973,86 @@ Deno.test({
     assertDenied(res.status, "POST support-tickets/:id/messages (attachment)");
   },
 });
+
+Deno.test({
+  // US-2550: the buyer report endpoint is deliberately ANONYMOUS — the person
+  // best placed to report a forged certificate has no account. What it must NOT
+  // become is a way to reach into a tenant: it takes a certificate id, resolves
+  // the owner server-side from that id alone, and writes only to the operator
+  // queue. Nothing the caller sends can name a user, a submission or a flag.
+  name: "the public certificate report endpoint accepts no tenant-targeting input",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CERT_ID"),
+  fn: async () => {
+    const certId = Deno.env.get("TEST_USER_A_CERT_ID")!;
+    const res = await fetch(
+      `${BASE}/api/content/public/certificates/${certId}/report`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        // Every field here is an attempt to steer the write somewhere else.
+        body: JSON.stringify({
+          reason: "altered",
+          note: "test",
+          owner_user_id: "00000000-0000-0000-0000-000000000001",
+          content_type: "listing",
+          flagged_by: "00000000-0000-0000-0000-000000000001",
+          status: "resolved",
+        }),
+      },
+    );
+    const body = await res.json().catch(() => ({}));
+    // It succeeds (anonymous reporting is the point) and returns nothing about
+    // the tenant it resolved — no owner id, no submission id, no flag id.
+    assertEquals(res.status, 200, "public report should be accepted");
+    assertEquals(Object.keys(body).sort().join(","), "ok");
+  },
+});
+
+Deno.test({
+  // A report against a certificate that does not exist must not create a flag
+  // on nothing — the owner lookup IS the existence check.
+  name: "the public certificate report endpoint 404s an unknown certificate",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/content/public/certificates/00000000-0000-0000-0000-0000000000ff/report`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason: "altered" }),
+      },
+    );
+    await res.body?.cancel();
+    assertEquals(res.status, 404, "unknown certificate must 404");
+  },
+});
+
+Deno.test({
+  // The moderation console is operator-only. A tenant JWT must not reach the
+  // certificate queue, which is cross-tenant by construction.
+  name: "B cannot read the certificate moderation queue",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/admin/moderation/certificates`, {
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET admin moderation certificates");
+  },
+});
+
+Deno.test({
+  // And must not be able to pull a certificate off the public path.
+  name: "B cannot withhold a certificate",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_CERT_ID"),
+  fn: async () => {
+    const certId = Deno.env.get("TEST_USER_A_CERT_ID")!;
+    const res = await fetch(
+      `${BASE}/api/admin/moderation/certificates/${certId}/withhold`,
+      { method: "POST", headers: authHeaders(B_JWT!), body: "{}" },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST admin moderation certificate withhold");
+  },
+});
+

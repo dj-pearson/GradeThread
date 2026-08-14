@@ -105,7 +105,7 @@ export function AdminModerationPage() {
     <div className="space-y-6">
       <PageHeader
         title="Content Moderation"
-        subtitle="Review and take down content across all tenants — flagged grading submissions, marketplace listings, and uploaded item photos."
+        subtitle="Review and take down content across all tenants — flagged grading submissions, marketplace listings, uploaded item photos, and certificates buyers have reported."
         icon={ShieldAlert}
       />
 
@@ -123,6 +123,11 @@ export function AdminModerationPage() {
             <ImageIcon className="mr-1.5 h-4 w-4" />
             Photos
           </TabsTrigger>
+          {/* US-2550: buyer reports filed from /cert/:id. */}
+          <TabsTrigger value="certificates">
+            <ShieldAlert className="mr-1.5 h-4 w-4" />
+            Certificates
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="submissions" className="mt-6">
           <SubmissionsTab />
@@ -132,6 +137,9 @@ export function AdminModerationPage() {
         </TabsContent>
         <TabsContent value="photos" className="mt-6">
           <PhotosTab />
+        </TabsContent>
+        <TabsContent value="certificates" className="mt-6">
+          <CertificatesTab />
         </TabsContent>
       </Tabs>
     </div>
@@ -1172,5 +1180,241 @@ function NotifyDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// US-2550: the buyer reports queue.
+//
+// A buyer who is told "do not trust this certificate" can now say so, and this
+// is where that lands. Two things make it different from the other three tabs:
+// there is no "recent" view (a certificate is immutable once issued, so the
+// only triage-worthy set is what somebody reported), and the destructive action
+// is NOT here — withholding a certificate means flagging its submission, which
+// the Submissions tab already owns and already steps up for. What this tab
+// gives an operator is the report, the evidence to judge it, and the two ways
+// out: open the submission, or dismiss the report.
+interface CertificateRowDto {
+  certificateId: string;
+  gradeReportId: string | null;
+  submissionId: string | null;
+  overallScore: number | null;
+  gradeTier: string | null;
+  issuedAt: string | null;
+  title: string | null;
+  brand: string | null;
+  ownerUserId: string | null;
+  owner: ModOwner | null;
+  withheld: boolean;
+  flag: ModFlag;
+}
+
+function CertificatesTab() {
+  const [page, setPage] = useState(1);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [stepUpOpen, setStepUpOpen] = useState(false);
+  const [pendingWithhold, setPendingWithhold] = useState<string | null>(null);
+
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ["admin-moderation-certificates", page],
+    queryFn: async (): Promise<ModPage<CertificateRowDto>> => {
+      const res = await edgeFetch(
+        `/api/admin/moderation/certificates?page=${page}&page_size=20`,
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to load reported certificates.");
+      return j as ModPage<CertificateRowDto>;
+    },
+    staleTime: 30 * 1000,
+  });
+
+  async function act(
+    certificateId: string,
+    action: "withhold" | "restore",
+  ) {
+    setBusyId(certificateId);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/moderation/certificates/${certificateId}/${action}`,
+        { method: "POST", json: {}, silentGate: true },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (res.status === 403 && j?.code === "STEP_UP_REQUIRED") {
+        setPendingWithhold(certificateId);
+        setStepUpOpen(true);
+        return;
+      }
+      if (!res.ok) throw new Error(j.error ?? "That did not work.");
+      toast.success(
+        action === "withhold"
+          ? "Certificate withheld from the public page."
+          : "Certificate restored.",
+      );
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "That did not work.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function dismiss(certificateId: string) {
+    setBusyId(certificateId);
+    try {
+      const res = await edgeFetch(
+        `/api/admin/moderation/certificates/${certificateId}/dismiss`,
+        { method: "POST", json: {} },
+      );
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.error ?? "Failed to dismiss the report.");
+      toast.success("Report dismissed.");
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to dismiss the report.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  // Error FIRST: react-query leaves data undefined on error, so a loading
+  // guard placed above this one would always win and this branch would be dead.
+  if (isError) {
+    return (
+      <Card>
+        <ErrorState
+          title="Couldn't load reported certificates"
+          description="The moderation queue did not answer. This is usually temporary."
+          onRetry={() => refetch()}
+          retrying={isFetching}
+        />
+      </Card>
+    );
+  }
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {Array.from({ length: 2 }).map((_, i) => (
+          <Skeleton key={i} className="h-36 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  const rows = data?.rows ?? [];
+  if (rows.length === 0) {
+    return (
+      <Card>
+        <EmptyState
+          icon={CheckCircle2}
+          title="No reported certificates"
+          description="When a buyer reports a certificate from its public page, it appears here."
+        />
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <div className="space-y-4">
+        {rows.map((row) => {
+          const busy = busyId === row.certificateId;
+          return (
+            <Card key={row.certificateId}>
+              <CardContent className="space-y-3 pt-6">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate font-medium">
+                      {row.title || "Untitled garment"}
+                      {row.brand ? (
+                        <span className="text-muted-foreground"> · {row.brand}</span>
+                      ) : null}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {row.overallScore != null
+                        ? `${row.overallScore.toFixed(1)} · ${row.gradeTier ?? ""}`
+                        : "Grade no longer on record"}
+                      {" · "}
+                      <OwnerLink owner={row.owner} />
+                    </p>
+                  </div>
+                  {row.withheld && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-300">
+                      Already withheld
+                    </span>
+                  )}
+                </div>
+
+                <div className="rounded-md border bg-muted/40 p-2 text-sm">
+                  {/* The count lives in the reason text: the queue keeps one
+                      open flag per certificate, so five reporters are five
+                      counts on one row, not five rows. */}
+                  <p>{row.flag.reason}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {row.flag.source} · {new Date(row.flag.createdAt).toLocaleString()}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="outline" asChild>
+                    <a
+                      href={`/cert/${row.certificateId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      See what the buyer saw
+                    </a>
+                  </Button>
+                  {/* The real action, and its exact inverse. Withholding
+                      writes to the SUBMISSION, because US-484 is what makes
+                      a certificate 404 on every public path — there is no
+                      second certificate-visibility flag, and adding one
+                      would give the product two answers to one question. */}
+                  {row.withheld ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || !row.submissionId}
+                      onClick={() => act(row.certificateId, "restore")}
+                    >
+                      Restore
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      disabled={busy || !row.submissionId}
+                      onClick={() => act(row.certificateId, "withhold")}
+                    >
+                      Withhold
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => dismiss(row.certificateId)}
+                  >
+                    {busy ? "Dismissing…" : "Dismiss report"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
+      <Pager
+        page={data?.page ?? 1}
+        totalPages={data?.totalPages ?? 1}
+        onPage={setPage}
+      />
+      <MfaStepUpDialog
+        open={stepUpOpen}
+        onOpenChange={setStepUpOpen}
+        onVerified={() => {
+          const id = pendingWithhold;
+          setPendingWithhold(null);
+          if (id) void act(id, "withhold");
+        }}
+      />
+    </>
   );
 }

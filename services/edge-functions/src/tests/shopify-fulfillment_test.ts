@@ -261,7 +261,11 @@ Deno.test("US-2328: a sale with no order id is REFUSED, not silently recorded", 
   // an ordering comparison written the obvious way. Negative verification
   // caught exactly that: removing the marker left this case green.
   const refusalAt = handler.indexOf("missing_platform_order_id");
-  const writeAt = handler.indexOf('.from("sales")\n    .update(');
+  // \r?\n, not a literal \n: the working copy is CRLF on Windows
+  // (core.autocrlf), so this marker never matched there and the case failed
+  // locally while passing in CI on the LF checkout. A guard that is red for
+  // everyone on one platform is a guard everyone learns to ignore.
+  const writeAt = handler.search(/\.from\("sales"\)\r?\n    \.update\(/);
   assert(refusalAt > -1, "the missing_platform_order_id refusal code is gone");
   assert(writeAt > -1, "the local sale write-back is gone or was reshaped");
   assert(

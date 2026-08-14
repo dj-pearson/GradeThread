@@ -12,6 +12,13 @@ import {
   type SubmissionImageRow as CertSubmissionImageRow,
 } from "../lib/certificate-gallery.ts";
 import { normalizeCertNumber } from "../lib/cert-number.ts";
+import {
+  CERTIFICATE_REPORT_REASONS,
+  composeCertificateReportReason,
+  enqueueModerationFlag,
+  isCertificateReportReason,
+  resolveCertificateOwner,
+} from "../lib/moderation-queue.ts";
 import { buildPublicProfile, normalizeVisibility } from "../lib/buyer-profile.ts";
 import {
   type CertImageData,
@@ -1714,6 +1721,77 @@ contentPublicRoutes.post("/certificates/:id/view", async (c) => {
   });
   // Swallow errors — the counter is non-critical and must never break the cert.
   return c.json({ ok: !error });
+});
+
+
+// ── POST /certificates/:id/report ─────────────────────────────────
+// US-2550: the buyer's way out of "do not trust this certificate".
+//
+// That warning is the worst news the product can give someone, and until now
+// it ended there — no report, no contact, nothing. This files against the
+// certificate id the buyer is holding and lands in the SAME queue operators
+// already drain (content_moderation_flags, US-889), whose own comment listed
+// 'user_report' as a producer from the start.
+//
+// ANONYMOUS on purpose. The person best placed to report a forged certificate
+// is the buyer looking at it on a marketplace, who has no GradeThread account
+// and will not make one to file a complaint about us. The abuse surface that
+// opens is bounded by three things: the /api/content/public/* limiter (60/min
+// per IP, fail-closed), the partial unique index that keeps ONE open flag per
+// certificate so a flood updates a single row rather than filling a table, and
+// the fact that a flag is a queue entry, never an automatic takedown.
+//
+// It reports the certificate, not the reporter: nothing about the sender is
+// stored — no IP, no fingerprint, no free-form contact details.
+contentPublicRoutes.post("/certificates/:id/report", async (c) => {
+  const certId = c.req.param("id");
+  if (!isUuid(certId)) return c.json({ error: "Not found" }, 404);
+
+  const body = (await c.req.json().catch(() => null)) as
+    | { reason?: unknown; note?: unknown }
+    | null;
+  if (!body || !isCertificateReportReason(body.reason)) {
+    return c.json({ error: "Unknown report reason" }, 400);
+  }
+  const note = typeof body.note === "string" ? body.note : null;
+
+  // Resolve the owner from the id rather than trusting anything sent, and use
+  // it as the existence check: an unknown certificate is a 404, not a flag on
+  // nothing. A WITHHELD certificate (US-484) is deliberately still reportable —
+  // it is exactly the kind an operator wants a second signal on.
+  const ownerUserId = await resolveCertificateOwner(certId);
+  if (!ownerUserId) return c.json({ error: "Not found" }, 404);
+
+  // Carry the repeat-report count in the reason. The queue keeps one open flag
+  // per certificate, so without this the fifth reporter would silently
+  // overwrite the first and five independent complaints would read as one.
+  const { data: openFlag } = await supabaseAdmin
+    .from("content_moderation_flags")
+    .select("reason")
+    .eq("content_type", "certificate")
+    .eq("content_id", certId)
+    .eq("status", "open")
+    .maybeSingle();
+
+  const flagId = await enqueueModerationFlag({
+    contentType: "certificate",
+    contentId: certId,
+    ownerUserId,
+    reason: composeCertificateReportReason(
+      (openFlag as { reason: string } | null)?.reason ?? null,
+      CERTIFICATE_REPORT_REASONS[body.reason],
+      note,
+    ),
+    source: "user_report",
+    // No reporter identity: this endpoint takes no auth and stores none.
+    flaggedBy: null,
+  });
+
+  // A failed enqueue is logged inside the helper. The buyer is told the truth
+  // either way rather than a cheerful lie, because the next thing they do
+  // depends on whether the report actually went anywhere.
+  if (!flagId) return c.json({ error: "Could not file the report" }, 502);
+  return c.json({ ok: true });
 });
 
 // ── POST /badge-click ─────────────────────────────────────────────

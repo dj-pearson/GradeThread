@@ -48,6 +48,7 @@ import {
 } from "@/lib/rubrics";
 import { confidenceInfo } from "@/lib/passport-confidence";
 import { VerifiedBadge } from "@/components/verified/verified-badge";
+import { ReportCertificateDialog } from "@/components/certificate/report-certificate-dialog";
 import { CoverageHeatmap } from "@/components/certificate/coverage-heatmap";
 import { GradedPhotoPanel } from "@/components/verified/graded-photo-panel";
 import { ImageLightbox } from "@/components/certificate/image-lightbox";
@@ -145,9 +146,12 @@ function confidenceLabel(bucket: PublicConfidenceLabel): string {
 function IntegrityPanel({
   state,
   onRetry,
+  certificateId,
 }: {
   state: VerifyState;
   onRetry: () => void;
+  /** US-2550: what a failed verdict files a report against. */
+  certificateId: string;
 }) {
   if (state.phase === "checking" || state.phase === "idle") {
     return (
@@ -219,6 +223,21 @@ function IntegrityPanel({
           The grade data does not match GradeThread’s sealed record. This
           certificate may have been altered or forged.
         </p>
+        {/* US-2550: the worst news the product can give a buyer used to end
+            here. Two ways out, both reachable without an account: file it
+            with a reviewer, or write to a human. */}
+        <p className="mt-2 text-xs font-medium text-red-800 dark:text-red-300">
+          Do not pay for this item on the strength of this certificate.
+        </p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <ReportCertificateDialog certificateId={certificateId} />
+          <a
+            href="mailto:support@gradethread.com"
+            className="text-xs font-medium text-red-800 underline underline-offset-2 dark:text-red-300"
+          >
+            Email support
+          </a>
+        </div>
       </div>
     );
   }
@@ -236,9 +255,18 @@ function IntegrityPanel({
         </div>
         <p className="mt-1 text-xs text-amber-900/80 dark:text-amber-300/80">
           This certificate has no cryptographic signature on record, so we can’t
-          confirm the grade data is unaltered. Contact support before relying on
-          it.
+          confirm the grade data is unaltered.
         </p>
+        {/* US-2550: this copy said "contact support" and gave no way to do it. */}
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <ReportCertificateDialog certificateId={certificateId} tone="caution" />
+          <a
+            href="mailto:support@gradethread.com"
+            className="text-xs font-medium text-amber-900 underline underline-offset-2 dark:text-amber-300"
+          >
+            Email support
+          </a>
+        </div>
       </div>
     );
   }
@@ -1460,7 +1488,11 @@ export function CertificatePage() {
         </div>
 
         {/* US-333: tamper-evident integrity verdict */}
-        <IntegrityPanel state={verify} onRetry={runVerify} />
+        <IntegrityPanel
+          state={verify}
+          onRetry={runVerify}
+          certificateId={id ?? ""}
+        />
 
         {/* US-867: buyer trust guarantee — let a buyer who received an item
             materially not as graded file a mediation claim against this cert. */}

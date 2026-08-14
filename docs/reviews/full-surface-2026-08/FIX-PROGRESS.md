@@ -188,7 +188,12 @@ unless a story is blocked; if blocked, note why and move to the next.
       a shared safeEmbedCompany that strips bidi/invisibles and is compared body-for-body
       against the server widget, a skeleton and a retry; guard
       `src/test/embed-grade-indexing.test.ts` (12 cases, 10 red)
-- [ ] US-2550 (2416) Failed integrity check gives buyer nothing to do
+- [x] US-2550 (2416) Failed integrity check gives buyer nothing to do - SHA4 -
+      anonymous buyer report into the EXISTING moderation queue (migration 00599
+      adds the third content type, HELD), a Certificates tab with a reversible
+      Withhold, repeat reports counted rather than overwritten; AC4 was already
+      built by US-1912; guard `src/test/certificate-report.test.ts` (15 cases,
+      12 red) + 5 edge unit tests + 4 tenant-isolation cases
 - [ ] US-2551 (2418) Anonymous tag claim
 - [ ] US-2552 (2420) Buyer onboarding taxonomy
 - [ ] US-2553 (2422) Buyer home never completes
@@ -456,6 +461,40 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2550
+- `in` is not an ownership test. The report-reason validator used
+  `v in REASONS`, which walks the prototype chain, so "toString" and
+  "constructor" were valid reasons and the route then stringified a FUNCTION
+  into an operator queue. `Object.hasOwn` is the check. My own test case
+  caught it, written on a hunch rather than from the code.
+- A queue that dedupes by design will silently swallow a signal. The moderation
+  queue keeps ONE open flag per content item, which is right for operators and
+  wrong for buyer reports: the fifth reporter overwrote the first, so five
+  independent complaints read as one — and "five people reported this" is the
+  strongest fact in the whole record. The count now rides in the reason text,
+  parsed back out and incremented, in a pure function with its own tests.
+- Look for the operator surface BEFORE building one. The queue, its RLS, its
+  admin page and the string 'user_report' as an expected producer all shipped
+  in US-889. The only thing missing was one enum value. Same check that caught
+  US-2523 and US-2556 being already built.
+- A link needs a route. The first draft of the admin tab offered "Open the
+  submission" pointing at /admin/submissions/:id, which does not exist — the
+  admin submissions page has no detail route and its search does not match ids.
+  Replaced with the real action (Withhold / Restore), which is better anyway:
+  it writes the same flagged state US-484 already uses to hide a certificate,
+  so the product keeps ONE answer to "is this cert public".
+- A source-shape guard that matches a literal `\n` is red on Windows forever.
+  shopify-fulfillment_test.ts looked for `.from("sales")\n    .update(` against
+  a CRLF working copy, so it failed locally and passed in CI, which is the
+  worst possible split. Fixed to `\r?\n`. Any guard that reads SOURCE has this
+  hazard — the repo checks out CRLF here and LF in CI.
+- Concurrent sessions and a generated manifest do not mix. Another agent had
+  four uncommitted migrations on disk, so `gen-migration-manifest.mjs` (which
+  reads the DIRECTORY) put their versions into the manifest I was about to
+  commit — and a manifest naming a migration a clean checkout lacks fails its
+  own guard. I committed the manifest trimmed to my entry and left the full
+  regeneration in the working tree, so their checkout stays consistent too.
 
 ### Lessons from US-2549
 - Indexing is decided by the SERVING PATH, not by the page file. The finding said
