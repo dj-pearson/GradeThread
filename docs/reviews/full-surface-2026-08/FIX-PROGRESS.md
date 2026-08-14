@@ -232,6 +232,17 @@ unless a story is blocked; if blocked, note why and move to the next.
 
 
 ### Follow-ups filed during the loop
+- [x] US-2560 (unranked) A buyer cancellation reaches no notification channel -
+      `49350ff7` - searchCancellations() existed since the Post-sale page shipped and
+      NO poll source read it, so three of the four eBay post-order cases notified and
+      this one did not. New poll source with the same claim-before-deliver contract.
+      The state filter is a DENYLIST (not the allowlist the dispute source uses) so it
+      AGREES with what the page calls open; a seller-initiated cancellation is skipped
+      or every Approve would mail the seller about their own click. **The AC's pref
+      premise was FALSE**: the `returns` copy did not cover cancellations, so the copy
+      was widened in the same commit. Guards: 7 new poll cases +
+      `src/test/post-sale-state-parity.test.ts` (7 cases, verified to bite).
+      ⚠ MIGRATION 00601 IS HELD.
 - [x] US-2571 (1850) AI extractor cannot emit neckwear or gloves - `d891f36a` -
       the stale list was SIX files, not one: ai-extract.ts, routes/grade.ts,
       routes/api-v1.ts, lib/openapi-spec.ts, the WEB submission form, and the deno
@@ -908,3 +919,38 @@ host and not the other, so the local one was dropped.
   Anthropic SDK calling convention that US-2568 deliberately removed. Neither was
   from this story and both had to be fixed here, because a red suite is not a
   baseline you can read your own result against.
+
+- **Two copies of a decision rule must AGREE, and that is a different requirement
+  from either being right.** The poll decides whether to notify; the page decides
+  whether the row shows as open. Each rule is defensible alone, but if they
+  disagree the seller follows a notification to a page that shows them nothing,
+  which reads as a broken notification and teaches them to ignore the next one.
+  The edge cannot import the SPA module, so the fix is a second copy plus a
+  source-comparing guard - the same shape as the taxonomy guard in US-2571, and
+  the second time this loop that "the edge can't import it" turned out to mean
+  "so compare them in a test", not "so let them drift".
+
+- **A default that reuses an existing preference category must pass the COPY
+  test, not the taxonomy test.** US-2560's AC said to map the new type to the
+  `returns` gate "whose copy already covers post-order cases". It did not - it
+  named returns, return status changes and disputes. Routing the type there
+  unchanged delivers a message the sentence never promised AND silently takes
+  the new thing away from anyone who had turned that toggle off. Either widen the
+  sentence in the same commit or give the type its own category. This repo has
+  precedent both ways (`reward_nudge` and `integrity_tier_change` got their own).
+
+- **Verify a failure-mode claim before writing it into PENDING_MIGRATIONS.md.** I
+  wrote that a failed notification releases its claim so the next poll retries.
+  It does not: `deliver()` wraps the in-app write in its own try/catch and logs
+  WITHOUT rethrowing, so the failure never reaches the poll's per-event catch and
+  the claim stands forever. The correction mattered - it turns "apply the SQL
+  first" from a formality into the thing preventing silent permanent loss. A
+  migration doc's whole job is to be right about what breaks.
+
+- **A test that asserts an EXTERNAL API's vocabulary is asserting a guess.** I
+  wrote `CANCEL_COMPLETE` into a parity test as a terminal state; it went red,
+  because the marker list holds COMPLETED and that does not match COMPLETE. The
+  tempting fix - shorten the marker - widens the terminal set on a guess, and
+  something like COMPLETE_REFUND_PENDING would then be read as finished and
+  hidden. Assert only the states this repo actually records, and write down the
+  near-miss so the next person does not "fix" it.
