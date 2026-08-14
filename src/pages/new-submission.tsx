@@ -32,6 +32,13 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import {
+  VIDEO_CAPTURE_SOURCE_FIELD,
+  VIDEO_FIELD,
+  VIDEO_GRADING_FIELD,
+  VIDEO_GRADING_OPT_IN,
+  VIDEO_SLOT_MARKS_FIELD,
+} from "@/lib/video-grading-contract";
 import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuthStore } from "@/stores/auth-store";
@@ -865,13 +872,18 @@ export function NewSubmissionPage() {
       // deliberately NOT sent in this mode (the server refuses them, to keep the
       // "every view came from one take" claim exact).
       if (videoMode && videoFile) {
-        formData.append("video", videoFile);
-        formData.append("video_grading", "true");
+        // US-2504: the field names come from src/lib/video-grading-contract.ts
+        // rather than being spelled here. They used to be a private handshake
+        // between this file and routes/grade.ts, which is fine with one client
+        // and a trap the moment a second one has to reverse-engineer them out
+        // of this page.
+        formData.append(VIDEO_FIELD, videoFile);
+        formData.append(VIDEO_GRADING_FIELD, VIDEO_GRADING_OPT_IN);
         const marks = serializeVideoSlotMarks(videoMarks);
-        if (marks) formData.append("video_slot_marks", marks);
+        if (marks) formData.append(VIDEO_SLOT_MARKS_FIELD, marks);
         // US-1766: clip provenance. Only sent when we actually know it, so an
         // unknown source stays unknown rather than defaulting to a claim.
-        if (videoSource) formData.append("video_capture_source", videoSource);
+        if (videoSource) formData.append(VIDEO_CAPTURE_SOURCE_FIELD, videoSource);
         // US-1841: link the result back to the buyer's portfolio item. Sent only
         // on the clip path — that is the grade a buyer requests from their
         // closet, and a photo grade already reaches the closet by certificate.
