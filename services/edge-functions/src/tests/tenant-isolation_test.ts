@@ -4936,3 +4936,40 @@ Deno.test({
     );
   },
 });
+
+Deno.test({
+  // US-2525: the user-side close. A ticket B can close is a conversation B can
+  // end on A's behalf — and, because closing is a status write, it is the
+  // shape that would also let B write any other field if the scope were wrong.
+  name: "B cannot close A's support ticket",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_TICKET_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_TICKET_ID")!;
+    const res = await fetch(`${BASE}/api/support-tickets/${id}/close`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST support-tickets/:id/close");
+  },
+});
+
+Deno.test({
+  // US-2525: an attachment lands in the uploader's own storage folder, so a
+  // reply B is refused never creates a file under A's prefix either.
+  name: "B cannot attach an image to A's support ticket",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_TICKET_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_TICKET_ID")!;
+    const res = await fetch(`${BASE}/api/support-tickets/${id}/messages`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        body: "with an attachment",
+        attachments: [{ data_url: "data:image/png;base64,UE5H", name: "x.png" }],
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST support-tickets/:id/messages (attachment)");
+  },
+});

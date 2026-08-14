@@ -88,3 +88,60 @@ Deno.test("an all-internal-note thread is fully hidden from the user", () => {
   ];
   assertEquals(toUserMessageView(internalOnly, OWNER), []);
 });
+
+// ── US-2525: attachments ────────────────────────────────────────────────────
+//
+// Support is where someone goes when a photo came out wrong, and the thread
+// took text only. These pin the pure halves of the upload path: what counts as
+// an image, what a filename may become, and where a file is allowed to land.
+
+const {
+  decodeImageDataUrl,
+  safeAttachmentName,
+  attachmentPath,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  ATTACHMENT_URL_TTL_SEC,
+} = await import("../routes/support-tickets.ts");
+
+Deno.test("US-2525: a data URL that is not an image decodes to null", () => {
+  assertEquals(decodeImageDataUrl("data:text/html;base64,PHNjcmlwdD4="), null);
+  assertEquals(decodeImageDataUrl("https://example.com/x.png"), null);
+  assertEquals(decodeImageDataUrl(""), null);
+  assertEquals(decodeImageDataUrl(undefined), null);
+  // Well-formed but not decodable base64.
+  assertEquals(decodeImageDataUrl("data:image/png;base64,!!!!"), null);
+});
+
+Deno.test("US-2525: a real image data URL decodes to its bytes", () => {
+  // "PNG" as base64 — the magic-byte check is the server's job (US-276); this
+  // only proves the decoder returns what it was given.
+  const bytes = decodeImageDataUrl("data:image/png;base64,UE5H");
+  assert(bytes !== null);
+  assertEquals(Array.from(bytes!), [0x50, 0x4e, 0x47]);
+});
+
+Deno.test("US-2525: a filename cannot steer the storage path", () => {
+  // The name is shown back to the user, so it stays readable — but it must not
+  // be able to climb out of the folder it is written into.
+  assertEquals(safeAttachmentName("../../etc/passwd"), "etc_passwd");
+  assert(!safeAttachmentName("../../etc/passwd").includes(".."));
+  assertEquals(safeAttachmentName("shot 1.png"), "shot_1.png");
+  assertEquals(safeAttachmentName(".hidden"), "hidden");
+  assertEquals(safeAttachmentName(""), "attachment");
+  assertEquals(safeAttachmentName(null), "attachment");
+  assert(!safeAttachmentName("a/b/c.png").includes("/"));
+});
+
+Deno.test("US-2525: the storage path starts with the owner's own folder", () => {
+  // The bucket policy is (storage.foldername(name))[1] = auth.uid()::text, so a
+  // path shaped any other way is unreadable by the person who uploaded it.
+  const path = attachmentPath("user-1", "ticket-9", "png", 1_700_000_000_000, 0);
+  assertEquals(path, "user-1/support/ticket-9/1700000000000_0.png");
+  assert(path.startsWith("user-1/"));
+});
+
+Deno.test("US-2525: the caps stay inside their US-276 limits", () => {
+  assertEquals(MAX_ATTACHMENTS_PER_MESSAGE, 3);
+  // The private bucket's signed URLs are capped at 900s.
+  assert(ATTACHMENT_URL_TTL_SEC <= 900);
+});

@@ -167,8 +167,14 @@ describe("the migration carries the US-1108 triple (US-2518)", () => {
     );
   });
 
-  it("the schema version was bumped in the same commit", () => {
+  it("the edge expects at least this migration", () => {
+    // NOT an equality check: the next migration moves this number, and a guard
+    // that has to be edited by every later story is a guard that gets edited
+    // without being read. The property is that the edge never expects a schema
+    // OLDER than the table this story added.
     const version = read("services/edge-functions/src/lib/schema-version.ts");
-    expect(version).toMatch(/EXPECTED_SCHEMA_VERSION = "00592"/);
+    const found = /EXPECTED_SCHEMA_VERSION = "(\d+)"/.exec(version);
+    expect(found, "EXPECTED_SCHEMA_VERSION is missing").toBeTruthy();
+    expect(Number(found![1])).toBeGreaterThanOrEqual(592);
   });
 });

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2561",
+  "nextId": "US-2562",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1759,20 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2525",
-      "passes": false,
-      "title": "Support tickets take no attachments and never refresh",
-      "description": "As a user reporting a problem with a photo, I want to attach the photo, so that support can see what I am talking about.",
-      "acceptanceCriteria": [
-        "Neither src/pages/support-tickets.tsx nor ios/GradeThread/Support/SupportTicketsView.swift supports attachments.",
-        "A ticket and a reply accept image attachments, stored per the US-276 upload path: validateImageUpload then stripImageMetadata then storage.upload, into a private per-user-folder bucket.",
-        "The web thread refetches on an interval or over realtime; today it has neither (support-tickets.tsx:110-121), while iOS already offers pull-to-refresh (:108,339).",
-        "A user can close or resolve their own ticket.",
-        "Both error branches use the shared ErrorState with a retry rather than a bare red line (:270-276, :327-333)."
-      ],
-      "priority": 1936
-    },
-    {
       "id": "US-2526",
       "passes": false,
       "title": "Free tools blame the user's photo when they hit a rate limit",
@@ -2227,6 +2213,22 @@
       ],
       "dependsOn": [
         "US-2521"
+      ]
+    },
+    {
+      "id": "US-2561",
+      "passes": false,
+      "title": "iOS support tickets: attachments and close",
+      "description": "As an iOS user reporting a problem with a photo, I want to attach the photo and close my own ticket, so that the app is not the one client where support is text only.",
+      "acceptanceCriteria": [
+        "US-2525 shipped attachments and a user-side close on web + edge. ios/GradeThread/Support/SupportTicketsView.swift sends body text only and offers no close.",
+        "The composer and the reply box each accept up to 3 images (MAX_ATTACHMENTS_PER_MESSAGE), sent as data URLs on the existing POST /api/support-tickets and POST /api/support-tickets/:id/messages — no new endpoint.",
+        "A thread message renders its attachments from the signed urls the GET returns, and shows a placeholder rather than a broken image when a url has expired (TTL is 600s).",
+        "A Close button calls POST /api/support-tickets/:id/close and the row reflects the closed status; replying reopens it, matching web.",
+        "Images are downscaled on device before upload, as the web picker does, so a 12MP photo does not travel as a multi-megabyte base64 body."
+      ],
+      "dependsOn": [
+        "US-2525"
       ]
     }
   ]

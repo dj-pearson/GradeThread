@@ -28,10 +28,15 @@ import {
   Loader2,
   Send,
   Plus,
-  AlertTriangle,
   ArrowLeft,
+  Check,
 } from "lucide-react";
 import { toast } from "sonner";
+import { ErrorState } from "@/components/ui/error-state";
+import {
+  AttachmentPicker,
+  type PickedAttachment,
+} from "@/components/support/attachment-picker";
 
 // US-900: user-facing support ticket inbox. A user opens a request, sees the
 // thread (their messages + support replies — never operator internal notes),
@@ -55,6 +60,15 @@ interface ThreadMessage {
   author: "you" | "support";
   body: string;
   created_at: string;
+  // US-2525. `url` is a signed URL minted per read and short-lived, so it is
+  // never stored or cached anywhere but this response.
+  attachments?: {
+    path: string;
+    name: string;
+    content_type: string;
+    bytes: number;
+    url: string | null;
+  }[];
 }
 
 const STATUS_STYLES: Record<TicketStatus, string> = {
@@ -95,6 +109,9 @@ export function SupportTicketsPage() {
   const [newBody, setNewBody] = useState("");
   const [reply, setReply] = useState("");
   const [acting, setActing] = useState(false);
+  // US-2525: images staged for the next message, on either form.
+  const [newAttachments, setNewAttachments] = useState<PickedAttachment[]>([]);
+  const [replyAttachments, setReplyAttachments] = useState<PickedAttachment[]>([]);
 
   const listQuery = useQuery({
     queryKey: ["support-tickets", "list"],
@@ -118,10 +135,17 @@ export function SupportTicketsPage() {
       if (!res.ok) throw new Error(json.error ?? "Failed to load ticket");
       return json;
     },
+    // US-2525: an open thread refetches while the user is looking at it. There
+    // was neither a poll nor realtime here, so a support reply appeared only if
+    // the user happened to reload the page — while iOS has offered
+    // pull-to-refresh since it shipped.
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {
     setReply("");
+    setReplyAttachments([]);
   }, [routeId]);
 
   const openTicket = (id: string) => navigate(`/dashboard/support/${id}`);
@@ -144,7 +168,14 @@ export function SupportTicketsPage() {
     try {
       const res = await edgeFetch("/api/support-tickets", {
         method: "POST",
-        json: { subject, body },
+        json: {
+          subject,
+          body,
+          attachments: newAttachments.map((a) => ({
+            data_url: a.dataUrl,
+            name: a.name,
+          })),
+        },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to open ticket");
@@ -170,15 +201,44 @@ export function SupportTicketsPage() {
     try {
       const res = await edgeFetch(`/api/support-tickets/${routeId}/messages`, {
         method: "POST",
-        json: { body },
+        json: {
+          body,
+          attachments: replyAttachments.map((a) => ({
+            data_url: a.dataUrl,
+            name: a.name,
+          })),
+        },
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Failed to send reply");
       setReply("");
+      setReplyAttachments([]);
       toast.success("Reply sent.");
       await refresh();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send reply");
+    } finally {
+      setActing(false);
+    }
+  };
+
+  // US-2525: a user could open a ticket and reply to it but never end it, so
+  // the queue carried conversations both sides had finished with.
+  const closeOwnTicket = async () => {
+    if (!routeId) return;
+    setActing(true);
+    try {
+      const res = await edgeFetch(`/api/support-tickets/${routeId}/close`, {
+        method: "POST",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Failed to close ticket");
+      toast.success("Ticket closed.", {
+        description: "Replying to it reopens it any time.",
+      });
+      await refresh();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to close ticket");
     } finally {
       setActing(false);
     }
@@ -235,6 +295,12 @@ export function SupportTicketsPage() {
                 disabled={acting}
               />
             </div>
+            {/* US-2525: the reason someone opens a ticket is often a picture. */}
+            <AttachmentPicker
+              attachments={newAttachments}
+              onChange={setNewAttachments}
+              disabled={acting}
+            />
             <div className="flex justify-end gap-2">
               <Button
                 variant="outline"
@@ -269,10 +335,14 @@ export function SupportTicketsPage() {
             )
             : listQuery.isError
             ? (
-              <div className="flex items-center gap-2 p-6 text-sm text-brand-red-text">
-                <AlertTriangle className="h-4 w-4" />
-                {(listQuery.error as Error)?.message ?? "Failed to load."}
-              </div>
+              // US-2525: a bare red line with no way to try again. US-436's
+              // rule is one shared error state, with a retry, everywhere.
+              <ErrorState
+                title="Couldn't load your tickets"
+                description={(listQuery.error as Error)?.message}
+                onRetry={() => listQuery.refetch()}
+                retrying={listQuery.isFetching}
+              />
             )
             : tickets.length === 0
             ? (
@@ -326,10 +396,12 @@ export function SupportTicketsPage() {
             )
             : threadQuery.isError
             ? (
-              <div className="flex flex-1 items-center gap-2 p-4 text-sm text-brand-red-text">
-                <AlertTriangle className="h-4 w-4" />
-                {(threadQuery.error as Error)?.message ?? "Failed to load."}
-              </div>
+              <ErrorState
+                title="Couldn't load this ticket"
+                description={(threadQuery.error as Error)?.message}
+                onRetry={() => threadQuery.refetch()}
+                retrying={threadQuery.isFetching}
+              />
             )
             : thread
             ? (
@@ -353,6 +425,38 @@ export function SupportTicketsPage() {
                         </span>
                       </div>
                       <p className="whitespace-pre-wrap">{m.body}</p>
+                      {/* US-2525. The URLs are signed and short-lived, so they
+                          are used straight from this response and never
+                          stored anywhere. */}
+                      {(m.attachments ?? []).length > 0 && (
+                        <ul className="mt-2 flex flex-wrap gap-2">
+                          {(m.attachments ?? []).map((a) => (
+                            <li key={a.path}>
+                              {a.url
+                                ? (
+                                  <a
+                                    href={a.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    title={a.name}
+                                  >
+                                    <img
+                                      src={a.url}
+                                      alt={a.name}
+                                      loading="lazy"
+                                      className="h-20 w-20 rounded border object-cover"
+                                    />
+                                  </a>
+                                )
+                                : (
+                                  <span className="flex h-20 w-20 items-center justify-center rounded border p-1 text-center text-[10px] text-muted-foreground">
+                                    Link expired — reload
+                                  </span>
+                                )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -367,11 +471,30 @@ export function SupportTicketsPage() {
                     maxLength={4000}
                     disabled={acting}
                   />
-                  <div className="flex items-center justify-between gap-2">
+                  <AttachmentPicker
+                    attachments={replyAttachments}
+                    onChange={setReplyAttachments}
+                    disabled={acting}
+                  />
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <Button variant="ghost" size="sm" onClick={closeTicket}>
                       <ArrowLeft className="mr-1 h-4 w-4" />
                       Back
                     </Button>
+                    {/* US-2525: the user ends their own conversation. Closed,
+                        not resolved — resolved is support's verdict that the
+                        problem was fixed. A reply reopens it either way. */}
+                    {thread.ticket.status !== "closed" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={acting}
+                        onClick={closeOwnTicket}
+                      >
+                        <Check className="mr-1 h-4 w-4" />
+                        Close ticket
+                      </Button>
+                    )}
                     <Button
                       size="sm"
                       disabled={acting || !reply.trim()}

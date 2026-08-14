@@ -1,5 +1,40 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00593_support_ticket_attachments.sql (US-2525 — images on a support ticket)
+
+**Risk: LOWEST of the two held here.** One additive `jsonb` column with a
+default, on `support_ticket_messages`. No table, no index, no policy, no
+backfill, nothing dropped or narrowed. The whole file is
+`ADD COLUMN IF NOT EXISTS` plus a `COMMENT`, so it is safe to run twice and safe
+to re-run the whole directory.
+
+**What it adds.** `support_ticket_messages.attachments` — the image attachments
+on one message, as `[{path, name, content_type, bytes}]`. The files themselves go
+into the EXISTING private `submission-images` bucket under the uploader's own
+folder (`{userId}/support/{ticketId}/…`), which already carries the US-276
+per-user-folder RLS policy, so **no bucket and no storage policy is created**.
+The column holds paths only; the edge hands out signed URLs with a 600s TTL and
+never a public one.
+
+**Order, and why it is gentler than 00592's.** The frontend in this commit sends
+`attachments: []` on every ticket and reply. An edge that predates this column
+would fail those inserts, so the SQL still goes first — but nothing 404s in the
+gap, because the endpoints themselves are unchanged.
+
+1. Run the SQL (00592 first, then this one).
+2. `NOTIFY pgrst, 'reload schema';` — a COLUMN was added and the edge selects it
+   by name through PostgREST.
+3. Deploy the edge (its boot guard now expects 00593).
+4. THEN push.
+
+**iOS is NOT part of this.** `SupportTicketsView.swift` still sends text only,
+which is safe in both directions: an old client omits the field and gets the
+column default, and a message carrying attachments renders on iOS as its text.
+Filed separately rather than shipped blind from a Windows checkout.
+
+Apply order: AFTER 00592.
+
+
 ## ⏳ HELD: 00592_flipdesk_import_runs.sql (US-2518 — the durable, reversible CSV import)
 
 **Risk: LOW.** Two brand-new tables, two indexes, one trigger, two SELECT-only
