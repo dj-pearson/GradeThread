@@ -169,8 +169,9 @@ export function AdminOpsHealthPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="System Health"
-        subtitle="Live infrastructure dashboard — DB &amp; storage usage, queue/DLQ depths, recent job failures. Spot a problem before customers do."
+        // US-2512: renamed off "System Health", which /admin/system also used.
+        title="Infrastructure Health"
+        subtitle="DB &amp; storage usage, queue/DLQ depths, recent job failures. Spot a problem before customers do. For grading throughput and user-side numbers see Platform Health."
         icon={Activity}
         actions={
           <div className="flex items-center gap-3">

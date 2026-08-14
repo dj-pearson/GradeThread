@@ -349,7 +349,13 @@ export function AdminSystemPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="System Health"
+        // US-2512: this page and /admin/ops/health BOTH rendered the title
+        // "System Health", so an operator could not tell from the heading which
+        // one they were on. They answer different questions: this is the
+        // PRODUCT — submissions moving through grading, users, storage, plan
+        // mix — while /admin/ops/health is the INFRASTRUCTURE beneath it.
+        title="Platform Health"
+        subtitle="Product-side health: grading throughput, active users, storage and plan mix. For DB, queue and job-failure signals see Infrastructure Health."
         icon={Wrench}
         actions={
           <>

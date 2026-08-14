@@ -105,7 +105,7 @@ const adminNavItems = [
   { to: "/admin/incentives", icon: Gift, label: "Incentives", end: false, superAdminOnly: true },
   { to: "/admin/waitlist", icon: DoorOpen, label: "Waitlist", end: false, superAdminOnly: false },
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
-  { to: "/admin/system", icon: Wrench, label: "System", end: false, superAdminOnly: false },
+  { to: "/admin/system", icon: Wrench, label: "Platform Health", end: false, superAdminOnly: false },
   { to: "/admin/jobs", icon: Server, label: "Jobs & Queues", end: false, superAdminOnly: false },
   { to: "/admin/audit-log", icon: ScrollText, label: "Audit Log", end: false, superAdminOnly: true },
 ];
@@ -186,7 +186,7 @@ const opsNavItems = [
   // US-906 real-time activity feed + critical-event alerting. List/ack is admin;
   // editing alert channels / sending a test is super_admin + step-up gated.
   { to: "/admin/ops/activity", icon: Activity, label: "Activity Feed", end: false },
-  { to: "/admin/ops/health", icon: Activity, label: "System Health", end: false },
+  { to: "/admin/ops/health", icon: Activity, label: "Infrastructure Health", end: false },
   { to: "/admin/ops/jobs", icon: Server, label: "Background Jobs", end: false },
   { to: "/admin/ops/dead-letters", icon: Inbox, label: "Dead Letters", end: false },
   // US-884 settings registry. Reads are admin; the PUT mutation is super_admin +
