@@ -40,6 +40,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { MarketplaceConnectionSummary } from "@/components/flipdesk/marketplace-connection-summary";
 import { EbayPromotionsCard } from "@/components/flipdesk/ebay-promotions-card";
 import { EbayProgramsCard } from "@/components/flipdesk/ebay-programs-card";
 import {
@@ -1396,6 +1398,24 @@ export function FlipdeskMarketplacesPage() {
         </div>
       )}
 
+      {/* US-2543 AC3: which platforms am I connected to, answered before any of
+          the eight sections below. */}
+      <MarketplaceConnectionSummary
+        extensionChannelCount={EXTENSION_CHANNELS.length}
+      />
+
+      {/* US-2543 AC2: eight stacked sections meant scrolling past five pages of
+          reference copy to reach a switch. The doing is in Connections, the
+          settings are in Settings, and the disclosures are reference material
+          that no longer sits between them. */}
+      <Tabs defaultValue="connections" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="connections">Connections</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
+          <TabsTrigger value="how">How channels work</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="connections" className="space-y-8">
       {/* Active — eBay setup + sync */}
       <section>
         <h2 className="mb-3 text-base font-semibold text-foreground">
@@ -1451,47 +1471,6 @@ export function FlipdeskMarketplacesPage() {
         </div>
       </section>
 
-      {/* Cross-listing behavior (US-149) */}
-      <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">
-          Cross-listing
-        </h2>
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
-          <div className="space-y-0.5">
-            <Label htmlFor="auto-end-cross" className="text-sm font-medium">
-              Auto-end cross-listings on sale
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              When an item pushed to multiple marketplaces sells on one of
-              them, automatically end its listings on the others.
-            </p>
-          </div>
-          <Switch
-            id="auto-end-cross"
-            checked={autoEndSetting ?? true}
-            disabled={autoEndSaving || autoEndSetting === undefined}
-            onCheckedChange={(v) => void toggleAutoEnd(v)}
-          />
-        </div>
-      </section>
-
-      {/* Grade authority signal — text only (eBay-policy pivot) */}
-      <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">
-          Grade promotion
-        </h2>
-        <div className="rounded-lg border p-3 text-sm">
-          <p className="font-medium">Graded listings show the grade as text</p>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            When you publish a graded item, GradeThread automatically adds the
-            grade to the description and a “Condition Grade” item specific, with
-            a link to the certificate page buyers can verify. We never add
-            badges, watermarks, or QR codes to your photos — overlays on listing
-            images can get marketplace accounts suspended.
-          </p>
-        </div>
-      </section>
-
       {/* US-718: extension tier — Poshmark/Mercari/Grailed have no public write
           API, so they're listed from the seller's own logged-in tab via the
           GradeThread Lister browser extension (US-716). Presented honestly as a
@@ -1526,21 +1505,6 @@ export function FlipdeskMarketplacesPage() {
         {/* US-2475: one risk block per channel, driven by MARKETPLACE_MECHANISM. */}
         <div className="space-y-2">
           {EXTENSION_CHANNELS.map((m) => (
-            <ChannelRisk key={m} platform={m} />
-          ))}
-        </div>
-      </section>
-
-      {/* US-2475: the same disclosure for the API-tier channels — a sanctioned
-          developer connection is a different risk position from browser
-          automation, and a seller comparing the two should be able to read both
-          in the same words. */}
-      <section>
-        <h2 className="mb-3 text-base font-semibold text-foreground">
-          How your API connections work
-        </h2>
-        <div className="space-y-2">
-          {API_CHANNELS.map((m) => (
             <ChannelRisk key={m} platform={m} />
           ))}
         </div>
@@ -1590,6 +1554,68 @@ export function FlipdeskMarketplacesPage() {
           )}
         </div>
       </section>
+        </TabsContent>
+
+        <TabsContent value="settings" className="space-y-8">
+        {/* Cross-listing behavior (US-149) */}
+        <section>
+          <h2 className="mb-3 text-base font-semibold text-foreground">
+            Cross-listing
+          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
+            <div className="space-y-0.5">
+              <Label htmlFor="auto-end-cross" className="text-sm font-medium">
+                Auto-end cross-listings on sale
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                When an item pushed to multiple marketplaces sells on one of
+                them, automatically end its listings on the others.
+              </p>
+            </div>
+            <Switch
+              id="auto-end-cross"
+              checked={autoEndSetting ?? true}
+              disabled={autoEndSaving || autoEndSetting === undefined}
+              onCheckedChange={(v) => void toggleAutoEnd(v)}
+            />
+          </div>
+        </section>
+
+        {/* Grade authority signal — text only (eBay-policy pivot) */}
+        <section>
+          <h2 className="mb-3 text-base font-semibold text-foreground">
+            Grade promotion
+          </h2>
+          <div className="rounded-lg border p-3 text-sm">
+            <p className="font-medium">Graded listings show the grade as text</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              When you publish a graded item, GradeThread automatically adds the
+              grade to the description and a “Condition Grade” item specific, with
+              a link to the certificate page buyers can verify. We never add
+              badges, watermarks, or QR codes to your photos — overlays on listing
+              images can get marketplace accounts suspended.
+            </p>
+          </div>
+        </section>
+        </TabsContent>
+
+        <TabsContent value="how" className="space-y-8">
+        {/* US-2475: the same disclosure for the API-tier channels — a sanctioned
+            developer connection is a different risk position from browser
+            automation, and a seller comparing the two should be able to read both
+            in the same words. */}
+        <section>
+          <h2 className="mb-3 text-base font-semibold text-foreground">
+            How your API connections work
+          </h2>
+          <div className="space-y-2">
+            {API_CHANNELS.map((m) => (
+              <ChannelRisk key={m} platform={m} />
+            ))}
+          </div>
+        </section>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

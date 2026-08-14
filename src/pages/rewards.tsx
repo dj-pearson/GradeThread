@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useRewards, type SeasonRecap } from "@/hooks/use-rewards";
 import { useNudgeAttribution } from "@/hooks/use-nudge-attribution";
@@ -210,133 +211,146 @@ export function RewardsPage() {
         </CardContent>
       </Card>
 
-      {/* US-1912: Grade Integrity. Placed directly under the level card and
-          above everything else on purpose — it is the only standing on this page
-          a seller cannot earn by activity, so it should not sit below the things
-          they can. */}
-      <IntegrityStandingCard integrity={integrity} />
+      {/* US-2543 AC2: nine panels on one scroll, so the season goals a
+          seller opens this page to check sat below four cards they had
+          already read. The level card stays above the tabs: it is the answer
+          to "where am I" and belongs on every one of them. */}
+      <Tabs defaultValue="standing" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="standing">Standing</TabsTrigger>
+          <TabsTrigger value="season">This season</TabsTrigger>
+          <TabsTrigger value="perks">Perks &amp; boards</TabsTrigger>
+        </TabsList>
 
-      {/* US-1914: tenure. Directly under integrity because the two together are
-          the whole answer to "where do I stand", and both are things a quiet
-          month cannot take away — unlike everything below them, which is a
-          measure of activity and is allowed to be. */}
-      <LoyaltyStandingCard loyalty={loyalty} />
+        <TabsContent value="standing" className="space-y-6">
+        {/* US-1912: Grade Integrity. Placed directly under the level card and
+            above everything else on purpose — it is the only standing on this page
+            a seller cannot earn by activity, so it should not sit below the things
+            they can. */}
+        <IntegrityStandingCard integrity={integrity} />
 
-      {/* US-1857: the badge gallery — earned medals plus what's still to earn. */}
-      <BadgeShelf shelf={badges} />
+        {/* US-1914: tenure. Directly under integrity because the two together are
+            the whole answer to "where do I stand", and both are things a quiet
+            month cannot take away — unlike everything below them, which is a
+            measure of activity and is allowed to be. */}
+        <LoyaltyStandingCard loyalty={loyalty} />
+        {/* US-1857: the badge gallery — earned medals plus what's still to earn. */}
+        <BadgeShelf shelf={badges} />
+        </TabsContent>
 
-      {/* US-1857 over the US-1853 grant model: tangible rewards. No claim
-          button — crossing the milestone grants it, and XP is never spent. */}
-      <MilestoneRewards milestones={milestones} />
-
-      {/* Quests — the week. Renders nothing when the program is off or empty. */}
-      <QuestsPanel />
-
-      {/* US-1856: the public boards. Opt-in, with its own consent copy. */}
-      <LeaderboardPanel />
-
-      {/* Season — the clock. Resets clean; takes nothing with it. */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <CalendarRange className="h-5 w-5 text-primary" />
-            Season {season.label}
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            {season.goals_completed} of {season.goals_total} goals done ·{" "}
-            {nf(season.xp_earned)} XP this season ·{" "}
-            {remaining === 0 ? "ends today" : `${remaining} day${remaining === 1 ? "" : "s"} left`}
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <ul className="space-y-3">
-            {season.goals.map((goal) => {
-              const GoalIcon = ICONS[goal.icon] ?? Sparkles;
-              return (
-                <li key={goal.key} className="flex items-start gap-3">
-                  <span
-                    className={cn(
-                      "mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full",
-                      goal.complete
-                        ? "bg-emerald-600 text-white"
-                        : "bg-muted text-muted-foreground",
-                    )}
-                  >
-                    {goal.complete ? (
-                      <Check className="h-4 w-4" aria-hidden="true" />
-                    ) : (
-                      <GoalIcon className="h-4 w-4" aria-hidden="true" />
-                    )}
-                  </span>
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-baseline justify-between gap-3">
-                      <p className="text-sm font-medium">{goal.name}</p>
-                      <p className="text-xs tabular-nums text-muted-foreground">
-                        {nf(Math.min(goal.current, goal.target))}/{nf(goal.target)}
-                      </p>
-                    </div>
-                    <Progress value={goal.percent} className="h-1.5" />
-                    <p className="text-xs text-muted-foreground">{goal.description}</p>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="text-xs text-muted-foreground">
-            A slow month costs you nothing here. When the season ends you keep every level,
-            medal and XP point — only the season track resets.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Cosmetic perks — free, always. */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Frame className="h-5 w-5 text-primary" />
-            Perks
-          </CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Profile flair and share-card frames. All free — levels unlock them, money never does.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {perks.unlocked.map((perk) => (
-            <div key={perk.key} className="flex items-start gap-3 rounded-lg bg-muted/60 p-3">
-              <Award className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" aria-hidden="true" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{perk.name}</p>
-                <p className="text-xs text-muted-foreground">{perk.description}</p>
-              </div>
-            </div>
-          ))}
-          {perks.locked.map((perk) => (
-            <div key={perk.key} className="flex items-start gap-3 rounded-lg p-3">
-              <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-muted-foreground">{perk.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {perk.description} Unlocks at level {perk.minLevel}.
-                </p>
-              </div>
-            </div>
-          ))}
-        </CardContent>
-      </Card>
-
-      {/* Past seasons. */}
-      {recaps.length > 0 && (
+        <TabsContent value="season" className="space-y-6">
+        {/* Season — the clock. Resets clean; takes nothing with it. */}
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Past seasons</CardTitle>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <CalendarRange className="h-5 w-5 text-primary" />
+              Season {season.label}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {season.goals_completed} of {season.goals_total} goals done ·{" "}
+              {nf(season.xp_earned)} XP this season ·{" "}
+              {remaining === 0 ? "ends today" : `${remaining} day${remaining === 1 ? "" : "s"} left`}
+            </p>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {recaps.map((r) => (
-              <RecapCard key={r.season_key} recap={r} />
+          <CardContent className="space-y-4">
+            <ul className="space-y-3">
+              {season.goals.map((goal) => {
+                const GoalIcon = ICONS[goal.icon] ?? Sparkles;
+                return (
+                  <li key={goal.key} className="flex items-start gap-3">
+                    <span
+                      className={cn(
+                        "mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full",
+                        goal.complete
+                          ? "bg-emerald-600 text-white"
+                          : "bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {goal.complete ? (
+                        <Check className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <GoalIcon className="h-4 w-4" aria-hidden="true" />
+                      )}
+                    </span>
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-sm font-medium">{goal.name}</p>
+                        <p className="text-xs tabular-nums text-muted-foreground">
+                          {nf(Math.min(goal.current, goal.target))}/{nf(goal.target)}
+                        </p>
+                      </div>
+                      <Progress value={goal.percent} className="h-1.5" />
+                      <p className="text-xs text-muted-foreground">{goal.description}</p>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+            <p className="text-xs text-muted-foreground">
+              A slow month costs you nothing here. When the season ends you keep every level,
+              medal and XP point — only the season track resets.
+            </p>
+          </CardContent>
+        </Card>
+        {/* Quests — the week. Renders nothing when the program is off or empty. */}
+        <QuestsPanel />
+        {/* US-1857 over the US-1853 grant model: tangible rewards. No claim
+            button — crossing the milestone grants it, and XP is never spent. */}
+        <MilestoneRewards milestones={milestones} />
+        {/* Past seasons. */}
+        {recaps.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg">Past seasons</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {recaps.map((r) => (
+                <RecapCard key={r.season_key} recap={r} />
+              ))}
+            </CardContent>
+          </Card>
+        )}
+        </TabsContent>
+
+        <TabsContent value="perks" className="space-y-6">
+        {/* Cosmetic perks — free, always. */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <Frame className="h-5 w-5 text-primary" />
+              Perks
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Profile flair and share-card frames. All free — levels unlock them, money never does.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {perks.unlocked.map((perk) => (
+              <div key={perk.key} className="flex items-start gap-3 rounded-lg bg-muted/60 p-3">
+                <Award className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">{perk.name}</p>
+                  <p className="text-xs text-muted-foreground">{perk.description}</p>
+                </div>
+              </div>
+            ))}
+            {perks.locked.map((perk) => (
+              <div key={perk.key} className="flex items-start gap-3 rounded-lg p-3">
+                <Lock className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-muted-foreground">{perk.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {perk.description} Unlocks at level {perk.minLevel}.
+                  </p>
+                </div>
+              </div>
             ))}
           </CardContent>
         </Card>
-      )}
+        {/* US-1856: the public boards. Opt-in, with its own consent copy. */}
+        <LeaderboardPanel />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

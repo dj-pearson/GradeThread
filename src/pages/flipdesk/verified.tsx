@@ -22,7 +22,9 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CopyField } from "@/components/verified/copy-field";
+import { VerifiedProfilePreview } from "@/components/verified/profile-preview";
 import { BadgeStudio } from "@/components/verified/badge-studio";
 import {
   useVerifiedProfile,
@@ -179,27 +181,29 @@ export function FlipdeskVerifiedPage() {
         </p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-4">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
-              {data?.stats.total_graded ?? 0}
-            </div>
-            <p className="text-sm text-muted-foreground">verified grades</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <div className="text-3xl font-extrabold text-brand-navy dark:text-foreground">
-              {data && data.stats.average_grade > 0
-                ? data.stats.average_grade.toFixed(1)
-                : "—"}
-            </div>
-            <p className="text-sm text-muted-foreground">average grade · out of 10</p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* US-2543 AC2: seven stacked panels, so the badge tools sat below three
+          screens of profile setup and the identity control below those. Three
+          tabs, most-used first. */}
+      <Tabs defaultValue="profile" className="space-y-6">
+        <TabsList>
+          <TabsTrigger value="profile">Profile</TabsTrigger>
+          <TabsTrigger value="badges">Badges</TabsTrigger>
+          <TabsTrigger value="passport">Passport identity</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="profile" className="space-y-6">
+      {/* US-2543 AC4: what the handle, name and bio you are typing actually
+          look like. The standalone stats grid that used to sit here is inside
+          it — the same two numbers, shown where they appear to a buyer. */}
+      <VerifiedProfilePreview
+        handle={normalizedHandle}
+        displayName={displayName}
+        bio={bio}
+        isLive={isLive}
+        totalGraded={data?.stats.total_graded ?? 0}
+        averageGrade={data?.stats.average_grade ?? 0}
+        showListings={showListings}
+      />
 
       {/* Profile form */}
       <Card>
@@ -365,6 +369,9 @@ export function FlipdeskVerifiedPage() {
         </CardContent>
       </Card>
 
+        </TabsContent>
+
+        <TabsContent value="badges" className="space-y-6">
       {/* Embed: profile badge */}
       {isLive && savedHandle && (
         <Card>
@@ -399,9 +406,13 @@ export function FlipdeskVerifiedPage() {
       {/* US-1759/1761: badge studio — storefront (when public), per-item cert
           and passport snippets. */}
       <BadgeStudio handle={isLive ? savedHandle : null} />
+        </TabsContent>
 
+        <TabsContent value="passport" className="space-y-6">
       {/* US-1105: opt-in identity reveal on Garment Passports. */}
       <PassportIdentityCard profilePublic={isLive} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

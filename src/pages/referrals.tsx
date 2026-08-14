@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -18,7 +19,7 @@ import { Progress } from "@/components/ui/progress";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { affiliateBadgeEmbed, affiliateLink } from "@/lib/affiliate";
 import { TopReferrers } from "@/components/referral/top-referrers";
-import { Gift, Copy, Check, BadgeCheck, Trophy, Ticket, Target, Wallet, AlertCircle } from "lucide-react";
+import { Gift, Copy, Check, BadgeCheck, Trophy, Target, Wallet, AlertCircle } from "lucide-react";
 
 interface ReferralMilestone {
   threshold: number;
@@ -76,9 +77,6 @@ export function ReferralsPage() {
   const [copiedBadgeLink, setCopiedBadgeLink] = useState(false);
   const [redeemCode, setRedeemCode] = useState("");
   const [redeeming, setRedeeming] = useState(false);
-  // US-1071: campaign / promo code redemption.
-  const [campaignCode, setCampaignCode] = useState("");
-  const [redeemingCampaign, setRedeemingCampaign] = useState(false);
   // US-864: leaderboard opt-in form.
   const [leaderboardName, setLeaderboardName] = useState("");
   const [savingLeaderboard, setSavingLeaderboard] = useState(false);
@@ -240,34 +238,6 @@ export function ReferralsPage() {
       ]
     : [];
 
-  const redeemCampaign = async () => {
-    const code = campaignCode.trim().toUpperCase();
-    if (!code) return;
-    setRedeemingCampaign(true);
-    try {
-      const res = await edgeFetch("/api/referrals/campaign-codes/redeem", {
-        method: "POST",
-        json: { code },
-        silentGate: true,
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(json.error ?? "Couldn't redeem that code.");
-        return;
-      }
-      toast.success(
-        json.credits > 0 ? `${json.credits} bonus grade credits added!` : "Campaign code applied!",
-      );
-      setCampaignCode("");
-      qc.invalidateQueries({ queryKey: ["referrals-me"] });
-    } catch (err) {
-      // US-1634: surface a thrown error instead of a silent unhandled rejection.
-      toast.error(err instanceof Error ? err.message : "Couldn't redeem that code.");
-    } finally {
-      setRedeemingCampaign(false);
-    }
-  };
-
   // Seed the leaderboard-alias input from the saved value once it loads.
   const savedLeaderboardName = data?.leaderboard.display_name ?? "";
   useEffect(() => {
@@ -324,403 +294,393 @@ export function ReferralsPage() {
         <Skeleton className="h-40 w-full" />
       ) : (
         <>
-          <Card>
-            <CardHeader>
-              <CardTitle>Your referral link</CardTitle>
-              <CardDescription>Code: <span className="font-mono font-semibold">{data.code}</span></CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                {/* Read-only, but still a control someone can focus and copy
-                    from — and the CardTitle above it names the CARD, not this
-                    field. */}
-                <Input aria-label="Your referral link" readOnly value={shareLink} className="font-mono text-sm" />
-                <Button onClick={copy} variant="outline">
-                  {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                </Button>
-              </div>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <div className="rounded-md bg-muted p-3">
-                  <div className="text-2xl font-bold tabular-nums">{data.stats.total}</div>
-                  <div className="text-xs text-muted-foreground">Referred</div>
-                </div>
-                <div className="rounded-md bg-muted p-3">
-                  <div className="text-2xl font-bold tabular-nums">{data.stats.pending + data.stats.qualified}</div>
-                  <div className="text-xs text-muted-foreground">In progress</div>
-                </div>
-                <div className="rounded-md bg-muted p-3">
-                  <div className="text-2xl font-bold tabular-nums">{data.stats.granted}</div>
-                  <div className="text-xs text-muted-foreground">Rewarded</div>
-                </div>
-              </div>
+          {/* US-2543 AC2: eight stacked cards, three of which were code
+              boxes that looked alike. Sharing is what this page is for, so
+              it opens on it; the affiliate program is a different job with
+              its own payout setup, and the boards are opt-in. */}
+          <Tabs defaultValue="share" className="space-y-6">
+            <TabsList>
+              <TabsTrigger value="share">Share</TabsTrigger>
+              <TabsTrigger value="affiliate">Affiliate</TabsTrigger>
+              <TabsTrigger value="boards">Leaderboard</TabsTrigger>
+            </TabsList>
 
-              {/* US-864: rewards in actual grade credits — earned (already on
-                  your balance) vs. pending (still-qualifying referrals). */}
-              <div className="grid grid-cols-2 gap-3 text-center">
-                <div className="rounded-md border border-brand-red/30 bg-brand-red/5 p-3">
-                  <div className="text-2xl font-bold tabular-nums text-brand-red-text">
-                    {data.credits.earned}
-                  </div>
-                  <div className="text-xs text-muted-foreground">Credits earned</div>
-                </div>
-                <div className="rounded-md bg-muted p-3">
-                  <div className="text-2xl font-bold tabular-nums">{data.credits.pending}</div>
-                  <div className="text-xs text-muted-foreground">Credits pending</div>
-                </div>
-              </div>
-              <p className="text-center text-xs text-muted-foreground">
-                You earn {data.credits.per_referral} grade credits each time a
-                referral qualifies — applied to your balance automatically.
-              </p>
-
-              {/* US-1071: prefilled one-tap share. */}
-              <div className="space-y-2">
-                <Button onClick={shareNative} className="w-full">
-                  <Gift className="mr-2 h-4 w-4" /> Share your link
-                </Button>
-                <div className="grid grid-cols-4 gap-2">
-                  {shareTargets.map((t) => (
-                    <Button
-                      key={t.label}
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openShare(t.url)}
-                    >
-                      {t.label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* US-1071: milestone / tiered rewards — bonus credits for hitting
-              referral thresholds. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Target className="h-5 w-5 text-brand-red-text" /> Milestone bonuses
-              </CardTitle>
-              <CardDescription>
-                {data.milestones.next
-                  ? `${data.milestones.next.remaining} more referral${
-                      data.milestones.next.remaining === 1 ? "" : "s"
-                    } to unlock +${data.milestones.next.bonus} bonus credits.`
-                  : "You've earned every milestone bonus — nice work!"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {data.milestones.next && (
-                <Progress
-                  value={Math.min(
-                    100,
-                    Math.round((data.stats.granted / data.milestones.next.threshold) * 100),
-                  )}
-                />
-              )}
-              <div className="flex flex-wrap gap-2">
-                {data.milestones.tiers.map((tier) => {
-                  const earned = data.milestones.earned_thresholds.includes(tier.threshold);
-                  return (
-                    <div
-                      key={tier.threshold}
-                      className={
-                        "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium " +
-                        (earned
-                          ? "border-brand-red/40 bg-brand-red/5 text-brand-red-text"
-                          : "text-muted-foreground")
-                      }
-                    >
-                      {earned && <Check className="h-3.5 w-3.5" />}
-                      {tier.threshold} referrals → +{tier.bonus}
-                    </div>
-                  );
-                })}
-              </div>
-              {data.milestones.earned_bonus_credits > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  You've earned {data.milestones.earned_bonus_credits} bonus credits from milestones.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* US-1071: redeem a named campaign / promo code for bonus credits. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Ticket className="h-5 w-5 text-brand-red-text" /> Have a promo code?
-              </CardTitle>
-              <CardDescription>
-                Enter a campaign code from one of our promotions to claim bonus grade credits.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="flex gap-2">
-              <Input
-                aria-label="Campaign code"
-                value={campaignCode}
-                onChange={(e) => setCampaignCode(e.target.value.toUpperCase())}
-                placeholder="e.g. THRIFT10"
-                className="font-mono"
-              />
-              <Button onClick={redeemCampaign} disabled={!campaignCode.trim() || redeemingCampaign}>
-                {redeemingCampaign ? "Applying…" : "Apply"}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {data.referred_by ? (
-            <Card>
-              <CardContent className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
-                <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
-                You were referred with code{" "}
-                <span className="font-mono font-semibold">{data.referred_by.code}</span> — reward status:{" "}
-                {data.referred_by.status}.
-              </CardContent>
-            </Card>
-          ) : (
+            <TabsContent value="share" className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Were you referred?</CardTitle>
-                <CardDescription>Enter a friend's code to claim your bonus.</CardDescription>
+                <CardTitle>Your referral link</CardTitle>
+                <CardDescription>Code: <span className="font-mono font-semibold">{data.code}</span></CardDescription>
               </CardHeader>
-              <CardContent className="flex gap-2">
-                <Input
-                  aria-label="Referral code from a friend"
-                  value={redeemCode}
-                  onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. ABCD2345"
-                  className="font-mono"
-                />
-                <Button onClick={redeem} disabled={!redeemCode.trim() || redeeming}>
-                  {redeeming ? "Applying…" : "Apply"}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* US-603: affiliate / earned-link channel. Embed the badge anywhere a
-              shopper will see it (eBay listing, your site) — clicks that turn
-              into qualified signups earn the same grade credits as a referral. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <BadgeCheck className="h-5 w-5 text-brand-red-text" /> Earned-link badge
-              </CardTitle>
-              <CardDescription>
-                Add a “Graded by GradeThread” badge to your listings or site. It
-                carries your referral code, so shoppers who join through it count
-                toward your rewards.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-center rounded-md border bg-muted/40 p-4">
-                <a
-                  href={badgeLink}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 rounded-full bg-brand-navy px-3 py-1.5 text-[13px] font-semibold text-white no-underline"
-                >
-                  <Check className="h-3.5 w-3.5" /> Graded by GradeThread
-                </a>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="ref-embed-code" className="text-xs font-medium text-muted-foreground">Embed code (HTML)</label>
+              <CardContent className="space-y-4">
                 <div className="flex gap-2">
-                  <Textarea
-                    id="ref-embed-code"
-                    readOnly
-                    value={badgeEmbed}
-                    rows={3}
-                    className="font-mono text-xs"
-                  />
-                  <Button
-                    variant="outline"
-                    onClick={() => copyTo(badgeEmbed, setCopiedEmbed)}
-                  >
-                    {copiedEmbed ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                  {/* Read-only, but still a control someone can focus and copy
+                      from — and the CardTitle above it names the CARD, not this
+                      field. */}
+                  <Input aria-label="Your referral link" readOnly value={shareLink} className="font-mono text-sm" />
+                  <Button onClick={copy} variant="outline">
+                    {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                   </Button>
                 </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="ref-badge-link" className="text-xs font-medium text-muted-foreground">Or just the link</label>
-                <div className="flex gap-2">
-                  <Input id="ref-badge-link" readOnly value={badgeLink} className="font-mono text-sm" />
-                  <Button
-                    variant="outline"
-                    onClick={() => copyTo(badgeLink, setCopiedBadgeLink)}
-                  >
-                    {copiedBadgeLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                  </Button>
-                </div>
-              </div>
-
-              {affiliate && (
                 <div className="grid grid-cols-3 gap-3 text-center">
                   <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.total}</div>
-                    <div className="text-xs text-muted-foreground">Link clicks</div>
+                    <div className="text-2xl font-bold tabular-nums">{data.stats.total}</div>
+                    <div className="text-xs text-muted-foreground">Referred</div>
                   </div>
                   <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.last30}</div>
-                    <div className="text-xs text-muted-foreground">Last 30 days</div>
+                    <div className="text-2xl font-bold tabular-nums">{data.stats.pending + data.stats.qualified}</div>
+                    <div className="text-xs text-muted-foreground">In progress</div>
                   </div>
                   <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">{affiliate.conversions}</div>
-                    <div className="text-xs text-muted-foreground">Signups</div>
+                    <div className="text-2xl font-bold tabular-nums">{data.stats.granted}</div>
+                    <div className="text-xs text-muted-foreground">Rewarded</div>
                   </div>
                 </div>
-              )}
-            </CardContent>
-          </Card>
 
-          {/* US-1295: affiliate commission payouts (Stripe Connect). Only shown
-              when the program is enabled — otherwise affiliate conversions earn
-              grade credits only. */}
-          {payouts?.enabled && (
+                {/* US-864: rewards in actual grade credits — earned (already on
+                    your balance) vs. pending (still-qualifying referrals). */}
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="rounded-md border border-brand-red/30 bg-brand-red/5 p-3">
+                    <div className="text-2xl font-bold tabular-nums text-brand-red-text">
+                      {data.credits.earned}
+                    </div>
+                    <div className="text-xs text-muted-foreground">Credits earned</div>
+                  </div>
+                  <div className="rounded-md bg-muted p-3">
+                    <div className="text-2xl font-bold tabular-nums">{data.credits.pending}</div>
+                    <div className="text-xs text-muted-foreground">Credits pending</div>
+                  </div>
+                </div>
+                <p className="text-center text-xs text-muted-foreground">
+                  You earn {data.credits.per_referral} grade credits each time a
+                  referral qualifies — applied to your balance automatically.
+                </p>
+
+                {/* US-1071: prefilled one-tap share. */}
+                <div className="space-y-2">
+                  <Button onClick={shareNative} className="w-full">
+                    <Gift className="mr-2 h-4 w-4" /> Share your link
+                  </Button>
+                  <div className="grid grid-cols-4 gap-2">
+                    {shareTargets.map((t) => (
+                      <Button
+                        key={t.label}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openShare(t.url)}
+                      >
+                        {t.label}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+            {/* US-1071: milestone / tiered rewards — bonus credits for hitting
+                referral thresholds. */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Wallet className="h-5 w-5 text-brand-red-text" /> Affiliate payouts
+                  <Target className="h-5 w-5 text-brand-red-text" /> Milestone bonuses
                 </CardTitle>
                 <CardDescription>
-                  Earn {usd(payouts.rate)} for every shopper who joins through your
-                  earned link and qualifies. Balances pay out automatically over
-                  Stripe once they clear {usd(payouts.minimum_payout)} (after a{" "}
-                  {payouts.hold_days}-day hold).
+                  {data.milestones.next
+                    ? `${data.milestones.next.remaining} more referral${
+                        data.milestones.next.remaining === 1 ? "" : "s"
+                      } to unlock +${data.milestones.next.bonus} bonus credits.`
+                    : "You've earned every milestone bonus — nice work!"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-3 text-center">
-                  <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">
-                      {usd(payouts.balance.accrued_payable)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Ready to pay</div>
-                  </div>
-                  <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">
-                      {usd(payouts.balance.accrued_held)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">On hold</div>
-                  </div>
-                  <div className="rounded-md bg-muted p-3">
-                    <div className="text-2xl font-bold tabular-nums">
-                      {usd(payouts.balance.paid)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">Paid out</div>
+                {data.milestones.next && (
+                  <Progress
+                    value={Math.min(
+                      100,
+                      Math.round((data.stats.granted / data.milestones.next.threshold) * 100),
+                    )}
+                  />
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {data.milestones.tiers.map((tier) => {
+                    const earned = data.milestones.earned_thresholds.includes(tier.threshold);
+                    return (
+                      <div
+                        key={tier.threshold}
+                        className={
+                          "flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium " +
+                          (earned
+                            ? "border-brand-red/40 bg-brand-red/5 text-brand-red-text"
+                            : "text-muted-foreground")
+                        }
+                      >
+                        {earned && <Check className="h-3.5 w-3.5" />}
+                        {tier.threshold} referrals → +{tier.bonus}
+                      </div>
+                    );
+                  })}
+                </div>
+                {data.milestones.earned_bonus_credits > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    You've earned {data.milestones.earned_bonus_credits} bonus credits from milestones.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+            {data.referred_by ? (
+              <Card>
+                <CardContent className="flex items-center gap-2 p-4 text-sm text-muted-foreground">
+                  <Check className="h-4 w-4 text-green-600 dark:text-green-400" />
+                  You were referred with code{" "}
+                  <span className="font-mono font-semibold">{data.referred_by.code}</span> — reward status:{" "}
+                  {data.referred_by.status}.
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Were you referred?</CardTitle>
+                  <CardDescription>Enter a friend's code to claim your bonus.</CardDescription>
+                </CardHeader>
+                <CardContent className="flex gap-2">
+                  <Input
+                    aria-label="Referral code from a friend"
+                    value={redeemCode}
+                    onChange={(e) => setRedeemCode(e.target.value.toUpperCase())}
+                    placeholder="e.g. ABCD2345"
+                    className="font-mono"
+                  />
+                  <Button onClick={redeem} disabled={!redeemCode.trim() || redeeming}>
+                    {redeeming ? "Applying…" : "Apply"}
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+            </TabsContent>
+
+            <TabsContent value="affiliate" className="space-y-6">
+            {/* US-603: affiliate / earned-link channel. Embed the badge anywhere a
+                shopper will see it (eBay listing, your site) — clicks that turn
+                into qualified signups earn the same grade credits as a referral. */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <BadgeCheck className="h-5 w-5 text-brand-red-text" /> Earned-link badge
+                </CardTitle>
+                <CardDescription>
+                  Add a “Graded by GradeThread” badge to your listings or site. It
+                  carries your referral code, so shoppers who join through it count
+                  toward your rewards.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-center rounded-md border bg-muted/40 p-4">
+                  <a
+                    href={badgeLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-full bg-brand-navy px-3 py-1.5 text-[13px] font-semibold text-white no-underline"
+                  >
+                    <Check className="h-3.5 w-3.5" /> Graded by GradeThread
+                  </a>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="ref-embed-code" className="text-xs font-medium text-muted-foreground">Embed code (HTML)</label>
+                  <div className="flex gap-2">
+                    <Textarea
+                      id="ref-embed-code"
+                      readOnly
+                      value={badgeEmbed}
+                      rows={3}
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={() => copyTo(badgeEmbed, setCopiedEmbed)}
+                    >
+                      {copiedEmbed ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+                    </Button>
                   </div>
                 </div>
 
-                {payouts.onboarding.payouts_enabled ? (
-                  <p className="text-sm text-muted-foreground">
-                    Your Stripe payout account is connected and active.
-                  </p>
-                ) : (
-                  <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-sm text-muted-foreground">
-                      {payouts.onboarding.connected
-                        ? "Finish setting up your Stripe payout account to receive transfers."
-                        : "Connect a Stripe account to get paid your affiliate commissions."}
-                    </p>
-                    <Button onClick={startPayoutOnboarding} disabled={connecting}>
-                      {connecting
-                        ? "Opening…"
-                        : payouts.onboarding.connected
-                          ? "Finish setup"
-                          : "Set up payouts"}
+                <div className="space-y-1.5">
+                  <label htmlFor="ref-badge-link" className="text-xs font-medium text-muted-foreground">Or just the link</label>
+                  <div className="flex gap-2">
+                    <Input id="ref-badge-link" readOnly value={badgeLink} className="font-mono text-sm" />
+                    <Button
+                      variant="outline"
+                      onClick={() => copyTo(badgeLink, setCopiedBadgeLink)}
+                    >
+                      {copiedBadgeLink ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                     </Button>
                   </div>
-                )}
+                </div>
 
-                {payouts.tax.reaches_1099_threshold && (
-                  <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <span>
-                      You've been paid {usd(payouts.tax.paid_this_year)} this year —
-                      at or above the {usd(payouts.tax.threshold)} threshold, so a
-                      1099 tax form may be issued.
-                    </span>
+                {affiliate && (
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="rounded-md bg-muted p-3">
+                      <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.total}</div>
+                      <div className="text-xs text-muted-foreground">Link clicks</div>
+                    </div>
+                    <div className="rounded-md bg-muted p-3">
+                      <div className="text-2xl font-bold tabular-nums">{affiliate.clicks.last30}</div>
+                      <div className="text-xs text-muted-foreground">Last 30 days</div>
+                    </div>
+                    <div className="rounded-md bg-muted p-3">
+                      <div className="text-2xl font-bold tabular-nums">{affiliate.conversions}</div>
+                      <div className="text-xs text-muted-foreground">Signups</div>
+                    </div>
                   </div>
                 )}
               </CardContent>
             </Card>
-          )}
+            {/* US-1295: affiliate commission payouts (Stripe Connect). Only shown
+                when the program is enabled — otherwise affiliate conversions earn
+                grade credits only. */}
+            {payouts?.enabled && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    <Wallet className="h-5 w-5 text-brand-red-text" /> Affiliate payouts
+                  </CardTitle>
+                  <CardDescription>
+                    Earn {usd(payouts.rate)} for every shopper who joins through your
+                    earned link and qualifies. Balances pay out automatically over
+                    Stripe once they clear {usd(payouts.minimum_payout)} (after a{" "}
+                    {payouts.hold_days}-day hold).
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid grid-cols-3 gap-3 text-center">
+                    <div className="rounded-md bg-muted p-3">
+                      <div className="text-2xl font-bold tabular-nums">
+                        {usd(payouts.balance.accrued_payable)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Ready to pay</div>
+                    </div>
+                    <div className="rounded-md bg-muted p-3">
+                      <div className="text-2xl font-bold tabular-nums">
+                        {usd(payouts.balance.accrued_held)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">On hold</div>
+                    </div>
+                    <div className="rounded-md bg-muted p-3">
+                      <div className="text-2xl font-bold tabular-nums">
+                        {usd(payouts.balance.paid)}
+                      </div>
+                      <div className="text-xs text-muted-foreground">Paid out</div>
+                    </div>
+                  </div>
 
-          {/* US-864: opt into the public top-referrers leaderboard. */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Trophy className="h-5 w-5 text-brand-red-text" /> Top referrers leaderboard
-              </CardTitle>
-              <CardDescription>
-                Opt in to appear on the public{" "}
-                <a href="/leaderboard" className="font-medium underline">
-                  leaderboard
-                </a>
-                . Only the display name you choose is shown — never your email.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="space-y-1.5">
-                <label htmlFor="ref-display-name" className="text-xs font-medium text-muted-foreground">
-                  Public display name
-                </label>
-                <Input
-                  id="ref-display-name"
-                  value={leaderboardName}
-                  onChange={(e) => setLeaderboardName(e.target.value.slice(0, 40))}
-                  placeholder="e.g. ThriftKing"
-                  maxLength={40}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  {data.leaderboard.enabled
-                    ? "You're visible on the leaderboard."
-                    : "You're not on the leaderboard yet."}
-                </p>
-                {data.leaderboard.enabled ? (
-                  <div className="flex gap-2">
+                  {payouts.onboarding.payouts_enabled ? (
+                    <p className="text-sm text-muted-foreground">
+                      Your Stripe payout account is connected and active.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2 rounded-md border border-dashed p-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-muted-foreground">
+                        {payouts.onboarding.connected
+                          ? "Finish setting up your Stripe payout account to receive transfers."
+                          : "Connect a Stripe account to get paid your affiliate commissions."}
+                      </p>
+                      <Button onClick={startPayoutOnboarding} disabled={connecting}>
+                        {connecting
+                          ? "Opening…"
+                          : payouts.onboarding.connected
+                            ? "Finish setup"
+                            : "Set up payouts"}
+                      </Button>
+                    </div>
+                  )}
+
+                  {payouts.tax.reaches_1099_threshold && (
+                    <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      <span>
+                        You've been paid {usd(payouts.tax.paid_this_year)} this year —
+                        at or above the {usd(payouts.tax.threshold)} threshold, so a
+                        1099 tax form may be issued.
+                      </span>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+            </TabsContent>
+
+            <TabsContent value="boards" className="space-y-6">
+            {/* US-864: opt into the public top-referrers leaderboard. */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Trophy className="h-5 w-5 text-brand-red-text" /> Top referrers leaderboard
+                </CardTitle>
+                <CardDescription>
+                  Opt in to appear on the public{" "}
+                  <a href="/leaderboard" className="font-medium underline">
+                    leaderboard
+                  </a>
+                  . Only the display name you choose is shown — never your email.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-1.5">
+                  <label htmlFor="ref-display-name" className="text-xs font-medium text-muted-foreground">
+                    Public display name
+                  </label>
+                  <Input
+                    id="ref-display-name"
+                    value={leaderboardName}
+                    onChange={(e) => setLeaderboardName(e.target.value.slice(0, 40))}
+                    placeholder="e.g. ThriftKing"
+                    maxLength={40}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm text-muted-foreground">
+                    {data.leaderboard.enabled
+                      ? "You're visible on the leaderboard."
+                      : "You're not on the leaderboard yet."}
+                  </p>
+                  {data.leaderboard.enabled ? (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={savingLeaderboard}
+                        onClick={() => saveLeaderboard(true)}
+                      >
+                        Save name
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        disabled={savingLeaderboard}
+                        onClick={() => saveLeaderboard(false)}
+                      >
+                        Hide me
+                      </Button>
+                    </div>
+                  ) : (
                     <Button
-                      variant="outline"
-                      disabled={savingLeaderboard}
+                      disabled={savingLeaderboard || !leaderboardName.trim()}
                       onClick={() => saveLeaderboard(true)}
                     >
-                      Save name
+                      {savingLeaderboard ? "Saving…" : "Join leaderboard"}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      disabled={savingLeaderboard}
-                      onClick={() => saveLeaderboard(false)}
-                    >
-                      Hide me
-                    </Button>
-                  </div>
-                ) : (
-                  <Button
-                    disabled={savingLeaderboard || !leaderboardName.trim()}
-                    onClick={() => saveLeaderboard(true)}
-                  >
-                    {savingLeaderboard ? "Saving…" : "Join leaderboard"}
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Live top-referrers preview (public feed). */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Leaderboard</CardTitle>
-              <CardDescription>The current top referrers.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <TopReferrers limit={5} />
-            </CardContent>
-          </Card>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            {/* Live top-referrers preview (public feed). */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Leaderboard</CardTitle>
+                <CardDescription>The current top referrers.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <TopReferrers limit={5} />
+              </CardContent>
+            </Card>
+            </TabsContent>
+          </Tabs>
         </>
       )}
     </div>

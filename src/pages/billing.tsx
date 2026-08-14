@@ -38,6 +38,7 @@ import {
 import { InvoiceHistory } from "@/components/billing/invoice-history";
 import { UsageMeter, UsageMeters } from "@/components/billing/usage-meter";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
+import { PromoCodeRedeemer } from "@/components/billing/promo-code-redeemer";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
 import { FlipdeskPlanComparison } from "@/components/billing/flipdesk-plan-comparison";
 import { PauseSubscriptionDialog } from "@/components/billing/pause-subscription-dialog";
@@ -624,6 +625,11 @@ export function BillingPage() {
                 Buy single grade
               </Button>
             </div>
+
+            {/* US-2543 AC5: moved off Referrals. A campaign code grants grade
+                credits, so it belongs under the credit balance. */}
+            <Separator />
+            <PromoCodeRedeemer />
 
             {summary.recent_ledger.length > 0 && (
               <>
