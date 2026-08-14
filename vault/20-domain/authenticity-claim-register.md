@@ -7,7 +7,7 @@ code_refs:
   - services/edge-functions/src/lib/ai-authenticity.ts
   - src/pages/tools/authenticity-check.tsx
   - services/edge-functions/src/tests/authenticity-claim-register_test.ts
-reviewed: 2026-08-11
+reviewed: 2026-08-14
 tags: [authenticity, legal, compliance, claims]
 summary: The inventory US-2133's substantiation review needs — where each authenticity claim renders, what the pipeline can support, and where our own brand KB contradicts the product.
 ---
