@@ -24,6 +24,8 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ErrorState } from "@/components/ui/error-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import {
   useEbayBestOffers,
   useEbayConnection,
@@ -123,6 +125,10 @@ export function FlipdeskOffersPage() {
         title="Offers & Messages"
         subtitle="Respond to buyer Best Offers, send offers to interested buyers, and reply to buyer messages — all on your live eBay listings."
       />
+      {/* US-2541: FlipDesk registers eleven marketplaces and this screen reads
+          one. Without saying so, an empty list means "no offers" to a seller
+          who also lists on Poshmark — when it means "we do not read Poshmark". */}
+      <PlatformCoverageNote feature="offers" noun="Offers and buyer messages" />
       <BestOffersCard />
       <SendOfferCard />
       <MessagesCard />
@@ -652,11 +658,23 @@ function MessagesCard() {
             retrying={isFetching}
           />
         ) : messages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No recent messages.</p>
+          // US-2541: a bare sentence where every other list on this surface
+          // gets a real empty state — and this one is the most ambiguous of
+          // them, because "no messages" reads as coverage the page does not
+          // have.
+          <EmptyState
+            className="py-8"
+            icon={MessageSquare}
+            title="No recent buyer messages"
+            description="eBay messages from the last 30 days appear here. Messages on your other marketplaces are not read by GradeThread."
+          />
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No messages need a reply.
-          </p>
+          <EmptyState
+            className="py-8"
+            icon={Check}
+            title="Nothing needs a reply"
+            description="Every recent message has been answered. Clear the filter to see them all."
+          />
         ) : (
           <>
             {pagedMessages.map((m) => (

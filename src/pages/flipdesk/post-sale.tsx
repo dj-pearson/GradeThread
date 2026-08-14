@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Check,
   Loader2,
+  PackageCheck,
   PackageX,
   Paperclip,
   RotateCcw,
@@ -34,6 +35,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { EmptyState } from "@/components/ui/empty-state";
+import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
 import {
   caseItemKey,
@@ -94,6 +97,12 @@ export function FlipdeskPostSalePage() {
         title="Returns & Disputes"
         subtitle="Handle eBay returns, buyer cancellations, and payment disputes before their deadlines — responses are pushed straight to eBay."
       />
+      {/* US-2541: same reasoning as the offers screen. An empty returns list
+          is the one a seller most wants to trust. */}
+      <PlatformCoverageNote
+        feature="post_sale"
+        noun="Returns, cancellations and disputes"
+      />
       <DisputesCard />
       <ReturnsCard />
       <CancellationsCard />
@@ -107,8 +116,18 @@ function fmtDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? "—" : d.toLocaleDateString();
 }
 
+// US-2541: was a bare paragraph. These three lists are the ones a seller
+// checks to confirm NOTHING is waiting on them, so "nothing here" has to read
+// as an answer rather than as a list that failed to draw.
 function EmptyRow({ text }: { text: string }) {
-  return <p className="text-sm text-muted-foreground">{text}</p>;
+  return (
+    <EmptyState
+      className="py-8"
+      icon={PackageCheck}
+      title={text}
+      description="eBay cases only — GradeThread does not read your other marketplaces."
+    />
+  );
 }
 
 // ── Payment disputes (most urgent — deadline-driven) ────────────────

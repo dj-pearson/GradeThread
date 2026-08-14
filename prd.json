@@ -1840,18 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2541",
-      "passes": false,
-      "title": "Offers, messages and post-sale are eBay-only with no cross-platform story",
-      "description": "As a seller listing on seven platforms, I want to know which platforms these tools cover, so that I do not assume my Poshmark offers are here.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/offers.tsx and post-sale.tsx drive the eBay hooks exclusively while MARKETPLACE_LABELS registers seven platforms.",
-        "Either the surfaces cover the platforms whose APIs allow it, or each page states which platforms it covers and which it does not.",
-        "'No recent messages.' becomes a real EmptyState rather than a bare paragraph (offers.tsx:655)."
-      ],
-      "priority": 1968
-    },
-    {
       "id": "US-2542",
       "passes": false,
       "title": "UI craft-floor sweep: 106 tracked-uppercase eyebrows and 23 hand-rolled page titles",
