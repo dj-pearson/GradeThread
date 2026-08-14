@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2517",
-      "passes": false,
-      "title": "FlipDesk search reports an outage as 'No matches'",
-      "description": "As a seller, I want a failed search to say it failed, so that I do not conclude I have no matching inventory.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/search.tsx:111-113 catches the flipdesk_search RPC error and sets an empty result array, so the UI renders the 'No matches' EmptyState at :175-180.",
-        "A failed RPC renders ErrorState with a retry instead of an empty state.",
-        "Recent searches are offered when the field is empty, matching the iOS behaviour at ios/GradeThread/Inventory/GlobalSearchView.swift:25.",
-        "Results are keyboard-navigable, since each row already renders a return-key affordance at :211."
-      ],
-      "priority": 1920
-    },
-    {
       "id": "US-2518",
       "passes": false,
       "title": "CSV import runs in the browser, warns you not to close the tab, and cannot be undone",

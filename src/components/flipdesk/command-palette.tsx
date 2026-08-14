@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
+import { fetchRecentSearches, recordSearch } from "@/lib/recent-searches";
 import { useAuthStore } from "@/stores/auth-store";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { useRecentStore } from "@/stores/recent-store";
@@ -124,6 +125,9 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const [deepHits, setDeepHits] = useState<SearchHit[]>([]);
+  // US-2517: the deep-text RPC failed — say the list is short, don't imply the
+  // seller owns nothing matching.
+  const [deepFailed, setDeepFailed] = useState(false);
   const [submissionHits, setSubmissionHits] = useState<SubmissionLite[]>([]);
   // US-1053: per-user recent searches, offered as suggestions when the field
   // is empty. Sourced from the recent_searches RPC (RLS-scoped to the caller).
@@ -162,43 +166,10 @@ export function CommandPalette() {
       setDeepHits([]);
       setSubmissionHits([]);
       // US-1053: refresh recent searches each time the palette opens.
-      (async () => {
-        try {
-          const { data } = await (
-            supabase.rpc as unknown as (
-              fn: string,
-              args: Record<string, unknown>,
-            ) => Promise<{
-              data: { query: string }[] | null;
-              error: Error | null;
-            }>
-          )("recent_searches", { p_limit: 8 });
-          setRecentSearches((data ?? []).map((r) => r.query).filter(Boolean));
-        } catch {
-          setRecentSearches([]);
-        }
-      })();
+      // US-2517: shared with the Search page rather than duplicated.
+      void fetchRecentSearches(8).then(setRecentSearches);
     }
   }, [open]);
-
-  // US-1053: persist a search term so it can be offered as a suggestion later.
-  // Fire-and-forget; failures are non-fatal (the user still navigated).
-  function recordSearch(term: string) {
-    const t = term.trim();
-    if (t.length < 2) return;
-    void (async () => {
-      try {
-        await (
-          supabase.rpc as unknown as (
-            fn: string,
-            args: Record<string, unknown>,
-          ) => Promise<{ error: Error | null }>
-        )("record_search", { p_query: t, p_scope: "all" });
-      } catch {
-        // ignore — recording recent searches is best-effort
-      }
-    })();
-  }
 
   // Debounced submission search (grading side of the product). The browser
   // client is RLS-scoped, so this only ever returns the user's own rows.
@@ -235,14 +206,19 @@ export function CommandPalette() {
     }
     const handle = setTimeout(async () => {
       try {
-        const { data } = await (
+        // US-2517: `error` was dropped here too. supabase-js resolves with
+        // { data: null, error } rather than throwing, so a dead RPC silently
+        // trimmed the deep-text hits and the palette looked merely thorough.
+        const { data, error } = await (
           supabase.rpc as unknown as (
             fn: string,
             args: Record<string, unknown>,
           ) => Promise<{ data: SearchHit[] | null; error: Error | null }>
         )("flipdesk_search", { p_query: q, p_scope: "all", p_limit: 8 });
-        setDeepHits(data ?? []);
+        setDeepFailed(Boolean(error));
+        setDeepHits(error ? [] : (data ?? []));
       } catch {
+        setDeepFailed(true);
         setDeepHits([]);
       }
     }, 250);
@@ -668,9 +644,23 @@ export function CommandPalette() {
           aria-label="Search results"
           className="max-h-[60dvh] overflow-y-auto p-2"
         >
+          {/* US-2517: an outage never poses as an empty result. */}
+          {deepFailed && query && (
+            <div
+              role="alert"
+              className="mb-1 rounded-md bg-amber-500/10 px-3 py-2 text-xs"
+            >
+              Deep text search is unavailable right now, so these results may be
+              incomplete.
+            </div>
+          )}
           {flat.length === 0 ? (
             <div className="py-8 text-center text-sm text-muted-foreground">
-              {query ? "No matches." : "Type to search, or pick an action."}
+              {query
+                ? deepFailed
+                  ? "Search is unavailable right now. Try again in a moment."
+                  : "No matches."
+                : "Type to search, or pick an action."}
             </div>
           ) : (
             sections.map((section) => (
