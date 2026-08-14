@@ -24,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { FieldError } from "@/components/ui/form-feedback";
 import { validateEmail } from "@/lib/validation";
 import { toast } from "sonner";
+import { SEO } from "@/components/seo";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -143,6 +144,12 @@ export function LoginPage() {
 
   return (
     <Card>
+      {/* US-2529: this page had no title at all, so a saved tab read
+          "GradeThread" and told the visitor nothing about which page it was. */}
+      <SEO
+        title="Sign in"
+        description="Sign in to GradeThread to grade garments, manage your inventory and publish listings."
+      />
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">Welcome back</CardTitle>
         <CardDescription>Sign in to your GradeThread account</CardDescription>

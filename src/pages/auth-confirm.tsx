@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card";
 import { FieldError } from "@/components/ui/form-feedback";
 import { toast } from "sonner";
+import { SEO } from "@/components/seo";
 
 // This page lives OUTSIDE AuthLayout (so our post-verify navigation isn't
 // pre-empted by AuthLayout's hard redirect once the session forms), so it
@@ -28,6 +29,8 @@ import { toast } from "sonner";
 function AuthShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
+      {/* US-2529: noindex — the confirmation link carries a token. */}
+      <SEO title="Confirming your email" noindex />
       <div className="w-full max-w-md">
         <div className="mb-8 flex justify-center">
           <img src="/logo_primary.png" alt="GradeThread" className="h-10" />

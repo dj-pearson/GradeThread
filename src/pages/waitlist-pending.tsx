@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { signOut } from "@/lib/auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { SEO } from "@/components/seo";
 
 // US-585: shown to an authenticated account that is NOT yet approved while the
 // launch gate is active. edge-fetch redirects here on a 403
@@ -38,6 +39,9 @@ export function WaitlistPendingPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-brand-gray px-4 dark:bg-brand-night">
+      {/* US-2529: noindex. This is an account-state page: per-account, and with
+          nothing on it worth a search result. */}
+      <SEO title="You're on the list" noindex />
       <Card className="w-full max-w-md">
         <CardContent className="space-y-6 p-8 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-brand-navy/10 text-brand-navy dark:bg-white/10 dark:text-white">

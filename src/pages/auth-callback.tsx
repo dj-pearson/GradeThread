@@ -5,6 +5,7 @@ import { isIdentityLinkingError, OAUTH_LINKING_MESSAGE } from "@/lib/auth-identi
 import { readAuthError } from "@/lib/auth-error";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
+import { SEO } from "@/components/seo";
 
 // How long to wait for the auth exchange to complete before giving up and
 // showing an error instead of an indefinite spinner (US-370).
@@ -110,6 +111,8 @@ export function AuthCallbackPage() {
 
   return (
     <div className="flex h-screen items-center justify-center bg-background px-4">
+      {/* US-2529: noindex — the OAuth callback carries a code in the URL. */}
+      <SEO title="Signing you in" noindex />
       <div className="text-center">
         <img
           src="/logo_primary.png"

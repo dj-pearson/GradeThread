@@ -13,6 +13,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { FieldError } from "@/components/ui/form-feedback";
 import { validateEmail } from "@/lib/validation";
 import { toast } from "sonner";
+import { SEO } from "@/components/seo";
 
 // How long to wait for a recovery session (getSession or PASSWORD_RECOVERY)
 // before declaring the reset link expired. Generous so a slow network doesn't
@@ -91,6 +92,9 @@ function RequestResetForm() {
 
   return (
     <Card>
+      {/* US-2529: noindex, because this page is reached with a recovery token in
+          the URL and a crawled token is a token in someone else's index. */}
+      <SEO title="Reset your password" noindex />
       <CardHeader className="text-center">
         <CardTitle>Reset password</CardTitle>
         <CardDescription>

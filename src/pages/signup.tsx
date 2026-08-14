@@ -30,6 +30,7 @@ import type { UserUseCase, SignupSource } from "@/types/database";
 import { SIGNUP_SOURCE_OPTIONS } from "@/lib/constants";
 import { claimSummary, readBuyerClaim } from "@/lib/buyer-conversion-claim";
 import { toast } from "sonner";
+import { SEO } from "@/components/seo";
 
 // Mirrors the constant in components/launch-banner.tsx. The signup notice
 // auto-hides on/after launch so we don't have to remember to strip it.
@@ -300,6 +301,12 @@ export function SignupPage() {
 
   return (
     <Card>
+      {/* US-2529: no title at all, on the page that opens an account — a saved
+          tab read "GradeThread" and said nothing about which page it was. */}
+      <SEO
+        title="Create your account"
+        description="Create a free GradeThread account to grade a garment, get a shareable certificate and list it."
+      />
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">
           {isBuyer ? "Shop secondhand with confidence" : "Create an account"}
