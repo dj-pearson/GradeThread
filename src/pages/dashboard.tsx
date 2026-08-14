@@ -25,9 +25,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Meter } from "@/components/ui/meter";
 import {
-  BarChart3,
   FileText,
   TrendingUp,
   Plus,
@@ -147,7 +145,9 @@ function quickActionsFor(useCase: UserUseCase | null): QuickAction[] {
     default:
       return [
         { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
-        { key: "inventory", icon: Package, label: "Add Inventory Item", sublabel: "Track a new item", to: "/dashboard/inventory/new" },
+        // US-2537: was /dashboard/inventory/new, which is a <Navigate> redirect
+        // to this path — one extra hop on the most-clicked quick action.
+        { key: "inventory", icon: Package, label: "Add Inventory Item", sublabel: "Track a new item", to: "/dashboard/flipdesk/intake" },
         { key: "finances", icon: DollarSign, label: "View Finances", sublabel: "Profit & analytics", to: "/dashboard/flipdesk/money?view=finances" },
       ];
   }
@@ -271,12 +271,12 @@ export function DashboardPage() {
   const planConfig = FLIPDESK_PLANS[
     profile?.flipdesk_plan ?? flipdeskPlanForLegacy(plan as PlanKey)
   ];
-  const gradesUsed = profile?.grades_used_this_month ?? 0;
-  const gradesLimit = planConfig.includedStandardGradesPerMonth === -1
-    ? "Unlimited"
-    : planConfig.includedStandardGradesPerMonth;
-  const gradesPercent =
-    typeof gradesLimit === "number" ? Math.round((gradesUsed / gradesLimit) * 100) : 0;
+  // US-2537: the grades-used figure and its percentage lived here to feed a
+  // hand-built card that showed the same number the shared usage meters do. They
+  // own it now — including the division this code got wrong: a plan whose
+  // includedStandardGradesPerMonth is 0 (Free) made `used / 0` = Infinity, and
+  // Math.round(Infinity * 100) rendered as "Infinity%" on a new account's very
+  // first visit. UsageMeter pins pct to 0 when the limit is 0 or unlimited.
 
   const {
     data: submissionData,
@@ -461,141 +461,25 @@ export function DashboardPage() {
           so it never nags. `general` variant → grades/certificates copy. */}
       <PwaInstallBanner variant="general" />
 
-      {/* App-wide, persona-aware activation checklist (US-1122). Self-hides once
-          every step is done or the user dismisses it; renders nothing for the
-          buyer persona (the first-run card below covers them). */}
-      <ActivationChecklist />
-
-      {/* Persona-tailored zero-data first run (US-1118). Suppressed for personas
-          that get the multi-step activation checklist above to avoid overlap. */}
-      {isFirstRun && useCase === "buyer" && (
-        <Card className="border-primary/30 bg-primary/5">
-          <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
-                <FirstRunIcon className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold">{firstRun.title}</p>
-                <p className="text-xs text-muted-foreground">{firstRun.description}</p>
-              </div>
-            </div>
-            <Button onClick={() => navigate(firstRun.to)} className="sm:flex-shrink-0">
-              {firstRun.cta}
-              <ArrowRight className="ml-1.5 h-4 w-4" />
-            </Button>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Quick Actions — tailored to the user's use case (US-1118) */}
-      <div className="grid gap-3 sm:grid-cols-3">
-        {quickActions.map((action) => {
-          const Icon = action.icon;
-          return (
-            <Button
-              key={action.key}
-              variant="outline"
-              className="h-auto justify-start gap-3 py-3"
-              onClick={() => navigate(action.to)}
-            >
-              <Icon className="h-5 w-5 text-primary" />
-              <span className="text-left">
-                <span className="block text-sm font-medium">{action.label}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {action.sublabel}
-                </span>
-              </span>
-            </Button>
-          );
-        })}
-      </div>
-
-      {/* US-1857: rewards at a glance — level, season, badges, quests and how
-          far the next real reward is. Self-hides for a seller with nothing
-          earned yet (the activation checklist above is their surface), but the
-          celebration runner inside it still mounts so their first badge has a
-          baseline to diff against. */}
-      <RewardsWidget />
-
-      {/* Plan usage meters (US-214) */}
+      {/* US-2537: the seller's own data first. This page opened with eight
+          promotional blocks — checklist, first-run card, quick actions,
+          rewards, a FlipDesk promo, Discover cards, invite-a-friend and an
+          impact tile — before a returning seller saw a single number about
+          their own business. Stats, charts and Recent Submissions now come
+          first; everything that sells something follows them. */}
+      {/* US-2537: usage, rendered ONCE and up here with the seller's own
+          numbers. The stats row carried a hand-built "Grades Used" card
+          showing the same figure as these shared meters lower down the
+          page — two sources for one number, free to disagree the moment
+          either changed. The shared component wins: it also covers AI
+          actions, credits and marketplaces. */}
       <div className="space-y-3">
         <h2 className="text-sm font-semibold text-muted-foreground">Usage</h2>
         <UsageMeters />
       </div>
 
-      {/* FlipDesk cross-promotion (selling personas, zero-inventory users only) */}
-      {showFlipdeskPromo && (
-        <FlipdeskPromoCard itemCount={inventoryData?.totalItemCount} />
-      )}
-
-      {/* Discover GradeThread — persona-relevant feature entry points (US-1118):
-          Garment Passports, Verified Seller, Buyer Guarantee. */}
-      {featureCards.length > 0 && (
-        <div className="space-y-3">
-          <h2 className="text-sm font-semibold text-muted-foreground">
-            Discover GradeThread
-          </h2>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {featureCards.map((feature) => {
-              const Icon = feature.icon;
-              return (
-                <Card key={feature.key} className="flex flex-col">
-                  <CardContent className="flex flex-1 flex-col gap-3 py-4">
-                    <div className="flex items-center gap-2">
-                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
-                        <Icon className="h-4 w-4 text-primary" />
-                      </div>
-                      <p className="text-sm font-medium">{feature.title}</p>
-                    </div>
-                    <p className="flex-1 text-xs text-muted-foreground">
-                      {feature.description}
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="self-start"
-                      onClick={() => navigate(feature.to)}
-                    >
-                      {feature.cta}
-                      <ArrowRight className="ml-1.5 h-3 w-3" />
-                    </Button>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* US-862: invite a friend — the referral program entry point (US-1118) */}
-      <InviteFriendCard />
-
-      {/* US-1787: circularity impact — "your resale diverted X" (renders only
-          once the user has graded at least one item). */}
-      <ImpactTile />
-
       {/* Stats cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium">Grades Used</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {gradesUsed} <span className="text-sm font-normal text-muted-foreground">/ {gradesLimit}</span>
-            </div>
-            {typeof gradesLimit === "number" && (
-              <Meter
-                value={Math.min(gradesPercent, 100)}
-                className="mt-2"
-                barClassName="transition-all"
-                aria-label="Grades used"
-              />
-            )}
-          </CardContent>
-        </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -767,6 +651,116 @@ export function DashboardPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* App-wide, persona-aware activation checklist (US-1122). Self-hides once
+          every step is done or the user dismisses it; renders nothing for the
+          buyer persona (the first-run card below covers them). */}
+      <ActivationChecklist />
+
+      {/* Persona-tailored zero-data first run (US-1118). Suppressed for personas
+          that get the multi-step activation checklist above to avoid overlap. */}
+      {isFirstRun && useCase === "buyer" && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-col gap-3 py-5 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
+                <FirstRunIcon className="h-5 w-5 text-primary" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">{firstRun.title}</p>
+                <p className="text-xs text-muted-foreground">{firstRun.description}</p>
+              </div>
+            </div>
+            <Button onClick={() => navigate(firstRun.to)} className="sm:flex-shrink-0">
+              {firstRun.cta}
+              <ArrowRight className="ml-1.5 h-4 w-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Quick Actions — tailored to the user's use case (US-1118) */}
+      <div className="grid gap-3 sm:grid-cols-3">
+        {quickActions.map((action) => {
+          const Icon = action.icon;
+          return (
+            <Button
+              key={action.key}
+              variant="outline"
+              className="h-auto justify-start gap-3 py-3"
+              onClick={() => navigate(action.to)}
+            >
+              <Icon className="h-5 w-5 text-primary" />
+              <span className="text-left">
+                <span className="block text-sm font-medium">{action.label}</span>
+                <span className="block text-xs text-muted-foreground">
+                  {action.sublabel}
+                </span>
+              </span>
+            </Button>
+          );
+        })}
+      </div>
+
+      {/* US-1857: rewards at a glance — level, season, badges, quests and how
+          far the next real reward is. Self-hides for a seller with nothing
+          earned yet (the activation checklist above is their surface), but the
+          celebration runner inside it still mounts so their first badge has a
+          baseline to diff against. */}
+      <RewardsWidget />
+
+
+      {/* FlipDesk cross-promotion (selling personas, zero-inventory users only) */}
+      {showFlipdeskPromo && (
+        <FlipdeskPromoCard itemCount={inventoryData?.totalItemCount} />
+      )}
+
+      {/* Discover GradeThread — persona-relevant feature entry points (US-1118):
+          Garment Passports, Verified Seller, Buyer Guarantee. */}
+      {featureCards.length > 0 && (
+        <div className="space-y-3">
+          <h2 className="text-sm font-semibold text-muted-foreground">
+            Discover GradeThread
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {featureCards.map((feature) => {
+              const Icon = feature.icon;
+              return (
+                <Card key={feature.key} className="flex flex-col">
+                  <CardContent className="flex flex-1 flex-col gap-3 py-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-primary/10">
+                        <Icon className="h-4 w-4 text-primary" />
+                      </div>
+                      <p className="text-sm font-medium">{feature.title}</p>
+                    </div>
+                    <p className="flex-1 text-xs text-muted-foreground">
+                      {feature.description}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="self-start"
+                      onClick={() => navigate(feature.to)}
+                    >
+                      {feature.cta}
+                      <ArrowRight className="ml-1.5 h-3 w-3" />
+                    </Button>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* US-862: invite a friend — the referral program entry point (US-1118) */}
+      <InviteFriendCard />
+
+      {/* US-1787: circularity impact — "your resale diverted X" (renders only
+          once the user has graded at least one item). */}
+      <ImpactTile />
+
     </div>
   );
 }
