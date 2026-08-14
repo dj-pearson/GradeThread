@@ -13,12 +13,22 @@ on:
       - "supabase/migrations/**"
       - "supabase/config.toml"
       - ".github/workflows/db-migrations.yml"
+      # The two checks this job runs after the reset. Editing one without
+      # re-running the job is how a broken probe sits green-adjacent for a
+      # week — which is exactly what happened to the InitPlan check.
+      - "scripts/db-rls-initplan-check.mjs"
+      - "scripts/db-denied-rpc-crash-check.mjs"
   push:
     branches: [main]
     paths:
       - "supabase/migrations/**"
       - "supabase/config.toml"
       - ".github/workflows/db-migrations.yml"
+      # The two checks this job runs after the reset. Editing one without
+      # re-running the job is how a broken probe sits green-adjacent for a
+      # week — which is exactly what happened to the InitPlan check.
+      - "scripts/db-rls-initplan-check.mjs"
+      - "scripts/db-denied-rpc-crash-check.mjs"
 
 concurrency:
   group: db-migrations-${{ github.ref }}

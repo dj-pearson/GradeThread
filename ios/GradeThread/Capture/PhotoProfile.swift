@@ -159,13 +159,24 @@ public final class PhotoProfileStore {
     }
 
     /// - Parameter ownerProvider: active workspace owner, else the signed-in
-    ///   user; nil when signed out. Injectable for previews and tests.
-    public init(
-        ownerProvider: @escaping @MainActor () -> String? = {
+    ///   user; nil when signed out. Injectable for previews and tests; nil
+    ///   takes the live one below.
+    ///
+    /// The live provider is built in the BODY rather than written as a default
+    /// argument, and it has to be. A default argument on a `public` declaration
+    /// may only name `public` symbols, and `WorkspaceScope` is internal — which
+    /// is what broke the iOS build on 2026-08-11: "enum 'WorkspaceScope' is
+    /// internal and cannot be referenced from a default argument value", twice,
+    /// and every Build + test run since died there.
+    ///
+    /// Moving it also drops four MemberImportVisibility warnings. This file
+    /// imports neither Supabase nor Auth, and `.auth.currentUser` names members
+    /// of both; that is only diagnosed in default-argument position, and it is
+    /// an error rather than a warning under the Swift 6 language mode.
+    public init(ownerProvider: (@MainActor () -> String?)? = nil) {
+        self.ownerProvider = ownerProvider ?? {
             WorkspaceScope.activeOwnerId ?? SupabaseShared.client.auth.currentUser?.id.uuidString
         }
-    ) {
-        self.ownerProvider = ownerProvider
     }
 
     /// Resolves the profile for an `item_category`, falling back to clothing
