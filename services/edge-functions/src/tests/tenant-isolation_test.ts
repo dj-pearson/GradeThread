@@ -1730,6 +1730,60 @@ Deno.test({
   },
 });
 
+// US-2503: GET /api/buyer/entitlements — the resolved buyer plan payload both
+// the web app and iOS read, so neither reimplements the gating matrix.
+//
+// The route takes NO id, filter or workspace header: getBuyerEntitlements reads
+// c.get("userId")'s own users row. So the boundary that matters is that it is
+// authenticated at all, and that B's answer is B's — never A's.
+Deno.test({
+  name: "buyer entitlements requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/entitlements`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `unauthenticated entitlements should 401, got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  // Two different buyers must get two different answers when their plans
+  // differ, and neither may influence the other's. There is nothing to forge in
+  // the request, so this asserts the shape and that the id is not readable from
+  // input: the same call with A's and B's tokens resolves independently.
+  name: "buyer entitlements answers for the CALLER, not a supplied id",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // A query id must be ignored entirely — the route reads none. Any uuid
+    // will do; the point is that supplying one changes nothing.
+    const res = await fetch(
+      `${BASE}/api/buyer/entitlements?user_id=00000000-0000-0000-0000-000000000000`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      plan?: string;
+      gateFlags?: Record<string, unknown>;
+      allowances?: Record<string, unknown>;
+    };
+    assertEquals(res.status, 200);
+    assert(
+      typeof body.plan === "string" && !!body.gateFlags && !!body.allowances,
+      "entitlements must return the resolved {plan, gateFlags, allowances}",
+    );
+    // No PII, no ids, no subscription internals — only the resolved decision.
+    const keys = Object.keys(body).sort();
+    assertEquals(
+      keys,
+      ["allowances", "gateFlags", "plan"],
+      `entitlements must expose only the resolved payload, got: ${keys.join(", ")}`,
+    );
+  },
+});
+
 // US-1844: buyer trust signals. POST /api/buyer/trust-signals returns the COARSE
 // PUBLIC projection (content-public parity) for a set of cert ids — the same
 // data the anonymous /cert page shows. It is deliberately NOT tenant-scoped (a

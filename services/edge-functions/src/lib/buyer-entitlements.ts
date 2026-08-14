@@ -81,6 +81,19 @@ export function resolveBuyerEntitlements(
   return { plan: key, ...BUYER_PLAN_ENTITLEMENTS[key] };
 }
 
+/**
+ * The FREE payload, resolved once.
+ *
+ * US-2503: GET /api/buyer/entitlements answers with this when the users-row read
+ * throws, so a database hiccup LOCKS features rather than 500ing or, worse,
+ * leaving a client to guess. The fail-safe direction is the whole point: an
+ * over-grant shows a paid screen to someone who is not paying.
+ */
+export const FREE_BUYER_ENTITLEMENTS: BuyerEntitlements = resolveBuyerEntitlements(
+  null,
+  null,
+);
+
 // ── US-1873: unified-extension entitlements (buyer research for everyone, the
 // seller Lister on top for PAID FlipDesk accounts) ───────────────────────────
 //
