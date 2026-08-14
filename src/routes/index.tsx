@@ -50,6 +50,7 @@ const SnapToValuePage = lazy(() => import("@/pages/snap").then(m => ({ default: 
 const BulkSubmissionPage = lazy(() => import("@/pages/bulk-submission").then(m => ({ default: m.BulkSubmissionPage })));
 const SubmissionDetailPage = lazy(() => import("@/pages/submission-detail").then(m => ({ default: m.SubmissionDetailPage })));
 const AccountPage = lazy(() => import("@/pages/account").then(m => ({ default: m.AccountPage })));
+const ApiKeysPage = lazy(() => import("@/pages/api-keys").then(m => ({ default: m.ApiKeysPage })));
 const AcceptInvitePage = lazy(() => import("@/pages/accept-invite").then(m => ({ default: m.AcceptInvitePage })));
 const ConnectExtensionPage = lazy(() => import("@/pages/connect-extension").then(m => ({ default: m.ConnectExtensionPage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
@@ -557,6 +558,14 @@ export const router = createBrowserRouter([
               { path: "/dashboard/support", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
               { path: "/dashboard/support/:id", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
               { path: "/dashboard/billing", element: <SuspenseWrapper><AccountPage initialTab="billing" /></SuspenseWrapper> },
+              // US-2554: the developer surface is its own destination now. What
+              // lived in an Account tab is a whole product — keys, usage, overage,
+              // white-label embeds and the docs entry points — and an Account tab is
+              // where you change your password, not where you integrate an API.
+              { path: "/dashboard/developers", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },
+              // KEPT, not redirected: Stripe returns the API-overage checkout to
+              // /dashboard/api-keys?checkout=success (payments.ts:1104), and US-2511
+              // is explicit that a money path never gets an extra client-side hop.
               { path: "/dashboard/api-keys", element: <SuspenseWrapper><AccountPage initialTab="api-keys" /></SuspenseWrapper> },
               { path: "/dashboard/team", element: <SuspenseWrapper><AccountPage initialTab="team" /></SuspenseWrapper> },
               { path: "/dashboard/referrals", element: <SuspenseWrapper><AccountPage initialTab="referrals" /></SuspenseWrapper> },

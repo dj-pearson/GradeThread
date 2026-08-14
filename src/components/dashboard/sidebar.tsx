@@ -17,6 +17,7 @@ import {
   Camera,
   ChevronDown,
   CircleUser,
+  Code2,
   CalendarClock,
   Handshake,
   Tag,
@@ -197,6 +198,15 @@ const navGroups: NavGroup[] = [
     // API by capability. Direct routes still work for deep links + ⌘K.
     items: [
       { to: "/dashboard/account", icon: CircleUser, label: "Account", end: false },
+      // US-2554: findable. It was a tab inside Account, so the only way to
+      // reach the API was to go looking for it under your profile.
+      {
+        to: "/dashboard/developers",
+        icon: Code2,
+        label: "Developers",
+        end: false,
+        requires: "manage_api_keys",
+      },
     ],
   },
 ];

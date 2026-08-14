@@ -1840,20 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2554",
-      "passes": false,
-      "title": "Snap results are thrown away and API keys is a product inside a tab",
-      "description": "As a seller, I want my snap history kept and the developer surface to be findable, so that neither is lost in the account area.",
-      "acceptanceCriteria": [
-        "src/pages/snap.tsx keeps no history — every snap is discarded on reload, unlike submissions which persist.",
-        "Snap results are listed and revisitable.",
-        "src/pages/api-keys.tsx renders a keys table, Developer Resources, ApiUsagePanel, ApiOverageCard and WhiteLabelPanel (:440-603) inside an Account tab. It becomes its own top-level Developers destination.",
-        "The two non-interactive Developer Resources tiles stop being styled identically to the one that is a link (:563-592).",
-        "The seven-column keys table gains an overflow-x wrapper (:467) and its empty state uses the shared EmptyState with a CTA (:458-465)."
-      ],
-      "priority": 2424
-    },
-    {
       "id": "US-2555",
       "passes": false,
       "title": "Nine multi-query admin pages still render nothing when a read fails",
@@ -1944,37 +1930,6 @@
       "dependsOn": [
         "US-2525"
       ]
-    },
-    {
-      "id": "US-2568",
-      "title": "One adapter between grading and the model vendor",
-      "description": "As the operator during an Anthropic outage, I want to fail the grading path over to a second vendor, so that a provider incident is degraded service rather than no revenue.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/lib/ai-provider.ts defines AiMessageRequest / AiContentBlock / AiMessageResponse / AiProvider, with usage normalized to { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens } and stopReason to a provider-neutral union.",
-        "An AnthropicProvider implementation wraps the existing client from ai-config.ts, preserving the ai-limiter wrapper, the timeout, the retry count and the fire-and-forget captureAiUsage hook — no behaviour change on the current path.",
-        "lib/ai-usage.ts stops typing on Anthropic.Usage: recordAiCall takes the normalized shape, and the MODEL_PRICES table is keyed by provider + model so a second vendor's margin lands on the same admin dashboard rather than reading as $0.",
-        "ai-grading.ts and grading-pipeline.ts call the provider interface, not messages.create. They are the only modules in scope for this story; the newsletter, content and support generators stay on the SDK deliberately.",
-        "A drift test fails when a NEW module under lib/ imports @anthropic-ai/sdk and is reachable from the grading pipeline, in the same spirit as ai-metering-coverage_test.ts.",
-        "A second provider is NOT implemented here. The story is done when swapping one is a new file plus a config value, and that is demonstrated with a stub provider in tests."
-      ],
-      "priority": 40,
-      "passes": false,
-      "notes": "From the 2026-08-14 review, finding #5. Measured, not estimated: 20 files import @anthropic-ai/sdk and 33 files make ~50 messages.create calls against Anthropic's request/response shape. ai-config.ts:429 is the only construction site, but it returns the concrete Anthropic type, so the abstraction stops at the constructor. The tell that this is worth doing is lib/ai-usage.ts:14 — toAiTokenUsage takes Anthropic.Usage, so the entire cost-per-grade and gross-margin reporting is typed on one vendor. Scope is deliberately the revenue path only; migrating all 33 files is not this story."
-    },
-    {
-      "id": "US-2570",
-      "title": "A certificate-number collision does not fail a paid grade",
-      "description": "As a seller whose grade completed successfully, I want a one-in-a-million database collision to be retried rather than surfaced to me as a failure, so that I do not have to resubmit work I already paid for.",
-      "acceptanceCriteria": [
-        "The grade_reports insert in grading-pipeline.ts catches 23505 specifically on the certificate_number unique constraint, regenerates via generateUniqueCertNumber and retries a bounded number of times before giving up.",
-        "A collision on any OTHER unique constraint still throws — the catch is narrowed by constraint name, not by error code alone, so this never swallows a real integrity failure.",
-        "The retry is logged with the submission id so the collision rate is measurable against certificate volume.",
-        "A unit test drives the retry with a fake insert that 23505s once and succeeds on the second call.",
-        "The existing refund path is unchanged: if the bounded retries are exhausted the pipeline still throws and reverseChargeForUngradedSubmission still returns the money."
-      ],
-      "priority": 41,
-      "passes": false,
-      "notes": "From the 2026-08-14 review, finding #8. Low severity because it already self-heals — the money comes back via reverseChargeForUngradedSubmission — but the customer sees a failed paid grade rather than a retry. generateUniqueCertNumber does SELECT-then-INSERT with a 10-attempt loop, so the real guarantee is the unique constraint, and grading-pipeline.ts:2903 turns a violation into 'Failed to create grade report record'. Space is 32^7 (~3.4e10) Crockford base32; at 1M certificates the per-grade collision probability is ~3e-5, which is not rare enough to leave as an unhandled throw once volume arrives."
     },
     {
       "id": "US-2571",

@@ -1,6 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
-import { Camera, Loader2, Sparkles, BadgeCheck, Store, Info } from "lucide-react";
+import { Camera, Clock, Loader2, Sparkles, BadgeCheck, Store, Info, Trash2 } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -16,6 +16,13 @@ import { toast } from "sonner";
 import { compressImage } from "@/lib/image-utils";
 import { useSnap, type SnapBridgeState } from "@/hooks/use-snap";
 import { PwaInstallBanner } from "@/components/flipdesk/pwa-install-banner";
+import {
+  appendSnapHistory,
+  clearSnapHistory,
+  readSnapHistory,
+  removeSnapHistoryEntry,
+  type SnapHistoryEntry,
+} from "@/lib/snap-history";
 
 function dollars(cents: number | null): string {
   if (cents == null) return "—";
@@ -34,12 +41,21 @@ export function SnapToValuePage() {
   const [keyword, setKeyword] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const snap = useSnap();
-  const result = snap.data;
+  // US-2554: a snap survives a reload now. `revisited` is an entry the seller
+  // opened from the list; it takes precedence so the result card shows what
+  // they asked to see rather than the last thing they graded.
+  const [history, setHistory] = useState<SnapHistoryEntry[]>([]);
+  const [revisited, setRevisited] = useState<SnapHistoryEntry | null>(null);
+  useEffect(() => {
+    setHistory(readSnapHistory());
+  }, []);
+  const result = revisited?.result ?? snap.data;
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     snap.reset();
+    setRevisited(null);
     // US-1634: validate + COMPRESS before use. Reading the RAW file as a data
     // URI sent a 3–10 MB base64 blob to /snap AND pushed it into router history
     // `state` (which browsers cap at ~1–2 MB), silently breaking the
@@ -58,7 +74,16 @@ export function SnapToValuePage() {
 
   function valueIt() {
     if (!dataUri) return;
-    snap.mutate({ imageDataUri: dataUri, brand: brand.trim() || undefined, keyword: keyword.trim() || undefined });
+    setRevisited(null);
+    snap.mutate(
+      { imageDataUri: dataUri, brand: brand.trim() || undefined, keyword: keyword.trim() || undefined },
+      {
+        // Recorded on SUCCESS only: a failed snap has nothing to revisit, and
+        // a rate-limit refusal is not an estimate.
+        onSuccess: (data) =>
+          setHistory(appendSnapHistory(data, { brand, keyword })),
+      },
+    );
   }
 
   const limitReached = snap.error?.code === "SNAP_LIMIT_REACHED";
@@ -204,6 +229,83 @@ export function SnapToValuePage() {
                 </Link>
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {history.length > 0 && (
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Clock className="h-4 w-4" />
+              Recent snaps
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                clearSnapHistory();
+                setHistory([]);
+                setRevisited(null);
+              }}
+            >
+              Clear
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <ul className="space-y-2">
+              {history.map((entry) => {
+                const label =
+                  [entry.brand, entry.keyword].filter(Boolean).join(" ") ||
+                  "Unlabelled snap";
+                const open = revisited?.id === entry.id;
+                return (
+                  <li
+                    key={entry.id}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded-md border p-2",
+                      open && "border-primary bg-primary/5",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      aria-pressed={open}
+                      onClick={() => setRevisited(open ? null : entry)}
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate text-sm font-medium">{label}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        <span className={gradeClasses(entry.grade)}>
+                          {entry.grade.toFixed(1)}
+                        </span>{" "}
+                        {entry.gradeTier}
+                        {entry.valueCents != null
+                          ? ` · ~${dollars(entry.valueCents)}`
+                          : ""}
+                        {" · "}
+                        {new Date(entry.at).toLocaleDateString()}
+                      </span>
+                    </button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Remove ${label} from your snap history`}
+                      onClick={() => {
+                        setHistory(removeSnapHistoryEntry(entry.id));
+                        if (open) setRevisited(null);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+            {/* Said plainly rather than implied: this list is not an account
+                record, and the photos were never stored at all. */}
+            <p className="text-xs text-muted-foreground">
+              Kept on this device only — the photos themselves are never stored.
+            </p>
           </CardContent>
         </Card>
       )}

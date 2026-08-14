@@ -211,7 +211,11 @@ unless a story is blocked; if blocked, note why and move to the next.
       self-hide; one step REPLACED because it could never complete; new
       BuyerActivity reads two feeds that already existed; extension link points
       at the Web Store; guard `src/test/buyer-home-activity.test.ts` (12 cases)
-- [ ] US-2554 (2424) Snap history + API keys placement
+- [x] US-2554 (2424) Snap history + API keys placement - SHA8 - snaps kept in a
+      DEVICE-local history (reasoned, stated on screen, photo never stored),
+      /dashboard/developers is a real destination with a sidebar entry while
+      /dashboard/api-keys stays for the Stripe return, plus the three P3s;
+      guard `src/test/snap-history-and-developers.test.ts` (11 cases, 5 red)
 
 ## Notes carried between iterations
 
@@ -475,6 +479,32 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2554
+- "Persist it" has more than one right answer, and the cheapest correct one is
+  worth arguing for out loud. A server table for snap history would have added
+  a row per free snap for every visitor, and the endpoint deliberately stores
+  NOTHING today. Device-local gives the seller the list they actually wanted
+  (on the phone they snapped with), keeps the privacy stance intact, and the
+  screen says where it lives so nobody mistakes it for an account record.
+  Recorded in the story note WITH what a server version would need, so the
+  decision can be revisited rather than rediscovered.
+- Do not redirect a URL Stripe returns to. /dashboard/api-keys carries the
+  API-overage checkout success_url, so the new Developers destination is an
+  ADDITION and the old path still renders. Same lesson as US-2511, now with a
+  second instance — grep services/edge-functions for any path before moving it.
+- A non-interactive div styled exactly like the link beside it is a bug with
+  two possible fixes, and "make it look dead" is the worse one. Both tiles had
+  a real destination all along (/developers documents the SDK and the sandbox),
+  so they became links: they now behave the way they always looked.
+- A missing `overflow-x-auto` on a wide table is not cosmetic when the last
+  column is destructive. Seven columns on a phone clipped the REVOKE button off
+  the right edge, so the recovery action for a leaked API key was unreachable
+  exactly where someone would reach for it.
+- localStorage is user-writable, so anything read back from it needs the same
+  suspicion as a request body. The history reader drops entries missing the
+  fields the list renders, because the alternative is a row of blanks or a
+  crash on a value someone pasted into devtools.
 
 ### Lessons from US-2553
 - A checklist step with no observable signal is worse than no step. "Verify a

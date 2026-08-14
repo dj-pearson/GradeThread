@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -456,14 +457,17 @@ export function ApiKeysPage() {
               <Skeleton className="h-10 w-full" />
             </div>
           ) : !keys || keys.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <Key className="h-12 w-12 text-muted-foreground/50" />
-              <h3 className="mt-4 text-lg font-medium">No API keys</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Create your first API key to get started with the GradeThread API.
-              </p>
-            </div>
+            <EmptyState
+              icon={Key}
+              title="No API keys"
+              description="Create your first key to call the grading API. The full key is shown once, at creation."
+              action={{ label: "Create a key", onClick: () => setCreateOpen(true) }}
+            />
           ) : (
+            /* Seven columns on a phone: without the wrapper the row is
+               clipped and the revoke button is unreachable, which is how a
+               leaked key stays live. */
+            <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -544,6 +548,7 @@ export function ApiKeysPage() {
                 ))}
               </TableBody>
             </Table>
+            </div>
           )}
         </CardContent>
       </Card>
@@ -572,7 +577,14 @@ export function ApiKeysPage() {
               </p>
             </div>
           </Link>
-          <div className="flex items-start gap-3 rounded-lg border p-4">
+          {/* US-2554: these two were non-interactive divs styled exactly like
+              the link beside them. Both have a real destination — /developers
+              documents the SDK and the sandbox — so the fix is to make them
+              behave the way they already looked. */}
+          <Link
+            to="/developers#sdk"
+            className="flex items-start gap-3 rounded-lg border p-4 transition hover:bg-accent"
+          >
             <Code className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
             <div>
               <p className="text-sm font-medium">JavaScript SDK</p>
@@ -580,8 +592,11 @@ export function ApiKeysPage() {
                 <code className="rounded bg-muted px-1">npm i @gradethread/sdk</code>
               </p>
             </div>
-          </div>
-          <div className="flex items-start gap-3 rounded-lg border p-4">
+          </Link>
+          <Link
+            to="/developers#sandbox"
+            className="flex items-start gap-3 rounded-lg border p-4 transition hover:bg-accent"
+          >
             <FlaskConical className="mt-0.5 h-5 w-5 flex-shrink-0 text-brand-navy dark:text-foreground" />
             <div>
               <p className="text-sm font-medium">Free sandbox</p>
@@ -589,7 +604,7 @@ export function ApiKeysPage() {
                 <code className="rounded bg-muted px-1">/api/v1/sandbox/grades</code> — no credits.
               </p>
             </div>
-          </div>
+          </Link>
         </CardContent>
       </Card>
 
