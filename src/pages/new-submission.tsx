@@ -265,6 +265,14 @@ export function NewSubmissionPage() {
   const [checkoutState, setCheckoutState] = useState<CheckoutRequiredState | null>(
     null
   );
+  // US-2538: the submission the checkout prompt was about, kept when the seller
+  // presses "Change tier". A row already exists at that point — going back to
+  // the picker and pressing Submit again used to POST /api/grade/submit a
+  // second time and create a SECOND submission for the same garment, which the
+  // seller would then be asked to pay for twice.
+  const [repricingSubmissionId, setRepricingSubmissionId] = useState<
+    string | null
+  >(null);
   const [packDialogOpen, setPackDialogOpen] = useState(false);
   const [checkingOut, setCheckingOut] = useState(false);
   const [inventoryItems, setInventoryItems] = useState<LinkableItem[]>([]);
@@ -748,8 +756,65 @@ export function NewSubmissionPage() {
     });
   }
 
+  // US-2538: re-price the submission that is already on the server.
+  //
+  // The seller reached a checkout prompt (the row exists), pressed "Change
+  // tier", and submitted again. POSTing /api/grade/submit here would create a
+  // SECOND submission for the same garment, and they would be asked to pay for
+  // both. /api/grade/pay/:id re-runs the payment precedence on the existing row
+  // at the new tier, which is exactly this step — it is the same endpoint the
+  // detail page uses when a credit pack lands mid-flow.
+  async function repriceExistingSubmission(submissionId: string) {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+    setIsSubmitting(true);
+    try {
+      const res = await edgeFetch(`/api/grade/pay/${submissionId}`, {
+        method: "POST",
+        json: { tier },
+      });
+      const json = (await res.json().catch(() => ({}))) as SubmitResult;
+      if (!res.ok) {
+        throw new Error(json.error || "Could not update the tier.");
+      }
+      const payment = json.payment;
+      if (payment?.paid) {
+        track("grade.paid", { method: payment.method, tier });
+        setRepricingSubmissionId(null);
+        navigate(`/dashboard/submissions/${submissionId}`);
+        return;
+      }
+      if (payment?.checkoutRequired) {
+        setCheckoutState({
+          submissionId,
+          tier: (payment.tier as GradeTierKey) ?? tier,
+          tierPriceCents: payment.tierPriceCents ?? tierConfig.priceCents,
+          suggestedPack: payment.suggestedPack ?? null,
+        });
+        return;
+      }
+      // Unexpected shape — the row exists either way, so send them to it
+      // rather than leaving them on a form that has nothing left to do.
+      setRepricingSubmissionId(null);
+      navigate(`/dashboard/submissions/${submissionId}`);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not update the tier.",
+      );
+    } finally {
+      setIsSubmitting(false);
+      submitLockRef.current = false;
+    }
+  }
+
   async function handleSubmit() {
     if (!garmentInfo) return;
+    // US-2538: a submission from this session is already waiting to be paid
+    // for. Re-price it instead of creating another one.
+    if (repricingSubmissionId) {
+      await repriceExistingSubmission(repricingSubmissionId);
+      return;
+    }
     const videoMode = captureMode === "video";
     if (videoMode ? !videoFile : photos.length === 0) return;
     // US-774: reject a re-entrant double-click synchronously (see submitLockRef).
@@ -927,6 +992,7 @@ export function NewSubmissionPage() {
       // Not paid — a one-time charge is required. Surface the pay/pack picker
       // inline rather than navigating away.
       if (payment.checkoutRequired) {
+        setRepricingSubmissionId(null);
         setCheckoutState({
           submissionId,
           tier: (payment.tier as GradeTierKey) ?? tier,
@@ -1383,49 +1449,19 @@ export function NewSubmissionPage() {
               {/* Grade tier + pricing (US-207) */}
               {!checkoutState ? (
                 <>
-                  <div className="space-y-3">
-                    <h3 className="text-sm font-medium text-muted-foreground">
-                      Grade Tier
-                    </h3>
-                    <div className="grid gap-2 sm:grid-cols-3">
-                      {(
-                        Object.keys(GRADETHREAD_TIERS) as GradeTierKey[]
-                      ).map((key) => {
-                        const t = GRADETHREAD_TIERS[key];
-                        const selected = tier === key;
-                        return (
-                          <button
-                            key={key}
-                            type="button"
-                            onClick={() => setTier(key)}
-                            aria-pressed={selected}
-                            className={cn(
-                              "rounded-lg border p-3 text-left transition-colors",
-                              selected
-                                ? "border-primary ring-2 ring-primary/30"
-                                : "border-border hover:border-primary/40"
-                            )}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm font-medium">
-                                {t.label}
-                              </span>
-                              <span className="text-sm font-semibold tabular-nums">
-                                ${(t.priceCents / 100).toFixed(2)}
-                              </span>
-                            </div>
-                            <p className="mt-0.5 text-xs text-muted-foreground">
-                              {t.slaHours <= 1
-                                ? "~1 hour"
-                                : `~${t.slaHours} hours`}{" "}
-                              · {t.creditCost} credit
-                              {t.creditCost === 1 ? "" : "s"}
-                            </p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  {/* US-2538: ONE tier control. This step used to render its own
+                      three-button grid — the same `tier` state as the summary two
+                      steps back, but with less on it: no credit balance, no included
+                      count, and no warning that this tier will need a card. Two
+                      controls for one decision, and the second one knew less. */}
+                  <GradePricingSummary
+                    tier={tier}
+                    onTierChange={setTier}
+                    creditBalance={creditBalance}
+                    includedUsed={includedUsed}
+                    includedLimit={includedLimit}
+                    planName={planLabel(usage.plan)}
+                  />
 
                   {/* US-601: premium authenticity / counterfeit-confidence
                       add-on. A SEPARATE garment-authenticity check (logos, tags,
@@ -1579,7 +1615,11 @@ export function NewSubmissionPage() {
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => setCheckoutState(null)}
+                      onClick={() => {
+                        // Keep the submission; the next Submit re-prices IT.
+                        setRepricingSubmissionId(checkoutState.submissionId);
+                        setCheckoutState(null);
+                      }}
                       disabled={checkingOut}
                     >
                       <ChevronLeft className="mr-1 h-4 w-4" />
