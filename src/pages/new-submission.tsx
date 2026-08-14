@@ -247,7 +247,14 @@ export function NewSubmissionPage() {
   const submitLockRef = useRef(false);
   // US-207: chosen grade tier + the post-submit payment state when a one-time
   // charge is required (included grades + credits both exhausted).
-  const [tier, setTier] = useState<GradeTierKey>("standard");
+  // US-2514: `?tier=` preselects the turnaround, so a visitor who clicked
+  // "Grade an item at Express" on /pricing arrives on the tier they chose
+  // instead of being silently reset to Standard. Anything unrecognised falls
+  // back to Standard, which is the tier the included monthly bundle covers.
+  const [tier, setTier] = useState<GradeTierKey>(() => {
+    const raw = searchParams.get("tier");
+    return raw && raw in GRADETHREAD_TIERS ? (raw as GradeTierKey) : "standard";
+  });
   // US-340: opt-in for the Verified Capture provenance booster + badge. Off by
   // default; only meaningful when every photo carries device + timestamp EXIF
   // (the server re-verifies recency/consistency/no-reuse before awarding it).

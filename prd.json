@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2514",
-      "passes": false,
-      "title": "The pricing page has no buy button",
-      "description": "As a visitor on /pricing, I want to buy the thing I just read about, so that I do not have to hunt for a CTA in the header.",
-      "acceptanceCriteria": [
-        "src/pages/marketing/pricing.tsx renders three per-grade tiles (:89-108), four credit packs (:119-129) and four FlipDesk plan tiles (:146-221) — none carries an action.",
-        "Every purchasable tile gets a CTA that lands in the signup or checkout flow with the plan preselected.",
-        "A monthly/annual toggle is added; today only plan.priceMonthlyCents is rendered (:152) so annual pricing is invisible to logged-out visitors even though billing.tsx and buyer/billing.tsx both offer it.",
-        "Any bullet still gated behind ComingSoonBadge (:213) is visually distinct from a shipped feature at the point of sale."
-      ],
-      "priority": 1914
-    },
-    {
       "id": "US-2515",
       "passes": false,
       "title": "Bulk grading upload names two plans that do not exist",

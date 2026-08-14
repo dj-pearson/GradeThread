@@ -100,6 +100,18 @@ export function BillingPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  // US-2514: ?buy=credits opens the credit-pack dialog on arrival, so the
+  // /pricing credit tiles land on the actual purchase rather than dropping the
+  // visitor on this page to hunt for the button. Stripped afterwards so a
+  // refresh or a Back press doesn't reopen it.
+  useEffect(() => {
+    if (searchParams.get("buy") !== "credits") return;
+    setCreditPackOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("buy");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
+
   // US-2122 AC2: ?cancel=1 opens the cancellation dialog directly.
   //
   // The subscription-started email is legally required to say HOW to cancel, and

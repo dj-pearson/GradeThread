@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "react-router";
 import { Check, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -32,6 +33,27 @@ function ComingSoonBadge() {
 const dollars = (cents: number) =>
   cents === 0 ? "$0" : `$${(cents / 100).toFixed(cents % 100 === 0 ? 0 : 2)}`;
 
+// US-2514: where a purchase actually happens. Billing lives in the Account hub
+// (US-2511), so the tab is part of the path and any extra parameter is appended
+// with `&`.
+const BILLING_PATH = "/dashboard/account?tab=billing";
+const SUBMIT_PATH = "/dashboard/submissions/new";
+
+type BillingInterval = "monthly" | "yearly";
+
+type PricedPlan = { priceMonthlyCents: number; priceYearlyCents: number };
+
+function priceFor(plan: PricedPlan, interval: BillingInterval): number {
+  return interval === "yearly" ? plan.priceYearlyCents : plan.priceMonthlyCents;
+}
+
+/** Whole-percent saving of paying yearly, or 0 when there is none to claim. */
+function yearlySavingPct(plan: PricedPlan): number {
+  const twelve = plan.priceMonthlyCents * 12;
+  if (twelve <= 0 || plan.priceYearlyCents <= 0) return 0;
+  return Math.round(((twelve - plan.priceYearlyCents) / twelve) * 100);
+}
+
 const GRADE_TIER_ROWS = [
   { key: "standard" as const, ...GRADETHREAD_TIERS.standard },
   { key: "premium" as const, ...GRADETHREAD_TIERS.premium },
@@ -42,6 +64,10 @@ const FLIPDESK_ORDER: FlipdeskPlanKey[] = ["free", "starter", "pro", "business"]
 const BUYER_ORDER: BuyerPlanKey[] = ["free", "guard", "connoisseur"];
 
 export function PricingPage() {
+  // Monthly is the default so the prerendered HTML a crawler sees carries the
+  // monthly prices, which is what the JSON-LD and the ads quote.
+  const [interval, setInterval] = useState<BillingInterval>("monthly");
+
   return (
     <MarketingLayout
       title="Pricing"
@@ -105,6 +131,16 @@ export function PricingPage() {
                     grade
                   </li>
                 </ul>
+                {/* US-2514: every price on this page now carries the action that
+                    buys it. A per-grade tier is chosen inside the submission
+                    flow, so that is where this lands; a signed-out visitor is
+                    routed through login by ProtectedRoute and returned here,
+                    because sanitizeReturnTo keeps the query string. */}
+                <Button asChild variant="outline" className="mt-5 w-full">
+                  <Link to={`${SUBMIT_PATH}?tier=${tier.key}`}>
+                    Grade an item at {tier.label}
+                  </Link>
+                </Button>
               </div>
             ))}
           </div>
@@ -125,6 +161,12 @@ export function PricingPage() {
                 </p>
                 <p className="text-xs text-muted-foreground">credits</p>
                 <p className="mt-2 font-medium">{dollars(pack.priceCents)}</p>
+                {/* US-2514: `?buy=credits` opens the credit-pack dialog on
+                    arrival, so this tile does not just deposit the visitor on
+                    Billing and leave them to find the button. */}
+                <Button asChild variant="outline" size="sm" className="mt-3 w-full">
+                  <Link to={`${BILLING_PATH}&buy=credits`}>Buy</Link>
+                </Button>
               </div>
             ))}
           </div>
@@ -139,6 +181,30 @@ export function PricingPage() {
             The full reseller workflow — catalog, photograph, draft, list, sell,
             ship, reconcile — with grading built in.
           </p>
+          {/* US-2514: monthly/annual. The prices were already in
+              FLIPDESK_PLANS and on both in-app billing pages; a logged-out
+              visitor had no way to see the annual ones. */}
+          <div
+            className="mt-6 inline-flex rounded-lg border p-1"
+            role="group"
+            aria-label="Billing interval"
+          >
+            {(["monthly", "yearly"] as const).map((iv) => (
+              <button
+                key={iv}
+                type="button"
+                onClick={() => setInterval(iv)}
+                aria-pressed={interval === iv}
+                className={
+                  interval === iv
+                    ? "rounded-md bg-brand-navy px-4 py-1.5 text-sm font-medium text-white dark:bg-foreground dark:text-background"
+                    : "rounded-md px-4 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground"
+                }
+              >
+                {iv === "monthly" ? "Monthly" : "Annual"}
+              </button>
+            ))}
+          </div>
           <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {FLIPDESK_ORDER.map((key) => {
               const plan = FLIPDESK_PLANS[key];
@@ -149,19 +215,27 @@ export function PricingPage() {
                 >
                   <h3 className="text-lg font-semibold">{plan.name}</h3>
                   <p className="mt-2 text-3xl font-bold text-brand-navy dark:text-foreground">
-                    {dollars(plan.priceMonthlyCents)}
+                    {dollars(priceFor(plan, interval))}
                     <span className="text-sm font-normal text-muted-foreground">
-                      /mo
+                      {interval === "yearly" ? "/yr" : "/mo"}
                     </span>
                   </p>
+                  {/* US-2514: annual pricing existed in FLIPDESK_PLANS and on
+                      both in-app billing pages, and was invisible to anyone who
+                      had not signed up yet. */}
+                  {interval === "yearly" && yearlySavingPct(plan) > 0 && (
+                    <p className="mt-1 text-xs font-medium text-emerald-700 dark:text-emerald-400">
+                      Save {yearlySavingPct(plan)}% vs monthly
+                    </p>
+                  )}
                   {/* US-2115: on a paid tile the price IS the point of sale, so
                       the renewal terms sit with it rather than only in the
                       legal pages. Free tiles have nothing to renew. */}
-                  {plan.priceMonthlyCents > 0 && (
+                  {priceFor(plan, interval) > 0 && (
                     <AutoRenewalDisclosure
                       className="mt-2"
-                      amountCents={plan.priceMonthlyCents}
-                      interval="monthly"
+                      amountCents={priceFor(plan, interval)}
+                      interval={interval}
                       billingBegins="on-subscribe"
                     />
                   )}
@@ -217,6 +291,26 @@ export function PricingPage() {
                       </div>
                     );
                   })()}
+                  {/* US-2514: the point of sale. `?upgrade=<plan>` is the
+                      deep-link US-940 already built — Billing opens its plan
+                      picker on that plan. A signed-out visitor is routed through
+                      login by ProtectedRoute and returned here afterwards,
+                      because sanitizeReturnTo preserves the query string. */}
+                  <Button
+                    asChild
+                    className="mt-5 w-full"
+                    variant={key === "pro" ? "default" : "outline"}
+                  >
+                    <Link
+                      to={
+                        key === "free"
+                          ? "/signup"
+                          : `${BILLING_PATH}&upgrade=${key}`
+                      }
+                    >
+                      {key === "free" ? "Start free" : `Choose ${plan.name}`}
+                    </Link>
+                  </Button>
                 </div>
               );
             })}
