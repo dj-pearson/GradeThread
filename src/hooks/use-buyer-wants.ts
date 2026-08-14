@@ -46,7 +46,14 @@ export function useBuyerWants() {
       const res = await edgeFetch("/api/buyer/wants", { method: "POST", json: input, skipWorkspaceHeader: true });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error ?? "Could not save your want.");
-      return json as { want_id: string; matched: number };
+      // US-2552: `ignored_categories` are criteria the server refused because
+      // they can never match. The caller SHOWS them — dropping them here would
+      // recreate the silent failure in a new place.
+      return json as {
+        want_id: string;
+        matched: number;
+        ignored_categories?: string[];
+      };
     },
     onSuccess: invalidate,
   });
@@ -87,3 +94,38 @@ export function useBuyerWants() {
     removeWant: (id: string) => deleteMutation.mutateAsync(id),
   };
 }
+
+/** One graded item a want matched (US-2552). */
+export interface WantMatch {
+  certificateId: string;
+  matchedAt: string | null;
+  overallScore: number | null;
+  gradeTier: string | null;
+  title: string | null;
+  brand: string | null;
+}
+
+/**
+ * What a want actually matched.
+ *
+ * The matches have been recorded since US-1830 and a cron notifies on new ones,
+ * but nothing could ever display them: posting a want returned a count in a
+ * toast and that was the end of it. Enabled only when a want is expanded, so
+ * the list page does not fetch N of these on mount.
+ */
+export function useWantMatches(wantId: string | null) {
+  return useQuery<WantMatch[]>({
+    queryKey: ["buyer-want-matches", wantId],
+    enabled: !!wantId,
+    staleTime: 60 * 1000,
+    queryFn: async () => {
+      const res = await edgeFetch(`/api/buyer/wants/${wantId}/matches`, {
+        skipWorkspaceHeader: true,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? "Could not load matches.");
+      return (json.matches ?? []) as WantMatch[];
+    },
+  });
+}
+

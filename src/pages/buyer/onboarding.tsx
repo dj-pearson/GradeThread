@@ -6,11 +6,16 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 import { useAuth } from "@/hooks/use-auth";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { ChipInput } from "@/components/buyer/chip-input";
 import { readBuyerClaim } from "@/lib/buyer-conversion-claim";
+import { CategoryPicker } from "@/components/buyer/category-picker";
+import {
+  SIZE_GROUPS,
+  writeSizeBuckets,
+  type SizeBuckets,
+} from "@/lib/buyer-taxonomy";
 
 // US-1797: buyer-first onboarding. Collects the minimum to personalize alerts /
 // fit / recommendations (categories, brands, sizes, notification opt-in) and is
@@ -18,10 +23,11 @@ import { readBuyerClaim } from "@/lib/buyer-conversion-claim";
 // stops routing here. Persists to buyer_preferences via the shared hook (US-1798
 // builds the full editor on the same row at /buyer/settings).
 
-const CATEGORY_OPTIONS = [
-  "t-shirt", "shirt", "sweater", "hoodie", "jacket", "coat",
-  "jeans", "pants", "dress", "skirt", "sneakers", "boots", "bag",
-];
+// US-2552: the categories come from the shared taxonomy now. They used to be
+// thirteen hardcoded strings — every one a real value, but an arbitrary subset,
+// so a buyer hunting scarves, shorts, sandals, hats, belts, blouses, neckwear
+// or gloves had no way to say so, and the list did not grow when the taxonomy
+// did. See src/lib/buyer-taxonomy.ts for what matching actually compares.
 
 export function BuyerOnboardingPage() {
   const navigate = useNavigate();
@@ -36,7 +42,10 @@ export function BuyerOnboardingPage() {
     const brand = readBuyerClaim()?.result.brand;
     return brand ? [brand] : [];
   });
-  const [sizes, setSizes] = useState<string[]>([]);
+  // Per group, not one bucket: "M for tops, 32 for jeans, 10 for shoes" is what
+  // a person actually has, and `{ all: [...] }` claimed one size fits every
+  // category — which watchlist.ts then copied straight into a saved search.
+  const [sizes, setSizes] = useState<SizeBuckets>({});
   const [notifyEmail, setNotifyEmail] = useState(true);
 
   const firstName = user?.user_metadata?.full_name?.split(" ")[0] ?? "there";
@@ -48,7 +57,7 @@ export function BuyerOnboardingPage() {
           ? {
               categories,
               followed_brands: brands,
-              sizes: sizes.length > 0 ? { all: sizes } : {},
+              sizes: writeSizeBuckets(sizes),
               notify_email: notifyEmail,
               onboarding_completed_at: new Date().toISOString(),
             }
@@ -79,34 +88,11 @@ export function BuyerOnboardingPage() {
           <CardDescription>All optional — pick what's useful, skip the rest.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label>Categories</Label>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORY_OPTIONS.map((c) => {
-                const selected = categories.includes(c);
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() =>
-                      setCategories((prev) =>
-                        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
-                      )
-                    }
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-sm capitalize transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      selected
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:border-primary/40",
-                    )}
-                  >
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <CategoryPicker
+            values={categories}
+            onChange={setCategories}
+            hint="These match the categories items are graded under."
+          />
 
           <ChipInput
             label="Brands you follow"
@@ -115,12 +101,26 @@ export function BuyerOnboardingPage() {
             onChange={setBrands}
           />
 
-          <ChipInput
-            label="Your sizes"
-            placeholder="e.g. M, 32x30, US 10…"
-            values={sizes}
-            onChange={setSizes}
-          />
+          <div className="space-y-4">
+            <div>
+              <Label>Your sizes</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Only the ones you know. A blank group just means no size filter
+                there.
+              </p>
+            </div>
+            {SIZE_GROUPS.map((group) => (
+              <ChipInput
+                key={group.key}
+                label={group.label}
+                placeholder={group.placeholder}
+                values={sizes[group.key] ?? []}
+                onChange={(vals) =>
+                  setSizes((prev) => ({ ...prev, [group.key]: vals }))
+                }
+              />
+            ))}
+          </div>
 
           <label htmlFor="notify-email" className="flex items-start gap-3">
             <Checkbox

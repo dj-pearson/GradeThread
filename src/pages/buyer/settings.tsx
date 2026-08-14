@@ -11,6 +11,14 @@ import { LoadingRegion, SkeletonRows } from "@/components/ui/skeletons";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ChipInput } from "@/components/buyer/chip-input";
+import { CategoryPicker } from "@/components/buyer/category-picker";
+import {
+  SIZE_GROUPS,
+  readLegacySizes,
+  readSizeBuckets,
+  writeSizeBuckets,
+  type SizeBuckets,
+} from "@/lib/buyer-taxonomy";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useBuyerProfile } from "@/hooks/use-buyer-profile";
 import { useConsentRegime } from "@/hooks/use-consent-regime";
@@ -21,11 +29,11 @@ import { openCookiePreferences } from "@/lib/cookie-preferences";
 // seeds). Reuses measurement-prefs semantics for the unit toggle and the
 // project's controlled-input + sonner conventions.
 
-const CATEGORY_OPTIONS = [
-  "t-shirt", "shirt", "blouse", "sweater", "hoodie", "jacket", "coat",
-  "jeans", "pants", "shorts", "skirt", "dress", "sneakers", "boots",
-  "sandals", "hat", "bag", "belt", "scarf",
-];
+// US-2552: this page and onboarding kept SEPARATE hardcoded category lists —
+// 19 here, 13 there — writing the same buyer_preferences.categories column. A
+// buyer could therefore pick a category in one place that the other could not
+// even display, and neither list grew when the taxonomy gained neckwear and
+// gloves. One source now.
 
 // Condition floor presets (grade thresholds), null = no floor.
 const CONDITION_FLOORS: Array<{ label: string; value: number | null }> = [
@@ -50,7 +58,9 @@ export function BuyerSettingsPage() {
 
   const [categories, setCategories] = useState<string[]>([]);
   const [brands, setBrands] = useState<string[]>([]);
-  const [sizes, setSizes] = useState<string[]>([]);
+  const [sizes, setSizes] = useState<SizeBuckets>({});
+  // Preserved, never spread across the new groups: see buyer-taxonomy.ts.
+  const [legacySizes, setLegacySizes] = useState<string[]>([]);
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
   const [conditionFloor, setConditionFloor] = useState<number | null>(null);
@@ -65,7 +75,8 @@ export function BuyerSettingsPage() {
     if (preferences) {
       setCategories(preferences.categories ?? []);
       setBrands(preferences.followed_brands ?? []);
-      setSizes(Array.isArray(preferences.sizes?.all) ? preferences.sizes.all : []);
+      setSizes(readSizeBuckets(preferences.sizes));
+      setLegacySizes(readLegacySizes(preferences.sizes));
       setPriceMin(dollarsFromCents(preferences.price_min_cents));
       setPriceMax(dollarsFromCents(preferences.price_max_cents));
       setConditionFloor(preferences.condition_floor);
@@ -81,7 +92,7 @@ export function BuyerSettingsPage() {
       await save({
         categories,
         followed_brands: brands,
-        sizes: sizes.length > 0 ? { all: sizes } : {},
+        sizes: writeSizeBuckets(sizes, legacySizes),
         price_min_cents: centsFromDollars(priceMin),
         price_max_cents: centsFromDollars(priceMax),
         condition_floor: conditionFloor,
@@ -120,34 +131,11 @@ export function BuyerSettingsPage() {
           <CardDescription>Brands, categories, and sizes you're hunting.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <Label>Categories</Label>
-            <div className="flex flex-wrap gap-2">
-              {CATEGORY_OPTIONS.map((c) => {
-                const selected = categories.includes(c);
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() =>
-                      setCategories((prev) =>
-                        prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c],
-                      )
-                    }
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-sm capitalize transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      selected
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:border-primary/40",
-                    )}
-                  >
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <CategoryPicker
+            values={categories}
+            onChange={setCategories}
+            hint="These match the categories items are graded under."
+          />
 
           <ChipInput
             label="Brands you follow"
@@ -155,12 +143,35 @@ export function BuyerSettingsPage() {
             values={brands}
             onChange={setBrands}
           />
-          <ChipInput
-            label="Your sizes"
-            placeholder="e.g. M, 32x30, US 10…"
-            values={sizes}
-            onChange={setSizes}
-          />
+          <div className="space-y-4">
+            <div>
+              <Label>Your sizes</Label>
+              <p className="mt-1 text-xs text-muted-foreground">
+                One size per group, not one size for everything.
+              </p>
+            </div>
+            {SIZE_GROUPS.map((group) => (
+              <ChipInput
+                key={group.key}
+                label={group.label}
+                placeholder={group.placeholder}
+                values={sizes[group.key] ?? []}
+                onChange={(vals) =>
+                  setSizes((prev) => ({ ...prev, [group.key]: vals }))
+                }
+              />
+            ))}
+            {legacySizes.length > 0 && (
+              // The answer given before we asked per group. Shown rather than
+              // dropped, and rather than copied into every group — that would
+              // claim a shoe size is also a jeans size.
+              <p className="text-xs text-muted-foreground">
+                Sizes you saved earlier, before we asked by type:{" "}
+                <span className="font-medium">{legacySizes.join(", ")}</span>.
+                Add them to a group above and they will start filtering.
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 

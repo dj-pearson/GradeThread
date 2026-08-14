@@ -28,6 +28,67 @@ export function normalizeTerms(raw: unknown): string[] {
   return out;
 }
 
+
+// ── US-2552: a category that cannot match is not a criterion ────────────────
+//
+// `matchesSearch` compares a want's categories to submissions.garment_category
+// with case-insensitive EXACT equality, and that column is constrained to the
+// garment taxonomy. So "jackets" or "sneaker" is not a near miss — it is a
+// criterion that can never match anything, and the buyer is never told.
+//
+// Duplicated from src/lib/buyer-taxonomy.ts on purpose: this tree is bundled
+// separately and shares no module graph with the SPA.
+// src/test/buyer-taxonomy.test.ts compares the two lists, so they cannot drift.
+// `other` is excluded on both sides — it is the grader's "could not classify"
+// bucket, and as a stated shopping interest it would match miscellany.
+export const BUYER_CATEGORY_OPTIONS: readonly string[] = [
+  "t-shirt",
+  "shirt",
+  "blouse",
+  "sweater",
+  "hoodie",
+  "jacket",
+  "coat",
+  "jeans",
+  "pants",
+  "shorts",
+  "skirt",
+  "dress",
+  "sneakers",
+  "boots",
+  "sandals",
+  "hat",
+  "bag",
+  "belt",
+  "scarf",
+  "neckwear",
+  "gloves",
+];
+
+/**
+ * Split submitted categories into the ones that can match and the ones that
+ * cannot.
+ *
+ * The rejects are RETURNED rather than dropped in silence: the caller hands
+ * them back so the buyer finds out that "jackets" bought them nothing, which is
+ * the entire failure this story is about.
+ */
+export function partitionCategories(
+  values: readonly string[],
+): { kept: string[]; ignored: string[] } {
+  const kept: string[] = [];
+  const ignored: string[] = [];
+  for (const raw of values) {
+    const v = raw.trim().toLowerCase();
+    if (!v) continue;
+    if (BUYER_CATEGORY_OPTIONS.includes(v)) {
+      if (!kept.includes(v)) kept.push(v);
+    } else if (!ignored.includes(raw.trim())) {
+      ignored.push(raw.trim());
+    }
+  }
+  return { kept, ignored };
+}
 export interface WantInput {
   brands: string[];
   categories: string[];

@@ -76,6 +76,15 @@ const GATES: readonly RouteGate[] = [
   },
   {
     file: "buyer-wants.ts",
+    route: 'get("/wants/:id/matches"',
+    feature: null,
+    why:
+      "US-2552: the same rule as GET /wants. These matches were recorded for a " +
+      "want the buyer already posted, and a 402 would show them a count they " +
+      "can never open. Posting is what the demandBoard entitlement gates.",
+  },
+  {
+    file: "buyer-wants.ts",
     route: 'delete("/wants/:id"',
     feature: null,
     why:

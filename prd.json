@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2571",
+  "nextId": "US-2572",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1840,20 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2552",
-      "passes": false,
-      "title": "Buyer onboarding uses a category list the rest of the app does not",
-      "description": "As a buyer, I want my chosen categories to match alerts, so that the preferences I set actually fire.",
-      "acceptanceCriteria": [
-        "src/pages/buyer/onboarding.tsx:21-24 hardcodes 13 category strings that are neither GARMENT_TYPES nor ITEM_CATEGORIES. Verify what alert matching keys off before changing anything.",
-        "Onboarding categories come from the same taxonomy alert matching uses.",
-        "Sizes stop being stored in a single { all: sizes } bucket (:51) so one size does not apply to every category.",
-        "buyer/demand.tsx's brand, category and keyword inputs get autocomplete against known values; today they are free-text comma lists (:96-105) where a typo silently never matches.",
-        "Posting a want leads somewhere: today it returns a toast count (:76) with no way to see what matched."
-      ],
-      "priority": 2420
-    },
-    {
       "id": "US-2553",
       "passes": false,
       "title": "Buyer home never completes and never shows the buyer's own activity",
@@ -1973,59 +1959,6 @@
       ]
     },
     {
-      "id": "US-2565",
-      "title": "The credit ledger is append-only in the database, not by convention",
-      "description": "As the operator answering a billing dispute, I want the ledger to be provably unaltered, so that its history is evidence rather than a claim about how carefully we have written code.",
-      "acceptanceCriteria": [
-        "Migration 00597 is applied AFTER 00595 (it depends on the cascading FK being gone or every account deletion aborts) and grade_credit_transactions rejects UPDATE and DELETE for every role including service_role, with ERRCODE restrict_violation.",
-        "A deno or SQL test proves the trigger fires for the service-role client specifically — the point of the story is that RLS does not bind that role, so a test that only exercises `authenticated` proves nothing.",
-        "ledger_append_only_enforced() returns true in a fresh local stack, and the ops health check (lib/ops-health.ts) surfaces it, so a future incident that drops the trigger shows up instead of going quiet.",
-        "The admin ledger endpoint's existing invariant check (lib/credit-ledger.ts findLedgerInvariantViolation) is unchanged and still passes — the trigger protects history, the invariant walk still proves arithmetic.",
-        "A short note in the admin ledger UI states that corrections are made by compensating rows (reason 'refund' or 'admin_grant'), because an operator who cannot edit a row needs to be told what to do instead."
-      ],
-      "priority": 4,
-      "passes": false,
-      "notes": "From the 2026-08-14 review, finding #4. Verified before writing the migration: no migration and no edge module performs an UPDATE or DELETE on grade_credit_transactions, so nothing in the product should notice. RLS is not the control and cannot be — the table's SELECT policy reads like protection, but every edge route runs on the service-role client, which bypasses RLS entirely and is therefore already past it. A trigger is not bypassed.",
-      "dependsOn": [
-        "US-2562"
-      ]
-    },
-    {
-      "id": "US-2566",
-      "title": "Derived evidence assets carry their provenance in columns",
-      "description": "As the seller disputing a return, I want each annotated photo to state which grade report, which source photo and which defect it documents, so that the artifact stands up as evidence instead of being a picture with a suggestive filename.",
-      "acceptanceCriteria": [
-        "Migration 00598 is applied and lib/defect-annotations.ts populates derived_from_grade_report_id, derived_from_storage_path, derived_transform ('annotated_full'), derived_bbox and certificate_number on every item_photos row it inserts.",
-        "The idempotency check that currently reads existingPaths.has(destPath) is replaced by a lookup on the derived-identity unique index, so re-running applyAutoDefectAnnotations for the same report is a no-op for the right reason.",
-        "The regrade prune that currently filters on storage_path.includes('/__auto_') plus a _{reportTag}.jpg suffix is replaced by a query on (inventory_item_id, derived_from_grade_report_id) that is NOT the current report id. Substring matching on storage_path is gone from the module.",
-        "certificate_number is resolved through ensureCertificateNumber so an older report without one is backfilled rather than skipped.",
-        "Rows written before 00598 (identifiable by the __auto_ path prefix) are pruned and re-derived on the next annotation pass; no SQL backfill is attempted, and a test pins that the prune treats a NULL derived_from_grade_report_id as a seller upload and never deletes it.",
-        "A unit test covers the collision the filename scheme could not express: two derived assets from the SAME source image under the same report, distinguished only by derived_defect_index, both insert successfully."
-      ],
-      "priority": 20,
-      "passes": false,
-      "notes": "From the 2026-08-14 review, finding #6, and the blocking item for the condition-evidence pack. Verdict on the pack was 'needs schema change', not pipeline rework: bounding boxes are already structured (ai-grading.ts:798 demands normalized bbox per defect, sanitized by normalizeBbox at :865 and cross-checked against the size bucket at :1431), a zoom-crop re-read pass already exists (:1545-1600), and server-side compositing already runs in the AutoLister worker. The only thing missing was that item_photos cannot say what a derived row IS. The filename scheme also collides on the second crop from one source, which is exactly what US-2567 needs to do."
-    },
-    {
-      "id": "US-2567",
-      "title": "Evidence pack: cert-stamped per-defect crops",
-      "description": "As the seller answering an item-not-as-described claim, I want a set of zoomed, numbered, certificate-stamped crops of each flaw, so that I can hand the marketplace one artifact instead of arguing.",
-      "acceptanceCriteria": [
-        "For each localized genuine defect (bbox present, is_intentional false) the worker renders a 'defect_crop': the source region expanded by a fixed margin, upscaled to a legible width, with the callout box and the defect's number drawn on it.",
-        "Every rendered asset — annotated_full and defect_crop alike — carries the GT-XXXXXXX certificate number burned into the legend strip, alongside the overall score and tier.",
-        "A 'certificate_card' asset summarises the grade: score, tier, defect count, certificate number and the /verify URL, so the pack is self-describing when the crops are viewed out of order.",
-        "Crop count is bounded per item (a garment the model finds thirty issues on must not produce thirty uploads) and the bound is logged when it truncates — a silent cap reads as 'we documented everything' when it did not.",
-        "The private grading 'label' shot stays excluded from every derived asset, as selectAnnotatableImages already enforces (US-276 forbids label imagery in the public item-photos bucket).",
-        "The disclosure panel in src/components/disclosure/ previews the same pack the worker ships, so the seller sees before they list."
-      ],
-      "priority": 21,
-      "passes": false,
-      "notes": "From the 2026-08-14 review, section C. Depends entirely on US-2566: the current filename scheme (__auto_{type}_{reportTag}.jpg) cannot express two crops from one source image, so per-defect crops collide until provenance lives in columns. Detection side needs nothing — bboxes, severity, repairability, size_bucket and the zoom re-read pass are all already there.",
-      "dependsOn": [
-        "US-2566"
-      ]
-    },
-    {
       "id": "US-2568",
       "title": "One adapter between grading and the model vendor",
       "description": "As the operator during an Anthropic outage, I want to fail the grading path over to a second vendor, so that a provider incident is degraded service rather than no revenue.",
@@ -2071,6 +2004,21 @@
       "priority": 41,
       "passes": false,
       "notes": "From the 2026-08-14 review, finding #8. Low severity because it already self-heals — the money comes back via reverseChargeForUngradedSubmission — but the customer sees a failed paid grade rather than a retry. generateUniqueCertNumber does SELECT-then-INSERT with a 10-attempt loop, so the real guarantee is the unique constraint, and grading-pipeline.ts:2903 turns a violation into 'Failed to create grade report record'. Space is 32^7 (~3.4e10) Crockford base32; at 1M certificates the per-grade collision probability is ~3e-5, which is not rare enough to leave as an unhandled throw once volume arrives."
+    },
+    {
+      "id": "US-2571",
+      "passes": false,
+      "title": "The AI extractor cannot emit neckwear or gloves, so ties are still filed as other",
+      "description": "As a seller photographing a tie or gloves, I want the extractor to name the right category, so that the accessories rubric grades it instead of the clothing one.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/ai-extract.ts:75 declares its own GARMENT_CATEGORIES, and it is STALE: it stops at 'scarf' plus 'other' and is missing 'neckwear' and 'gloves', which US-2224 (migration 00570) added to the taxonomy in src/lib/constants.ts.",
+        "That list is not decoration. It is interpolated into the extraction prompt (:370), used as the JSON-schema enum for the model's answer (:535 and :1977), and used as the validation allowlist on the way back (:2054). The model is therefore FORBIDDEN from returning neckwear or gloves.",
+        "So the defect US-2224 exists to stop is still live on the extraction path: a tie can only come back as 'other', which routes it into the clothing rubric rather than the accessories one.",
+        "The edge list matches src/lib/constants.ts GARMENT_CATEGORIES, and a test compares the two so they cannot drift again.",
+        "Check the same file's GARMENT_TYPES against the source list while you are there, and check whether any grading map keyed on category (ai-grading.ts:472-535 claims to cover 'every other value') has the same gap.",
+        "Load the grading-engine skill first: this changes what the extractor may output, which is prompt-version territory."
+      ],
+      "priority": 1850
     }
   ]
 }

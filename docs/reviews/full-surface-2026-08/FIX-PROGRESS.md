@@ -200,7 +200,12 @@ unless a story is blocked; if blocked, note why and move to the next.
       is confirmed, failures are told apart by status via a shared
       `src/lib/claim-failure.ts`, and /claim/:token stopped claiming on mount;
       guard `src/test/tag-claim-requires-account.test.ts` (13 cases, 9 red)
-- [ ] US-2552 (2420) Buyer onboarding taxonomy
+- [x] US-2552 (2420) Buyer onboarding taxonomy - SHA6 - FOUR surfaces wrote the
+      same criteria four ways (13 hardcoded / 19 hardcoded / two free-text); one
+      shared CategoryPicker over one taxonomy, server drops and REPORTS what
+      cannot match, sizes per group, and a want finally shows what it matched;
+      guard `src/test/buyer-taxonomy.test.ts` (16 cases, 8 red). Filed US-2571
+      for a live extractor bug found on the way.
 - [ ] US-2553 (2422) Buyer home never completes
 - [ ] US-2554 (2424) Snap history + API keys placement
 
@@ -466,6 +471,41 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2552
+- The finding was wrong about WHICH values were broken and right that something
+  was. All 13 onboarding chips were real taxonomy values, so nobody was ever
+  matching nothing there — but settings had a DIFFERENT hardcoded 19, and two
+  other surfaces took free text into a field matched by exact equality. Reading
+  the matcher first (fifteen minutes) turned a guess about one page into the
+  actual defect across four.
+- When a story says "verify X before changing anything", that instruction is
+  the story. Twice now (this and US-2551) the AC that said "verify first" was
+  the one that decided what the fix should be.
+- The correct shape was already in the codebase, one file away. watchlist.ts has
+  iterated `prefs.sizes` as GROUPS since US-1798 and its own test uses
+  `{ tops: [...] }`; the `{ all: [...] }` bucket the two buyer pages wrote was
+  the outlier, and watchlist was copying it into saved searches. Grep for who
+  READS a field before designing its shape.
+- Migrating a stored answer has three options and two are wrong. Spreading the
+  old single-bucket sizes into every group invents a claim the buyer never made
+  (that their shoe size is their jeans size); deleting it throws away something
+  they told us. Keeping it, showing it, and asking them to place it is the only
+  honest one.
+- Extracting the shared component AFTER the third copy is too late by one. I
+  pasted the same 25-line chip block into onboarding, settings and demand before
+  pulling it into CategoryPicker — and then found alerts needed it too. The
+  moment a block appears twice, it is going to appear four times.
+- Not every input can be autocompleted, and saying so is better than faking it.
+  Keywords are matched as a SUBSTRING of title and brand, so any string can
+  legitimately match and there is no set of known values; the useful fix was to
+  tell the buyer what the field searches. Brands and categories are exact-match,
+  which is what makes a typo there fatal and worth constraining.
+- The full edge suite is the only thing that catches a route-surface guard.
+  `buyer-plan-gates_test.ts` enumerates every buyer route and fails on any new
+  one until its author says whether it is gated. My matches endpoint tripped it,
+  which is the guard working — but only a full `deno test` run finds it, so a
+  new buyer route means running that lane, not just the file you touched.
 
 ### Lessons from US-2551
 - "Verify the server first" was the whole story. The finding offered two

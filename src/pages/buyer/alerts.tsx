@@ -14,6 +14,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { ChipInput } from "@/components/buyer/chip-input";
+import { CategoryPicker } from "@/components/buyer/category-picker";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useSavedSearches } from "@/hooks/use-saved-searches";
@@ -118,7 +119,10 @@ function SavedSearchCard({
       </CardHeader>
       <CardContent className="space-y-4">
         <ChipInput label="Brands" placeholder="e.g. Patagonia…" values={brands} onChange={setBrands} />
-        <ChipInput label="Categories" placeholder="e.g. jacket, jeans…" values={categories} onChange={setCategories} />
+        {/* US-2552: a saved search matches categories by EXACT equality against
+            the garment taxonomy, so free text here saved "jackets" and waited
+            forever. Same picker as onboarding, settings and the demand board. */}
+        <CategoryPicker values={categories} onChange={setCategories} />
         <ChipInput label="Keywords" placeholder="e.g. vintage, GORE-TEX…" values={keywords} onChange={setKeywords} />
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
