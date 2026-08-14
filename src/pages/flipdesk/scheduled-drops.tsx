@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -33,6 +33,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuthStore } from "@/stores/auth-store";
 import { COMMON_TIMEZONES, detectTimezone, formatInZone } from "@/lib/scheduling";
 import { cn } from "@/lib/utils";
+import { DropDayDialog } from "@/components/flipdesk/drop-day-dialog";
 
 // US-563: a calendar view of every scheduled drop. The 5-min `publish-due`
 // cron publishes drafts whose `scheduled_publish_at` is in the past, so this
@@ -48,6 +49,13 @@ interface ScheduledDropRow {
   promo_opt_out: boolean | null;
   promo_rate_pct: number | null;
 }
+
+// US-2522: how many drops a day cell shows before it collapses to "+N more".
+// Four rows is what fits without the calendar row growing past the fold.
+const VISIBLE_PER_DAY = 3;
+
+// How many upcoming drops the list shows before it offers the rest.
+const UPCOMING_PREVIEW = 12;
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTH_NAMES = [
@@ -186,6 +194,67 @@ export function FlipdeskScheduledDropsPage() {
 
   const today = useMemo(() => zoneYmd(new Date().toISOString(), timeZone), [timeZone]);
 
+  // ── US-2522: the parts that make this a calendar you can act on ──────────
+
+  // Which day's drops are open in the dialog.
+  const [openDayNum, setOpenDayNum] = useState<number | null>(null);
+  // The roving tabstop. One cell in the grid is focusable at a time; the arrow
+  // keys move it, which is what makes a 35-cell grid traversable without 35
+  // tab presses.
+  const [focusedDay, setFocusedDay] = useState(1);
+  const focusedCellRef = useRef<HTMLDivElement | null>(null);
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
+
+  const daysInView = useMemo(
+    () => new Date(Date.UTC(view.y, view.m + 1, 0)).getUTCDate(),
+    [view],
+  );
+
+  function openDay(day: number) {
+    setFocusedDay(day);
+    setOpenDayNum(day);
+  }
+
+  function onGridKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    const moves: Record<string, number> = {
+      ArrowRight: 1,
+      ArrowLeft: -1,
+      ArrowDown: 7,
+      ArrowUp: -7,
+    };
+    let next: number | null = null;
+    if (e.key in moves) next = focusedDay + moves[e.key]!;
+    else if (e.key === "Home") next = 1;
+    else if (e.key === "End") next = daysInView;
+    if (next == null) return;
+    e.preventDefault();
+    // Stop at the month's edges rather than wrapping — a wrap that silently
+    // changes month is worse than a key that does nothing.
+    setFocusedDay(Math.min(Math.max(next, 1), daysInView));
+  }
+
+  // Move real focus with the roving tabstop, or the arrow keys move a highlight
+  // a screen reader never announces.
+  useEffect(() => {
+    focusedCellRef.current?.focus();
+  }, [focusedDay]);
+
+  const openDayDrops = useMemo(() => {
+    if (openDayNum == null) return [];
+    const key = `${view.y}-${view.m + 1}-${openDayNum}`;
+    return (dropsByDay.get(key) ?? []).map((d) => ({
+      id: d.id,
+      inventory_item_id: d.inventory_item_id,
+      scheduled_publish_at: d.scheduled_publish_at,
+      listing_price: d.listing_price,
+      // Same fallbacks as titleOf/isPromoted, inlined: both are recreated every
+      // render, so depending on them would rebuild this list every render too.
+      title:
+        d.listing_title?.trim() || titles[d.inventory_item_id] || "Untitled draft",
+      promoted: !d.promo_opt_out && (d.promo_rate_pct ?? 0) > 0,
+    }));
+  }, [openDayNum, view, dropsByDay, titles]);
+
   const shiftMonth = (delta: number) => {
     setView((v) => {
       const next = new Date(Date.UTC(v.y, v.m + delta, 1));
@@ -309,26 +378,64 @@ export function FlipdeskScheduledDropsPage() {
             />
           ) : (
             <>
-              <div className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border bg-border text-center text-xs font-medium text-muted-foreground">
-                {WEEKDAYS.map((w) => (
-                  <div key={w} className="bg-muted/50 py-1.5">
-                    {w}
-                  </div>
-                ))}
+              {/* US-2522: a real grid — announced as one, traversable with
+                  the arrow keys, and every day cell opens its own drops rather
+                  than only linking away to a draft. */}
+              <div
+                role="grid"
+                // The grid itself is never the focus target — one cell holds the
+                // roving tabstop — but a role=grid that handles keys has to be
+                // focusable for the handler to be reachable at all.
+                tabIndex={-1}
+                aria-label={`Scheduled drops for ${MONTH_NAMES[view.m]} ${view.y}`}
+                className="grid grid-cols-7 gap-px overflow-hidden rounded-lg border bg-border text-center text-xs font-medium text-muted-foreground"
+                onKeyDown={onGridKeyDown}
+              >
+                <div role="row" className="contents">
+                  {WEEKDAYS.map((w) => (
+                    <div key={w} role="columnheader" className="bg-muted/50 py-1.5">
+                      {w}
+                    </div>
+                  ))}
+                </div>
                 {grid.map((cell, i) => {
                   if (!cell) {
-                    return <div key={`blank-${i}`} className="min-h-[6rem] bg-background" />;
+                    return (
+                      <div
+                        key={`blank-${i}`}
+                        role="gridcell"
+                        aria-hidden="true"
+                        className="min-h-[6rem] bg-background"
+                      />
+                    );
                   }
                   const dayDrops = dropsByDay.get(cell.key) ?? [];
                   const isToday =
                     today.y === view.y &&
                     today.m === view.m + 1 &&
                     today.d === cell.day;
+                  const shown = dayDrops.slice(0, VISIBLE_PER_DAY);
+                  const hidden = dayDrops.length - shown.length;
                   return (
                     <div
                       key={cell.key}
+                      role="gridcell"
+                      aria-label={`${MONTH_NAMES[view.m]} ${cell.day}: ${dayDrops.length} drop${dayDrops.length === 1 ? "" : "s"}`}
+                      data-day={cell.day}
+                      tabIndex={cell.day === focusedDay ? 0 : -1}
+                      ref={(el) => {
+                        if (cell.day === focusedDay) focusedCellRef.current = el;
+                      }}
+                      onClick={() => dayDrops.length > 0 && openDay(cell.day)}
+                      onKeyDown={(e) => {
+                        if ((e.key === "Enter" || e.key === " ") && dayDrops.length > 0) {
+                          e.preventDefault();
+                          openDay(cell.day);
+                        }
+                      }}
                       className={cn(
-                        "min-h-[6rem] bg-background p-1 text-left align-top",
+                        "min-h-[6rem] bg-background p-1 text-left align-top focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary",
+                        dayDrops.length > 0 && "cursor-pointer hover:bg-muted/40",
                         isToday && "ring-1 ring-inset ring-brand-red",
                       )}
                     >
@@ -341,11 +448,10 @@ export function FlipdeskScheduledDropsPage() {
                         {cell.day}
                       </div>
                       <div className="space-y-1">
-                        {dayDrops.map((d) => (
-                          <Link
+                        {shown.map((d) => (
+                          <div
                             key={d.id}
-                            to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
-                            className="block rounded bg-brand-navy/5 px-1.5 py-1 text-[11px] leading-tight hover:bg-brand-navy/10"
+                            className="rounded bg-brand-navy/5 px-1.5 py-1 text-[11px] leading-tight"
                             title={titleOf(d)}
                           >
                             <span className="flex items-center gap-1 font-medium text-brand-navy dark:text-blue-300">
@@ -363,19 +469,27 @@ export function FlipdeskScheduledDropsPage() {
                               {" · "}
                               {fmtMoney(d.listing_price)}
                             </span>
-                          </Link>
+                          </div>
                         ))}
+                        {/* US-2522: a busy day used to render every drop and
+                            grow the row past the fold. */}
+                        {hidden > 0 && (
+                          <span className="block px-1.5 text-[11px] font-medium text-muted-foreground underline-offset-2 hover:underline">
+                            +{hidden} more
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
 
+
               {/* Upcoming list — a chronological companion to the grid. */}
               <div className="mt-6">
                 <h2 className="mb-2 text-sm font-semibold">Upcoming</h2>
                 <div className="space-y-1.5">
-                  {drops.slice(0, 12).map((d) => (
+                  {(showAllUpcoming ? drops : drops.slice(0, UPCOMING_PREVIEW)).map((d) => (
                     <Link
                       key={d.id}
                       to={`/dashboard/flipdesk/items/${d.inventory_item_id}/draft`}
@@ -396,11 +510,35 @@ export function FlipdeskScheduledDropsPage() {
                     </Link>
                   ))}
                 </div>
+                {/* US-2522: the list stopped dead at 12 with nothing saying
+                    so, on the surface whose job is telling you what is queued. */}
+                {drops.length > UPCOMING_PREVIEW && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="mt-2"
+                    onClick={() => setShowAllUpcoming((v) => !v)}
+                  >
+                    {showAllUpcoming
+                      ? "Show fewer"
+                      : `Show all ${drops.length}`}
+                  </Button>
+                )}
               </div>
             </>
           )}
         </CardContent>
       </Card>
+
+      {/* US-2522: reschedule, unschedule and shift a whole day, without
+          opening a single draft. */}
+      <DropDayDialog
+        open={openDayNum != null}
+        onOpenChange={(o) => !o && setOpenDayNum(null)}
+        dayLabel={`${MONTH_NAMES[view.m]} ${openDayNum}, ${view.y}`}
+        drops={openDayDrops}
+        timeZone={timeZone}
+      />
     </div>
   );
 }

@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2522",
-      "passes": false,
-      "title": "Scheduled drops is a calendar you cannot schedule from",
-      "description": "As a seller, I want to reschedule or cancel a drop from the calendar, so that I do not have to open each draft to change a time.",
-      "acceptanceCriteria": [
-        "src/pages/flipdesk/scheduled-drops.tsx renders a month grid where every interaction is a link into the item draft (:345, :379). There is no reschedule, cancel or drag.",
-        "A drop can be rescheduled and cancelled in place, and a day's drops can be shifted as a group.",
-        "A day cell with more drops than it can show renders a '+N more' affordance rather than overflowing (:344).",
-        "The grid carries role=grid and is keyboard-traversable, and 'Upcoming' is not hard-capped at 12 with no way to see the rest (:378)."
-      ],
-      "priority": 1930
-    },
-    {
       "id": "US-2523",
       "passes": false,
       "title": "Settings is fourteen unrelated cards with Delete account at the bottom",
