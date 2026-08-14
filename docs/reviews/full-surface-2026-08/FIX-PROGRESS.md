@@ -171,7 +171,7 @@ unless a story is blocked; if blocked, note why and move to the next.
 - [x] US-2542 (2400) UI craft-floor sweep - `706eab0f` - 17 pages to PageHeader, 26 tracked-uppercase headings converted (106 -> 80), 13 logos sized, guard `src/test/ui-craft-floor.test.ts` (22 cases)
 - [x] US-2543 (2402) Long secondary pages need structure - `9ee344d9` - rewards 9->3 tabs, referrals 8->3, verified 7->3, marketplaces 8->3; connection summary + profile preview added; promo code moved to Billing; guard `src/test/long-page-structure.test.ts` (16 cases, 12 red)
 - [x] US-2544 (2404) Submissions: no search, permanent empty disputes - `76ed6c1d` - search + date range applied to BOTH sort branches, visible sort direction, row selection + selected-CSV, phone card layout, disputes collapse on empty; guard `src/test/submissions-list-filters.test.ts` (17 cases, 14 red)
-- [ ] US-2545 (2406) Submission detail: no lightbox
+- [x] US-2545 (2406) Submission detail: no lightbox - `30ac87b4` - same ImageLightbox as the certificate, two-buttons-one-destination collapsed to one, five post-grade cards into one "What's next" section; guard `src/test/submission-detail-evidence.test.ts` (10 cases, 7 red)
 - [ ] US-2546 (2408) Intake: no photos, no guard
 - [ ] US-2547 (2410) Overview tiles promise a filter that isn't applied
 - [ ] US-2548 (2412) Tabbed hosts show no name
@@ -429,3 +429,18 @@ unless a story is blocked; if blocked, note why and move to the next.
 - MIGRATIONS 00592 + 00593 were applied by the user on 2026-08-14, and
   everything through `76ed6c1d` is PUSHED. The rule resets from here: the next
   migration is held again until the user OKs it.
+
+### Lessons from US-2545
+- When a page needs a viewer/dialog another page already has, import THAT one.
+  A second copy means two focus traps and two sets of keyboard handling, and
+  the one with fewer users is the one that rots. Assert the shared import in
+  the guard so a later "quick local version" fails the build.
+- Two buttons pointing at one place is usually a REDIRECT nobody re-read. Chase
+  the target through the router before designing a second destination: here
+  /dashboard/inventory/:id rewrites to the FlipDesk item page, and since
+  US-2519 there is only one item editor for a link to reach.
+- Assert the assumption the fix rests on, not just the fix. The guard checks
+  that InventoryItemRedirect still collapses the two URLs, so if that stops
+  being true the test says a second button is worth having again.
+- A heading written as `What's next` in JSX is `What's next` in the file, not
+  `&apos;`. Grep the source for the literal before writing the assertion.
