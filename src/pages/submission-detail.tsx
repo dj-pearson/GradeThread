@@ -48,6 +48,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ImageLightbox } from "@/components/certificate/image-lightbox";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -166,6 +167,8 @@ export function SubmissionDetailPage() {
   const [gradeReport, setGradeReport] = useState<GradeReportRow | null>(null);
   const [images, setImages] = useState<SubmissionImageRow[]>([]);
   const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  // US-2545 AC2: index of the photo open in the full-screen viewer.
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   // US-2145: the authenticity appeal dialog.
   const [appealOpen, setAppealOpen] = useState(false);
@@ -951,19 +954,17 @@ export function SubmissionDetailPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {/* Bridge into FlipDesk: carry the grade straight into the
-                  item's listing workflow rather than leaving it stranded
-                  on the certificate. */}
+              {/* US-2545 AC3: this was two buttons with one destination.
+                  "View item" pointed at /dashboard/inventory/:id, which
+                  InventoryItemRedirect rewrites straight to the FlipDesk item
+                  page the primary button already opens — and since US-2519
+                  there IS only one item editor, so a second link cannot lead
+                  anywhere else. One button, named for what it does. */}
               <Button size="sm" asChild>
                 <Link to={`/dashboard/flipdesk/items/${linkedItem.id}`}>
                   <Tag className="mr-1.5 h-3.5 w-3.5" />
-                  Use this grade in a listing
+                  Open item to use this grade
                   <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                </Link>
-              </Button>
-              <Button variant="outline" size="sm" asChild>
-                <Link to={`/dashboard/inventory/${linkedItem.id}`}>
-                  View item
                 </Link>
               </Button>
             </div>
@@ -1498,98 +1499,111 @@ export function SubmissionDetailPage() {
         </Card>
       )}
 
-      {/* Graded photo (US-765): the PSA-style certified image for this grade,
-          ready to drop into a listing. Only once a certificate exists AND the
-          grade is finalized (the cert is withheld while in review). */}
-      {submission.status === "completed" && gradeReport?.certificate_id && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ImageIcon className="h-5 w-5 text-brand-navy dark:text-foreground" />
-              Your graded photo
-            </CardTitle>
-            <CardDescription>
-              A certified image of this item with the grade and a scannable code
-              burned in — add it to your eBay, Poshmark, Depop or social listing.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {gradeReport.view_count > 0 && (
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Eye className="h-3.5 w-3.5" />
-                Certificate viewed {gradeReport.view_count.toLocaleString()}{" "}
-                {gradeReport.view_count === 1 ? "time" : "times"}
-              </p>
-            )}
-            <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* US-1855: per-item consent for the public Showcase / Finds feed. Gated
-          on a finalized certificate — there is nothing publishable before one,
-          and the feed's own view refuses uncertified reports anyway. */}
-      {submission.status === "completed" && gradeReport?.certificate_id && (
-        <ShowcaseConsentPanel
-          submissionId={submission.id}
-          optIn={submission.showcase_opt_in === true}
-          valueCents={submission.showcase_value_cents ?? null}
-        />
-      )}
-
-      {/* US-862: post-grade share prompt — nudge the seller to share their
-          certificate at the moment the grade lands. Reuses CertShareActions,
-          whose shared link carries ?s=share for attribution (US-769). */}
-      {submission.status === "completed" && gradeReport?.certificate_id && (
-        <Card className="border-brand-red/30 bg-brand-red/5">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Share2 className="h-5 w-5 text-brand-red-text" />
-              Share your certificate
-            </CardTitle>
-            <CardDescription>
-              Show buyers this item is independently graded. Share the verified
-              certificate to your listing or socials — every view builds trust.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CertShareActions
-              certificateId={gradeReport.certificate_id}
-              title={submission.title}
-              score={gradeReport.overall_score}
-              tier={gradeReport.grade_tier}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {/* US-1120: turn a fresh grade into a Garment Passport conversion surface —
-          a prominent "View / Create a Garment Passport" path (no longer gated
-          solely on the physical-tag panel), plus the physical-tag generator
-          (US-1096) and verified-seller / buyer-guarantee trust hints. */}
+      {/* US-2545 AC4: five separate cards, every one of them gated on the
+          same "the grade landed" condition, stacked so that the last of them
+          sat below three screens of report detail. They are one thing - what
+          to do now the grade exists - so they are one section with one
+          heading. The dispute card and the photo grid stay outside it: those
+          are status and evidence, not next steps. */}
       {submission.status === "completed" && gradeReport && (
-        <GarmentPassportPanel
-          garmentId={gradeReport.garment_id ?? null}
-          submissionId={submission.id}
-        />
-      )}
+        <section className="space-y-4">
+          <h2 className="text-base font-semibold text-foreground">
+            What's next
+          </h2>
+        {/* Graded photo (US-765): the PSA-style certified image for this grade,
+            ready to drop into a listing. Only once a certificate exists AND the
+            grade is finalized (the cert is withheld while in review). */}
+        {submission.status === "completed" && gradeReport?.certificate_id && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ImageIcon className="h-5 w-5 text-brand-navy dark:text-foreground" />
+                Your graded photo
+              </CardTitle>
+              <CardDescription>
+                A certified image of this item with the grade and a scannable code
+                burned in — add it to your eBay, Poshmark, Depop or social listing.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {gradeReport.view_count > 0 && (
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Eye className="h-3.5 w-3.5" />
+                  Certificate viewed {gradeReport.view_count.toLocaleString()}{" "}
+                  {gradeReport.view_count === 1 ? "time" : "times"}
+                </p>
+              )}
+              <GradedPhotoPanel certificateId={gradeReport.certificate_id} />
+            </CardContent>
+          </Card>
+        )}
 
-      {/* US-1075: cross-surface activation — once a grade lands and it isn't
-          already tied to a FlipDesk item, nudge the grader to turn the verified
-          certificate into a listing. Dismissable + event-tracked; suppressed if
-          the user opted out of product messaging. */}
-      {submission.status === "completed" && gradeReport && !linkedItem && (
-        <CrossSurfaceNudge
-          nudgeId="grade-to-flipdesk"
-          icon={Tag}
-          title="Sell this with FlipDesk"
-          description="Turn this graded certificate into a listing. FlipDesk lists it on eBay and shows buyers the verified grade to lift price and trust."
-          cta={{ label: "Open FlipDesk", to: "/dashboard/flipdesk" }}
-          context={{
-            submission_id: submission.id,
-            score: gradeReport.overall_score,
-          }}
-        />
+        {/* US-1855: per-item consent for the public Showcase / Finds feed. Gated
+            on a finalized certificate — there is nothing publishable before one,
+            and the feed's own view refuses uncertified reports anyway. */}
+        {submission.status === "completed" && gradeReport?.certificate_id && (
+          <ShowcaseConsentPanel
+            submissionId={submission.id}
+            optIn={submission.showcase_opt_in === true}
+            valueCents={submission.showcase_value_cents ?? null}
+          />
+        )}
+
+        {/* US-862: post-grade share prompt — nudge the seller to share their
+            certificate at the moment the grade lands. Reuses CertShareActions,
+            whose shared link carries ?s=share for attribution (US-769). */}
+        {submission.status === "completed" && gradeReport?.certificate_id && (
+          <Card className="border-brand-red/30 bg-brand-red/5">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <Share2 className="h-5 w-5 text-brand-red-text" />
+                Share your certificate
+              </CardTitle>
+              <CardDescription>
+                Show buyers this item is independently graded. Share the verified
+                certificate to your listing or socials — every view builds trust.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <CertShareActions
+                certificateId={gradeReport.certificate_id}
+                title={submission.title}
+                score={gradeReport.overall_score}
+                tier={gradeReport.grade_tier}
+              />
+            </CardContent>
+          </Card>
+        )}
+
+        {/* US-1120: turn a fresh grade into a Garment Passport conversion surface —
+            a prominent "View / Create a Garment Passport" path (no longer gated
+            solely on the physical-tag panel), plus the physical-tag generator
+            (US-1096) and verified-seller / buyer-guarantee trust hints. */}
+        {submission.status === "completed" && gradeReport && (
+          <GarmentPassportPanel
+            garmentId={gradeReport.garment_id ?? null}
+            submissionId={submission.id}
+          />
+        )}
+
+        {/* US-1075: cross-surface activation — once a grade lands and it isn't
+            already tied to a FlipDesk item, nudge the grader to turn the verified
+            certificate into a listing. Dismissable + event-tracked; suppressed if
+            the user opted out of product messaging. */}
+        {submission.status === "completed" && gradeReport && !linkedItem && (
+          <CrossSurfaceNudge
+            nudgeId="grade-to-flipdesk"
+            icon={Tag}
+            title="Sell this with FlipDesk"
+            description="Turn this graded certificate into a listing. FlipDesk lists it on eBay and shows buyers the verified grade to lift price and trust."
+            cta={{ label: "Open FlipDesk", to: "/dashboard/flipdesk" }}
+            context={{
+              submission_id: submission.id,
+              score: gradeReport.overall_score,
+            }}
+          />
+        )}
+        </section>
       )}
 
       {/* Dispute Status */}
@@ -1652,10 +1666,20 @@ export function SubmissionDetailPage() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                {images.map((img) => (
+                {images.map((img, i) => (
                   <div key={img.id} className="space-y-1.5">
-                    <div className="aspect-square overflow-hidden rounded-lg border bg-muted">
-                      {imageUrls[img.id] ? (
+                    {/* US-2545 AC2: these are the photos the grade was made
+                        from, and until now the seller could only see them as
+                        150px thumbnails — while any buyer holding the public
+                        certificate link could open the very same photos full
+                        screen. Same viewer, same keyboard and swipe handling. */}
+                    {imageUrls[img.id] ? (
+                      <button
+                        type="button"
+                        onClick={() => setLightboxIndex(i)}
+                        className="block aspect-square w-full overflow-hidden rounded-lg border bg-muted transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-ring"
+                        aria-label={`View ${formatLabel(img.image_type)} photo full screen`}
+                      >
                         <img
                           src={imageUrls[img.id]}
                           alt={`${img.image_type} photo`}
@@ -1663,12 +1687,14 @@ export function SubmissionDetailPage() {
                           decoding="async"
                           className="h-full w-full object-cover"
                         />
-                      ) : (
+                      </button>
+                    ) : (
+                      <div className="aspect-square overflow-hidden rounded-lg border bg-muted">
                         <div className="flex h-full w-full items-center justify-center">
                           <Skeleton className="h-full w-full" />
                         </div>
-                      )}
-                    </div>
+                      </div>
+                    )}
                     <Badge variant="outline" className="text-xs">
                       {formatLabel(img.image_type)}
                     </Badge>
@@ -1678,6 +1704,21 @@ export function SubmissionDetailPage() {
             </CardContent>
           </Card>
         </>
+      )}
+
+      {lightboxIndex !== null && (
+        <ImageLightbox
+          // Same index space as the grid above (no filtering), so the clicked
+          // thumbnail's index always maps to the right photo.
+          images={images.map((img) => ({
+            id: img.id,
+            src: imageUrls[img.id] ?? "",
+            caption: formatLabel(img.image_type),
+          }))}
+          index={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+          onNavigate={setLightboxIndex}
+        />
       )}
 
       {/* US-2145: rendered at the page root rather than inside the card, so

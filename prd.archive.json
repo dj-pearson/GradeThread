@@ -37027,6 +37027,20 @@
       ],
       "priority": 2404,
       "notes": "All five ACs. AC2: SearchInput over title+brand, debounced 300ms, applied via a withSearchAndDates helper called from BOTH sort branches (the score branch is a separate query, so a filter applied to only one silently changes the result set when you click a header); search+dateFrom+dateTo added to the query key; From/To date inputs with an inclusive end bound. Sort direction now renders ArrowUp/ArrowDown on the active column with aria-sort on both headers, replacing the static ArrowUpDown that told you it was sortable but never which way. AC3: the disputes card collapses to one muted line when empty; the error and loading branches are untouched, because collapsing on error would turn an outage into you-have-no-disputes. AC4: per-row checkboxes plus select-all-on-page, a selection toolbar, and Export selected reusing exportSubmissionsCsv(ids?) with the id list chunked through fetchInChunks; the selection deliberately SURVIVES paging so a pick spanning pages exports as one file. AC5: card list under md, table from md up, and the card leads with the grade, which was the column the old horizontal scroll pushed off-screen. Also extracted sanitizeSearch + a new endOfDayIso into src/lib/search-filter.ts and rewired admin/users.tsx to it, so the PostgREST .or() guard has one copy. Guard: src/test/submissions-list-filters.test.ts, 17 cases, 14 proven red."
+    },
+    {
+      "id": "US-2545",
+      "passes": true,
+      "title": "Submission detail cannot enlarge the photos the grade was based on",
+      "description": "As a seller, I want to zoom the evidence photos, so that I can see what the grader saw.",
+      "acceptanceCriteria": [
+        "src/pages/submission-detail.tsx:1654 renders the submitted-photo grid with no lightbox, while the public certificate page has one (certificate.tsx:814-827).",
+        "The submitted-photo grid opens the same full-screen viewer the certificate uses.",
+        "'Use this grade in a listing' and 'View item' stop pointing at the same destination — :958 targets the FlipDesk item page and :965 targets /dashboard/inventory/:id, which redirects to it.",
+        "The six post-grade cards (:1504-1681) are grouped into one 'what's next' section rather than stacked."
+      ],
+      "priority": 2406,
+      "notes": "AC2: the submitted-photo grid now opens the SAME ImageLightbox the public certificate uses (src/components/certificate/image-lightbox.tsx) rather than getting a second viewer, so zoom, arrow-key/swipe stepping, the focus trap and download all come along; each thumbnail is a real button with its own aria-label, and the lightbox is fed the unfiltered images array so a click on photo 3 opens photo 3. The gap was sharp: the seller who PAID for the grade could only see 150px thumbnails while any buyer holding the public link could open the same photos full screen. AC3: 'Use this grade in a listing' and 'View item' pointed at the same place. /dashboard/inventory/:id is InventoryItemRedirect, which rewrites straight to /dashboard/flipdesk/items/:id, and since US-2519 there IS only one item editor, so a second link cannot lead anywhere else. Collapsed to ONE button, 'Open item to use this grade'; the guard asserts the redirect assumption rather than just commenting it. AC4: the five post-grade cards (graded photo, showcase consent, share certificate, garment passport, FlipDesk nudge) were each gated on the same completed+gradeReport condition and stacked, so the last sat below three screens of report detail; they are now one <section> under a 'What's next' heading with ONE gate. The dispute card and the photo grid stay outside it deliberately, being status and evidence rather than next steps. Guard: src/test/submission-detail-evidence.test.ts, 10 cases, 7 proven red."
     }
   ]
 }
