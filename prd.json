@@ -1759,20 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2516",
-      "passes": false,
-      "title": "A bulk grading batch charges with no cost preview",
-      "description": "As a seller submitting 80 rows, I want to see what it will cost before it charges, so that I am not surprised by the bill.",
-      "acceptanceCriteria": [
-        "src/pages/new-submission.tsx:1462-1483 shows a per-submission payment estimate. src/pages/bulk-submission.tsx has no equivalent — handleSubmit at :292 loops every valid row straight into /api/grade/submit.",
-        "Before submitting, the preview states how many rows draw included grades, how many draw credits, and the dollar total for any rows that will require checkout.",
-        "The seller must confirm that summary before the loop starts.",
-        "The batch is cancellable mid-run and reports how many rows were submitted before the cancel.",
-        "Failed rows are retryable from the result card without re-uploading the CSV and ZIP."
-      ],
-      "priority": 1918
-    },
-    {
       "id": "US-2517",
       "passes": false,
       "title": "FlipDesk search reports an outage as 'No matches'",

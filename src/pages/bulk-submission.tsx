@@ -3,11 +3,15 @@ import { Link, useNavigate } from "react-router";
 import {
   AlertTriangle,
   ArrowLeft,
+  Ban,
   CheckCircle2,
+  CreditCard,
+  ExternalLink,
   FileSpreadsheet,
   FileArchive,
   Loader2,
   Lock,
+  RotateCcw,
   Upload,
   XCircle,
 } from "lucide-react";
@@ -39,7 +43,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { useBillingSummary } from "@/hooks/use-billing-summary";
+import { usePlanUsage } from "@/hooks/use-plan-usage";
+import { estimateBulkCost, formatDollars } from "@/lib/bulk-cost-estimate";
 import { parseSheet } from "@/lib/csv";
 import { readZip, baseName, type ZipEntry } from "@/lib/zip";
 import { compressImage } from "@/lib/image-utils";
@@ -92,7 +107,23 @@ interface ParsedRow {
 
 interface SubmitResult {
   submitted: number;
+  // US-2516: the server creates a submission even when payment falls through to
+  // checkout (grade.ts returns 201 with payment.paid=false), so "submitted" was
+  // counting rows that will sit unpaid and ungraded. Split the two.
+  paid: number;
+  awaitingPayment: number;
+  /**
+   * The unpaid rows, with enough to send the seller straight at the retry the
+   * detail page already runs on ?pay_retry=1 (submission-detail.tsx:226).
+   */
+  unpaid: { submissionId: string; title: string; tier: GradeTierKey }[];
+  /** True when the seller stopped the batch part-way. */
+  cancelled: boolean;
+  /** Rows actually attempted — lower than the batch size after a cancel. */
+  attempted: number;
   errors: { rowNumber: number; title: string; message: string }[];
+  /** Kept so failures can be retried without re-uploading the CSV and ZIP. */
+  failedRows: ParsedRow[];
 }
 
 function mimeForName(name: string): string {
@@ -150,8 +181,12 @@ export function BulkSubmissionPage() {
   const navigate = useNavigate();
   const csvInputRef = useRef<HTMLInputElement>(null);
   const zipInputRef = useRef<HTMLInputElement>(null);
-  // US-1625: synchronous double-submit guard (see handleSubmit).
+  // US-1625: synchronous double-submit guard (see runBatch).
   const submitLockRef = useRef(false);
+  // US-2516: flipped by the Stop button; read at the top of each row so a long
+  // batch can be abandoned without closing the tab. A ref, not state, because
+  // the loop is already running and would never see a re-render.
+  const cancelRef = useRef(false);
 
   const [csvName, setCsvName] = useState<string>("");
   const [zipName, setZipName] = useState<string>("");
@@ -165,6 +200,8 @@ export function BulkSubmissionPage() {
   const [result, setResult] = useState<SubmitResult | null>(null);
   // Default turnaround tier applied to any row that omits a CSV `tier` value.
   const [defaultTier, setDefaultTier] = useState<GradeTierKey>("standard");
+  // US-2516: the cost summary the seller has to confirm before anything charges.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const plan = profile?.flipdesk_plan ?? "free";
   const planAllowed = ALLOWED_PLANS.includes(plan);
@@ -178,6 +215,20 @@ export function BulkSubmissionPage() {
   function resolveTier(row: ParsedRow): GradeTierKey {
     return isTurnaroundTier(row.tierRaw) ? row.tierRaw : defaultTier;
   }
+
+  // US-2516 — what this batch will cost, worked out the same way the server
+  // will work it out, row by row in submission order. The per-submission flow
+  // has shown this since US-207; the batch charged blind.
+  const { data: billing } = useBillingSummary();
+  const usage = usePlanUsage();
+  const creditBalance = billing?.grades.credit_balance ?? 0;
+  const includedRemaining = usage.includedGrades.unlimited
+    ? validRows.length
+    : Math.max(0, usage.includedGrades.limit - usage.includedGrades.used);
+  const estimate = estimateBulkCost(validRows.map(resolveTier), {
+    includedRemaining,
+    creditBalance,
+  });
 
   function reparse(
     rawRows: ParsedRow[] | null,
@@ -292,25 +343,39 @@ export function BulkSubmissionPage() {
     };
   }
 
-  async function handleSubmit() {
-    if (validRows.length === 0) return;
+  async function runBatch(batch: ParsedRow[]) {
+    if (batch.length === 0) return;
     // US-1625: reject a re-entrant double-click synchronously. `disabled={isSubmitting}`
     // only applies on the NEXT render, so two clicks in one frame would both run
     // this loop and POST every row twice (double charge). Mirrors the submitLockRef
     // fix in new-submission.tsx (US-774).
     if (submitLockRef.current) return;
     submitLockRef.current = true;
+    cancelRef.current = false;
     setIsSubmitting(true);
     setResult(null);
-    setProgress({ current: 0, total: validRows.length });
+    setProgress({ current: 0, total: batch.length });
 
     const errors: SubmitResult["errors"] = [];
+    const failedRows: ParsedRow[] = [];
+    const unpaid: SubmitResult["unpaid"] = [];
     let submitted = 0;
+    let paid = 0;
+    let awaitingPayment = 0;
+    let attempted = 0;
+    let cancelled = false;
 
     try {
-      for (let i = 0; i < validRows.length; i++) {
-        const row = validRows[i]!;
-        setProgress({ current: i, total: validRows.length });
+      for (let i = 0; i < batch.length; i++) {
+        const row = batch[i]!;
+        // US-2516: checked before the row is charged, so Stop never leaves a
+        // payment half-made.
+        if (cancelRef.current) {
+          cancelled = true;
+          break;
+        }
+        attempted++;
+        setProgress({ current: i, total: batch.length });
         try {
           const formData = new FormData();
           formData.append("garment_type", row.garmentType);
@@ -345,11 +410,35 @@ export function BulkSubmissionPage() {
           });
           // US-1632: guard .json() — an HTML 502 from an infra blip isn't JSON
           // and would otherwise throw a confusing SyntaxError mid-batch.
-          const json = await response.json().catch(() => ({} as { error?: string }));
+          const json = await response
+            .json()
+            .catch(
+              () =>
+                ({}) as {
+                  error?: string;
+                  submissionId?: string;
+                  payment?: { paid?: boolean };
+                },
+            );
           if (!response.ok) {
             throw new Error(json.error || "Submission failed");
           }
           submitted++;
+          // US-2516: a 201 with paid=false means the row exists but nothing has
+          // been charged for it, so it will never be graded until the seller
+          // pays. Counted apart from the paid rows.
+          if (json.payment?.paid) {
+            paid++;
+          } else {
+            awaitingPayment++;
+            if (json.submissionId) {
+              unpaid.push({
+                submissionId: json.submissionId,
+                title: row.title,
+                tier: resolveTier(row),
+              });
+            }
+          }
         } catch (err) {
           errors.push({
             rowNumber: row.rowNumber,
@@ -357,13 +446,30 @@ export function BulkSubmissionPage() {
             message:
               err instanceof Error ? err.message : "Unknown error",
           });
+          failedRows.push(row);
         }
       }
 
-      setProgress({ current: validRows.length, total: validRows.length });
-      setResult({ submitted, errors });
+      setProgress({ current: attempted, total: batch.length });
+      setResult({
+        submitted,
+        paid,
+        awaitingPayment,
+        unpaid,
+        cancelled,
+        attempted,
+        errors,
+        failedRows,
+      });
 
-      if (submitted > 0) {
+      if (cancelled) {
+        toast.info(
+          `Stopped after ${submitted} of ${batch.length} garment${
+            batch.length === 1 ? "" : "s"
+          }.`,
+          { description: "Nothing was charged for the rows that never ran." },
+        );
+      } else if (submitted > 0) {
         toast.success(
           `${submitted} submission${submitted === 1 ? "" : "s"} created.`,
           {
@@ -382,6 +488,7 @@ export function BulkSubmissionPage() {
       );
     } finally {
       submitLockRef.current = false;
+      cancelRef.current = false;
       setIsSubmitting(false);
     }
   }
@@ -647,6 +754,11 @@ export function BulkSubmissionPage() {
               </Table>
             </div>
 
+            {/* US-2516: what the batch will cost, before it charges. */}
+            {validRows.length > 0 && zipName && !isSubmitting && (
+              <CostSummary estimate={estimate} creditBalance={creditBalance} />
+            )}
+
             {isSubmitting && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
@@ -662,6 +774,22 @@ export function BulkSubmissionPage() {
                       : 0
                   }
                 />
+                <div className="flex justify-end">
+                  {/* US-2516: an 80-row batch used to be unstoppable short of
+                      closing the tab, and every row it kept going through cost
+                      money. Stop takes effect before the next row is charged. */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      cancelRef.current = true;
+                      toast.info("Stopping after the current garment…");
+                    }}
+                  >
+                    <Ban className="mr-2 h-4 w-4" />
+                    Stop batch
+                  </Button>
+                </div>
               </div>
             )}
 
@@ -674,7 +802,7 @@ export function BulkSubmissionPage() {
                   : "Upload a ZIP of photos to continue"}
               </p>
               <Button
-                onClick={handleSubmit}
+                onClick={() => setConfirmOpen(true)}
                 disabled={
                   isSubmitting || validRows.length === 0 || !zipName
                 }
@@ -687,7 +815,7 @@ export function BulkSubmissionPage() {
                 ) : (
                   <>
                     <Upload className="mr-2 h-4 w-4" />
-                    Submit {validRows.length} Garment
+                    Review and submit {validRows.length} garment
                     {validRows.length === 1 ? "" : "s"}
                   </>
                 )}
@@ -701,14 +829,57 @@ export function BulkSubmissionPage() {
       {result && (
         <Card>
           <CardHeader>
-            <CardTitle>Upload complete</CardTitle>
+            <CardTitle>
+              {result.cancelled ? "Batch stopped" : "Upload complete"}
+            </CardTitle>
             <CardDescription>
               {result.submitted} submission
               {result.submitted === 1 ? "" : "s"} created ·{" "}
               {result.errors.length} failed
+              {result.cancelled &&
+                ` · stopped after ${result.attempted} of ${validRows.length} row${
+                  validRows.length === 1 ? "" : "s"
+                }`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {result.awaitingPayment > 0 && (
+              <div className="space-y-2 rounded-md bg-amber-500/10 p-3 text-sm">
+                <p className="font-medium">
+                  {result.awaitingPayment} submission
+                  {result.awaitingPayment === 1 ? "" : "s"} still need paying
+                </p>
+                <p className="text-muted-foreground">
+                  Your included grades and credits ran out part-way. These rows
+                  were created, but grading does not start until they are paid.
+                  Buy credits, then open each one to charge it.
+                </p>
+                <Link
+                  to="/dashboard/account?tab=billing&buy=credits"
+                  className="inline-flex items-center gap-1 font-medium underline"
+                >
+                  <CreditCard className="h-3.5 w-3.5" />
+                  Buy credits
+                </Link>
+                <ul className="space-y-1 pt-1">
+                  {result.unpaid.map((u) => (
+                    <li key={u.submissionId}>
+                      {/* ?pay_retry=1 is the param submission-detail.tsx already
+                          acts on — it re-runs the payment precedence on arrival,
+                          so a paid-up balance settles the row in one click. */}
+                      <Link
+                        to={`/dashboard/submissions/${u.submissionId}?pay_retry=1&tier=${u.tier}`}
+                        className="inline-flex items-center gap-1 underline"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                        {u.title || "Untitled"} (
+                        {GRADETHREAD_TIERS[u.tier].label})
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             {result.errors.length > 0 && (
               <>
                 <div className="space-y-1">
@@ -733,15 +904,122 @@ export function BulkSubmissionPage() {
                 <Separator />
               </>
             )}
-            <Button
-              variant="outline"
-              onClick={() => navigate("/dashboard/submissions")}
-            >
-              View Submissions
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              {/* US-2516: the failed rows are still in memory with their photos,
+                  so a retry costs a click instead of re-picking the CSV and the
+                  ZIP. Only the failures re-run, so nothing is charged twice. */}
+              {result.failedRows.length > 0 && (
+                <Button
+                  onClick={() => void runBatch(result.failedRows)}
+                  disabled={isSubmitting}
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  Retry {result.failedRows.length} failed row
+                  {result.failedRows.length === 1 ? "" : "s"}
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => navigate("/dashboard/submissions")}
+              >
+                View Submissions
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
+
+      {/* US-2516: nothing charges until this is confirmed. */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Submit {estimate.rows} garment{estimate.rows === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              Here is what this batch will use before anything is charged.
+            </DialogDescription>
+          </DialogHeader>
+          <CostSummary estimate={estimate} creditBalance={creditBalance} />
+          {estimate.checkoutRows > 0 && (
+            <p className="text-sm text-muted-foreground">
+              The last {estimate.checkoutRows} row
+              {estimate.checkoutRows === 1 ? "" : "s"} will be created unpaid.
+              Buying{" "}
+              <Link
+                to="/dashboard/account?tab=billing&buy=credits"
+                className="underline"
+                target="_blank"
+                rel="noreferrer"
+              >
+                credits
+              </Link>{" "}
+              in another tab first keeps this upload in place.
+            </p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setConfirmOpen(false);
+                void runBatch(validRows);
+              }}
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Submit {estimate.rows} garment{estimate.rows === 1 ? "" : "s"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// US-2516 — the same cost breakdown in the preview card and in the confirm
+// dialog, so what the seller approves is what they were shown.
+function CostSummary({
+  estimate,
+  creditBalance,
+}: {
+  estimate: ReturnType<typeof estimateBulkCost>;
+  creditBalance: number;
+}) {
+  return (
+    <div className="space-y-2 rounded-md border p-3 text-sm">
+      <div className="flex items-center justify-between font-medium">
+        <span>What this batch costs</span>
+        <span>
+          {estimate.checkoutCents > 0
+            ? formatDollars(estimate.checkoutCents)
+            : "No charge"}
+        </span>
+      </div>
+      <ul className="space-y-1 text-muted-foreground">
+        <li className="flex items-center justify-between">
+          <span>Covered by this month's included grades</span>
+          <span>{estimate.includedRows}</span>
+        </li>
+        <li className="flex items-center justify-between">
+          <span>
+            Paid with credits ({creditBalance} on hand,{" "}
+            {estimate.creditBalanceAfter} left after)
+          </span>
+          <span>
+            {estimate.creditRows}
+            {estimate.creditsSpent > 0 && ` (${estimate.creditsSpent} credits)`}
+          </span>
+        </li>
+        <li className="flex items-center justify-between">
+          <span>Needs paying by card</span>
+          <span>
+            {estimate.checkoutRows}
+            {estimate.checkoutCents > 0 &&
+              ` (${formatDollars(estimate.checkoutCents)})`}
+          </span>
+        </li>
+      </ul>
     </div>
   );
 }
