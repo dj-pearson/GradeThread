@@ -9,6 +9,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Card,
   CardContent,
@@ -264,6 +265,17 @@ export function AdminKeywordResearchPage() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
+          ) : keywordsQuery.isError ? (
+            /* US-2507: BEFORE the empty branch — "No keywords yet" on a failed
+               load reads as "the ingest found nothing", which is a different
+               and much more expensive conclusion. */
+            <ErrorState
+              className="py-10"
+              title="Couldn't load keywords"
+              description="They're still there — we just couldn't fetch them right now."
+              onRetry={() => void keywordsQuery.refetch()}
+              retrying={keywordsQuery.isFetching}
+            />
           ) : keywords.length === 0 ? (
             <EmptyState
               icon={Search}

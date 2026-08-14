@@ -30,6 +30,7 @@ import {
   Cpu,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 // ── API payload types (mirror the ai_profitability RPC, migration 00240) ──
 
@@ -156,7 +157,7 @@ const FLAG_META: Record<
 export function AdminAiProfitabilityPage() {
   const [period, setPeriod] = useState<PeriodKey>("30d");
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-ai-profitability", period],
     queryFn: async (): Promise<ProfitabilityReport> => {
       const res = await edgeFetch(`/api/admin/ai/profitability?period=${period}`);
@@ -200,12 +201,14 @@ export function AdminAiProfitabilityPage() {
         }
       />
 
+      {/* US-2507: a retryable ErrorState, not a dead red banner. */}
       {isError && (
-        <Card className="border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/40">
-          <CardContent className="pt-4 text-sm text-red-700 dark:text-red-300">
-            Failed to load AI profitability. Try again shortly.
-          </CardContent>
-        </Card>
+        <ErrorState
+          title="Couldn't load AI profitability"
+          description="The report is still there — we just couldn't fetch it right now."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
       )}
 
       {/* At-risk callout — any per-action feature whose AI cost nears revenue */}
@@ -304,6 +307,14 @@ export function AdminAiProfitabilityPage() {
                 <Skeleton key={i} className="h-10 w-full" />
               ))}
             </div>
+          ) : isError ? (
+            /* US-2507: never claim "none configured" when the load failed. */
+            <ErrorState
+              className="py-10"
+              title="Couldn't load AI features"
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
           ) : (data?.features.length ?? 0) === 0 ? (
             <EmptyState
               icon={Cpu}

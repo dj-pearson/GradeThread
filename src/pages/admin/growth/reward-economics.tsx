@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
@@ -168,7 +169,7 @@ export function GrowthRewardEconomicsPage() {
   const qc = useQueryClient();
   const [draft, setDraft] = useState<Draft | null>(null);
 
-  const { data, isLoading } = useQuery<EconomicsResponse>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<EconomicsResponse>({
     queryKey: ["admin-reward-economics"],
     queryFn: async () => {
       const res = await edgeFetch("/api/admin/rewards/economics");
@@ -255,6 +256,23 @@ export function GrowthRewardEconomicsPage() {
     },
     onError: (err: Error) => toast.error(err.message),
   });
+
+  // US-2507: an errored query leaves data undefined, so without this branch the
+  // page below rendered its loading skeleton FOREVER — the same defect US-1631
+  // fixed on seller billing.
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Reward economics" subtitle="Budget, guardrails and payout ROI." />
+        <ErrorState
+          title="Couldn't load reward economics"
+          description="The budget and guardrails are still set — we just couldn't fetch them right now."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      </div>
+    );
+  }
 
   if (isLoading || !data || !draft) {
     return (

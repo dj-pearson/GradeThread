@@ -53,6 +53,7 @@ import {
   Clock,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 // ── Types (mirror the /api/admin/newsletter console payloads) ────────────────
 
@@ -436,6 +437,16 @@ export function AdminNewsletterConsolePage() {
         <CardContent>
           {issues.isLoading ? (
             <Skeleton className="h-40 w-full" />
+          ) : issues.isError ? (
+            /* US-2507: BEFORE the empty branch — "No issues yet" on a failed
+               load invites an operator to scaffold a duplicate draft. */
+            <ErrorState
+              className="py-10"
+              title="Couldn't load issues"
+              description="They're still there — we just couldn't fetch them right now."
+              onRetry={() => void issues.refetch()}
+              retrying={issues.isFetching}
+            />
           ) : (issues.data ?? []).length === 0 ? (
             <EmptyState
               icon={Send}

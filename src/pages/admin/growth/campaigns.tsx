@@ -4,6 +4,7 @@ import { useDocumentVisible } from "@/hooks/use-document-visible";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Card,
   CardContent,
@@ -224,7 +225,7 @@ export function GrowthCampaignsPage() {
   const [pendingSendId, setPendingSendId] = useState<string | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["growth-campaigns"],
     queryFn: async (): Promise<{ campaigns: Campaign[] }> => {
       const res = await edgeFetch("/api/admin/growth/campaigns");
@@ -306,6 +307,20 @@ export function GrowthCampaignsPage() {
 
       {isLoading ? (
         <Skeleton className="h-48 w-full" />
+      ) : isError ? (
+        /* US-2507: BEFORE the empty branch — "No campaigns yet" on a failed
+           load invites an operator to recreate one that already exists. */
+        <Card>
+          <CardContent className="p-0">
+            <ErrorState
+              className="py-10"
+              title="Couldn't load campaigns"
+              description="They're still there — we just couldn't fetch them right now."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          </CardContent>
+        </Card>
       ) : !data || data.campaigns.length === 0 ? (
         <Card>
           <CardContent className="p-0">

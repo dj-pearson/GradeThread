@@ -59,6 +59,7 @@ import {
 } from "lucide-react";
 import { SearchInput } from "@/components/search-input";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { toast } from "sonner";
 
 const STATUS_COLORS: Record<string, string> = {
@@ -165,7 +166,7 @@ export function AdminSubmissionsPage() {
   const [markFailedTarget, setMarkFailedTarget] = useState<SubmissionRow | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-submissions"],
     queryFn: async () => {
       // US-2025: bound the anchor and derive the rest, instead of three
@@ -556,7 +557,22 @@ export function AdminSubmissionsPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginated.length === 0 ? (
+                {isError ? (
+                  /* US-2507: BEFORE the empty branch — "No submissions found"
+                     on a failed load reads as a filter result, so an operator
+                     widens the range and still sees nothing. */
+                  <TableRow>
+                    <TableCell colSpan={8} className="p-0">
+                      <ErrorState
+                        className="py-10"
+                        title="Couldn't load submissions"
+                        description="They're still there — we just couldn't fetch them right now."
+                        onRetry={() => void refetch()}
+                        retrying={isFetching}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ) : paginated.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="p-0">
                       <EmptyState

@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
@@ -455,7 +456,7 @@ export function GrowthRewardMilestonesPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Milestone | null>(null);
 
-  const { data, isLoading } = useQuery<MilestonesResponse>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<MilestonesResponse>({
     queryKey: ["admin-reward-milestones"],
     queryFn: async () => {
       const res = await edgeFetch("/api/admin/rewards/milestones");
@@ -525,6 +526,17 @@ export function GrowthRewardMilestonesPage() {
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
               </div>
+            )
+            /* US-2507: BEFORE the empty branch. */
+            : isError
+            ? (
+              <ErrorState
+                className="py-10"
+                title="Couldn't load milestones"
+                description="They're still there — we just couldn't fetch them right now."
+                onRetry={() => void refetch()}
+                retrying={isFetching}
+              />
             )
             : milestones.length === 0
             ? (

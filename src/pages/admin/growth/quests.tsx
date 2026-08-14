@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/ui/page-header";
@@ -361,7 +362,7 @@ export function GrowthQuestsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Quest | null>(null);
 
-  const { data, isLoading } = useQuery<QuestsResponse>({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery<QuestsResponse>({
     queryKey: ["admin-reward-quests"],
     queryFn: async () => {
       const res = await edgeFetch("/api/admin/rewards/quests");
@@ -430,6 +431,19 @@ export function GrowthQuestsPage() {
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
               </div>
+            )
+            /* US-2507: BEFORE the empty branch. A failed load used to render
+               "No quests yet — Create one", which invites an operator to
+               duplicate a live program. */
+            : isError
+            ? (
+              <ErrorState
+                className="py-10"
+                title="Couldn't load the quests"
+                description="The quests are still there — we just couldn't fetch them right now."
+                onRetry={() => void refetch()}
+                retrying={isFetching}
+              />
             )
             : quests.length === 0
             ? (

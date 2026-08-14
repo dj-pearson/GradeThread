@@ -52,6 +52,7 @@ import {
   X,
 } from "lucide-react";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -350,9 +351,17 @@ export function AdminAgentsPage() {
             )
             : agentsQuery.isError
             ? (
-              <p className="p-8 text-center text-sm text-destructive">
-                {(agentsQuery.error as Error)?.message ?? "Failed to load agents."}
-              </p>
+              /* US-2507: a retryable state, not a dead red line. */
+              <ErrorState
+                className="py-10"
+                title="Couldn't load agents"
+                description={
+                  (agentsQuery.error as Error)?.message ??
+                  "The registry is still there — we just couldn't fetch it right now."
+                }
+                onRetry={() => void agentsQuery.refetch()}
+                retrying={agentsQuery.isFetching}
+              />
             )
             : agents.length === 0
             ? (

@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   ShieldAlert,
   Gauge,
@@ -140,7 +141,7 @@ function UserLink({
 }
 
 export function AdminFraudPage() {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-fraud-overview"],
     queryFn: async (): Promise<FraudOverview> => {
       const res = await edgeFetch("/api/admin/fraud/overview");
@@ -160,11 +161,14 @@ export function AdminFraudPage() {
       />
 
       {isError ? (
+        /* US-2507: the error branch was already first — it just had no way
+           back. An EmptyState cannot retry; ErrorState can. */
         <Card>
-          <EmptyState
-            icon={AlertTriangle}
+          <ErrorState
             title="Couldn't load fraud signals"
-            description="The overview endpoint returned an error. Try again shortly."
+            description="The overview is still there — we just couldn't fetch it right now."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
           />
         </Card>
       ) : isLoading || !data ? (

@@ -46,6 +46,7 @@ import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import { safeHref } from "@/lib/safe-url";
 
 interface FlaggedSubmission {
@@ -148,7 +149,7 @@ function SubmissionsTab() {
   const [stepUpOpen, setStepUpOpen] = useState(false);
   const [pendingBan, setPendingBan] = useState<FlaggedSubmission | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-moderation"],
     queryFn: async (): Promise<FlaggedSubmission[]> => {
       // US-2025: this page was flagged as "four unbounded select('*')", but on
@@ -317,6 +318,18 @@ function SubmissionsTab() {
             <Skeleton key={i} className="h-48 w-full" />
           ))}
         </div>
+      ) : isError ? (
+        /* US-2507: BEFORE the empty branch. "Queue is clear" on a failed load
+           is the most expensive lie this page can tell — it says there is
+           nothing to moderate when nobody actually looked. */
+        <Card>
+          <ErrorState
+            title="Couldn't load the moderation queue"
+            description="The queue is still there — we just couldn't fetch it right now."
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
+        </Card>
       ) : entries.length === 0 ? (
         <Card>
           <EmptyState

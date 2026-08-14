@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   Card,
   CardContent,
@@ -431,7 +432,7 @@ export function GrowthSegmentsPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Segment | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["growth-segments"],
     queryFn: async (): Promise<{ segments: Segment[] }> => {
       const res = await edgeFetch("/api/admin/growth/segments");
@@ -468,6 +469,20 @@ export function GrowthSegmentsPage() {
 
       {isLoading ? (
         <Skeleton className="h-40 w-full" />
+      ) : isError ? (
+        /* US-2507: BEFORE the empty branch — a failed load must not read as
+           "you have no segments", which invites a duplicate. */
+        <Card>
+          <CardContent className="p-0">
+            <ErrorState
+              className="py-10"
+              title="Couldn't load segments"
+              description="They're still there — we just couldn't fetch them right now."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
+          </CardContent>
+        </Card>
       ) : !data || data.segments.length === 0 ? (
         <Card>
           <CardContent className="p-0">
