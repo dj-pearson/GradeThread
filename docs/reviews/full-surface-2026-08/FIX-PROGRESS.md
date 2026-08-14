@@ -221,6 +221,18 @@ unless a story is blocked; if blocked, note why and move to the next.
       /dashboard/api-keys stays for the Stripe return, plus the three P3s;
       guard `src/test/snap-history-and-developers.test.ts` (11 cases, 5 red)
 
+### Filed during the loop, not part of the original 52
+- [x] US-2571 (1850) The AI extractor cannot emit neckwear or gloves - 8f6fecbe -
+      five stale copies of GARMENT_CATEGORIES in the edge (ai-extract, grade.ts,
+      api-v1.ts, openapi-spec, and the mirror inside category-criteria_test) plus
+      a SIXTH the story did not name: the submission form's CATEGORY_BY_TYPE, so
+      a seller could not pick the two values by hand either. ai-grading's gated
+      criteria map had the same gap behind a comment claiming it did not; both
+      categories now have an entry, flag-gated so the prompts are unchanged with
+      the flag off. The accessories RUBRIC stays inert (US-1997 Phase 2), so this
+      fixes what a tie is called, not yet how it is scored.
+      Guard `src/test/garment-taxonomy-parity.test.ts` (5 cases, 2 red)
+
 ## Notes carried between iterations
 
 - Two stories are LEGAL, not engineering: US-2527 and US-2528. They ship when
@@ -732,6 +744,37 @@ unless a story is blocked; if blocked, note why and move to the next.
   error immediately), but write the SQL defensively: bounds cross-joined in as
   columns rather than scalar subqueries repeated inside a dozen FILTER clauses,
   and `to_jsonb` over `row_to_json`.
+
+### Lessons from US-2571
+- **A list that feeds a JSON-schema enum is not documentation, it is a
+  permission.** ai-extract's copy of the taxonomy was described in its own
+  comment as mirroring the frontend, which reads as a tidiness concern. It is
+  the `enum` the model must answer within AND the allowlist on the way back, so
+  two missing values meant the extractor was FORBIDDEN to classify a tie. Ask
+  what a constant is wired INTO before deciding how bad a stale copy is.
+- **A discovery guard beats a list guard for a duplicated constant.** The test
+  scans src/ and services/edge-functions/src/ for anything declaring the name
+  and compares each hit to the source, so the seventh copy is caught the day it
+  is written. Listing the six known ones would have passed the day someone added
+  a seventh, which is the only day it matters.
+- **The guard found the copy I had not counted.** My grep found five edge files;
+  the guard also named the submission form, where the picker narrows categories
+  by garment type and simply never listed the two new ones. Third time in this
+  loop the property found an offender the hand-written scan missed.
+- **A comment claiming completeness rots silently.** ai-grading.ts closed its
+  criteria maps with "every other value in GARMENT_CATEGORIES now has an entry",
+  which was true when written and false two migrations later. A sentence that
+  asserts coverage should be an assertion in a test, or it is just a date-stamped
+  belief. Its own mirror list was stale too, which is exactly why its coverage
+  test could not see the gap.
+- **This host is Linux, not the Windows box the earlier notes assume.** python3
+  exists here. deno does NOT, and installing it from npm works
+  (`npm i deno@2` gives a working 2.9.5 binary) but does NOT make the edge lane
+  runnable: the sandbox proxy blocks deno.land and esm.sh, so no import in the
+  edge tree resolves. Emulating the specific assertions in node against the same
+  source is the substitute; CI's edge lane is the gate. Prod is unreachable too
+  (`functions.gradethread.com` 403s at the proxy), so the health/ready schema
+  check cannot be run from here at all.
 
 ### Lessons from US-2546
 - A form that creates the parent row cannot upload children from it. Photos need

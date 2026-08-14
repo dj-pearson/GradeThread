@@ -1,5 +1,14 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+> **2026-08-14, later session: the held entries below could NOT be re-checked
+> from here, so none of them was flipped.** The sandbox this session runs in
+> reaches only npm/jsr/pypi; `functions.gradethread.com` is refused at the proxy
+> (403 on CONNECT), so `GET /health/ready` cannot be called at all. The rule for
+> this file is measure, never infer, and an unreachable endpoint is not a
+> measurement. Whoever next has network: run the health check and the
+> `select version from public.applied_migrations where version >= '00594'`
+> query below, then flip what it proves.
+
 ## ✅ APPLIED: 00600_grade_report_revisions.sql (US-2569 — a regraded certificate is revised, not vanished, applied 2026-08-14 — owner-confirmed)
 
 **Measured 2026-08-14T18:40Z, not inferred.**
