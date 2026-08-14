@@ -61,7 +61,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       fleet, and system vs ops/health serve different audiences. REAL fix: both rendered
       the title "System Health"; now Platform Health / Infrastructure Health, guarded
       class-wide (no duplicate admin page title or sidebar label).
-- [x] US-2558 (2432) /admin/jobs read-only copies - SHA9 - both tabs removed and
+- [x] US-2558 (2432) /admin/jobs read-only copies - a9d2c326 - both tabs removed and
       linked out (ops pages keep Run-now + replay, pinned by the guard). The
       verification the AC demanded CHANGED the fix: the endpoint returned four
       dead-letter families and the tab rendered two, so failed generation/publish
