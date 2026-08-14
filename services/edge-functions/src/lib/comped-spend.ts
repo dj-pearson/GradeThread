@@ -2,7 +2,7 @@
  * US-2358: what the platform spends on grading it never charges for.
  *
  * THE COUPLING. Migration 00110 auto-elevates any `role = 'super_admin'` row to
- * Business/enterprise, and `grade-billing.ts` gives super_admins UNCAPPED free
+ * Business/enterprise, and `grade-precedence.ts` gives super_admins UNCAPPED free
  * grading — no counter increment, no credit debit, a zero-delta ledger row. So
  * granting the role is also granting unlimited Claude Vision spend, in one
  * action, with no separate decision and no ceiling.

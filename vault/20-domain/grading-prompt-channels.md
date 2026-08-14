@@ -19,7 +19,7 @@ code_refs:
   - services/edge-functions/src/lib/prompt-blocks.ts
   - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
-reviewed: 2026-08-11
+reviewed: 2026-08-14
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
@@ -49,6 +49,17 @@ seller input can reach. Rendered OUTSIDE the fence, before it opens:
 | Verified size | label read + measurements mapped to the brand's chart | US-2213 |
 | Category criteria | a fixed per-`garment_category` map in code | US-2222 |
 | Photo role context | a fixed per-`(image_type, image_role)` map in code — see the caveat below | US-2471 |
+
+> [!note] The channels now travel through a provider seam (US-2568)
+> `ai-grading.ts` no longer imports the Anthropic SDK. The trusted system text
+> goes out as an `AiSystemBlock` and the user turn as `AiContentBlock[]`
+> (`lib/ai-provider.ts`), with `ai-provider-anthropic.ts` translating at the
+> edge of the process. This is a transport change and nothing more: the fence,
+> the ordering and which block sits in which channel are all decided before the
+> request is built. A second provider adapter inherits the separation for free
+> — but it also cannot be trusted to preserve it, so a new adapter must keep
+> system and user content in separate fields rather than flattening them into
+> one prompt string.
 
 ## The test for a new block
 

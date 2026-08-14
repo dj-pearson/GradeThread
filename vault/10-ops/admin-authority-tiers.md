@@ -10,7 +10,8 @@ code_refs:
   - services/edge-functions/src/tests/step-up-tiers_test.ts
   - services/edge-functions/src/lib/comped-spend.ts
   - services/edge-functions/src/lib/grade-billing.ts
-reviewed: 2026-08-08
+  - services/edge-functions/src/lib/grade-precedence.ts
+reviewed: 2026-08-14
 tags: [admin, security, mfa, scopes, policy]
 summary: Three tiers of admin authority — scope only, scope plus a day-window step-up, scope plus a five-minute step-up — and the rule for deciding which an action belongs to.
 ---
@@ -116,9 +117,12 @@ left — none of the tiering above changes it.
 Read this before granting the role to a second person.
 
 Migration `00110` auto-elevates any row with `role = 'super_admin'` to
-Business/enterprise, and `lib/grade-billing.ts` gives super_admins **uncapped
+Business/enterprise, and the payment precedence gives super_admins **uncapped
 free grading** — no counter increment, no credit debit, just a zero-delta ledger
-row for auditability. So the role grant is, in the same action, an unlimited
+row for auditability. The branch lives in `lib/grade-precedence.ts` (the pure
+sequence, `role === "super_admin"`); `lib/grade-billing.ts` is the adapter that
+runs it, and it is where everyone still looks, so expect the older pointer in
+comments elsewhere. So the role grant is, in the same action, an unlimited
 Claude Vision spend grant. There is no second decision and no ceiling.
 
 **This is intended and stays automatic** (US-2358). The platform owner grading
