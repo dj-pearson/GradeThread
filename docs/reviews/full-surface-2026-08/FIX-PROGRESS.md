@@ -61,9 +61,13 @@ unless a story is blocked; if blocked, note why and move to the next.
       fleet, and system vs ops/health serve different audiences. REAL fix: both rendered
       the title "System Health"; now Platform Health / Infrastructure Health, guarded
       class-wide (no duplicate admin page title or sidebar label).
-- [ ] US-2558 (2432) /admin/jobs shows read-only copies of crons + dead letters that the
-      ops pages own with Run-now and replay — remove the weak tabs, do NOT fold the ops
-      pages away
+- [x] US-2558 (2432) /admin/jobs read-only copies - SHA9 - both tabs removed and
+      linked out (ops pages keep Run-now + replay, pinned by the guard). The
+      verification the AC demanded CHANGED the fix: the endpoint returned four
+      dead-letter families and the tab rendered two, so failed generation/publish
+      batches were being fetched every 30s and shown NOWHERE. They are visible now,
+      and the endpoint stopped fetching the two it no longer serves.
+      Guard `src/test/admin-jobs-no-readonly-copies.test.ts` (7 cases, 4 red)
 - [x] US-2513 (1912) Six ambiguous admin nav names — DONE 3cb82d1d. Finding HELD this
       time (read all six pages first): all distinct pages, badly-named. 3 pairs renamed
       in nav AND page heading; 3 were already resolved by US-2512/2505/2558. Guard now
@@ -479,6 +483,25 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2558
+- "Verify nothing depends on it before deleting" found something nobody was
+  looking for. The read-only tab was a duplicate, yes — but its ENDPOINT also
+  returned two families the tab never rendered and no other page showed. The
+  duplicate and the blind spot were in the same file, and only reading the
+  handler next to the JSX surfaced the second one.
+- Compare data SOURCES, not page titles, when judging whether two surfaces
+  duplicate each other. Both cron views map the same CRON_REGISTRY, which is
+  what made one a strict subset; the dead-letter views differed by two tables,
+  which is what stopped this being a clean delete.
+- Removing a UI is not the same as removing its endpoint. /api/admin/jobs/crons
+  now has no client, and it is left in place on purpose: it works, it is tested,
+  and deleting it would take a tested lib with it. Recorded in the story note so
+  the next person finds a decision rather than an oversight.
+- The comment-stripping guard from US-2553 was needed again ONE story later,
+  for the same reason: an assertion that an endpoint is gone matches the comment
+  saying it is gone. Any guard asserting the ABSENCE of a string in source needs
+  to read code, not prose.
 
 ### Lessons from US-2554
 - "Persist it" has more than one right answer, and the cheapest correct one is
