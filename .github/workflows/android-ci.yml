@@ -38,6 +38,20 @@ jobs:
     name: assembleDebug + unit tests + lint
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # US-2502: the unit tests build the real Hilt graph, and NetworkModule
+    # constructs SupabaseShared, which asserts BuildConfig.SUPABASE_ANON_KEY is
+    # non-blank. `secret()` in app/build.gradle.kts reads the CI env first, then
+    # local.properties, then an empty placeholder — and a runner has no
+    # local.properties, so the field was "" and 161 tests died in setup with
+    # "SUPABASE_ANON_KEY missing". A dev machine never saw it because
+    # android:doctor writes local.properties.
+    #
+    # Same shape as ci.yml's env block and for the same reason: these are public
+    # client-side config values, the key here is a throwaway placeholder, and
+    # nothing in a Robolectric test opens a socket. The URL is left to its
+    # build.gradle.kts default.
+    env:
+      SUPABASE_ANON_KEY: ci-placeholder-anon-key
     defaults:
       run:
         working-directory: android
