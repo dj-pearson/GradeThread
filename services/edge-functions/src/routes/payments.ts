@@ -2082,6 +2082,74 @@ paymentRoutes.post("/flipdesk/uncancel", async (c) => {
   }
 });
 
+// ── GET /invoices ─────────────────────────────────────────────────
+//
+// US-2524: every receipt path used to be a link out to the Stripe portal, so
+// "what was I charged last month" meant leaving the app, signing in again and
+// coming back. This lists the customer's own invoices in the app; the PDF and
+// the hosted page stay Stripe's, because those are the documents of record and
+// re-rendering them here would be inventing a receipt.
+//
+// Tenant-scoped by construction: the customer id comes from the caller's own
+// row, never from the request.
+paymentRoutes.get("/invoices", async (c) => {
+  const userId = c.get("userId");
+
+  const { data: user, error: userError } = await supabaseAdmin
+    .from("users")
+    .select("stripe_customer_id")
+    .eq("id", userId)
+    .single();
+  if (userError || !user) return c.json({ error: "User not found" }, 404);
+
+  const customerId = (user as { stripe_customer_id: string | null })
+    .stripe_customer_id;
+  // Never subscribed and never bought a pack: no invoices is the right answer,
+  // not an error.
+  if (!customerId) return c.json({ invoices: [] });
+
+  const stripe = getStripe();
+  if (!stripe) return c.json({ error: "Payment service unavailable" }, 503);
+
+  try {
+    const list = await stripe.invoices.list({ customer: customerId, limit: 24 });
+    // The Stripe client is loaded untyped here (same as every other call in
+    // this file), so name the fields this response is read for.
+    const rows = (list.data ?? []) as Array<{
+      id: string;
+      number?: string | null;
+      created: number;
+      status?: string | null;
+      amount_paid?: number;
+      amount_due?: number;
+      currency?: string;
+      lines?: { data?: Array<{ description?: string | null }> };
+      hosted_invoice_url?: string | null;
+      invoice_pdf?: string | null;
+    }>;
+    const invoices = rows.map((inv) => ({
+      id: inv.id,
+      number: inv.number ?? null,
+      // Seconds from Stripe; ISO for everyone else.
+      created: new Date(inv.created * 1000).toISOString(),
+      status: inv.status ?? null,
+      amount_paid: inv.amount_paid ?? 0,
+      amount_due: inv.amount_due ?? 0,
+      currency: inv.currency ?? "usd",
+      description: inv.lines?.data?.[0]?.description ?? null,
+      hosted_invoice_url: inv.hosted_invoice_url ?? null,
+      invoice_pdf: inv.invoice_pdf ?? null,
+    }));
+    return c.json({ invoices });
+  } catch (err) {
+    console.error(
+      "[payments] invoice list failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return c.json({ error: "Could not load your invoices." }, 502);
+  }
+});
+
 // ── POST /portal ──────────────────────────────────────────────────
 // Stripe Customer Portal for users who want raw access (escape hatch from
 // the in-app billing UI in US-211).

@@ -23,7 +23,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { track } from "@/lib/analytics";
 import { markCheckoutPending } from "@/lib/checkout-pending";
-import { effectiveAiLimit } from "@/lib/ai-limit";
 import { useRedirectStore, CHECKOUT_INITIATED_KEY } from "@/stores/redirect-store";
 import { FLIPDESK_PLANS, GRADETHREAD_TIERS } from "@/lib/constants";
 import type { FlipdeskPlanKey } from "@/lib/constants";
@@ -36,6 +35,7 @@ import {
   ledgerLabel,
   pollBillingSummary,
 } from "@/hooks/use-billing-summary";
+import { InvoiceHistory } from "@/components/billing/invoice-history";
 import { UsageMeter, UsageMeters } from "@/components/billing/usage-meter";
 import { CreditPackDialog } from "@/components/billing/credit-pack-dialog";
 import { FlipdeskPlanPickerDialog } from "@/components/billing/flipdesk-plan-picker-dialog";
@@ -236,7 +236,7 @@ export function BillingPage() {
     );
   }
 
-  const { subscription, grades, usage } = summary;
+  const { subscription, grades } = summary;
   const plan = FLIPDESK_PLANS[subscription.plan as FlipdeskPlanKey];
   // US-807: subscription purchased in the iOS app — its lifecycle is owned by
   // Apple, so the web page goes read-only for the subscription (no Stripe CTAs,
@@ -248,6 +248,13 @@ export function BillingPage() {
   const appstoreManaged = managingStore !== null;
   const storeName = managingStore === "googleplay" ? "Google Play" : "the App Store";
   const storeApp = managingStore === "googleplay" ? "Android" : "iOS";
+  // US-2524: the store's own subscription settings. On the device these open the
+  // native sheet; on a desktop browser they land on the account page, which is
+  // still one click from cancelling instead of a sentence about where to look.
+  const storeSubscriptionsUrl =
+    managingStore === "googleplay"
+      ? "https://play.google.com/store/account/subscriptions"
+      : "https://apps.apple.com/account/subscriptions";
   const trialing = !appstoreManaged && isTrialing(subscription);
   const pastDue = !appstoreManaged && subscription.status === "past_due";
   const paused = subscription.status === "paused";
@@ -318,10 +325,20 @@ export function BillingPage() {
               {subscription.status === "past_due"
                 ? ` and a recent renewal failed — update your payment in the ${storeApp} app`
                 : ""}
-              . To change, pause, or cancel it, open the GradeThread {storeApp} app
-              and go to Settings → Subscription. Credit packs and per-grade
-              purchases are still available here.
+              . Credit packs and per-grade purchases are still available here.
             </p>
+            {/* US-2524: this used to describe where to look and stop there. Both
+                stores expose a subscription-settings URL that opens the native
+                sheet on the device and the web account page elsewhere. */}
+            <a
+              href={storeSubscriptionsUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-2 inline-flex items-center gap-1 font-medium underline underline-offset-2"
+            >
+              Manage it in {storeName}
+              <ExternalLink className="h-3.5 w-3.5" />
+            </a>
           </div>
         </div>
       )}
@@ -351,15 +368,23 @@ export function BillingPage() {
         <div className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950/40">
           <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
           <div className="flex-1 text-sm">
-            <p className="font-semibold">Pro free trial active</p>
+            {/* US-2524: this named the Pro plan whatever plan was on trial, so
+                a Business trial read as a Pro one — on the page whose job is
+                telling you what you are paying for. */}
+            <p className="font-semibold">
+              {planLabel(subscription.plan)} free trial active
+            </p>
             <p className="text-muted-foreground">
               Your trial ends on {dateLabel(subscription.trial_ends_at)}. No card
               is on file and you won't be charged — at the end your account simply
-              switches to the free plan. Add a card anytime to keep your Pro
-              features.
+              switches to the free plan. Add a card anytime to keep your{" "}
+              {planLabel(subscription.plan)} features.
             </p>
           </div>
-          <Button size="sm" onClick={() => openPlanPicker("pro")}>
+          <Button
+            size="sm"
+            onClick={() => openPlanPicker(subscription.plan as FlipdeskPlanKey)}
+          >
             Add card
           </Button>
         </div>
@@ -492,29 +517,12 @@ export function BillingPage() {
 
             <Separator />
 
-            <div className="space-y-3">
-              <UsageMeter
-                label="Active listings"
-                used={usage.active_listings}
-                limit={plan.activeListingCap}
-              />
-              <UsageMeter
-                label="AI actions"
-                used={usage.ai_actions_used_this_month}
-                limit={effectiveAiLimit(plan.aiActionsPerMonth, usage.ai_action_limit)}
-                hint={
-                  usage.ai_action_limit != null
-                    ? "Self-imposed cap active"
-                    : undefined
-                }
-              />
-              <UsageMeter
-                label="Marketplaces connected"
-                used={usage.marketplaces_connected}
-                limit={plan.marketplacesCap}
-                hideWhenUnlimited
-              />
-            </div>
+            {/* US-2524: ONE set of meters on this page. There used to be two —
+                these three, and the shared four again lower down under "Same
+                data, compact view", which is not a thing to ship. The shared
+                component now carries the marketplaces meter that was the only
+                reason for the second copy. */}
+            <UsageMeters className="sm:grid-cols-2 lg:grid-cols-2" />
 
             <Separator />
 
@@ -666,17 +674,9 @@ export function BillingPage() {
         </Card>
       </div>
 
-      {/* Compact at-a-glance usage row (mirrors the dashboard) */}
-      <div>
-        <div className="mb-3 flex items-center gap-2">
-          <h2 className="text-lg font-semibold">Usage at a glance</h2>
-          <span className="text-xs text-muted-foreground">
-            <Info className="mr-1 inline h-3 w-3" />
-            Same data, compact view
-          </span>
-        </div>
-        <UsageMeters />
-      </div>
+      {/* US-2524: receipts, in the app. Every path to "what was I charged" used
+          to leave for the Stripe portal. */}
+      <InvoiceHistory />
 
       {/* Read-only plan comparison grid (US-211 AC #2) */}
       <FlipdeskPlanComparison

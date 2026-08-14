@@ -152,6 +152,16 @@ export function UsageMeters({ className }: { className?: string }) {
         kind="balance"
         hint="Never expire"
       />
+      {/* US-2524: the marketplaces meter the comment above always claimed was
+          here. Billing rendered its own copy of this set purely to add it, so
+          the page showed the same four caps twice, once labelled "Same data,
+          compact view". Hidden on an unlimited plan, as the comment says. */}
+      <UsageMeter
+        label="Marketplaces connected"
+        used={data.usage.marketplaces_connected}
+        limit={plan.marketplacesCap}
+        hideWhenUnlimited
+      />
     </div>
   );
 }

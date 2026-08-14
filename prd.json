@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2524",
-      "passes": false,
-      "title": "Billing shows the same usage meters twice and cannot show an invoice",
-      "description": "As a subscriber, I want my receipts in the app, so that I do not have to leave to see what I was charged.",
-      "acceptanceCriteria": [
-        "src/pages/billing.tsx renders three UsageMeters inside the subscription card (:484-504) and again under a heading that reads 'Same data, compact view' (:657-667). One of the two is removed.",
-        "An invoice and receipt history is rendered in-app; today every receipt path is a link to the Stripe portal (:683-690).",
-        "The trialing banner stops hardcoding 'Pro free trial active' (:342) and names the plan actually on trial.",
-        "The store-managed banner deep-links to the App Store or Play subscription settings rather than only telling the user where to look (:309)."
-      ],
-      "priority": 1934
-    },
-    {
       "id": "US-2525",
       "passes": false,
       "title": "Support tickets take no attachments and never refresh",
