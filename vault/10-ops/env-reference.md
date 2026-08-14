@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-08-09
+reviewed: 2026-08-14
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
@@ -83,6 +83,7 @@ Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 s
 | `VITE_LAUNCH_DATE` | ⬜ CF Pages build | Date driving the launch-countdown banner. |
 | `VITE_LISTER_EXTENSION_ID` | ⬜ CF Pages build | Chrome extension ID for the FlipDesk auto-lister bridge. |
 | `VITE_LISTER_EXTENSION` | ⬜ CF Pages build | Feature toggle for the lister-extension integration. |
+| `VITE_EXTENSION_WEBSTORE_URL` | ⬜ CF Pages build | Public Chrome Web Store listing for the extension (US-2553). Optional: derived from `VITE_LISTER_EXTENSION_ID` when unset. |
 | `VITE_SOCIAL_X` / `_LINKEDIN` / `_INSTAGRAM` / `_CRUNCHBASE` | ⬜ CF Pages build | Brand social profile URLs (also read by Pages Functions for OG/footer). |
 | `VITE_TWITTER_SITE` | ⬜ CF Pages build | `@handle` for Twitter card meta. |
 

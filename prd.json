@@ -1840,19 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2553",
-      "passes": false,
-      "title": "Buyer home never completes and never shows the buyer's own activity",
-      "description": "As a buyer, I want my home screen to reflect what I have done, so that it stops telling me to do things I have already done.",
-      "acceptanceCriteria": [
-        "src/pages/buyer/home.tsx:80-102 defines FIRST_STEPS as a static array with no completion tracking, so a buyer with five live alerts is still told to 'Create an alert'.",
-        "The get-started cards track completion and self-hide, as ActivationChecklist does on the seller side.",
-        "Buyer home shows the buyer's own activity: recent alert matches, recently verified certificates, watched items.",
-        "'Get the extension' at :86 links to the Chrome Web Store listing rather than to /buyer/settings."
-      ],
-      "priority": 2422
-    },
-    {
       "id": "US-2554",
       "passes": false,
       "title": "Snap results are thrown away and API keys is a product inside a tab",
@@ -1973,22 +1960,6 @@
       "priority": 40,
       "passes": false,
       "notes": "From the 2026-08-14 review, finding #5. Measured, not estimated: 20 files import @anthropic-ai/sdk and 33 files make ~50 messages.create calls against Anthropic's request/response shape. ai-config.ts:429 is the only construction site, but it returns the concrete Anthropic type, so the abstraction stops at the constructor. The tell that this is worth doing is lib/ai-usage.ts:14 — toAiTokenUsage takes Anthropic.Usage, so the entire cost-per-grade and gross-margin reporting is typed on one vendor. Scope is deliberately the revenue path only; migrating all 33 files is not this story."
-    },
-    {
-      "id": "US-2569",
-      "title": "A regraded certificate shows its revision instead of 404ing",
-      "description": "As a buyer who scanned a hangtag or clicked a link in an eBay listing, I want a regraded certificate to tell me it was revised and take me to the current one, so that the thing I was told to trust does not just disappear.",
-      "acceptanceCriteria": [
-        "A grade_report_revisions table records one immutable row per supersede: superseded report id, superseding report id, the old and new certificate ids and numbers, the old and new overall score and tier, the reason, and when. The pattern already exists in support_kb_revisions (00183) and pricing_plan_revisions (00486).",
-        "regradeSubmission's supersedePriorReports writes that row in the same step it nulls certificate_id, so the two cannot drift.",
-        "GET the public cert endpoint for a superseded certificate id answers 301/200 with a 'revised' payload naming the current certificate number, NOT 404. The withheld cases (isCertificateWithheld: pending_review, flagged-and-unapproved) keep returning 404 — a revision is public history, a withheld grade is not.",
-        "functions/cert/[id].ts renders the revised state with a visible link to the current certificate and the date of revision.",
-        "The public verify lookup by GT-XXXXXXX resolves a superseded number to the same revised view.",
-        "A test pins that a revision row is never updated or deleted, and that a certificate revised twice shows the full chain rather than only the last hop."
-      ],
-      "priority": 22,
-      "passes": false,
-      "notes": "From the 2026-08-14 review, finding #7. Cert integrity itself is strong — content_hash plus optional HMAC over a versioned canonical field set (CERT_INTEGRITY_VERSION 4), re-derived server-side on every public read — so tampering IS detectable. What is missing is the honest failure mode: a regrade nulls certificate_id and the old URL 404s, which for a PSA-style trust model is worse than saying 'revised on <date>, see v2'. A certificate that vanishes teaches buyers not to rely on the number."
     },
     {
       "id": "US-2570",

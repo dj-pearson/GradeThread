@@ -206,7 +206,11 @@ unless a story is blocked; if blocked, note why and move to the next.
       cannot match, sizes per group, and a want finally shows what it matched;
       guard `src/test/buyer-taxonomy.test.ts` (16 cases, 8 red). Filed US-2571
       for a live extractor bug found on the way.
-- [ ] US-2553 (2422) Buyer home never completes
+- [x] US-2553 (2422) Buyer home never completes - SHA7 - steps complete on real
+      signals (extension bridge marker / saved_searches / closet_items) and
+      self-hide; one step REPLACED because it could never complete; new
+      BuyerActivity reads two feeds that already existed; extension link points
+      at the Web Store; guard `src/test/buyer-home-activity.test.ts` (12 cases)
 - [ ] US-2554 (2424) Snap history + API keys placement
 
 ## Notes carried between iterations
@@ -471,6 +475,29 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2553
+- A checklist step with no observable signal is worse than no step. "Verify a
+  certificate" pointed at a public marketing page that records nothing against
+  an account, so that card could never have gone out — it WAS the bug the story
+  describes, not a victim of it. When a step cannot complete, either give it a
+  record or replace it with the nearest action that has one; do not fake it with
+  a localStorage "clicked" flag.
+- The data for "show the user their own activity" was already there, twice. The
+  alert-match feed has existed since US-1809 and the closet since US-1825; the
+  home page simply never read either. Before building a feed, grep for the hook
+  — this is the fifth story in this loop where the back end was already done.
+- A content script lands AFTER first paint, so an install check must be state,
+  not a render-time call. Reading the DOM marker during render reports "not
+  installed" on every fresh load, which would have made the extension step
+  permanently incomplete — the same failure in a new place.
+- A guard that reads a FILE reads its comments too. Two assertions failed on the
+  comment explaining the fix, not on the code. Strip comments before asserting,
+  or the guard quietly punishes anyone who writes an explanation.
+- `node -e` ate the backslashes out of a regex AGAIN, exactly as the note three
+  lessons up says it does, and produced a test file that would not parse. The
+  rule is not "be careful" — it is: any edit containing a regex or a template
+  literal goes in a .mjs file or through the Edit tool.
 
 ### Lessons from US-2552
 - The finding was wrong about WHICH values were broken and right that something

@@ -173,6 +173,35 @@ function bridgeAvailable(): boolean {
   }
 }
 
+/**
+ * Is OUR extension installed in this browser? (US-2553)
+ *
+ * Deliberately NOT gated on VITE_LISTER_EXTENSION: that flag decides whether the
+ * SELLER cross-listing UI is offered, and a buyer asking "have I installed the
+ * extension yet" is a different question with the same answer source — the DOM
+ * marker the bridge content script drops on gradethread.com (US-1882), which is
+ * the one signal present in both Chrome and Firefox.
+ */
+export function isExtensionInstalled(): boolean {
+  return bridgeAvailable();
+}
+
+/**
+ * The public Chrome Web Store listing, or null when no extension id is
+ * configured (local dev).
+ *
+ * The buyer home offered "Get the extension" and linked to /buyer/settings,
+ * which is not where anyone gets an extension. The id is already configured for
+ * the bridge, so the listing URL is derived from it rather than added as a
+ * second thing to keep in sync.
+ */
+export function extensionWebStoreUrl(): string | null {
+  const explicit = (import.meta.env.VITE_EXTENSION_WEBSTORE_URL as string | undefined)?.trim();
+  if (explicit) return explicit;
+  const id = listerExtensionId();
+  return id ? `https://chromewebstore.google.com/detail/${id}` : null;
+}
+
 /** True when the Lister UI should be offered (flag on + a transport is present). */
 export function isListerAvailable(): boolean {
   if (import.meta.env.VITE_LISTER_EXTENSION !== "true") return false;

@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { Lock, Sparkles } from "lucide-react";
+import { Lock, Sparkles, ArrowLeft } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { useBuyerEntitlements } from "@/hooks/use-buyer-entitlements";
 import type { BuyerGateFlags } from "@/lib/constants";
@@ -72,8 +72,15 @@ export function BuyerPlaceholderPage({
                 </p>
               </>
             )}
-            <Link to="/buyer" className="text-sm font-medium text-primary hover:underline">
-              ← Back to buyer home
+            {/* US-2553: an arrow drawn as an icon, not typed as a character —
+                a bare ← in text is read aloud as "leftwards arrow" and does not
+                flip in a right-to-left locale. */}
+            <Link
+              to="/buyer"
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-primary hover:underline"
+            >
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+              Back to buyer home
             </Link>
           </>
         )}

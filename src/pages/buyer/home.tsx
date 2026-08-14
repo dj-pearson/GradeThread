@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { Link, Navigate } from "react-router";
-import { Bell, Chrome, Gift, Leaf, ScanLine, Share2, ShieldCheck, Shirt } from "lucide-react";
+import { Bell, Gift, Leaf, Share2, ShieldCheck, Shirt } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import { useBuyerPreferences } from "@/hooks/use-buyer-preferences";
 import { useBuyerImpact } from "@/hooks/use-buyer-impact";
 import { TrustLevelCard } from "@/components/buyer/trust-level-card";
 import { ClaimedResultCard } from "@/components/buyer/claimed-result-card";
+import { BuyerFirstSteps } from "@/components/buyer/buyer-first-steps";
+import { BuyerActivity } from "@/components/buyer/buyer-activity";
 import { BUYER_PLANS } from "@/lib/constants";
 import { trackBuyerFunnel } from "@/lib/buyer-analytics";
 
@@ -65,41 +67,16 @@ function BuyerImpactCard() {
   );
 }
 
-// US-1802: buyer home. Empty-state, progressive-disclosure guidance to first
-// value — run an extension second-opinion, set a condition alert, verify a
-// certificate — plus entitlement-aware tiles into the buyer feature suite.
-
-interface FirstStep {
-  icon: typeof Bell;
-  title: string;
-  body: string;
-  cta: string;
-  to: string;
-}
-
-const FIRST_STEPS: FirstStep[] = [
-  {
-    icon: Chrome,
-    title: "Get a second opinion",
-    body: "Install the GradeThread extension to see an objective condition read on any listing you're eyeing.",
-    cta: "Get the extension",
-    to: "/buyer/settings",
-  },
-  {
-    icon: Bell,
-    title: "Set a condition alert",
-    body: "Snipe on grade, not just price — get notified when a graded item in your size and brands lists.",
-    cta: "Create an alert",
-    to: "/buyer/alerts",
-  },
-  {
-    icon: ScanLine,
-    title: "Verify a certificate",
-    body: "Scan or paste a GradeThread certificate to confirm a seller's claimed grade is real.",
-    cta: "Verify a grade",
-    to: "/verify",
-  },
-];
+// US-1802: buyer home. Guidance to first value — run an extension
+// second-opinion, set a condition alert, save a graded item — plus
+// entitlement-aware tiles into the buyer feature suite.
+//
+// US-2553: the get-started cards were a static array with no completion
+// tracking, so a buyer with five live alerts was still told to create one and
+// the cards never went away. They live in BuyerFirstSteps now, which reads the
+// real signals and self-hides. The page also shows what the buyer has actually
+// DONE (BuyerActivity) — both feeds already existed and were already recorded;
+// nothing here read them.
 
 export function BuyerHomePage() {
   const profile = useAuthStore((s) => s.profile);
@@ -157,31 +134,9 @@ export function BuyerHomePage() {
 
       <BuyerImpactCard />
 
-      <section className="space-y-3">
-        <h2 className="text-base font-semibold text-foreground">
-          Get started
-        </h2>
-        <div className="grid gap-4 sm:grid-cols-3">
-          {FIRST_STEPS.map((step) => {
-            const Icon = step.icon;
-            return (
-              <Card key={step.title} className="flex flex-col gap-3 p-5">
-                <Icon className="h-6 w-6 text-primary" />
-                <div className="flex-1 space-y-1">
-                  <h3 className="font-semibold">{step.title}</h3>
-                  <p className="text-sm text-muted-foreground">{step.body}</p>
-                </div>
-                <Link
-                  to={step.to}
-                  className="text-sm font-medium text-primary hover:underline"
-                >
-                  {step.cta} →
-                </Link>
-              </Card>
-            );
-          })}
-        </div>
-      </section>
+      <BuyerFirstSteps />
+
+      <BuyerActivity />
 
       <section className="space-y-3">
         <h2 className="text-base font-semibold text-foreground">
