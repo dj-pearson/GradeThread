@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2557",
+  "nextId": "US-2558",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2354,18 +2354,21 @@
       "priority": 2430
     },
     {
-      "id": "US-2556",
+      "id": "US-2557",
       "passes": false,
-      "title": "Offers, returns and cancellations never emit a notification, and iOS has no badge",
-      "description": "As a seller, I want to be told when a buyer messages me or opens a return, so that the most time-sensitive things in the app are not invisible until I happen to open a page.",
+      "title": "iOS shows no unread notification count on the tab bar",
+      "description": "As a seller or buyer using the iPhone app, I want an unread count on the tab bar, so that I learn about a new offer or return without opening the app and hunting.",
       "acceptanceCriteria": [
-        "The notification_type enum already carries offer_received, offer_responded, return_opened and return_requested (migrations 00246/00247), and nothing emits any of them — a grep for a notifyUser call with those types returns zero. The only place an unanswered buyer message is counted is flipdesk/offers.tsx:607, on that page.",
-        "The hourly automation-rules cron (routes/flipdesk-automations.ts) already reads a marketplace-event ledger for offer_received and return_opened at :297,:317,:478 and already calls notifyUser at :881,:1054 — but only when a user-configured RULE matches. Emit a notification on arrival, independently of whether any rule exists.",
-        "Dedupe is mandatory, not optional: the cron runs hourly, so emitting per-evaluation would notify the same offer every hour until it is answered. Use the buyer_notification_log UNIQUE (user_id, dedupe_key) claim pattern from migration 00412, keyed on the marketplace event id.",
-        "A test asserts a second evaluation of the same unanswered offer or open return produces exactly one notifications row.",
-        "iOS shows an unread count on the tab bar. No badge API is used anywhere in ios/GradeThread today. iOS cannot be built from the Windows checkout — the macOS CI lane is the gate."
+        "No badge API is used anywhere in ios/GradeThread — a grep for applicationIconBadge, badgeCount and .badge( over the Swift tree finds only unrelated matches in InventoryFilterSheet and ToolsHubView.",
+        "The unread source already exists and needs no new backend: public.notifications (migration 00007) with is_read, RLS-scoped to auth.uid(). Web reads it directly through the authenticated Supabase client in src/components/dashboard/notification-center.tsx; iOS can do the same.",
+        "The count badges the relevant tab in ContentView.swift's TabView and clears as rows are marked read, matching the web centre's behaviour.",
+        "Set the app icon badge from the same count so it is visible with the app closed, since the transactional-push path (lib/transactional-push.ts) already delivers these events to APNs.",
+        "iOS cannot be built or tested from the Windows checkout; the iOS CI lane on macOS runners is the gate. State that in the PR rather than claiming local verification."
       ],
-      "priority": 1907
+      "priority": 1953,
+      "dependsOn": [
+        "US-2510"
+      ]
     }
   ]
 }
