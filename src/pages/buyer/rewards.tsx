@@ -1,8 +1,9 @@
 import { useRef, useState } from "react";
 import { Link } from "react-router";
-import { Camera, Check, Flame, Gift, Loader2, Lock, Plus, Share2, ShieldCheck, Snowflake, Trophy } from "lucide-react";
+import { Camera, Check, Flame, Gift, Loader2, Plus, Share2, ShieldCheck, Snowflake, Trophy } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -471,20 +472,15 @@ export function BuyerRewardsPage() {
   const [purchasedAt, setPurchasedAt] = useState("");
 
   if (!ent.has("rewards")) {
+    // US-2509: the shared locked state. This page used to hand-roll its
+    // own card; five of them had drifted into three different button
+    // treatments for the same "See plans" action.
     return (
-      <div className="mx-auto max-w-2xl">
-        <Card className="flex flex-col items-center gap-4 p-10 text-center">
-          <Lock className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl font-bold">Rewards</h1>
-          <p className="text-sm text-muted-foreground">
-            Link your graded purchases and confirm arrival condition to earn rewards. This is part
-            of a higher buyer plan.
-          </p>
-          <Button asChild>
-            <Link to="/buyer/billing?upgrade=rewards">See plans</Link>
-          </Button>
-        </Card>
-      </div>
+      <BuyerPlaceholderPage
+        title="Rewards"
+        requiresFlag="rewards"
+        description="Link your graded purchases and confirm arrival condition to earn rewards."
+      />
     );
   }
 

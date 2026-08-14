@@ -36584,6 +36584,19 @@
       ],
       "priority": 1902,
       "notes": "Done 2026-08-14 (commit below). All 7 reload-retries are gone; each now calls its OWN query's refetch and shows a retrying spinner. Root cause fixed too, not just the symptom: the six buyer hooks reported isError (US-2026) but exposed no refetch, so a consumer wanting to retry had literally nothing to call — which is why the reload appeared. Added isFetching + refetch to use-saved-searches, use-watchlist, use-buyer-alert-matches, use-buyer-closet, use-buyer-purchases and use-buyer-wants, extending three of their exported interfaces. New guard src/test/buyer-retry-refetches.test.ts asserts both halves (no onRetry reloads the window; every buyer hook exposes refetch) and was PROVEN red against the pre-fix tree — it named all five pages. DEVIATION ON AC3, stated rather than skipped: the AC asked alerts.tsx's three error branches to 'share one boundary rather than three'. They front three INDEPENDENT queries (saved searches, watchlist, matches), so one shared boundary would blank two healthy sections whenever the third failed. Implemented per-section retries instead, which is what the AC was reaching for — the duplication it objected to was the identical reload handler, and that is what is gone. tsc -b clean, lint 0 errors, ui:check 0, 3614 web tests pass."
+    },
+    {
+      "id": "US-2509",
+      "passes": true,
+      "title": "Five buyer pages hand-roll the paywall that a shared component already renders",
+      "description": "As a buyer, I want a consistent upgrade prompt, so that the locked state looks like one product.",
+      "acceptanceCriteria": [
+        "BuyerPlaceholderPage (src/pages/buyer/placeholder.tsx:35-50) renders the entitlement-aware locked state. Five pages reimplement it inline: alerts.tsx:242, portfolio.tsx:136, guarantee.tsx:95, rewards.tsx:478, demand.tsx:37-50.",
+        "All five render BuyerPlaceholderPage with the correct requiresFlag instead of a bespoke card.",
+        "The buyer /buyer/* catch-all stops rendering the coming-soon component as a 404 (routes/index.tsx:578) and renders a real not-found, matching InShellNotFound on the seller side."
+      ],
+      "priority": 1904,
+      "notes": "Done 2026-08-14 (commit below). All five pages now render BuyerPlaceholderPage with their entitlement flag: alerts (conditionAlerts), portfolio (wardrobePortfolio), guarantee (purchaseGuarantee), rewards (rewards), demand (demandBoard). The copies had genuinely drifted — three used a Button-asChild-Link, guarantee used a raw Link hand-styled to look like a button, and each restated 'part of a higher buyer plan' in its own words; the shared component owns that sentence and the billing link now. Dropped the imports this orphaned (Lock in all five, plus react-router Link in demand which had no uses left). Second half, and the more consequential one: the /buyer/* catch-all no longer renders BuyerPlaceholderPage as its 404. That component's UNLOCKED branch draws a Sparkles icon over 'is coming soon to your buyer dashboard', so a mistyped buyer URL told the user the feature was merely unshipped. It renders InShellNotFound now, homed to /buyer — the same component the seller side has used since US-443. New guard src/test/buyer-paywall-shared.test.ts covers both halves and was PROVEN red against the pre-fix tree, naming all five pages and the route. tsc -b clean, lint 0 errors, ui:check 0, 3617 web tests pass."
     }
   ]
 }

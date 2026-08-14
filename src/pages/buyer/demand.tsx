@@ -1,8 +1,8 @@
 import { useState } from "react";
-import { Link } from "react-router";
-import { Loader2, Lock, Megaphone, Plus, Trash2 } from "lucide-react";
+import { Loader2, Megaphone, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,17 +35,15 @@ export function BuyerDemandPage() {
   const [isPublic, setIsPublic] = useState(true);
 
   if (!ent.has("demandBoard")) {
+    // US-2509: the shared locked state. This page used to hand-roll its
+    // own card; five of them had drifted into three different button
+    // treatments for the same "See plans" action.
     return (
-      <div className="mx-auto max-w-2xl">
-        <Card className="flex flex-col items-center gap-4 p-10 text-center">
-          <Lock className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl font-bold">Graded Wanted</h1>
-          <p className="text-sm text-muted-foreground">
-            Post what you're hunting for and get matched to graded inventory. Part of a higher buyer plan.
-          </p>
-          <Button asChild><Link to="/buyer/billing?upgrade=demandBoard">See plans</Link></Button>
-        </Card>
-      </div>
+      <BuyerPlaceholderPage
+        title="Graded Wanted"
+        requiresFlag="demandBoard"
+        description="Post what you're hunting for and get matched to graded inventory."
+      />
     );
   }
 

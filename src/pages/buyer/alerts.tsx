@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router";
-import { Bell, BellRing, ExternalLink, Loader2, Lock, Plus, Search, Trash2 } from "lucide-react";
+import { Bell, BellRing, ExternalLink, Loader2, Plus, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -235,20 +236,15 @@ export function BuyerAlertsPage() {
   }, [preferences, digestSeeded]);
 
   if (!ent.has("conditionAlerts")) {
+    // US-2509: the shared locked state. This page used to hand-roll its
+    // own card; five of them had drifted into three different button
+    // treatments for the same "See plans" action.
     return (
-      <div className="mx-auto max-w-2xl">
-        <Card className="flex flex-col items-center gap-4 p-10 text-center">
-          <Lock className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl font-bold">Watchlist &amp; Alerts</h1>
-          <p className="text-sm text-muted-foreground">
-            Save searches and get alerted the moment a graded item in your brands and sizes
-            appears. This is part of a higher buyer plan.
-          </p>
-          <Button asChild>
-            <Link to="/buyer/billing?upgrade=conditionAlerts">See plans</Link>
-          </Button>
-        </Card>
-      </div>
+      <BuyerPlaceholderPage
+        title="Watchlist & Alerts"
+        requiresFlag="conditionAlerts"
+        description="Save searches and get alerted the moment a graded item in your brands and sizes appears."
+      />
     );
   }
 

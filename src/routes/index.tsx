@@ -32,7 +32,6 @@ const BuyerAlertsPage = lazy(() => import("@/pages/buyer/alerts").then(m => ({ d
 const BuyerRewardsPage = lazy(() => import("@/pages/buyer/rewards").then(m => ({ default: m.BuyerRewardsPage })));
 const BuyerPortfolioPage = lazy(() => import("@/pages/buyer/portfolio").then(m => ({ default: m.BuyerPortfolioPage })));
 const BuyerBillingPage = lazy(() => import("@/pages/buyer/billing").then(m => ({ default: m.BuyerBillingPage })));
-const BuyerPlaceholderPage = lazy(() => import("@/pages/buyer/placeholder").then(m => ({ default: m.BuyerPlaceholderPage })));
 
 // Lazy-loaded pages for code splitting
 const LandingPage = lazy(() => import("@/pages/landing").then(m => ({ default: m.LandingPage })));
@@ -587,7 +586,12 @@ export const router = createBrowserRouter([
                   { path: "/buyer/demand", element: <SuspenseWrapper><BuyerDemandPage /></SuspenseWrapper> },
                   { path: "/buyer/billing", element: <SuspenseWrapper><BuyerBillingPage /></SuspenseWrapper> },
                   { path: "/buyer/settings", element: <SuspenseWrapper><BuyerSettingsPage /></SuspenseWrapper> },
-                  { path: "/buyer/*", element: <SuspenseWrapper><BuyerPlaceholderPage title="Not found" description="That buyer page doesn't exist yet." /></SuspenseWrapper> },
+                  // US-2509: a real 404, not the coming-soon component. This
+                  // used to render BuyerPlaceholderPage, whose unlocked branch
+                  // draws a Sparkles icon over "coming soon" copy — so a
+                  // mistyped buyer URL read as an unshipped feature. The seller
+                  // side has used InShellNotFound for exactly this since US-443.
+                  { path: "/buyer/*", element: <SuspenseWrapper><InShellNotFound homeTo="/buyer" homeLabel="Back to buyer home" /></SuspenseWrapper> },
                 ],
               },
             ],

@@ -1,6 +1,7 @@
 import { Link } from "react-router";
-import { Loader2, Lock, ShieldCheck, ShieldOff, ShieldAlert } from "lucide-react";
+import { Loader2, ShieldCheck, ShieldOff, ShieldAlert } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -88,23 +89,15 @@ export function BuyerCoveragePage() {
   // Entitlement gate first — mirrors BuyerPlaceholderPage's locked branch so the
   // upgrade path stays identical wherever a buyer meets a gated feature.
   if (!ent.has("purchaseGuarantee")) {
+    // US-2509: the shared locked state. This page used to hand-roll its
+    // own card; five of them had drifted into three different button
+    // treatments for the same "See plans" action.
     return (
-      <div className="mx-auto max-w-2xl">
-        <Card className="flex flex-col items-center gap-4 p-10 text-center">
-          <Lock className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl font-bold">Purchase Guarantee</h1>
-          <p className="text-sm text-muted-foreground">
-            Grade-locked coverage on eligible purchases is part of a higher buyer
-            plan. Upgrade to unlock it.
-          </p>
-          <Link
-            to="/buyer/billing?upgrade=purchaseGuarantee"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            See plans
-          </Link>
-        </Card>
-      </div>
+      <BuyerPlaceholderPage
+        title="Purchase Guarantee"
+        requiresFlag="purchaseGuarantee"
+        description="Grade-locked coverage on eligible purchases."
+      />
     );
   }
 

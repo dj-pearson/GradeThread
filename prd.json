@@ -1759,18 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2509",
-      "passes": false,
-      "title": "Five buyer pages hand-roll the paywall that a shared component already renders",
-      "description": "As a buyer, I want a consistent upgrade prompt, so that the locked state looks like one product.",
-      "acceptanceCriteria": [
-        "BuyerPlaceholderPage (src/pages/buyer/placeholder.tsx:35-50) renders the entitlement-aware locked state. Five pages reimplement it inline: alerts.tsx:242, portfolio.tsx:136, guarantee.tsx:95, rewards.tsx:478, demand.tsx:37-50.",
-        "All five render BuyerPlaceholderPage with the correct requiresFlag instead of a bespoke card.",
-        "The buyer /buyer/* catch-all stops rendering the coming-soon component as a 404 (routes/index.tsx:578) and renders a real not-found, matching InShellNotFound on the seller side."
-      ],
-      "priority": 1904
-    },
-    {
       "id": "US-2510",
       "passes": false,
       "title": "Nothing in the customer apps tells a user something needs them",

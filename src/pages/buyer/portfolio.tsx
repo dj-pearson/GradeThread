@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Download, Loader2, Lock, Plus, Shirt, Store, Tag, Trash2, Video } from "lucide-react";
+import { Download, Loader2, Plus, Shirt, Store, Tag, Trash2, Video } from "lucide-react";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BuyerPlaceholderPage } from "@/pages/buyer/placeholder";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -129,20 +130,15 @@ export function BuyerPortfolioPage() {
   })();
 
   if (!ent.has("wardrobePortfolio")) {
+    // US-2509: the shared locked state. This page used to hand-roll its
+    // own card; five of them had drifted into three different button
+    // treatments for the same "See plans" action.
     return (
-      <div className="mx-auto max-w-2xl">
-        <Card className="flex flex-col items-center gap-4 p-10 text-center">
-          <Lock className="h-8 w-8 text-muted-foreground" />
-          <h1 className="text-xl font-bold">Closet Portfolio</h1>
-          <p className="text-sm text-muted-foreground">
-            Track what you own and its condition-adjusted value over time. This is part of a
-            higher buyer plan.
-          </p>
-          <Button asChild>
-            <Link to="/buyer/billing?upgrade=wardrobePortfolio">See plans</Link>
-          </Button>
-        </Card>
-      </div>
+      <BuyerPlaceholderPage
+        title="Closet Portfolio"
+        requiresFlag="wardrobePortfolio"
+        description="Track what you own and its condition-adjusted value over time."
+      />
     );
   }
 
