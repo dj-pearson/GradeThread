@@ -311,7 +311,7 @@ function BuyerPrivacyCard() {
             {optOut ? "Your Privacy Choices" : "Cookie settings"}
           </Button>
           <Button variant="outline" size="sm" asChild>
-            <Link to="/dashboard/settings">Export or delete your data</Link>
+            <Link to="/dashboard/account?tab=settings">Export or delete your data</Link>
           </Button>
           <Link to="/privacy" className="text-sm text-primary underline">
             Privacy policy

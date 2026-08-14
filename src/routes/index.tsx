@@ -49,11 +49,7 @@ const NewSubmissionPage = lazy(() => import("@/pages/new-submission").then(m => 
 const SnapToValuePage = lazy(() => import("@/pages/snap").then(m => ({ default: m.SnapToValuePage })));
 const BulkSubmissionPage = lazy(() => import("@/pages/bulk-submission").then(m => ({ default: m.BulkSubmissionPage })));
 const SubmissionDetailPage = lazy(() => import("@/pages/submission-detail").then(m => ({ default: m.SubmissionDetailPage })));
-const SettingsPage = lazy(() => import("@/pages/settings").then(m => ({ default: m.SettingsPage })));
 const AccountPage = lazy(() => import("@/pages/account").then(m => ({ default: m.AccountPage })));
-const BillingPage = lazy(() => import("@/pages/billing").then(m => ({ default: m.BillingPage })));
-const ApiKeysPage = lazy(() => import("@/pages/api-keys").then(m => ({ default: m.ApiKeysPage })));
-const TeamPage = lazy(() => import("@/pages/team").then(m => ({ default: m.TeamPage })));
 const AcceptInvitePage = lazy(() => import("@/pages/accept-invite").then(m => ({ default: m.AcceptInvitePage })));
 const ConnectExtensionPage = lazy(() => import("@/pages/connect-extension").then(m => ({ default: m.ConnectExtensionPage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
@@ -183,7 +179,6 @@ const FlipdeskScheduledDropsPage = lazy(() => import("@/pages/flipdesk/scheduled
 const NotFoundPage = lazy(() => import("@/pages/not-found").then(m => ({ default: m.NotFoundPage })));
 // US-443: in-shell 404 that keeps the dashboard/admin chrome (sidebar + header).
 const InShellNotFound = lazy(() => import("@/pages/not-found").then(m => ({ default: m.InShellNotFound })));
-const ReferralsPage = lazy(() => import("@/pages/referrals").then(m => ({ default: m.ReferralsPage })));
 // US-864: public, opt-in top-referrers leaderboard. Dynamic (loads the public
 // feed client-side), NOT registered in PUBLIC_ROUTES — like /status.
 const ReferralLeaderboardPage = lazy(() => import("@/pages/referral-leaderboard").then(m => ({ default: m.ReferralLeaderboardPage })));
@@ -551,13 +546,20 @@ export const router = createBrowserRouter([
               { path: "/dashboard/flipdesk/community", element: <Navigate to="/dashboard/flipdesk/analytics/community" replace /> },
               { path: "/dashboard/flipdesk/analytics/community", element: <SuspenseWrapper><FlipdeskAnalyticsPage /></SuspenseWrapper> },
               { path: "/dashboard/account", element: <SuspenseWrapper><AccountPage /></SuspenseWrapper> },
-              { path: "/dashboard/settings", element: <SuspenseWrapper><SettingsPage /></SuspenseWrapper> },
+              // US-2511: the five legacy account paths render the Account HUB
+              // with their tab preselected, so an in-app or emailed link no
+              // longer lands on a tab-less version of the page. They RENDER
+              // rather than redirect because Stripe checkout returns, the
+              // cancellation link, the drip CTA, the unsubscribe deep-link and
+              // Stripe Connect's return all point here — see the comment on
+              // AccountPage's initialTab prop.
+              { path: "/dashboard/settings", element: <SuspenseWrapper><AccountPage initialTab="settings" /></SuspenseWrapper> },
               { path: "/dashboard/support", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
               { path: "/dashboard/support/:id", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
-              { path: "/dashboard/billing", element: <SuspenseWrapper><BillingPage /></SuspenseWrapper> },
-              { path: "/dashboard/api-keys", element: <SuspenseWrapper><ApiKeysPage /></SuspenseWrapper> },
-              { path: "/dashboard/team", element: <SuspenseWrapper><TeamPage /></SuspenseWrapper> },
-              { path: "/dashboard/referrals", element: <SuspenseWrapper><ReferralsPage /></SuspenseWrapper> },
+              { path: "/dashboard/billing", element: <SuspenseWrapper><AccountPage initialTab="billing" /></SuspenseWrapper> },
+              { path: "/dashboard/api-keys", element: <SuspenseWrapper><AccountPage initialTab="api-keys" /></SuspenseWrapper> },
+              { path: "/dashboard/team", element: <SuspenseWrapper><AccountPage initialTab="team" /></SuspenseWrapper> },
+              { path: "/dashboard/referrals", element: <SuspenseWrapper><AccountPage initialTab="referrals" /></SuspenseWrapper> },
               // Content module moved to the admin dashboard (/admin/content/*).
               // Keep old /dashboard/content/* URLs alive via a prefix-preserving
               // redirect so existing bookmarks and in-app links don't 404.

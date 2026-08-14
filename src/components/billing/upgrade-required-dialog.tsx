@@ -255,7 +255,7 @@ export function UpgradeRequiredDialog() {
                 setPlanPickerOpen(true);
               }}
             >
-              <Link to="/dashboard/billing">
+              <Link to="/dashboard/account?tab=billing">
                 <Sparkles className="mr-2 h-4 w-4" />
                 Upgrade to {requiredPlanConfig.name}
                 <ArrowRight className="ml-2 h-4 w-4" />

@@ -406,7 +406,7 @@ export function BulkSubmissionPage() {
                 and a ZIP of photos. Upgrade your plan to unlock it.
               </p>
             </div>
-            <Button onClick={() => navigate("/dashboard/billing")}>
+            <Button onClick={() => navigate("/dashboard/account?tab=billing")}>
               Upgrade Plan
             </Button>
           </CardContent>

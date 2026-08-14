@@ -133,7 +133,7 @@ function quickActionsFor(useCase: UserUseCase | null): QuickAction[] {
       ];
     case "developer":
       return [
-        { key: "keys", icon: KeyRound, label: "API Keys", sublabel: "Create & manage keys", to: "/dashboard/api-keys" },
+        { key: "keys", icon: KeyRound, label: "API Keys", sublabel: "Create & manage keys", to: "/dashboard/account?tab=api-keys" },
         { key: "docs", icon: Code, label: "API Docs", sublabel: "Integrate grading", to: "/developers" },
         { key: "new", icon: Plus, label: "New Submission", sublabel: "Grade a garment", to: "/dashboard/submissions/new" },
       ];
@@ -238,7 +238,7 @@ function firstRunFor(useCase: UserUseCase | null): FirstRunHint {
         title: "Integrate condition grading",
         description: "Create an API key and start grading garments programmatically from your own app.",
         cta: "Create an API key",
-        to: "/dashboard/api-keys",
+        to: "/dashboard/account?tab=api-keys",
       };
     case "consignment":
       return {

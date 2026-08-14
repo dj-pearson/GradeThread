@@ -135,7 +135,7 @@ export function SnapToValuePage() {
             <p className={limitReached ? "text-amber-800 dark:text-amber-300" : "text-destructive"}>{snap.error.message}</p>
             {limitReached && (
               <Button asChild size="sm">
-                <Link to="/dashboard/billing">Upgrade for more snaps</Link>
+                <Link to="/dashboard/account?tab=billing">Upgrade for more snaps</Link>
               </Button>
             )}
           </CardContent>

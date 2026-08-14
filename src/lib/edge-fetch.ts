@@ -173,7 +173,7 @@ export async function edgeFetch(
           action: {
             label: "Open Settings",
             onClick: () => {
-              window.location.href = "/dashboard/settings";
+              window.location.href = "/dashboard/account?tab=settings";
             },
           },
         });

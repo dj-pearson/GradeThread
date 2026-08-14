@@ -731,7 +731,7 @@ export function PrivacyPage() {
       <ul>
         <li>
           Editing your profile and submissions directly in{" "}
-          <Link to="/dashboard/settings">Settings</Link>;
+          <Link to="/dashboard/account?tab=settings">Settings</Link>;
         </li>
         <li>
           Deleting individual submissions, certificates, items, or your entire

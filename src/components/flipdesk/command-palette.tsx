@@ -327,14 +327,14 @@ export function CommandPalette() {
         id: "settings",
         label: "Go to Settings",
         icon: <Settings className="h-4 w-4" />,
-        run: () => go("/dashboard/settings"),
+        run: () => go("/dashboard/account?tab=settings"),
       },
       {
         kind: "action",
         id: "billing",
         label: "Go to Billing",
         icon: <CreditCard className="h-4 w-4" />,
-        run: () => go("/dashboard/billing"),
+        run: () => go("/dashboard/account?tab=billing"),
         requires: "manage_billing",
       },
       {
@@ -342,7 +342,7 @@ export function CommandPalette() {
         id: "team",
         label: "Go to Team",
         icon: <Users className="h-4 w-4" />,
-        run: () => go("/dashboard/team"),
+        run: () => go("/dashboard/account?tab=team"),
         requires: "manage_members",
       },
       {
@@ -350,7 +350,7 @@ export function CommandPalette() {
         id: "api-keys",
         label: "Go to API keys",
         icon: <KeyRound className="h-4 w-4" />,
-        run: () => go("/dashboard/api-keys"),
+        run: () => go("/dashboard/account?tab=api-keys"),
         requires: "manage_api_keys",
       },
       {
@@ -358,7 +358,7 @@ export function CommandPalette() {
         id: "referrals",
         label: "Go to Referrals",
         icon: <Gift className="h-4 w-4" />,
-        run: () => go("/dashboard/referrals"),
+        run: () => go("/dashboard/account?tab=referrals"),
       },
       {
         kind: "action",

@@ -1759,20 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2511",
-      "passes": false,
-      "title": "Five account pages are reachable at two URLs and one of them has no tabs",
-      "description": "As a seller, I want one Account destination, so that an in-app link does not drop me on a version of the page with no navigation.",
-      "acceptanceCriteria": [
-        "settings, billing, team, api-keys and referrals are each routed standalone (src/routes/index.tsx:542-549) and as a tab of the Account hub (src/pages/account.tsx:56-74). The sidebar correctly links only the hub.",
-        "12 in-app links still target the standalone routes (9 to /dashboard/billing, 3 to /dashboard/settings), which render the page without the hub tab strip and with no way back to Account.",
-        "The five standalone routes redirect to /dashboard/account?tab=… preserving any query string, following the TabRedirect pattern already used for the FlipDesk hosts.",
-        "All 12 in-app links are repointed at the hub URL.",
-        "A route test asserts /dashboard/billing redirects to the hub with tab=billing."
-      ],
-      "priority": 1908
-    },
-    {
       "id": "US-2512",
       "passes": false,
       "title": "Ten admin destinations answer 'is the system healthy'",

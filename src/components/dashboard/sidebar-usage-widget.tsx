@@ -127,7 +127,7 @@ export function SidebarUsageWidget() {
             ))}
           </div>
           <Link
-            to="/dashboard/billing"
+            to="/dashboard/account?tab=billing"
             className="block w-full rounded-md bg-brand-navy py-1.5 text-center text-sm font-medium text-white transition-colors hover:bg-brand-navy/90"
           >
             Manage plan

@@ -32,7 +32,7 @@ export function RefundPage() {
       <h2 id="cancellation">2. Cancelling a subscription</h2>
       <p>
         You can cancel at any time from{" "}
-        <Link to="/dashboard/billing">Billing</Link>. Cancellation stops the next
+        <Link to="/dashboard/account?tab=billing">Billing</Link>. Cancellation stops the next
         renewal; your plan stays active until the end of the billing period you
         have already paid for, and you are not charged again after that. We do
         not provide partial refunds for the unused portion of a billing period

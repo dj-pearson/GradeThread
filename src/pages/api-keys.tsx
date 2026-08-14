@@ -285,7 +285,7 @@ export function ApiKeysPage() {
             </p>
             <Button
               className="mt-6"
-              onClick={() => navigate("/dashboard/billing")}
+              onClick={() => navigate("/dashboard/account?tab=billing")}
             >
               View Plans
             </Button>

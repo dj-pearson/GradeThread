@@ -73,7 +73,7 @@ export function TermsPage() {
         <li>
           <strong>Cancellation.</strong> You may cancel your subscription at
           any time from{" "}
-          <Link to="/dashboard/billing">Billing</Link>. Cancellation takes
+          <Link to="/dashboard/account?tab=billing">Billing</Link>. Cancellation takes
           effect at the end of the current billing period.
         </li>
         <li>

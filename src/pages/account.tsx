@@ -1,4 +1,4 @@
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useWorkspace } from "@/hooks/use-workspace";
 import { AccountHubContext } from "@/hooks/use-account-hub";
@@ -24,8 +24,27 @@ const TABS: { value: string; label: string; requires?: WorkspaceCapability }[] =
     { value: "referrals", label: "Referrals" },
   ];
 
-export function AccountPage() {
+export function AccountPage({
+  /**
+   * US-2511: which tab a LEGACY standalone path opens on. `/dashboard/billing`
+   * and friends now render this hub with the matching tab preselected, instead
+   * of rendering the bare page with no tab strip and no way back to Account.
+   *
+   * They RENDER rather than redirect on purpose. Those five paths are baked into
+   * things we do not control on this side: Stripe checkout return URLs
+   * (`payments.ts` → `/dashboard/billing?checkout=success&product=…&credits=…`,
+   * and the same for api-keys), the legally-required cancellation link
+   * (`?cancel=1`), the drip's subscribe CTA (`?upgrade=pro`), the unsubscribe
+   * link (`/dashboard/settings?tab=notifications#email-preferences`) and Stripe
+   * Connect's return (`/dashboard/referrals?connect=done`). A client-side
+   * redirect would put an extra hop — and a chance to drop a query param or the
+   * hash — in the middle of a money path. Rendering keeps every one of those
+   * URLs working byte for byte.
+   */
+  initialTab,
+}: { initialTab?: string } = {}) {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const { can } = useWorkspace();
 
   // Mirror the per-capability gating the sidebar used to apply, so members
@@ -33,10 +52,21 @@ export function AccountPage() {
   const visible = TABS.filter((t) => !t.requires || can(t.requires));
   const allowed = new Set(visible.map((t) => t.value));
 
+  // `?tab=` is ALSO owned by a child — the unsubscribe email deep-links
+  // `/dashboard/settings?tab=notifications`, which settings.tsx reads for its
+  // own section. So an unrecognised value is not an error: it belongs to the
+  // child, and the outer tab falls back to `initialTab`.
   const raw = params.get("tab");
-  const tab = raw && allowed.has(raw) ? raw : "settings";
+  const fallback = initialTab && allowed.has(initialTab) ? initialTab : "settings";
+  const tab = raw && allowed.has(raw) ? raw : fallback;
 
   function onTab(next: string) {
+    // From a legacy standalone path, the first tab click moves the user onto the
+    // canonical hub URL rather than leaving them on /dashboard/billing?tab=team.
+    if (initialTab) {
+      navigate(`/dashboard/account?tab=${next}`, { replace: true });
+      return;
+    }
     // Deep-linkable + replace so tab switches don't pile up history entries.
     const n = new URLSearchParams(params);
     n.set("tab", next);

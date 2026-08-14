@@ -42,7 +42,7 @@ export function ReferralLeaderboardPage() {
           <p className="text-sm text-muted-foreground">
             Want to climb the board?{" "}
             <Link
-              to="/dashboard/referrals"
+              to="/dashboard/account?tab=referrals"
               className="inline-flex items-center gap-1 font-medium text-brand-navy hover:underline dark:text-foreground"
             >
               <Gift className="h-3.5 w-3.5" /> Share your referral link

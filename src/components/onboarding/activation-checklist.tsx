@@ -84,7 +84,7 @@ function stepsFor(useCase: UserUseCase | null): ChecklistStepDef[] {
     title: "Create an API key",
     desc: "Grade garments programmatically from your own app.",
     cta: "Create key",
-    to: "/dashboard/api-keys",
+    to: "/dashboard/account?tab=api-keys",
   };
   const notifications: ChecklistStepDef = {
     key: "notifications",

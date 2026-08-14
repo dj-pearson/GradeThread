@@ -327,7 +327,7 @@ export function BuyerBillingPage() {
       {ent.fromSellerPlan && (
         <p className="text-center text-xs text-muted-foreground">
           Your buyer tools are included with your FlipDesk seller plan. Manage that subscription in{" "}
-          <a href="/dashboard/billing" className="underline">seller billing</a>.
+          <a href="/dashboard/account?tab=billing" className="underline">seller billing</a>.
         </p>
       )}
     </div>
