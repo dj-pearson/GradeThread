@@ -47,9 +47,10 @@ import {
   GARMENT_TYPES,
   GARMENT_CATEGORIES,
   GRADETHREAD_TIERS,
+  FLIPDESK_PLANS,
   type GradeTierKey,
 } from "@/lib/constants";
-import type { ImageType } from "@/types/database";
+import type { ImageType, FlipdeskPlan as FlipdeskPlanKey } from "@/types/database";
 
 // Plans permitted to use bulk upload (PRD: gate behind the top two tiers).
 //
@@ -58,7 +59,9 @@ import type { ImageType } from "@/types/database";
 // so it reads 'free' for every account created since — meaning bulk upload was
 // locked for every customer who has ever paid for it. Now the live tiers,
 // checked against the column entitlements actually use.
-const ALLOWED_PLANS = ["pro", "business"];
+// US-2515: typed against the live plan keys, so a renamed or removed tier is a
+// tsc error here rather than copy that names a plan nobody can buy.
+const ALLOWED_PLANS: FlipdeskPlanKey[] = ["pro", "business"];
 
 // Turnaround tiers a CSV `tier` column / the default-tier selector may name.
 // Mirrors GRADETHREAD_TIERS (and the edge GRADE_TIERS allowlist in grade.ts).
@@ -384,8 +387,20 @@ export function BulkSubmissionPage() {
   }
 
   if (!planAllowed) {
+    // US-2515: the cheapest plan that unlocks this, so the CTA can preselect it
+    // rather than dropping the seller on the plan picker to work it out.
+    const cheapestUnlock = ALLOWED_PLANS[0]!;
     return (
       <div className="space-y-6">
+        {/* US-2515: the locked state used to drop this, so a seller who landed
+            here had no way back except the browser button. */}
+        <Link
+          to="/dashboard/submissions"
+          className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to Submissions
+        </Link>
         <div>
           <h1 className="text-2xl font-bold">Bulk Submission Upload</h1>
           <p className="text-muted-foreground">
@@ -398,16 +413,28 @@ export function BulkSubmissionPage() {
               <Lock className="h-6 w-6 text-muted-foreground" />
             </div>
             <div className="space-y-1">
+              {/* US-2515: this read "Available on Professional & Enterprise".
+                  Neither is a plan you can buy — the tiers are Free, Starter,
+                  Pro and Business — so the one screen whose job is to tell a
+                  seller what to purchase named two things that do not exist.
+                  Built from FLIPDESK_PLANS so a rename cannot strand it again. */}
               <h2 className="text-lg font-semibold">
-                Available on Professional & Enterprise
+                Available on{" "}
+                {ALLOWED_PLANS.map((p) => FLIPDESK_PLANS[p].name).join(" and ")}
               </h2>
               <p className="max-w-md text-sm text-muted-foreground">
                 Bulk upload lets you grade many garments at once with a CSV
-                and a ZIP of photos. Upgrade your plan to unlock it.
+                and a ZIP of photos. You're on{" "}
+                {FLIPDESK_PLANS[plan as FlipdeskPlanKey]?.name ?? "a plan"} —
+                upgrade to unlock it.
               </p>
             </div>
-            <Button onClick={() => navigate("/dashboard/account?tab=billing")}>
-              Upgrade Plan
+            <Button
+              onClick={() =>
+                navigate(`/dashboard/account?tab=billing&upgrade=${cheapestUnlock}`)
+              }
+            >
+              Upgrade to {FLIPDESK_PLANS[cheapestUnlock].name}
             </Button>
           </CardContent>
         </Card>

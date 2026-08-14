@@ -28,12 +28,17 @@ const ENDPOINTS = [
 // Public, no key required — the machine-readable spec for Postman / codegen.
 const OPENAPI_URL = "https://functions.gradethread.com/api/v1/openapi.json";
 
+// US-2515: these mirror the server's API_RATE_TIERS
+// (services/edge-functions/src/middleware/api-v1-rate.ts:30-33) exactly. There
+// used to be a fifth row — "Enterprise, 600/120" — for a plan that does not
+// exist: `enterprise` is a LEGACY user_plan value the shim maps onto business
+// (constants.ts:675), not something anyone can buy. A public page was quoting
+// API capacity nobody could ever be granted.
 const RATE_TIERS = [
   { plan: "Free / downgraded", read: 30, write: 5 },
   { plan: "Starter", read: 60, write: 10 },
   { plan: "Pro", read: 120, write: 20 },
   { plan: "Business (API access)", read: 240, write: 40 },
-  { plan: "Enterprise", read: 600, write: 120 },
 ];
 
 const BATCH_EXAMPLE = `curl https://functions.gradethread.com/api/v1/grades/batch \\

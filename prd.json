@@ -1759,19 +1759,6 @@
       "priority": 1802
     },
     {
-      "id": "US-2515",
-      "passes": false,
-      "title": "Bulk grading upload names two plans that do not exist",
-      "description": "As a seller hitting the bulk-upload paywall, I want to be told which plan to buy, so that I can actually unlock it.",
-      "acceptanceCriteria": [
-        "src/pages/bulk-submission.tsx:61 gates on ['pro','business'] while the locked heading at :402 reads 'Available on Professional & Enterprise' — neither is a live tier name in FLIPDESK_PLANS.",
-        "The gate copy names the real tiers and links to the plan picker with that plan preselected.",
-        "The locked state keeps the 'Back to Submissions' link, which the early return at :386-416 currently drops.",
-        "A test asserts the gate copy is derived from FLIPDESK_PLANS rather than hardcoded."
-      ],
-      "priority": 1916
-    },
-    {
       "id": "US-2516",
       "passes": false,
       "title": "A bulk grading batch charges with no cost preview",
