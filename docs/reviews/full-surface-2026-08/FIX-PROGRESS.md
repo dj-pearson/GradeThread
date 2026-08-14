@@ -194,7 +194,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       Withhold, repeat reports counted rather than overwritten; AC4 was already
       built by US-1912; guard `src/test/certificate-report.test.ts` (15 cases,
       12 red) + 5 edge unit tests + 4 tenant-isolation cases
-- [x] US-2551 (2418) Anonymous tag claim - SHA5 - the server DID accept it;
+- [x] US-2551 (2418) Anonymous tag claim - c20eefcd - the server DID accept it;
       /tag/:code/claim now 401s an anonymous caller (before the tag lookup, so it
       cannot probe codes), the page signs you in instead of posting, the transfer
       is confirmed, failures are told apart by status via a shared
