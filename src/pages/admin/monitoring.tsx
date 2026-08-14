@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -298,7 +299,19 @@ export function AdminMonitoringPage() {
           <CardTitle className="text-base">Active limits (per plan)</CardTitle>
         </CardHeader>
         <CardContent>
-          {usageQuery.isLoading || !thresholds
+          {/* US-2507: isError first — `!thresholds` is also true on a failed
+              load, so without this the skeleton would never resolve. */}
+          {usageQuery.isError
+            ? (
+              <ErrorState
+                className="py-6"
+                title="Couldn't load the active limits"
+                description="They're still enforced — we just couldn't fetch them right now."
+                onRetry={() => void usageQuery.refetch()}
+                retrying={usageQuery.isFetching}
+              />
+            )
+            : usageQuery.isLoading || !thresholds
             ? <Skeleton className="h-24 w-full" />
             : (
               <Table>

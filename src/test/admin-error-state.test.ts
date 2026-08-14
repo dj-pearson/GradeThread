@@ -41,6 +41,14 @@ interface PageFacts {
   usesQuery: boolean;
   rendersEmptyState: boolean;
   rendersErrorState: boolean;
+  /**
+   * A guard that treats "no data" as "still loading". react-query leaves `data`
+   * undefined on an ERROR too, so this branch swallows the failure and renders
+   * the loading skeleton forever unless an isError branch runs first.
+   * growth/buyer.tsx had an error branch and still hit this, because it sat
+   * BELOW the loading guard and was therefore unreachable.
+   */
+  loadingSwallowsError: boolean;
 }
 
 function factsFor(rel: string): PageFacts {
@@ -50,6 +58,7 @@ function factsFor(rel: string): PageFacts {
     usesQuery: /\buseQuery\b|\buseInfiniteQuery\b/.test(src),
     rendersEmptyState: /<EmptyState\b|<ContentUnavailable/.test(src),
     rendersErrorState: /<ErrorState\b/.test(src),
+    loadingSwallowsError: /isLoading\s*\|\|\s*!\s*\w/.test(src),
   };
 }
 
@@ -71,6 +80,22 @@ describe("admin pages don't report a failed load as an empty one (US-2507)", () 
       "these render an empty state on a failed query — an outage reads as " +
         "'you have no data'. Add an <ErrorState onRetry={refetch}> branch " +
         "BEFORE the empty-state branch:\n  " + offenders.join("\n  "),
+    ).toEqual([]);
+  });
+
+  // The other half of the same defect: instead of claiming "no data", the page
+  // never stops loading. Both come from forgetting that an errored react-query
+  // leaves `data` undefined.
+  it("no page treats 'no data' as 'still loading' without an error branch", () => {
+    const offenders = pages
+      .filter((p) => p.usesQuery && p.loadingSwallowsError && !p.rendersErrorState)
+      .map((p) => p.rel);
+    expect(
+      offenders,
+      "these guard on `isLoading || !data`, and react-query leaves `data` " +
+        "undefined on an ERROR too — so a failed load renders the loading " +
+        "skeleton forever. Add an <ErrorState> branch and put it FIRST:\n  " +
+        offenders.join("\n  "),
     ).toEqual([]);
   });
 });

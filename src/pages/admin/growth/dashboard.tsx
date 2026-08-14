@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { CHART_PALETTE } from "@/lib/constants";
@@ -76,7 +77,7 @@ function Stat({
 }
 
 export function GrowthDashboardPage() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["growth-summary"],
     queryFn: async (): Promise<GrowthSummary> => {
       const res = await edgeFetch("/api/admin/growth/summary?days=30");
@@ -139,7 +140,16 @@ export function GrowthDashboardPage() {
         }
       />
 
-      {isLoading || !data ? (
+      {/* US-2507: isError first. An errored query leaves `data` undefined, so
+          `isLoading || !data` would otherwise render the skeleton forever. */}
+      {isError ? (
+        <ErrorState
+          title="Couldn't load the growth summary"
+          description="The numbers are still being tracked — we just couldn't fetch them right now."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      ) : isLoading || !data ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-28 w-full" />

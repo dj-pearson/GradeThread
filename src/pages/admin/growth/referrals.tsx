@@ -8,6 +8,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ErrorState } from "@/components/ui/error-state";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
@@ -132,7 +133,7 @@ export function GrowthReferralsPage() {
   const [retry, setRetry] = useState<null | (() => void)>(null);
   const [working, setWorking] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["growth-referrals"],
     queryFn: async (): Promise<ReferralOverview> => {
       const res = await edgeFetch("/api/admin/growth/referrals");
@@ -204,7 +205,16 @@ export function GrowthReferralsPage() {
         icon={Gift}
       />
 
-      {isLoading || !data ? (
+      {/* US-2507: isError first. An errored query leaves `data` undefined, so
+          `isLoading || !data` would otherwise render the skeleton forever. */}
+      {isError ? (
+        <ErrorState
+          title="Couldn't load the referral funnel"
+          description="The funnel is still being tracked — we just couldn't fetch it right now."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      ) : isLoading || !data ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-28 w-full" />)}
         </div>

@@ -7,6 +7,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { PageHeader } from "@/components/ui/page-header";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { CHART_PALETTE } from "@/lib/constants";
@@ -142,7 +143,7 @@ function attributionMix(row: AttributionRow): BuyerPlanMixRow[] {
 }
 
 export function BuyerGrowthPage() {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, isFetching, refetch } = useQuery({
     queryKey: ["admin-buyer-growth"],
     queryFn: async (): Promise<BuyerGrowth> => {
       const res = await edgeFetch("/api/admin/growth/buyer?days=30");
@@ -154,6 +155,24 @@ export function BuyerGrowthPage() {
     refetchInterval: 300_000,
   });
 
+  // US-2507: isError FIRST. This page already had an error branch, but it sat
+  // BELOW the `isLoading || !data` guard — and an errored query leaves `data`
+  // undefined, so that guard always won and the error branch was unreachable.
+  // The operator got the loading skeleton forever.
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <PageHeader icon={Users} title="Buyer growth" />
+        <ErrorState
+          title="Couldn't load the buyer growth metrics"
+          description="The funnel is still being tracked — we just couldn't fetch it right now."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      </div>
+    );
+  }
+
   if (isLoading || !data) {
     return (
       <div className="space-y-6">
@@ -163,19 +182,6 @@ export function BuyerGrowthPage() {
             <Skeleton key={i} className="h-28 w-full" />
           ))}
         </div>
-      </div>
-    );
-  }
-
-  if (isError) {
-    return (
-      <div className="space-y-6">
-        <PageHeader icon={Users} title="Buyer growth" />
-        <Card>
-          <CardContent className="py-8 text-sm text-muted-foreground">
-            Couldn't load the buyer growth metrics.
-          </CardContent>
-        </Card>
       </div>
     );
   }

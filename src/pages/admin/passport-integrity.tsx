@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MfaStepUpDialog } from "@/components/admin/admin-mfa-gate";
 import { PageHeader } from "@/components/ui/page-header";
+import { ErrorState } from "@/components/ui/error-state";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -437,7 +438,18 @@ export function AdminPassportIntegrityPage() {
       {/* Detail drawer */}
       <Sheet open={!!selectedId} onOpenChange={(o) => { if (!o) closeDrawer(); }}>
         <SheetContent className="w-full overflow-y-auto sm:max-w-lg">
-          {detail.isLoading || !selected ? (
+          {/* US-2507: isError first — `!selected` is also true on a failed
+              load, so the drawer would spin forever instead of saying why. */}
+          {detail.isError ? (
+            <div className="pt-8">
+              <ErrorState
+                title="Couldn't load this signal"
+                description="It's still recorded — we just couldn't fetch the detail right now."
+                onRetry={() => void detail.refetch()}
+                retrying={detail.isFetching}
+              />
+            </div>
+          ) : detail.isLoading || !selected ? (
             <div className="space-y-3 pt-8">
               {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-16" />)}
             </div>
