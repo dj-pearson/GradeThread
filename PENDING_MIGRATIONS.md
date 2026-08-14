@@ -1,5 +1,113 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00599_moderation_certificate_reports.sql (US-2550 — a buyer can report a certificate)
+
+**Risk: LOW, with one enum caveat.** One `ALTER TYPE … ADD VALUE IF NOT EXISTS`
+and one `COMMENT`. No table, no column, no index, no policy, no backfill,
+nothing dropped or narrowed. Safe to run twice and safe to re-run the whole
+directory.
+
+**What it adds.** `certificate` as a third value on
+`public.moderation_content_type`, so a buyer report can be enqueued into the
+EXISTING `content_moderation_flags` queue (US-889) alongside listings and
+photos. The `content_id` for one of these is `grade_reports.certificate_id` —
+the uuid the buyer is actually holding — so an operator can paste it into
+/cert/:id and see exactly what was reported.
+
+**⚠ THE FRONTEND IN THIS COMMIT WRITES IT.** The certificate page posts to the
+new public `POST /api/content/public/certificates/:id/report`, and that route
+inserts `content_type: 'certificate'`. Against a database without the value,
+Postgres rejects the insert (22P02 invalid input value for enum) and every
+buyer report fails — silently from the buyer's point of view, because the
+enqueue helper swallows and logs. So the SQL goes FIRST, in the usual order:
+
+1. Run the SQL.
+2. No PostgREST reload needed for the enum itself — but run
+   `NOTIFY pgrst, 'reload schema';` anyway if 00595-00598 are applied in the
+   same pass, since those add tables and columns.
+3. Deploy the edge (its boot guard now expects 00599).
+4. THEN push.
+
+**Enum caveat (US-1108).** A value added by `ALTER TYPE` cannot be USED in the
+same transaction. Nothing in this migration uses it; the edge writes it on a
+later connection, and the boot guard is what keeps an edge expecting 00599 from
+running against a database that predates it.
+
+**Nothing to roll back.** Removing an enum value is not supported in Postgres,
+and would not help: the rollback for this one is a frontend revert.
+
+Apply order: AFTER 00598.
+
+## ⏳ HELD: 00595 – 00598 (the pre-launch money + evidence audit, US-2562..US-2566)
+
+**Apply strictly in NNNNN order, after 00594.** `scripts/apply-prod-migrations.sh`
+does that for you; all four are idempotent and safe to re-run.
+
+**One hard dependency inside the set: 00597 REQUIRES 00595.** Until 00595 has
+removed the cascading foreign key, account deletion still deletes ledger rows,
+and 00597's DELETE-blocking trigger would abort every account deletion in the
+product. Running the directory in order is safe. Running 00597 alone is not.
+
+### 00595_ledger_survives_deletion.sql — **Risk: MEDIUM**
+
+Drops three cascading foreign keys (`grade_credit_transactions.user_id`,
+`grade_credit_transactions.submission_id`,
+`flipdesk_subscription_events.user_id`), adds two indexes to replace the lookups
+those constraints used to provide, adds three nullable columns to
+`account_deletion_log`, and adds `redact_subscription_event_pii(uuid)`.
+
+Medium rather than low because dropping a constraint is not additive: from this
+point the database no longer enforces that a ledger row's `user_id` exists in
+`public.users`. That is the intended behaviour — the ledger is a financial
+record and must outlive the account — but it means any query that INNER JOINs
+`grade_credit_transactions` to `users` will start silently dropping rows for
+erased accounts. `routes/admin-billing.ts:447` reads the table without a join
+and is unaffected; check any new report before assuming the same.
+
+**No frontend in this commit reads the new columns**, so a push before the SQL
+degrades nothing on Cloudflare Pages. The edge deletion path (US-2562) DOES call
+`redact_subscription_event_pii`, so the edge must not deploy ahead of this SQL.
+
+Rollback: re-adding the FKs is possible only after deleting the orphaned rows,
+which is the data this migration exists to keep. Treat it as forward-only.
+
+### 00596_api_idempotency_records.sql — **Risk: LOW**
+
+One new deny-all table plus `prune_api_idempotency_records(interval)`. No
+existing table, column, index or policy is touched. Nothing reads it until the
+middleware ships (US-2563).
+
+### 00597_ledger_append_only.sql — **Risk: MEDIUM**
+
+Adds a `BEFORE UPDATE OR DELETE` trigger on `grade_credit_transactions` that
+raises for every role, service_role included, plus
+`ledger_append_only_enforced()` so the guard's state is readable.
+
+Medium because it changes what the database will accept. Verified before
+writing it: no migration and no edge module performs an UPDATE or a DELETE on
+this table, so nothing in the product should notice. If something does, it
+fails loudly with `restrict_violation` rather than corrupting quietly — which is
+the trade being made.
+
+Rollback if it does bite: `DROP TRIGGER grade_credit_transactions_append_only ON
+public.grade_credit_transactions;` and nothing else is affected.
+
+### 00598_item_photos_derivation_provenance.sql — **Risk: LOW**
+
+Six nullable columns and two partial indexes on `item_photos`. Nothing existing
+is altered, narrowed or dropped, and no backfill runs. The derived rows written
+before this migration keep their `__auto_` filenames and are re-derived on the
+next annotation pass.
+
+### Runbook for the set
+
+1. Run the SQL in order (00595 → 00598).
+2. `NOTIFY pgrst, 'reload schema';` — **required.** Three new RPCs and six new
+   columns are invisible to PostgREST until its schema cache reloads.
+3. Redeploy the edge (its boot guard now expects `00598`).
+4. THEN push.
+
+
 ## ⏳ HELD: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account)
 
 **Risk: LOW.** One new `CREATE OR REPLACE FUNCTION`. No table, no column, no

@@ -188,7 +188,7 @@ unless a story is blocked; if blocked, note why and move to the next.
       a shared safeEmbedCompany that strips bidi/invisibles and is compared body-for-body
       against the server widget, a skeleton and a retry; guard
       `src/test/embed-grade-indexing.test.ts` (12 cases, 10 red)
-- [x] US-2550 (2416) Failed integrity check gives buyer nothing to do - SHA4 -
+- [x] US-2550 (2416) Failed integrity check gives buyer nothing to do - 0386ef33 -
       anonymous buyer report into the EXISTING moderation queue (migration 00599
       adds the third content type, HELD), a Certificates tab with a reversible
       Withhold, repeat reports counted rather than overwritten; AC4 was already
