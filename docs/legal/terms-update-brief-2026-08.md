@@ -106,9 +106,26 @@ risk of it.
 > own account and at your own risk; we cannot appeal a marketplace's decision on
 > your behalf. Do not use it in a way that violates the marketplace's terms.
 
-**AUP note for counsel.** The AUP prohibits "scraping". The extension reads the
-seller's own listings on their behalf, and a broad reading of that prohibition
-could be argued against our own product. Worth a carve-out.
+**AUP note for counsel — CORRECTED 2026-08-14, and now believed to be a
+non-issue.** The original version of this note said the AUP's "scraping"
+prohibition could be argued against our own extension and was worth a carve-out.
+On re-reading the clause that is wrong, and the correction is here rather than
+deleted so the reasoning is visible:
+
+> Do not access **the Service** through automated means except through
+> documented APIs and within published rate limits;
+> Do not scrape, harvest, or systematically copy content from **the Service**;
+
+Both are scoped to *the Service* — GradeThread. The Lister extension automates
+the seller's own signed-in eBay/Poshmark/Mercari session and reads *marketplace*
+pages; it does not automate GradeThread, and where it does talk to GradeThread it
+does so through our documented API. So there is no self-contradiction to resolve
+and **no carve-out is needed**. Raised and withdrawn here so counsel is not
+billed for a conflict that does not exist.
+
+The scoping is asserted by `src/test/legal-extension-disclosure-parity.test.ts`,
+so if either clause is ever broadened past "the Service" the question comes back
+on its own.
 
 ## Gap 4 — Consignment: holding third-party goods and paying third parties
 
@@ -160,3 +177,15 @@ Written 2026-08-14 against the code as it stood at that date. The four products
 were confirmed in the source, not assumed: buyer subscription columns and routes,
 StoreKit and Play billing verification routes, the extension's per-channel
 mechanism table, and the consignment payout path through Stripe Connect.
+
+---
+
+**Drift guard (added 2026-08-14).**
+`src/test/legal-extension-disclosure-parity.test.ts` exists so the extension
+language counsel writes cannot drift from what the product already tells sellers
+in `src/lib/marketplace-disclosure.ts`. Today the Terms carry no extension
+section, and the guard asserts that absence is still tracked as open work rather
+than passing silently. The moment a section lands it starts checking that the
+four disclosed facts are all present — counsel is free to rephrase them, the
+guard matches on the claim rather than the wording. It also fails if the Terms
+and the AUP effective dates diverge, which is AC4.
