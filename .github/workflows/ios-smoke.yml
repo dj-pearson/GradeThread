@@ -64,3 +64,81 @@ jobs:
             ios/build/Logs/Test/*.xcresult
           if-no-files-found: ignore
           retention-days: 7
+
+  # The SAME test, on the toolchain iOS Release actually uses.
+  #
+  # ios-release.yml runs this smoke test as its launch gate, but on macos-15
+  # with Xcode 26 (App Store Connect rejects builds made with an older SDK),
+  # while every other iOS lane is macos-14 with Xcode 16.2. Nothing exercised
+  # that pairing until a release ran, so when the gate started failing on
+  # 2026-08-14 the first evidence of it was a red release — and the release
+  # job's log ends with ~1500 lines of skipped-step env dumps, so the failure
+  # text is not readable from the tail.
+  #
+  # This job puts the release toolchain in front of a pull request, where it
+  # fails in a log you can actually read. It is the same command; only the
+  # runner and the Xcode selection differ.
+  smoke-release-toolchain:
+    name: UI launch smoke (release toolchain)
+    runs-on: macos-15
+    timeout-minutes: 40
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        # Same resolution as ios-release.yml — newest 26.x on the image, and a
+        # loud failure rather than a silent fall back to whatever is default.
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n1 || true)
+          if [ -z "$XCODE" ]; then
+            echo "::error::No Xcode 26.x on this runner. Installed:" >&2
+            ls -d /Applications/Xcode_*.app >&2 || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+
+      - name: Install XcodeGen + xcbeautify
+        run: brew install xcodegen xcbeautify
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Available simulators
+        # `name=iPhone 16` is hardcoded in both smoke commands. Xcode 26 ships a
+        # different default device set, and "device not found" and "the app
+        # crashed on launch" fail the same way from the outside.
+        run: xcrun simctl list devices available | sed -n '1,60p'
+
+      - name: UI launch smoke
+        working-directory: ios
+        run: |
+          set -o pipefail
+          if ! xcodebuild \
+            -project GradeThread.xcodeproj \
+            -scheme GradeThreadScreenshots \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
+            -only-testing:GradeThreadUITests/SmokeUITests \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            clean test 2>&1 | tee "$RUNNER_TEMP/smoke.log" | xcbeautify --renderer github-actions; then
+            echo "----- errors, repeated so the log tail carries them -----"
+            grep -E "error:|(XCTAssert|Failed to|crashed|does not contain|Unable to find)" \
+              "$RUNNER_TEMP/smoke.log" | tail -40
+            exit 1
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-smoke-release-toolchain-results
+          path: |
+            ios/build/Logs/Test/*.xcresult
+          if-no-files-found: ignore
+          retention-days: 7
