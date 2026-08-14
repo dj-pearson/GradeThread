@@ -230,6 +230,17 @@ unless a story is blocked; if blocked, note why and move to the next.
       /dashboard/api-keys stays for the Stripe return, plus the three P3s;
       guard `src/test/snap-history-and-developers.test.ts` (11 cases, 5 red)
 
+
+### Follow-ups filed during the loop
+- [x] US-2571 (1850) AI extractor cannot emit neckwear or gloves - `d891f36a` -
+      the stale list was SIX files, not one: ai-extract.ts, routes/grade.ts,
+      routes/api-v1.ts, lib/openapi-spec.ts, the WEB submission form, and the deno
+      guard's own mirror. ai-extract is the prompt AND the schema enum AND the
+      return allowlist, so the model was FORBIDDEN from answering neckwear. AC5 also
+      found GARMENT_CATEGORY_CRITERIA_V2 had no entry for either value (added, inside
+      the existing env gate so OFF stays byte-identical) and that GARMENT_TYPES was in
+      sync by luck, not by check. Guard `src/test/garment-taxonomy-copies.test.ts`
+      (13 cases), verified to bite. Also fixed 2 edge tests red on main.
 ## Notes carried between iterations
 
 - Two stories are LEGAL, not engineering: US-2527 and US-2528. They ship when
@@ -863,3 +874,37 @@ host and not the other, so the local one was dropped.
 - Check whether the gap is protocol or UI before scoping it. Web writes
   `users.use_case` straight through supabase-js under RLS, so the iOS half is a
   single write — not an endpoint, not a contract.
+
+- **A guard that MIRRORS the thing it guards is checking itself.**
+  `category-criteria_test.ts` hand-copied GARMENT_CATEGORIES with a comment
+  promising "the first test below fails if the two ever diverge in count". It
+  could not: it WAS the other side of the comparison, so it measured a 20-value
+  list against a 20-entry map for two releases while the real taxonomy held 22.
+  Two more literal counts in the same file were the other places US-2224 should
+  have failed. The edge cannot IMPORT the frontend module - it can READ the file,
+  and parsing the literal is the whole difference between a copy and a reference.
+
+- **Strip comments before matching strings out of a source literal.** The first
+  version of that parser picked up `neckwear` and `tie` out of the US-2224 comment
+  explaining why the value is NOT called tie, invented a category named `tie`, and
+  the coverage assertion then demanded rubric text for it. Found in seconds because
+  the guard was derived; a pinned count would have hidden it.
+
+- **A stale enum copy is not one bug repeated, it is several different bugs.** Rank
+  the copies before fixing them. A VALIDATOR that is missing a value 400s a caller.
+  A PROMPT that is missing one forbids the model from ever saying it, which looks
+  like a model that cannot classify ties. A PUBLISHED CONTRACT that is missing one
+  ships a broken enum to every integrator. A FORM that is missing one takes the
+  option away from the human. Same diff, four different reports.
+
+- **Derive the count, never pin it.** `assertEquals(NEW.length, 11)` is the line
+  that should have gone red on US-2224 and instead had to be edited by whoever
+  broke it. `GARMENT_CATEGORIES.length - PRE_EXISTING.length - 1` says the same
+  thing and cannot be satisfied by editing the guard.
+
+- **Run the FULL edge suite, not the file you touched.** Two failures were sitting
+  on main: my own `GET /api/buyer/entitlements` (US-2503) undeclared in the
+  buyer-plan-gates GATES table, and `prompt-suffix-order_test.ts` anchored on the
+  Anthropic SDK calling convention that US-2568 deliberately removed. Neither was
+  from this story and both had to be fixed here, because a red suite is not a
+  baseline you can read your own result against.
