@@ -16,6 +16,7 @@ import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
 import { TurnstileWidget, captchaRequired } from "@/components/auth/turnstile";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordField } from "@/components/auth/password-field";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { setKeepSignedIn } from "@/lib/supabase";
@@ -36,6 +37,10 @@ export function LoginPage() {
   const [email, setEmail] = useState(params.get("email") ?? "");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  // US-2530: the last sign-in failure, shown on the form until the next
+  // attempt. A toast is gone in four seconds — exactly when someone has looked
+  // away to open their password manager.
+  const [signInError, setSignInError] = useState<string | null>(null);
   // US-1462: which OAuth provider redirect is in flight (if any) — disables every
   // auth control and shows a spinner so a slow redirect can't be double-fired.
   const [oauthPending, setOauthPending] = useState<"google" | "apple" | null>(
@@ -54,6 +59,7 @@ export function LoginPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setSignInError(null);
     // US-444: validate at the field level first; show inline errors and move
     // focus to the first invalid field rather than firing a toast.
     const nextErrors = {
@@ -90,13 +96,17 @@ export function LoginPage() {
       // accounts. US-380: it also nudges users who originally signed up a
       // different way (e.g. Google) — an enumeration-safe hint on every failure.
       const kind = classifyAuthFailure(err);
-      toast.error(
-        kind === "rate_limit"
-          ? AUTH_RATE_LIMIT_MESSAGE
-          : kind === "network"
-            ? AUTH_NETWORK_ERROR_MESSAGE
-            : SIGN_IN_FAILED_MESSAGE,
-      );
+      const message = kind === "rate_limit"
+        ? AUTH_RATE_LIMIT_MESSAGE
+        : kind === "network"
+          ? AUTH_NETWORK_ERROR_MESSAGE
+          : SIGN_IN_FAILED_MESSAGE;
+      // US-2530: a toast is gone in four seconds, and a failed sign-in is
+      // exactly the moment someone looks away to check their password manager.
+      // It stays on the form until the next attempt, which is what iOS
+      // (LoginView.swift) has always done.
+      setSignInError(message);
+      toast.error(message);
       // US-368: the Turnstile token was consumed by the failed attempt — reset
       // for the retry.
       setCaptchaToken(null);
@@ -156,6 +166,14 @@ export function LoginPage() {
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+          {signInError && (
+            <div
+              role="alert"
+              className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              {signInError}
+            </div>
+          )}
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
             <Input
@@ -184,9 +202,8 @@ export function LoginPage() {
                 Forgot password?
               </Link>
             </div>
-            <Input
+            <PasswordField
               id="password"
-              type="password"
               autoComplete="current-password"
               value={password}
               onChange={(e) => {

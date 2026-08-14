@@ -8,6 +8,7 @@ import { readAuthError } from "@/lib/auth-error";
 import { stripSensitiveParams } from "@/lib/redact-url";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordField } from "@/components/auth/password-field";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { FieldError } from "@/components/ui/form-feedback";
@@ -291,9 +292,9 @@ function UpdatePasswordForm() {
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <div className="space-y-2">
             <Label htmlFor="password">New password</Label>
-            <Input
+            <PasswordField
               id="password"
-              type="password"
+              showStrength
               placeholder={PASSWORD_HINT}
               value={password}
               onChange={(e) => {
@@ -309,9 +310,8 @@ function UpdatePasswordForm() {
           </div>
           <div className="space-y-2">
             <Label htmlFor="confirm">Confirm new password</Label>
-            <Input
+            <PasswordField
               id="confirm"
-              type="password"
               value={confirm}
               onChange={(e) => {
                 setConfirm(e.target.value);
