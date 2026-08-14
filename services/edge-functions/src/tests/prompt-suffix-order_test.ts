@@ -75,8 +75,19 @@ Deno.test("US-1537 REGRESSION: with no verification images the content is the pl
   // arity — it is that this branch is a BARE call with nothing concatenated onto
   // it, which is what the addendum assertion below actually enforces. A guard
   // that fails on a new parameter teaches people to edit the guard.
+  //
+  // US-2571 widened it a second time, for the same reason and a different
+  // cause: US-2568 moved this call off the Anthropic SDK, where a bare string
+  // was a legal message content, onto the provider-neutral shape, where content
+  // is always a block list. So the branch now reads
+  // `? [{ type: "text" as const, text: buildCompositeUserPrompt(...) }]`.
+  // That wrapper is a transport shape, not an addendum — the two assertions
+  // below (nothing concatenated, no VERIFICATION text) are the ones with teeth,
+  // and both still hold. Anchoring on `?` immediately followed by the call was
+  // pinning the SDK's calling convention, which is precisely what US-2568 set
+  // out to stop this file from depending on.
   assert(
-    /\?\s*buildCompositeUserPrompt\(\s*perImageResults,\s*garmentInfo,\s*baselineBlock,\s*fabricBlock,\s*tagBlock,/
+    /\?\s*(\[\s*\{[^}]*text:\s*)?buildCompositeUserPrompt\(\s*perImageResults,\s*garmentInfo,\s*baselineBlock,\s*fabricBlock,\s*tagBlock,/
       .test(branch),
     "the no-verification-images branch must be the plain composite prompt, " +
       "built from the same inputs the visual path uses",

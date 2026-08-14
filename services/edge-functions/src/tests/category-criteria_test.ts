@@ -22,31 +22,43 @@ import {
   promptVersionSuffix,
 } from "../lib/ai-grading.ts";
 
-// Mirrors src/lib/constants.ts GARMENT_CATEGORIES. Duplicated rather than
-// imported because the web constants are a different module graph; the first
-// test below fails if the two ever diverge in count.
-const GARMENT_CATEGORIES = [
-  "t-shirt",
-  "shirt",
-  "blouse",
-  "sweater",
-  "hoodie",
-  "jacket",
-  "coat",
-  "jeans",
-  "pants",
-  "shorts",
-  "skirt",
-  "dress",
-  "sneakers",
-  "boots",
-  "sandals",
-  "hat",
-  "bag",
-  "belt",
-  "scarf",
-  "other",
-] as const;
+// US-2571: READ the source list, do not copy it.
+//
+// This was a hand-typed mirror of src/lib/constants.ts with a comment promising
+// "the first test below fails if the two ever diverge in count". It did not,
+// and could not: US-2224 added `neckwear` and `gloves` to the source, the copy
+// here never grew, and the coverage assertion below went on measuring a
+// twenty-value list against a twenty-value map while the real taxonomy had
+// twenty-two. A guard that mirrors the thing it guards is checking itself.
+//
+// The edge is a separate Deno project and genuinely cannot IMPORT the frontend
+// module, but it can read the file. Parsing the literal is the whole difference
+// between a copy and a reference.
+const GARMENT_CATEGORIES: readonly string[] = (() => {
+  const src = Deno.readTextFileSync(
+    new URL("../../../../src/lib/constants.ts", import.meta.url),
+  );
+  const block = /export const GARMENT_CATEGORIES = \[([\s\S]*?)\] as const;/
+    .exec(src);
+  if (!block) {
+    throw new Error(
+      "GARMENT_CATEGORIES not found in src/lib/constants.ts — this guard reads " +
+        "the source list rather than copying it; update the pattern, do not " +
+        "paste the values back in here.",
+    );
+  }
+  // Strip line comments FIRST. The block carries a US-2224 note explaining why
+  // the value is "neckwear" rather than "tie" — and both of those are quoted, so
+  // a bare string match reads the prose as taxonomy and hands back a category
+  // named `tie` that nothing will ever emit. Caught by this guard's own coverage
+  // assertion demanding criteria for it.
+  const body = block[1].replace(/\/\/[^\n]*/g, "");
+  const values = [...body.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+  if (values.length < 20) {
+    throw new Error(`parsed only ${values.length} categories — pattern is wrong`);
+  }
+  return values;
+})();
 
 // The eight that shipped before US-2222 and must not move.
 const PRE_EXISTING = [
@@ -142,11 +154,20 @@ Deno.test("gate OFF is a genuine no-op for every category", () => {
   }
 });
 
-Deno.test("gate ON adds a block to each of the eleven new categories", () => {
+Deno.test("gate ON adds a block to each category the eight did not cover", () => {
   const NEW = GARMENT_CATEGORIES.filter(
     (c) => c !== "other" && !(PRE_EXISTING as readonly string[]).includes(c),
   );
-  assertEquals(NEW.length, 11, "expected exactly 11 newly-covered categories");
+  // Derived, not pinned. This said `assertEquals(NEW.length, 11)` and would have
+  // been the one line to go red on US-2224 — except the list it counted was the
+  // stale copy above, so it stayed green at 11 while the taxonomy held 22.
+  // The property is "every uncovered category is covered", and the filter says
+  // that already; a hardcoded total only adds a number to edit.
+  assertEquals(
+    NEW.length,
+    GARMENT_CATEGORIES.length - PRE_EXISTING.length - 1,
+    "every category except the eight pre-existing ones and 'other' must be new",
+  );
 
   for (const c of NEW) {
     const text = categoryCriteriaFor(c, true);
@@ -190,7 +211,16 @@ Deno.test("the two criteria maps are disjoint", async () => {
   const v2 = keysOf("const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {");
 
   assertEquals(base.sort(), [...PRE_EXISTING].sort(), "the shipped eight changed");
-  assertEquals(v2.length, 11, "expected 11 entries in the gated map");
+  // Derived for the same reason as the count above: a literal here is a second
+  // place US-2224 should have failed and did not.
+  assertEquals(
+    v2.sort(),
+    GARMENT_CATEGORIES
+      .filter((c) => c !== "other" && !(PRE_EXISTING as readonly string[]).includes(c))
+      .sort(),
+    "the gated map must hold exactly the categories the shipped eight do not " +
+      "cover, minus 'other'",
+  );
   assertEquals(
     v2.filter((k) => base.includes(k)),
     [],

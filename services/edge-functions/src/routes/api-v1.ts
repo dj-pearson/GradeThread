@@ -86,7 +86,7 @@ const GARMENT_CATEGORIES = [
   "t-shirt", "shirt", "blouse", "sweater", "hoodie",
   "jacket", "coat", "jeans", "pants", "shorts",
   "skirt", "dress", "sneakers", "boots", "sandals",
-  "hat", "bag", "belt", "scarf", "other",
+  "hat", "bag", "belt", "scarf", "neckwear", "gloves", "other",
 ] as const;
 // Mirror of IMAGE_TYPES in src/lib/constants.ts (see grade.ts for the rationale
 // on the duplicated literal). label_2 / detail_2..4 / measurement_* extend the

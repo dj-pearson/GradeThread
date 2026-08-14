@@ -151,6 +151,15 @@ const GATES: readonly RouteGate[] = [
     why: "editing your own buyer account is not a feature any tier withholds",
   },
   {
+    file: "buyer-profile.ts",
+    route: 'get("/entitlements"',
+    feature: null,
+    why:
+      "this route IS the gate — it returns which features the caller's tier " +
+      "grants, so requiring one to read it is circular, and a 402 here would " +
+      "leave a client unable to learn it should not have asked",
+  },
+  {
     file: "buyer-purchases.ts",
     route: 'post("/purchases"',
     feature: null,

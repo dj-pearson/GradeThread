@@ -522,11 +522,16 @@ const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {
     "SANDALS-SPECIFIC: The FOOTBED is the condition story. A molded cork or leather footbed takes a permanent impression of the previous wearer's foot — that is genuine use, it does not reverse, and it materially affects resale even when nothing is broken. Record it. Other genuine defects: strap stretch or cracking at the fold, a failed buckle or snap, delaminating cork, sole tread worn smooth, and darkened or stained toe/heel contact areas. INTENTIONAL and NOT defects: contoured or textured footbeds as manufactured, distressed leather straps, and raw-edge cut straps.",
 
   // Non-garment accessories. GARMENT_TYPE_CRITERIA.accessories covers hardware
-  // and stitching; these add per-category calls. ⚠ These four categories are
+  // and stitching; these add per-category calls. ⚠ These six categories are
   // still scored on the five CLOTHING factors — a rubric gap that is NOT closed
   // here; see US-2223 (headwear), US-2224 (neckwear/small accessories) and
   // US-2225 (bags). Better guidance inside the wrong rubric is still an
   // improvement, but do not read these entries as the categories being solved.
+  //
+  // US-2571 added neckwear and gloves. Four when this block was written, six
+  // now, because US-2224 widened the taxonomy and the count in a comment is the
+  // kind of thing that goes stale in silence — the coverage assertion in
+  // category-criteria_test.ts reads the real list and is the actual guard.
   hat:
     "HAT-SPECIFIC: Genuine defects: sweatband staining, hardening or separation (the single most common defect and the one buyers ask about), crown shape loss, a brim that has lost its stiffener or delaminated, fraying at the brim edge, snapback or strap failure, embroidery pulls, and sun-fading heavier on one side. INTENTIONAL and NOT defects: pre-distressed and washed dad caps, deliberately frayed or raw brim edges, pre-curved and flat brims as sold, and unstructured slouch crowns. A soft, unstructured crown is a style, not a collapsed one.",
   bag:
@@ -535,6 +540,10 @@ const GARMENT_CATEGORY_CRITERIA_V2: Record<string, string> = {
     "BELT-SPECIFIC: The FOLD CREASE at the hole the previous owner used is the defining condition signal — it is permanent, it tells you the fit that belt was worn at, and buyers look for it. Record it rather than treating it as a minor mark. Other genuine defects: elongated or torn holes, keeper-loop loss or stretch, buckle plating wear and prong looseness, cracked or peeling edge paint, and delamination on a bonded-leather belt. INTENTIONAL and NOT defects: distressed, oiled, pull-up and burnished finishes, and deliberately raw-cut edges.",
   scarf:
     "SCARF-SPECIFIC: Genuine defects: pulls and snags (very common on cashmere and silk and often the only defect present), MOTH HOLES on wool and cashmere — small, irregular, usually clustered, and distinct from a single snag — thinning at the fold line, watermarks or rings on silk, and fringe loss or matting. INTENTIONAL and NOT defects: deliberately raw, unfinished, or hand-knotted fringe, loose open-weave and boucle textures, and hand-rolled silk hems, which look uneven by design.",
+  neckwear:
+    "NECKWEAR-SPECIFIC: This covers ties, bow ties, ascots and cravats. The KNOT AREA is where a tie fails and it is the part a photo often crops. Look there first for permanent creasing, a crushed or fuzzed nap, water spots, and food staining. Other genuine defects: snags and pulls in the silk, the blade twisting or curling because the interlining has shifted, loose or opened slip-stitching along the back seam, a torn or detached keeper loop, fraying at the tipping, and moth holes on wool and knit ties. INTENTIONAL and NOT defects: slubs and irregular texture in raw and shantung silk, the deliberately flat square end of a knitted tie, hand-rolled and self-tipped edges, and an unlined or lightly lined construction that feels floppy by design. A tie that will no longer hang straight is a genuine structural defect even with no visible mark.",
+  gloves:
+    "GLOVES-SPECIFIC: GRADE BOTH HANDS AND REPORT THE WORSE — a pair is one item, and a split seam on one glove is a defect of the pair, not a detail. If only one hand is photographed, say the coverage is partial rather than assuming the other matches. Genuine defects: splits along the FOURCHETTES (the strips between the fingers, the first thing to go), fingertips worn through or thinned, palm shine and abrasion, cracked or dried-out leather at the knuckle flex lines, a lining that has pulled loose and comes out with the hand, stretched or misshapen fingers that no longer recover, a missing snap or button at the wrist, and pilling, holes and moth damage on knits and cashmere. INTENTIONAL and NOT defects: distressed, oiled and pull-up leathers, deliberately raw-cut unhemmed edges, and the slight size difference between a glove's two hands as made. Softening and darkening on unlined leather is patina, not soiling.",
 };
 
 // ⚠ "other" is DELIBERATELY absent, and the absence is the decision (US-2222).

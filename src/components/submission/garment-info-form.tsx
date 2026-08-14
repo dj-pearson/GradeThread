@@ -24,13 +24,20 @@ export interface GarmentInfo {
   description: string;
 }
 
+// This groups GARMENT_CATEGORIES by type; it does not get to hold a DIFFERENT
+// set of them. Every value must appear exactly once across the six groups —
+// src/test/garment-taxonomy-copies.test.ts asserts the union, which is what
+// makes this a view of the taxonomy rather than a seventh copy of it.
+//
+// US-2571: `neckwear` and `gloves` were missing here, so a seller filing a tie
+// on the web form had no option but "Other" no matter what they were holding.
 const CATEGORY_BY_TYPE: Record<GarmentType, GarmentCategory[]> = {
   tops: ["t-shirt", "shirt", "blouse", "sweater", "hoodie"],
   bottoms: ["jeans", "pants", "shorts", "skirt"],
   outerwear: ["jacket", "coat"],
   dresses: ["dress"],
   footwear: ["sneakers", "boots", "sandals"],
-  accessories: ["hat", "bag", "belt", "scarf", "other"],
+  accessories: ["hat", "bag", "belt", "scarf", "neckwear", "gloves", "other"],
 };
 
 function formatLabel(value: string): string {

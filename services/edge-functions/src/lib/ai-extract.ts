@@ -72,11 +72,19 @@ export const GARMENT_TYPES = [
   "footwear",
   "accessories",
 ] as const;
+// US-2571: `neckwear` and `gloves` (US-2224, migration 00570) were added to the
+// source list and to the DB enum and reached NONE of the six copies of this
+// array. That mattered most here, because this one is not a validator — it is
+// interpolated into the extraction prompt, used as the JSON-schema enum for the
+// model's answer, AND used as the allowlist on the way back. A tie was therefore
+// FORBIDDEN from coming back as anything but "other", which routes it into the
+// clothing rubric: the exact defect 00570 was written to end, still live on the
+// path most items actually enter through.
 export const GARMENT_CATEGORIES = [
   "t-shirt", "shirt", "blouse", "sweater", "hoodie",
   "jacket", "coat", "jeans", "pants", "shorts",
   "skirt", "dress", "sneakers", "boots", "sandals",
-  "hat", "bag", "belt", "scarf", "other",
+  "hat", "bag", "belt", "scarf", "neckwear", "gloves", "other",
 ] as const;
 
 // ─── Placeholder values are ABSENT, not answers ─────────────────────
