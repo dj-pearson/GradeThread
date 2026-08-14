@@ -1769,7 +1769,8 @@
         "A guard test (mirroring the existing SEO/prerender guard style) fails the build if a page under src/pages/admin renders an empty state without an isError branch ahead of it.",
         "The audit covers src/pages/content/*.tsx and src/pages/admin/growth/*.tsx, which are in the same 88."
       ],
-      "priority": 1900
+      "priority": 1900,
+      "notes": "Partial 2026-08-14 (commit below): AC1/AC3/AC4 done + the dangerous subset of AC2. Added src/test/admin-error-state.test.ts — it enumerates every page under src/pages/admin and src/pages/content and fails when a query-backed page renders an EmptyState without an ErrorState. Verified it goes red first: it named exactly 12 offenders. All 12 fixed, each with the ErrorState branch placed BEFORE the empty branch: agents, ai-profitability, fraud, keyword-research, moderation, newsletter, submissions, growth/{campaigns,quests,reward-economics,reward-milestones,segments}. Three were worse than 'no branch': fraud and agents had an error branch with no way to retry (an EmptyState and a bare <p>), and growth/reward-economics returned its loading skeleton FOREVER on error because the guard was  — the same defect US-1631 fixed on seller billing. REMAINING for AC2: 61 admin pages use a query and still have no ErrorState. They cannot tell the 'you have no data' lie (no EmptyState) but several will render an infinite skeleton on error, so this is real work, not bookkeeping. Next iteration continues on this story. tsc -b clean, lint 0 errors, ui:check 0, 3495 web tests pass. | Correction to the previous note: a shell backtick ate the expression. growth/reward-economics.tsx guarded on isLoading OR not-data, so an errored query (data undefined) fell into the loading branch and rendered its skeleton forever."
     },
     {
       "id": "US-2508",
