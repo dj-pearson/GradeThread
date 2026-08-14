@@ -697,6 +697,16 @@ flipdeskMeasureRoutes.get("/card-request", async (c) => {
   });
 });
 
+// US-2540: the countries a card can actually be posted to.
+//
+// MIRRORED in src/pages/flipdesk/measure-card.tsx (MAIL_COUNTRIES), the way
+// this repo shares a constant across the two builds; a guard test compares the
+// two lists. The server needs its own copy because a request can reach this
+// endpoint without the page — and a fulfilment run that receives an address in
+// a country nobody posts to is the same defect the story is about, arriving
+// from the other direction.
+export const MAIL_COUNTRIES = ["US", "CA", "GB", "IE", "AU", "NZ"] as const;
+
 // Request a mailed card. Paid plans only; one active request per seller.
 flipdeskMeasureRoutes.post("/card-request", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -719,6 +729,16 @@ flipdeskMeasureRoutes.post("/card-request", async (c) => {
   if (!shipName || !line1 || !city || !state || !postal) {
     return c.json(
       { error: "Name, address, city, state, and postal code are required." },
+      400,
+    );
+  }
+  if (!(MAIL_COUNTRIES as readonly string[]).includes(country)) {
+    return c.json(
+      {
+        error:
+          "We can't post a card to that country yet — the print-at-home PDF " +
+          "works with the same pipeline.",
+      },
       400,
     );
   }

@@ -28,6 +28,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { useAuth } from "@/hooks/use-auth";
+import { ErrorState } from "@/components/ui/error-state";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { MeasureCardDiagram } from "@/components/flipdesk/measure-card-diagram";
 
 interface CardRequest {
   id: string;
@@ -50,6 +59,21 @@ const CAPTURE_DONTS = [
   "Don't scale the print — the PDF must print at 100% size",
 ];
 
+// US-2540: where a card can be posted. Deliberately a SHORT list rather than
+// every ISO country: each one here is somewhere the fulfilment run actually
+// posts to, and offering a country we cannot ship to is the same defect this
+// story is about, just pointing the other way. The server stores a 2-letter
+// code and the fulfilment CSV already exports it (admin-measure-cards.ts), so
+// adding a country is one line here.
+const MAIL_COUNTRIES: { code: string; name: string }[] = [
+  { code: "US", name: "United States" },
+  { code: "CA", name: "Canada" },
+  { code: "GB", name: "United Kingdom" },
+  { code: "IE", name: "Ireland" },
+  { code: "AU", name: "Australia" },
+  { code: "NZ", name: "New Zealand" },
+];
+
 const STATUS_LABEL: Record<CardRequest["status"], string> = {
   requested: "Requested — in the fulfillment queue",
   exported: "Sent to the print vendor",
@@ -62,11 +86,24 @@ export function FlipdeskMeasureCardPage() {
   const plan = profile?.flipdesk_plan ?? "free";
   const mailEligible = plan !== "free";
 
-  const { data: request = null, isLoading } = useQuery({
+  const {
+    data: request = null,
+    isLoading,
+    isError,
+    refetch,
+    isFetching,
+  } = useQuery({
     queryKey: ["measure_card_request"],
     queryFn: async (): Promise<CardRequest | null> => {
       const res = await edgeFetch("/api/flipdesk/measure/card-request");
-      if (!res.ok) return null;
+      // US-2540: this used to `return null` on any failure, which is the same
+      // value as "you have never requested one" — so a seller whose request was
+      // already in the queue was shown the form again, and the server answered
+      // their second attempt with a 409 they had no way to anticipate.
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(json.error ?? "Could not check your card request.");
+      }
       const json = (await res.json()) as { request: CardRequest | null };
       return json.request;
     },
@@ -79,8 +116,13 @@ export function FlipdeskMeasureCardPage() {
     city: "",
     state: "",
     postal_code: "",
+    // US-2540: the server and the table have always had this column (default
+    // 'US'); the form simply never sent it, so every request looked domestic
+    // whoever made it.
+    country: "US",
   });
   const [submitting, setSubmitting] = useState(false);
+  const isUs = form.country === "US";
 
   function set(key: keyof typeof form, v: string) {
     setForm((f) => ({ ...f, [key]: v }));
@@ -139,7 +181,11 @@ export function FlipdeskMeasureCardPage() {
             One photo: the garment flat, the card beside it, camera top-down.
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-4 sm:grid-cols-2">
+        <CardContent className="space-y-4">
+          {/* US-2540: the instructions said "all four black squares" to people
+              who had never seen one. */}
+          <MeasureCardDiagram className="mx-auto max-w-sm" />
+          <div className="grid gap-4 sm:grid-cols-2">
           <ul className="space-y-1.5 text-sm">
             {CAPTURE_DOS.map((d) => (
               <li key={d} className="flex gap-2">
@@ -156,6 +202,7 @@ export function FlipdeskMeasureCardPage() {
               </li>
             ))}
           </ul>
+          </div>
         </CardContent>
       </Card>
 
@@ -198,6 +245,14 @@ export function FlipdeskMeasureCardPage() {
             US-Letter PDF. Print at <strong>100% scale</strong> (no
             &quot;fit to page&quot;) on matte paper, then verify with the
             built-in credit-card check box before first use.
+            {/* US-2540: the page said "US-Letter" and left a seller with A4
+                paper to guess. The card artwork is 7.5in x 5.5in — 191mm x
+                140mm — so it fits inside A4's printable area with room to
+                spare, and the only thing that breaks it is the scaling that
+                "fit to page" applies. That is worth saying out loud. */}{" "}
+            <strong>On A4:</strong> print the same file and choose
+            &quot;Actual size&quot; or 100% — the card is 191mm × 140mm, well
+            inside A4, and only scaling would break the calibration.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -213,12 +268,24 @@ export function FlipdeskMeasureCardPage() {
           <CardTitle className="text-base">Get a card mailed to you</CardTitle>
           <CardDescription>
             Professionally printed on rigid matte stock — the most accurate
-            option. Included with paid plans.
+            option. Included with paid plans. Cards post from the United
+            States, so delivery elsewhere takes longer; the print-at-home PDF
+            above uses the same pipeline and works today.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {isLoading ? (
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+          ) : isError ? (
+            // US-2540: a failed read is NOT "you have no request". Offering the
+            // form here is how a seller sends a second request and meets a 409.
+            <ErrorState
+              title="Couldn't check your card request"
+              description="We can't tell whether you already have one on the way, so the form is hidden until this loads."
+              onRetry={() => refetch()}
+              retrying={isFetching}
+              hideSupport
+            />
           ) : activeRequest ? (
             <div className="flex items-center gap-2 text-sm">
               <Badge variant="outline" className="gap-1">
@@ -280,7 +347,12 @@ export function FlipdeskMeasureCardPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="mc-state">State</Label>
+                {/* US-2540: "State" and "ZIP" are US words. The field is
+                    required, so a seller in a country without either had to
+                    invent something to get past it. */}
+                <Label htmlFor="mc-state">
+                  {isUs ? "State" : "State / Province / Region"}
+                </Label>
                 <Input
                   id="mc-state"
                   value={form.state}
@@ -289,13 +361,31 @@ export function FlipdeskMeasureCardPage() {
                 />
               </div>
               <div className="space-y-1">
-                <Label htmlFor="mc-zip">ZIP</Label>
+                <Label htmlFor="mc-zip">{isUs ? "ZIP" : "Postal code"}</Label>
                 <Input
                   id="mc-zip"
                   value={form.postal_code}
                   onChange={(e) => set("postal_code", e.target.value)}
                   required
                 />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="mc-country">Country</Label>
+                <Select
+                  value={form.country}
+                  onValueChange={(v) => set("country", v)}
+                >
+                  <SelectTrigger id="mc-country">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {MAIL_COUNTRIES.map((c) => (
+                      <SelectItem key={c.code} value={c.code}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="flex items-end">
                 <Button type="submit" disabled={submitting}>
