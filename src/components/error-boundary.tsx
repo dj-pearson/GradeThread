@@ -64,7 +64,24 @@ export class ErrorBoundary extends Component<Props, State> {
       }
 
       return (
-        <div className="flex min-h-[400px] items-center justify-center p-6">
+        <div
+          className="flex min-h-[400px] items-center justify-center p-6"
+          data-testid="error-boundary"
+          // The message, on the fallback, in EVERY build.
+          //
+          // The <pre> below is DEV-only, which is right for users — but it meant
+          // a production build could only ever say "Something went wrong". The
+          // composer E2E guard (e2e/composer-update-loop.spec.ts) detects that
+          // fallback and then reports `ERROR BOUNDARY: ` with nothing after it,
+          // so a crash that only reproduces under CI's CPU throttling stayed
+          // undiagnosable across ten red runs.
+          //
+          // An attribute rather than visible text: nothing changes on screen,
+          // and this is the same string already sent to Sentry by
+          // componentDidCatch — so it exposes nothing that was not already
+          // leaving the browser.
+          data-error-message={this.state.error?.message ?? ""}
+        >
           <Card className="w-full max-w-md">
             <CardContent className="flex flex-col items-center justify-center py-12 text-center">
               <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">
@@ -156,7 +173,13 @@ export function RouteErrorFallback() {
   }, [error]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-6">
+    <div
+      className="flex min-h-screen items-center justify-center bg-background p-6"
+      data-testid="error-boundary"
+      // Same reasoning as the class boundary above: the message travels on the
+      // fallback in every build so a production crash is diagnosable.
+      data-error-message={error instanceof Error ? error.message : String(error ?? "")}
+    >
       <Card className="w-full max-w-md">
         <CardContent className="flex flex-col items-center justify-center py-12 text-center">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-destructive/10">

@@ -362,10 +362,23 @@ test(`composer does not crash: ${scenario.name}`, async ({ page }) => {
   await page.waitForTimeout(5000);
 
   // The error boundary swallows render-phase crashes (no pageerror) — detect
-  // its fallback text too.
-  const boundary = await page.getByText("Something went wrong").isVisible().catch(() => false);
+  // its fallback and report WHAT crashed.
+  //
+  // The visible <pre> carrying the message is DEV-only, so against the
+  // production build this used to report `ERROR BOUNDARY: ` with nothing after
+  // it. A crash that only reproduces under this test's CPU throttling was
+  // therefore undiagnosable from a CI log, and stayed red for ten runs.
+  // ErrorBoundary now also puts the message on `data-error-message`, in every
+  // build, which is what this reads.
+  const fallback = page.locator("[data-testid='error-boundary']").first();
+  const boundary =
+    (await fallback.isVisible().catch(() => false)) ||
+    (await page.getByText("Something went wrong").isVisible().catch(() => false));
   if (boundary) {
-    const detail = await page.locator("pre, code").first().innerText().catch(() => "");
+    const detail =
+      (await fallback.getAttribute("data-error-message").catch(() => null)) ||
+      (await page.locator("pre, code").first().innerText().catch(() => "")) ||
+      "(no message — is ErrorBoundary still setting data-error-message?)";
     errors.push(`ERROR BOUNDARY: ${detail}`);
   }
   expect(errors).toEqual([]);
