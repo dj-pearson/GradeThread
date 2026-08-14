@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SectionReadError } from "@/components/admin/section-read-error";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { GradingMonitorPanel } from "@/components/admin/grading-monitor-panel";
 import { GradingEvalCandidatesPanel } from "@/components/admin/grading-eval-candidates-panel";
@@ -306,7 +307,7 @@ export function AdminAiModelsPage() {
 
   // ─── Data Fetching ────────────────────────────────────────────────
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["admin-ai-models"],
     queryFn: async () => {
       // US-2025: bound the two append-only, platform-wide tables.
@@ -1034,6 +1035,19 @@ export function AdminAiModelsPage() {
           </>
         }
       />
+
+      {/* US-2555: one query feeds every card and panel below, and a failed read
+          rendered a page of dashes with nothing to say why. The grading
+          accuracy, eval and calibration panels each own their own read and
+          report separately. */}
+      {isError && (
+        <SectionReadError
+          title="Couldn't load the model overview"
+          description="Prompt versions and their stats are unchanged — this page could not read them."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      )}
 
       {/* KPI Cards */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

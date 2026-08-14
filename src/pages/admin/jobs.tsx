@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { PageHeader } from "@/components/ui/page-header";
+import { ErrorState } from "@/components/ui/error-state";
 
 // US-584 — admin job/queue monitoring + manual retry/cancel.
 //
@@ -239,7 +240,18 @@ export function AdminJobsPage() {
 
           <Card>
             <CardContent className="p-0">
-              {jobsQuery.isLoading ? (
+              {/* US-2555: error first. `jobs` derives from data react-query
+                  leaves undefined on an error, so a failed read said "No jobs
+                  match this view" — an outage reported as a healthy queue, on
+                  the page an operator opens to check exactly that. */}
+              {jobsQuery.isError ? (
+                <ErrorState
+                  title="Couldn't load the job queue"
+                  description="This is a read failure — it says nothing about whether jobs are running."
+                  onRetry={() => void jobsQuery.refetch()}
+                  retrying={jobsQuery.isFetching}
+                />
+              ) : jobsQuery.isLoading ? (
                 <div className="space-y-2 p-4">
                   {Array.from({ length: 6 }).map((_, i) => (
                     <Skeleton key={i} className="h-10" />
@@ -407,6 +419,8 @@ interface FailedBatchRow {
 // page no longer shows. The columns are the ones an operator needs to decide
 // whether a failed batch is one seller's problem or everyone's: whose it is,
 // how much of it failed, and what it said.
+// The batch cards take `loading` and `rows`; a failed read is passed in as
+// `error` so the card can say so where its rows would have been.
 function FailedBatchCard({
   title,
   description,

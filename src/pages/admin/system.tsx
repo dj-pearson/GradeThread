@@ -9,6 +9,7 @@ import type {
 import { CHART_PALETTE, FLIPDESK_PLANS, GRADETHREAD_TIERS, type FlipdeskPlanKey } from "@/lib/constants";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SectionReadError } from "@/components/admin/section-read-error";
 import { Progress } from "@/components/ui/progress";
 import { PageHeader } from "@/components/ui/page-header";
 import {
@@ -321,7 +322,7 @@ export function AdminSystemPage() {
   const [lastRefresh, setLastRefresh] = useState(new Date());
   const visible = useDocumentVisible();
 
-  const { data, isLoading, refetch, isFetching } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["admin-system"],
     queryFn: async () => {
       // US-1565: one edge round-trip — the endpoint measures its own DB
@@ -381,6 +382,19 @@ export function AdminSystemPage() {
           </>
         }
       />
+
+      {/* US-2555: every section below reads the SAME query, so a failed read
+          left the whole page as a shell with holes in it — nothing spun,
+          nothing said "no data", and an outage looked like a quiet platform.
+          One query, one branch. */}
+      {isError && (
+        <SectionReadError
+          title="Couldn't load platform health"
+          description="The platform is not necessarily unhealthy — this page could not read its numbers."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      )}
 
       {/* Health indicators */}
       {isLoading ? (

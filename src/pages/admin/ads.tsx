@@ -30,6 +30,7 @@ import { Separator } from "@/components/ui/separator";
 import { SEO } from "@/components/seo";
 import { cn } from "@/lib/utils";
 import { edgeFetch } from "@/lib/edge-fetch";
+import { ErrorState } from "@/components/ui/error-state";
 
 // US-1699: lazy so recharts + the dashboard load only when the tab is opened.
 const AdsCommandCenter = lazy(() =>
@@ -361,7 +362,18 @@ export function AdminAdsPage() {
             </div>
           )}
 
-          {themesQuery.isLoading ? (
+          {/* US-2555: error FIRST. Both branches below key off data that
+              react-query leaves undefined on an error, so a failed read used
+              to render "No keyword themes yet. Add one above." — an outage
+              telling an operator to type their themes in again. */}
+          {themesQuery.isError ? (
+            <ErrorState
+              title="Couldn't load the keyword themes"
+              description="Your themes are unchanged — we just could not read them."
+              onRetry={() => void themesQuery.refetch()}
+              retrying={themesQuery.isFetching}
+            />
+          ) : themesQuery.isLoading ? (
             <div className="space-y-2">
               <Skeleton className="h-16 w-full" />
               <Skeleton className="h-16 w-full" />
@@ -549,7 +561,14 @@ export function AdminAdsPage() {
           <CardDescription>Export to CSV or the Google Ads Editor bulk format.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          {creativesQuery.isLoading ? (
+          {creativesQuery.isError ? (
+            <ErrorState
+              title="Couldn't load your saved creatives"
+              description="They are still saved — this is a read failure, not a loss."
+              onRetry={() => void creativesQuery.refetch()}
+              retrying={creativesQuery.isFetching}
+            />
+          ) : creativesQuery.isLoading ? (
             <Skeleton className="h-16 w-full" />
           ) : (creativesQuery.data ?? []).length === 0 ? (
             <p className="text-sm text-muted-foreground">No saved creatives yet.</p>

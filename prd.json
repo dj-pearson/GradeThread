@@ -1842,19 +1842,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2555",
-      "passes": false,
-      "title": "Nine multi-query admin pages still render nothing when a read fails",
-      "description": "As an operator, I want every admin page to say when a read failed, so that an outage is never indistinguishable from a quiet day.",
-      "acceptanceCriteria": [
-        "The US-2507 ratchet in src/test/admin-error-state.test.ts holds KNOWN_SILENT_READS: ads, ai-models, analytics, authenticity, brand-knowledge, growth/reward-north-star, jobs, system, user-detail. Each runs 3-6 independent queries, so a single page-level banner is the wrong shape — each SECTION or tab needs its own error branch tied to the query that feeds it.",
-        "Every entry is removed from KNOWN_SILENT_READS as it is fixed. The test already fails in BOTH directions (a new offender cannot join, and a fixed page left on the list fails too), so the list cannot rot.",
-        "When the list is empty, delete KNOWN_SILENT_READS and the added/fixed diffing, and make that third assertion absolute like the other two.",
-        "No behaviour change to the two HARD assertions above it — empty-state-on-error and infinite-skeleton-on-error stay allowlist-free."
-      ],
-      "priority": 2430
-    },
-    {
       "id": "US-2557",
       "passes": false,
       "title": "iOS shows no unread notification count on the tab bar",

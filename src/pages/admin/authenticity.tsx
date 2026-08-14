@@ -5,6 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+// US-2555: every tab here rendered NOTHING on a failed read — `if (!data)
+// return null` after the loading guard, and react-query leaves data undefined
+// on an error too. Six sections, six independent queries, so each reports its
+// own failure rather than one banner speaking for all of them.
+import { SectionReadError } from "@/components/admin/section-read-error";
 import { PageHeader } from "@/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -89,12 +94,21 @@ const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
 // ── Gate banner ─────────────────────────────────────────────────────────────
 
 function GateBanner() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["authenticity_gate"],
     queryFn: async (): Promise<{ all_gated: boolean; versions: GateVersion[] }> =>
       await api(`${BASE}/gate`),
   });
 
+  if (isError) {
+    return (
+      <SectionReadError
+        title="Couldn't read the authenticity gate"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Skeleton className="h-24 w-full" />;
   if (!data) return null;
 
@@ -176,7 +190,7 @@ function ErrorDirectionCard({
 }
 
 function AccuracyTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["authenticity_accuracy"],
     queryFn: async (): Promise<{
       overall: Accuracy;
@@ -186,6 +200,15 @@ function AccuracyTab() {
     }> => await api(`${BASE}/accuracy`),
   });
 
+  if (isError) {
+    return (
+      <SectionReadError
+        title="Couldn't load the accuracy report"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (!data) return null;
 
@@ -249,7 +272,7 @@ function AccuracyTab() {
 // ── Golden set ──────────────────────────────────────────────────────────────
 
 function GoldenSetTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["authenticity_cases"],
     queryFn: async (): Promise<{
       cases: { id: string; label: string; brand_key: string; expected_label: string; is_active: boolean }[];
@@ -257,6 +280,15 @@ function GoldenSetTab() {
     }> => await api(`${BASE}/cases`),
   });
 
+  if (isError) {
+    return (
+      <SectionReadError
+        title="Couldn't load the golden set"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Skeleton className="h-64 w-full" />;
   if (!data) return null;
 
@@ -331,7 +363,7 @@ function GoldenSetTab() {
 // ── Tell candidates ─────────────────────────────────────────────────────────
 
 function TellCandidatesTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["authenticity_tell_candidates"],
     queryFn: async (): Promise<{
       promotable: TellCandidate[];
@@ -340,6 +372,15 @@ function TellCandidatesTab() {
     }> => await api(`${BASE}/tell-candidates`),
   });
 
+  if (isError) {
+    return (
+      <SectionReadError
+        title="Couldn't load the tell candidates"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Skeleton className="h-48 w-full" />;
   if (!data) return null;
 
@@ -411,7 +452,7 @@ interface DecoderContradictionRow {
 }
 
 function DecoderContradictionsTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["authenticity_decoder_contradictions"],
     queryFn: async (): Promise<{
       contradictions: DecoderContradictionRow[];
@@ -419,6 +460,15 @@ function DecoderContradictionsTab() {
     }> => await api(`${BASE}/decoder-contradictions`),
   });
 
+  if (isError) {
+    return (
+      <SectionReadError
+        title="Couldn't load the decoder contradictions"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Skeleton className="h-48 w-full" />;
   const rows = data?.contradictions ?? [];
 
@@ -487,12 +537,21 @@ function DecoderContradictionsTab() {
 // ── Sellers ─────────────────────────────────────────────────────────────────
 
 function SellersTab() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["authenticity_sellers"],
     queryFn: async (): Promise<{ sellers: SellerSignal[]; clustered: number; considered: number }> =>
       await api(`${BASE}/sellers`),
   });
 
+  if (isError) {
+    return (
+      <SectionReadError
+        title="Couldn't load the seller breakdown"
+        onRetry={() => void refetch()}
+        retrying={isFetching}
+      />
+    );
+  }
   if (isLoading) return <Skeleton className="h-48 w-full" />;
   if (!data) return null;
 

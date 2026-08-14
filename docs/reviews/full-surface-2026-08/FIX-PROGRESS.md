@@ -61,6 +61,10 @@ unless a story is blocked; if blocked, note why and move to the next.
       fleet, and system vs ops/health serve different audiences. REAL fix: both rendered
       the title "System Health"; now Platform Health / Infrastructure Health, guarded
       class-wide (no duplicate admin page title or sidebar label).
+- [x] US-2555 (2430) Nine multi-query admin pages render nothing on a failed read
+      - SHA11 - all nine fixed and KNOWN_SILENT_READS DELETED, so the third
+      assertion is absolute like the two above it. Shared
+      `src/components/admin/section-read-error.tsx` after the third repetition.
 - [x] US-2558 (2432) /admin/jobs read-only copies - a9d2c326 - both tabs removed and
       linked out (ops pages keep Run-now + replay, pinned by the guard). The
       verification the AC demanded CHANGED the fix: the endpoint returned four
@@ -483,6 +487,30 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2555
+- READ prd.json for the queue, not the tracker's checkboxes. US-2555 is
+  priority 2430 and should have come before US-2558 and US-2559, but it had no
+  checkbox line — it lives inside the US-2507 entry as "re-scoped to US-2555".
+  Two stories were done out of order before the gap showed up. The tracker is a
+  narrative; prd.json is the queue.
+- A ratchet that fails in BOTH directions is why this finished. Every page I
+  fixed made the suite fail with "these were fixed — delete them from the list",
+  so the list could not quietly rot into a permanent suppression. That property
+  is the whole reason a nine-item allowlist reached zero.
+- "Handles errors" is not the same as "reports them usefully". Three of the nine
+  DID have an error branch: analytics printed the raw Error.message in red,
+  reward-north-star had a muted paragraph, and both offered no retry — so the
+  only recovery was a reload, which on reward-north-star also discards the
+  window the operator picked. An internal exception string is not guidance.
+- The worst wrong answer is the confident one. user-detail fell through to
+  "User not found" on a failed read, which an operator reads as "this account
+  was deleted"; jobs.tsx said "No jobs match this view", reporting an outage as
+  a healthy queue on the page you open to check the queue. Both are worse than
+  a blank space, and both came from the same `data === undefined` on error.
+- Match the fix to the page, not to a template. Six independent queries need six
+  branches; one query behind five sections needs ONE, because five identical
+  error cards are five copies of a single fact.
 
 ### Lessons from US-2559
 - Group by the JOB a page does, not by the word in its label. "Assistant

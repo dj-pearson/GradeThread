@@ -14,6 +14,7 @@ import { FLIPDESK_PLANS, getPlanBadgeClasses, getRoleBadgeClasses } from "@/lib/
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { SectionReadError } from "@/components/admin/section-read-error";
 import {
   Select,
   SelectContent,
@@ -162,7 +163,7 @@ export function AdminUserDetailPage() {
   const [msgBody, setMsgBody] = useState("");
   const [sendingMessage, setSendingMessage] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["admin-user-detail", id],
     queryFn: async () => {
       if (!id) throw new Error("Missing user ID");
@@ -445,6 +446,23 @@ export function AdminUserDetailPage() {
     } finally {
       setSendingMessage(false);
     }
+  }
+
+  // US-2555: error BEFORE loading, and before the not-found branch. A failed
+  // read left `targetUser` undefined, so the page said "User not found" — which
+  // an operator reads as "this account was deleted", the most alarming possible
+  // wrong answer on a user-detail page.
+  if (isError) {
+    return (
+      <div className="space-y-6">
+        <SectionReadError
+          title="Couldn't load this user"
+          description="The account is unaffected — we could not read its record."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      </div>
+    );
   }
 
   if (isLoading) {

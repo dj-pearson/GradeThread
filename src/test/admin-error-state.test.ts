@@ -25,26 +25,17 @@ const ADMIN_ROOTS = ["src/pages/admin", "src/pages/content"];
  * form of the defect: nothing claims "no data", nothing spins, the page just
  * has holes in it and the operator cannot tell an outage from a quiet day.
  *
- * The two HARMFUL shapes above are hard failures with no allowlist, because
- * they actively mislead. This one is an allowlist that may only SHRINK: a new
- * page cannot join it, and removing a page from the list is enforced the moment
- * it is fixed. Delete entries as they are fixed; when the list is empty, delete
- * it and make the assertion absolute.
+ * All three are hard failures with no allowlist now.
  *
- * The remaining nine are tracked by US-2555 — they each run 3-6 independent
- * queries, so they need a per-section error branch rather than one banner.
+ * US-2507 shipped the third as a SHRINK-ONLY list of nine pages, with the
+ * instruction to delete it once empty. US-2555 emptied it, so it is gone: the
+ * assertion below is absolute, and a page that ignores a failed read fails the
+ * build like the other two shapes do.
+ *
+ * Worth keeping from that ratchet: it failed in BOTH directions, so a page
+ * fixed but left on the list was as loud as a new offender. That is the only
+ * reason a nine-item allowlist shrank to zero instead of becoming furniture.
  */
-const KNOWN_SILENT_READS: string[] = [
-  "src/pages/admin/ads.tsx",
-  "src/pages/admin/ai-models.tsx",
-  "src/pages/admin/analytics.tsx",
-  "src/pages/admin/authenticity.tsx",
-  "src/pages/admin/brand-knowledge.tsx",
-  "src/pages/admin/growth/reward-north-star.tsx",
-  "src/pages/admin/jobs.tsx",
-  "src/pages/admin/system.tsx",
-  "src/pages/admin/user-detail.tsx",
-];
 
 function listPages(): string[] {
   const out: string[] = [];
@@ -144,25 +135,19 @@ describe("admin pages don't report a failed load as an empty one (US-2507)", () 
   // shell with holes in it, and the operator has no way to tell an outage from
   // a quiet day. A toast.error inside a mutation handler does not count; that
   // reports a write the operator asked for.
-  it("no NEW page ignores a failed read, and the known list only shrinks", () => {
+  it("no admin page ignores a failed read", () => {
     const offenders = pages
       .filter((p) => p.usesQuery && !p.surfacesReadFailure)
       .map((p) => p.rel)
       .sort();
 
-    const added = offenders.filter((f) => !KNOWN_SILENT_READS.includes(f));
     expect(
-      added,
-      "these are NEW pages that render nothing when a read fails — an outage " +
-        "is indistinguishable from a quiet day. Add an " +
-        "<ErrorState onRetry={refetch}> branch:\n  " + added.join("\n  "),
-    ).toEqual([]);
-
-    const fixed = KNOWN_SILENT_READS.filter((f) => !offenders.includes(f));
-    expect(
-      fixed,
-      "these were fixed — delete them from KNOWN_SILENT_READS so the ratchet " +
-        "keeps its grip:\n  " + fixed.join("\n  "),
+      offenders,
+      "these render nothing when a read fails — an outage is " +
+        "indistinguishable from a quiet day. Add an " +
+        "<ErrorState onRetry={refetch}> branch, or use " +
+        "<SectionReadError> when the page has several independent " +
+        "queries:\n  " + offenders.join("\n  "),
     ).toEqual([]);
   });
 });

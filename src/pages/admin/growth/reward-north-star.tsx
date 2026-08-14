@@ -4,6 +4,7 @@ import { Info, TriangleAlert } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
@@ -135,7 +136,7 @@ function Metric(
  */
 function MechanicSwitchboard() {
   const qc = useQueryClient();
-  const { data, isLoading } = useQuery<MechanicsResponse>({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<MechanicsResponse>({
     queryKey: ["admin-reward-mechanics"],
     queryFn: async () => {
       const res = await edgeFetch("/api/admin/rewards/mechanics");
@@ -160,6 +161,22 @@ function MechanicSwitchboard() {
     onError: () => toast.error("Couldn't change that switch."),
   });
 
+  // US-2555: `if (!data) return null` swallowed a failed read — the whole
+  // Mechanics card simply was not there, and an operator had no way to tell
+  // that from "no mechanics configured". Error first, because react-query
+  // leaves `data` undefined on an error too.
+  if (isError) {
+    return (
+      <Card>
+        <ErrorState
+          title="Couldn't load the reward mechanics"
+          description="The switches are unchanged — we just could not read their current state."
+          onRetry={() => void refetch()}
+          retrying={isFetching}
+        />
+      </Card>
+    );
+  }
   if (isLoading) return <Skeleton className="h-48 w-full" />;
   if (!data) return null;
 
@@ -213,7 +230,7 @@ function MechanicSwitchboard() {
 export function GrowthRewardNorthStarPage() {
   const [days, setDays] = useState<number>(90);
 
-  const { data, isLoading, error } = useQuery<NorthStarResponse>({
+  const { data, isLoading, isError, refetch, isFetching } = useQuery<NorthStarResponse>({
     queryKey: ["admin-reward-north-star", days],
     queryFn: async () => {
       const res = await edgeFetch(`/api/admin/rewards/north-star?days=${days}`);
@@ -251,12 +268,18 @@ export function GrowthRewardNorthStarPage() {
             {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full" />)}
           </div>
         )
-        : error || !r
+        : isError || !r
         ? (
+          /* US-2555: was a muted paragraph with no way to try again, so the
+             only recovery was a full page reload — which also throws away the
+             window the operator had selected. */
           <Card>
-            <CardContent className="p-6 text-sm text-muted-foreground">
-              Couldn't load the report. It reads a lot of rows; try a shorter window.
-            </CardContent>
+            <ErrorState
+              title="Couldn't load the north-star report"
+              description="It reads a lot of rows. Try again, or pick a shorter window."
+              onRetry={() => void refetch()}
+              retrying={isFetching}
+            />
           </Card>
         )
         : (

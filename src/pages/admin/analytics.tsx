@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import { Meter } from "@/components/ui/meter";
 import { Button } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
@@ -256,12 +257,13 @@ export function AdminAnalyticsPage() {
                 <Skeleton key={i} className="h-14 w-full" />
               ))}
             </div>
-          ) : funnelQuery.error ? (
-            <p className="py-4 text-sm text-red-600 dark:text-red-400">
-              {funnelQuery.error instanceof Error
-                ? funnelQuery.error.message
-                : "Failed to load funnel metrics"}
-            </p>
+          ) : funnelQuery.isError ? (
+            <ErrorState
+              title="Couldn't load the signup funnel"
+              description="The numbers are unchanged — this is a read failure."
+              onRetry={() => void funnelQuery.refetch()}
+              retrying={funnelQuery.isFetching}
+            />
           ) : topCount === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No signups in the selected period.
@@ -330,12 +332,13 @@ export function AdminAnalyticsPage() {
         <CardContent>
           {retentionQuery.isLoading ? (
             <Skeleton className="h-64 w-full" />
-          ) : retentionQuery.error ? (
-            <p className="py-4 text-sm text-red-600 dark:text-red-400">
-              {retentionQuery.error instanceof Error
-                ? retentionQuery.error.message
-                : "Failed to load retention cohorts"}
-            </p>
+          ) : retentionQuery.isError ? (
+            <ErrorState
+              title="Couldn't load the retention cohorts"
+              description="This one reads a lot of rows; trying again usually works."
+              onRetry={() => void retentionQuery.refetch()}
+              retrying={retentionQuery.isFetching}
+            />
           ) : cohorts.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No signup cohorts in the last 12 weeks.
@@ -403,12 +406,13 @@ export function AdminAnalyticsPage() {
         <CardContent>
           {channelsQuery.isLoading ? (
             <Skeleton className="h-40 w-full" />
-          ) : channelsQuery.error ? (
-            <p className="py-4 text-sm text-red-600 dark:text-red-400">
-              {channelsQuery.error instanceof Error
-                ? channelsQuery.error.message
-                : "Failed to load channel attribution"}
-            </p>
+          ) : channelsQuery.isError ? (
+            <ErrorState
+              title="Couldn't load channel attribution"
+              description="The attribution data is unchanged — we just could not read it."
+              onRetry={() => void channelsQuery.refetch()}
+              retrying={channelsQuery.isFetching}
+            />
           ) : channels.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No UTM-tagged signups yet. Tagged inbound links populate this once

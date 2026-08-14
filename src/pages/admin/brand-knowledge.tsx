@@ -17,6 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/ui/error-state";
 import {
   BadgeCheck,
   BookMarked,
@@ -142,13 +143,19 @@ export function AdminBrandKnowledgePage() {
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ table: string; fact: Fact } | null>(null);
 
-  const { data: brands, isLoading } = useQuery({
+  const { data: brands, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["admin-brand-kb"],
     queryFn: async (): Promise<BrandRow[]> => (await api("/api/admin/brand-knowledge")).brands ?? [],
     staleTime: 30 * 1000,
   });
 
-  const { data: detail, isLoading: detailLoading } = useQuery({
+  const {
+    data: detail,
+    isLoading: detailLoading,
+    isError: detailError,
+    refetch: refetchDetail,
+    isFetching: detailFetching,
+  } = useQuery({
     queryKey: ["admin-brand-kb", selected],
     queryFn: async (): Promise<BrandDetail> => await api(`/api/admin/brand-knowledge/${selected}`),
     enabled: !!selected,
@@ -261,7 +268,19 @@ export function AdminBrandKnowledgePage() {
             </div>
           </CardHeader>
           <CardContent className="max-h-[70dvh] space-y-1 overflow-auto">
-            {isLoading
+            {/* US-2555: error first. Below, a failed read fell through to the
+                "No brands." line — an outage reading as an empty knowledge
+                base, on the page an operator would check to confirm it. */}
+            {isError
+              ? (
+                <ErrorState
+                  title="Couldn't load the brand list"
+                  description="The knowledge base is unchanged — this is a read failure."
+                  onRetry={() => void refetch()}
+                  retrying={isFetching}
+                />
+              )
+              : isLoading
               ? [0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-full" />)
               : filtered.map((b) => (
                 <button
@@ -281,7 +300,7 @@ export function AdminBrandKnowledgePage() {
                   </span>
                 </button>
               ))}
-            {!isLoading && filtered.length === 0
+            {!isLoading && !isError && filtered.length === 0
               ? <p className="text-sm text-muted-foreground">No brands.</p>
               : null}
           </CardContent>
@@ -291,6 +310,17 @@ export function AdminBrandKnowledgePage() {
         <div className="space-y-4">
           {!selected
             ? <Card><CardContent className="py-16 text-center text-muted-foreground">Select a brand to review its knowledge.</CardContent></Card>
+            : detailError
+            ? (
+              <Card>
+                <ErrorState
+                  title="Couldn't load this brand"
+                  description="Its facts are unchanged — we just could not read them."
+                  onRetry={() => void refetchDetail()}
+                  retrying={detailFetching}
+                />
+              </Card>
+            )
             : detailLoading
             ? <Skeleton className="h-64 w-full" />
             : detail
