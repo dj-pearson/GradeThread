@@ -47,7 +47,13 @@ forward resolve.
 
 Apply order: AFTER 00599.
 
-## ⏳ HELD: 00599_moderation_certificate_reports.sql (US-2550 — a buyer can report a certificate)
+## ✅ APPLIED: 00599_moderation_certificate_reports.sql (US-2550 — a buyer can report a certificate, applied 2026-08-14)
+**Measured 2026-08-14, not inferred.** `GET https://functions.gradethread.com/health/ready`
+returns `"schema":{"expected":"00600","applied":"00600","status":"match"}` — the running
+edge reading `applied_migrations` through the service-role client, i.e. the
+database's own answer. This version is below that maximum and its file carries
+the self-recording footer, so it is applied. Everything below is the record of
+what it does.
 
 **Risk: LOW, with one enum caveat.** One `ALTER TYPE … ADD VALUE IF NOT EXISTS`
 and one `COMMENT`. No table, no column, no index, no policy, no backfill,
@@ -165,7 +171,13 @@ unaffected either way.
 4. THEN push.
 
 
-## ⏳ HELD: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account)
+## ✅ APPLIED: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account, applied 2026-08-14)
+**Measured 2026-08-14, not inferred.** `GET https://functions.gradethread.com/health/ready`
+returns `"schema":{"expected":"00600","applied":"00600","status":"match"}` — the running
+edge reading `applied_migrations` through the service-role client, i.e. the
+database's own answer. This version is below that maximum and its file carries
+the self-recording footer, so it is applied. Everything below is the record of
+what it does.
 
 **Risk: LOW.** One new `CREATE OR REPLACE FUNCTION`. No table, no column, no
 index, no policy, no backfill; nothing existing is altered, narrowed or dropped.

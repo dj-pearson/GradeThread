@@ -265,7 +265,11 @@ Deno.test("US-2328: a sale with no order id is REFUSED, not silently recorded", 
   // (core.autocrlf), so this marker never matched there and the case failed
   // locally while passing in CI on the LF checkout. A guard that is red for
   // everyone on one platform is a guard everyone learns to ignore.
-  const writeAt = handler.search(/\.from\("sales"\)\r?\n    \.update\(/);
+  //
+  // ` {4}`, not four literal spaces: `deno lint`'s no-regex-spaces rejects a run
+  // of consecutive spaces in a pattern, because in source they are impossible to
+  // count. Same match, and it says the indent depth out loud.
+  const writeAt = handler.search(/\.from\("sales"\)\r?\n {4}\.update\(/);
   assert(refusalAt > -1, "the missing_platform_order_id refusal code is gone");
   assert(writeAt > -1, "the local sale write-back is gone or was reshaped");
   assert(
