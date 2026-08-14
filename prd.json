@@ -1840,20 +1840,6 @@
       "notes": "DEFERRED 2026-08-14 — the deliverable is on iOS, which this checkout cannot verify (no swiftc/xcodebuild on Windows; the macOS lane only runs on a push this branch must not make while 00592/00593 are held). But the blocker underneath it is a PRODUCT DECISION, not a build one, and it needs the owner's answer before anyone writes code on either side. The two taxonomies do not map cleanly. Web writes users.use_case with a DB CHECK constraint (migration 00022) allowing exactly: seller, buyer, consignment, developer. iOS asks three questions that describe VOLUME and CHANNEL rather than persona: reseller ('I resell at volume'), grader ('I grade & sell a few'), store ('I run an eBay store'). Both of the first two are 'seller' on the web taxonomy, so mapping them loses the only distinction iOS was collecting; 'store' is arguably seller OR consignment. Three ways forward, and they are not equivalent: (A) map iOS onto the existing four and accept that reseller and grader collapse into one — cheapest, no migration, and the web dashboard immediately personalizes for an iOS user; (B) widen the CHECK constraint to carry volume as a second dimension — a migration, and the web dashboard's branching (dashboard.tsx:126-261) would need to decide what to do with the new values; (C) keep them separate and have iOS send its answer to a NEW column, which is the status quo dressed up. I recommend (A) with reseller and store both mapping to 'seller' and grader to 'seller' as well, treating volume as telemetry rather than persona — because the four web values answer 'what is this person here to do' and all three iOS answers are 'sell', which is exactly why the collapse is honest rather than lossy. But that is the owner's call, not mine to ship. No code written."
     },
     {
-      "id": "US-2551",
-      "passes": false,
-      "title": "Anyone who scans a tag is offered ownership of the garment",
-      "description": "As a garment owner, I want claiming to require an account, so that scanning a tag in a shop does not transfer my item.",
-      "acceptanceCriteria": [
-        "src/pages/tag-scan.tsx offers 'Claim this item' to an anonymous visitor and posts with no auth header when signed out (:57-58). Confirm the server behaviour for /api/passport/tag/:code/claim first.",
-        "If the server accepts an anonymous claim, it is gated behind sign-in.",
-        "The claim button explains what claiming does and confirms before transferring ownership (:103).",
-        "Failure states are distinguished: not signed in, already claimed, and network error currently all render 'Couldn't claim this item. Please try again.' (:72).",
-        "The same review applies to src/pages/passport-claim.tsx."
-      ],
-      "priority": 2418
-    },
-    {
       "id": "US-2552",
       "passes": false,
       "title": "Buyer onboarding uses a category list the rest of the app does not",
@@ -1985,21 +1971,6 @@
       "dependsOn": [
         "US-2525"
       ]
-    },
-    {
-      "id": "US-2564",
-      "title": "FlipDesk bulk grading charges once when a batch is retried",
-      "description": "As a seller bulk-grading twenty items when my connection drops mid-request, I want the retry to charge for twenty grades and not forty, so that a flaky network is not a billing event.",
-      "acceptanceCriteria": [
-        "POST /api/flipdesk/grading/submit accepts an optional batch_key string in the body (<=255 chars) and the SPA mints one per bulk submit — crypto.randomUUID() at the click, reused verbatim on every retry of that submit.",
-        "routes/flipdesk-grading.ts:758 passes `fd-bulk:${batchKey}:${item.inventory_item_id}` as the idempotencyKey argument to runPaymentPrecedence, so the key is stable across a retry (it derives from the client's token and the item, not from the submission the retry just created).",
-        "With no batch_key the behaviour is exactly as today — the argument is omitted, not passed as an empty string, so the RPC's NULL path is taken.",
-        "A retried batch returns the same per-item results and the ledger shows one grade_debit per item, verified by a test that runs the handler twice with the same batch_key against a fake precedence IO.",
-        "The iOS and Android bulk-grade paths send batch_key too, or a parity note records why they cannot yet."
-      ],
-      "priority": 3,
-      "passes": false,
-      "notes": "From the 2026-08-14 review, finding #3. Same shape as US-2563 but on the path with real volume — this is the UI sellers actually use, and it passes NO key at all today. Deliberately solved with a body field rather than the /api/v1 middleware: the caller is our own SPA, the endpoint is not under /api/v1, and threading a client-minted token is smaller than generalising the middleware to a second mount point."
     },
     {
       "id": "US-2565",

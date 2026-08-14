@@ -194,7 +194,12 @@ unless a story is blocked; if blocked, note why and move to the next.
       Withhold, repeat reports counted rather than overwritten; AC4 was already
       built by US-1912; guard `src/test/certificate-report.test.ts` (15 cases,
       12 red) + 5 edge unit tests + 4 tenant-isolation cases
-- [ ] US-2551 (2418) Anonymous tag claim
+- [x] US-2551 (2418) Anonymous tag claim - SHA5 - the server DID accept it;
+      /tag/:code/claim now 401s an anonymous caller (before the tag lookup, so it
+      cannot probe codes), the page signs you in instead of posting, the transfer
+      is confirmed, failures are told apart by status via a shared
+      `src/lib/claim-failure.ts`, and /claim/:token stopped claiming on mount;
+      guard `src/test/tag-claim-requires-account.test.ts` (13 cases, 9 red)
 - [ ] US-2552 (2420) Buyer onboarding taxonomy
 - [ ] US-2553 (2422) Buyer home never completes
 - [ ] US-2554 (2424) Snap history + API keys placement
@@ -461,6 +466,31 @@ unless a story is blocked; if blocked, note why and move to the next.
   being true the test says a second button is worth having again.
 - A heading written as `What's next` in JSX is `What's next` in the file, not
   `&apos;`. Grep the source for the literal before writing the assertion.
+
+### Lessons from US-2551
+- "Verify the server first" was the whole story. The finding offered two
+  possibilities — the server accepts an anonymous ownership claim, or it
+  rejects it and the buyer gets a generic error — and they need opposite fixes.
+  It accepted. Reading the handler took two minutes and decided everything;
+  guessing would have shipped better error copy on a live takeover hole.
+- Put the auth check BEFORE the resource lookup. Checking the tag first and
+  the identity second turns the 404-vs-401 difference into an oracle for which
+  short codes exist, and these codes are ten characters.
+- Two paths that look alike can deserve opposite answers. The tag claim and
+  the token claim are both "claim this garment", but a token is single-use,
+  expiring, privately delivered and replay-detected, while a tag code is
+  printed where anyone can read it. Gating both would have made a legitimate
+  buyer create an account to redeem a link; gating neither is the bug. The
+  guard pins the REASON for the difference, or the next person will "fix" the
+  inconsistency.
+- An auto-action on mount spends a single-use credential on a page view.
+  /claim/:token claimed in a useEffect, so opening the link to look at it — or
+  a seller forwarding it to check — burned the token, and the actual buyer met
+  "invalid, expired, or already used". A click costs a second.
+- A shared retry button must know WHAT failed. Mine called claim() regardless,
+  so a dropped connection while merely READING a tag would have fired an
+  irreversible ownership transfer. The error state names the request to retry.
+  Found by writing the guard, not by reading the code back.
 
 ### Lessons from US-2550
 - `in` is not an ownership test. The report-reason validator used

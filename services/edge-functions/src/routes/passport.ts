@@ -659,12 +659,45 @@ passportRoutes.get("/tag/:code", async (c) => {
   return c.json({ passport_slug: garment.public_passport_slug, status: garment.status });
 });
 
-// POST /tag/:code/claim — PUBLIC, rate-limited. Scan-to-claim: the physical tag
-// is the bearer credential, so whoever holds it can take over the chain
-// (deterministic Layer-1 handoff). Revoked/invalid → 404.
+// POST /tag/:code/claim — rate-limited, and SIGNED IN (US-2551).
+//
+// Scan-to-claim treats the physical tag as a bearer credential: whoever holds
+// it takes over the chain (deterministic Layer-1 handoff). That is the right
+// model for a hangtag travelling with a garment, and it is NOT what this route
+// used to implement. It accepted the claim with no Authorization header at all,
+// so the credential was not "holding the tag" — it was SEEING the short code.
+// Anyone who scanned a rack in a shop, or read the code off a photo of the tag,
+// could move the provenance chain to a new pseudonymous owner. Anonymously,
+// repeatedly (the code is neither single-use nor expiring), and with nothing on
+// the transfer to trace or reverse it by.
+//
+// Requiring an account keeps the bearer model and adds the missing half:
+// every transfer is now attributable to a real auth user, which is what makes
+// it reversible and what makes abuse cost something. The tag is still the
+// thing that authorises the claim — the account is what signs it.
+//
+// The token path (POST /claim) deliberately stays anonymous, and the
+// difference is the credential, not the caution: a claim token is single-use,
+// expiring, delivered privately to one buyer, and replay-detected. A short
+// code printed on a tag is none of those things.
+//
+// Revoked/invalid → 404.
 passportRoutes.post("/tag/:code/claim", async (c) => {
   const code = normalizeTagCode(c.req.param("code") ?? "");
   if (!isValidTagCode(code)) return c.json({ error: "Tag not found" }, 404);
+
+  // Identity FIRST, before the tag lookup: an anonymous caller must not be
+  // able to use the 404-vs-401 difference to test which short codes exist.
+  const linkedUserId = await userIdFromBearer(c.req.header("Authorization"));
+  if (!linkedUserId) {
+    return c.json(
+      {
+        error: "Sign in to claim this item.",
+        code: "AUTH_REQUIRED",
+      },
+      401,
+    );
+  }
 
   const { data: tag } = await supabaseAdmin
     .from("passport_tags")
@@ -676,7 +709,6 @@ passportRoutes.post("/tag/:code/claim", async (c) => {
     return c.json({ error: "This tag is invalid or has been revoked." }, 404);
   }
 
-  const linkedUserId = await userIdFromBearer(c.req.header("Authorization"));
   const transfer = await transferToNewBuyer(
     (tag as { garment_id: string }).garment_id,
     { linkedUserId, source: "tag-claim" },
