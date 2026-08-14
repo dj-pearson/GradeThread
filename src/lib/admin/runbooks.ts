@@ -349,12 +349,14 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
-    // Re-read 2026-08-09. The vault note gained one generated table row
-    // (expense-recurrence) and its count line moved 75 → 76. §2 here says "all
-    // Coolify Scheduled Tasks exist ... re-add every task" and names no number,
-    // on purpose — the generated table is the source and it is one click away.
-    // Still accurate, so bumped rather than edited.
-    reviewed: "2026-08-09",
+    // Re-read 2026-08-14. Same shape of change as the 08-09 pass: the vault
+    // note gained one generated table row (flipdesk-import-reclaim) and its
+    // count line moved 76 → 77. §2 here says "all Coolify Scheduled Tasks exist
+    // ... re-add every task" and names no number, on purpose — the generated
+    // table is the source and it is one click away. That phrasing is why two
+    // consecutive cron additions have cost a date bump and no edit; if this copy
+    // ever quotes the count, every new job becomes a stale runbook.
+    reviewed: "2026-08-14",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

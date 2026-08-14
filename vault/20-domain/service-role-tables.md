@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-14
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a two-entry exemption list that carries repayment triggers.
 ---
@@ -53,6 +53,25 @@ is what triggers it.
 > here, because they contain the literal token and force discovery on a table
 > that must have no policy at all. They are `actor_id` and `target_id`. The rule
 > is about the STRING, not the semantics.
+
+### The case where the DATA is public and the table still must be deny-all
+
+Added 2026-08-14 (US-2569). `grade_report_revisions` records every retired
+certificate — number, score, tier — and all of that ends up rendered on a
+**public** certificate page. The instinct is a permissive read policy, since
+nothing in the row is secret.
+
+It is deny-all anyway. The public certificate endpoint reads the chain
+service-role and then re-applies `isCertificateWithheld` to the successor, so a
+direct read policy would let anyone walk a revision chain to a grade that is
+currently withheld for moderation. The revision trail would become the way around
+the hold.
+
+**The question is not "is this data secret" but "does the only correct read run a
+check first".** `api_idempotency_records` (US-2563) is the same shape from the
+other direction: `response_body` is the caller's own prior 2xx, not a secret
+from them, but readable it would hand any authenticated session whatever another
+tenant happened to have mid-retry.
 
 ## A table with NO owner column at all is not discovered — force it
 

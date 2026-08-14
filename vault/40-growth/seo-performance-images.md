@@ -9,7 +9,7 @@ code_refs:
   - wrangler.toml
   - lighthouserc.json
   - functions/_shared/sitemap.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-14
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, how responsive images are gated (ON since US-2333), and how the edge SSR cache and its purges actually work.
 ---

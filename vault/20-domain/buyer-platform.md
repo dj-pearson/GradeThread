@@ -11,6 +11,7 @@ code_refs:
   - src/lib/__tests__/buyer-plan-limits-parity.test.ts
   - services/edge-functions/src/lib/buyer-plans.ts
   - services/edge-functions/src/lib/buyer-entitlements.ts
+  - services/edge-functions/src/routes/buyer-profile.ts
   - services/edge-functions/src/lib/condition-alerts.ts
   - services/edge-functions/src/lib/listing-ingest.ts
   - services/edge-functions/src/lib/video-grading-cost.ts
@@ -24,7 +25,7 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-08-11
+reviewed: 2026-08-14
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---
@@ -73,6 +74,23 @@ Routes gate through `requireBuyerFeature(c, flag)`, which returns a 402 carrying
 `product: "buyer"` and `current_plan`. The buyer plan is **personal, never
 workspace-shared**, so the read is scoped to the authenticated `c.get("userId")`
 and never to a workspace owner or a request-body id.
+
+Since US-2503 the resolved payload is also **served**, at
+`GET /api/buyer/entitlements` (`routes/buyer-profile.ts`). That exists because
+the React app resolves this matrix client-side from the profile it already holds
+(`src/hooks/use-buyer-entitlements.ts`), which is fine for one client and a trap
+for two: a native client would otherwise re-implement the rule above in Swift,
+and a rule implemented twice drifts. iOS reads the answer instead of deriving it.
+
+The endpoint adds no logic — it returns `getBuyerEntitlements` verbatim. Two
+properties are deliberate and worth not "fixing":
+
+- **A read failure answers 200 with the FREE payload** (`FREE_BUYER_ENTITLEMENTS`),
+  not 500. The failure direction has to be *locked*: an over-grant shows a paid
+  screen to someone who is not paying, and a 500 invites a client to cache an
+  optimistic unlock.
+- **`no-store, private`**, so a plan change is visible on the next load and no
+  shared cache can hand one buyer's entitlements to another.
 
 ## The matrix is written twice, and one test is why that is survivable
 
