@@ -1872,20 +1872,6 @@
       ]
     },
     {
-      "id": "US-2559",
-      "passes": false,
-      "title": "Four admin clusters are one domain spread across 16 nav entries",
-      "description": "As an operator, I want each admin domain to be one destination, so that the sidebar is a map of the product rather than a list of pages.",
-      "acceptanceCriteria": [
-        "Rewards is 5 entries (growth/quests, growth/reward-milestones, growth/reward-economics, growth/reward-north-star, incentives), newsletter 4 (newsletter, newsletter-analytics, newsletter-subscribers, suppressions), AI 4 (ai-models, ai-spend, ai-profitability, monitoring), abuse 3 (moderation, fraud, safety-signals). Each cluster is one domain.",
-        "VERIFIED FIRST, unlike the earlier consolidation stories: every page in each cluster does a genuinely distinct job — quests configures quests, reward-milestones configures what a milestone grants, reward-economics owns the BUDGET those grants come out of. This is a tabbed-host merge, not a de-duplication; nothing may be deleted.",
-        "Use the ?view= host pattern from flipdesk/money.tsx, and give the host a title — US-2548 already records that the four FlipDesk hosts render a bare tab strip with no name, so do not repeat that.",
-        "reward-economics.tsx opens with the payout kill switch and today's spend BECAUSE an operator in an incident wants 'is money still leaving?' answered before anything else. Burying it one tab deep is a regression; if it cannot stay immediate, leave it out of the merge and say why.",
-        "Every retired path redirects into its host with the matching tab so runbook links and bookmarks survive."
-      ],
-      "priority": 2434
-    },
-    {
       "id": "US-2560",
       "passes": false,
       "title": "A buyer cancellation reaches no notification channel",

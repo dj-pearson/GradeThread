@@ -12,9 +12,7 @@ import {
   ShieldAlert,
   Ruler,
   ShieldCheck,
-  Compass,
   PiggyBank,
-  ShieldX,
   Tag,
   ListChecks,
   ArrowLeft,
@@ -33,7 +31,6 @@ import {
   Send,
   Bell,
   Gift,
-  Target,
   Server,
   Inbox,
   Ticket,
@@ -42,15 +39,12 @@ import {
   DollarSign,
   LineChart,
   Flag,
-  Siren,
   Gauge,
   RefreshCw,
-  Coins,
   PlugZap,
   GitMerge,
   KeyRound,
   MailCheck,
-  MailWarning,
   Mailbox,
   ClipboardCheck,
   Menu,
@@ -91,10 +85,10 @@ const adminNavItems = [
   { to: "/admin/support", icon: Headset, label: "AI Escalations", end: true, superAdminOnly: false },
   { to: "/admin/support-tickets", icon: Ticket, label: "Support Tickets", end: false, superAdminOnly: false },
   { to: "/admin/support/kb", icon: BookOpen, label: "Support Knowledge Base", end: false, superAdminOnly: false },
-  { to: "/admin/support/monitoring", icon: Activity, label: "Assistant Monitoring", end: false, superAdminOnly: false },
-  { to: "/admin/ai-models", icon: Brain, label: "AI Models", end: false, superAdminOnly: false },
-  { to: "/admin/ai-spend", icon: Coins, label: "AI Spend", end: false, superAdminOnly: false },
-  { to: "/admin/ai-profitability", icon: Scale, label: "AI Profitability", end: false, superAdminOnly: false },
+  // US-2559: AI Models, AI Spend, AI Profitability and Assistant Monitoring
+  // were four entries covering one domain. One destination, four tabs; nothing
+  // was deleted, and every old path redirects into the matching tab.
+  { to: "/admin/ai", icon: Brain, label: "AI Platform", end: false, superAdminOnly: false },
   { to: "/admin/reliability", icon: BarChart3, label: "Reliability", end: false, superAdminOnly: false },
   { to: "/admin/seo", icon: TrendingUp, label: "SEO Health", end: false, superAdminOnly: false },
   { to: "/admin/ads", icon: Megaphone, label: "Ad Copy Studio", end: false, superAdminOnly: false },
@@ -102,7 +96,6 @@ const adminNavItems = [
   { to: "/admin/condition-index", icon: LineChart, label: "Condition Index", end: false, superAdminOnly: false },
   { to: "/admin/coupons", icon: Tag, label: "Coupons", end: false, superAdminOnly: false },
   { to: "/admin/pricing", icon: DollarSign, label: "Subscription Plans", end: false, superAdminOnly: false },
-  { to: "/admin/incentives", icon: Gift, label: "Incentives", end: false, superAdminOnly: true },
   { to: "/admin/waitlist", icon: DoorOpen, label: "Waitlist", end: false, superAdminOnly: false },
   { to: "/admin/tasks", icon: ListChecks, label: "Tasks", end: false, superAdminOnly: false },
   { to: "/admin/system", icon: Wrench, label: "Platform Health", end: false, superAdminOnly: false },
@@ -131,9 +124,10 @@ const analyticsNavItems = [
 // signal / suspending is additionally super_admin + MFA step-up gated
 // server-side.
 const safetyNavItems = [
-  { to: "/admin/moderation", icon: ShieldAlert, label: "Moderation", end: false },
-  { to: "/admin/fraud", icon: ShieldX, label: "Abuse & Fraud", end: false },
-  { to: "/admin/safety/signals", icon: Siren, label: "Abuse Signals", end: false },
+  // US-2559: Moderation, Abuse & Fraud and Abuse Signals are one domain.
+  // Rate Limits and Passport Integrity below are NOT — one is capacity
+  // administration, the other is ledger integrity — so they keep their entries.
+  { to: "/admin/safety", icon: ShieldAlert, label: "Trust & Safety", end: true },
   // US-890 rate-limit administration: counters + temporary per-user overrides.
   { to: "/admin/safety/rate-limits", icon: Gauge, label: "Rate Limits", end: false },
   // US-1103 Garment Passport integrity: impossible chains, duplicate fingerprints,
@@ -150,29 +144,21 @@ const growthNavItems = [
   { to: "/admin/growth/campaigns", icon: Send, label: "Campaigns", end: false },
   { to: "/admin/growth/announcements", icon: Bell, label: "Announcements", end: false },
   { to: "/admin/growth/referrals", icon: Gift, label: "Referrals", end: false },
-  // US-1852 quest + community-challenge definitions (criteria, window, reward).
-  { to: "/admin/growth/quests", icon: Target, label: "Quests", end: false },
-  // US-1853 tangible milestone rewards — credits, subscription + grading discounts.
-  { to: "/admin/growth/reward-milestones", icon: Gift, label: "Milestone Rewards", end: false },
-  // US-1858 reward budget, margin/velocity guardrails, reconciliation + ROI.
-  { to: "/admin/growth/reward-economics", icon: ShieldCheck, label: "Reward Economics", end: false },
-  // US-1915 north-star metrics: week-4 retention, grading intensity, share loop,
-  // cost per retained user. Measurement only — the controls live on the two above.
-  { to: "/admin/growth/reward-north-star", icon: Compass, label: "Reward North Star", end: false },
+  // US-2559: Quests, Milestone Rewards, Reward Economics, Reward North Star and
+  // Incentives are one domain. The host DEFAULTS to Economics, because that page
+  // opens with the payout kill switch and today's spend and an operator in an
+  // incident needs "is money still leaving?" answered first.
+  { to: "/admin/growth/rewards", icon: Gift, label: "Rewards", end: false },
   // US-1845 buyer funnel, plan mix, feature adoption + the two-sided flywheel.
   { to: "/admin/growth/buyer", icon: Users, label: "Buyer Growth", end: false },
   // US-946 trial-conversion drip funnel/ROI analytics.
   { to: "/admin/growth/drip", icon: Filter, label: "Trial Conversion", end: true },
   // US-945 visual drip / journey builder.
   { to: "/admin/growth/drip/builder", icon: GitMerge, label: "Drip Builder", end: false },
-  // US-931 newsletter program analytics & deliverability health.
-  { to: "/admin/growth/newsletter", icon: MailCheck, label: "Newsletter Health", end: false },
-  // US-930 newsletter admin console — program oversight + per-issue lifecycle.
-  { to: "/admin/growth/newsletter-console", icon: Newspaper, label: "Newsletter Console", end: false },
-  // US-912 standalone subscriber list (non-user leads, double opt-in).
-  { to: "/admin/growth/subscribers", icon: Users, label: "Subscribers", end: false },
-  // US-914 email suppression list (bounces/complaints) + manual removal.
-  { to: "/admin/growth/suppressions", icon: MailWarning, label: "Suppressions", end: false },
+  // US-2559: Newsletter Health, Console, Subscribers and Suppressions are one
+  // domain. This path already WAS Health, so it is now the host and Health is
+  // its default view — an existing bookmark still shows what it showed.
+  { to: "/admin/growth/newsletter", icon: MailCheck, label: "Newsletter", end: false },
   // US-929 lifecycle email journeys — welcome / trial-nurture / win-back.
   { to: "/admin/growth/journeys", icon: Mailbox, label: "Lifecycle Journeys", end: false },
 ];

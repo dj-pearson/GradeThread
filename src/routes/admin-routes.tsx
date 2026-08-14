@@ -39,9 +39,12 @@ const AdminBrandKnowledgePage = lazy(() => import("@/pages/admin/brand-knowledge
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
 const AdminGradingQueuePage = lazy(() => import("@/pages/admin/grading").then(m => ({ default: m.AdminGradingQueuePage })));
 const AdminAuthenticityPage = lazy(() => import("@/pages/admin/authenticity").then(m => ({ default: m.AdminAuthenticityPage })));
-const AdminAiModelsPage = lazy(() => import("@/pages/admin/ai-models").then(m => ({ default: m.AdminAiModelsPage })));
-const AdminAiSpendPage = lazy(() => import("@/pages/admin/ai-spend").then(m => ({ default: m.AdminAiSpendPage })));
-const AdminAiProfitabilityPage = lazy(() => import("@/pages/admin/ai-profitability").then(m => ({ default: m.AdminAiProfitabilityPage })));
+// US-2559: four consolidated hosts. Each lazily mounts only the view in
+// ?view=, so opening a host pulls one page's bundle rather than five.
+const AdminRewardsHostPage = lazy(() => import("@/pages/admin/rewards-host").then(m => ({ default: m.AdminRewardsHostPage })));
+const AdminNewsletterHostPage = lazy(() => import("@/pages/admin/newsletter-host").then(m => ({ default: m.AdminNewsletterHostPage })));
+const AdminAiHostPage = lazy(() => import("@/pages/admin/ai-host").then(m => ({ default: m.AdminAiHostPage })));
+const AdminSafetyHostPage = lazy(() => import("@/pages/admin/safety-host").then(m => ({ default: m.AdminSafetyHostPage })));
 const AdminReliabilityPage = lazy(() => import("@/pages/admin/reliability").then(m => ({ default: m.AdminReliabilityPage })));
 const AdminMarketplaceConnectionsPage = lazy(() => import("@/pages/admin/marketplace-connections").then(m => ({ default: m.AdminMarketplaceConnectionsPage })));
 const AdminMarketplaceOpsPage = lazy(() => import("@/pages/admin/marketplace-ops").then(m => ({ default: m.AdminMarketplaceOpsPage })));
@@ -59,7 +62,6 @@ const AdminSupportTicketsPage = lazy(() => import("@/pages/admin/support-tickets
 const AdminCompliancePage = lazy(() => import("@/pages/admin/compliance").then(m => ({ default: m.AdminCompliancePage })));
 const AdminLegalPage = lazy(() => import("@/pages/admin/legal").then(m => ({ default: m.AdminLegalPage })));
 const AdminKnowledgeBasePage = lazy(() => import("@/pages/admin/knowledge-base").then(m => ({ default: m.AdminKnowledgeBasePage })));
-const AdminMonitoringPage = lazy(() => import("@/pages/admin/monitoring").then(m => ({ default: m.AdminMonitoringPage })));
 const AdminSystemPage = lazy(() => import("@/pages/admin/system").then(m => ({ default: m.AdminSystemPage })));
 const AdminNotificationsPage = lazy(() => import("@/pages/admin/notifications").then(m => ({ default: m.AdminNotificationsPage })));
 const AdminJobsPage = lazy(() => import("@/pages/admin/jobs").then(m => ({ default: m.AdminJobsPage })));
@@ -75,24 +77,16 @@ const AdminRolesPage = lazy(() => import("@/pages/admin/roles").then(m => ({ def
 const AdminMaintenancePage = lazy(() => import("@/pages/admin/maintenance").then(m => ({ default: m.AdminMaintenancePage })));
 const AdminFeatureFlagsPage = lazy(() => import("@/pages/admin/feature-flags").then(m => ({ default: m.AdminFeatureFlagsPage })));
 const AdminAuditLogPage = lazy(() => import("@/pages/admin/audit-log").then(m => ({ default: m.AdminAuditLogPage })));
-const AdminModerationPage = lazy(() => import("@/pages/admin/moderation").then(m => ({ default: m.AdminModerationPage })));
-const AdminFraudPage = lazy(() => import("@/pages/admin/fraud").then(m => ({ default: m.AdminFraudPage })));
-const AdminSafetySignalsPage = lazy(() => import("@/pages/admin/safety-signals").then(m => ({ default: m.AdminSafetySignalsPage })));
 const AdminRateLimitsPage = lazy(() => import("@/pages/admin/rate-limits").then(m => ({ default: m.AdminRateLimitsPage })));
 const AdminPassportIntegrityPage = lazy(() => import("@/pages/admin/passport-integrity").then(m => ({ default: m.AdminPassportIntegrityPage })));
 const AdminRevenuePage = lazy(() => import("@/pages/admin/revenue").then(m => ({ default: m.AdminRevenuePage })));
 const AdminAnalyticsPage = lazy(() => import("@/pages/admin/analytics").then(m => ({ default: m.AdminAnalyticsPage })));
 const AdminDripAnalyticsPage = lazy(() => import("@/pages/admin/drip-analytics").then(m => ({ default: m.AdminDripAnalyticsPage })));
 const AdminDripBuilderPage = lazy(() => import("@/pages/admin/drip").then(m => ({ default: m.AdminDripBuilderPage })));
-const AdminNewsletterAnalyticsPage = lazy(() => import("@/pages/admin/newsletter-analytics").then(m => ({ default: m.AdminNewsletterAnalyticsPage })));
-const AdminNewsletterConsolePage = lazy(() => import("@/pages/admin/newsletter").then(m => ({ default: m.AdminNewsletterConsolePage })));
-const AdminNewsletterSubscribersPage = lazy(() => import("@/pages/admin/newsletter-subscribers").then(m => ({ default: m.AdminNewsletterSubscribersPage })));
-const AdminSuppressionsPage = lazy(() => import("@/pages/admin/suppressions").then(m => ({ default: m.AdminSuppressionsPage })));
 const AdminJourneysPage = lazy(() => import("@/pages/admin/journeys").then(m => ({ default: m.AdminJourneysPage })));
 const AdminReconciliationPage = lazy(() => import("@/pages/admin/reconciliation").then(m => ({ default: m.AdminReconciliationPage })));
 const AdminCouponsPage = lazy(() => import("@/pages/admin/coupons").then(m => ({ default: m.AdminCouponsPage })));
 const AdminPricingPage = lazy(() => import("@/pages/admin/pricing").then(m => ({ default: m.AdminPricingPage })));
-const AdminIncentivesPage = lazy(() => import("@/pages/admin/incentives").then(m => ({ default: m.AdminIncentivesPage })));
 const AdminWaitlistPage = lazy(() => import("@/pages/admin/waitlist").then(m => ({ default: m.AdminWaitlistPage })));
 const AdminTasksPage = lazy(() => import("@/pages/admin/tasks").then(m => ({ default: m.AdminTasksPage })));
 const AdminTaskBoardPage = lazy(() => import("@/pages/admin/task-board").then(m => ({ default: m.AdminTaskBoardPage })));
@@ -101,11 +95,7 @@ const GrowthSegmentsPage = lazy(() => import("@/pages/admin/growth/segments").th
 const GrowthCampaignsPage = lazy(() => import("@/pages/admin/growth/campaigns").then(m => ({ default: m.GrowthCampaignsPage })));
 const GrowthAnnouncementsPage = lazy(() => import("@/pages/admin/growth/announcements").then(m => ({ default: m.GrowthAnnouncementsPage })));
 const GrowthReferralsPage = lazy(() => import("@/pages/admin/growth/referrals").then(m => ({ default: m.GrowthReferralsPage })));
-const GrowthQuestsPage = lazy(() => import("@/pages/admin/growth/quests").then(m => ({ default: m.GrowthQuestsPage })));
 const BuyerGrowthPage = lazy(() => import("@/pages/admin/growth/buyer").then(m => ({ default: m.BuyerGrowthPage })));
-const GrowthRewardMilestonesPage = lazy(() => import("@/pages/admin/growth/reward-milestones").then(m => ({ default: m.GrowthRewardMilestonesPage })));
-const GrowthRewardEconomicsPage = lazy(() => import("@/pages/admin/growth/reward-economics").then(m => ({ default: m.GrowthRewardEconomicsPage })));
-const GrowthRewardNorthStarPage = lazy(() => import("@/pages/admin/growth/reward-north-star").then(m => ({ default: m.GrowthRewardNorthStarPage })));
 
 export function AdminRoutes() {
   return (
@@ -144,13 +134,14 @@ export function AdminRoutes() {
       // US-904 legal/ToS version manager (publish + force re-acceptance;
       // publishing is super_admin + step-up gated server-side).
       <Route path="legal" element={<SuspenseWrapper><AdminLegalPage /></SuspenseWrapper>} />
-      <Route path="support/monitoring" element={<SuspenseWrapper><AdminMonitoringPage /></SuspenseWrapper>} />
+      <Route path="support/monitoring" element={<Navigate to="/admin/ai?view=assistant" replace />} />
       <Route path="support/kb" element={<SuspenseWrapper><AdminKnowledgeBasePage /></SuspenseWrapper>} />
       <Route path="grading" element={<SuspenseWrapper><AdminGradingQueuePage /></SuspenseWrapper>} />
       <Route path="authenticity" element={<SuspenseWrapper><AdminAuthenticityPage /></SuspenseWrapper>} />
-      <Route path="ai-models" element={<SuspenseWrapper><AdminAiModelsPage /></SuspenseWrapper>} />
-      <Route path="ai-spend" element={<SuspenseWrapper><AdminAiSpendPage /></SuspenseWrapper>} />
-      <Route path="ai-profitability" element={<SuspenseWrapper><AdminAiProfitabilityPage /></SuspenseWrapper>} />
+      <Route path="ai" element={<SuspenseWrapper><AdminAiHostPage /></SuspenseWrapper>} />
+      <Route path="ai-models" element={<Navigate to="/admin/ai?view=models" replace />} />
+      <Route path="ai-spend" element={<Navigate to="/admin/ai?view=spend" replace />} />
+      <Route path="ai-profitability" element={<Navigate to="/admin/ai?view=profitability" replace />} />
       <Route path="reliability" element={<SuspenseWrapper><AdminReliabilityPage /></SuspenseWrapper>} />
       <Route path="marketplace-connections" element={<SuspenseWrapper><AdminMarketplaceConnectionsPage /></SuspenseWrapper>} />
       <Route path="marketplace-ops" element={<SuspenseWrapper><AdminMarketplaceOpsPage /></SuspenseWrapper>} />
@@ -162,10 +153,10 @@ export function AdminRoutes() {
       <Route path="analytics" element={<SuspenseWrapper><AdminAnalyticsPage /></SuspenseWrapper>} />
       <Route path="growth/drip" element={<SuspenseWrapper><AdminDripAnalyticsPage /></SuspenseWrapper>} />
       <Route path="growth/drip/builder" element={<SuspenseWrapper><AdminDripBuilderPage /></SuspenseWrapper>} />
-      <Route path="growth/newsletter" element={<SuspenseWrapper><AdminNewsletterAnalyticsPage /></SuspenseWrapper>} />
-      <Route path="growth/newsletter-console" element={<SuspenseWrapper><AdminNewsletterConsolePage /></SuspenseWrapper>} />
-      <Route path="growth/subscribers" element={<SuspenseWrapper><AdminNewsletterSubscribersPage /></SuspenseWrapper>} />
-      <Route path="growth/suppressions" element={<SuspenseWrapper><AdminSuppressionsPage /></SuspenseWrapper>} />
+      <Route path="growth/newsletter" element={<SuspenseWrapper><AdminNewsletterHostPage /></SuspenseWrapper>} />
+      <Route path="growth/newsletter-console" element={<Navigate to="/admin/growth/newsletter?view=console" replace />} />
+      <Route path="growth/subscribers" element={<Navigate to="/admin/growth/newsletter?view=subscribers" replace />} />
+      <Route path="growth/suppressions" element={<Navigate to="/admin/growth/newsletter?view=suppressions" replace />} />
       <Route path="growth/journeys" element={<SuspenseWrapper><AdminJourneysPage /></SuspenseWrapper>} />
       <Route path="billing/reconciliation" element={<SuspenseWrapper><AdminReconciliationPage /></SuspenseWrapper>} />
       <Route path="system" element={<SuspenseWrapper><AdminSystemPage /></SuspenseWrapper>} />
@@ -189,11 +180,12 @@ export function AdminRoutes() {
       <Route path="audit-log" element={<SuspenseWrapper><AdminAuditLogPage /></SuspenseWrapper>} />
       <Route path="coupons" element={<SuspenseWrapper><AdminCouponsPage /></SuspenseWrapper>} />
       <Route path="pricing" element={<SuspenseWrapper><AdminPricingPage /></SuspenseWrapper>} />
-      <Route path="incentives" element={<SuspenseWrapper><AdminIncentivesPage /></SuspenseWrapper>} />
+      <Route path="incentives" element={<Navigate to="/admin/growth/rewards?view=incentives" replace />} />
       <Route path="waitlist" element={<SuspenseWrapper><AdminWaitlistPage /></SuspenseWrapper>} />
-      <Route path="moderation" element={<SuspenseWrapper><AdminModerationPage /></SuspenseWrapper>} />
-      <Route path="fraud" element={<SuspenseWrapper><AdminFraudPage /></SuspenseWrapper>} />
-      <Route path="safety/signals" element={<SuspenseWrapper><AdminSafetySignalsPage /></SuspenseWrapper>} />
+      <Route path="safety" element={<SuspenseWrapper><AdminSafetyHostPage /></SuspenseWrapper>} />
+      <Route path="moderation" element={<Navigate to="/admin/safety?view=moderation" replace />} />
+      <Route path="fraud" element={<Navigate to="/admin/safety?view=fraud" replace />} />
+      <Route path="safety/signals" element={<Navigate to="/admin/safety?view=signals" replace />} />
       <Route path="safety/rate-limits" element={<SuspenseWrapper><AdminRateLimitsPage /></SuspenseWrapper>} />
       <Route path="safety/passport-integrity" element={<SuspenseWrapper><AdminPassportIntegrityPage /></SuspenseWrapper>} />
       <Route path="tasks" element={<SuspenseWrapper><AdminTasksPage /></SuspenseWrapper>} />
@@ -205,11 +197,15 @@ export function AdminRoutes() {
       <Route path="growth/campaigns" element={<SuspenseWrapper><GrowthCampaignsPage /></SuspenseWrapper>} />
       <Route path="growth/announcements" element={<SuspenseWrapper><GrowthAnnouncementsPage /></SuspenseWrapper>} />
       <Route path="growth/referrals" element={<SuspenseWrapper><GrowthReferralsPage /></SuspenseWrapper>} />
-      <Route path="growth/quests" element={<SuspenseWrapper><GrowthQuestsPage /></SuspenseWrapper>} />
+      <Route path="growth/rewards" element={<SuspenseWrapper><AdminRewardsHostPage /></SuspenseWrapper>} />
+      {/* US-2559 AC5: every retired path redirects into its host with the
+          matching tab, so runbook links, bookmarks and the command palette all
+          survive. `replace` so Back does not bounce off the redirect. */}
+      <Route path="growth/quests" element={<Navigate to="/admin/growth/rewards?view=quests" replace />} />
       <Route path="growth/buyer" element={<SuspenseWrapper><BuyerGrowthPage /></SuspenseWrapper>} />
-      <Route path="growth/reward-milestones" element={<SuspenseWrapper><GrowthRewardMilestonesPage /></SuspenseWrapper>} />
-      <Route path="growth/reward-economics" element={<SuspenseWrapper><GrowthRewardEconomicsPage /></SuspenseWrapper>} />
-      <Route path="growth/reward-north-star" element={<SuspenseWrapper><GrowthRewardNorthStarPage /></SuspenseWrapper>} />
+      <Route path="growth/reward-milestones" element={<Navigate to="/admin/growth/rewards?view=milestones" replace />} />
+      <Route path="growth/reward-economics" element={<Navigate to="/admin/growth/rewards?view=economics" replace />} />
+      <Route path="growth/reward-north-star" element={<Navigate to="/admin/growth/rewards?view=north-star" replace />} />
       // Content module — blog, social, topic bank, knowledge base,
       // analytics + settings. Lives in the admin dashboard (admin +
       // super_admin), behind the AdminMfaGate like every other admin
