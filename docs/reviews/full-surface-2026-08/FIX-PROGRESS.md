@@ -170,7 +170,7 @@ unless a story is blocked; if blocked, note why and move to the next.
 ### P3
 - [x] US-2542 (2400) UI craft-floor sweep - `706eab0f` - 17 pages to PageHeader, 26 tracked-uppercase headings converted (106 -> 80), 13 logos sized, guard `src/test/ui-craft-floor.test.ts` (22 cases)
 - [x] US-2543 (2402) Long secondary pages need structure - `9ee344d9` - rewards 9->3 tabs, referrals 8->3, verified 7->3, marketplaces 8->3; connection summary + profile preview added; promo code moved to Billing; guard `src/test/long-page-structure.test.ts` (16 cases, 12 red)
-- [ ] US-2544 (2404) Submissions: no search, permanent empty disputes
+- [x] US-2544 (2404) Submissions: no search, permanent empty disputes - `76ed6c1d` - search + date range applied to BOTH sort branches, visible sort direction, row selection + selected-CSV, phone card layout, disputes collapse on empty; guard `src/test/submissions-list-filters.test.ts` (17 cases, 14 red)
 - [ ] US-2545 (2406) Submission detail: no lightbox
 - [ ] US-2546 (2408) Intake: no photos, no guard
 - [ ] US-2547 (2410) Overview tiles promise a filter that isn't applied
@@ -415,3 +415,17 @@ unless a story is blocked; if blocked, note why and move to the next.
 - A tab guard has to assert that `defaultValue` names a tab that EXISTS.
   A default pointing at a value no trigger declares renders a blank page, and
   no other test in this repo would notice.
+
+### Lessons from US-2544
+- A page with TWO query branches for the same list (here: sort-by-date and
+  sort-by-score) will grow a filter that only one of them honours. Put the
+  filters in one helper and have the guard COUNT the call sites. The symptom
+  otherwise is "the data changed when I clicked a column", which nobody files.
+- Collapsing an empty state must NOT collapse the error state. "You have no
+  disputes" and "we could not load your disputes" look identical once
+  collapsed, and one of them is a lie about the user's own data.
+- `sanitizeSearch` existed in admin/users.tsx only. Grep for a guard before
+  writing a second one: the PostgREST `.or()` comma/paren trap needs one copy.
+- MIGRATIONS 00592 + 00593 were applied by the user on 2026-08-14, and
+  everything through `76ed6c1d` is PUSHED. The rule resets from here: the next
+  migration is held again until the user OKs it.
