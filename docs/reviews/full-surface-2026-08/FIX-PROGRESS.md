@@ -173,12 +173,12 @@ unless a story is blocked; if blocked, note why and move to the next.
 - [x] US-2544 (2404) Submissions: no search, permanent empty disputes - `76ed6c1d` - search + date range applied to BOTH sort branches, visible sort direction, row selection + selected-CSV, phone card layout, disputes collapse on empty; guard `src/test/submissions-list-filters.test.ts` (17 cases, 14 red)
 - [x] US-2545 (2406) Submission detail: no lightbox - `30ac87b4` - same ImageLightbox as the certificate, two-buttons-one-destination collapsed to one, five post-grade cards into one "What's next" section; guard `src/test/submission-detail-evidence.test.ts` (10 cases, 7 red)
 - [x] US-2546 (2408) Intake: no photos, no guard - `f204e6a9` - IntakePhotoStager on the main form uploading through an EXTRACTED shared core (`src/lib/item-photo-upload.ts`), navigation guard, MeasurementForm persisted to `inventory_items.measurements`, real `required` attribute; guard `src/test/intake-capture-and-guard.test.ts` (13 cases, 12 red)
-- [x] US-2547 (2410) Overview tiles promise a filter that isn't applied - SHA - stage
+- [x] US-2547 (2410) Overview tiles promise a filter that isn't applied - 2ee30cc2 - stage
       tiles narrow via the VISIBLE filter, one server aggregate (migration 00594,
       HELD) replaces the whole-account loop, date range in ?range=, show-all on
       both list cards; guard `src/test/overview-stage-and-range.test.ts` (15 cases,
       12 red)
-- [x] US-2548 (2412) Tabbed hosts show no name - SHA - five hosts (the four named
+- [x] US-2548 (2412) Tabbed hosts show no name - 4aa89117 - five hosts (the four named
       plus the Account hub) render their own PageHeader; AccountHubContext
       generalised to PageHostContext; 7 children moved off a hand-rolled h1;
       shared HostViewSkeleton; Analytics range lifted AND the query string kept
