@@ -230,7 +230,18 @@ jobs:
         # Compiles androidTest without needing an emulator, so a broken test
         # source fails HERE, in the blocking lane, rather than only in the
         # non-blocking emulator job where a red X is easy to scroll past.
-        run: ./gradlew assembleDebugAndroidTest --stacktrace
+        #
+        # The `e:` lines Kotlin prints are followed by ~150 frames of Gradle
+        # stack trace, so the end of a failed log is all frames and none of the
+        # error. Repeat them last.
+        run: |
+          set -o pipefail
+          if ! ./gradlew assembleDebugAndroidTest --stacktrace 2>&1 | tee "$RUNNER_TEMP/androidtest.log"; then
+            echo "----- compiler errors, repeated so the log tail carries them -----"
+            grep -E '^(e: |error: )' "$RUNNER_TEMP/androidtest.log" | head -50 \
+              || echo "(no e:/error: lines — the failure above is not a compile error)"
+            exit 1
+          fi
 
       # US-1391: proves the release lane works — minification, the proguard
       # rules, and the signing config. Unsigned on a PR (no secret is exposed
