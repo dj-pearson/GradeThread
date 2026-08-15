@@ -170,6 +170,13 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["ai_prompt_versions", ["version_name", "stage", "is_active", "eval_passed", "qualified_model", "rollout_percentage"]],
       // §18, added 2026-08-05 for US-2406.
       ["feature_flags", ["key", "enabled", "rollout_percentage", "plan_targets", "user_allow", "user_deny", "starts_at", "ends_at", "updated_at"]],
+      // §24 and §26, added 2026-08-15. The join in §26 is the fragile part:
+      // submission_id is the ONLY link between the FlipDesk bridge row and the
+      // credit ledger, so a rename on either side turns that section into a
+      // failed prod session rather than a wrong answer.
+      ["users", ["billing_source", "billing_environment"]],
+      ["flipdesk_grading_submissions", ["status", "submission_id", "created_at"]],
+      ["grade_credit_transactions", ["reason", "submission_id", "delta", "created_at"]],
     ];
 
     const missing: string[] = [];
@@ -259,6 +266,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       "§23",
       "§24",
       "§25",
+      "§26",
     ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }

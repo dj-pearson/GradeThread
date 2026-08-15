@@ -43,6 +43,7 @@
 --   §23 US-2403 AC1 — is the denied-function segfault path live on this image?
 --   §24 US-2286 AC5 — which entitlements came from a sandbox purchase.
 --   §25 US-2606 — did migration 00594 actually land? (run it AFTER applying)
+--   §26 US-2304 AC4 — how often did a missing tag photo cost a vision call?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -1107,3 +1108,49 @@ WHERE n.nspname = 'public' AND p.proname = 'flipdesk_overview_metrics';
 \echo '--   curl -fsS https://functions.gradethread.com/health/ready | jq .schema'
 \echo '-- An empty or absent "missing" is what closes US-2606. A bare'
 \echo '-- "status":"match" is NOT — that is what it said while 00594 was gone.'
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════'
+\echo '§26 US-2304 AC4 — HOW OFTEN DID A MISSING TAG PHOTO COST A VISION CALL?'
+\echo '════════════════════════════════════════════════════════════════'
+\echo 'A FlipDesk item submitted without a tag photo was CHARGED, ran one Claude'
+\echo 'Vision call per image, abstained to needs_photos, and was refunded. The'
+\echo 'money came back and the AI spend did not. AC1 fixed it going forward by'
+\echo 'requiring the tag; AC4 asks what it cost before that.'
+\echo ''
+\echo 'Counts and dates only — no ids, no user ids.'
+\echo ''
+\echo '-- (a) FlipDesk grading rows that ended in needs_photos, by month.'
+SELECT
+  to_char(date_trunc('month', created_at), 'YYYY-MM') AS month,
+  count(*)                                            AS needs_photos_rows
+FROM public.flipdesk_grading_submissions
+WHERE status = 'needs_photos'
+GROUP BY 1
+ORDER BY 1;
+
+\echo ''
+\echo '-- (b) The refunds that followed, i.e. the ones that actually cost a call'
+\echo '-- and gave the money back. Joined through submission_id, which is the'
+\echo '-- only link between the FlipDesk bridge row and the credit ledger.'
+SELECT
+  to_char(date_trunc('month', t.created_at), 'YYYY-MM') AS month,
+  count(*)                                              AS refunds,
+  sum(t.delta)                                          AS credits_returned
+FROM public.grade_credit_transactions t
+WHERE t.reason = 'refund'
+  AND t.submission_id IN (
+    SELECT submission_id
+    FROM public.flipdesk_grading_submissions
+    WHERE status = 'needs_photos' AND submission_id IS NOT NULL
+  )
+GROUP BY 1
+ORDER BY 1;
+
+\echo ''
+\echo '-- READING THIS: (a) with an empty (b) means the abstention happened and'
+\echo '-- the refund did not — a worse finding than the one this AC asked about,'
+\echo '-- because the seller then paid for a grade they never received. Both'
+\echo '-- empty means the path never fired in production and AC4 closes at zero.'
+\echo '-- The AI spend is NOT recoverable from either number; images-per-'
+\echo '-- submission is the multiplier and it is not stored on these rows.'
