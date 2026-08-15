@@ -120,7 +120,7 @@ const JUNK = "/this-path-should-not-exist-9f3a2b";
 const OG_MIN_BYTES = 2000;
 const OG_FALLBACK_PATH = "/og-image.png";
 const OG_TARGETS = [
-  { path: "/og/social/card?ratio=pin", known: "US-2619 — empty body, ImageResponse streams past the try/catch" },
+  { path: "/og/social/card?ratio=pin", known: "US-2619 — renders the BRANDED FALLBACK, not a real card. The blank-preview bug is fixed (buffering made the throw catchable); the render itself still fails and the root cause is open." },
   { path: "/og/grade-check" },
 ];
 
