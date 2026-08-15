@@ -190,6 +190,31 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_LISTING_ID = listingId;
 
+  // US-2395 AC6: a MULTI-VARIATION listing, which the group-revise branch takes
+  // a different path for. Deliberately seeded rather than classified as
+  // unseeded: it needs nothing external — a listings row with `variations` set,
+  // a pinned inventory_sku and NO platform_offer_id is exactly what eBay leaves
+  // behind after publish_by_inventory_item_group, and it is a plain insert.
+  const variationListingId = await insert("listings", {
+    inventory_item_id: itemId,
+    platform: "ebay",
+    listing_price: 55.0,
+    listing_title: "Tenant-A fixture variation listing",
+    listing_status: "active",
+    // The group is keyed on this, not on the item's current sku (US-1999).
+    inventory_sku: "FIXTURE-VAR-A",
+    // Published by group, so eBay minted an item id and never an offer id.
+    platform_listing_id: "111111111111",
+    variations: {
+      specifications: ["Size"],
+      variants: [
+        { aspects: { Size: "M" }, quantity: 1, price_cents: null },
+        { aspects: { Size: "L" }, quantity: 2, price_cents: 6500 },
+      ],
+    },
+  });
+  out.TEST_USER_A_VARIATION_LISTING_ID = variationListingId;
+
   out.TEST_USER_A_SYNC_RUN_ID = await insert("flipdesk_sync_runs", {
     user_id: aId,
     marketplace: "ebay",

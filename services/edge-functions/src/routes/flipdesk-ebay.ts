@@ -82,6 +82,7 @@ import {
   publishOrAdoptOffer,
   createOrReplaceInventoryItemGroup,
   publishItemGroupOrAdopt,
+  publishOfferByInventoryItemGroup,
   resolveCachedDefaults,
   revokeEbayUserToken,
   setDefaultPolicies,
@@ -5575,6 +5576,38 @@ async function persistReviseFailure(
   }
 }
 
+// US-1081/US-1079: a successful push re-asserts GradeThread's values onto eBay,
+// so any recorded eBay-drift marker is resolved — clear it so the "eBay differs"
+// indicator disappears without waiting for the next inbound sync. Also clears any
+// prior push failure (publish_error/publish_failed_at) so the retry banner goes
+// away once the push succeeds.
+//
+// Lifted out of the offer path in US-2395 so the group path clears the SAME
+// state. A revise that succeeded through one mechanism and left the drift marker
+// standing because it took the other branch would show "eBay differs" on a
+// listing that no longer does.
+async function clearReviseDrift(listingId: string): Promise<void> {
+  const { data: cur } = await supabaseAdmin
+    .from("listings")
+    .select("platform_fields")
+    .eq("id", listingId)
+    .maybeSingle();
+  const pf = ((cur as { platform_fields?: Record<string, unknown> } | null)
+    ?.platform_fields) ?? {};
+  const update: Record<string, unknown> = {
+    publish_error: null,
+    publish_failed_at: null,
+  };
+  if ((pf as { sync_drift?: unknown }).sync_drift) {
+    delete (pf as { sync_drift?: unknown }).sync_drift;
+    update.platform_fields = pf;
+  }
+  await supabaseAdmin
+    .from("listings")
+    .update(update as never)
+    .eq("id", listingId);
+}
+
 // Revises a live listing — title / description / price / quantity / photo order.
 // Photos and aspects flow through the inventory_item PUT (which is sourced from
 // current local state), so editing a photo via the photo manager and then
@@ -5707,26 +5740,18 @@ async function reviseOneListing(
     }
   }
 
-  // US-2395: a VARIATION listing has no offer id and never will — eBay publishes
-  // it by inventory_item_group. Telling that seller to "republish to enable
-  // edits" is advice that cannot work, and republishing a live listing is worse
-  // than doing nothing. Until the group-revise branch lands (US-2395 AC1/AC3),
-  // say what is actually true.
-  if (!row.listing.platform_offer_id && row.listing.variations) {
-    return jsonResult(
-      {
-        error:
-          "Editing a multi-variation listing on eBay isn't supported yet. eBay " +
-          "publishes these as a variation group rather than a single offer, and " +
-          "the revise path doesn't handle groups. Edit it on eBay for now — " +
-          "republishing here would not help.",
-        code: "variation_revise_unsupported",
-      },
-      409
-    );
-  }
+  // US-2395 AC1/AC2: which mechanism pushes this revision. Group FIRST, and
+  // keyed on the PINNED inventory_sku, so a SKU rename cannot aim the revise at
+  // a group that no longer exists. A variation listing has no offer id and never
+  // will — eBay publishes it by inventory_item_group — which is why an
+  // offer-first read of the same row concluded "no mechanism" and 409'd.
+  const reviseStrategy = resolveReviseStrategy({
+    variations: row.listing.variations ?? null,
+    itemSku: row.listing.inventory_sku ?? null,
+    platformOfferId: row.listing.platform_offer_id ?? null,
+  });
 
-  if (!row.listing.platform_offer_id) {
+  if (reviseStrategy.kind === "none") {
     return jsonResult(
       {
         error:
@@ -5735,7 +5760,14 @@ async function reviseOneListing(
       409
     );
   }
-  const offerId = row.listing.platform_offer_id;
+
+  // Acted on AFTER the shared assembly below rather than here: the group push
+  // needs the same title, description, aspects, photos and condition the offer
+  // path spends the next two hundred lines building, and a second copy of that
+  // assembly is how the two paths would start disagreeing about what a revision
+  // contains.
+  const groupRevise = reviseStrategy.kind === "group";
+  const offerId = reviseStrategy.kind === "offer" ? reviseStrategy.offerId : "";
   const itemId = row.listing.inventory_item_id;
 
   // Update local state first so the inventory_item PUT below reads the
@@ -6171,7 +6203,9 @@ async function reviseOneListing(
     // anywhere recorded which step actually broke. The reason is carried to
     // the inventory-PUT failure below and reported with it.
     let categoryBridgeError: string | null = null;
-    if (resyncFields && reviseCategoryId) {
+    // US-2395: the bridge reads the LIVE OFFER, and a group listing has none.
+    // Its category is re-asserted per variant offer in the group branch below.
+    if (resyncFields && reviseCategoryId && !groupRevise) {
       try {
         const liveOffer = await getOffer(
           userId,
@@ -6235,6 +6269,37 @@ async function reviseOneListing(
           err,
         );
       }
+    }
+
+    // US-2395 AC1/AC3: the group branch. Everything it needs is now built, and
+    // from here the single-offer path below is untouched — this returns before
+    // reaching it. The blast radius is exactly the listings that answered 409
+    // until now, which is why this can land without a real listing to test
+    // against: it cannot make the common path worse than it is.
+    if (groupRevise && reviseStrategy.kind === "group") {
+      return await reviseVariationGroup({
+        userId,
+        listingId,
+        groupKey: reviseStrategy.groupKey,
+        variations: row.listing.variations as ListingVariations,
+        title: finalTitle,
+        description: reviseDesc,
+        aspects: reviseWireAspects,
+        imageUrls,
+        condition: reviseCondition,
+        conditionDescription: reviseConditionDescription,
+        brand:
+          typeof item.brand === "string" && item.brand.trim()
+            ? item.brand.trim()
+            : "Unbranded",
+        price: hasPrice ? (nextPrice as number) : undefined,
+        categoryId: resyncFields && reviseCategoryId ? reviseCategoryId : undefined,
+        listingDescription: hasDesc ? (nextDesc as string) : (reviseGradeDesc ?? undefined),
+        quantityRequested: hasQty,
+        connectionId: row.listing.marketplace_connection_id ?? undefined,
+        localUpdates,
+        photosSynced: syncPhotos || hasTitle || hasDesc || resyncFields,
+      });
     }
 
     try {
@@ -6344,32 +6409,7 @@ async function reviseOneListing(
     }
   }
 
-  // US-1081/US-1079: a successful push re-asserts GradeThread's values onto eBay,
-  // so any recorded eBay-drift marker is resolved — clear it so the "eBay differs"
-  // indicator disappears without waiting for the next inbound sync. Also clear any
-  // prior push failure (publish_error/publish_failed_at) so the retry banner goes
-  // away once the push succeeds.
-  {
-    const { data: cur } = await supabaseAdmin
-      .from("listings")
-      .select("platform_fields")
-      .eq("id", listingId)
-      .maybeSingle();
-    const pf = ((cur as { platform_fields?: Record<string, unknown> } | null)
-      ?.platform_fields) ?? {};
-    const update: Record<string, unknown> = {
-      publish_error: null,
-      publish_failed_at: null,
-    };
-    if ((pf as { sync_drift?: unknown }).sync_drift) {
-      delete (pf as { sync_drift?: unknown }).sync_drift;
-      update.platform_fields = pf;
-    }
-    await supabaseAdmin
-      .from("listings")
-      .update(update as never)
-      .eq("id", listingId);
-  }
+  await clearReviseDrift(listingId);
 
   return jsonResult({
     ok: true,
@@ -9243,6 +9283,198 @@ export type ReviseStrategy =
   | { kind: "group"; groupKey: string }
   | { kind: "offer"; offerId: string }
   | { kind: "none" };
+
+/**
+ * US-2395 AC1/AC3: push a revision through the inventory_item_group.
+ *
+ * The publish path (publishVariationListing) is the reference for the shapes
+ * here, and this is deliberately NOT a call into it: publish CREATES offers and
+ * writes a listings row, and a revise must do neither. What it shares is the
+ * payload shape, so a variant item built here matches one built there.
+ *
+ * Order matters and is the same as publish. Variant items first, because the
+ * group references them; the group second, because it carries what the buyer
+ * reads (title, description, photos); the per-variant offers third, because
+ * price and category live there and not on the item; the publish call last.
+ *
+ * THE PUBLISH CALL AT THE END IS THE UNVERIFIED PART, said plainly rather than
+ * buried. For an already-published group, publish_by_inventory_item_group is
+ * how eBay applies pending item and group changes, and it returns the same
+ * listing id. If eBay instead rejects it as already published, the error
+ * surfaces as a 422 with its own message rather than being swallowed — which is
+ * the failure mode worth having, because the alternative is reporting success
+ * on a listing that did not change. US-2395 AC7 is the check against a real
+ * multi-variation listing, and it stays open until someone runs it.
+ *
+ * QUANTITY IS DELIBERATELY REFUSED. Quantity on a group is per variant; one
+ * number applied to every variant would multiply the seller's stock by the
+ * number of variants, silently. The response says so instead.
+ */
+async function reviseVariationGroup(args: {
+  userId: string;
+  listingId: string;
+  groupKey: string;
+  variations: ListingVariations;
+  title: string;
+  description: string;
+  aspects: Record<string, string[]>;
+  imageUrls: string[];
+  condition: string;
+  conditionDescription: string | undefined;
+  brand: string;
+  price: number | undefined;
+  categoryId: string | undefined;
+  listingDescription: string | undefined;
+  quantityRequested: boolean;
+  connectionId: string | undefined;
+  localUpdates: Record<string, unknown>;
+  photosSynced: boolean;
+}): Promise<ReviseOneResult> {
+  const {
+    userId,
+    listingId,
+    groupKey,
+    variations,
+    title,
+    description,
+    aspects,
+    imageUrls,
+    condition,
+    conditionDescription,
+    brand,
+    price,
+    categoryId,
+    listingDescription,
+    quantityRequested,
+    connectionId,
+    localUpdates,
+    photosSynced,
+  } = args;
+
+  const variantSkus: string[] = [];
+  const specValues = new Map<string, Set<string>>();
+  for (const spec of variations.specifications) specValues.set(spec, new Set());
+  for (const v of variations.variants) {
+    for (const spec of variations.specifications) {
+      const val = v.aspects[spec];
+      if (val) specValues.get(spec)!.add(val);
+    }
+  }
+
+  try {
+    // 1. Every variant item carries the shared edit plus its own variation
+    //    values. eBay needs the varies-by aspect present on every member item,
+    //    so the per-variant values are written LAST and win.
+    for (const variant of variations.variants) {
+      const vSku = variantSku(groupKey, variant);
+      variantSkus.push(vSku);
+      const variantAspects: Record<string, string[]> = { ...aspects };
+      for (const [name, value] of Object.entries(variant.aspects)) {
+        variantAspects[name] = [value];
+      }
+      await createOrReplaceInventoryItem(
+        userId,
+        vSku,
+        {
+          product: {
+            title,
+            description,
+            aspects:
+              Object.keys(variantAspects).length > 0 ? variantAspects : undefined,
+            imageUrls,
+            brand,
+            mpn: "Does Not Apply",
+          },
+          condition,
+          conditionDescription,
+          availability: {
+            shipToLocationAvailability: { quantity: variant.quantity },
+          },
+        },
+        connectionId,
+      );
+    }
+
+    // 2. The group is what the buyer actually reads.
+    const specifications = variations.specifications.map((name) => ({
+      name,
+      values: [...(specValues.get(name) ?? [])],
+    }));
+    const colorSpec = variations.specifications.find((s) => /colou?r/i.test(s));
+    await createOrReplaceInventoryItemGroup(userId, groupKey, {
+      title,
+      description,
+      imageUrls,
+      aspects,
+      variantSKUs: variantSkus,
+      variesBy: {
+        specifications,
+        ...(colorSpec ? { aspectsImageVariesBy: [colorSpec] } : {}),
+      },
+    });
+
+    // 3. Price and category live on the per-variant offers, which were created
+    //    at publish and whose ids we never stored — that absence is the whole
+    //    reason this listing has no platform_offer_id. Look each one up by SKU.
+    //    A variant with a per-variant price keeps it: a base-price edit must not
+    //    flatten a deliberately-differentiated variant.
+    if (price !== undefined || categoryId || listingDescription) {
+      for (const variant of variations.variants) {
+        const vSku = variantSku(groupKey, variant);
+        const offers = await listOffersForSku(userId, vSku);
+        const live = offers.find((o) => !!o.offerId);
+        if (!live) continue;
+        await updateOfferFields(
+          userId,
+          live.offerId,
+          {
+            price:
+              price !== undefined && variant.price_cents == null ? price : undefined,
+            listingDescription,
+            categoryId,
+          },
+          connectionId,
+        );
+      }
+    }
+
+    // 4. Apply it. See the note above on why this call is the unverified part.
+    await publishOfferByInventoryItemGroup(userId, groupKey, getMarketplaceId());
+  } catch (err) {
+    console.error("[flipdesk-ebay] variation group revise failed:", err);
+    await persistReviseFailure(listingId, err);
+    return jsonResult(
+      {
+        error: "eBay rejected the variation revision.",
+        detail: ebayFailureDetail(err, EBAY_PUBLISH_GENERIC_FIX),
+      },
+      422,
+    );
+  }
+
+  await clearReviseDrift(listingId);
+  await supabaseAdmin
+    .from("listings")
+    .update({ synced_to_ebay_at: new Date().toISOString() })
+    .eq("id", listingId);
+
+  return jsonResult({
+    ok: true,
+    listing_id: listingId,
+    updated: localUpdates,
+    photos_synced: photosSynced,
+    variation_group: groupKey,
+    variants_pushed: variantSkus.length,
+    ...(quantityRequested
+      ? {
+          quantity_skipped:
+            "Quantity on a variation listing is per variant. Edit the variant " +
+            "quantities and resubmit; one number here would have been applied " +
+            "to every variant.",
+        }
+      : {}),
+  });
+}
 
 export function resolveReviseStrategy(input: {
   variations: ListingVariations | null;

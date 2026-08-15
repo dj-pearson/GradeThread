@@ -224,18 +224,127 @@ Deno.test("US-2395: revise and end answer the same question the same way", () =>
   assertEquals(resolveReviseStrategy(bare), { kind: "none" });
 });
 
-Deno.test("US-2395: the refusal stops telling a variation seller to republish", () => {
-  // Until the group-revise branch lands, the refusal must at least be TRUE.
-  const src = Deno.readTextFileSync(
-    new URL("../routes/flipdesk-ebay.ts", import.meta.url),
-  );
-  const at = src.indexOf("variation_revise_unsupported");
-  assertEquals(at > -1, true, "the variation-specific refusal is gone");
-  const before = src.slice(Math.max(0, at - 900), at);
+// ── US-2395 AC1/AC3: the group-revise branch ────────────────────────────────
+//
+// These replace the test that pinned the temporary refusal. That refusal was
+// honest while the branch did not exist ("edit it on eBay for now"); with the
+// branch shipped it would be a lie, so the assertion that it STAYS is now the
+// assertion that it is GONE.
+
+const EBAY_SRC = Deno.readTextFileSync(
+  new URL("../routes/flipdesk-ebay.ts", import.meta.url),
+);
+
+Deno.test("US-2395: the variation refusal is gone, because it is no longer true", () => {
   assertEquals(
-    /if \(!row\.listing\.platform_offer_id && row\.listing\.variations\)/.test(before),
+    EBAY_SRC.includes("variation_revise_unsupported"),
+    false,
+    "the 'not supported yet' refusal is still in the revise path while the " +
+      "group branch exists — a variation seller is being turned away from a " +
+      "feature that works",
+  );
+});
+
+Deno.test("US-2395: revise refuses only when the strategy resolves to none", () => {
+  // The defect was an offer-first read of a row that will never have an offer
+  // id. Keying the 409 on the resolver rather than on platform_offer_id is what
+  // stops it coming back.
+  const at = EBAY_SRC.indexOf("This listing has no eBay offer id");
+  assertEquals(at > -1, true, "the generic refusal is gone entirely");
+  const before = EBAY_SRC.slice(Math.max(0, at - 600), at);
+  assertEquals(
+    /reviseStrategy\.kind === "none"/.test(before),
     true,
-    "the variation refusal no longer fires ahead of the generic offer-id 409, " +
-      "so a variation seller gets the misleading 'republish' advice again",
+    "the 409 is guarded by something other than the resolver, so a group " +
+      "listing can be refused again",
+  );
+});
+
+Deno.test("US-2395: the group push runs items, then group, then offers, then publish", () => {
+  // Order is not cosmetic. The group references the variant items, so items
+  // first; price and category live on the per-variant offers, not on the item;
+  // and the publish call is what applies the lot.
+  const fn = EBAY_SRC.slice(
+    EBAY_SRC.indexOf("async function reviseVariationGroup"),
+    EBAY_SRC.indexOf("export function resolveEndStrategy"),
+  );
+  assertEquals(fn.length > 0, true, "reviseVariationGroup not found");
+  const order = [
+    "createOrReplaceInventoryItem(",
+    "createOrReplaceInventoryItemGroup(",
+    "listOffersForSku(",
+    "publishOfferByInventoryItemGroup(",
+  ].map((needle) => fn.indexOf(needle));
+  for (const [i, at] of order.entries()) {
+    assertEquals(at > -1, true, `step ${i} is missing from the group revise`);
+  }
+  for (let i = 1; i < order.length; i++) {
+    assertEquals(
+      order[i]! > order[i - 1]!,
+      true,
+      `step ${i} runs before step ${i - 1} — the group revise order is wrong`,
+    );
+  }
+});
+
+Deno.test("US-2395: the group branch keys on the PINNED sku, never the item's", () => {
+  // A SKU rename after publish would otherwise aim the revise at a group that
+  // does not exist. Same reasoning US-1999 applied to the withdraw path.
+  const call = EBAY_SRC.slice(
+    EBAY_SRC.indexOf("return await reviseVariationGroup({"),
+    EBAY_SRC.indexOf("return await reviseVariationGroup({") + 400,
+  );
+  assertEquals(
+    /groupKey:\s*reviseStrategy\.groupKey/.test(call),
+    true,
+    "the group key no longer comes from the resolver, which is what pins it to " +
+      "listings.inventory_sku",
+  );
+});
+
+Deno.test("US-2395: quantity is refused on a group rather than applied to every variant", () => {
+  const fn = EBAY_SRC.slice(
+    EBAY_SRC.indexOf("async function reviseVariationGroup"),
+    EBAY_SRC.indexOf("export function resolveEndStrategy"),
+  );
+  assertEquals(
+    fn.includes("quantity_skipped"),
+    true,
+    "a quantity edit on a variation listing is silently ignored or, worse, " +
+      "applied to every variant — one number times N variants is the seller's " +
+      "stock multiplied",
+  );
+  assertEquals(
+    /availableQuantity/.test(fn),
+    false,
+    "the group branch sends availableQuantity to a per-variant offer, which is " +
+      "the multiplication this refusal exists to prevent",
+  );
+});
+
+Deno.test("US-2395: a per-variant price survives a base-price edit", () => {
+  // A variant deliberately priced differently must not be flattened by an edit
+  // to the listing's base price.
+  const fn = EBAY_SRC.slice(
+    EBAY_SRC.indexOf("async function reviseVariationGroup"),
+    EBAY_SRC.indexOf("export function resolveEndStrategy"),
+  );
+  assertEquals(
+    /price !== undefined && variant\.price_cents == null \? price : undefined/.test(fn),
+    true,
+    "the price patch no longer excludes variants carrying their own price",
+  );
+});
+
+Deno.test("US-2395: both paths clear the drift marker through one function", () => {
+  // A revise that succeeded through the group and left sync_drift standing would
+  // show "eBay differs" on a listing that no longer does.
+  assertEquals(EBAY_SRC.includes("async function clearReviseDrift"), true);
+  const calls = [...EBAY_SRC.matchAll(/await clearReviseDrift\(/g)].length;
+  assertEquals(
+    calls >= 2,
+    true,
+    `clearReviseDrift is called ${calls} time(s) — one of the two revise paths ` +
+      "is not clearing the marker",
   );
 });

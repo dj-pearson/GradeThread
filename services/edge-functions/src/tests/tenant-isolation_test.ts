@@ -2000,6 +2000,38 @@ Deno.test({
   },
 });
 
+// US-2395 AC6: the same route, taken down the GROUP branch. A multi-variation
+// listing has no platform_offer_id, so before the group branch existed this
+// request met a 409 before ownership could matter — the refusal was doing the
+// isolation work by accident. Now the branch runs real eBay writes (variant
+// items, the group, the per-variant offers), so the ownership check is the only
+// thing between B and A's live listing, and it is worth its own case rather than
+// being assumed to be covered by the offer one above.
+//
+// Needs a VARIATION listing owned by A. Absent that id the case is skipped, not
+// silently passed: a green run against no fixture proves nothing.
+Deno.test({
+  name: "B cannot revise A's multi-variation eBay listing (group branch)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_VARIATION_LISTING_ID"),
+  fn: async () => {
+    const id = Deno.env.get("TEST_USER_A_VARIATION_LISTING_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ebay/listings/${id}/revise`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      // resync_ebay_fields is the payload that reaches furthest into the group
+      // branch: it pushes items, the group and every variant offer.
+      body: JSON.stringify({ title: "pwned", resync_ebay_fields: true }),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      DENIED_OR_UNCONFIGURED.has(status),
+      `POST listings/:id/revise (variation group) for another tenant should be ` +
+        `denied (401/403/404/422/503) but got ${status}`,
+    );
+  },
+});
+
 // US-2404: bulk-revise takes ids in the BODY rather than the path, which is
 // exactly the shape US-268 warns about — an id from the request body acted on
 // without an ownership check. It runs each id through reviseOneListing, the same
