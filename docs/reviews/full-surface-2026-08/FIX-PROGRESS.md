@@ -34,7 +34,7 @@ unless a story is blocked; if blocked, note why and move to the next.
 
 ### P1 — do these first
 - [~] US-2503 (1800) iOS buyer tools unreachable — SLICE 1 `74a2be2a` + SLICE 2 `010d7463` (still OPEN). Slice 1: `GET /api/buyer/entitlements` serves the resolved payload so iOS gates from ONE source rather than a Swift copy of the matrix (AC3 was not satisfiable without it). Slice 2: every one of the 13 bundled capabilities is now classified `shipped | planned | desktop-only` inside the EXISTING `buyer-features.ts` registry, so a new buyer capability does not compile until someone decides — and a `shipped` claim must name a Swift file that EXISTS, which is AC5 read literally. Guard `src/test/buyer-ios-delivery.test.ts` (9 cases). AC2/AC4 and AC5's Swift screen still need macOS.
-- [~] US-2504 (1802) Walk-around video grading web-only — SLICE 1 SHIPPED `994561a1` (still OPEN): `src/lib/video-grading-contract.ts` pins the multipart field names, the exact opt-in string and the abstain response. **AC3 needs no iOS work** — the no-charge guarantee is the SERVER's (`failVideoGrading` returns before payment and refunds the buyer debit). Guard `src/test/video-grading-contract.test.ts`. AC2's recorder + AC4's progress still need macOS.
+- [~] US-2504 (1802) Walk-around video grading web-only — SLICE 1 `994561a1` + SLICE 2 `aee1a0ba` (still OPEN). Slice 1 pinned the multipart field names, the exact opt-in string and the abstain response; **AC3 needs no iOS work** — the no-charge guarantee is the SERVER's. Slice 2 pins what the route will ACCEPT, which nothing had recorded: the caps that apply are the ROUTE's 60 MB / 45s, **not** the validation library's 100 MB / 60s, so a recorder built by reading the validator is rejected every time; photos and a clip are mutually exclusive (a 400, and the natural additive iOS flow breaks it); and 100% uploaded is not 100% done. AC4's WEB half was already correct (XHR, because fetch has no upload-progress event). Guard `src/test/video-grading-contract.test.ts` now 25 cases, 3 proven red on drift. AC2's recorder + AC4's iOS progress still need macOS.
 - [x] US-2505 (1804) Human-review claim lock bypassable — DONE d97a307d
 - [x] US-2506 (1806) /condition-index 404s on every public page — DONE 117e99cc
 
@@ -1062,3 +1062,31 @@ host and not the other, so the local one was dropped.
   capability does not compile until it is classified. A parallel registry would
   have needed its own guard to stay in step, which is the drift this loop has now
   fixed four times.
+
+- **`cmd | tail && echo OK` REPORTS THE EXIT STATUS OF `tail`.** I had been
+  verifying with `npx tsc -b 2>&1 | tail -5 && echo TSC-OK` all loop, which
+  prints the success marker unconditionally — and this iteration it printed
+  TSC-OK directly underneath a real TS2532. Earlier runs happened to be clean
+  (no error text above the marker) but the check was never sound. Run the command
+  bare and read `$?`, or put the marker inside the command that can fail.
+
+- **When a spec has two plausible sources, the one a stranger reads first is the
+  wrong one.** The video caps live in `lib/video-validation.ts` as defaults
+  (100 MB / 60s) and in `routes/grade.ts` as the values actually passed
+  (60 MB / 45s). A validation library is exactly where someone looks to learn
+  what an upload may be, so the looser number is the discoverable one and the
+  binding number is hidden in a call site. Pin the binding one AND assert the
+  gap, so the trap itself is guarded rather than just the value.
+
+- **Ask what the natural shape of the OTHER client's flow is.** Photos and a clip
+  are mutually exclusive on the server, which reads as an odd restriction until
+  you notice the iOS flow is additive by nature: stage photos, then also record.
+  Sending both feels like sending more evidence. Rules that are obvious in the
+  client you built are the ones a second client breaks first — write those down
+  in preference to the ones that are merely important.
+
+- **Check whether the "missing" half is missing.** US-2504 AC4 asks for upload
+  progress; the web already had it, done properly, with the AC's own 60 MB
+  reasoning in the comment. Half an hour of reading turned "build progress
+  reporting" into "record the one non-obvious thing about it" (100% uploaded is
+  not 100% done). Fifth stale-or-narrower premise this loop.
