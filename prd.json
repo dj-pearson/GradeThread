@@ -2130,6 +2130,22 @@
       "priority": 83,
       "passes": false,
       "notes": "[FOUND DURING US-2574 2026-08-14] Consumers of support_kb_articles today: services/edge-functions/src/lib/agent-tools.ts, lib/support-tools.ts, main.ts, routes/admin-knowledge-base.ts, tests/support-kb-search_test.ts. No consumer in functions/ or src/ - confirmed by grep, which is what proves it has no public surface. This story is deliberately AFTER the help center ships (priority 83, behind US-2592) so the convergence moves content into a finished home rather than a half-built one. Until it lands the two corpora coexist, and the help center is the one customers see."
+    },
+    {
+      "id": "US-2595",
+      "title": "[FLIPDESK] One MeasureCard photo fills every measurement and the size, with no second click",
+      "description": "Auto-measure had never run in production: /measure/extract selected a `category` column that exists only as a COALESCE alias on the items_full VIEW, so PostgREST answered 42703 and the route returned \"Item not found\" for every item on web, iOS and Android. Even with a working query the wrong template was used — the measurement group was resolved from the coarse vertical, and measurementGroupFor(\"clothing\") is `generic`, so a blazer was never offered a chest or a sleeve and shorts never a waist or an inseam. On top of both, the card was a three-step manual ritual (tag the shot, Detect card, Auto-measure) and the size still needed a separate Estimate press.",
+      "acceptanceCriteria": [
+        "POST /api/flipdesk/measure/extract loads inventory_items by columns that exist (item_category, garment_category, garment_type) and no longer 404s on a valid owned item.",
+        "The measurement group resolves from the garment word (garment_category, then garment_type, then the title) so a blazer gets chest/length/shoulder/sleeve and shorts get waist/inseam, on every surface that reads it.",
+        "The composer calibrates a MeasureCard photo on sight — deterministic CV, never a billed action — instead of requiring \"Detect card\".",
+        "Listing generation fills any missing measurement from the calibrated card and, when the tag read finds no size, estimates the size and writes it to the item; both bundled into the one generation AI action with their spend in ai_enrichment_log.",
+        "Fill-only: a fully measured item skips the vision call entirely, and a value the seller typed is never overwritten.",
+        "A guard test fails if any edge query selects a bare `category` column off inventory_items again."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "[SHIPPED 2026-08-14] lib/measure-autofill.ts (the shared pass), lib/measure-calibrate.ts (calibration plumbing lifted out of the route so a lib need not import a route), measurementGroupForItem/garmentDescriptorFor in BOTH measurement-templates.ts copies (byte-identical, US-2225 parity test). generateListing runs both passes; the composer passes the garment word from ebayMapping because items_full does not expose it. NO MIGRATION. STILL OPEN: prep.tsx, intake.tsx and fit-widget still pass items_full.category, so they keep showing the generic template — fixing those needs garment_category/garment_type added to the items_full view."
     }
   ]
 }
