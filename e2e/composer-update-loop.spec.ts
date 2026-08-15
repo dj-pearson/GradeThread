@@ -228,7 +228,16 @@ async function mockBackend(page: Page, over: ScenarioOverrides = {}) {
     const url = r.request().url();
     // Composer fetches one row via maybeSingle (object accept); the drafts
     // cockpit fetches the draft list (array).
-    if (url.includes("id=eq.")) return r.fulfill(json(LISTING_ROW));
+    //
+    // MATCHED AS A WHOLE PARAMETER, not as a substring. `includes("id=eq.")`
+    // also matches `inventory_item_id=eq.`, which is how useItemListings reads
+    // every listing for an item — so that query was handed a single OBJECT,
+    // `const { data: rows = [] }` kept it (the default only fires on undefined),
+    // and `flaggedListings(rows)` crashed the composer with "rows.filter is not
+    // a function". Three scenarios failed identically for it, and the crash was
+    // the mock's, not the product's: PostgREST returns an array for a plain
+    // select, and only `.maybeSingle()` asks for an object.
+    if (/[?&]id=eq\./.test(url)) return r.fulfill(json(LISTING_ROW));
     return r.fulfill(json([LISTING_ROW]));
   });
 
