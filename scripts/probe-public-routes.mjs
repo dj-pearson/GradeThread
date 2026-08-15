@@ -119,8 +119,18 @@ const JUNK = "/this-path-should-not-exist-9f3a2b";
  */
 const OG_MIN_BYTES = 2000;
 const OG_FALLBACK_PATH = "/og-image.png";
+const OG_KNOWN =
+  "US-2619 — the branded fallback fires, so the render still throws. The " +
+  "blank-preview bug IS fixed (buffering made the throw catchable). Delete this " +
+  "entry when a real render comes back.";
 const OG_TARGETS = [
-  { path: "/og/social/card?ratio=pin", known: "US-2619 — renders the BRANDED FALLBACK, not a real card. The blank-preview bug is fixed (buffering made the throw catchable); the render itself still fails and the root cause is open." },
+  { path: "/og/social/card?ratio=pin", known: OG_KNOWN },
+  // A real handle, not a made-up one. `/og/verified/nobody` takes the
+  // not-found branch and serves the fallback for an entirely different reason,
+  // which is how this endpoint read as healthy for so long.
+  { path: "/og/verified/pearson", known: OG_KNOWN },
+  // The known-GOOD renderer. Without it the list could pass forever on its own
+  // exceptions and never prove the check can recognise a working card.
   { path: "/og/grade-check" },
 ];
 
@@ -157,15 +167,28 @@ async function probe(url, opts = {}) {
   }
 }
 
-/** Byte length of a binary response. Separate from probe(), which parses HTML. */
+/**
+ * Byte length of a binary response, plus whether it announced itself as a
+ * fallback. Separate from probe(), which parses HTML.
+ *
+ * `X-GT-Fallback` is set by brandedFallbackResponse and is a far better signal
+ * than the byte comparison below it: it is explicit, it survives someone
+ * replacing the fallback image, and it distinguishes the branded card from the
+ * transparent pixel. The size check stays as a backstop for an endpoint that
+ * serves the fallback bytes without going through that helper.
+ */
 async function probeBytes(url) {
   try {
     const res = await fetch(url, { redirect: "manual" });
-    if (res.status !== 200) return { status: res.status, bytes: 0 };
+    if (res.status !== 200) return { status: res.status, bytes: 0, fallback: "" };
     const buf = await res.arrayBuffer();
-    return { status: 200, bytes: buf.byteLength };
+    return {
+      status: 200,
+      bytes: buf.byteLength,
+      fallback: res.headers.get("x-gt-fallback") ?? "",
+    };
   } catch {
-    return { status: 0, bytes: 0 };
+    return { status: 0, bytes: 0, fallback: "" };
   }
 }
 
@@ -230,7 +253,11 @@ async function main() {
     let problem = null;
     if (r.status !== 200) problem = `HTTP ${r.status}`;
     else if (r.bytes < OG_MIN_BYTES) problem = `200 with ${r.bytes} bytes — a blank preview`;
-    else if (fallbackBytes > 0 && r.bytes === fallbackBytes) {
+    else if (r.fallback) {
+      // The endpoint said so itself. Preferred over the size comparison below,
+      // which is only a backstop.
+      problem = `200 but X-GT-Fallback: ${r.fallback} — the fallback fired, so the render threw`;
+    } else if (fallbackBytes > 0 && r.bytes === fallbackBytes) {
       problem = `200 but byte-identical to ${OG_FALLBACK_PATH} — the fallback, not a render`;
     }
     if (!problem) continue;

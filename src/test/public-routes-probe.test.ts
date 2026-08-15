@@ -128,3 +128,28 @@ describe("US-2619: an OG image that is 200 but not a render", () => {
     expect(src).toContain('"/og/grade-check"');
   });
 });
+
+describe("US-2619: the fallback announces itself", () => {
+  const src = read(SCRIPT);
+
+  it("trusts the X-GT-Fallback header over a byte comparison", () => {
+    // brandedFallbackResponse sets it, so the endpoint says outright that its
+    // render threw. Better than the size check in three ways: explicit, it
+    // survives replacing the fallback image, and it tells the branded card apart
+    // from the transparent pixel. The size check stays as a backstop for a
+    // response that serves those bytes without going through the helper.
+    expect(src).toContain("x-gt-fallback");
+    expect(src).toMatch(/the fallback fired, so the render threw/);
+  });
+
+  it("probes a REAL verified handle, not a made-up one", () => {
+    // /og/verified/nobody takes the not-found branch and serves the fallback for
+    // a completely different reason — which is exactly how that endpoint read as
+    // healthy while its render had never once succeeded.
+    expect(src).toContain('path: "/og/verified/pearson"');
+    // Anchored to the USAGE, not the file. A bare substring check also matched
+    // the comment right above it explaining why the made-up handle is wrong,
+    // which would have made this assertion permanently unsatisfiable.
+    expect(src).not.toMatch(/path:\s*"\/og\/verified\/nobody"/);
+  });
+});
