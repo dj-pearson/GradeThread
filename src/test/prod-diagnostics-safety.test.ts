@@ -252,6 +252,13 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       "§16",
       "§17",
       "§18",
+      "§19",
+      "§20",
+      "§21",
+      "§22",
+      "§23",
+      "§24",
+      "§25",
     ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }
@@ -272,6 +279,31 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     expect(SQL).toContain("public.grading_eval_cases");
     expect(SQL).toContain("public.ai_prompt_versions");
     expect(SQL).toContain("public.feature_flags");
+  });
+
+  it("never reads a settings parameter with a bare SHOW", () => {
+    // NEARLY SHIPPED 2026-08-15. §23 asks whether supautils.hint_roles contains
+    // `anon` — the setting that decides whether a denied function call
+    // segfaults the database. Written as `SHOW supautils.hint_roles`, that
+    // raises "unrecognized configuration parameter" on any image where
+    // supautils is not loaded, and psql under ON_ERROR_STOP=1 then abandons
+    // every remaining section. The operator gets a failed prod session instead
+    // of an answer, which is the precise failure this file's header promises it
+    // cannot cause — and worse than the wrong-column case above, because the
+    // parameter's ABSENCE is one of the two answers we are asking for.
+    //
+    // current_setting(name, true) returns NULL for an unknown parameter, so the
+    // fail case becomes data. Anything this file asks about a GUC goes that way.
+    for (const text of [SQL, CONSOLE_SQL]) {
+      const bareShow = text
+        .split(/\r?\n/)
+        .filter((l) => /^\s*SHOW\s+\S/i.test(l) && !/^\s*--/.test(l));
+      expect(bareShow, `use current_setting(name, true) instead: ${bareShow.join(" | ")}`)
+        .toEqual([]);
+    }
+    // And the safe form is actually present, so this case cannot pass by the
+    // section having been deleted.
+    expect(SQL).toContain("current_setting('supautils.hint_roles', true)");
   });
 
   it("§10 is the only scan, and the header admits it", () => {
