@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/tests/step-up-tiers_test.ts
   - services/edge-functions/src/lib/comped-spend.ts
   - services/edge-functions/src/lib/grade-billing.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [admin, security, mfa, scopes, policy]
 summary: Three tiers of admin authority — scope only, scope plus a day-window step-up, scope plus a five-minute step-up — and the rule for deciding which an action belongs to.
 ---
@@ -103,13 +103,37 @@ Then ask the cross-scope question separately: **which scope does the ACTION
 belong to?** If that is not the router's scope, check it at the route as well —
 `callerHasScope` does this without borrowing the middleware.
 
-## What this does not fix
+## What the default scope set does and does not buy (decided 2026-08-15)
 
 `DEFAULT_ROLE_SCOPES.admin` holds eight of the nine scopes, so for a **default**
-admin every `requireScope` except `users:role` is a no-op. Scope enforcement only
-becomes a real control once an operator narrows a role, and nothing in the
-product prompts them to. That is US-2354 AC4 and it is the highest-leverage item
-left — none of the tiering above changes it.
+admin every `requireScope` except `users:role` passes. Scope enforcement is
+therefore a real control only for a role somebody has NARROWED by hand, and
+nothing in the product prompts them to.
+
+**The owner decided to keep it, and the reasoning is the useful part.** There is
+one admin, and that admin is the founder. A narrow default would mean granting
+yourself `billing:write` before looking at a refund and `ops:write` before
+restarting a job — a ceremony with no second party to protect anything from,
+which is the kind of security theatre people route around within a week.
+
+So the scopes exist to make **delegation** possible, not to restrain the person
+who already owns the database. What they buy today is that the vocabulary,
+the enforcement points and the audit trail are all in place; what they will buy
+is a support hire who can refund without touching prompt versions.
+
+**Revisit the day a second admin exists**, and treat that as the trigger rather
+than a calendar date. Two things make it cheap when it comes: `roleHasScope`
+already reads per-admin `extraGrants` on top of the role default, and
+`/admin/ops/roles` already edits scopes with a step-up. Narrowing is a data
+change, not a code change.
+
+Two things this decision does NOT cover, so read them separately:
+
+- **`users:role` stays super_admin-only.** Role granting is the one action that
+  can manufacture another admin, and it is outside this default deliberately.
+- **A stolen default-admin session reaches eight scopes.** That is the residual
+  risk accepted here, and the mitigations for it are session-shaped rather than
+  scope-shaped — MFA, the impersonation limits in US-2351, and the audit log.
 
 ## ⚠️ A super_admin grant is also a SPEND grant
 

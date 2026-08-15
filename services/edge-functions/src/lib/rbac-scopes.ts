@@ -118,6 +118,14 @@ export function isScopeKey(v: unknown): v is ScopeKey {
 // or revoke access. The 00343 seed + the schema-version bump ship in the same
 // commit as enforcement, so an edge build requiring the new scopes never serves
 // against a DB that hasn't seeded them (boot-guard ordering).
+// US-2354 AC4, decided 2026-08-15 (owner): `admin` keeps eight of nine on
+// purpose. With one admin, and that admin the founder, a narrow default would
+// mean granting yourself billing:write before reading a refund — ceremony with
+// no second party to protect anything from, which people route around. The
+// scopes exist to make DELEGATION possible, not to restrain the person who owns
+// the database, and enforcement is already real for any role someone narrows.
+// Revisit when a second admin exists; that is the trigger, not a date.
+// Reasoning and the residual risk: vault/10-ops/admin-authority-tiers.md.
 export const DEFAULT_ROLE_SCOPES: Record<UserRole, ScopeKey[]> = {
   super_admin: [...SCOPE_KEYS],
   admin: [
