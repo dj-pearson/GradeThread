@@ -1892,22 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2575",
-      "title": "[HELP CENTER] Pages Function that server-renders the public help center",
-      "description": "This is the answer to 'plain HTML or database items': database rows rendered to complete server HTML at the edge, exactly like functions/blog/[[path]].ts already does for the blog. Bots get full markup with zero JavaScript. Static files would cost a rebuild and a deploy for every typo and would split the content from the in-app reader.",
-      "acceptanceCriteria": [
-        "functions/help/[[path]].ts handles /help (hub), /help/<category> (category landing) and /help/<category>/<slug> (article), reusing functions/_shared/blog-render.ts (renderSsrResponse, withEdgeCache, breadcrumbs, TOC, FAQ section, related posts, escape, upstreamUnavailableResponse).",
-        "Complete <head> on every response: canonical, title, description, OG/Twitter, robots index,follow.",
-        "A gated, draft or unknown slug returns the standard 404 page. Never a login redirect, never a stub that leaks the title.",
-        "Article pages render a table of contents, breadcrumbs, a 'Last reviewed' date, related articles and the pillar link.",
-        "A clean markdown mirror at <url>.md via _shared/html-to-markdown.ts, same as blog posts.",
-        "An upstream failure returns upstreamUnavailableResponse, not a blank shell."
-      ],
-      "priority": 65,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Note the DNS rule in CLAUDE.md: the Function calls functions.gradethread.com, never api.gradethread.com."
-    },
-    {
       "id": "US-2576",
       "title": "[HELP CENTER] SPA help routes and PUBLIC_ROUTES registration",
       "description": "The SSR Function serves first paint to crawlers and cold visitors; the SPA has to render the same thing for in-app navigation. And the hub plus the category landings are static enough to belong in the SEO registry, which is what makes them indexable and sitemapped.",

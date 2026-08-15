@@ -98,6 +98,24 @@ async function loadArticle(
   return row;
 }
 
+/**
+ * An article always ships with its category row.
+ *
+ * The public URL is /help/<category-slug>/<article-slug>, and the renderer needs
+ * the category's slug and title for the canonical URL and the breadcrumb. Making
+ * it fetch the index as well would be a second upstream round trip on every
+ * article page, on the hop that already fronts every visitor.
+ */
+async function categoryFor(key: string): Promise<HelpCategoryRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("help_categories")
+    .select(CATEGORY_COLUMNS)
+    .eq("key", key)
+    .maybeSingle();
+  if (error) throw error;
+  return (data as HelpCategoryRow | null) ?? null;
+}
+
 function indexPayload(categories: HelpCategoryRow[], rows: HelpArticleRow[]) {
   const articles = rows.map(projectListItem);
   const counts = new Map<string, number>();
@@ -127,7 +145,7 @@ helpPublicRoutes.get("/:slug", async (c) => {
   try {
     const row = await loadArticle("anon", c.req.param("slug"));
     if (!row) return c.json({ error: "Not found" }, 404);
-    return c.json({ article: projectArticle(row) });
+    return c.json({ article: projectArticle(row), category: await categoryFor(row.category_key) });
   } catch (err) {
     return failSafe(c, 500, "Couldn't load that help article.", err, "help.public.article");
   }
@@ -161,7 +179,11 @@ helpReaderRoutes.get("/:slug", async (c) => {
     const viewer = await viewerFor(c.get("userId"));
     const row = await loadArticle(viewer, c.req.param("slug"));
     if (!row) return c.json({ error: "Not found" }, 404);
-    return c.json({ article: projectArticle(row) });
+    return c.json({
+      article: projectArticle(row),
+      category: await categoryFor(row.category_key),
+      viewer,
+    });
   } catch (err) {
     return failSafe(c, 500, "Couldn't load that help article.", err, "help.reader.article");
   }
