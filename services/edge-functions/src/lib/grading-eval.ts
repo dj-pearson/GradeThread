@@ -34,9 +34,25 @@ import { downloadGradingImage } from "./grading-image-encoding.ts";
 // instead of in production.
 
 // Activation thresholds. A run must clear BOTH to pass. Tunable per-deploy.
+//
+// US-2301 AC6 (owner, 2026-08-15): the MAE default is 0.5, not the 1.0 it
+// shipped with. On a 1.0-10.0 scale where the weighted overall is rounded to
+// 0.1, a mean absolute error of a full point meant a candidate prompt could be
+// an entire grade wrong on average and still be promoted — the gap between
+// Excellent and Good, on the number the whole product sells.
+//
+// 0.5 is still generous: half a grade point is one tier, not two. 0.3 was
+// considered and refused for now, because it is close to the disagreement
+// between two human experts and the golden set is not yet large enough to tell
+// a real regression from an unrepresentative sample.
+//
+// THIS CHANGES NO GRADE. It only decides whether a NEW prompt version may go
+// active, and it is overridable per-deploy through EVAL_MAX_MAE — so a
+// deliberate, argued exception is one env var, while the silent default is the
+// strict one.
 function maxMae(): number {
   const raw = Number(Deno.env.get("EVAL_MAX_MAE"));
-  return Number.isFinite(raw) && raw > 0 ? raw : 1.0;
+  return Number.isFinite(raw) && raw > 0 ? raw : 0.5;
 }
 function minAgreement(): number {
   const raw = Number(Deno.env.get("EVAL_MIN_AGREEMENT"));
