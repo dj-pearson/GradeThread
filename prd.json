@@ -1864,21 +1864,6 @@
       ],
       "priority": 5,
       "notes": "2026-08-15 FILED FROM MEASUREMENT, and one piece of it is already fixed. The gap itself needs the owner (see the OPERATOR criterion) - what shipped in this commit is the part that was mine: 00479 is now excused by name in KNOWN_PHANTOM_VERSIONS (services/edge-functions/src/lib/schema-version.ts), because it is documented in two places as never authored and is the reason 00480+ were numbered around it, so reporting it on every read would put a permanent entry in a field whose only job is to be empty. The list is written BY HAND and deliberately NOT derived from migrations-lint's KNOWN_GAPS, which would look tidier and be wrong: KNOWN_GAPS also holds 00527, the SECURITY DEFINER lockdown parked as .BLOCKED behind US-2403, and 00527 appearing as applied is the one thing this field must scream about. Four new cases in schema-version_test.ts (51 passed) pin both directions plus 'the list may not grow'; sabotage-verified by adding 00527 to the list, which reddened exactly the two cases that exist to catch it. One pre-existing case had to move: US-2009's phantom example WAS 00479, which now passes for the wrong reason, so it uses an unrecognised version instead and the comment says why. FOR US-2009's PROMOTE-TO-FATAL FOLLOW-UP: the plan was to make a missing version fatal once prod was observed clean. Prod has now been observed and it is NOT clean, so promote after 00594 lands and missing comes back empty - and when promoting, make MISSING fatal while leaving UNEXPECTED a warning, since only one of the two means the database is behind the code. DOCS: PENDING_MIGRATIONS.md's 00594 section is flipped to NOT APPLIED with the retracted reasoning quoted verbatim rather than deleted, the top banner names the live gap, and vault/10-ops/migrations-process.md carries the finding under 'The max hides a hole'."
-    },
-    {
-      "id": "US-2607",
-      "title": "[FLIPDESK] The MeasureCard pass says what it did, so a blank measurements box is never a mystery",
-      "description": "Every step of the MeasureCard pass fails softly on purpose — a bad card shot must never block a listing. The sum of those soft failures was a feature that produced no measurements and no explanation on any surface: card-not-found, card-too-small, too-blurry, vision-call-failed and already-measured all rendered as the same empty box. Three separate debugging rounds went into guessing which step was silent, on a build that was already deployed and running.",
-      "acceptanceCriteria": [
-        "Every measure pass records its outcome (reason, message, group, keys written, timestamp) on the item under ai_field_sources[\"measurements._pass\"], including the passes where nothing ran.",
-        "The recorder wraps the whole pass, not the success branch — a no-op outcome is exactly the one worth explaining.",
-        "The composer prints that outcome in plain words under the Measurements card, naming the reshoot rather than the failure.",
-        "The pass key cannot be mistaken for a field provenance entry: hasCalibratedMeasurements must not treat a failed pass as a calibrated measurement.",
-        "\"Measure from card\" is offered even when a card photo is already tagged — \"this shot will not read\" and \"the card is in a different photo\" are both common and neither is the seller's to diagnose."
-      ],
-      "priority": 12,
-      "passes": true,
-      "notes": "[SHIPPED 2026-08-15] Follow-on to US-2595 (archived). NO MIGRATION — the outcome rides in the existing ai_field_sources jsonb under a leading-underscore key. Diagnosis note for whoever picks this up: the edge WAS running the US-2595 code when it still returned nothing (health/ready reported expected=00606, a version stamped after that commit), so the remaining failure is inside the pass, not a deploy gap. The recorded reason is how the next round identifies which step."
     }
   ]
 }

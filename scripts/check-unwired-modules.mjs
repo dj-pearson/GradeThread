@@ -64,14 +64,12 @@ export const ALLOWED_DEAD_MODULES = {
   "brand-seed.ts":
     "PENDING. The brand-KB seeding gate; see shipped-but-unwired.md for why it " +
     "could never have run as written.",
-  "grading-reliability.ts":
-    "HALF-WIRED, and it is the uncomfortable one on this list. US-481's " +
-    "self-consistency math is correct and tested; the env-gated job meant to " +
-    "feed it live re-grades was never built. US-2035 then found that grading " +
-    "is NOT temperature-pinned on the default model, so run-to-run variance is " +
-    "real and this module is the only thing that could measure it. Its own " +
-    "header says so. Allowlisted because US-2035 owns it, NOT because it is " +
-    "fine — do not read this entry as a verdict that nothing is wrong.",
+  // grading-reliability.ts came OFF this list on 2026-08-15 (US-2035): the
+  // env-gated job that feeds it live re-grades now exists as
+  // routes/jobs-grading-self-consistency.ts, so the module has a caller and the
+  // entry stopped being true. Left as a comment rather than deleted silently,
+  // because the entry it replaced said in as many words that being on this list
+  // was not a verdict that nothing was wrong — and it was right.
   "content-ai-email.ts":
     "SUPERSEDED. Zero test refs as well as zero callers, which is the one " +
     "combination that is safe to ignore: nothing is claiming it works.",

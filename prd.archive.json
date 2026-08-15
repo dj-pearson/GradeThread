@@ -37977,6 +37977,21 @@
       ],
       "priority": 40,
       "notes": "Done 2026-08-15. AC1: 12 stories gain an OPERATOR: criterion (US-2002, 2095, 2282, 2284, 2286, 2289, 2328, 2335, 2337, 2447, 2471, 2478), each written from that story's own notes and APPENDED, never rewriting an existing criterion - the notes are append-only for the same reason. The queue went from 1 declared / 17 hand-pulled to 14 declared / 6, and the remaining 6 are whole-story operator work whose titles already say [OPERATOR]. AC2: 21 tagged stories ranked in one band per tag (P0=5, P1=25, P2=45), NOT a hand-invented order inside the band - comparePriority already breaks ties on numeric id, so equal severity gets a stable order without anyone pretending US-2284 outranks US-2286. Ten P0 security findings had been sorting below every ranked story. AC3: seven stories (US-1980, 2458, 2531, 2532, 2533, 2534, 2572) carried HELD wording that went false when the owner applied everything and pushed. THE FIRST CORRECTION DID NOT WORK AND THE GUARD WAS RIGHT TO KEEP WARNING: prd-lint resolves a stale hold on an explicit token (STATUS CORRECTION / STALE HELD-MIGRATION CLAIM), and my first note said the right thing in words it does not read. A guard that stayed loud until the correction was stated in the form it can parse is the behaviour you want; a guard that guessed at intent would be the bug. Second segment uses the token. AC4: npm run prd:lint now reports OK with ZERO warnings, down from two. Verified: prd:lint clean, prd:operator output read in full, 409 script tests pass."
+    },
+    {
+      "id": "US-2607",
+      "title": "[FLIPDESK] The MeasureCard pass says what it did, so a blank measurements box is never a mystery",
+      "description": "Every step of the MeasureCard pass fails softly on purpose — a bad card shot must never block a listing. The sum of those soft failures was a feature that produced no measurements and no explanation on any surface: card-not-found, card-too-small, too-blurry, vision-call-failed and already-measured all rendered as the same empty box. Three separate debugging rounds went into guessing which step was silent, on a build that was already deployed and running.",
+      "acceptanceCriteria": [
+        "Every measure pass records its outcome (reason, message, group, keys written, timestamp) on the item under ai_field_sources[\"measurements._pass\"], including the passes where nothing ran.",
+        "The recorder wraps the whole pass, not the success branch — a no-op outcome is exactly the one worth explaining.",
+        "The composer prints that outcome in plain words under the Measurements card, naming the reshoot rather than the failure.",
+        "The pass key cannot be mistaken for a field provenance entry: hasCalibratedMeasurements must not treat a failed pass as a calibrated measurement.",
+        "\"Measure from card\" is offered even when a card photo is already tagged — \"this shot will not read\" and \"the card is in a different photo\" are both common and neither is the seller's to diagnose."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "[SHIPPED 2026-08-15] Follow-on to US-2595 (archived). NO MIGRATION — the outcome rides in the existing ai_field_sources jsonb under a leading-underscore key. Diagnosis note for whoever picks this up: the edge WAS running the US-2595 code when it still returned nothing (health/ready reported expected=00606, a version stamped after that commit), so the remaining failure is inside the pass, not a deploy gap. The recorded reason is how the next round identifies which step."
     }
   ]
 }

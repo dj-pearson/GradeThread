@@ -60,13 +60,16 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
-    // Re-read 2026-08-14 against the vault note. The change since the last
-    // check (US-2415) added a "rebuilding the host" section on volume
-    // encryption at provisioning time. That is a different moment than a
-    // deploy — this distillation is what on-call opens WHILE shipping, and the
-    // order, the per-layer mechanics and the smoke checks all still match.
-    // Bumped rather than edited; [[encryption-at-rest]] owns that inventory.
-    reviewed: "2026-08-14",
+    // Re-read 2026-08-15 against the vault note. The only change since the
+    // 08-14 check is the scheduled-task count moving 77 → 78 (US-2035 added the
+    // weekly grading-self-consistency job). This copy names no count — it points
+    // at CRON_REGISTRY — so the order, the per-layer mechanics and the smoke
+    // checks all still match and there is nothing to edit.
+    //
+    // Third consecutive cron addition to cost a date bump and no edit, which is
+    // the phrasing working rather than the check being noisy: a copy that quoted
+    // the number would have been WRONG three times instead of stale once.
+    reviewed: "2026-08-15",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -349,14 +352,17 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "launch-readiness",
     sourceNote: "vault/10-ops/launch-checklist.md",
-    // Re-read 2026-08-14. Same shape of change as the 08-09 pass: the vault
-    // note gained one generated table row (flipdesk-import-reclaim) and its
-    // count line moved 76 → 77. §2 here says "all Coolify Scheduled Tasks exist
-    // ... re-add every task" and names no number, on purpose — the generated
-    // table is the source and it is one click away. That phrasing is why two
-    // consecutive cron additions have cost a date bump and no edit; if this copy
-    // ever quotes the count, every new job becomes a stale runbook.
-    reviewed: "2026-08-14",
+    // Re-read 2026-08-15. Two changes in the vault note, neither of which this
+    // copy carries. (1) One more generated table row (grading-self-consistency)
+    // and the count line 77 → 78 — §2 here says "all Coolify Scheduled Tasks
+    // exist ... re-add every task" and names no number, on purpose, so the
+    // generated table stays the source. (2) A section recording that Android is
+    // NOT a launch gate. That is a scope decision about the backlog, not a step
+    // in the gate, and this copy is the steps.
+    //
+    // Third consecutive cron addition costing a date bump and no edit. If this
+    // copy ever quotes the count, every new job turns it into a stale runbook.
+    reviewed: "2026-08-15",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:
