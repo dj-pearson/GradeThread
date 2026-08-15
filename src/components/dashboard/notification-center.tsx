@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/popover";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import type { NotificationRow, NotificationType } from "@/types/database";
@@ -152,7 +153,33 @@ export function NotificationCenter() {
     refetchInterval: visible ? 60000 : false,
   });
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  // US-2557: COUNT the unread rows, do not measure the page.
+  //
+  // This was `notifications.filter((n) => !n.is_read).length` over the
+  // .limit(20) page above, so the badge silently stopped counting at 20 — and
+  // the render below has a `> 99 ? "99+"` branch that could therefore never
+  // run. It mattered once iOS started badging the app icon from a server-side
+  // count of the same table (lib/notification-badge.ts): the phone would say 43
+  // and the web bell would say 20, over the same rows, and neither number is
+  // obviously the wrong one to look at.
+  //
+  // head + exact returns the number in a header with no rows, so this costs one
+  // cheap query rather than raising the page size.
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: ["notifications-unread", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return 0;
+      const { count, error } = await supabase
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("is_read", false);
+      if (error) throw error;
+      return count ?? 0;
+    },
+    enabled: !!user?.id,
+    refetchInterval: visible ? 60000 : false,
+  });
 
   // Subscribe to realtime notifications
   useEffect(() => {
@@ -170,6 +197,9 @@ export function NotificationCenter() {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ["notifications", user.id] });
+          // US-2557: the count is its own query now, so every place that
+          // refreshes the list must refresh it too or the badge goes stale.
+          queryClient.invalidateQueries({ queryKey: ["notifications-unread", user.id] });
         }
       )
       .subscribe();
@@ -186,20 +216,37 @@ export function NotificationCenter() {
         .update({ is_read: true } as never)
         .eq("id", notificationId);
       queryClient.invalidateQueries({ queryKey: ["notifications", user?.id] });
+      queryClient.invalidateQueries({ queryKey: ["notifications-unread", user?.id] });
     },
     [user?.id, queryClient]
   );
 
   const markAllRead = useCallback(async () => {
     if (!user?.id) return;
-    const unreadIds = notifications.filter((n) => !n.is_read).map((n) => n.id);
-    if (unreadIds.length === 0) return;
-    await supabase
+    // US-2557: mark by PREDICATE, not by the ids on screen.
+    //
+    // This collected `notifications.filter(...).map((n) => n.id)` from the
+    // 20-row page and marked those, so on an account with more unread than that
+    // "Mark all read" left the rest unread. Nobody noticed while the badge was
+    // computed from the same page — it read 20, you clicked, it read 0, and the
+    // older rows stayed unread underneath. With a real count the number would
+    // have survived the click, which is how this surfaced.
+    //
+    // .eq chains, never .or(): PostgREST on the self-hosted prod rejects logical
+    // operators on a mutation (US-1552), and CI cannot catch it because the
+    // local stack accepts them.
+    const { error } = await supabase
       .from("notifications")
       .update({ is_read: true } as never)
-      .in("id", unreadIds);
+      .eq("user_id", user.id)
+      .eq("is_read", false);
+    if (error) {
+      toast.error("Could not mark notifications as read");
+      return;
+    }
     queryClient.invalidateQueries({ queryKey: ["notifications", user.id] });
-  }, [user?.id, notifications, queryClient]);
+    queryClient.invalidateQueries({ queryKey: ["notifications-unread", user.id] });
+  }, [user?.id, queryClient]);
 
   const handleNotificationClick = useCallback(
     async (notification: NotificationRow) => {

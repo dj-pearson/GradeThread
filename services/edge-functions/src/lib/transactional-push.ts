@@ -6,13 +6,29 @@
 // triggered it. Call as `void pushX(...)`.
 
 import { sendPushToUser } from "./apns.ts";
+import { withUnreadBadge } from "./notification-badge.ts";
 
+/**
+ * US-2557: the badge is attached HERE rather than in each helper or in
+ * sendPushToUser, and the seam matters both ways.
+ *
+ * Not per-helper: there are a dozen of them and the next one added would forget.
+ *
+ * Not in sendPushToUser: that is the transport, and it serves pushes that are
+ * not notification-backed at all (cross-listing progress, Android FCM sends from
+ * other paths). Badging those with a notifications-table count would attach a
+ * number that has nothing to do with what the push is about.
+ *
+ * Everything routed through this file IS a transactional user notification, so
+ * "unread notifications" is the right number for all of them. `withUnreadBadge`
+ * decides when attaching it would do harm; see its doc for why 0 is never sent.
+ */
 async function safePush(
   userId: string,
   payload: Parameters<typeof sendPushToUser>[1],
 ): Promise<void> {
   try {
-    await sendPushToUser(userId, payload);
+    await sendPushToUser(userId, await withUnreadBadge(userId, payload));
   } catch (err) {
     console.error("[push] transactional send failed:", err instanceof Error ? err.message : err);
   }

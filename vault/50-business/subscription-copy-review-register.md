@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/email.ts
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
-reviewed: 2026-08-12
+reviewed: 2026-08-14
 tags: [legal, billing, subscriptions, compliance, counsel]
 summary: Every place GradeThread tells a customer about a recurring charge or its ending, who drafted the wording, and whether counsel has seen it.
 ---
@@ -92,6 +92,20 @@ products — FlipDesk for sellers, GradeThread for buyers — through
 > return, and `buyer-lifecycle-emails_test.ts` fails the phrase. **Any wording
 > here that promises something survives must be checked against what the plan
 > caps actually do to it.**
+
+> [!warning] A "cancellation" email that is NOT in this register
+> `sendCancellationRequestedEmail` (US-2560) was added to the same file on
+> 2026-08-14 and is deliberately absent from the table above. It tells a SELLER
+> that a BUYER asked to cancel an eBay ORDER — no recurring charge, no plan, no
+> renewal terms, nothing counsel's subscription review covers.
+>
+> It is recorded here anyway, because `email.ts` now holds two functions whose
+> names both read as "cancellation" and only one of them is subscription copy.
+> Anyone grepping this file for cancellation wording during a redline will find
+> both, and the wrong conclusion is cheap in either direction: adding an order
+> notice to a legal review wastes counsel's time, and mistaking it for one that
+> HAS been reviewed is worse. The test is whether the copy describes money
+> recurring. This one does not.
 
 > [!note] The started email is the one to read first
 > It is the only place outside `auto-renewal-copy.ts` that states the full
