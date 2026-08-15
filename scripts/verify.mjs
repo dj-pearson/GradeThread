@@ -8,6 +8,7 @@
 //   node scripts/verify.mjs --edge       # edge/Deno lane only (security.yml deno-check)
 //   node scripts/verify.mjs --db         # migrations lane only (db-migrations.yml) — needs Docker
 //   node scripts/verify.mjs --security   # npm audit + Trivy image scan — needs Docker
+//   node scripts/verify.mjs --ios        # iOS source guards only (no Xcode needed)
 //   node scripts/verify.mjs --android    # Android lane (android-ci.yml) — needs JDK 17 + the SDK
 //   node scripts/verify.mjs --e2e        # add the Playwright e2e suite (ci.yml e2e job)
 //   node scripts/verify.mjs --all        # everything above
@@ -33,6 +34,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { resolvePython } from "./lib/python.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const edgeDir = resolve(root, "services/edge-functions");
@@ -126,13 +128,26 @@ function takeLock() {
 
 const releaseLock = takeLock();
 
-const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault", "--android", "--all"]
+const anyLaneFlag = ["--web", "--edge", "--db", "--security", "--e2e", "--vault", "--ios", "--android", "--all"]
   .some((f) => flags.has(f));
-const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFlag && ["web", "edge", "db", "vault"].includes(name);
+const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFlag && ["web", "edge", "db", "vault", "ios"].includes(name);
 
 function dockerUp() {
   return spawnSync("docker", ["info"], { stdio: "ignore", shell: true }).status === 0;
 }
+
+// The iOS text guards, and the workflow each one answers to. Exported shape is
+// deliberate: src/test/ios-guard-lane.test.ts reads this list and fails if a
+// guard runs in CI and not here, which is the drift that let six of them go
+// unrun locally for months.
+const IOS_GUARDS = [
+  ["no ungated print", "no-ungated-print.py"],
+  ["no default URLSession.shared", "no-default-shared-session.py"],
+  ["no raw JPEG encode", "no-raw-jpeg-encode.py"],
+  ["no new bare UI strings", "no-bare-strings.py"],
+  ["no force unwrap", "no-force-unwrap.py"],
+  ["ATS not relaxed", "check-ats.py"],
+];
 
 const results = [];
 let skipped = [];
@@ -268,6 +283,50 @@ if (on("db")) {
       "db: denied-RPC crash (US-2403)",
       "node scripts/db-denied-rpc-crash-check.mjs",
     );
+  }
+}
+
+// ── iOS source guards — the part of iOS CI that needs no Mac ─────────────────
+//
+// Swift cannot be COMPILED here, and that is not what these check. Six scripts
+// read the iOS sources as text: an ungated print() that would put a token in a
+// device log, a URLSession.shared that bypasses the pinned session, a raw JPEG
+// encode outside PhotoCompressor, a bare UI string that can never be
+// translated, a force unwrap, and an ATS relaxation in the Release plist. All
+// six are pure text scans over ios/, they take about a second together, and
+// they were the only iOS safety net a Windows checkout could ever have had.
+//
+// THEY WERE NEVER WIRED UP, and the reason is worth keeping: CLAUDE.md recorded
+// them as CI-only "because there is no python3 on the Windows dev box". True as
+// stated, and it hid the real situation — Python 3.13 is installed here, under
+// the name `python`. Six guards sat one string away from running, and one of
+// them was ported to a vitest file (src/test/ios-ungated-print.test.ts) to work
+// around a problem that was a naming difference. That port stays: it needs no
+// Python at all, and its parity case is what stops the two scanning different
+// trees.
+//
+// In the DEFAULT set rather than opt-in, unlike the Android lane, because it is
+// a second rather than minutes. A checkout with no Python, or no ios/, skips
+// with a reason instead of failing.
+if (on("ios")) {
+  const iosDir = resolve(root, "ios");
+  if (!existsSync(iosDir)) {
+    skipped.push("ios: no ios/ directory in this checkout");
+  } else {
+    const py = resolvePython();
+    if (!py) {
+      skipped.push(
+        "ios: no Python 3 on PATH (tried python3, python, py) — the ios/Scripts/*.py guards need one",
+      );
+    } else {
+      // Invoked from the repo root with the ios/Scripts/… path, exactly as
+      // ios-ci.yml and static-analysis.yml invoke them, so a script that
+      // resolves a path relative to the working directory behaves the same
+      // here as it does there.
+      for (const [label, script] of IOS_GUARDS) {
+        run(`ios: ${label}`, `${py} ios/Scripts/${script}`);
+      }
+    }
   }
 }
 

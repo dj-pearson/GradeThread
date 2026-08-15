@@ -18,6 +18,7 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform } from "node:os";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { resolvePython } from "../../scripts/lib/python.mjs";
 
 export const androidDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const repoRoot = resolve(androidDir, "..");
@@ -207,19 +208,13 @@ export function resolveSdk() {
 /**
  * The interpreter for the four guard scripts in android/scripts/*.py.
  *
- * CI calls them as `python3`, which does not exist on a stock Windows install
- * (only `python` and the `py` launcher). Hardcoding `python3` locally is how a
- * guard ends up being a thing only CI ever runs.
+ * MOVED to scripts/lib/python.mjs and re-exported here: the iOS guards need the
+ * same resolution, and reaching into the Android toolchain for it would have
+ * made an unrelated lane depend on this file. Callers here are unchanged.
  */
-export function resolvePython() {
-  for (const cmd of ["python3", "python", "py"]) {
-    // No shell: an unfound command comes back as status null rather than
-    // throwing, and shell:true with args is a deprecated (and injectable) shape.
-    const r = spawnSync(cmd, ["--version"], { encoding: "utf8" });
-    if (r.status === 0 && /Python 3\./.test(`${r.stdout}${r.stderr}`)) return cmd;
-  }
-  return null;
-}
+// Imported as well as re-exported: `export … from` creates no local binding, and
+// resolveToolchain() below calls it.
+export { resolvePython };
 
 export function adbPath(sdkDir) {
   return join(sdkDir, "platform-tools", exe("adb"));
