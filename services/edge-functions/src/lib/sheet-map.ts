@@ -413,6 +413,17 @@ export function mergeMappedRow(
     // First contact adopts the sheet as the baseline; otherwise the winning side
     // becomes the base (pull → sheet, push/conflict/none → db).
     if (decision === "pull") {
+      // US-2593: the GradeThread title is the truth, so a mapped Title column is
+      // CREATE-only. buildCreateFromSheet still names a new item from the sheet,
+      // and an item whose title is somehow blank still gets filled — but once
+      // there is a title, an edit to that cell is rewritten from the DB instead
+      // of pulled. The seller edits the title in the composer, where the same
+      // value goes to eBay.
+      if (col.field === "title" && dbValue !== "") {
+        pushFields.add(col.field);
+        nextSnapshot[col.field] = dbValue;
+        continue;
+      }
       const parsed = parseMappedValue(col, sheetValue);
       // title is NOT NULL — never blank it from the sheet.
       if (!parsed.ok || (col.field === "title" && parsed.value === null)) {

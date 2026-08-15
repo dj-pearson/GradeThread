@@ -1280,9 +1280,26 @@ export function FlipdeskComposerPage({
   // The whole item-side patch, assembled from the same state every save path
   // sees — including the Storage & SKU fields that used to need a second Save
   // button and were silently dropped by "Save draft" (US-2249).
+  // US-2593: the item's own `title` follows the listing title on every save.
+  // It never did, so `inventory_items.title` kept whatever the item was named
+  // the day it was created while the listing (and eBay, and the Listings tab of
+  // the synced sheet) moved on. The Inventory tab of Google Sheets reads THIS
+  // column, so a seller who renamed "Size Medium" to "Size 36" saw the old
+  // words in their sheet forever. `titlePatch` is the substitution the write-
+  // back may have just made (US-1995) — the effective title, not the stale
+  // form state. Never written empty: the column is NOT NULL, and both save
+  // paths already refuse a blank title before they get here.
+  function itemTitlePatch(titlePatch: TitleSyncPatch): Record<string, unknown> {
+    const next = (
+      typeof titlePatch.listing_title === "string" ? titlePatch.listing_title : title
+    ).trim();
+    return next ? { title: next } : {};
+  }
+
   function composerItemPatch(
     resolvedAspects: Record<string, string[]> | null,
     resolvedSources: Record<string, string | undefined>,
+    titlePatch: TitleSyncPatch,
   ): Record<string, unknown> {
     return buildItemPatch(
       {
@@ -1311,6 +1328,7 @@ export function FlipdeskComposerPage({
         ...aspectWriteBackPatch(),
         ...categoryCascadePatch(),
         ...manualCategoryGarmentPatch(),
+        ...itemTitlePatch(titlePatch),
       },
     );
   }
@@ -1521,9 +1539,20 @@ export function FlipdeskComposerPage({
       // into their backing item fields so shared values (Brand & co.) stay
       // single-entry, and carry the Storage & SKU fields that used to be stranded
       // behind their own Save (US-2249).
+      // US-1995: fold the title substitution into the SAME listing write. A
+      // second statement would be a second failure point on a path that already
+      // has no transaction around it, and the half that failed would be the one
+      // the seller cannot see.
+      // US-2593: computed BEFORE the item write, because the item patch carries
+      // the title now and it has to be the post-substitution one. Nothing here
+      // reads the database — it is derived from form state — so hoisting it
+      // above the write changes no behaviour.
+      const titlePatch = titleSyncPatchFor(false);
+
       const itemPatch = composerItemPatch(
         state.resolvedAspects,
         state.resolvedSources,
+        titlePatch,
       );
       const { error: sErr } = await supabase
         .from("inventory_items")
@@ -1553,12 +1582,6 @@ export function FlipdeskComposerPage({
       // `&& item.listing_status === "draft"` gate was safe only because this
       // editor was draft-only; reached from Active/Sold it would insert a
       // SECOND listings row for the same item and orphan the live one.
-      // US-1995: fold the title substitution into the SAME listing write. A
-      // second statement would be a second failure point on a path that already
-      // has no transaction around it, and the half that failed would be the one
-      // the seller cannot see.
-      const titlePatch = titleSyncPatchFor(false);
-
       // US-2445: `item` can be a render behind on the post-merge retry. The SKU
       // merge re-points the absorbed record's listings onto THIS item, so an
       // item that had no listing when the save first ran may own one by the time
@@ -1928,9 +1951,17 @@ export function FlipdeskComposerPage({
       // only, and a listed item's earned status can't regress) rather than being
       // skipped — the seller can now move a live item to sold/archived from the
       // same Item details card they use on a draft.
+      // US-1995: isLive, so the substitution lands but the listing is flagged
+      // for review rather than silently rewritten — buyers are already reading
+      // these words. It never ends and relists; the revise-in-place path below
+      // is the only way a live title moves on eBay.
+      // US-2593: hoisted above the item write for the same reason as saveDraft —
+      // the item patch carries the title, and it must be the substituted one.
+      const titlePatch = titleSyncPatchFor(true);
       const itemPatch = composerItemPatch(
         state.resolvedAspects,
         state.resolvedSources,
+        titlePatch,
       );
       const { error: sErr } = await supabase
         .from("inventory_items")
@@ -1950,11 +1981,6 @@ export function FlipdeskComposerPage({
           return null;
         throw sErr;
       }
-      // US-1995: isLive, so the substitution lands but the listing is flagged
-      // for review rather than silently rewritten — buyers are already reading
-      // these words. It never ends and relists; the revise-in-place path below
-      // is the only way a live title moves on eBay.
-      const titlePatch = titleSyncPatchFor(true);
       const { error } = await supabase
         .from("listings")
         .update({ ...buildLiveListingPatch(state), ...titlePatch } as never)

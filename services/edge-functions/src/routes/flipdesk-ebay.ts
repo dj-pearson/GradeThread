@@ -5800,6 +5800,23 @@ async function reviseOneListing(
       measurements: Measurements;
     };
 
+    // US-2593: the item's own title follows the listing title. `listings` and
+    // `inventory_items` each carry a title and only the listing one ever moved,
+    // so the Inventory tab of a synced Google Sheet (which reads
+    // inventory_items.title) kept the name the item was created with while eBay
+    // showed the corrected one. Enforced HERE as well as in the web composer so
+    // a revise from iOS or Android carries the same rule — this is the eBay
+    // path, so a per-platform cross-listing title can never reach the column.
+    const revisedTitle = hasTitle ? (nextTitle as string).trim() : "";
+    if (revisedTitle && revisedTitle !== (item.title ?? "").trim()) {
+      await supabaseAdmin
+        .from("inventory_items")
+        .update({ title: revisedTitle })
+        .eq("id", item.id)
+        .eq("user_id", userId);
+      item.title = revisedTitle;
+    }
+
     // US-1088+: the structured columns (Brand/Size/Color/Material/Style) are the
     // source of truth for their eBay item specifics. eBay shows these from item
     // specifics, not the title — so any edit on the main listing must propagate,

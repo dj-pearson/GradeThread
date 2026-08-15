@@ -73,6 +73,37 @@ The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these bo
 - **Google Sheets — bidirectional, EXEMPT (with one carve-out).** The existing 3-way snapshot merge (`sheet-sync.ts` / `routes/flipdesk-google-sync.ts`) is kept as-is by deliberate decision: the sheet remains an editable surface that can overwrite populated DB fields, conflicts resolve DB-wins. The fill-only rule does **not** apply to Sheets — **except** for **eBay-owned fields on eBay-originated (locked) listings**, which Sheets must **not** overwrite. eBay stays the source of truth there, so a sheet edit to such a cell is **not applied** (the cell is rewritten from the DB) and is reported back to the user as a **skipped item** ("locked — edit on eBay"): per-cell detail on the **Conflicts tab** (status `Skipped — edit on eBay`), a count in the **Sync Log**, and the `skippedItems` array on the `/sync/now` response (surfaced in the "Sync now" toast). The skip is **field-scoped** — GradeThread-owned and unowned fields on the same locked listing still sync normally. See **US-1083**.
   - **Implementation:** the carve-out is enforced by `isSheetEditLockedByEbay()` + `deriveListingOrigin()` in `sync-precedence.ts`. The Sheets merge does **not** read the deprecated `listings.source_of_truth` pin (retired by US-1078) — provenance drives it. Until US-1077 persists the `listing_origin` column, origin is **derived** from the same signals US-1077 backfills from (`batch_id` / `synced_to_ebay_at` ⇒ GradeThread; an eBay `platform_listing_id` we never published ⇒ eBay; ambiguous ⇒ GradeThread, i.e. fully bidirectional), so behavior is forward-compatible: once the column exists and is selected, the stored marker wins outright.
 
+## The two titles: `inventory_items.title` follows `listings.listing_title`
+
+A garment carries a title twice — the item's own name and the listing's. Until
+US-2593 only the listing copy ever moved: the composer wrote `listing_title`,
+the eBay revise wrote `listing_title`, and `inventory_items.title` kept whatever
+the item was named at creation. The Inventory tab of a synced Google Sheet reads
+the item column, so a corrected size sat on eBay and in the Listings mirror
+while the seller's own sheet showed the original wording indefinitely.
+
+**The item title now follows the listing title.** Enforced in two places, both
+deliberate:
+
+- **The web composer**, in `itemTitlePatch` — folded into the item patch that
+  both `saveDraft` and `saveLiveListing` already write. It carries the
+  *substituted* title when the US-1995 write-back made one, so the item never
+  keeps words the listing has already dropped. Which is why `titleSyncPatchFor`
+  is computed **before** the item write on both paths; the item row is written
+  first (see the save-order rule below) and the patch has to exist by then.
+- **The edge revise route** (`flipdesk-ebay.ts`), so a revise from iOS or
+  Android carries the same rule with no client release behind it.
+
+**Not** in a `listings` trigger, and not in the cross-listing push. Cross-listing
+titles are truncated per-platform (`cross-listing-fields.ts` honours each
+marketplace's `titleMaxLength`), so anything that let every platform write the
+item column would make it flap with whichever push ran last. The eBay path owns
+it because eBay is where the seller's own words go.
+
+For Sheets this is settled policy rather than a merge outcome: **the GradeThread
+title is the truth**, and the Title cell is a mirror on both tabs. See
+[[google-sheets-sync]].
+
 ## Shared fields: item columns ↔ eBay item specifics (single-entry rule)
 
 `brand`, `size`, `color`, `material`, `style` exist twice by construction: as structured

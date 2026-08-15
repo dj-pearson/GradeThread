@@ -78,7 +78,12 @@ export const ID_HEADER = "flipdesk_id";
 // else is read-only in the sheet (light gray fill).
 export const INVENTORY_COLUMNS: readonly ColumnDef[] = [
   { header: "SKU", field: "sku", kind: "string", writable: true },
-  { header: "Title", field: "title", kind: "string", writable: true },
+  // US-2593: the GradeThread title is the truth. Title is a read-only mirror —
+  // it renders with the gray read-only fill and any edit in the sheet is
+  // rewritten from the DB on the next sync. The seller edits it in the composer,
+  // where it also drives the eBay listing; two writable copies of the same
+  // sentence just meant whichever side was touched last won.
+  { header: "Title", field: "title", kind: "string" },
   { header: "Brand", field: "brand", kind: "string", writable: true },
   { header: "Size", field: "size", kind: "string", writable: true },
   { header: "Category", field: "item_category", kind: "string", enumValues: ITEM_CATEGORY_VALUES },
@@ -301,9 +306,12 @@ export type ParseResult =
 /** Validate + coerce a normalized sheet value for writing to the DB column. */
 export function parsePulledValue(col: ColumnDef, normalized: string): ParseResult {
   if (normalized === "") {
-    // title is NOT NULL in the schema; sku is the identity / CSV-match /
-    // duplicate-merge key — blanking it silently orphans future matching. Refuse
-    // to empty either from the sheet (the cell is rewritten back from the DB).
+    // sku is the identity / CSV-match / duplicate-merge key — blanking it
+    // silently orphans future matching. Refuse to empty it from the sheet (the
+    // cell is rewritten back from the DB). `title` is kept here even though the
+    // classic Inventory tab no longer pulls it (US-2593): the guard is the last
+    // line for any caller that makes a title column writable again, and title
+    // is NOT NULL in the schema.
     if (col.field === "title" || col.field === "sku") {
       return { ok: false, error: `${col.header} cannot be emptied from the sheet` };
     }

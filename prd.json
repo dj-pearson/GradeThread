@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2593",
+  "nextId": "US-2594",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2191,6 +2191,21 @@
       "priority": 82,
       "passes": false,
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2593",
+      "title": "The item title follows the listing title, and the GradeThread title is the truth in Google Sheets",
+      "description": "As a seller, when I rename a listing and push it to eBay I want my synced Google Sheet to show the new name, so my own records agree with what buyers are reading.",
+      "acceptanceCriteria": [
+        "inventory_items.title is written on every composer save (draft and live) with the effective, post-write-back listing title.",
+        "The eBay revise route updates inventory_items.title too, tenant-scoped, so an iOS or Android revise carries the same rule.",
+        "The classic Google Sheets Inventory tab Title column is read-only: a sheet edit is rewritten from the DB, never pulled.",
+        "A mapped (bring-your-own-sheet) Title column is create-only: buildCreateFromSheet still names new items and a blank DB title is still filled, but an edit over an existing title is pushed back.",
+        "Cross-listing pushes never write the item column, so a per-platform truncated title cannot flap it."
+      ],
+      "priority": 2593,
+      "passes": true,
+      "notes": "[P1][FLIPDESK][SYNC] Reported 2026-08-14: a seller renamed \"Lululemon Men's ABC Pants … Size Medium\" to \"… Size 36\", saved and pushed to eBay; eBay and the Listings mirror updated, the Inventory tab of the synced sheet did not. Cause: inventory_items.title had no writer outside item-quick-edit-sheet.tsx. Files: src/pages/flipdesk/composer.tsx (itemTitlePatch + titleSyncPatchFor hoisted above the item write on both save paths), services/edge-functions/src/routes/flipdesk-ebay.ts (revise), lib/sheet-sync.ts (Title column no longer writable), lib/sheet-map.ts (mergeMappedRow title create-only). Guards: src/lib/__tests__/item-title-follows-listing.test.ts, google-sheet-sync_test.ts, sheet-map_test.ts. Contract: vault/20-domain/sync-source-of-truth.md + vault/30-platform/google-sheets-sync.md. Verified: 4721 web tests, 6729 edge tests, tsc -b, deno lint/check."
     }
   ]
 }

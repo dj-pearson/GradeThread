@@ -51,7 +51,7 @@ Deno.test("decideField: both changed → conflict; no snapshot → FlipDesk wins
 });
 
 Deno.test("mergeRow splits pulls / pushes / conflicts per field", () => {
-  // Columns: SKU(writable) Title(writable) ... Grade(read-only) at index 9.
+  // Columns: SKU(writable) Title(read-only, US-2593) ... Grade(read-only).
   const record = {
     id: "11111111-1111-1111-1111-111111111111",
     sku: "A-1",
@@ -69,8 +69,8 @@ Deno.test("mergeRow splits pulls / pushes / conflicts per field", () => {
     updated_at: "2026-06-02T00:00:00.000Z",
   };
   const dbRow = recordToRow(record, INVENTORY_COLUMNS);
-  // Sheet: user edited Brand (pull), FlipDesk edited Title (push), both edited
-  // SKU differently (conflict).
+  // Sheet: user edited Brand (pull), Title drifted (read-only → push, never a
+  // conflict), both edited SKU differently (conflict).
   const sheetRow = [...dbRow];
   const idx = (field: string) => INVENTORY_COLUMNS.findIndex((c) => c.field === field) + 1;
   sheetRow[idx("brand")] = "Adidas";
@@ -78,7 +78,6 @@ Deno.test("mergeRow splits pulls / pushes / conflicts per field", () => {
   sheetRow[idx("sku")] = "SHEET-SKU";
   const snapshot: Record<string, string> = {
     sku: "OLD-SKU", // both sides differ from base → conflict
-    title: "Old Title", // sheet == base, db changed → push
     brand: "Nike", // db == base, sheet changed → pull
     size: "L",
     status: "listed",
@@ -93,11 +92,45 @@ Deno.test("mergeRow splits pulls / pushes / conflicts per field", () => {
   assertEquals(merge.conflicts[0]!.field, "sku");
   assertEquals(merge.conflicts[0]!.dbValue, "A-1");
   assertEquals(merge.conflicts[0]!.sheetValue, "SHEET-SKU");
-  assert(merge.needsPush, "title push + sku conflict must rewrite the row");
+  assert(merge.needsPush, "title drift + sku conflict must rewrite the row");
   // FlipDesk wins the conflict; the pull settles to the sheet value.
   assertEquals(merge.nextSnapshot.sku, "A-1");
   assertEquals(merge.nextSnapshot.brand, "Adidas");
-  assertEquals(merge.nextSnapshot.title, "Vintage Tee");
+  // US-2593: title is read-only now, so it is neither pulled nor snapshotted —
+  // the sheet cell is simply rewritten from the DB.
+  assertEquals(merge.pulls.title, undefined);
+  assertEquals(merge.nextSnapshot.title, undefined);
+});
+
+// US-2593. The seller's typed title lives on the listing and on the item, and
+// only the listing copy ever moved — so the Inventory tab kept the name the
+// item was created with. The rule the owner chose: GradeThread is the truth and
+// the sheet cell is a mirror.
+Deno.test("mergeRow: an edited Title cell is rewritten from the DB, never pulled", () => {
+  const record = {
+    id: "33333333-3333-3333-3333-333333333333",
+    sku: "C-3",
+    title: "Lululemon Men's ABC Pants Slate Blue Straight Fit Size 36",
+    brand: "Lululemon",
+    size: "36",
+    item_category: "clothing",
+    status: "listed",
+    acquired_price: null,
+    target_price: null,
+    condition_notes: null,
+    grade_value: null,
+    location_bin: null,
+    created_at: "2026-08-01T00:00:00.000Z",
+    updated_at: "2026-08-14T00:00:00.000Z",
+  };
+  const dbRow = recordToRow(record, INVENTORY_COLUMNS);
+  const sheetRow = [...dbRow];
+  const titleIdx = INVENTORY_COLUMNS.findIndex((c) => c.field === "title") + 1;
+  sheetRow[titleIdx] = "Lululemon Men's ABC Pants Slate Blue Straight Fit Size Medium";
+  const merge = mergeRow(INVENTORY_COLUMNS, sheetRow, dbRow, { title: "whatever" });
+  assertEquals(merge.pulls.title, undefined, "a sheet title must never reach the DB");
+  assertEquals(merge.conflicts.length, 0, "read-only drift is not a conflict");
+  assert(merge.needsPush, "the stale cell must be rewritten from the DB");
 });
 
 Deno.test("mergeRow: read-only drift never pulls, only pushes", () => {
@@ -138,10 +171,9 @@ Deno.test("only the allow-listed fields are writable from the sheet", () => {
     "sku",
     "status",
     "target_price",
-    "title",
   ]);
-  // Financial/system fields stay read-only.
-  for (const field of ["grade_value", "item_category", "created_at", "updated_at"]) {
+  // Financial/system fields stay read-only — and since US-2593 so does Title.
+  for (const field of ["title", "grade_value", "item_category", "created_at", "updated_at"]) {
     const col = INVENTORY_COLUMNS.find((c) => c.field === field)!;
     assert(!col.writable, `${field} must be read-only in the sheet`);
   }
@@ -158,6 +190,8 @@ Deno.test("parsePulledValue validates enums and numbers, protects title", () => 
   assert(!parsePulledValue(price, "-3").ok);
   assertEquals(parsePulledValue(price, ""), { ok: true, value: null });
 
+  // Title no longer pulls at all (US-2593), but the blank guard stays as the
+  // last line for any future caller that makes a title column writable.
   const title = INVENTORY_COLUMNS.find((c) => c.field === "title")!;
   assert(!parsePulledValue(title, "").ok, "title is NOT NULL — can't blank it");
 

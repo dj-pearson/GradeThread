@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/sheet-sync.ts
   - services/edge-functions/src/lib/sheet-map.ts
   - services/edge-functions/src/routes/flipdesk-google-sync.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-14
 tags: [flipdesk, sync, google, contract]
 summary: One bidirectional 3-way merge where GradeThread wins conflicts, plus a mapped mode that writes into a seller's own spreadsheet and therefore carries hard safety rules.
 ---
@@ -44,6 +44,17 @@ Inventory is two-way. **Listings, Sales and Sources are a read-only mirror.**
 > edits to sync, or edits a value on the Listings mirror and watches it revert.
 > Item **Status on Inventory is two-way**; listing status, price and the eBay URL
 > are one-way DB → sheet.
+
+**Title is one-way, DB → sheet, on both tabs (US-2593).** The Inventory tab's
+Title column reads `inventory_items.title` and the Listings tab's reads
+`listings.listing_title`; the two used to drift because only the listing copy
+ever moved. The item column now follows the listing title on every composer save
+and on every eBay revise, and the sheet cell became a read-only mirror (gray
+fill, rewritten from the DB on the next sync). In mapped mode the same rule is
+expressed as **create-only**: `buildCreateFromSheet` still names a new item from
+the sheet and a genuinely blank title is still filled, but once an item has a
+title, an edit to that cell is pushed back over rather than pulled. The seller
+edits the title in the composer, which is also what goes to eBay.
 
 eBay-owned fields on eBay-originated listings are **locked** and reported back as
 skipped rather than silently reverted — see [[sync-source-of-truth]] for that
@@ -87,7 +98,8 @@ need live Sheets plus Supabase.
   when the Sheets API fails mid-run. Pushed rows still snapshot after.
 
 SKU is the merge identity in mapped mode, so it is guarded like title in
-`parsePulledValue` — a blanked SKU cannot come back from the sheet.
+`parsePulledValue` — a blanked SKU cannot come back from the sheet. (The title
+half of that guard is now belt-and-braces: classic Title does not pull at all.)
 
 ## Related
 

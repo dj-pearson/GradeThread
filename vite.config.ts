@@ -13,6 +13,8 @@ import {
   DEFAULT_OG_IMAGE_PATH,
   DEFAULT_OG_IMAGE_ALT,
 } from "./src/lib/seo/public-routes";
+// US-421 + US-2593: the SW navigation denylist. Kept in src/ so it is testable.
+import { NAVIGATE_FALLBACK_DENYLIST } from "./src/lib/pwa/navigate-fallback-denylist";
 // US-2106: sources for dist/llms-full-data.json. All existing constants — this
 // plugin derives, it does not author.
 import {
@@ -68,40 +70,6 @@ function bundleModulesManifestPlugin(): Plugin {
     },
   };
 }
-
-// US-421: every navigation that MUST reach the network/edge to get the correct
-// per-route HTML — the prerendered static pages (their own crawlable <head>) and
-// the dynamic Pages Functions (blog/cert/og/sitemaps SSR) — rather than the
-// service worker's generic /index.html SPA shell. Without this the SW bypasses
-// the entire prerender/SSR investment by handing every navigation the cached
-// shell. The prerendered-route entries are derived from the SEO registry so new
-// marketing/glossary pages are excluded automatically.
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-const NAVIGATE_FALLBACK_DENYLIST: RegExp[] = [
-  // API + dynamic, server-rendered Pages Functions (functions/*).
-  /^\/api\//,
-  /^\/blog(\/|$)/,
-  /^\/cert\//,
-  /^\/badge\//,
-  /^\/slab\//,
-  /^\/verified\//,
-  /^\/condition-index(\/|$)/,
-  /^\/finds(\/|$)/,
-  /^\/value(\/|$)/,
-  /^\/durability(\/|$)/,
-  /^\/og\//,
-  /^\/\.well-known\//,
-  /^\/(sitemap.*\.xml|robots\.txt|llms\.txt|rss\.xml|csp-report)$/,
-  // Prerendered static routes (marketing, legal, glossary spokes). Each is a
-  // real per-route index.html on the edge with its own <head>; the root "/"
-  // is intentionally left to the navigateFallback (it IS dist/index.html).
-  ...PUBLIC_ROUTES.map((r) => r.path)
-    .filter((p) => p !== "/")
-    .map((p) => new RegExp(`^${escapeRegExp(p)}/?$`)),
-];
 
 function seoManifestPlugin(): Plugin {
   // US-2111: the image half of the manifest. `alt` is reused verbatim as the
@@ -244,10 +212,11 @@ export default defineConfig({
         globIgnores: ["**/heic-to-*.js"],
         navigateFallback: "/index.html",
         // Never serve the SPA shell for API calls, server-rendered Pages
-        // Functions (blog/cert/og SSR, sitemaps, robots/llms, RSS), OR the
-        // prerendered static pages — every one of those must hit the
-        // network/edge to get its own per-route <head> instead of the generic
-        // cached index.html. See NAVIGATE_FALLBACK_DENYLIST above.
+        // Functions (blog/cert/og SSR, sitemaps, robots/llms, RSS), real files
+        // in public/, OR the prerendered static pages — every one of those must
+        // hit the network/edge to get its own per-route <head> (or its actual
+        // bytes) instead of the generic cached index.html. The list and its
+        // reasoning live in src/lib/pwa/navigate-fallback-denylist.ts.
         navigateFallbackDenylist: NAVIGATE_FALLBACK_DENYLIST,
         // Stale-shell guards (US deploy-safety): purge precaches from previous
         // builds on activate, and have a freshly-deployed SW take control of

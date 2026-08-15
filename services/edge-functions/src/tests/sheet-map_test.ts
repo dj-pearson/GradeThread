@@ -183,17 +183,31 @@ Deno.test("mergeMappedRow: GradeThread wins conflict; pull only when DB unchange
     { col: titleCol, index: 1 },
     { col: priceCol, index: 3 },
   ];
-  // Sheet edited title (Nike→Nike Vintage), DB unchanged since base → pull.
-  // Price edited on BOTH sides since base → conflict → GT wins + push.
+  // Sheet edited title (Nike→Nike Vintage), DB unchanged since base → would
+  // pull, but US-2593 makes title create-only: GradeThread's value is pushed
+  // back over the cell instead. Price edited on BOTH sides since base →
+  // conflict → GT wins + push.
   const sheetCells = ["7", "Nike Vintage", "comps", "$5.00", "$20", "dash"];
   const dbRecord = { title: "Nike", acquired_price: 3 };
   const base = { title: "Nike", acquired_price: "2" };
   const m = mergeMappedRow(writable, sheetCells, dbRecord, base);
-  assertEquals(m.pulls, { title: "Nike Vintage" });
+  assertEquals(m.pulls, {});
+  assert(m.pushFields.has("title"), "a sheet title edit is rewritten from the DB");
+  assertEquals(m.nextSnapshot.title, "Nike");
   assertEquals(m.conflicts.length, 1);
   assertEquals(m.conflicts[0]!.field, "acquired_price");
   assert(m.pushFields.has("acquired_price"));
   assertEquals(m.nextSnapshot.acquired_price, "3"); // GT value
+});
+
+// US-2593: create-only, not never-write. An item whose title is genuinely blank
+// is still filled from the sheet — that is a fill, not an overwrite, and
+// buildCreateFromSheet needs the same value to name a new item at all.
+Deno.test("mergeMappedRow: a blank DB title is still filled from the sheet", () => {
+  const writable: ResolvedMappedColumn[] = [{ col: titleCol, index: 1 }];
+  const sheetCells = ["7", "Nike Vintage", "", "", "", ""];
+  const m = mergeMappedRow(writable, sheetCells, { title: "" }, { title: "" });
+  assertEquals(m.pulls, { title: "Nike Vintage" });
 });
 
 Deno.test("mergeMappedRow: FIRST contact adopts the sheet — fills empty DB, never blanks", () => {
@@ -217,7 +231,8 @@ Deno.test("mergeMappedRow: never blanks title from the sheet", () => {
   const writable: ResolvedMappedColumn[] = [{ col: titleCol, index: 1 }];
   const sheetCells = ["7", "", "", "", "", ""]; // title emptied in sheet
   const m = mergeMappedRow(writable, sheetCells, { title: "Nike" }, { title: "Nike" });
-  // sheet "" vs db "Nike": only-sheet-changed → would pull, but title blank is refused.
+  // sheet "" vs db "Nike": only-sheet-changed → would pull, but the DB title is
+  // set, so US-2593 refuses it (and the NOT NULL guard behind it refuses too).
   assertEquals(m.pulls.title, undefined);
   assertEquals(m.nextSnapshot.title, "Nike");
 });
