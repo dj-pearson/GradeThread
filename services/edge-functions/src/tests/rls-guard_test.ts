@@ -55,6 +55,14 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2585: the ticket that was NOT filed — somebody opened the support form,
+  // was shown help articles, read one and went away. Deny-all in both
+  // directions. Readable, it would hand a customer an analytics feed of what
+  // other people were about to ask; writable, it would let anyone inflate the
+  // one number that decides whether the help centre is working. Its owner
+  // column is deliberately `owner_user_id`: this is an analytics row about a
+  // session, not a tenant-owned resource a customer may read back.
+  "help_deflections",
   // US-2569: the certificate revision history. Deny-all even though what it
   // records ends up on a PUBLIC page, and that is the point: the public
   // certificate endpoint reads it service-role and then re-applies

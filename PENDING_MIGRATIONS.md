@@ -1,5 +1,78 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ✅ APPLIED: 00604_help_ticket_deflection.sql (US-2585 — did help prevent the ticket?, owner-confirmed 2026-08-14)
+
+**Owner-reported, not measured from here.** Flipped on the user's word during the
+US-2585 build; nothing in this session queried the database to confirm it.
+
+**⚠ 00601, 00602 and 00603 are NOT confirmed applied.** They are still listed
+as HELD below. That combination is unstable and needs checking before the edge
+is redeployed:
+
+- 00604 can apply on its own (it depends only on `support_tickets` and
+  `auth.users`), so "604 is applied" does **not** imply 602 and 603 are.
+- The edge boot guard expects `00604` and only compares the MAXIMUM recorded
+  version, so a database missing 602 or 603 mid-sequence would still read as
+  "match" and the edge would start against a schema with no `help_articles`
+  table. That is precisely the gap the US-2009 guard exists for.
+
+Run this before redeploying the edge, and flip the entries below to match:
+
+```sql
+select version from public.applied_migrations where version >= '00601' order by version;
+```
+
+**Still required regardless:** `NOTIFY pgrst, 'reload schema';` for the two new
+`support_tickets` columns and the new table. Without it the ticket insert fails
+on unknown columns, which breaks **opening a support ticket**, not just the
+deflection metric.
+
+<details>
+<summary>What it did (kept for the record)</summary>
+
+## ⏳ (was HELD) 00604_help_ticket_deflection.sql
+
+**Risk: LOW.** Two `ADD COLUMN IF NOT EXISTS` on `support_tickets` (a `text[]`
+with a `'{}'` default and a nullable `text`), plus one new table
+`help_deflections` with two indexes and RLS enabled.
+
+**Neither column rewrites the table.** Postgres 11+ stores a non-volatile
+`DEFAULT` in the catalogue rather than backfilling every row, so both are
+metadata-only regardless of how many tickets exist. This is not the same shape
+as 00603's generated column, which does rewrite.
+
+**Apply order:** after 00603. It depends on `support_tickets` (00223) and
+`auth.users`, both long-standing.
+
+**`NOTIFY pgrst, 'reload schema';` — yes.** Two new columns and a new table.
+Until you send it, the ticket insert fails on the unknown columns, which means
+**opening a support ticket breaks**, not just the deflection metric. That makes
+this the one migration in the epic where skipping the NOTIFY is user-visible.
+
+**⚠ NOT VERIFIED AGAINST A REAL POSTGRES**, same as 00602 and 00603 — Docker was
+not running, so the `verify:db` lane did not execute this SQL.
+
+**Deploy order, and it matters in the usual direction.** The edge INSERTS
+`help_articles_shown` / `help_article_opened` on every ticket create. Against a
+database without them the insert fails and the user cannot open a ticket. The
+`EXPECTED_SCHEMA_VERSION` bump to `00604` is what prevents that: the boot guard
+refuses to start against a 00603 database. Order: apply SQL → `NOTIFY pgrst` →
+redeploy edge → push.
+
+**The frontend is safe to auto-deploy ahead of the SQL.** It sends the two extra
+fields, and the CURRENT edge ignores unknown body keys — so a frontend that
+deploys early degrades to tickets without deflection data, not to broken
+tickets. Do not reverse that reasoning: it is the EDGE that must wait.
+
+**Privacy.** `help_deflections` records `owner_user_id`, the subject line typed
+so far, and which article was read. Deny-all RLS, service-role only, and
+classified in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts` — readable it would
+hand a customer an analytics feed of what other people were about to ask;
+writable it would let anyone inflate the one number that says whether the help
+centre is working.
+
+</details>
+
 ## ⏳ HELD: 00603_help_center_search.sql (US-2577 — Help Center search)
 
 **Risk: LOW, with one line that is not instant.** Adds a generated `search_tsv`

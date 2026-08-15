@@ -257,6 +257,51 @@ helpReaderRoutes.get("/search", async (c) => {
   }
 });
 
+/**
+ * US-2585: the ticket that was NOT filed.
+ *
+ * Fired when somebody opened the support form, was shown articles, opened one,
+ * and then left without submitting. There is no other row in the database this
+ * event could hang on, which is exactly why deflection normally goes
+ * unmeasured — and why the number that justifies the whole help centre is
+ * usually a guess.
+ *
+ * Best-effort by design: it is sent with sendBeacon during page-hide, so it
+ * must answer fast, must never block, and must never fail loudly. A lost
+ * deflection under-reports the win; a 500 here would be a browser error on a
+ * page the user has already left.
+ */
+helpReaderRoutes.post("/deflected", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as {
+    subject?: unknown;
+    articles_shown?: unknown;
+    article_opened?: unknown;
+  };
+  const slugs = Array.isArray(body.articles_shown)
+    ? body.articles_shown
+      .map((v) => String(v).trim().toLowerCase())
+      .filter((v) => /^[a-z0-9-]{1,80}$/.test(v))
+      .slice(0, 5)
+    : [];
+  const rawOpened = typeof body.article_opened === "string"
+    ? body.article_opened.trim().toLowerCase()
+    : "";
+  const opened = /^[a-z0-9-]{1,80}$/.test(rawOpened) ? rawOpened : null;
+
+  // Nothing was read, so nothing was deflected. Recording it would inflate the
+  // one number this table exists to keep honest.
+  if (!opened) return c.json({ ok: true, recorded: false });
+
+  const { error } = await supabaseAdmin.from("help_deflections").insert({
+    owner_user_id: c.get("userId") ?? null,
+    subject: typeof body.subject === "string" ? body.subject.slice(0, 200) : "",
+    articles_shown: slugs,
+    article_opened: opened,
+  });
+  if (error) console.warn("[help.deflected] insert failed", error);
+  return c.json({ ok: true, recorded: !error });
+});
+
 helpReaderRoutes.get("/:slug", async (c) => {
   try {
     const viewer = await viewerFor(c.get("userId"));

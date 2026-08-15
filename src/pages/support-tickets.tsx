@@ -37,6 +37,7 @@ import {
   AttachmentPicker,
   type PickedAttachment,
 } from "@/components/support/attachment-picker";
+import { TicketDeflector } from "@/components/help/ticket-deflector";
 
 // US-900: user-facing support ticket inbox. A user opens a request, sees the
 // thread (their messages + support replies — never operator internal notes),
@@ -160,6 +161,14 @@ export function SupportTicketsPage() {
     ]);
   };
 
+  // US-2585: what the deflector offered, and what they opened before filing
+  // anyway. A ticket that carries an opened slug is a WRONG article, not a
+  // missing one, and nothing else tells the two apart.
+  const [helpSuggested, setHelpSuggested] = useState<{
+    shown: string[];
+    opened: string | null;
+  }>({ shown: [], opened: null });
+
   const submitNew = async () => {
     const subject = newSubject.trim();
     const body = newBody.trim();
@@ -171,6 +180,8 @@ export function SupportTicketsPage() {
         json: {
           subject,
           body,
+          help_articles_shown: helpSuggested.shown,
+          help_article_opened: helpSuggested.opened,
           attachments: newAttachments.map((a) => ({
             data_url: a.dataUrl,
             name: a.name,
@@ -295,6 +306,9 @@ export function SupportTicketsPage() {
                 disabled={acting}
               />
             </div>
+            {/* US-2585: above the submit button, because a suggestion below it
+                is a suggestion nobody reads. */}
+            <TicketDeflector subject={newSubject} onSuggestions={setHelpSuggested} />
             {/* US-2525: the reason someone opens a ticket is often a picture. */}
             <AttachmentPicker
               attachments={newAttachments}

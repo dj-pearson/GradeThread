@@ -215,7 +215,15 @@ supportTicketRoutes.get("/", async (c) => {
 supportTicketRoutes.post("/", async (c) => {
   const userId = c.get("userId");
 
-  let body: { subject?: unknown; body?: unknown; attachments?: unknown };
+  let body: {
+    subject?: unknown;
+    body?: unknown;
+    attachments?: unknown;
+    // US-2585: what the deflector offered above the submit button, and what
+    // they opened before filing anyway.
+    help_articles_shown?: unknown;
+    help_article_opened?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -230,6 +238,19 @@ supportTicketRoutes.post("/", async (c) => {
   if (!subject) return c.json({ error: "A subject is required." }, 400);
   if (!message) return c.json({ error: "A message is required." }, 400);
 
+  // Slugs only, capped and normalised. This is a client-supplied field on an
+  // otherwise trusted row, so it is bounded here rather than trusted for length.
+  const helpShown = Array.isArray(body.help_articles_shown)
+    ? body.help_articles_shown
+      .map((v) => String(v).trim().toLowerCase())
+      .filter((v) => /^[a-z0-9-]{1,80}$/.test(v))
+      .slice(0, 5)
+    : [];
+  const rawOpened = typeof body.help_article_opened === "string"
+    ? body.help_article_opened.trim().toLowerCase()
+    : "";
+  const helpOpened = /^[a-z0-9-]{1,80}$/.test(rawOpened) ? rawOpened : null;
+
   const nowIso = new Date().toISOString();
   const { data: ticket, error: tErr } = await supabaseAdmin
     .from("support_tickets")
@@ -238,6 +259,12 @@ supportTicketRoutes.post("/", async (c) => {
       subject,
       status: "open",
       last_message_at: nowIso,
+      // A ticket with help_article_opened set is the most valuable row in this
+      // table: the article was found, was read, and did not answer the
+      // question. That is a WRONG article, not a missing one, and nothing else
+      // tells the two apart.
+      help_articles_shown: helpShown,
+      help_article_opened: helpOpened,
     } as never)
     .select("id")
     .maybeSingle();

@@ -68,7 +68,7 @@ describe("every wired button points at a registered slug", () => {
   });
 
   it("no HelpLink names a slug the registry does not know", () => {
-    const known = new Set(PRODUCT_HELP_SLUGS.map((s) => s.slug));
+    const known = new Set<string>(PRODUCT_HELP_SLUGS.map((s) => s.slug));
     const unknown = USED.filter((u) => !known.has(u.slug));
     expect(
       unknown,
@@ -97,7 +97,7 @@ describe("the surfaces the story named all have a button", () => {
   });
 
   it("covers all ten registry entries, so nothing in the backlog is orphaned", () => {
-    const used = new Set(USED.map((u) => u.slug));
+    const used = new Set<string>(USED.map((u) => u.slug));
     const unused = PRODUCT_HELP_SLUGS.filter((s) => !used.has(s.slug)).map((s) => s.slug);
     expect(unused, `registered but never rendered: ${unused.join(", ")}`).toEqual([]);
   });
