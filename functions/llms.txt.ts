@@ -36,6 +36,23 @@ interface AuthorSitemap {
 interface PostsIndex {
   posts: Array<{ slug: string; title: string; excerpt: string | null }>;
 }
+// US-2580. The ANONYMOUS help endpoint, which is what makes this section
+// public-only: it cannot return a members or internal article, so there is no
+// filter here to get wrong.
+interface HelpIndex {
+  categories: Array<{ key: string; title: string; slug: string; summary: string }>;
+  articles: Array<{
+    slug: string;
+    title: string;
+    summary: string;
+    category_key: string;
+    sort_order: number;
+  }>;
+}
+
+// How many help articles to list. Bounded like the article limit above so
+// llms.txt stays a curated map — /help.md is the full territory.
+const LLMS_HELP_LIMIT = 40;
 
 // How many recent posts to list in llms.txt's Recent Articles section. Bounded
 // so the file stays a curated map, not a full feed (that's rss.xml/sitemap).
@@ -83,7 +100,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     : FALLBACK_ROUTES;
 
   // Representative dynamic URLs — best-effort, gracefully omitted on failure.
-  const [certs, sellers, authors, posts] = await Promise.all([
+  const [certs, sellers, authors, posts, help] = await Promise.all([
     fetchJsonSafe<CertSitemap>(`${api}/api/content/public/certificates.json`, {
       headers: { Accept: "application/json" },
     }),
@@ -99,6 +116,9 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       `${api}/api/content/public/posts?limit=${LLMS_ARTICLE_LIMIT}`,
       { headers: { Accept: "application/json" } },
     ),
+    fetchJsonSafe<HelpIndex>(`${api}/api/content/public/help`, {
+      headers: { Accept: "application/json" },
+    }),
   ]);
   const certUrls = (certs?.certificates ?? []).slice(0, 3).map((cI) => ({
     title: `Verified grade certificate ${cI.id}`,
@@ -125,6 +145,33 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       note: p.excerpt?.trim() || undefined,
     }));
 
+  // US-2580: category hubs first, then the articles on them, each with its
+  // Markdown mirror named. An article whose category is missing from the
+  // payload is dropped rather than given a guessed URL — the same rule the
+  // sitemap follows, for the same reason (a guess is a 301 in a list of facts).
+  const helpCatSlug = new Map((help?.categories ?? []).map((c) => [c.key, c.slug]));
+  const helpArticles = (help?.articles ?? [])
+    .filter((a) => a?.slug && a?.title && helpCatSlug.has(a.category_key))
+    .sort((a, b) => a.sort_order - b.sort_order || a.title.localeCompare(b.title))
+    .slice(0, LLMS_HELP_LIMIT);
+  const helpUrls = [
+    ...(help?.categories ?? [])
+      .filter((c) => helpArticles.some((a) => a.category_key === c.key))
+      .map((c) => ({
+        title: c.title,
+        url: `/help/${c.slug}`,
+        note: c.summary?.trim() || undefined,
+      })),
+    ...helpArticles.map((a) => {
+      const url = `/help/${helpCatSlug.get(a.category_key)}/${a.slug}`;
+      return {
+        title: a.title,
+        url,
+        note: [a.summary?.trim(), `Markdown: ${url}.md`].filter(Boolean).join(" — "),
+      };
+    }),
+  ];
+
   const body = buildLlmsTxt({
     siteUrl: base,
     summary: LLMS_SUMMARY,
@@ -135,6 +182,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       sellerUrls,
       authorUrls,
       articleUrls,
+      helpUrls,
     }),
   });
 

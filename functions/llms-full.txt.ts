@@ -9,6 +9,13 @@
 // Everything is derived at build time into dist/llms-full-data.json from the
 // same constants the public pages render, so this file cannot drift from the
 // site and nothing here is hand-maintained. It adds no indexable page surface.
+//
+// US-2580: the HELP CENTER is deliberately NOT folded in here. Help articles are
+// database rows an admin edits without a deploy, so injecting them would trade
+// this file's one real guarantee — that it cannot drift from the build — for a
+// live fetch that can fail halfway. Its equivalent is /help.md, which carries
+// every public article in full from the same anonymous endpoint the help pages
+// read, and which /llms.txt names in its Help Center section.
 
 import { siteUrl, type PagesEnv } from "./_shared/blog-render";
 import { buildLlmsFullTxt, type LlmsFullData } from "./_shared/seo-config";

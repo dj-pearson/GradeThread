@@ -274,6 +274,14 @@ export function buildLlmsSections(opts: {
   authorUrls?: Array<{ title: string; url: string }>;
   /** US-877: recent published blog posts (title + one-line summary + URL). */
   articleUrls?: Array<{ title: string; url: string; note?: string }>;
+  /**
+   * US-2580: the Help Center — category hubs plus the top articles.
+   *
+   * Documentation is the part of a site answer engines quote most readily,
+   * because it is specific and checkable in a way marketing copy is not. Only
+   * PUBLIC articles can reach this: the caller reads the anonymous endpoint.
+   */
+  helpUrls?: Array<{ title: string; url: string; note?: string }>;
 }): LlmsSection[] {
   const product: LlmsSection["links"] = [];
   const glossary: LlmsSection["links"] = [];
@@ -325,6 +333,24 @@ export function buildLlmsSections(opts: {
         url: a.url,
         note: [a.note, `Markdown: ${a.url}.md`].filter(Boolean).join(" — "),
       })),
+    });
+  }
+  // US-2580: the Help Center. Placed before Authors and the verified samples
+  // because "how do I do X" is the question an answer engine is most often
+  // asked about this product, and this section is the only place the answer
+  // lives in one hop. Every entry names its Markdown mirror, which engines read
+  // in preference to the HTML.
+  if (opts.helpUrls?.length) {
+    sections.push({
+      heading: "Help Center",
+      links: [
+        {
+          title: "Help Center",
+          url: "/help",
+          note: "Every guide, by topic. Full Markdown index: /help.md",
+        },
+        ...opts.helpUrls,
+      ],
     });
   }
   if (opts.authorUrls?.length) {

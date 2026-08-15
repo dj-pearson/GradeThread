@@ -184,7 +184,22 @@ export const helpPublicRoutes = new Hono<PublicEnv>();
 helpPublicRoutes.get("/", async (c) => {
   try {
     const [categories, rows] = await Promise.all([loadCategories(), loadIndex("anon")]);
-    return c.json(indexPayload(categories, rows));
+    const payload = indexPayload(categories, rows);
+    // US-2580: ?full=1 adds each article's Markdown body, so /help.md can be a
+    // single-fetch document an answer engine ingests whole instead of crawling
+    // one URL per article. Opt-in because the default index is the payload the
+    // hub and every category page render, and it must stay small.
+    if (c.req.query("full") === "1") {
+      const bodyBySlug = new Map(rows.map((r) => [r.slug, r.body_markdown ?? ""]));
+      return c.json({
+        ...payload,
+        articles: payload.articles.map((a) => ({
+          ...a,
+          body_markdown: bodyBySlug.get(a.slug) ?? "",
+        })),
+      });
+    }
+    return c.json(payload);
   } catch (err) {
     return failSafe(c, 500, "Couldn't load help articles.", err, "help.public.index");
   }

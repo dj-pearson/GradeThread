@@ -307,17 +307,78 @@ export function buildHelpMarkdown(
   return out.join("\n\n") + "\n";
 }
 
-/** Markdown index of the whole help center, served at /help.md. */
+// Bounds for /help.md. An answer engine that fetches a 4 MB document times out
+// or truncates it mid-sentence, which is worse than a document that says plainly
+// where it stopped. Both caps are announced in the output rather than applied
+// silently — a truncated corpus that reads as complete is a corpus an engine
+// will quote as though it were.
+const HELP_MD_ARTICLE_CHARS = 12_000;
+const HELP_MD_TOTAL_CHARS = 600_000;
+
+/**
+ * The whole public Help Center as one Markdown document, served at /help.md.
+ *
+ * Full bodies, not just links, when the payload carries them (the ?full=1
+ * index). llms-full.txt is deliberately NOT where this lives: that file is
+ * rendered from a BUILD-TIME artifact of the grading standard and is designed
+ * so it cannot drift from the site, whereas help articles are database rows an
+ * admin edits without a deploy. Folding live content into it would trade its
+ * one real guarantee for convenience.
+ */
 export function buildHelpIndexMarkdown(index: HelpIndexPayload, siteUrl: string): string {
   const base = siteUrl.replace(/\/$/, "");
+  const bodies = new Map(
+    index.articles.map((a) => [
+      a.slug,
+      ((a as { body_markdown?: string }).body_markdown ?? "").trim(),
+    ]),
+  );
+  const hasBodies = [...bodies.values()].some(Boolean);
+
   const out: string[] = [`# ${HELP_HUB_TITLE}`, HELP_HUB_DESCRIPTION];
+  if (hasBodies) {
+    out.push(`Every public article, in full. Individual pages: ${base}/help`);
+  }
+
+  let spent = 0;
+  const omitted: string[] = [];
+
   for (const c of nonEmptyCategories(index)) {
+    const articles = articlesInCategory(index, c.key);
+    if (!articles.length) continue;
     out.push(`## ${c.title}`);
     if (c.summary) out.push(c.summary);
-    const lines = articlesInCategory(index, c.key).map(
-      (a) => `- [${a.title}](${base}${helpArticlePath(c.slug, a.slug)}): ${a.summary}`,
-    );
-    if (lines.length) out.push(lines.join("\n"));
+
+    for (const a of articles) {
+      const url = `${base}${helpArticlePath(c.slug, a.slug)}`;
+      const body = bodies.get(a.slug) ?? "";
+      if (!hasBodies || !body) {
+        out.push(`- [${a.title}](${url}): ${a.summary}`);
+        continue;
+      }
+      if (spent >= HELP_MD_TOTAL_CHARS) {
+        omitted.push(`${a.title} (${url})`);
+        continue;
+      }
+      const capped = body.length > HELP_MD_ARTICLE_CHARS
+        ? `${body.slice(0, HELP_MD_ARTICLE_CHARS).trimEnd()}\n\n[Article truncated. Full text: ${url}]`
+        : body;
+      spent += capped.length;
+      out.push(`### ${a.title}`);
+      if (a.summary) out.push(`_${a.summary}_`);
+      out.push(`Source: ${url}`);
+      out.push(capped);
+    }
   }
+
+  if (omitted.length) {
+    out.push(
+      `## Not included here\n\n${omitted.length} article${
+        omitted.length === 1 ? "" : "s"
+      } exceeded this document's size budget and are only at their own URLs:\n` +
+        omitted.map((o) => `- ${o}`).join("\n"),
+    );
+  }
+
   return out.join("\n\n") + "\n";
 }

@@ -1892,21 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2580",
-      "title": "[HELP CENTER] Expose help to answer engines (llms.txt, llms-full.txt, .md mirrors)",
-      "description": "This is the reason the help center is public rather than gated. Answer engines quote documentation far more readily than marketing copy, because docs are specific and checkable. Every public article needs to be retrievable as clean markdown.",
-      "acceptanceCriteria": [
-        "llms.txt gains a Help Center section listing the category hubs and the top articles, with the same .md hint the blog section uses.",
-        "llms-full.txt includes the markdown body of public help articles, bounded the way the blog section is bounded.",
-        "Every public article is retrievable at /help/<category>/<slug>.md.",
-        "Gated articles appear in none of llms.txt, llms-full.txt or the markdown mirrors. A test asserts it.",
-        "AI disclosure handling matches the blog's (_shared/ai-disclosure.ts)."
-      ],
-      "priority": 70,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. "
-    },
-    {
       "id": "US-2581",
       "title": "[HELP CENTER] Dynamic OG images for help articles",
       "description": "Help links get pasted into Discord, Reddit and support replies more than any marketing page does. A blank card wastes the click.",

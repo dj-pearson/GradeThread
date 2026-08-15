@@ -360,6 +360,121 @@ describe("the SSR and SPA renderers agree (US-2576)", () => {
   });
 });
 
+describe("answer engines (US-2580)", () => {
+  it("the llms.txt Help Center section names each article's Markdown mirror", async () => {
+    const { buildLlmsSections } = await import("../../functions/_shared/seo-config");
+    const sections = buildLlmsSections({
+      routes: [],
+      helpUrls: [
+        {
+          title: "Your first grade",
+          url: "/help/getting-started/your-first-grade",
+          note: "Upload four photos — Markdown: /help/getting-started/your-first-grade.md",
+        },
+      ],
+    });
+    const help = sections.find((s) => s.heading === "Help Center");
+    expect(help).toBeDefined();
+    // The section itself points at the full-territory document.
+    expect(JSON.stringify(help)).toContain("/help.md");
+    expect(JSON.stringify(help)).toContain(
+      "/help/getting-started/your-first-grade.md",
+    );
+  });
+
+  it("no Help Center section appears when there are no public articles", async () => {
+    const { buildLlmsSections } = await import("../../functions/_shared/seo-config");
+    const sections = buildLlmsSections({ routes: [] });
+    expect(sections.find((s) => s.heading === "Help Center")).toBeUndefined();
+  });
+
+  it("llms.txt reads the ANONYMOUS help endpoint, which is what keeps it public-only", () => {
+    const src = readFileSync(join(root, "functions/llms.txt.ts"), "utf8");
+    const calls = [...src.matchAll(/["'`]([^"'`]*\/api\/content\/public\/help[^"'`]*)["'`]/g)];
+    expect(calls.length).toBeGreaterThan(0);
+    expect(src).not.toContain("/api/help");
+    expect(src).not.toMatch(/\/api\/content\/help\b/);
+  });
+
+  it("llms-full.txt stays a BUILD artifact and pulls in no live help content", () => {
+    // Its one guarantee is that it cannot drift from the build. A live fetch
+    // that can fail halfway would trade that for convenience, and a half-served
+    // standard is a document an engine quotes as though it were complete.
+    const src = readFileSync(join(root, "functions/llms-full.txt.ts"), "utf8");
+    expect(src).not.toContain("/api/content/public/help");
+    expect(src).toContain("/help.md");
+  });
+
+  it("/help.md carries full bodies when the payload has them", () => {
+    const withBodies: HelpIndexPayload = {
+      categories: [cat()],
+      articles: [
+        { ...item(), body_markdown: "## Step one\n\nShoot the front." } as HelpListItemPayload,
+      ],
+    };
+    const md = buildHelpIndexMarkdown(withBodies, "https://gradethread.com");
+    expect(md).toContain("### Your first grade");
+    expect(md).toContain("## Step one");
+    expect(md).toContain("Source: https://gradethread.com/help/getting-started/your-first-grade");
+  });
+
+  it("/help.md degrades to a link list when the payload has no bodies", () => {
+    const md = buildHelpIndexMarkdown(index(), "https://gradethread.com");
+    expect(md).toContain("- [Your first grade](https://gradethread.com/help/getting-started/your-first-grade)");
+    expect(md).not.toContain("### Your first grade");
+  });
+
+  it("/help.md announces what it left out instead of truncating silently", () => {
+    // A truncated corpus that reads as complete is a corpus an engine will
+    // quote as though it were complete.
+    const big = "x".repeat(12_000);
+    const many = Array.from({ length: 80 }, (_, i) => ({
+      ...item({ slug: `a${i}`, title: `Article ${i}`, sort_order: i }),
+      body_markdown: big,
+    })) as HelpListItemPayload[];
+    const md = buildHelpIndexMarkdown(
+      { categories: [cat()], articles: many },
+      "https://gradethread.com",
+    );
+    expect(md).toContain("Not included here");
+    expect(md).toMatch(/\d+ articles? exceeded this document's size budget/);
+  });
+
+  it("/help.md truncates an over-long article with a pointer to the full text", () => {
+    const md = buildHelpIndexMarkdown(
+      {
+        categories: [cat()],
+        articles: [
+          { ...item(), body_markdown: "y".repeat(20_000) } as HelpListItemPayload,
+        ],
+      },
+      "https://gradethread.com",
+    );
+    expect(md).toContain("[Article truncated. Full text: https://gradethread.com/help/getting-started/your-first-grade]");
+  });
+
+  it("the ?full=1 payload is opt-in, so the hub's own fetch stays small", () => {
+    const src = readFileSync(
+      join(root, "services/edge-functions/src/routes/help-center.ts"),
+      "utf8",
+    );
+    expect(src).toContain('c.req.query("full") === "1"');
+    // help.md is the only caller that asks for it.
+    expect(readFileSync(join(root, "functions/help.md.ts"), "utf8")).toContain("?full=1");
+    expect(readFileSync(join(root, "functions/help/[[path]].ts"), "utf8")).not.toContain(
+      "?full=1",
+    );
+  });
+
+  it("no AI-provenance disclosure is attached to a help article", () => {
+    // ai-disclosure.ts is about how a GRADE was produced (cert page + embed
+    // widget). Stamping it on a hand-written help article would be a false
+    // claim, in either direction. The blog does not use it either.
+    const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
+    expect(src).not.toContain("aiDisclosure");
+  });
+});
+
 describe("the two failures that are invisible in review", () => {
   it("_routes.json lists /help, /help/* and /help.md", () => {
     // Without these, Cloudflare Pages serves the SPA shell (or a static 404)

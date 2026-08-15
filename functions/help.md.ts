@@ -32,7 +32,9 @@ export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
 async function renderHelpIndexMarkdown(env: PagesEnv): Promise<Response> {
   let index: HelpIndexPayload | null;
   try {
-    index = await fetchJson<HelpIndexPayload>(env, "/api/content/public/help");
+    // ?full=1: bodies included, so this is one fetch an engine ingests whole
+    // rather than a list of 100 URLs it has to crawl.
+    index = await fetchJson<HelpIndexPayload>(env, "/api/content/public/help?full=1");
   } catch (err) {
     if (err instanceof UpstreamUnavailable) return upstreamUnavailableResponse();
     throw err;
