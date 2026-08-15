@@ -143,3 +143,26 @@ function readSeoConfig(): string {
   const { join } = require("node:path");
   return readFileSync(join(process.cwd(), "functions/_shared/seo-config.ts"), "utf8");
 }
+
+describe("headings do not decorate the canonical scale name", () => {
+  it("never renders 'The The'", () => {
+    // FOUND IN PRODUCTION 2026-08-15 by reading the served file rather than the
+    // source: the scale heading was `## The ${d.scale.name}` while
+    // GRADETHREAD_SCALE_NAME already begins with "The", so the file we hand to
+    // answer engines said "## The The GradeThread Clothing Condition Grading
+    // Scale".
+    //
+    // Small, and it matters more here than in ordinary copy: this file exists
+    // to be QUOTED, the scale name is deliberately stable so that citations
+    // converge on one string, and a doubled article is exactly the kind of
+    // artefact that gets quoted back verbatim.
+    expect(txt).not.toMatch(/\bThe The\b/);
+  });
+
+  it("carries the canonical name exactly once per heading, undecorated", () => {
+    expect(txt).toContain(`## ${GRADETHREAD_SCALE_NAME}`);
+    // Guard-the-guard: if the heading is ever dropped entirely, the case above
+    // passes for the wrong reason.
+    expect(txt).toContain(GRADETHREAD_SCALE_NAME);
+  });
+});

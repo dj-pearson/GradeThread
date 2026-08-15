@@ -446,7 +446,12 @@ export function buildLlmsFullTxt(siteUrl: string, d: LlmsFullData): string {
   L.push("");
 
   // ── Scale ──
-  L.push(`## The ${d.scale.name}`);
+  // No literal "The " here: GRADETHREAD_SCALE_NAME already starts with it, and
+  // prefixing produced "## The The GradeThread Clothing Condition Grading
+  // Scale" in the file we hand to answer engines — found by reading the live
+  // /llms-full.txt rather than the source. The name is canonical and stable on
+  // purpose (it is what we want cited), so the caller must not decorate it.
+  L.push(`## ${d.scale.name}`);
   L.push("");
   L.push("| Grade | Tier | Criteria | Typical flaws | Marketplace equivalent |");
   L.push("| --- | --- | --- | --- | --- |");
