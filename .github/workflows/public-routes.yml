@@ -1,0 +1,59 @@
+name: Public routes
+
+# US-2611: does the DEPLOY serve what the route registry claims?
+#
+# ci.yml proves the BUILD emits every public route, and the prerender sync-guard
+# proves the registry and the SSR entry agree. Neither can see production. Those
+# are different failures: vault/10-ops/deploy.md records a Cloudflare Pages
+# rewrite that canonicalises into a 308 and drops deep paths to the 404
+# catch-all — reproduced on the raw pages.dev URL, so it was Pages behaviour
+# rather than a stale deploy. A route that stops serving looks exactly like one
+# that was never added, and the sitemap advertises it either way.
+#
+# WHY THIS IS NOT IN THE PR LANE, and it is the load-bearing decision:
+# it tests a DEPLOYMENT. On a pull request it would fail on code that is correct
+# and simply not shipped yet — a red check the author cannot fix, which is how a
+# guard gets switched off. The same reasoning keeps
+# scripts/db-denied-rpc-crash-check.mjs advisory, and US-1927's notes record a
+# permanently-red guard being ignored into uselessness.
+#
+# Cadence: twice daily. A route stops serving on a deploy, not on a schedule, so
+# this is a backstop rather than a monitor — /health/ready and the Uptime
+# workflow cover liveness at ten-minute resolution. Also runnable on demand
+# after a risky Pages change, which is when you actually want it.
+
+on:
+  schedule:
+    - cron: "25 7,19 * * *"
+  workflow_dispatch:
+    inputs:
+      origin:
+        description: "Origin to probe (defaults to production)"
+        required: false
+        default: "https://gradethread.com"
+
+concurrency:
+  group: public-routes
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe every registered public route
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The script reads src/lib/seo/public-routes.ts — the registry itself
+          # is the input, so this cannot be narrowed to scripts/ alone.
+          sparse-checkout: |
+            scripts
+            src/lib/seo
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe
+        run: node scripts/probe-public-routes.mjs --origin "${{ inputs.origin || 'https://gradethread.com' }}"
