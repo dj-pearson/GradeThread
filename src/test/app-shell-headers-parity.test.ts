@@ -140,3 +140,54 @@ describe("US-2330: the app shell ships the same policy the static surface does",
     expect(src).toContain("inlineBootstrapHash(html)");
   });
 });
+
+// ---------------------------------------------------------------------------
+// The embed that is one content edit away from being blocked.
+//
+// src/components/marketing/guide-video.tsx renders an <iframe> at
+// www.youtube-nocookie.com on the garment-guide pages. frame-src allows exactly
+// Stripe and Turnstile, so that iframe is blocked — and nothing is broken today
+// ONLY because zero shorts are published: publishedShort() returns undefined
+// until a youtubeId and uploadDate are filled in, so the component renders null.
+//
+// The day someone publishes one (US-1689), the frame goes blank with a console
+// error, on a page that is already CSP-ENFORCED for static responses. The person
+// doing that is doing content work — filming, uploading, pasting an id — and has
+// no reason to be looking at a header file.
+//
+// So: do NOT widen the policy for content that does not exist. Widening it now
+// would loosen a live security header on a promise. Instead, make the two facts
+// impossible to hold at once, and let CI say the one sentence that saves the
+// afternoon.
+describe("published video embeds and frame-src cannot disagree", () => {
+  it("a published short requires youtube-nocookie in frame-src", async () => {
+    const { publishedShorts } = await import("../lib/seo/grading-videos");
+    const frameSrc = directiveMap(staticCsp()).get("frame-src") ?? "";
+    const allowed = frameSrc.includes("youtube-nocookie.com");
+
+    if (publishedShorts().length > 0 && !allowed) {
+      throw new Error(
+        "A grading short is published, so guide-video.tsx now renders an " +
+          "<iframe> at https://www.youtube-nocookie.com — and frame-src does " +
+          "not allow it, so the embed is blocked and shows an empty box. Add " +
+          "https://www.youtube-nocookie.com to frame-src in BOTH public/_headers " +
+          "and functions/_shared/app-shell-headers.ts (they are asserted " +
+          "token-identical above).",
+      );
+    }
+    // The other direction is not asserted. Allowing the origin before any short
+    // exists is a judgement call about widening a live policy early, not a bug,
+    // and failing on it would push someone to revert a header to get green.
+    expect(true).toBe(true);
+  });
+
+  it("the component still embeds the origin this guard is about", () => {
+    // Guard-the-guard. If guide-video.tsx stops using an iframe, or the URL
+    // helper changes host, the case above silently protects nothing while
+    // continuing to pass.
+    const component = read("src/components/marketing/guide-video.tsx");
+    expect(component).toContain("<iframe");
+    expect(component).toContain("shortEmbedUrl");
+    expect(read("src/lib/seo/grading-videos.ts")).toContain("www.youtube-nocookie.com/embed/");
+  });
+});
