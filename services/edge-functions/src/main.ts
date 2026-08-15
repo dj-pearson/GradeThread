@@ -205,6 +205,11 @@ import { contentKnowledgeRoutes } from "./routes/content-knowledge.ts";
 import { contentImagesRoutes } from "./routes/content-images.ts";
 import { contentSettingsRoutes } from "./routes/content-settings.ts";
 import { contentPublicRoutes } from "./routes/content-public.ts";
+import {
+  helpAdminRoutes,
+  helpPublicRoutes,
+  helpReaderRoutes,
+} from "./routes/help-center.ts";
 import { contentSchedulerRoutes } from "./routes/content-scheduler.ts";
 import { newsletterSchedulerRoutes } from "./routes/newsletter-scheduler.ts";
 import { newsletterSubscribeRoutes } from "./routes/newsletter-subscribe.ts";
@@ -775,6 +780,18 @@ app.use("/api/content/images/*", authMiddleware);
 app.use("/api/content/images/*", adminAuthMiddleware);
 app.use("/api/content/settings/*", authMiddleware);
 app.use("/api/content/settings/*", adminAuthMiddleware);
+// Help Center authoring (US-2573). Both the base path and the sub-paths, because
+// POST /api/content/help (create) sits at the mount root and `/*` alone misses
+// it — the same reason /api/changelog registers both forms below.
+app.use("/api/content/help", authMiddleware);
+app.use("/api/content/help", adminAuthMiddleware);
+app.use("/api/content/help/*", authMiddleware);
+app.use("/api/content/help/*", adminAuthMiddleware);
+// The members-only reader (US-2573). authMiddleware only: it is a customer
+// surface, not an admin one. Admins get 'internal' articles through the role
+// lookup in the handler, not through a second middleware.
+app.use("/api/help", authMiddleware);
+app.use("/api/help/*", authMiddleware);
 
 // Rate limiting (US-265) — distributed (Postgres-backed), per-scope so budgets
 // don't bleed across endpoint groups. Keyed by user when authed, else by IP.
@@ -1638,6 +1655,17 @@ app.route("/api/content/knowledge", contentKnowledgeRoutes);
 app.route("/api/content/images", contentImagesRoutes);
 app.route("/api/content/settings", contentSettingsRoutes);
 app.route("/api/content/public", contentPublicRoutes);
+// Help Center (US-2573). Three mounts because there are three audiences for the
+// same table, and the difference between them is the whole security model:
+//   /api/content/public/help  anonymous  → visibility 'public' only
+//   /api/help                 authed     → + 'members'
+//   /api/content/help         admin      → + 'internal', + drafts, + writes
+// The public mount is a reviewed entry in PUBLIC_API_ROUTERS
+// (flipdesk-auth-coverage_test.ts); it inherits the /api/content/public/*
+// rate limiter registered above.
+app.route("/api/content/public/help", helpPublicRoutes);
+app.route("/api/help", helpReaderRoutes);
+app.route("/api/content/help", helpAdminRoutes);
 // /api/content/scheduler/* has its own auth middleware baked in (the
 // route module short-circuits on X-Internal-Job-Secret OR falls back
 // to admin JWT). Don't add /scheduler/* to the use() lines above.

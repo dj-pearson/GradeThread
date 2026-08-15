@@ -124,6 +124,13 @@ const PUBLIC_API_ROUTERS = new Set<string>([
   "/api/guarantee", // public guarantee terms
   "/api/changelog", // public changelog
   "/api/content/public", // public blog/content read
+  // US-2573: the anonymous Help Center read that the /help SSR Function calls.
+  // Public is the point — these pages are meant to be indexed. The gate is
+  // visibility, not auth: the handler filters to visibility='public' via
+  // visibilitiesFor("anon"), and 00602's anon RLS policy filters again for
+  // anything that reaches Postgres with the anon key. 'members' and 'internal'
+  // articles are served by /api/help and /api/content/help, both authed.
+  "/api/content/public/help",
   "/api/newsletter", // public subscribe
   "/api/drip", // public unsubscribe / drip landing
   "/api/drip-track", // open/click tracking pixels
