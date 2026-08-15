@@ -137,6 +137,44 @@ bridge to `supabase_migrations.schema_migrations`, migration 00126):
 > CLI does this automatically; a raw `psql -f` loop does NOT — add the version
 > rows, or prefer the CLI). If it isn't recorded the check simply fail-opens.
 
+### The max hides a hole — ask /health/ready for the SET (US-2603)
+
+`applied` in the boot log and in the `/health/ready` schema block is a
+**maximum**, and a maximum cannot see a gap beneath it. Apply `00606` while
+`00605` never ran and every version check reports `match` forever, because the
+watermark only moves forward.
+
+That is not a thought experiment. On **2026-08-15** prod reported
+`{"expected":"00603","applied":"00606","status":"ahead"}` while only *some* of
+`00604`-`00606` had actually been run, and the only way to find out which was a
+psql session against prod.
+
+`/health/ready` now answers it, unauthenticated, in one GET:
+
+```bash
+curl -fsS https://functions.gradethread.com/health/ready | jq .schema
+# { "expected": "00606", "applied": "00606", "status": "match",
+#   "missing": ["00605"] }        <- versions in this build, absent from the DB
+```
+
+- **`missing`** — never applied. Apply those files, in order.
+- **`unexpected`** — recorded with no such file in this build (a rollback, or a
+  deploy from a branch). Do **not** "fix" it by applying anything.
+- **`complete: false`** — the applied set could not be read. That is *we do not
+  know*, not clean, and it is deliberately a different shape from an empty
+  `missing`.
+- Neither finding affects `ready`. A diagnostic that can pull the container out
+  of rotation is a worse bug than the blind spot it closes.
+
+The read is cached ~60 s, so the uptime monitor pays for one query a minute and
+an operator still sees a fresh answer within a tick. It is **not** a boot-time
+snapshot: the case it exists for is a migration applied or skipped while the
+container is up.
+
+> [!warning] The `generate_series` backfill below fills EVERY version in the
+> range, including ones that never ran. Read `.schema.missing` first — backfill
+> over a real gap is exactly the "masks the real gap" column of the table above.
+
 ### The trap: creating the tracker arms the guard
 
 Fail-open and fatal are not two settings — they are the **same guard with and

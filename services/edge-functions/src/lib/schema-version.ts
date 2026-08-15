@@ -250,6 +250,11 @@ export function compareSchemaSets(
  * PROMOTE IT TO FATAL once prod has been observed clean. That is a deliberate
  * follow-up, recorded in US-2009, not an oversight.
  *
+ * "Surfaces on /health/ready" became true in US-2603 — this docstring asserted
+ * it for a while before the endpoint actually read the result, so the only
+ * consumer was a container log. `routes/health.ts` → `cachedSchemaCompleteness`
+ * now publishes it as `schema.missing` / `schema.unexpected` / `complete`.
+ *
  * Fails CLOSED on a read error in the sense that matters: `checked:false` means
  * "we do not know", which must never be rendered as "clean".
  */

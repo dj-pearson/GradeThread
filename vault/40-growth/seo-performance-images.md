@@ -9,7 +9,7 @@ code_refs:
   - wrangler.toml
   - lighthouserc.json
   - functions/_shared/sitemap.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [seo, performance, images, cwv]
 summary: The shipped performance levers, how responsive images are gated (ON since US-2333), and how the edge SSR cache and its purges actually work.
 ---
@@ -48,9 +48,9 @@ the note used to blur them:
 - `<Image>` (`src/components/responsive-image.tsx:7,61`) genuinely *requires*
   `width`/`height` props and emits them as attributes.
 - The blog SSR emits **neither**. `renderHeroImage`
-  (`blog-render.ts:1283`) writes only `class/src/srcset/sizes/alt/loading/
+  (`blog-render.ts:1305`) writes only `class/src/srcset/sizes/alt/loading/
   fetchpriority/decoding`; the hero's box is reserved by CSS instead
-  (`.hero { aspect-ratio: 16 / 9 }`, `blog-render.ts:399`). `rewriteContentImages`
+  (`.hero { aspect-ratio: 16 / 9 }`, `blog-render.ts:410`). `rewriteContentImages`
   (`blog-render.ts:1388`) *reads* dimensions the author supplied and, only when
   both are absent and there is no `style=`, injects
   `style="aspect-ratio:auto 16/9"`.
@@ -338,7 +338,7 @@ requests:
   nonce-stamped script (`functions/_shared/affiliate-capture.ts`) that reads the
   param client-side from the visitor's own URL — the HTML stays identical.
 - Stored only when the response is `200` **and** its `Cache-Control` contains
-  neither `no-store` nor `private` (`blog-render.ts:256`) — so the blog `preview`
+  neither `no-store` nor `private` (`blog-render.ts:255`) — so the blog `preview`
   route (`private, no-store`) and 404/503s pass through untouched. Note the guard
   is a **deny-list, not an allow-list**: it does not require a `public` token, so
   a 200 with no `Cache-Control` at all WOULD be cached. Any new SSR surface must

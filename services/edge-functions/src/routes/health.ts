@@ -4,7 +4,12 @@ import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
 import { edgeEnv } from "../lib/env.ts";
 import { isPlaceholderRelease, RELEASE_ENV_KEYS } from "../lib/release-identity.ts";
-import { compareSchemaVersion, EXPECTED_SCHEMA_VERSION } from "../lib/schema-version.ts";
+import {
+  checkSchemaCompleteness,
+  compareSchemaVersion,
+  EXPECTED_SCHEMA_VERSION,
+  type SchemaCompleteness,
+} from "../lib/schema-version.ts";
 import {
   gradingBufferConcurrency,
   summarizeMemory,
@@ -75,10 +80,74 @@ export interface SchemaSummary {
   expected: string;
   applied: string | null;
   status: "match" | "ahead" | "behind" | "unknown";
+  /**
+   * US-2603: versions in this build's manifest that the database has NOT
+   * recorded — i.e. migrations that never ran, sitting UNDER the maximum.
+   *
+   * `applied` above is a MAX, and a max cannot see a hole beneath it. That is
+   * not theoretical here: on 2026-08-15 production reported applied 00606 while
+   * the owner confirmed only some of 00604–00606 had actually been run, and the
+   * only way to find out which was a psql session. `checkSchemaCompleteness`
+   * has computed exactly this since US-2009 — it just logged the answer into a
+   * container nobody reads.
+   *
+   * Absent when the set is complete or could not be read; `complete: false`
+   * distinguishes the second case, because "we do not know" must never render
+   * as "clean".
+   */
+  missing?: string[];
+  /** Recorded by the database with no such migration in this build (phantoms). */
+  unexpected?: string[];
+  /** False when the applied SET could not be read — not a claim of health. */
+  complete?: boolean;
 }
 
-export function summarizeSchema(expected: string, applied: string | null): SchemaSummary {
-  return { expected, applied, status: compareSchemaVersion(expected, applied) };
+// US-2603: /health/ready is polled by the uptime monitor, and the completeness
+// check reads every recorded version. Cache it for a minute so a monitor pays
+// for one read per minute while an operator curling twice in a row still gets a
+// fresh answer within the next tick. NOT a boot-time snapshot: the case this
+// exists for is a migration applied (or skipped) while the container is up, and
+// a snapshot taken at boot is stale exactly then.
+export const SCHEMA_COMPLETENESS_TTL_MS = 60_000;
+let completenessCache: { at: number; value: SchemaCompleteness } | null = null;
+
+/** Test seam — drops the cache so a case does not inherit the previous one. */
+export function resetSchemaCompletenessCache(): void {
+  completenessCache = null;
+}
+
+export async function cachedSchemaCompleteness(
+  now: number = Date.now(),
+  read: () => Promise<SchemaCompleteness> = () => checkSchemaCompleteness(),
+): Promise<SchemaCompleteness> {
+  if (completenessCache && now - completenessCache.at < SCHEMA_COMPLETENESS_TTL_MS) {
+    return completenessCache.value;
+  }
+  const value = await read();
+  // A failed read is NOT cached. Caching `checked:false` would hold the "we do
+  // not know" answer for a minute past a transient blip, and this endpoint's
+  // whole job is to answer the question rather than defer it.
+  if (value.checked) completenessCache = { at: now, value };
+  return value;
+}
+
+export function summarizeSchema(
+  expected: string,
+  applied: string | null,
+  completeness?: { missing: string[]; unexpected: string[]; checked: boolean },
+): SchemaSummary {
+  const base: SchemaSummary = {
+    expected,
+    applied,
+    status: compareSchemaVersion(expected, applied),
+  };
+  if (!completeness) return base;
+  if (!completeness.checked) return { ...base, complete: false };
+  return {
+    ...base,
+    ...(completeness.missing.length > 0 ? { missing: completeness.missing } : {}),
+    ...(completeness.unexpected.length > 0 ? { unexpected: completeness.unexpected } : {}),
+  };
 }
 
 // US-2001: "carries no build identity" is defined ONCE, in release-identity.ts,
@@ -277,6 +346,20 @@ healthRoutes.get("/ready", async (c) => {
     }
   }
 
+  // US-2603: the SET, not just the max. Cached, because /health/ready is polled
+  // by the uptime monitor and this reads every recorded version — an operator
+  // curling twice gets a fresh answer, a monitor polling every minute does not
+  // pay for one. Best-effort in the same way as the version read above: a
+  // failure reports `complete: false` rather than an empty (clean-looking) set.
+  let completeness: SchemaCompleteness | undefined;
+  if (dbOk) {
+    try {
+      completeness = await cachedSchemaCompleteness();
+    } catch {
+      completeness = { missing: [], unexpected: [], checked: false };
+    }
+  }
+
   // US-2447: last host-watchdog heartbeat. Best-effort like the schema read
   // above, and for the same reason — a diagnostic must not be able to fail the
   // probe. A read failure reports "unconfigured", which overstates the problem
@@ -307,7 +390,7 @@ healthRoutes.get("/ready", async (c) => {
         Date.now(),
       ),
     },
-    summarizeSchema(EXPECTED_SCHEMA_VERSION, applied),
+    summarizeSchema(EXPECTED_SCHEMA_VERSION, applied, completeness),
   );
   return c.json(
     { ...summary.body, timestamp: new Date().toISOString() },

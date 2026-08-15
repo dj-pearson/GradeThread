@@ -251,3 +251,115 @@ Deno.test("US-2447: a missing watchdog NEVER flips the service to not_ready", ()
   assertEquals(s.body.status, "ready");
   assert(String(s.body.features?.hostWatchdog).startsWith("unconfigured:"));
 });
+
+// ---------------------------------------------------------------------------
+// US-2603: the applied SET on /health/ready.
+//
+// The bug this closes is not hypothetical. On 2026-08-15 prod reported
+// {"expected":"00603","applied":"00606","status":"ahead"} while the owner
+// confirmed only SOME of 00604-00606 had run. `applied` is a max, and a max
+// cannot see a hole beneath it — so the very next edge deploy would have read
+// expected 00606 / applied 00606 and printed "match" against a database missing
+// whatever was skipped. checkSchemaCompleteness has computed the right answer
+// since US-2009; it only ever wrote it to a container log.
+
+Deno.test("US-2603: a gap under the watermark shows even while status says match", () => {
+  const s = summarizeSchema("00606", "00606", {
+    missing: ["00605"],
+    unexpected: [],
+    checked: true,
+  });
+  assertEquals(s.status, "match", "the max comparison is genuinely satisfied");
+  assertEquals(s.missing, ["00605"], "and the endpoint still names the hole");
+});
+
+Deno.test("US-2603: a complete set adds no noise", () => {
+  const s = summarizeSchema("00606", "00606", {
+    missing: [],
+    unexpected: [],
+    checked: true,
+  });
+  assertEquals(s.missing, undefined);
+  assertEquals(s.unexpected, undefined);
+  assertEquals(s.complete, undefined, "clean is the absence of a finding, not a field");
+});
+
+Deno.test("US-2603: an unreadable set NEVER renders as clean", () => {
+  const s = summarizeSchema("00606", "00606", {
+    missing: [],
+    unexpected: [],
+    checked: false,
+  });
+  assertEquals(s.complete, false, "'we do not know' must be distinguishable from 'clean'");
+  assertEquals(s.missing, undefined, "and must not publish an empty set that reads as proof");
+});
+
+Deno.test("US-2603: phantoms are reported separately from gaps", () => {
+  // Opposite meanings: `missing` is a migration that never ran, `unexpected` is
+  // a version the DB recorded with no file in this build (a rollback, or a
+  // deploy from a branch). Merging them into one count would make an operator
+  // apply the wrong fix.
+  const s = summarizeSchema("00606", "00607", {
+    missing: [],
+    unexpected: ["00607"],
+    checked: true,
+  });
+  assertEquals(s.unexpected, ["00607"]);
+  assertEquals(s.missing, undefined);
+});
+
+Deno.test("US-2603: schema completeness is omitted entirely when the DB is down", () => {
+  // dbOk false means the read never happened. Reporting `complete:false` would
+  // be true but redundant — the database check already failed loudly.
+  const s = summarizeSchema("00606", null);
+  assertEquals(s.status, "unknown");
+  assertEquals(s.complete, undefined);
+});
+
+Deno.test("US-2603: a gap does NOT flip the container out of rotation", () => {
+  // Same trade as the release and watchdog entries above. Pulling the edge from
+  // rotation over a diagnostic would convert a visibility win into an outage,
+  // and the schema block has never been allowed to affect `ready`.
+  const r = summarizeReadiness(true, [], {}, summarizeSchema("00606", "00606", {
+    missing: ["00605"],
+    unexpected: [],
+    checked: true,
+  }));
+  assert(r.ready);
+  assertEquals(r.httpStatus, 200);
+  assertEquals(r.body.schema?.missing, ["00605"]);
+});
+
+Deno.test("US-2603: the completeness read is cached, and failures are not", async () => {
+  const { cachedSchemaCompleteness, resetSchemaCompletenessCache, SCHEMA_COMPLETENESS_TTL_MS } =
+    await import("../routes/health.ts");
+
+  resetSchemaCompletenessCache();
+  let reads = 0;
+  const ok = () => {
+    reads++;
+    return Promise.resolve({ missing: ["00605"], unexpected: [], checked: true });
+  };
+
+  const t0 = 1_000_000;
+  assertEquals((await cachedSchemaCompleteness(t0, ok)).missing, ["00605"]);
+  await cachedSchemaCompleteness(t0 + 1_000, ok);
+  await cachedSchemaCompleteness(t0 + SCHEMA_COMPLETENESS_TTL_MS - 1, ok);
+  assertEquals(reads, 1, "an uptime monitor polling every few seconds pays for one read");
+
+  await cachedSchemaCompleteness(t0 + SCHEMA_COMPLETENESS_TTL_MS, ok);
+  assertEquals(reads, 2, "and a migration applied while the container is up shows within a minute");
+
+  // A failed read must not be held: caching "we do not know" would keep
+  // answering "we do not know" for a minute after the blip cleared.
+  resetSchemaCompletenessCache();
+  let fails = 0;
+  const bad = () => {
+    fails++;
+    return Promise.resolve({ missing: [], unexpected: [], checked: false });
+  };
+  await cachedSchemaCompleteness(t0, bad);
+  await cachedSchemaCompleteness(t0 + 1_000, bad);
+  assertEquals(fails, 2, "a failed read is retried, not cached");
+  resetSchemaCompletenessCache();
+});
