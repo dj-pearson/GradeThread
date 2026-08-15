@@ -272,6 +272,38 @@ unless a story is blocked; if blocked, note why and move to the next.
       the existing env gate so OFF stays byte-identical) and that GARMENT_TYPES was in
       sync by luck, not by check. Guard `src/test/garment-taxonomy-copies.test.ts`
       (13 cases), verified to bite. Also fixed 2 edge tests red on main.
+## Pre-push verification, 2026-08-14 — every gate green
+
+Run as a SET over the 16 unpushed commits, reading real exit codes rather than a
+marker after a pipe (see the lesson below about `| tail && echo OK`):
+
+| Gate | Result |
+|---|---|
+| `npx tsc -b` | exit 0 |
+| `npm run lint` | exit 0 (16 warnings, 0 errors — the baseline) |
+| `npm run ui:check` | exit 0 |
+| `npx vitest run` (whole suite) | **4714 passed**, 73 skipped, 0 failed |
+| `npm run build` | exit 0, 217 static pages prerendered |
+| `deno lint` / `deno check` | exit 0 / exit 0 |
+| `deno test` (edge) | **6727 passed**, 0 failed, 193 ignored |
+| `vault:lint --strict` | exit 0 |
+| `runbook-sync` | exit 0 |
+| `prd:lint` | exit 0 |
+| `check-tracked-ignored` | exit 0 |
+
+**One caveat, stated rather than glossed.** The working tree also holds the
+concurrent agent's UNCOMMITTED US-2593 work (`vite.config.ts` modified,
+`src/lib/pwa/` and `src/test/pwa-navigate-fallback.test.ts` untracked), so those
+runs included it. That does not compromise the result for a push: `git diff
+--name-only origin/main..HEAD` shows **zero overlap** between the 44 files these
+16 commits touch and the files that agent is editing, and a push carries only
+committed work. Their changes stay local either way.
+
+**The push is blocked on one thing only: migration 00601.** It is one
+`ALTER TYPE ... ADD VALUE`, packaged in PENDING_MIGRATIONS.md with the apply
+order. Applying it and pushing also makes the macOS `iOS CI` lane available,
+which is what unblocks the ten remaining stories.
+
 ## The review itself is now complete, 2026-08-14
 
 `9a57fefc` closed the last open question IN THE REVIEW, as opposed to in its
