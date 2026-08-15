@@ -232,6 +232,16 @@ unless a story is blocked; if blocked, note why and move to the next.
 
 
 ### Follow-ups filed during the loop
+- [~] US-2557 (1953) iOS shows no unread notification count - SLICE SHIPPED `1b3587d2`
+      (still OPEN). AC1/AC2 premises VERIFIED as filed. But TWO things the Swift half
+      reads from were wrong: **no push has ever carried a badge** (apns.ts has supported
+      `badge` since pushes shipped and no caller ever set it, so the icon number could
+      not appear whatever the app did), and **the web bell counted a .limit(20) page**,
+      so it stopped at 20 and its own "99+" branch was dead - matching it, as AC3 asks,
+      would have shipped the cap to the phone. Fixing the count exposed a THIRD bug:
+      "Mark all read" marked only the ids on that page. Guards:
+      `notification-badge_test.ts` (8) + `src/test/notification-unread-count.test.ts`
+      (7), both verified to bite. AC3/AC4's Swift halves still need macOS.
 - [x] US-2560 (unranked) A buyer cancellation reaches no notification channel -
       `49350ff7` - searchCancellations() existed since the Post-sale page shipped and
       NO poll source read it, so three of the four eBay post-order cases notified and
@@ -954,3 +964,33 @@ host and not the other, so the local one was dropped.
   something like COMPLETE_REFUND_PENDING would then be read as finished and
   hidden. Assert only the states this repo actually records, and write down the
   near-miss so the next person does not "fix" it.
+
+- **An IMPORT is not a USE, and a guard that greps for a name cannot tell them
+  apart.** `expect(src).toContain("withUnreadBadge")` stayed green after I deleted
+  the actual call, because the `import` line still carried the word. Assert the
+  call site with its arguments. Found only by breaking the thing on purpose -
+  which also failed the first time, because the break script's replace silently
+  no-op'd on a CRLF file with an LF search string. **Two ways to fake a passing
+  bite-check, in one attempt.** Always confirm the break APPLIED (throw if the
+  replace returns the input unchanged) before believing a red or a green.
+
+- **A source-scanning guard must strip comments, and this is now the THIRD time.**
+  US-2571's taxonomy parser read `"tie"` out of a comment; US-2557's scan for
+  `.limit(` matched the sentence in its own module doc explaining the bug it
+  replaced. The file that documents a defect best is the file most likely to
+  contain the forbidden string. Make `code(path)` that strips comments the
+  DEFAULT helper in any test that reads source, not something remembered.
+
+- **"Matching the web behaviour" is only safe once you have read the web
+  behaviour.** AC3 said the iOS badge should match the web notification centre.
+  The web centre computed its badge by filtering a 20-row page, so obeying that
+  AC literally would have shipped a silent cap to a second platform - and the
+  server-side count in the same story would then have disagreed with it, with
+  neither number obviously the wrong one. When an AC says "match X", read X
+  first; a parity requirement inherits X's bugs.
+
+- **Fixing a derived number exposes what was hiding behind it.** The 20-row badge
+  concealed that "Mark all read" also only marked those 20 rows: the badge read
+  20, you clicked, it read 0, and the older unread rows stayed unread forever.
+  Neither symptom was visible while both halves shared the same wrong source.
+  After correcting a count, re-read every action that CHANGES it.
