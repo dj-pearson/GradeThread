@@ -74,4 +74,5 @@ absence to `+Infinity` rather than letting arithmetic produce `NaN`.
 Anything new that orders the backlog imports from the first row. Adding a fourth
 consumer with its own comparator re-opens US-2371.
 
-Related: [[ralph-learnings]] for the loop's other recurring gotchas.
+Related: [[operator-queue-convention]] for how work only a person can do is
+declared and queued; [[ralph-learnings]] for the loop's other recurring gotchas.
