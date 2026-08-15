@@ -18,7 +18,7 @@
 // loop. The defects were an absent try/catch and a misplaced insert — neither
 // has a wrong value to catch.
 
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 
 const src = await Deno.readTextFile(
   new URL("../routes/jobs-north-star.ts", import.meta.url),
@@ -107,4 +107,36 @@ Deno.test("US-2314: a throwing user does not stop the cohort behind them", async
     "the user who never got the email must NOT be marked celebrated — that is " +
       "what made the loss permanent once the week key moved on",
   );
+});
+
+// US-2314 AC3, DECIDED 2026-08-15 (owner): a user whose send threw is NOT
+// retried the following week. The email celebrates a specific week — items
+// listed, streak, milestone — so a late one is a WRONG email, not a late one.
+//
+// This is a one-line change away from being undone, and the change looks like a
+// bug fix: widen the selection window, skip anyone with a log row, done. So the
+// decision is asserted rather than only commented, and the failure message says
+// what to read before reverting it.
+Deno.test("US-2314 AC3: the selection window stays exactly one week", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../routes/jobs-north-star.ts", import.meta.url),
+  );
+
+  // The window is [lastMonday, thisMonday). Anything that reaches further back
+  // — a second WEEK_MS, a 14, a "previous two weeks" — is the widening this
+  // decision refused.
+  const windowLine = /const lastMonday = new Date\(thisMonday\.getTime\(\) - WEEK_MS\)/;
+  if (!windowLine.test(src)) {
+    throw new Error(
+      "The north-star selection window changed. US-2314 AC3 was decided as " +
+        "'take the loss': a failed user is NOT retried, because the email is " +
+        "about one specific week and a late one is a wrong one. If that is " +
+        "being reversed, update the decision in the story first.",
+    );
+  }
+  // And the skip set is still keyed to that single week.
+  assertStringIncludes(src, '.eq("week_start", weekStartKey)');
+  // The decision has to survive as prose too — a future reader hitting the
+  // regex above with no explanation nearby will simply delete the test.
+  assertStringIncludes(src, "US-2314 AC3");
 });

@@ -88,6 +88,23 @@ export async function handleNorthStarDigestCron(c: Context): Promise<Response> {
     const userIds = weekly.map((w) => w.user_id);
 
     // 2. Skip users already celebrated for this week (idempotency).
+    //
+    // ONE WEEK, AND ONLY ONE. A user whose send threw last week is NOT picked up
+    // here — the window is last Monday to this Monday and nothing widens it.
+    // That is a decision (owner, 2026-08-15, US-2314 AC3), not an oversight, and
+    // it is written here because the obvious "fix" is to widen the window and it
+    // would be wrong.
+    //
+    // The email's whole content is THAT week: items listed, streak, milestone.
+    // Delivering it a week late means celebrating a week that is now two weeks
+    // gone, with a streak figure that has since moved — a wrong email rather
+    // than a late one.
+    //
+    // The failure is not silent, which is what makes taking the loss reasonable:
+    // each throw is counted, reported through captureException with route
+    // jobs.north-star.user, and the `failed` count in the response is one of
+    // cron-run-outcome.ts's FAILURE_KEYS, so the run records as an ERROR instead
+    // of reporting a plausible-looking send count.
     const { data: existingLogs } = await supabaseAdmin
       .from("north_star_weekly_log")
       .select("user_id")
