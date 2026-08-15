@@ -1,5 +1,51 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00602_help_center_articles.sql (US-2572 — the Help Center store)
+
+**Risk: LOW, but it is not a one-liner.** Three new enums
+(`help_visibility`, `help_article_status`, `help_audience`), two new tables
+(`help_categories`, `help_articles`), five indexes, two `updated_at` triggers,
+six RLS policies, and a 14-row seed of the category shelf. **No existing table
+is altered, no column is dropped, no data moves, no backfill runs.** Every
+statement is `IF NOT EXISTS` / `DROP POLICY IF EXISTS` first / `ON CONFLICT DO
+UPDATE`, so it is safe to run twice and safe to re-run the whole directory.
+
+**Apply order:** after 00601. It depends only on `public.set_updated_at()`
+(00001) and `public.is_admin()` (00003), both of which have existed for years.
+
+**`NOTIFY pgrst, 'reload schema';` — yes, and it matters more than usual.** Two
+brand-new tables that the Cloudflare Pages SSR worker will read with the ANON
+key. Until PostgREST reloads, every read of them 404s at the API layer.
+
+**⚠ NOT VERIFIED AGAINST A REAL POSTGRES.** Docker was not running on this box,
+so the `verify:db` lane (which boots a throwaway stack purely to prove
+migrations apply on a fresh schema) did not run. `deno test` covers the
+migration triple and the RLS guard statically — both green — but nothing has
+executed this SQL. **Start Docker and run `node scripts/verify.mjs db` before
+applying it to prod**, or apply it inside a transaction you can roll back.
+
+**The frontend is safe to auto-deploy ahead of the SQL.** Nothing in `src/`
+reads these tables yet — the reader, the editor and the SSR Function are
+US-2574/2575/2576 and have not shipped. This commit is the schema and the
+version bump, nothing else.
+
+**The EDGE is not safe to deploy ahead of the SQL**, which is the normal
+direction. `EXPECTED_SCHEMA_VERSION` moves to `00602` in this same commit, so
+the boot guard refuses to start against a 00601 database (with the ~40s grace
+window from US-778). Order: apply SQL → `NOTIFY pgrst` → redeploy edge → push.
+
+**The security property to preserve when you read this later.** `visibility`
+has three values, not two, and the wall is the RLS policy rather than the edge
+handler, because the SSR worker reads with the anon key:
+
+- `public` → anon SELECT, indexable, sitemapped, quoted in `llms.txt`
+- `members` → any authenticated user, never server-rendered publicly
+- `internal` → `is_admin()` only: operator runbooks, abuse thresholds, unreleased
+
+A handler bug cannot leak a `members` or `internal` row through the public
+renderer, because the anon role never sees the row at all. If a future migration
+loosens the `anon read published public help` policy, that guarantee is gone.
+
 ## ⏳ HELD: 00601_cancellation_requested_notification.sql (US-2560 — a buyer cancellation reaches no notification channel)
 
 **Risk: LOW — the lowest kind there is.** One `ALTER TYPE notification_type ADD
