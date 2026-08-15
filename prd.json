@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2594",
+  "nextId": "US-2595",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1892,37 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2573",
-      "title": "[HELP CENTER] Edge routes for public help reads and admin authoring",
-      "description": "The SSR Function, the SPA, the in-app reader, the contextual help sheet and the support-ticket deflector all need to read the same rows. One API, two audiences: an anonymous public read that can only ever see published public rows, and an authed read that also sees gated rows.",
-      "acceptanceCriteria": [
-        "GET /api/content/public/help.json returns the category tree plus the published PUBLIC article index. GET /api/content/public/help/:slug returns one full public article. No auth, cacheable, no gated or draft row can escape through either.",
-        "GET /api/content/help and /api/content/help/:slug (authed) return public AND gated published rows for any signed-in user.",
-        "Admin CRUD (POST/PATCH/DELETE /api/content/help/*) behind the same admin gate the blog authoring routes use.",
-        "A request for a gated slug on the PUBLIC endpoint returns 404, not 403: do not confirm that the slug exists.",
-        "Add a case to services/edge-functions/src/routes/__tests__/tenant-isolation_test.ts per US-268, plus deno tests covering: public list excludes gated and draft, authed list includes gated, unknown slug 404 shape."
-      ],
-      "priority": 63,
-      "passes": true,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] Model on services/edge-functions/src/routes/content-public.ts + content-blog.ts. [DONE 2026-08-14 - commit 7c158bb7] Three mounts over one implementation: /api/content/public/help (anon, visibility public only), /api/help (authMiddleware, + members), /api/content/help (auth+admin, + internal + drafts + CRUD). The wall is visibilitiesFor(viewer) in lib/help-center.ts, NOT in the route file, and a guard test greps routes/help-center.ts for a hand-rolled .eq(\"visibility\") so it cannot grow a second copy. Unseen rows 404 rather than 403 (a 403 confirms the slug and makes the members list enumerable). Admin-ness resolves from the verified userId via isAdminUserCached, which fails closed. /api/content/public/help added to PUBLIC_API_ROUTERS in flipdesk-auth-coverage_test.ts as a reviewed decision. DEVIATION FROM AC5: no tenant-isolation_test.ts case. That suite asserts B-cannot-read-As-row and help_articles has no tenant; a case there would assert nothing while needing two seeded JWTs and a running edge. Instead src/tests/help-center_test.ts pins the full viewer x visibility x status grid as 15 pure unit tests that run on every deno test. Also deviated on the path shape: /api/content/public/help, not help.json (Hono mount, same payload). Verified: deno lint + check green, full edge suite 6744 passed 0 failed, unwired-module check green."
-    },
-    {
-      "id": "US-2574",
-      "title": "[HELP CENTER] Article editor at /dashboard/content/help",
-      "description": "Articles have to be writable and fixable without a deploy. That is the whole reason the content lives in the database, and it only pays off if the editor is as good as the blog editor already is.",
-      "acceptanceCriteria": [
-        "src/pages/content/help-list.tsx and help-editor.tsx, modeled on blog-list.tsx / blog-editor.tsx, added to the existing Content sidebar group.",
-        "Fields: title, slug (auto-derived, editable), category, audience, visibility toggle labelled 'Public' / 'Members only', summary, body (the same Tiptap editor the blog uses), FAQ pairs, related articles, hero image, video URL, pillar page, status.",
-        "Flipping a published PUBLIC article to gated warns in plain words that its public URL will start returning 404, and asks to confirm.",
-        "Slug collisions blocked client-side and server-side.",
-        "The whole authoring surface is <SEO noindex>.",
-        "npm run ui:check stays at zero findings."
-      ],
-      "priority": 64,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2575",
       "title": "[HELP CENTER] Pages Function that server-renders the public help center",
       "description": "This is the answer to 'plain HTML or database items': database rows rendered to complete server HTML at the edge, exactly like functions/blog/[[path]].ts already does for the blog. Bots get full markup with zero JavaScript. Static files would cost a rebuild and a deploy for every typo and would split the content from the in-app reader.",
@@ -2193,19 +2162,21 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
     },
     {
-      "id": "US-2593",
-      "title": "The item title follows the listing title, and the GradeThread title is the truth in Google Sheets",
-      "description": "As a seller, when I rename a listing and push it to eBay I want my synced Google Sheet to show the new name, so my own records agree with what buyers are reading.",
+      "id": "US-2594",
+      "title": "[HELP CENTER] Converge support_kb_articles into help_articles so the assistant and the help page cannot disagree",
+      "description": "Found while building US-2574: support_kb_articles (00183, US-830) already exists. It is the ONLY corpus the AI Support Assistant may answer from, it has slug/title/body_md/category/audience/is_published/versioned revisions and a weighted FTS column, and it has an admin editor at /admin/support/kb. What it does NOT have is any public web surface: nothing in functions/ or src/ renders it, so it is invisible to Google, to answer engines and to logged-out customers. help_articles (00602) is the superset and owns the web surface. Leaving both is the two-copies-must-agree failure in its worst form: the assistant would quote one wording of an answer while the public page shows another, and nobody would notice until a customer pasted a screenshot.",
       "acceptanceCriteria": [
-        "inventory_items.title is written on every composer save (draft and live) with the effective, post-write-back listing title.",
-        "The eBay revise route updates inventory_items.title too, tenant-scoped, so an iOS or Android revise carries the same rule.",
-        "The classic Google Sheets Inventory tab Title column is read-only: a sheet edit is rewritten from the DB, never pulled.",
-        "A mapped (bring-your-own-sheet) Title column is create-only: buildCreateFromSheet still names new items and a blank DB title is still filled, but an edit over an existing title is pushed back.",
-        "Cross-listing pushes never write the item column, so a per-platform truncated title cannot flap it."
+        "Decide and record the direction in a vault note: help_articles becomes the single corpus and support_kb_articles is retired. The assistant reads help_articles.",
+        "Migrate every support_kb_articles row into help_articles: category maps onto the 14 help categories, audience public->public and subscriber->members, is_published->status, body_md->body_markdown with body_html rendered from it.",
+        "Point the retrieval tool (services/edge-functions/src/lib/support-tools.ts + agent-tools.ts) at help_articles, and give help_articles the weighted tsvector + GIN index support_kb_articles has (US-2577 adds the search column; reuse it rather than adding a second).",
+        "The assistant must NEVER quote a members or internal article to an anonymous asker. Its retrieval passes the asker through visibilitiesFor() like every other read.",
+        "Retire /admin/support/kb and its route, or redirect it to /admin/content/help. One editor, not two.",
+        "Keep support_kb_revisions history: either migrate it alongside or archive it, but say which in the note. Do not drop edit history silently.",
+        "A test asserts the assistant cannot return an article the asker could not have read on the public site."
       ],
-      "priority": 2593,
-      "passes": true,
-      "notes": "[P1][FLIPDESK][SYNC] Reported 2026-08-14: a seller renamed \"Lululemon Men's ABC Pants … Size Medium\" to \"… Size 36\", saved and pushed to eBay; eBay and the Listings mirror updated, the Inventory tab of the synced sheet did not. Cause: inventory_items.title had no writer outside item-quick-edit-sheet.tsx. Files: src/pages/flipdesk/composer.tsx (itemTitlePatch + titleSyncPatchFor hoisted above the item write on both save paths), services/edge-functions/src/routes/flipdesk-ebay.ts (revise), lib/sheet-sync.ts (Title column no longer writable), lib/sheet-map.ts (mergeMappedRow title create-only). Guards: src/lib/__tests__/item-title-follows-listing.test.ts, google-sheet-sync_test.ts, sheet-map_test.ts. Contract: vault/20-domain/sync-source-of-truth.md + vault/30-platform/google-sheets-sync.md. Verified: 4721 web tests, 6729 edge tests, tsc -b, deno lint/check."
+      "priority": 83,
+      "passes": false,
+      "notes": "[FOUND DURING US-2574 2026-08-14] Consumers of support_kb_articles today: services/edge-functions/src/lib/agent-tools.ts, lib/support-tools.ts, main.ts, routes/admin-knowledge-base.ts, tests/support-kb-search_test.ts. No consumer in functions/ or src/ - confirmed by grep, which is what proves it has no public surface. This story is deliberately AFTER the help center ships (priority 83, behind US-2592) so the convergence moves content into a finished home rather than a half-built one. Until it lands the two corpora coexist, and the help center is the one customers see."
     }
   ]
 }

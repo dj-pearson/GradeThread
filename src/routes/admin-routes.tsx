@@ -27,6 +27,10 @@ const SocialListPage = lazy(() => import("@/pages/content/social-list").then(m =
 const SocialEditorPage = lazy(() => import("@/pages/content/social-editor").then(m => ({ default: m.SocialEditorPage })));
 const TopicBankPage = lazy(() => import("@/pages/content/topic-bank").then(m => ({ default: m.TopicBankPage })));
 const KnowledgePage = lazy(() => import("@/pages/content/knowledge").then(m => ({ default: m.KnowledgePage })));
+// US-2574. Named Help Center, never "Knowledge": /admin/content/knowledge above
+// is the AI-prompt reference doc set, a different thing entirely.
+const HelpListPage = lazy(() => import("@/pages/content/help-list").then(m => ({ default: m.HelpListPage })));
+const HelpEditorPage = lazy(() => import("@/pages/content/help-editor").then(m => ({ default: m.HelpEditorPage })));
 const ContentSettingsPage = lazy(() => import("@/pages/content/content-settings").then(m => ({ default: m.ContentSettingsPage })));
 const ContentAnalyticsPage = lazy(() => import("@/pages/content/analytics").then(m => ({ default: m.ContentAnalyticsPage })));
 const ChangelogPage = lazy(() => import("@/pages/admin/changelog").then(m => ({ default: m.ChangelogPage })));
@@ -217,6 +221,8 @@ export function AdminRoutes() {
       <Route path="content/social/editor/:id" element={<SuspenseWrapper><SocialEditorPage /></SuspenseWrapper>} />
       <Route path="content/topics" element={<SuspenseWrapper><TopicBankPage /></SuspenseWrapper>} />
       <Route path="content/knowledge" element={<SuspenseWrapper><KnowledgePage /></SuspenseWrapper>} />
+      <Route path="content/help" element={<SuspenseWrapper><HelpListPage /></SuspenseWrapper>} />
+      <Route path="content/help/editor/:id" element={<SuspenseWrapper><HelpEditorPage /></SuspenseWrapper>} />
       <Route path="content/analytics" element={<SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper>} />
       <Route path="content/changelog" element={<SuspenseWrapper><ChangelogPage /></SuspenseWrapper>} />
       <Route path="content/settings" element={<SuspenseWrapper><ContentSettingsPage /></SuspenseWrapper>} />
