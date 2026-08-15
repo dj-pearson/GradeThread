@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-15
 tags: [ops, deploy, release]
 summary: "Ship to prod in the load-bearing order: migrations, then edge, then frontend."
 ---
@@ -178,6 +178,28 @@ chunks after a successful deploy.
   app code does, so they prove nothing either way.
 
 This cost multiple debugging turns once on a fix that had shipped correctly.
+
+### Which commit is live? Read it off the site (US-2619)
+
+You do not need Cloudflare access, and you should not infer it from timing. The
+SPA is built with `VITE_RELEASE_SHA=$CF_PAGES_COMMIT_SHA`, so the deployed
+commit is sitting in the bundle:
+
+```bash
+JS=$(curl -s https://gradethread.com/ | grep -oE 'src="/assets/index-[^"]+\.js"' | head -1 | sed 's/.*"\(.*\)"/\1/')
+curl -s "https://gradethread.com$JS" | grep -oE '\b[0-9a-f]{40}\b' | head -1
+```
+
+**Why it matters more than it sounds.** Debugging a Pages Function produces a
+question with two answers that look identical from outside: *has my fix
+deployed*, or *did my fix not work*. On 2026-08-15 that ambiguity got a
+font-weight theory announced as a root cause and shipped — the deployed SHA read
+in ten seconds showed the fix WAS live and the cards still fell back, which
+disproved it outright. Check the SHA **before** forming a conclusion about a
+behaviour you are watching.
+
+The Pages Function layer has no equivalent marker of its own; it deploys in the
+same build as the SPA, so the bundle's SHA covers both.
 
 ## If you are rebuilding the host, not just deploying to it
 
