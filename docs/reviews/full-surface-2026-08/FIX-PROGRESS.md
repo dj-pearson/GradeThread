@@ -272,6 +272,28 @@ unless a story is blocked; if blocked, note why and move to the next.
       the existing env gate so OFF stays byte-identical) and that GARMENT_TYPES was in
       sync by luck, not by check. Guard `src/test/garment-taxonomy-copies.test.ts`
       (13 cases), verified to bite. Also fixed 2 edge tests red on main.
+## The review itself is now complete, 2026-08-14
+
+`9a57fefc` closed the last open question IN THE REVIEW, as opposed to in its
+fixes. The cross-platform gap table carried one item — gap 6, "My stores" (Radar
+store linking), P3 — annotated *"needs a final targeted check"*, and no story was
+ever filed against it because the check was never made.
+
+Made now: **it is not a gap.** iOS calls the same
+`/api/flipdesk/radar/my-stores` endpoint and renders it (per-venue summary row,
+loading and error states); Android has a `MyStoresService`. What iOS lacks is a
+tab *called* "My stores" — it folds the numbers into the Radar Nearby list beside
+each venue, which is the better shape for a screen used while standing in a shop.
+One asymmetry survives and is deliberately not filed: eight sorts on web, `roi`
+only on iOS. Lesser surface, identical data. Guard
+`src/test/radar-my-stores-parity.test.ts` (6 cases, both halves proven red).
+
+⚠ **Scope note.** `prd.json` now also holds US-2572..US-2592, a HELP CENTER epic
+planned by the concurrent agent on 2026-08-14 at priority 62-82 — so those sort
+ABOVE every review story. They are **not** this review's work and this loop does
+not take them; doing so would collide with the agent that planned them and is
+editing the tree live.
+
 ## Where this loop stands, 2026-08-14
 
 **Every remaining review story is blocked on something this checkout cannot do.**
@@ -1144,3 +1166,27 @@ host and not the other, so the local one was dropped.
   agent working the same tree. Committing them would have attributed someone
   else's in-progress work to this story and possibly shipped it half-done. Stage
   the files you touched BY NAME when another agent is live.
+
+- **A review with an item saying "needs a final targeted check" is a review with
+  an open question presented as a finished document.** Gap 6 sat that way through
+  every iteration of the fix loop, invisible because the fix loop reads
+  FIX-PROGRESS.md and the unfinished check lived in REVIEW-FINDINGS.md. It had no
+  story, so nothing in the story list could ever surface it. **Before declaring a
+  review complete, grep its own findings for hedges** — "needs a check", "verify",
+  "TODO", "unclear" — because those are precisely the items that never became
+  work.
+
+- **THREE TIMES NOW: grep for the CAPABILITY, not the NAME.** US-2510
+  (NotificationCenter vs NotificationBell), US-2556 (types built in a lib rather
+  than inline at the call site), and now gap 6 — iOS had no tab called "My
+  stores", so a name search found nothing, while the endpoint, the fetch, the
+  render and the error state were all there. The tell is identical each time: the
+  finding describes a MISSING SURFACE and the search was for a STRING. Search for
+  the endpoint, the table, or the helper module instead.
+
+- **Confirm the break APPLIED before reading a green as proof.** Proving this
+  guard bit took two attempts: `String.replace` with a string replaces only the
+  FIRST occurrence, so removing one `PersonalSummaryRow` left another and the
+  rendering assertion stayed green. That looks exactly like a weak guard. Use
+  `split().join()` or a global regex, and re-read the diff — a bite-check that
+  silently no-ops is worse than not running one, because it certifies the guard.
