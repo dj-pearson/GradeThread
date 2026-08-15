@@ -190,7 +190,7 @@ Deno.test("migrations after 00254 self-record their version (US-1108)", async ()
 // at or below it, so a migration that failed in the MIDDLE of the range is
 // never re-applied and never seen again. This repo has already had one.
 
-const { compareSchemaSets } = await import("../lib/schema-version.ts");
+const { compareSchemaSets, KNOWN_PHANTOM_VERSIONS } = await import("../lib/schema-version.ts");
 const { EXPECTED_MIGRATIONS, FOOTER_ERA_START } = await import(
   "../lib/migration-manifest.ts"
 );
@@ -216,9 +216,15 @@ Deno.test("US-2009: a MID-SEQUENCE gap is detected even though the max matches",
 // applied version with no corresponding file anywhere in the repo. Reusing that
 // number would satisfy the boot guard off a stale row even if the new SQL never
 // ran — exactly the failure the guard exists to catch.
+//
+// The example USED to be 00479, the version that measurement found. US-2606
+// excused that one specifically (it is documented as never authored, and it is
+// why 00480 onward were numbered around it), so it is no longer a phantom this
+// function reports and would make the case pass for the wrong reason. Any other
+// unrecognised version proves the same thing without depending on the excuse.
 Deno.test("US-2009: a version applied with NO file in this build is flagged", () => {
-  const r = compareSchemaSets(["00254", "00255"], ["00254", "00255", "00479"], "00254");
-  assertEquals(r.unexpected, ["00479"]);
+  const r = compareSchemaSets(["00254", "00255"], ["00254", "00255", "00612"], "00254");
+  assertEquals(r.unexpected, ["00612"]);
   assertEquals(r.missing, []);
 });
 
@@ -257,4 +263,39 @@ Deno.test("US-2009: the manifest matches supabase/migrations on disk", async () 
     onDisk,
     "migration manifest is stale — run: node scripts/gen-migration-manifest.mjs",
   );
+});
+
+// ---------------------------------------------------------------------------
+// US-2606: a documented phantom is not a finding.
+
+Deno.test("US-2606: the known 00479 phantom does not fill the unexpected field", () => {
+  // Production really returns this. 00479 was never authored, which is why
+  // 00480 onward were numbered around it. Reporting it on every read would put
+  // a permanent entry in a field whose only value is being empty.
+  const r = compareSchemaSets(["00594"], ["00479", "00594"], "00254");
+  assertEquals(r.unexpected, []);
+  assertEquals(r.missing, []);
+});
+
+Deno.test("US-2606: an UNdocumented phantom still reports", () => {
+  const r = compareSchemaSets(["00594"], ["00479", "00594", "00607"], "00254");
+  assertEquals(r.unexpected, ["00607"]);
+});
+
+Deno.test("US-2606: 00527 is NOT excused — it is the one that must scream", () => {
+  // 00527 is the SECURITY DEFINER lockdown parked as .BLOCKED behind US-2403.
+  // It is in migrations-lint's KNOWN_GAPS, which is why the phantom list is
+  // written by hand instead of derived from it: deriving would silence exactly
+  // the version whose appearance means someone applied a migration the repo
+  // deliberately refuses to ship.
+  assert(!KNOWN_PHANTOM_VERSIONS.includes("00527"), "00527 must never be excused");
+  const r = compareSchemaSets(["00594"], ["00527", "00594"], "00254");
+  assertEquals(r.unexpected, ["00527"]);
+});
+
+Deno.test("US-2606: the phantom list stays a list, not a habit", () => {
+  // It may only shrink. A growing one means phantoms are being accepted rather
+  // than explained, and the field degrades back into noise.
+  assertEquals(KNOWN_PHANTOM_VERSIONS.length, 1);
+  assertEquals([...KNOWN_PHANTOM_VERSIONS], ["00479"]);
 });

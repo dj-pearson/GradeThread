@@ -1,13 +1,28 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ✅ NOTHING IS HELD (owner, 2026-08-15): every migration is applied and main is pushed
+## ⚠ NOTHING IS HELD, BUT ONE MIGRATION NEVER RAN: 00594 (measured 2026-08-15)
 
-The owner applied the outstanding migrations and pushed. `git log origin/main..main`
-is empty and origin/main sits on the same commit as local. Every section below
-that said HELD now says APPLIED. **Nothing in this file is a hold today.**
+Nothing here is *waiting on a push* — the owner applied the outstanding
+migrations and pushed, and `git log origin/main..main` is empty. But "pushed" and
+"applied" are different claims, and the edge redeploy proved it within minutes:
 
-**How to confirm that rather than take this line's word for it,** once Coolify has
-rolled the edge:
+```json
+{"expected":"00606","applied":"00606","status":"match","missing":["00594"],"unexpected":["00479"]}
+```
+
+- **`missing: ["00594"]` is a real gap.** `public.flipdesk_overview_metrics` does
+  not exist in production and the FlipDesk Overview page fails for every seller.
+  Apply `supabase/migrations/00594_flipdesk_overview_metrics.sql`. Tracked as
+  **US-2606**; the section for it below is corrected and carries what has already
+  been ruled out.
+- **`unexpected: ["00479"]` is a KNOWN phantom** — never authored, which is why
+  `00480+` were numbered around it (`scripts/prod-diagnostics.sql` §2,
+  `scripts/migrations-lint.mjs` `KNOWN_GAPS`). No action.
+
+Every section below that said HELD now says APPLIED, with 00594 the one
+exception.
+
+**How to check this yourself rather than take the line above on trust:**
 
 ```bash
 curl -fsS https://functions.gradethread.com/health/ready | jq .schema
@@ -20,17 +35,15 @@ see a gap beneath it, which is exactly the state this file spent 2026-08-15
 warning about. If `complete: false` comes back, the applied set could not be read;
 that is "we do not know", not "clean".
 
-**The running edge was still the pre-push image when this was written** —
-`/health/ready` reported `expected 00603 / applied 00606`, i.e. a container built
-before 00604-00606 landed. Nothing is wrong with that on its own; a newer schema
-serves an older edge fine. But `features.auth_email_hook` and `schema.missing`
-only exist in the new image, so a check run before the redeploy is answering
-about the old build.
+**Everything below is history, kept on purpose** — with 00594 the one live item.
+Each section records the risk, the apply order and the dependencies for a
+migration. Read one when something misbehaves in a table it created. Do not read
+this file as a queue.
 
-**Everything below is history, kept on purpose.** Each section records the risk,
-the apply order and the dependencies for a migration that has now run. Read one
-when something misbehaves in a table it created. Do not read this file as a
-queue.
+**The check earns its keep, and this is the evidence.** Before the redeploy the
+edge reported `expected 00603 / applied 00606` and nothing else; the very first
+read from the new image named 00594. The gap had been sitting under a `match` for
+a day, with a section of this file asserting the opposite.
 
 ## ✅ APPLIED (owner-confirmed 2026-08-15): 00606_help_analytics.sql (US-2592 — what people read, what they couldn't find)
 
@@ -486,13 +499,43 @@ unaffected either way.
 4. THEN push.
 
 
-## ✅ APPLIED: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account, applied 2026-08-14)
-**Measured 2026-08-14, not inferred.** `GET https://functions.gradethread.com/health/ready`
-returns `"schema":{"expected":"00600","applied":"00600","status":"match"}` — the running
+## ❌ NOT APPLIED: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account) — US-2606
+
+> [!danger] **This section said APPLIED for a day and it was wrong.** Corrected
+> 2026-08-15 by measurement. `GET /health/ready` now returns
+> `{"expected":"00606","applied":"00606","status":"match","missing":["00594"]}`.
+> The maximum matches AND 00594 is absent from `applied_migrations`, which is the
+> hole a maximum cannot see. `public.flipdesk_overview_metrics` does not exist in
+> production, and `src/hooks/use-flipdesk-overview.ts:120` throws on the error, so
+> the FlipDesk Overview page is failing for every seller. Tracked as **US-2606**.
+>
+> **Read the retracted reasoning, because it is the lesson.** The 2026-08-14 note
+> below argued: the recorded maximum was 00600, this version is *below* that
+> maximum, and its file carries the self-recording footer, therefore it is
+> applied. Every individual clause was true and the conclusion was false — the
+> watermark only moves forward, so a file below it is never re-applied and never
+> re-checked. This same file warned against exactly that inference 160 lines
+> earlier, in the 00600 section, and the warning did not stop it being written
+> here a few paragraphs later. **A version below the maximum is not evidence of
+> anything. Read `schema.missing`.**
+
+**RETRACTED 2026-08-14 note, kept verbatim:** "Measured 2026-08-14, not inferred.
+`GET https://functions.gradethread.com/health/ready` returns
+`"schema":{"expected":"00600","applied":"00600","status":"match"}` — the running
 edge reading `applied_migrations` through the service-role client, i.e. the
 database's own answer. This version is below that maximum and its file carries
-the self-recording footer, so it is applied. Everything below is the record of
-what it does.
+the self-recording footer, so it is applied."
+
+**The one hypothesis that has been ruled out.** The function is `language sql`,
+whose body Postgres validates at CREATE time, so a drifted `public.items_full`
+would make `CREATE FUNCTION` fail outright and would explain a single file being
+skipped in an otherwise clean run. All 15 columns the body reads were probed
+against prod through PostgREST on 2026-08-15 and every one resolves (a missing
+column answers `42703` naming it — a distinguishable, completely safe read). So
+apply it and expect success; if it errors anyway, the error is worth more than
+the retry. Column *types* were not probed.
+
+Everything below is the record of what it does.
 
 **Risk: LOW.** One new `CREATE OR REPLACE FUNCTION`. No table, no column, no
 index, no policy, no backfill; nothing existing is altered, narrowed or dropped.

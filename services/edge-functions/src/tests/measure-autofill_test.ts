@@ -196,6 +196,47 @@ Deno.test("US-2595: the card must be found before the listing photos load", asyn
   );
 });
 
+// ── The pass has to say what it did ─────────────────────────────────
+
+Deno.test("US-2596: every outcome is recorded on the item", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/measure-autofill.ts", import.meta.url),
+  );
+  // The record must wrap the WHOLE pass, not sit inside the success branch —
+  // the outcomes worth explaining are the ones where nothing happened.
+  assert(src.includes("MEASURE_PASS_KEY"));
+  assert(
+    src.includes("const result = await runAutofill("),
+    "the recorder must wrap runAutofill so no-op outcomes are recorded too",
+  );
+  assert(src.includes("ranAt:"));
+});
+
+Deno.test("US-2596: the outcome key cannot be mistaken for a field provenance entry", async () => {
+  const { MEASURE_PASS_KEY } = await import("../lib/measure-autofill.ts");
+  const { hasCalibratedMeasurements } = await import("../lib/measurements.ts");
+  assertEquals(MEASURE_PASS_KEY, "measurements._pass");
+  // hasCalibratedMeasurements walks every `measurements.` key. A pass record
+  // must not read as "this item was measured with a calibration card", or a
+  // failed pass would earn the listing a method note it did not deserve.
+  assertEquals(
+    hasCalibratedMeasurements({
+      [MEASURE_PASS_KEY]: {
+        reason: "no_measurement_photo",
+        ranAt: new Date(0).toISOString(),
+      },
+    }),
+    false,
+  );
+  // A real measured field still counts.
+  assertEquals(
+    hasCalibratedMeasurements({
+      "measurements.waist": { source: "ai_measured", measuredAt: "2026-01-01T00:00:00Z" },
+    }),
+    true,
+  );
+});
+
 // ── The generation wiring ───────────────────────────────────────────
 
 Deno.test("US-2595: listing generation runs the measure and size passes itself", async () => {

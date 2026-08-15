@@ -68,6 +68,43 @@ interface Props {
 const MAX_W = 640;
 const MAX_H = 480;
 
+// US-2596: the outcome the server records on every measure pass. Mirror of
+// MEASURE_PASS_KEY in services/edge-functions/src/lib/measure-autofill.ts.
+const MEASURE_PASS_KEY = "measurements._pass";
+
+interface MeasurePass {
+  reason: string | null;
+  message: string | null;
+  written?: string[];
+  ranAt?: string;
+}
+
+/**
+ * Say what the last pass did, in words a seller can act on. Returning null
+ * means "nothing worth saying" — a pass that worked needs no explanation, and
+ * neither does one that has never run.
+ */
+export function measurePassNote(pass: MeasurePass | null): string | null {
+  if (!pass) return null;
+  switch (pass.reason) {
+    case null:
+      return null; // it worked
+    case "no_measurement_photo":
+      return "No MeasureCard found in this item's photos. Shoot the garment flat with the card beside it, all four corner squares fully visible, straight down from above.";
+    case "calibration_failed":
+      return pass.message ??
+        "A MeasureCard was there but couldn't be read. Get closer, fill more of the frame, and keep all four corner squares in shot.";
+    case "already_measured":
+      return null; // every field is filled; the form already shows them
+    case "no_measurable_fields":
+      return "This category isn't measured from a photo.";
+    case "extract_failed":
+      return "The card was read but measuring failed. Try again in a moment.";
+    default:
+      return pass.message;
+  }
+}
+
 export function MeasurementPhotoEditor({
   itemId,
   category,
@@ -101,6 +138,11 @@ export function MeasurementPhotoEditor({
   });
 
   const calib = photo?.measure_calibration?.v === 1 ? photo.measure_calibration : null;
+  // US-2596: what the last server-side pass did, so a blank measurements box
+  // explains itself instead of looking broken.
+  const passNote = measurePassNote(
+    (aiSources?.[MEASURE_PASS_KEY] as MeasurePass | undefined) ?? null,
+  );
 
   const [lines, setLines] = useState<EditorLine[]>([]);
   const [touched, setTouched] = useState<Set<string>>(new Set());
@@ -160,27 +202,32 @@ export function MeasurementPhotoEditor({
   if (isLoading) return null;
   if (!photo) {
     return (
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
-        <div className="flex items-center gap-1.5 text-sm">
-          <Ruler className="h-4 w-4 shrink-0" />
-          <span>
-            Shot this with the MeasureCard? Find it and measure the garment.
-          </span>
+      <div className="space-y-2 rounded-lg border p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-sm">
+            <Ruler className="h-4 w-4 shrink-0" />
+            <span>
+              Shot this with the MeasureCard? Find it and measure the garment.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void runAutofill()}
+            disabled={busy !== null}
+            title="Looks through this item's photos for the MeasureCard, then measures every field for its category."
+          >
+            {busy === "find" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Find MeasureCard
+          </Button>
         </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => void runAutofill()}
-          disabled={busy !== null}
-          title="Looks through this item's photos for the MeasureCard, then measures every field for its category."
-        >
-          {busy === "find" ? (
-            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
-          )}
-          Find MeasureCard
-        </Button>
+        {passNote && (
+          <p className="text-xs text-muted-foreground">{passNote}</p>
+        )}
       </div>
     );
   }
@@ -447,6 +494,25 @@ export function MeasurementPhotoEditor({
           Photo measurements
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {/* US-2596: the whole pipeline in one press — find the card in any of
+              the item's photos, calibrate it, and measure every field. Offered
+              even when a card photo is already tagged, because "this one won't
+              read" and "the real card is in a different shot" are both common
+              and neither is something a seller should have to diagnose. */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void runAutofill()}
+            disabled={busy !== null}
+            title="Finds the MeasureCard in this item's photos and measures every field for its category."
+          >
+            {busy === "find" ? (
+              <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+            )}
+            Measure from card
+          </Button>
           {!calib && (
             <Button size="sm" variant="outline" onClick={() => void runCalibrate()} disabled={busy !== null}>
               {busy === "calibrate" ? (
@@ -485,6 +551,8 @@ export function MeasurementPhotoEditor({
           )}
         </div>
       </div>
+
+      {passNote && <p className="text-xs text-muted-foreground">{passNote}</p>}
 
       {!calib && (
         <p className="text-xs text-muted-foreground">

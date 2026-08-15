@@ -288,6 +288,47 @@ export async function autofillMeasurementsFromCard(
   ownerId: string,
   item: MeasureItemRow,
 ): Promise<MeasureAutofillResult> {
+  const result = await runAutofill(itemId, ownerId, item);
+  // US-2596: record WHAT HAPPENED, always. Every step of this pass fails
+  // softly by design — a bad card photo must never block a listing — and the
+  // sum of those soft failures was a feature that produced no measurements and
+  // no explanation, on any surface, for anyone. Three separate debugging rounds
+  // went into guessing which step was silent. The outcome now rides on the item
+  // so the composer can say "no card found in these 9 photos" instead of
+  // showing an empty box.
+  try {
+    await supabaseAdmin
+      .from("inventory_items")
+      .update({
+        ai_field_sources: {
+          ...result.aiFieldSources,
+          [MEASURE_PASS_KEY]: {
+            reason: result.reason,
+            message: result.message,
+            group: result.group,
+            written: result.written,
+            ranAt: new Date().toISOString(),
+          },
+        },
+      } as never)
+      .eq("id", itemId)
+      .eq("user_id", ownerId);
+  } catch (err) {
+    console.error("[measure-autofill] outcome record failed:", err);
+  }
+  return result;
+}
+
+/** `ai_field_sources` key holding the last pass's outcome (US-2596). Not a
+ *  field provenance entry — it is namespaced with a leading underscore so the
+ *  provenance readers, which all match on `measurements.<key>`, skip it. */
+export const MEASURE_PASS_KEY = "measurements._pass";
+
+async function runAutofill(
+  itemId: string,
+  ownerId: string,
+  item: MeasureItemRow,
+): Promise<MeasureAutofillResult> {
   const group = measurementGroupForItem(item);
   const current = (item.measurements ?? {}) as Record<string, unknown>;
   const currentSources = (item.ai_field_sources ?? {}) as Record<string, unknown>;

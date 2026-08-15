@@ -220,19 +220,41 @@ export interface SchemaCompleteness {
  * FOOTER_ERA_START participate: below that the self-recording footer did not
  * exist, so absence is expected and carries no signal.
  */
+/**
+ * Versions production is KNOWN to record with no file behind them.
+ *
+ * US-2606: the first read from the live database returned
+ * `unexpected: ["00479"]`, and 00479 is not a discovery — it is documented in
+ * two places (`scripts/prod-diagnostics.sql` §2, `scripts/migrations-lint.mjs`
+ * `KNOWN_GAPS`) as never authored, and it is the reason 00480 onward were
+ * numbered around it rather than reusing the number. Reporting it forever would
+ * put a permanent entry in a field whose only job is to be empty, and a field
+ * that is never empty is a field nobody reads.
+ *
+ * DELIBERATELY NOT DERIVED FROM `KNOWN_GAPS`, which would look tidier and be
+ * wrong. That list is about holes in the FILE sequence, and it also contains
+ * 00527 — the security migration parked as `.BLOCKED` behind US-2403. If 00527
+ * ever shows up as applied, that is precisely the thing this field should
+ * scream about. Excluding "all known gaps" would silence it. So: one entry,
+ * named, with its reason, and a test asserting 00527 is not in here.
+ */
+export const KNOWN_PHANTOM_VERSIONS: readonly string[] = ["00479"];
+
 export function compareSchemaSets(
   expected: readonly string[],
   applied: readonly string[],
   footerEraStart: string,
+  knownPhantoms: readonly string[] = KNOWN_PHANTOM_VERSIONS,
 ): Omit<SchemaCompleteness, "checked"> {
   const appliedSet = new Set(applied);
   const expectedSet = new Set(expected);
+  const phantomSet = new Set(knownPhantoms);
   return {
     missing: expected.filter((v) => !appliedSet.has(v)).sort(),
     // Only flag phantoms inside the footer era. An older recorded version is
     // just history the manifest deliberately does not cover.
     unexpected: applied
-      .filter((v) => v >= footerEraStart && !expectedSet.has(v))
+      .filter((v) => v >= footerEraStart && !expectedSet.has(v) && !phantomSet.has(v))
       .sort(),
   };
 }

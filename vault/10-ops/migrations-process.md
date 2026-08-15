@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-15
 tags: [ops, database, migrations]
 summary: How migrations are authored, verified and applied to self-hosted prod.
 ---
@@ -144,6 +144,20 @@ bridge to `supabase_migrations.schema_migrations`, migration 00126):
 `00605` never ran and every version check reports `match` forever, because the
 watermark only moves forward.
 
+> [!danger] It found one on its first read, and the file that had ruled it out
+> Deployed 2026-08-15. The first response from the new image was
+> `{"expected":"00606","applied":"00606","status":"match","missing":["00594"]}`.
+> `00594_flipdesk_overview_metrics.sql` had never run, so
+> `public.flipdesk_overview_metrics` did not exist and the FlipDesk Overview page
+> was failing for every seller (US-2606).
+>
+> The part worth carrying: `PENDING_MIGRATIONS.md` had marked 00594 **applied**
+> the day before, reasoning that the version sits *below* the recorded maximum
+> and its file carries a self-recording footer, so it must have run. Both clauses
+> true, conclusion false — and that same file warned against that exact inference
+> 160 lines earlier. Being able to state the rule is not the same as not using
+> it. **A version below the maximum is evidence of nothing.**
+
 That is not a thought experiment. On **2026-08-15** prod reported
 `{"expected":"00603","applied":"00606","status":"ahead"}` while only *some* of
 `00604`-`00606` had actually been run, and the only way to find out which was a
@@ -159,7 +173,13 @@ curl -fsS https://functions.gradethread.com/health/ready | jq .schema
 
 - **`missing`** — never applied. Apply those files, in order.
 - **`unexpected`** — recorded with no such file in this build (a rollback, or a
-  deploy from a branch). Do **not** "fix" it by applying anything.
+  deploy from a branch). Do **not** "fix" it by applying anything. `00479` is
+  excused by name (`KNOWN_PHANTOM_VERSIONS` in `schema-version.ts`): it was never
+  authored, which is why `00480` onward were numbered around it, and a field that
+  is never empty is a field nobody reads. That list is written by hand rather
+  than derived from `migrations-lint`'s `KNOWN_GAPS`, because `KNOWN_GAPS` also
+  holds `00527` — the security migration parked as `.BLOCKED` — and 00527 showing
+  up as applied is the one thing this field must scream about.
 - **`complete: false`** — the applied set could not be read. That is *we do not
   know*, not clean, and it is deliberately a different shape from an empty
   `missing`.
