@@ -510,6 +510,86 @@ export async function findsUrls(env: PagesEnv): Promise<SitemapUrl[]> {
 }
 
 /**
+ * US-2578: the Help Center — the /help hub, one page per non-empty category, and
+ * every published PUBLIC article.
+ *
+ * VISIBILITY IS NOT FILTERED HERE, and that is deliberate. The endpoint this
+ * calls is the anonymous one, which can only ever return visibility='public'.
+ * Re-filtering in this file would create a second copy of the rule that could
+ * drift from the first; not calling the anonymous endpoint is the mistake to
+ * guard against, and src/test/help-ssr.test.ts is what guards it.
+ *
+ * lastmod is DERIVED from the article's reviewed_at (falling back to
+ * updated_at), never today(). A sitemap that stamps today on an unchanged page
+ * teaches crawlers to ignore the field — and the whole point of reviewed_at
+ * (US-2591) is that it moves when somebody actually re-read the article.
+ *
+ * An EMPTY category is skipped: a shelf with nothing on it is a thin page, and a
+ * thin page in the sitemap is a page Google decides the section is like.
+ */
+export async function helpUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<{
+    categories?: Array<{ key: string; slug: string; article_count?: number }>;
+    articles?: Array<{
+      slug: string;
+      category_key: string;
+      updated_at: string;
+      reviewed_at?: string | null;
+    }>;
+  }>(env, "/api/content/public/help");
+
+  const articles = data?.articles ?? [];
+  const categories = data?.categories ?? [];
+  const slugForKey = new Map(categories.map((c) => [c.key, c.slug]));
+
+  const dateOf = (a: { updated_at: string; reviewed_at?: string | null }) =>
+    (a.reviewed_at ?? a.updated_at)?.slice(0, 10);
+
+  const urls: SitemapUrl[] = [
+    { loc: `${base}/help`, changefreq: "weekly", priority: 0.7 },
+  ];
+
+  const counts = new Map<string, number>();
+  const newestPerCategory = new Map<string, string>();
+  for (const a of articles) {
+    counts.set(a.category_key, (counts.get(a.category_key) ?? 0) + 1);
+    const d = dateOf(a);
+    if (d && (newestPerCategory.get(a.category_key) ?? "") < d) {
+      newestPerCategory.set(a.category_key, d);
+    }
+  }
+
+  for (const c of categories) {
+    const count = c.article_count ?? counts.get(c.key) ?? 0;
+    if (count === 0) continue;
+    urls.push({
+      loc: `${base}/help/${c.slug}`,
+      lastmod: newestPerCategory.get(c.key),
+      changefreq: "weekly",
+      priority: 0.6,
+    });
+  }
+
+  for (const a of articles) {
+    const categorySlug = slugForKey.get(a.category_key);
+    // An article whose category is missing from the payload has no canonical
+    // URL to advertise. Guessing one from the key would put a 301 in the
+    // sitemap, which is a URL crawlers then have to be told twice about.
+    if (!categorySlug) continue;
+    urls.push({
+      loc: `${base}/help/${categorySlug}/${a.slug}`,
+      lastmod: dateOf(a),
+      changefreq: "monthly",
+      priority: 0.6,
+    });
+  }
+
+  // US-2100: the hub inherits its newest child's date instead of today().
+  return withHubLastmod(urls);
+}
+
+/**
  * US-1856: the reward leaderboards — the /leaderboards hub, one page per metric,
  * and the brand/category facet pages of the two boards that can be faceted.
  *

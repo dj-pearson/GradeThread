@@ -24,6 +24,7 @@ import {
   valueIndexUrls,
   durabilityUrls,
   authorUrls,
+  helpUrls,
   urlsetXml,
   sitemapIndexXml,
   newestLastmod,
@@ -49,9 +50,10 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     durability: SitemapUrl[],
     finds: SitemapUrl[],
     leaderboards: SitemapUrl[],
-    authors: SitemapUrl[];
+    authors: SitemapUrl[],
+    help: SitemapUrl[];
   try {
-    [statics, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors] =
+    [statics, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors, help] =
       await Promise.all([
       staticUrls(env),
       blogUrls(env),
@@ -64,6 +66,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       findsUrls(env),
       leaderboardUrls(env),
       authorUrls(env),
+      helpUrls(env),
     ]);
   } catch (e) {
     if (e instanceof UpstreamUnavailable) {
@@ -84,7 +87,8 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     durability.length +
     finds.length +
     leaderboards.length +
-    authors.length;
+    authors.length +
+    help.length;
 
   const xml =
     total > SITEMAP_MAX_URLS
@@ -108,6 +112,9 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           { name: "sitemap-finds.xml", lastmod: newestLastmod(finds) },
           { name: "sitemap-leaderboards.xml", lastmod: newestLastmod(leaderboards) },
           { name: "sitemap-authors.xml", lastmod: newestLastmod(authors) },
+          // US-2578: the Help Center. Its lastmod comes from the articles'
+          // reviewed_at, so it moves when somebody re-read one, not every day.
+          { name: "sitemap-help.xml", lastmod: newestLastmod(help) },
           // The image sitemap is generated from the blog payload, so its
           // content date is the blog's.
           { name: "sitemap-images.xml", lastmod: newestLastmod(blog) },
@@ -124,6 +131,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
           ...finds,
           ...leaderboards,
           ...authors,
+          ...help,
         ]);
 
   return new Response(xml, { status: 200, headers: { ...SITEMAP_HEADERS } });

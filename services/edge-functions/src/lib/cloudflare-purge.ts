@@ -43,6 +43,36 @@ export async function buildBlogPurgeFiles(slug: string): Promise<string[]> {
   ];
 }
 
+/**
+ * US-2578: every edge-cached surface that shows a help article.
+ *
+ * The SSR help pages go through withEdgeCache, so without this an admin's fix
+ * to a wrong instruction stays wrong for up to an hour with nothing on screen
+ * to say so. The category page and the hub are included because both list the
+ * article's title and summary, and /help.md plus the article's own .md mirror
+ * because answer engines read those in preference to the HTML.
+ *
+ * /help/search is NOT here: it bypasses the edge cache entirely (its cache key
+ * would ignore the query string), so there is nothing to purge.
+ */
+export async function buildHelpPurgeFiles(
+  categorySlug: string,
+  slug: string,
+): Promise<string[]> {
+  const base = await loadPublicSiteUrl();
+  const c = encodeURIComponent(categorySlug);
+  const s = encodeURIComponent(slug);
+  return [
+    `${base}/help/${c}/${s}`,
+    `${base}/help/${c}/${s}.md`,
+    `${base}/help/${c}`,
+    `${base}/help`,
+    `${base}/help.md`,
+    `${base}/sitemap.xml`,
+    `${base}/sitemap-help.xml`,
+  ];
+}
+
 // US-577: every public surface that re-renders a certificate's grade — the SSR
 // HTML page plus the three image renderers (OG share card, embeddable badge,
 // "slab" graphic), all of which encode the numeric score and so go stale on a

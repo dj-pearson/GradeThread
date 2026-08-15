@@ -3,6 +3,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { failSafe } from "../lib/http-errors.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { isAdminUserCached } from "../lib/maintenance.ts";
+import { buildHelpPurgeFiles, purgeCloudflareCache } from "../lib/cloudflare-purge.ts";
+import { submitUrls } from "../lib/indexnow.ts";
 import {
   canView,
   cleanSlugArray,
@@ -14,6 +16,8 @@ import {
   isHelpVisibility,
   isReservedHelpSlug,
   isSearchableHelpQuery,
+  type HelpArticleStatus,
+  type HelpVisibility,
   normalizeFaq,
   normalizeHelpQuery,
   type HelpSearchHit,
@@ -259,6 +263,43 @@ helpReaderRoutes.get("/:slug", async (c) => {
 
 export const helpAdminRoutes = new Hono<AdminEnv>();
 
+/**
+ * US-2578: after a write, tell the caches and the crawlers.
+ *
+ * Fire-and-forget on purpose. A purge or an IndexNow submit that fails must
+ * never turn a successful save into an error the author has to interpret — the
+ * article IS saved either way, and the worst case is that the public page lags
+ * by the edge cache TTL.
+ *
+ * Only a PUBLIC article is submitted to IndexNow. Asking Bing to crawl a URL
+ * that answers 404 to everyone but a signed-in member is both useless and a
+ * quiet announcement that the URL exists.
+ */
+function afterHelpWrite(row: {
+  slug: string;
+  category_key: string;
+  visibility: HelpVisibility;
+  status: HelpArticleStatus;
+}): void {
+  void (async () => {
+    try {
+      const category = await categoryFor(row.category_key);
+      const categorySlug = category?.slug ?? row.category_key;
+      const files = await buildHelpPurgeFiles(categorySlug, row.slug);
+      await purgeCloudflareCache({ files });
+
+      if (row.visibility === "public" && row.status === "published") {
+        const base = (Deno.env.get("PUBLIC_SITE_URL") ?? "https://gradethread.com")
+          .trim()
+          .replace(/\/$/, "");
+        await submitUrls([`${base}/help/${categorySlug}/${row.slug}`]);
+      }
+    } catch (e) {
+      console.warn("[help.admin] cache purge / IndexNow failed:", e);
+    }
+  })();
+}
+
 interface HelpArticleInput {
   slug?: string;
   title?: string;
@@ -409,6 +450,7 @@ helpAdminRoutes.post("/", async (c) => {
     targetId: created.id,
     after: { slug, title, visibility: created.visibility, status: created.status },
   });
+  afterHelpWrite(created);
   return c.json({ article: created });
 });
 
@@ -461,14 +503,35 @@ helpAdminRoutes.patch("/:id", async (c) => {
     before: { visibility: existing.visibility, status: existing.status, slug: existing.slug },
     after: { visibility: updated.visibility, status: updated.status, slug: updated.slug },
   });
+  // Purge BOTH shapes when the slug or the category moved: the old URL is now a
+  // 301 that crawlers still hold a cached 200 for, and the new one has never
+  // been rendered. Purging only the new one leaves the old body live at the old
+  // address for the whole cache TTL.
+  afterHelpWrite(updated);
+  if (existing.slug !== updated.slug || existing.category_key !== updated.category_key) {
+    afterHelpWrite({ ...existing, visibility: updated.visibility, status: updated.status });
+  }
   return c.json({ article: updated });
 });
 
 // ── DELETE ────────────────────────────────────────────────
 helpAdminRoutes.delete("/:id", async (c) => {
   const id = c.req.param("id");
+  // Read it first: after the delete there is no row to derive the URLs from, and
+  // a deleted article's page is exactly the one that must stop being served.
+  const { data: doomedRaw } = await supabaseAdmin
+    .from("help_articles")
+    .select(ARTICLE_COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  const doomed = doomedRaw as HelpArticleRow | null;
+
   const { error } = await supabaseAdmin.from("help_articles").delete().eq("id", id);
   if (error) return failSafe(c, 500, "Couldn't delete the article.", error, "help.admin.delete");
+  // Purge, but do NOT submit to IndexNow: asking Bing to crawl a URL we just
+  // deleted is asking it to record a 404. afterHelpWrite skips the submit for
+  // anything that is not published+public, and a deleted row is neither.
+  if (doomed) afterHelpWrite({ ...doomed, status: "archived" });
   await writeAuditLog(c, {
     action: "help.article_delete",
     targetType: "help_article",
