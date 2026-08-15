@@ -76,6 +76,12 @@ import {
   hasCalibratedMeasurements,
   resolveMeasurementAspects,
 } from "./measurements.ts";
+// US-2595: the two passes that make a MeasureCard shot one-and-done — the
+// calibrated measurement extraction, and the size estimate that used to require
+// pressing "Estimate" on the composer.
+import { autofillMeasurementsFromCard } from "./measure-autofill.ts";
+import { estimateSize } from "./ai-size-estimate.ts";
+import { SIZE_ESTIMATE_LOW_CONFIDENCE } from "./ai-size-estimate-core.ts";
 import {
   buildDisclosure,
   type DisclosureInput,
@@ -1413,6 +1419,11 @@ interface ItemRow {
   // US-2423: the vertical drives the registry's per-category aspect names
   // (shoes "Heel Style", bags "Handle/Strap Type"), so the projection needs it.
   item_category: string | null;
+  // US-2595: the garment word. `item_category` alone is "clothing", which is
+  // too coarse to pick a measurement template — a blazer and a pair of shorts
+  // are both "clothing" and share no measurement at all.
+  garment_category: string | null;
+  garment_type: string | null;
 }
 
 // The tag-OCR ground-truth pass reads every tag/care-label photo; more than a
@@ -1467,7 +1478,7 @@ export async function generateListing(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, title, brand, style, size, color, material, description, condition_notes, measurements, ai_field_sources, ebay_category_id, grade_report_id, attributes, item_category",
+      "id, user_id, title, brand, style, size, color, material, description, condition_notes, measurements, ai_field_sources, ebay_category_id, grade_report_id, attributes, item_category, garment_category, garment_type",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -1510,15 +1521,57 @@ export async function generateListing(
   ) {
     if (v != null && String(v).trim() !== "") knownFields[k] = v;
   }
-  const measurements = item.measurements && typeof item.measurements === "object"
-    ? item.measurements
+  // 2a. US-2595: the MeasureCard is one-and-done. If the item has a measurement
+  // shot and any measurable field is still blank, calibrate it (free, pure CV)
+  // and measure it (one bundled vision call) right here — so a generated draft
+  // always carries the numbers the card was photographed to produce. Nothing to
+  // press, and no seller has to know the word "calibrate".
+  //
+  // Fill-only: a value the seller typed is never overwritten, and an item with
+  // every measurement already filled skips the pass entirely (no spend).
+  let itemMeasurements = (item.measurements ?? {}) as Record<string, unknown>;
+  let itemAiSources =
+    ((item as { ai_field_sources?: Record<string, unknown> | null })
+      .ai_field_sources ?? null) as Record<string, unknown> | null;
+  let measureTokensIn = 0;
+  let measureTokensOut = 0;
+  let measureCost = 0;
+  try {
+    const measured = await autofillMeasurementsFromCard(itemId, ownerId, {
+      id: item.id,
+      title: item.title,
+      size: item.size,
+      measurements: itemMeasurements,
+      ai_field_sources: itemAiSources,
+      item_category: item.item_category,
+      garment_category: item.garment_category,
+      garment_type: item.garment_type,
+    });
+    if (measured.ran) {
+      // The pass stamps 'ai_measured' provenance on what it wrote, which is
+      // what hasCalibratedMeasurements reads to earn the method note below.
+      itemMeasurements = measured.measurements;
+      itemAiSources = measured.aiFieldSources;
+      measureTokensIn = measured.tokensIn;
+      measureTokensOut = measured.tokensOut;
+      measureCost = measured.model
+        ? estimateCost(measured.model, measured.tokensIn, measured.tokensOut)
+        : 0;
+    } else if (measured.reason === "calibration_failed") {
+      console.warn(
+        `[AI Listing] MeasureCard not readable on item ${itemId}: ${measured.message}`,
+      );
+    }
+  } catch (err) {
+    // Non-fatal by design: a bad card shot must never block a listing.
+    console.error("[AI Listing] measurement autofill failed:", err);
+  }
+  const measurements = Object.keys(itemMeasurements).length > 0
+    ? itemMeasurements
     : undefined;
   // US-1578: values that came from the calibrated MeasureCard pipeline get a
   // one-line method note inside the measurements block (text only).
-  const calibratedMeasurements = hasCalibratedMeasurements(
-    (item as { ai_field_sources?: Record<string, unknown> | null })
-      .ai_field_sources,
-  );
+  const calibratedMeasurements = hasCalibratedMeasurements(itemAiSources);
 
   // 2b. US-543: dedicated tag-OCR ground-truth pass. When a tag/care-label
   // photo exists, run a focused vision pass over ONLY the tag(s) to read
@@ -1548,6 +1601,43 @@ export async function generateListing(
     } catch (err) {
       // Non-fatal: fall back to implicit inference from the full photo set.
       console.error("[AI Listing] tag-OCR ground-truth pass failed:", err);
+    }
+  }
+
+  // 2b-ii. US-2595: the size, without a second button.
+  //
+  // Thrifted stock routinely has a cut-off, faded or missing size label, so the
+  // tag-OCR pass above comes back with no size and the draft published a blank
+  // Size specific — the single most-asked question on a resale listing. The
+  // seller's only recourse was the composer's "Estimate" button, which is the
+  // same vision pass this now runs on its own. It only fires when the size is
+  // STILL unknown after the tag read, so an item with a legible label costs
+  // nothing extra, and a low-confidence guess is discarded rather than written.
+  let sizeTokensIn = 0;
+  let sizeTokensOut = 0;
+  let sizeCost = 0;
+  let estimatedSize: string | null = null;
+  if (String(knownFields.size ?? "").trim() === "") {
+    try {
+      const est = await estimateSize({
+        photos: photos.map((p) => ({ url: p.url, type: p.type })),
+        brand: typeof knownFields.brand === "string"
+          ? (knownFields.brand as string)
+          : item.brand,
+        category: item.item_category,
+      });
+      sizeTokensIn = est.tokensIn;
+      sizeTokensOut = est.tokensOut;
+      sizeCost = estimateCost(est.model, est.tokensIn, est.tokensOut);
+      const guess = (est.size ?? "").trim();
+      if (guess !== "" && est.confidence >= SIZE_ESTIMATE_LOW_CONFIDENCE) {
+        knownFields.size = guess;
+        estimatedSize = guess;
+      }
+    } catch (err) {
+      // Non-fatal: a listing without a size is worse than one with a guess, but
+      // both beat no listing at all.
+      console.error("[AI Listing] size estimate failed:", err);
     }
   }
 
@@ -2211,6 +2301,12 @@ export async function generateListing(
   if (normalizedBrand && normalizedBrand !== item.brand) {
     itemUpdate.brand = normalizedBrand;
   }
+  // US-2595: a size the estimate pass read off the photos belongs on the item,
+  // not just in this draft — the composer, the specifics editor and the comp
+  // search all read the column. Fill-only: it only runs when the size was blank.
+  if (estimatedSize && String(item.size ?? "").trim() === "") {
+    itemUpdate.size = estimatedSize;
+  }
   // Fold the generated title into the item when it still carries the
   // AutoLister placeholder ("Item 12"/"Untitled"/blank), so Inventory → Drafts
   // and the item page show the real garment. Seller-typed titles are never
@@ -2240,9 +2336,14 @@ export async function generateListing(
   //     the second-pass aspect-extraction tokens/cost so per-item billing
   //     reflects total Anthropic spend, not just the generation call.
   const genCost = estimateCost(gen.model, gen.tokensIn, gen.tokensOut);
-  const costUsd = genCost + extractCost + tagOcrCost;
-  const totalTokensIn = gen.tokensIn + extractTokensIn + tagOcrTokensIn;
-  const totalTokensOut = gen.tokensOut + extractTokensOut + tagOcrTokensOut;
+  // US-2595: the measurement and size passes are bundled into this one AI
+  // action (same contract as tag-OCR), so their spend belongs in this total —
+  // otherwise per-item billing understates what Anthropic actually charged.
+  const costUsd = genCost + extractCost + tagOcrCost + measureCost + sizeCost;
+  const totalTokensIn = gen.tokensIn + extractTokensIn + tagOcrTokensIn +
+    measureTokensIn + sizeTokensIn;
+  const totalTokensOut = gen.tokensOut + extractTokensOut + tagOcrTokensOut +
+    measureTokensOut + sizeTokensOut;
   try {
     await supabaseAdmin.from("ai_enrichment_log").insert({
       user_id: ownerId,

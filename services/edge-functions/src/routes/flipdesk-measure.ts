@@ -25,20 +25,19 @@ import {
   downloadItemPhoto,
 } from "../lib/item-photo-storage.ts";
 import { MEASURE_CARD_VERSIONS } from "../lib/measure-card.ts";
-import {
-  calibrateMeasurePhoto,
-  matMul3,
-  type CalibrateResult,
-  type GrayImage,
-} from "../lib/measure-detect.ts";
+import { calibrateMeasurePhoto } from "../lib/measure-detect.ts";
 import {
   extractMeasurements,
   mergeMeasurementsFillOnly,
 } from "../lib/measure-extract.ts";
 import {
   MEASUREMENT_TEMPLATES,
-  measurementGroupFor,
+  measurementGroupForItem,
 } from "../lib/measurement-templates.ts";
+import {
+  MEASURE_ITEM_COLUMNS,
+  type MeasureItemRow,
+} from "../lib/measure-autofill.ts";
 import {
   cardBBoxPx,
   chooseCropRect,
@@ -61,88 +60,21 @@ export const flipdeskMeasureRoutes = new Hono<{
   };
 }>();
 
-/** Stored shape of item_photos.measure_calibration (versioned). */
-export interface StoredCalibration {
-  v: 1;
-  cardVersion: number;
-  ppi: number;
-  homography: number[];
-  quality: {
-    markersFound: number;
-    minMarkerSidePx: number;
-    blurScore: number;
-    reprojResidualIn: number;
-  };
-  computedAt: string;
-  /** US-1577 (additive): per-measurement line geometry in original px —
-   *  written by /extract, edited by the overlay editor, read by /overlay. */
-  lines?: Record<
-    string,
-    { e1: [number, number]; e2: [number, number]; inches: number; label: string }
-  >;
-}
-
-// Photos larger than this are downscaled before detection (speed) and the
-// homography/ppi are mapped back to ORIGINAL pixel coordinates — stored
-// calibrations are always in the stored image's own px space.
-export const MAX_DETECT_DIM = 2000;
-
-/**
- * Grayscale an ImageScript image, downscaling to MAX_DETECT_DIM. Returns the
- * gray buffer plus the scale factor (resized = original * scale).
- */
-export function toGray(img: Image, maxDim = MAX_DETECT_DIM): {
-  gray: GrayImage;
-  scale: number;
-} {
-  const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-  const work = scale < 1
-    ? img.resize(
-      Math.max(1, Math.round(img.width * scale)),
-      Math.max(1, Math.round(img.height * scale)),
-    )
-    : img;
-  const gray = new Uint8Array(work.width * work.height);
-  for (let y = 1; y <= work.height; y++) {
-    for (let x = 1; x <= work.width; x++) {
-      const px = work.getPixelAt(x, y) >>> 0;
-      const r = (px >>> 24) & 0xff,
-        g = (px >>> 16) & 0xff,
-        b = (px >>> 8) & 0xff;
-      gray[(y - 1) * work.width + (x - 1)] = (r * 299 + g * 587 + b * 114) /
-        1000;
-    }
-  }
-  return {
-    gray: { width: work.width, height: work.height, gray },
-    scale,
-  };
-}
-
-/**
- * Map a calibration computed on a DOWNSCALED image back into original pixel
- * coordinates: H_orig = H_small · diag(scale, scale, 1); ppi scales inversely.
- */
-export function rescaleCalibration(
-  res: Extract<CalibrateResult, { ok: true }>,
-  scale: number,
-): Extract<CalibrateResult, { ok: true }> {
-  if (scale === 1) return res;
-  const S = [scale, 0, 0, 0, scale, 0, 0, 0, 1];
-  return {
-    ...res,
-    homography: matMul3(res.homography, S),
-    ppi: res.ppi / scale,
-    markers: res.markers.map((m) => ({
-      ...m,
-      sidePx: m.sidePx / scale,
-      center: [m.center[0] / scale, m.center[1] / scale],
-      corners: m.corners.map(([x, y]) =>
-        [x / scale, y / scale] as [number, number]
-      ),
-    })),
-  };
-}
+// The calibration plumbing now lives in lib/measure-calibrate.ts so the
+// automatic pass (lib/measure-autofill.ts) can share it without a lib importing
+// a route. Re-exported here because this is where callers and tests know to
+// look for it.
+export {
+  MAX_DETECT_DIM,
+  rescaleCalibration,
+  type StoredCalibration,
+  toGray,
+} from "../lib/measure-calibrate.ts";
+import {
+  rescaleCalibration,
+  toGray,
+  type StoredCalibration,
+} from "../lib/measure-calibrate.ts";
 
 flipdeskMeasureRoutes.post("/calibrate", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -302,24 +234,27 @@ flipdeskMeasureRoutes.post("/extract", async (c) => {
   }
 
   // Item facts drive the schema + plausibility priors. Tenant-scoped.
-  const { data: itemRow } = await supabaseAdmin
+  //
+  // US-2595: this used to select `category`, which does not exist on
+  // inventory_items — it is a COALESCE alias on the items_full VIEW. PostgREST
+  // answered 42703, `data` came back null, and the next line returned "Item not
+  // found" for every item on every client. Auto-measure had never once run in
+  // production. Selecting the real columns (and resolving the group from the
+  // garment word rather than the coarse vertical) is the whole fix.
+  const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, category, size, measurements, ai_field_sources")
+    .select(MEASURE_ITEM_COLUMNS)
     .eq("id", photo.inventory_item_id)
     .eq("user_id", ownerId)
     .maybeSingle();
-  const item = itemRow as
-    | {
-      id: string;
-      category: string | null;
-      size: string | null;
-      measurements: Record<string, unknown> | null;
-      ai_field_sources: Record<string, unknown> | null;
-    }
-    | null;
+  if (itemErr) {
+    console.error("[flipdesk-measure] item load failed:", itemErr.message);
+    return c.json({ error: "Could not load the item." }, 500);
+  }
+  const item = itemRow as MeasureItemRow | null;
   if (!item) return c.json({ error: "Item not found" }, 404);
 
-  const group = measurementGroupFor(item.category);
+  const group = measurementGroupForItem(item);
   const fields = MEASUREMENT_TEMPLATES[group].filter((f) => f.unit === "length");
   if (fields.length === 0) {
     return c.json(

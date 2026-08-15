@@ -1,5 +1,5 @@
 import type { ItemFullRow } from "@/types/database";
-import { measurementGroupFor, type MeasurementGroup } from "./measurement-templates";
+import { measurementGroupForItem, type MeasurementGroup } from "./measurement-templates";
 import { buildMeasurementLines, type LengthUnit } from "./measurements";
 
 // Per-group description templates. Placeholders are filled by interpolate().
@@ -263,6 +263,19 @@ export function titleKeywords(item: ItemFullRow): string[] {
   return Array.from(out);
 }
 
-export function templateGroupFor(item: ItemFullRow): MeasurementGroup {
-  return measurementGroupFor(item.category);
+// US-2595: `items_full.category` is COALESCE(item_category, garment_category),
+// so on any item whose vertical is set it reads "clothing" — and
+// measurementGroupFor("clothing") is `generic`. Every blazer and every pair of
+// shorts got the length-and-width template. `garment` is the specific word when
+// the caller has it (the composer holds it on the side, since the view doesn't
+// expose it); the title is the last resort.
+export function templateGroupFor(
+  item: ItemFullRow,
+  garment?: string | null,
+): MeasurementGroup {
+  return measurementGroupForItem({
+    garment_category: garment ?? null,
+    category: item.category,
+    title: item.item_title,
+  });
 }

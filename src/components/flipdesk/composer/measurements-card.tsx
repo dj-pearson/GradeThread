@@ -5,6 +5,11 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { ItemFullRow } from "@/types/database";
 export interface MeasurementsCardProps {
   item: ItemFullRow;
+  /** US-2595: the garment word ("blazer", "shorts"). `item.category` is the
+   *  items_full COALESCE column, which reads "clothing" on any item with a
+   *  vertical set — and "clothing" resolves to the generic length+width
+   *  template, so the fields a buyer actually asks for were never offered. */
+  garment?: string | null;
   measurements: Record<string, number | string>;
   setMeasurements: (next: Record<string, number | string>) => void;
 }
@@ -13,9 +18,11 @@ export interface MeasurementsCardProps {
 // is why this card sits ABOVE the specifics editor (US-2252).
 export function MeasurementsCard({
   item,
+  garment,
   measurements,
   setMeasurements,
 }: MeasurementsCardProps) {
+  const category = garment ?? item.category;
   return (
     <Card id="composer-measurements">
       <CardHeader>
@@ -27,7 +34,7 @@ export function MeasurementsCard({
       </CardHeader>
       <CardContent>
         <MeasurementForm
-          category={item.category}
+          category={category}
           brand={item.brand}
           values={measurements}
           onChange={setMeasurements}
@@ -38,7 +45,7 @@ export function MeasurementsCard({
             same measurements state the form above edits. */}
         <MeasurementPhotoEditor
           itemId={item.id}
-          category={item.category}
+          category={category}
           values={measurements}
           aiSources={item.ai_field_sources ?? null}
           onApply={(next) => setMeasurements(next)}
@@ -46,7 +53,7 @@ export function MeasurementsCard({
         {/* US-1779/US-2264: buyer fit preview from these flat-lay measurements vs
             the viewer's saved body profile. Renders nothing without measurements.
             It only ever existed on the unmounted ItemCanvas. */}
-        <FitWidget garmentMeasurements={measurements} category={item.category} />
+        <FitWidget garmentMeasurements={measurements} category={category} />
       </CardContent>
     </Card>
   );

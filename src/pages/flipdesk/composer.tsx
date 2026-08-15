@@ -53,6 +53,7 @@ import {
   templateGroupFor,
   titleKeywords,
 } from "@/lib/listing-templates";
+import { garmentDescriptorFor } from "@/lib/measurement-templates";
 import { titleQuality } from "@/lib/title-quality";
 import {
   EBAY_CONDITION_OPTIONS,
@@ -940,7 +941,23 @@ export function FlipdeskComposerPage({
   // Memoized so the title-chip memo below has a stable dependency — a fresh
   // array identity every render defeated it entirely.
   const keywords = useMemo(() => (item ? titleKeywords(item) : []), [item]);
-  const group = item ? templateGroupFor(item) : "generic";
+  // US-2595: the measurement template has to key off the GARMENT ("blazer",
+  // "shorts"), not the vertical. `items_full.category` collapses to "clothing"
+  // the moment item_category is set, and that resolves to the generic
+  // length+width template — which is why a blazer was never asked for a chest
+  // or a sleeve. The garment columns aren't in the view, but `ebayMapping`
+  // already fetches them on the side for the specifics editor.
+  const measurementGarment = useMemo(
+    () =>
+      garmentDescriptorFor({
+        garment_category: ebayMapping?.garment_category,
+        garment_type: ebayMapping?.garment_type,
+        category: item?.category,
+        title: item?.item_title,
+      }) || null,
+    [ebayMapping?.garment_category, ebayMapping?.garment_type, item?.category, item?.item_title],
+  );
+  const group = item ? templateGroupFor(item, measurementGarment) : "generic";
   const primaryPhoto =
     photos.find((p) => p.id === primaryPhotoId) ?? photos[0] ?? null;
   const resolvedDescription = item
@@ -2557,6 +2574,7 @@ export function FlipdeskComposerPage({
 
           <MeasurementsCard
             item={item}
+            garment={measurementGarment}
             measurements={measurements}
             setMeasurements={setMeasurements}
           />

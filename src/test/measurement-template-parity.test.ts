@@ -22,8 +22,10 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  garmentDescriptorFor,
   MEASUREMENT_TEMPLATES,
   measurementGroupFor,
+  measurementGroupForItem,
 } from "../lib/measurement-templates";
 
 const WEB = "src/lib/measurement-templates.ts";
@@ -276,5 +278,67 @@ describe("US-2464 AC4: the garments that used to fall to 'generic'", () => {
     expect(measurementGroupFor("bathrobe")).toBe("outerwear");
     expect(measurementGroupFor("kimono")).toBe("outerwear");
     expect(measurementGroupFor("poncho")).toBe("outerwear");
+  });
+});
+
+describe("US-2595: 'clothing' is a vertical, not a garment", () => {
+  // items_full.category is COALESCE(item_category, garment_category), so the
+  // moment an item's vertical is set the web surfaces read "clothing" — and
+  // measurementGroupFor("clothing") is `generic`, the length-and-width
+  // fallback. Every blazer stopped being asked for a chest, a shoulder or a
+  // sleeve, and every pair of shorts stopped being asked for a waist and an
+  // inseam. The specific word was one column over the whole time.
+  it("the coarse vertical alone still resolves to generic", () => {
+    expect(measurementGroupFor("clothing")).toBe("generic");
+  });
+
+  it("resolves the garment column ahead of the vertical", () => {
+    expect(
+      measurementGroupForItem({
+        item_category: "clothing",
+        category: "clothing",
+        garment_category: "jacket",
+        garment_type: "outerwear",
+      }),
+    ).toBe("outerwear");
+    expect(
+      measurementGroupForItem({
+        item_category: "clothing",
+        category: "clothing",
+        garment_category: "shorts",
+      }),
+    ).toBe("bottom");
+  });
+
+  it("falls back through garment_type, then the title", () => {
+    expect(
+      measurementGroupForItem({ item_category: "clothing", garment_type: "tops" }),
+    ).toBe("top");
+    expect(
+      measurementGroupForItem({
+        item_category: "clothing",
+        title: "Vintage Levi's 550 Denim Shorts",
+      }),
+    ).toBe("bottom");
+  });
+
+  it("hands back a usable descriptor even when nothing resolves", () => {
+    // The caller still needs something to label a field with — "" would be a
+    // worse answer than the string we were actually given.
+    expect(garmentDescriptorFor({ item_category: "clothing" })).toBe("clothing");
+    expect(garmentDescriptorFor({})).toBe("");
+  });
+
+  it("the composer feeds the garment into the measurement card", () => {
+    // The wiring is the fix — the resolver alone changes nothing if the page
+    // keeps passing item.category.
+    const composer = readFileSync("src/pages/flipdesk/composer.tsx", "utf8");
+    expect(composer).toContain("garmentDescriptorFor({");
+    expect(composer).toContain("garment={measurementGarment}");
+    const card = readFileSync(
+      "src/components/flipdesk/composer/measurements-card.tsx",
+      "utf8",
+    );
+    expect(card).toContain("const category = garment ?? item.category;");
   });
 });

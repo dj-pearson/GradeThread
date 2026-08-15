@@ -225,6 +225,59 @@ export function measurementGroupFor(
   return "generic";
 }
 
+// US-2595: the group has to come from the GARMENT word, and callers rarely
+// hold just one string.
+//
+// `item_category` is an enum whose clothing value is literally "clothing", and
+// measurementGroupFor("clothing") is `generic` — length and width, both
+// optional. `items_full.category` is COALESCE(item_category, garment_category),
+// so the moment an item's vertical is set (which the AI extract pass does
+// routinely) every web surface reading that column lost the real template: a
+// blazer was never offered a chest or a sleeve, and shorts were never offered a
+// waist or an inseam. The garment word was on the row the whole time, one
+// column over.
+//
+// Resolution order is most-specific-first, and a candidate only wins if it
+// actually resolves to a real group — so "clothing" is skipped rather than
+// swallowing the answer, and the title is a genuine last resort ("Vintage Levi's
+// 550 Denim Shorts" is a better descriptor than nothing).
+export interface GarmentDescriptorSource {
+  garment_category?: string | null;
+  garment_type?: string | null;
+  item_category?: string | null;
+  /** items_full's COALESCE(item_category, garment_category) column. */
+  category?: string | null;
+  title?: string | null;
+}
+
+export function garmentDescriptorFor(item: GarmentDescriptorSource): string {
+  const candidates = [
+    item.garment_category,
+    item.garment_type,
+    item.category,
+    item.item_category,
+    item.title,
+  ];
+  for (const c of candidates) {
+    const s = (c ?? "").trim();
+    if (s && measurementGroupFor(s) !== "generic") return s;
+  }
+  // Nothing resolved: hand back the most specific string we were given so the
+  // caller's own fallbacks (labels, prompts) still have something to show.
+  for (const c of candidates) {
+    const s = (c ?? "").trim();
+    if (s) return s;
+  }
+  return "";
+}
+
+/** measurementGroupFor, but fed from a whole item row instead of one column. */
+export function measurementGroupForItem(
+  item: GarmentDescriptorSource,
+): MeasurementGroup {
+  return measurementGroupFor(garmentDescriptorFor(item));
+}
+
 // A Google search for "<brand> size guide" — always a valid URL, works for
 // any brand without maintaining a per-brand lookup table.
 export function sizeGuideUrl(brand: string): string {

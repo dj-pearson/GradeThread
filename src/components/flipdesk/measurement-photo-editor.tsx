@@ -107,6 +107,8 @@ export function MeasurementPhotoEditor({
   const [imgDims, setImgDims] = useState<[number, number] | null>(null);
   const [busy, setBusy] = useState<"calibrate" | "extract" | "save" | null>(null);
   const dragRef = useRef<EndpointHit | null>(null);
+  /** Photo id we've already auto-calibrated, so a failure doesn't loop. */
+  const autoCalibratedRef = useRef<string | null>(null);
   // US-1580: the auto pass's proposed inches per key, snapshotted at seed
   // time, so Save can log proposal-vs-final correction deltas (telemetry).
   const proposalRef = useRef<
@@ -138,11 +140,22 @@ export function MeasurementPhotoEditor({
     setTouched(new Set());
   }, [photo?.id, calib?.lines && JSON.stringify(Object.keys(calib.lines))]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // US-2595: calibrate on sight. Detection is deterministic CV — free, no model
+  // call — so making the seller press "Detect card" bought nothing and cost
+  // every one of them a step they had to know about. Once per photo: the ref
+  // guards a re-run after a failure, so a shot with an unreadable card falls
+  // back to the button instead of retrying on every render.
+  useEffect(() => {
+    if (!photo || calib || autoCalibratedRef.current === photo.id) return;
+    autoCalibratedRef.current = photo.id;
+    void runCalibrate({ silent: true });
+  }, [photo?.id, calib]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (isLoading || !photo) return null; // no MeasureCard shot — nothing to edit
 
   const scale = imgDims ? fitScale(imgDims[0], imgDims[1], MAX_W, MAX_H) : 1;
 
-  async function runCalibrate() {
+  async function runCalibrate(opts: { silent?: boolean } = {}) {
     setBusy("calibrate");
     try {
       const res = await edgeFetch("/api/flipdesk/measure/calibrate", {
@@ -155,10 +168,17 @@ export function MeasurementPhotoEditor({
         error?: string;
       };
       if (!res.ok || json.ok === false) {
-        toast.error(json.message ?? json.error ?? "Card detection failed.");
+        // The silent pass runs unprompted, so a failure is not an error the
+        // seller asked for — the panel's own copy already tells them to press
+        // "Detect card", and that button reports properly.
+        if (!opts.silent) {
+          toast.error(json.message ?? json.error ?? "Card detection failed.");
+        }
         return;
       }
-      toast.success("MeasureCard detected — the photo is calibrated.");
+      if (!opts.silent) {
+        toast.success("MeasureCard detected — the photo is calibrated.");
+      }
       await qc.invalidateQueries({ queryKey: ["measure_photo", itemId] });
     } finally {
       setBusy(null);
