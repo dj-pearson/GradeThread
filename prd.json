@@ -1315,18 +1315,6 @@
       ]
     },
     {
-      "id": "US-2361",
-      "passes": false,
-      "title": "No client-side experiment is actually running: useFeatureFlag has zero callers",
-      "description": "src/hooks/use-feature-flag.ts:31 is the whole US-2109 PostHog experiment binding and nothing calls it. Any experiment believed to be running on the client is not.",
-      "acceptanceCriteria": [
-        "Confirm against PostHog which experiments are believed to be live.",
-        "Either wire the hook into the surfaces that need it, or delete it and close US-2109 with the reason.",
-        "If experiments matter, add a check that a flag defined in PostHog with no client consumer is reported."
-      ],
-      "notes": "[P2][Web/Growth] [Audit 2026-07-30 module/platform sweep] Reported by an audit agent; the cited line was not independently re-verified in this session — confirm before fixing. DECISION-then-build. | 2026-08-02 VERIFIED. useFeatureFlag in src/hooks/use-feature-flag.ts has exactly one grep hit across all of src — its own export. Zero callers, so no client-side experiment binding is reachable, and any experiment believed to be running on the web client is not running. The claim is true as stated. WHAT I CANNOT ANSWER, and it is AC1: whether anything is actually configured in PostHog. That needs the PostHog dashboard, not the repo, so AC1 is an operator/owner check and should be split out — AC2's decision (wire it up vs delete it and close US-2109 with the reason) depends entirely on the answer, and the code alone cannot supply it. NOTE ON AC3, because it is the one that would prevent a recurrence and is also the hardest: \"a flag defined in PostHog with no client consumer is reported\" cannot be a source-scan guard, since one side of the comparison lives in PostHog. It needs either a build-time fetch of the flag list or a periodic job — the cron fleet already has the shape for the latter (see CRON_REGISTRY), and US-2312 (2026-08-02) means such a job's failures would now actually surface rather than reading green. If AC3 is judged too costly, say so and drop it explicitly rather than leaving it open — a half-built experiment framework that nobody can tell is half-built is the exact condition this story documents. | 2026-08-04 RE-CHECKED and the claim STILL HOLDS, unchanged. grep for useFeatureFlag across all of src returns exactly one hit — the export in src/hooks/use-feature-flag.ts:31. Zero callers, same as the 2026-08-02 verification. Commit 98268099 verified this story alongside US-2359 and US-2360, and unlike those two nothing has been wired since. Recording the re-check so the story is not assumed stale by association with its two siblings, which HAVE moved."
-    },
-    {
       "id": "US-2395",
       "passes": false,
       "title": "Variation listings cannot be revised: resubmit needs an offer id a group listing never has",

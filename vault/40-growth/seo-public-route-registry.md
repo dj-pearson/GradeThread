@@ -9,7 +9,7 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
@@ -66,6 +66,23 @@ stays red after you "fixed" it.
 > the point, you no longer edit a second hand-synced list to make that happen.
 > The `alt` text is reused verbatim as the image caption, which is why it should
 > read as a description rather than a label.
+
+> [!note] Step 7 no longer reads the competitor DATA, only its slugs (US-2600, 2026-08-15)
+> `routes/index.tsx` used to import `COMPETITOR_ALTERNATIVES` to build those
+> routes, which put a 16 KB editorial data set in the eager entry chunk. It now
+> imports `COMPETITOR_ALTERNATIVE_SLUGS` from
+> `src/lib/seo/competitor-alternative-slugs.ts`.
+>
+> **What that costs this contract:** the router and the sitemap no longer read
+> one array, so "they cannot drift" is now "a test asserts they agree" —
+> `src/lib/seo/__tests__/competitor-alternative-slugs.test.ts`, both directions.
+> The direction that matters here is data-with-no-slug: the page stays in
+> `PUBLIC_ROUTES`, the sitemap, the prerender and `head-builder`, and only the
+> SPA route is missing, so `/reselling/:slug` swallows it and renders the guide's
+> not-found. Everywhere you would look says the page is published.
+>
+> Adding a competitor is therefore a step 7 that has TWO files now. The test is
+> what stops the second one being forgotten.
 
 > [!note] The admin-subtree split does not affect this contract (US-2112)
 > `src/routes/index.tsx` handed its `/admin/*` subtree to

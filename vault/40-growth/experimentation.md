@@ -4,11 +4,9 @@ type: contract
 status: current
 source_of_truth: vault
 code_refs:
-  - src/lib/client-experiments.ts
-  - src/hooks/use-feature-flag.ts
   - services/edge-functions/src/lib/feature-flags.ts
   - services/edge-functions/src/lib/experiments-governor.ts
-reviewed: 2026-07-19
+reviewed: 2026-08-15
 tags: [growth, experiments, feature-flags, analytics, consent]
 summary: Three flag/experiment systems exist for three different jobs; pointing two at the same decision is the failure mode this contract prevents.
 ---
@@ -24,8 +22,24 @@ is the reasoning behind that sentence.
 | System | Where | Decides | Bucketing |
 |---|---|---|---|
 | Server feature flags | `services/edge-functions/src/lib/feature-flags.ts` | Whether an expensive or external-dependency flow RUNS at all | Deterministic FNV-1a on key+userId, plus plan targeting, allow/deny, schedule window |
-| Client experiments | `src/lib/client-experiments.ts` + `useFeatureFlag` | Which VARIANT of a UI surface a visitor sees | PostHog's own bucketing — this layer does none |
+| ~~Client experiments~~ | **deleted 2026-08-15** — see below | — | — |
 | Experiments Governor | `services/edge-functions/src/lib/experiments-governor.ts` | Nothing at runtime; it AUDITS the portfolio | n/a |
+
+> [!warning] The client layer was deleted, and the reasoning below is kept
+> `src/lib/client-experiments.ts` and `useFeatureFlag` shipped complete, tested,
+> and called by NOTHING — one occurrence of the hook in the whole app, its own
+> export (US-2361, re-verified three times between 2026-08-02 and 2026-08-15).
+> No client-side experiment was ever running, so the row above described a
+> capability the product did not have.
+>
+> Removed on the owner's call rather than wired to an invented experiment: a
+> variant needs a hypothesis and a decision it would change, and neither existed.
+> `git revert` brings all of it back the day one does — the integrity properties
+> below are why it is worth reviving rather than rewriting.
+>
+> **The three-systems rule is unchanged and still the point of this note.** Two
+> systems remain; the failure it prevents — pointing more than one at the same
+> decision — is about ownership, not about how many exist today.
 
 ### Server flags are kill-switches, not experiments
 
@@ -39,13 +53,14 @@ experiment that silently defaults every visitor into the treatment arm on a
 transient DB blip does not produce a weak result; it produces a confident wrong
 one.
 
-### Client experiments are UI variants, and they fail to control
+### Client experiments are UI variants, and they fail to control (deleted; read as the spec for reviving it)
 
-The client layer is the mirror image: it **fails to control**. No consent, no
-PostHog, no flags delivered, PostHog throwing — every one of those paths returns
-`{ variant: "control", ready: false }`. See the header of
-`src/lib/client-experiments.ts` for the three integrity properties (consent gate,
-no mid-session flips, exposure-not-evaluation) and why each one exists.
+The client layer was the mirror image: it **failed to control**. No consent, no
+PostHog, no flags delivered, PostHog throwing — every one of those paths returned
+`{ variant: "control", ready: false }`. The three integrity properties (consent
+gate, no mid-session flips, exposure-not-evaluation) lived in the header of
+`src/lib/client-experiments.ts`, which is in git history rather than in the tree.
+Anything rebuilt here has to have all three, and the paragraphs below say why.
 
 The consent gate is **structural rather than checked**: flags are read off
 `window.posthog`, which `analytics.ts` only creates after the visitor opts into

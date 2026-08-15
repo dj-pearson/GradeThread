@@ -13,7 +13,7 @@ code_refs:
   - src/test/waitlist-capture-reachable.test.ts
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
-reviewed: 2026-08-11
+reviewed: 2026-08-15
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
@@ -335,6 +335,18 @@ be caught by it. Components have a guard now
 (`src/test/waitlist-capture-reachable.test.ts`, US-2449); hooks have nothing, and
 `useFeatureFlag` (US-2361) and `useListingCopy` (US-2442) are both sitting there
 today.
+
+> [!note] One of the two was resolved by DELETING it (2026-08-15)
+> `useFeatureFlag` is gone, with `client-experiments.ts` and its tests, on the
+> owner's call. It had been re-verified as having zero callers three times over
+> two weeks, which is the tell this note is about: a re-check that keeps
+> returning the same answer is not diligence, it is a decision nobody is making.
+> The alternative — wiring it to an experiment invented to justify the code —
+> would have been worse than either keeping or removing it.
+>
+> `useListingCopy` is still there. The asymmetry is the useful part: unwired code
+> is not automatically wrong, and the question is always which of the two things
+> was meant to exist. See [[experimentation]] for the reasoning that was kept.
 
 ## The habit this argues for
 

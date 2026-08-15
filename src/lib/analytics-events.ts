@@ -89,7 +89,13 @@ export const ANALYTICS_EVENTS = {
   "cross_surface_nudge_dismissed": "A cross-surface nudge was dismissed.",
 
   // ── Experiments ───────────────────────────────────────────────────────────
-  "experiment_exposed": "A user was exposed to an experiment variant.",
+  //
+  // US-2361 (2026-08-15): `experiment_exposed` is GONE, with the client
+  // experiment layer that emitted it. It was the only emitter, and this
+  // registry's own guard — no declared entry may sit unemitted — is what caught
+  // the leftover the moment the code went. Re-add it with the hook if the layer
+  // is ever revived; vault/40-growth/experimentation.md keeps the reasoning,
+  // including why exposure rather than evaluation is the event to analyse on.
 
   // ── Money surfaces — the DOTTED convention (see the header) ───────────────
   "plan_picker.opened": "The plan picker was opened.",
