@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2609",
+  "nextId": "US-2610",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1881,6 +1881,21 @@
       "priority": 12,
       "passes": true,
       "notes": "[SHIPPED 2026-08-15] Follow-on to US-2595/US-2607. NO MIGRATION. Reported from a real draft where the crotch landed midway down the leg. OPEN QUESTION for the next round: the exact rise/inseam the seller saw was never captured, so it is unproven whether the [7,16] band alone catches that case — if the bad rise was under 16in, the crotch-agreement check is what has to catch it, and that only fires when the two measurements disagree. The golden-set eval (scripts/measure-eval.ts, gate p50<=0.25in / p95<=0.5in per vault/20-domain/measurement-accuracy.md) is the honest way to settle landmark accuracy; it has never been run against a real set."
+    },
+    {
+      "id": "US-2609",
+      "passes": false,
+      "title": "Every push to main restarts the production edge, including doc-only commits",
+      "description": "Coolify auto-deploys the edge service on any push to main, with no path filter, so a commit that touches only PENDING_MIGRATIONS.md or prd.json rebuilds the image and rolls the container. Each roll is a short window where Traefik has no healthy backend and the public API answers 'no available server' - observed directly on 2026-08-15: two consecutive probes of /health returned 503 and the third returned 200, with /health/ready clean on five reads immediately after. Nothing was wrong; that IS the rollover. The cost is small per push and this repo pushes often - six times in one afternoon during a backlog loop, which is six avoidable 503 windows on the seller-facing API plus six image builds. WHY IT ALSO MATTERS FOR DIAGNOSIS, which is the sharper half: 'no available server' is the documented signature of an edge event-loop HANG (vault/10-ops/edge-hang-vs-crash-loop.md). A routine doc push producing the same string as a real incident trains whoever sees it to shrug, and the one time it is not a rollover is the time that costs an outage.",
+      "acceptanceCriteria": [
+        "The edge redeploys only when something that ships inside its image changed: services/edge-functions/** and the files its build reads.",
+        "A commit touching only markdown, prd.json or src/ does not roll the edge container.",
+        "The mechanism is recorded in vault/10-ops/deploy.md next to the auto-deploy line, so the next person does not rediscover it from a 503.",
+        "The frontend half is checked at the same time: Cloudflare Pages rebuilds on every push too, which is cheaper but not free.",
+        "OPERATOR: this is a Coolify setting, not a repo change. In the edge resource, set the build/watch path filter to services/edge-functions (Coolify calls it Watch Paths). Nothing in this repository can do it, and nothing here can verify it either except by pushing a doc-only commit and watching whether the container rolls."
+      ],
+      "priority": 60,
+      "notes": "2026-08-15 FILED FROM A LIVE OBSERVATION, not from reading config. During a backlog loop, curl https://functions.gradethread.com/health/ready returned the bare string 'no available server'. Two consecutive /health probes then returned 503 and the third 200, with five clean /health/ready reads immediately after - so it was a Coolify rollover from the push a minute earlier, not an incident. THE DIAGNOSTIC COST IS THE REAL POINT: 'no available server' is the documented signature of an edge event-loop HANG (vault/10-ops/edge-hang-vs-crash-loop.md, and a memory note says the same). A routine doc-only push producing the identical string as a genuine incident teaches whoever sees it to shrug, and the one time it is not a rollover is the time that costs an outage. Six pushes in one afternoon meant six of these windows on the seller-facing API, every one of them for a commit that changed markdown or prd.json and nothing that ships inside the edge image. The fix is a Coolify Watch Paths setting on the edge resource; nothing in this repo can make it or verify it."
     }
   ]
 }
