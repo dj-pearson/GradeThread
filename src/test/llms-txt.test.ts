@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   buildLlmsSections,
   buildLlmsTxt,
@@ -83,5 +85,46 @@ describe("llms.txt registry coverage (US-431)", () => {
     const body = renderLlmsTxt();
     expect(body).toContain("## Legal");
     expect(body).toContain(`${SITE_URL}/privacy)`);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// US-2615: the crawler-facing Functions that hit the edge are cached; the two
+// that do not are deliberately left alone.
+//
+// Measured 2026-08-15 against production: /help.md answered x-gt-cache, and
+// /robots.txt, /rss.xml, /llms.txt and /llms-full.txt answered with no such
+// header — they rebuilt on every request. Whether that matters depends entirely
+// on whether the builder calls the edge, because the shared cost is the
+// 60-per-minute public-content bucket, not CPU.
+describe("US-2615: caching follows upstream cost, not file type", () => {
+  const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
+
+  it("llms.txt and rss.xml are cached — they call the edge", () => {
+    // llms.txt makes FIVE upstream calls per request (certificates, sellers,
+    // authors, posts, help); rss.xml makes one. Twelve uncached fetches of
+    // llms.txt alone would exhaust the bucket for the whole public site.
+    expect(read("functions/llms.txt.ts")).toContain("withEdgeCache");
+    expect(read("functions/rss.xml.ts")).toContain("withEdgeCache");
+  });
+
+  it("robots.txt is NOT cached, on purpose", () => {
+    // It makes no upstream call, so caching buys nothing against the bucket —
+    // and it is a control surface. If you block a crawler you want that live,
+    // not an hour from now. Asserted so the next sweep does not "finish the
+    // job" and add a staleness window to the one file where it costs something.
+    const src = read("functions/robots.txt.ts");
+    expect(src).not.toContain("withEdgeCache");
+    expect(src).not.toContain("edgeApi");
+  });
+
+  it("llms-full.txt is NOT cached, and for a different reason", () => {
+    // Also no upstream call: it is built from constants injected at build time
+    // by vite.config.ts's llmsFullDataPlugin, so a request costs string
+    // building and nothing else. Not a control surface — just not worth a
+    // cache entry.
+    const src = read("functions/llms-full.txt.ts");
+    expect(src).not.toContain("withEdgeCache");
+    expect(src).not.toContain("edgeApi");
   });
 });

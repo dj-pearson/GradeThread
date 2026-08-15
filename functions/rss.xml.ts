@@ -10,6 +10,7 @@ import {
   siteUrl,
   type PagesEnv,
   type PublicPostListItem,
+  withEdgeCache,
 } from "./_shared/blog-render";
 
 interface IndexResponse {
@@ -26,7 +27,22 @@ function rssImageMime(url: string): string | null {
   return null;
 }
 
-export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
+/**
+ * US-2615: served from the worker cache.
+ *
+ * One upstream call rather than the sitemap's eleven, but the same shared 60/min
+ * bucket and the same measurement: no x-gt-cache header, so every reader and
+ * every feed poller rebuilt it. Feed readers poll on a timer and do not care
+ * whether the bytes are a minute old.
+ *
+ * The US-2044 guard is unaffected: fetchJson THROWS UpstreamUnavailable, the
+ * 503 that produces is not a publicly-cacheable 200, and withEdgeCache stores
+ * only those — so a blip cannot pin an empty feed for the TTL.
+ */
+export const onRequestGet: PagesFunction<PagesEnv> = (context) =>
+  withEdgeCache(context, () => buildRssFeed(context.env));
+
+async function buildRssFeed(env: PagesEnv): Promise<Response> {
   // US-2044: fetchJson now THROWS UpstreamUnavailable rather than returning
   // null when it could not reach the API — so a transient failure can never
   // again be reported to a crawler as "this page is gone".
@@ -110,4 +126,4 @@ ${items}
       "Cache-Control": "public, max-age=600, s-maxage=3600",
     },
   });
-};
+}

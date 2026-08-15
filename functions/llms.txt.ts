@@ -7,7 +7,12 @@
 // with no hand-edit, and src/test/llms-txt.test.ts fails CI if a registry route
 // goes missing from the output.
 
-import { siteUrl, edgeApi, type PagesEnv } from "./_shared/blog-render";
+import {
+  siteUrl,
+  edgeApi,
+  type PagesEnv,
+  withEdgeCache,
+} from "./_shared/blog-render";
 import {
   buildLlmsTxt,
   buildLlmsSections,
@@ -85,7 +90,22 @@ const FALLBACK_ROUTES: LlmsRoute[] = [
   { path: "/faq", title: "Frequently Asked Questions", priority: 0.7 },
 ];
 
-export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
+/**
+ * US-2615: served from the worker cache.
+ *
+ * This builder makes FIVE upstream calls per request (certificates, sellers,
+ * authors, posts, help). The edge caps /api/content/public/* at 60 requests a
+ * minute per IP, fail-closed, and every SSR surface reaches it through one
+ * Cloudflare Pages worker — so twelve uncached fetches of this one file would
+ * exhaust the bucket for the whole public site.
+ *
+ * Measured 2026-08-15: this answered with no x-gt-cache header at all, so every
+ * fetch rebuilt it. Answer engines poll llms.txt; that is the point of it.
+ */
+export const onRequestGet: PagesFunction<PagesEnv> = (context) =>
+  withEdgeCache(context, () => renderLlmsTxtResponse(context.env));
+
+async function renderLlmsTxtResponse(env: PagesEnv): Promise<Response> {
   const base = siteUrl(env);
   const api = edgeApi(env);
 
@@ -193,4 +213,4 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
       "Cache-Control": "public, max-age=3600",
     },
   });
-};
+}
