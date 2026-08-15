@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/tests/cron-registry-drift_test.ts
 reviewed: 2026-08-15
 tags: [ops, cron, jobs, decision]
-summary: The 78 production schedules live in Coolify and are governed by a manifest in the repo plus a drift check, rather than being created from code.
+summary: The 77 production schedules live in Coolify and are governed by a manifest in the repo plus a drift check, rather than being created from code.
 ---
 
 # Cron schedule governance (US-2313 AC1)
@@ -58,7 +58,7 @@ makes a manifest sufficient — without it, a never-installed task would be
 indistinguishable from a job with nothing to do.
 
 > [!warning] The monitor reports what it can see, and says what it cannot
-> Five registry entries are outside the ledger (US-2616/US-2617): three cannot be
+> Four registry entries are outside the ledger (US-2616/US-2617): two cannot be
 > invoked with the job secret at all, and two are one-off backfills with no
 > cadence to miss. The fleet report names them under `unmonitored` rather than
 > quietly reporting all-clear on a subset. Read that list before trusting a green
@@ -68,7 +68,16 @@ indistinguishable from a job with nothing to do.
 
 - **Creating and removing tasks in Coolify.** The drift check catches a missing
   one within an hour; it cannot catch an *extra* task hitting an endpoint the
-  registry does not know about.
+  registry does not know about. That is not hypothetical: US-2617 deleted the
+  `ebay-orders-sync` entry because `ebay-order-backstop` was already the same
+  half-hourly sweep, working — so the Coolify task by that name is now an extra
+  one, hitting a seller route that answers 401, and only a person can remove it.
+- **A broken entry can look like a missing feature.** `ebay-orders-sync` pointed
+  at `/api/flipdesk/ebay/listings/pull`, which reads the caller's JWT, so the
+  job had never once succeeded. The obvious repair is to build it a `/jobs/`
+  route with a tenant loop — which would have shipped a second fleet sweep
+  firing the same detached pulls into the same eBay rate-limit bucket on the
+  same cadence. Before writing the loop, look for the job that already does it.
 - **The alert destination.** `ops_alert_webhook_url` and `ops_alert_email` both
   default to an empty string, and an empty destination means the whole path ends
   in an admin screen nobody is watching. Both rows exist in production; whether

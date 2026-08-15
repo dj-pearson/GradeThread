@@ -309,9 +309,16 @@ async function handlerAcceptsJobSecret(endpoint: string): Promise<boolean | null
  * The crons US-2310 found already broken, verified 2026-08-01.
  *
  * This list exists so the guard can be green TODAY while still catching the
- * next one — not to excuse these. Fixing them is not a one-line change: all
- * three are per-user handlers, so each needs a job-secret branch AND a
- * server-side tenant loop, which is the open half of US-2310.
+ * next one — not to excuse these. Fixing one is not a one-line change: each is
+ * a per-user handler, so it needs a job-secret branch AND a server-side tenant
+ * loop, which is the open half of US-2310.
+ *
+ * ebay-orders-sync came off it in US-2617 by being DELETED, not fixed:
+ * ebay-order-backstop (US-1965) was already the same half-hourly fleet sweep
+ * through triggerEbaySyncForUser, with a freshness window on top. It was
+ * a second copy of a job that already worked. Before writing the tenant loop
+ * for either name below, check whether one already exists somewhere else —
+ * that is the cheaper half of this list.
  *
  * It may only ever SHRINK. The test below pins its exact contents, so fixing an
  * entry without removing it from here fails just as loudly as adding a new
@@ -319,7 +326,6 @@ async function handlerAcceptsJobSecret(endpoint: string): Promise<boolean | null
  * permanent.
  */
 const KNOWN_UNREACHABLE_CRONS = [
-  "ebay-orders-sync → /api/flipdesk/ebay/listings/pull",
   "photo-archive → /api/flipdesk/images/archive",
   "reconciliation-sweep → /api/flipdesk/reconciliation/run",
 ] as const;
@@ -353,13 +359,37 @@ Deno.test("US-2310: every registered cron endpoint is reachable with only the jo
   );
 });
 
+Deno.test("US-2617: ebay-orders-sync stays deleted, because backstop is the real one", () => {
+  // A guard against RE-ADDING, which is the failure mode a shrink-only list
+  // cannot cover. The entry looked like a missing feature — a half-hourly
+  // orders sync that never ran — and the obvious repair is to give it a /jobs/
+  // route with a tenant loop. That repair ships a SECOND fleet sweep firing the
+  // same detached pulls at the same eBay rate-limit bucket on the same cadence.
+  const names = CRON_REGISTRY.map((d) => d.name);
+  assertEquals(
+    names.includes("ebay-orders-sync"),
+    false,
+    "ebay-order-backstop already sweeps every active eBay connection through " +
+      "triggerEbaySyncForUser every 30 minutes. If you need to change the " +
+      "scheduled orders sync, change THAT job.",
+  );
+  // Named positively too: if the backstop is ever removed, this case must fail
+  // rather than quietly become a guard protecting nothing.
+  assertEquals(
+    names.includes("ebay-order-backstop"),
+    true,
+    "the job the assertion above defers to no longer exists — deleting it " +
+      "leaves the fleet with no scheduled eBay orders sync at all",
+  );
+});
+
 Deno.test("US-2310: the known-broken list is not silently growing", () => {
-  // Stated as its own case so the NUMBER is visible in the test output. Three
+  // Stated as its own case so the NUMBER is visible in the test output. Two
   // scheduled tasks have most likely never run in production; that is a fact
-  // worth seeing on every CI run until it is zero.
+  // worth seeing on every CI run until it is zero. It was three until US-2617.
   assertEquals(
     KNOWN_UNREACHABLE_CRONS.length,
-    3,
+    2,
     "US-2310's remaining work is to take this to 0 — it must never go up",
   );
 });

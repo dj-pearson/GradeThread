@@ -293,16 +293,16 @@ Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is not 
   // and dead-module allowlists. Adding a name back is not how you make this pass.
   //
   // ebay-token-refresh was on this list until US-2617 mounted the recorder on
-  // its path. This case is what caught that: it asserted the specific job by
-  // name, so fixing the job reddened the guard rather than the guard quietly
-  // continuing to pass on a smaller set.
+  // its path, and ebay-orders-sync until the same story gave it a /jobs/ route.
+  // This case is what caught both: it asserts the specific jobs by name, so
+  // fixing one reddens the guard rather than the guard quietly continuing to
+  // pass on a smaller set.
   assertEquals(
     report.unmonitored,
     [
       "cert-integrity-backfill", // oneOff — a backfill has no cadence to miss
-      "ebay-orders-sync", // US-2310: unreachable with the job secret at all
       "passport-backfill", // oneOff
-      "photo-archive", // US-2310: unreachable
+      "photo-archive", // US-2310: unreachable with the job secret at all
       "reconciliation-sweep", // US-2310: unreachable
     ],
     "the fleet monitor's blind spot changed — shrink it by fixing a job, and " +

@@ -60,9 +60,13 @@ Deno.test("isRunnableJob: a recorded cron is runnable, wherever it is served", (
   assertEquals(isRunnableJob("email-retry"), true);
   assertEquals(isRunnableJob("ebay-token-refresh"), true);
   assertEquals(isRunnableJob("does-not-exist"), false);
+  // ebay-orders-sync is no longer a job at all: US-2617 deleted the entry once
+  // it turned out ebay-order-backstop was the same sweep, working.
+  assertEquals(isRunnableJob("ebay-orders-sync"), false);
+  assertEquals(isRunnableJob("ebay-order-backstop"), true);
   // Still not runnable: it cannot even be invoked with the job secret
   // (US-2310), so offering a Run-now button would be offering a 401.
-  assertEquals(isRunnableJob("ebay-orders-sync"), false);
+  assertEquals(isRunnableJob("photo-archive"), false);
 });
 
 Deno.test("US-2617: Run-now asks for the secret the job's own endpoint validates", () => {

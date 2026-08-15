@@ -65,10 +65,12 @@ export async function recordCronRun(run: CronRunInsert): Promise<void> {
 // which secret validates it — so a mount was all most of them needed.
 //
 // What genuinely still cannot be recorded, and why:
-//   • ebay-orders-sync, photo-archive, reconciliation-sweep — behind
-//     authMiddleware with no requireJobSecret branch, so they 401 before the
-//     handler runs (US-2310, KNOWN_UNREACHABLE_CRONS). They cannot run, so
-//     there is nothing to record.
+//   • photo-archive, reconciliation-sweep — behind authMiddleware with no
+//     requireJobSecret branch, so they 401 before the handler runs (US-2310,
+//     KNOWN_UNREACHABLE_CRONS). They cannot run, so there is nothing to record.
+//     ebay-orders-sync was in this set until US-2617, which deleted the entry:
+//     ebay-order-backstop was already the working version of the same sweep.
+//     Check for an existing job before writing a second one.
 //   • oneOff backfills — no cadence to miss.
 
 export interface CronDef {
@@ -247,14 +249,23 @@ export const CRON_REGISTRY: CronDef[] = [
   // reason the fleet alert exists. It was one of eight registry entries the
   // monitor never examined (US-2616).
   { name: "ebay-token-refresh", label: "eBay token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/oauth/refresh", recorded: true },
-  // ⚠️ US-2310: this endpoint sits behind authMiddleware and its handler has NO
-  // requireJobSecret branch, so the documented curl-with-job-secret invocation
-  // 401s before the handler runs — and recorded:false means it leaves no
-  // cron_runs row, so cron-fleet-health cannot see that it never ran. Same for
-  // photo-archive and reconciliation-sweep below. Pinned in
-  // cron-registry-drift_test.ts's KNOWN_UNREACHABLE_CRONS until each gets a
-  // job-secret branch and a server-side tenant loop.
-  { name: "ebay-orders-sync", label: "eBay listings/orders sync", schedule: "*/30 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/listings/pull", recorded: false },
+  // ebay-orders-sync WAS HERE, and US-2617 deleted it rather than fixing it.
+  //
+  // It pointed at /api/flipdesk/ebay/listings/pull, a SELLER route that reads
+  // workspaceOwnerId ?? userId from the JWT, so a scheduler holding only the job
+  // secret 401'd before the handler ran — every 30 minutes, invisibly, since
+  // recorded:false meant no ledger row either (US-2310).
+  //
+  // The reason it is a DELETE and not a new /jobs/ route: ebay-order-backstop
+  // (US-1965, above) is already that route. Same */30 cadence, same
+  // triggerEbaySyncForUser per owner, plus a freshness window and a unit-tested
+  // stalest-first selector. So the fleet sync has been running correctly the
+  // whole time and this entry described a second, permanently-401ing copy of it.
+  // Building the /jobs/orders-sync route it was asking for would have shipped a
+  // duplicate sweep against one eBay rate-limit bucket.
+  //
+  // ⚠️ OPERATOR: DELETE the Coolify scheduled task named ebay-orders-sync. It has
+  // never succeeded, and leaving it costs a 401 every 30 minutes forever.
   // US-1645: recorded via the eBay-cron recorder (cronNameForPath) so a missed
   // run signals in the cron_runs ledger.
   { name: "ebay-performance-sync", label: "eBay performance sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/sync/performance", recorded: true },
@@ -263,10 +274,13 @@ export const CRON_REGISTRY: CronDef[] = [
   // so a missed/failed 5-min sheet sync signals in the cron_runs ledger + ops stream.
   { name: "google-sheet-sync", label: "Google Sheet sync", schedule: "*/5 * * * *", category: "sync", endpoint: "/api/flipdesk/google/sync/push", recorded: true },
   // Nightly photo archive sweep (cold-storage old originals).
-  // ⚠️ US-2310: unreachable with only the job secret — see ebay-orders-sync above.
+  // ⚠️ US-2310: unreachable with only the job secret — behind authMiddleware
+  // with no requireJobSecret branch, so it 401s before the handler runs and
+  // leaves no ledger row. Needs a /jobs/ route plus a tenant loop, which is the
+  // shape US-2617 used to fix ebay-orders-sync above.
   { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/flipdesk/images/archive", recorded: false },
   // Payout reconciliation sweep (auto-link payout rows to sales).
-  // ⚠️ US-2310: unreachable with only the job secret — see ebay-orders-sync above.
+  // ⚠️ US-2310: unreachable with only the job secret — see photo-archive above.
   { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/flipdesk/reconciliation/run", recorded: false },
   // US-1047: auto leave-feedback (no-op unless system setting feedback.auto_leave).
   { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: true, healthy: "200; no-op unless system setting feedback.auto_leave=true" },
