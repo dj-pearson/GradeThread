@@ -442,6 +442,24 @@ async function processShopifyWebhookEvent(args: {
     // The downstream writes are idempotent (sale dedupe by listing_id, payout by
     // ref, status update by listing_id), so a claim-write failure is safe to
     // process fail-open — but make it observable.
+    //
+    // US-2326 AC3 asked for this to fail CLOSED, and the owner DECIDED against
+    // it on 2026-08-15. Recorded here rather than only in the story, because the
+    // AC's wording is the kind a future reader implements without asking.
+    //
+    // THE RULE IS NOT "FAIL OPEN". It is: fail closed where the provider
+    // REDELIVERS, open where it does not. routes/webhooks.ts:125 already fails
+    // CLOSED on the Stripe path (US-509) and returns a 500 precisely because
+    // Stripe retries — so the two paths are not inconsistent, they are the same
+    // rule applied to different providers.
+    //
+    // Here, failing closed would drop a REAL webhook on a transient database
+    // blip — a sale that never arrives — to prevent a double-process the
+    // idempotent ingest above already prevents. A benign duplicate becomes
+    // permanent data loss, and a marketplace does not reliably redeliver.
+    //
+    // If it is ever revisited, a durable retry or parking path has to come
+    // FIRST. Fail-closed without one is strictly worse than what is here.
     if (claim === "error") {
       recordMetric("webhook.fail_open", 1, { provider: "shopify", topic });
       captureException(
