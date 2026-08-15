@@ -1892,20 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2588",
-      "title": "[HELP CENTER CONTENT] The browser extension and the mobile apps",
-      "description": "The unified extension has six modes and a permissions prompt that scares people off at install. Chrome Web Store listings convert on the strength of the help page they link to, and the iOS and Android apps have no written support at all.",
-      "acceptanceCriteria": [
-        "Extension articles: install and what each permission is for, connecting it to an account, the free anonymous quota and the paid cap, Condition Check on a listing page, Alt+G and the right-click grade, the compare tray, seller memory, Flip mode and what it costs, Scan mode on search grids, the Lister and which marketplaces it posts to, and what to do when a site stops working.",
-        "Mobile articles for iOS and Android: install, sign in, camera capture, the share extension, working offline, push notifications, and why a session may expire.",
-        "Every privacy claim (what stays on the device, what is sent, what is never written to a table) is verified against the extension source before publishing, not paraphrased from its README.",
-        "The Chrome Web Store listing and the app store descriptions link to these articles."
-      ],
-      "priority": 78,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] Sources to verify against, not to copy: extension-unified/README.md, registry.js, src/lib/extension-gates.ts."
-    },
-    {
       "id": "US-2589",
       "title": "[HELP CENTER CONTENT] Buyer surfaces, billing, team and the API",
       "description": "The buyer half of the product is the half with the most search demand and the least documentation, and billing questions are the ones that turn into refunds when they go unanswered.",

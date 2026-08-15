@@ -111,29 +111,32 @@ category `src/lib/help-slugs.ts` registers for it.
 
 ## extension
 
-US-2588. Every privacy claim verified against the source, not the README.
+US-2588. Every privacy claim below was read out of extension-unified/ rather
+than from its README: the four manifest permissions, MAX_IMAGES_ANON 4 /
+MAX_IMAGES_PAID 8 in registry.js, the compare tray's MAX of 6, the scanMode
+default, and the seller handle living only in storage.local.
 
 | Slug | Visibility | Status |
 |---|---|---|
-| installing-the-browser-extension **(button)** | public | planned |
-| connecting-the-extension | public | planned |
-| condition-check-on-a-listing | public | planned |
-| the-compare-tray | public | planned |
-| seller-memory | public | planned |
-| flip-mode | members | planned |
-| scan-mode | public | planned |
-| the-lister | members | planned |
-| when-a-site-stops-working | public | planned |
+| installing-the-browser-extension **(button)** | public | written |
+| connecting-the-extension | public | written |
+| condition-check-on-a-listing | public | written |
+| the-compare-tray | public | written |
+| seller-memory | public | written |
+| flip-mode | members | written |
+| scan-mode | public | written |
+| the-lister | members | written |
+| when-a-site-stops-working | public | written |
 
 ## mobile
 
 | Slug | Visibility | Status |
 |---|---|---|
-| the-iphone-app | public | planned |
-| the-android-app | public | planned |
-| shooting-photos-on-your-phone | public | planned |
-| sharing-into-gradethread | public | planned |
-| staying-signed-in | public | planned |
+| the-iphone-app | public | written |
+| the-android-app | public | written |
+| shooting-photos-on-your-phone | public | written |
+| sharing-into-gradethread | public | written |
+| staying-signed-in | public | written |
 
 ## buyers
 
