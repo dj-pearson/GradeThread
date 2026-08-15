@@ -26,8 +26,30 @@ on its own — a newer schema serves an older edge fine — but it does mean the
 centre's tables exist while nothing is serving them, and `features.auth_email_hook`
 (GT-001/US-2597) will not appear until the redeploy either.
 
-**So the remaining sequence is: confirm the list above → push → redeploy the edge.**
-Not apply-then-push; the apply has happened.
+**⚠ OWNER ANSWERED 2026-08-15: only SOME of 00604–00606 were applied.** So the
+`00606` above is a maximum with a hole under it, and this is no longer a
+bookkeeping question — it is the exact failure the 00604 section below was
+written to warn about, now confirmed rather than hypothetical:
+
+- **The boot guard compares the MAXIMUM only.** After the next edge deploy it
+  will read `expected 00606 / applied 00606` and report `match` while the
+  database is missing whatever was skipped. A green health check is not evidence
+  here.
+- **00605 and 00606 both depend on 00602/00603, not on 00604**, so 00606 can be
+  recorded with 00604 never having run. The dependency chain does not make the
+  sequence self-checking.
+- **The push stays held** until the list is known. Nothing in the 23 unpushed
+  commits has been sent.
+
+Run this and paste the result — it is the whole answer, and every migration from
+00254 up self-records, so absence in this list means the SQL did not run:
+
+```sql
+select version from public.applied_migrations where version >= '00595' order by version;
+```
+
+Then the headings that ran get `## ✅ APPLIED:` with today's date, the ones that
+did not stay HELD, and the push gate sorts the two lists out on its own.
 
 ## ⏳ HELD: 00606_help_analytics.sql (US-2592 — what people read, what they couldn't find)
 
