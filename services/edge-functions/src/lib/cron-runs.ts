@@ -51,10 +51,25 @@ export async function recordCronRun(run: CronRunInsert): Promise<void> {
 
 // ── Schedule registry ────────────────────────────────────────────────
 // `name` is the cron_runs.job_name — for /api/jobs/<seg> crons it's the last
-// path segment (what the middleware records). `recorded: false` marks crons
-// served outside /api/jobs/* (eBay/Google, handled inside /api/flipdesk/*),
-// which the ledger doesn't capture today: their schedule + next-run still show,
-// last-run is unknown.
+// path segment (what the middleware records).
+//
+// `recorded: false` means cron-fleet-health CANNOT SEE THE JOB AT ALL — no
+// ledger row, so a task that was never created in Coolify and a task that died
+// look identical, which is the failure the fleet alert exists to catch. Treat it
+// as a gap to close, not a category (US-2616/US-2617).
+//
+// It used to be the default for anything served outside /api/jobs/*, described
+// as "the ledger doesn't capture them today". That was a statement about where
+// the recorder was MOUNTED rather than about what was possible: main.ts applies
+// recordEbayCron by path, and it keys on the internal-job header rather than on
+// which secret validates it — so a mount was all most of them needed.
+//
+// What genuinely still cannot be recorded, and why:
+//   • ebay-orders-sync, photo-archive, reconciliation-sweep — behind
+//     authMiddleware with no requireJobSecret branch, so they 401 before the
+//     handler runs (US-2310, KNOWN_UNREACHABLE_CRONS). They cannot run, so
+//     there is nothing to record.
+//   • oneOff backfills — no cadence to miss.
 
 export interface CronDef {
   name: string;
@@ -258,9 +273,9 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-561: promoted-listings performance sync.
   { name: "ebay-promoted-sync", label: "eBay promoted-listings sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/promoted-sync", recorded: true },
   // US-852: autonomous content tick — its OWN secret; idle returns skipped:true.
-  { name: "content-tick", label: "Content scheduler tick", schedule: "0 * * * *", category: "content", endpoint: "/api/content/scheduler/tick", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET", healthy: "200 with skipped:true when idle (cadence gate) — NOT ok:true" },
+  { name: "content-tick", label: "Content scheduler tick", schedule: "0 * * * *", category: "content", endpoint: "/api/content/scheduler/tick", recorded: true, secretEnv: "CONTENT_INTERNAL_JOB_SECRET", healthy: "200 with skipped:true when idle (cadence gate) — NOT ok:true" },
   // US-882: weekly content digest email to admins.
-  { name: "content-digest", label: "Content weekly digest", schedule: "0 14 * * 1", category: "content", endpoint: "/api/content/scheduler/digest", recorded: false, secretEnv: "CONTENT_INTERNAL_JOB_SECRET" },
+  { name: "content-digest", label: "Content weekly digest", schedule: "0 14 * * 1", category: "content", endpoint: "/api/content/scheduler/digest", recorded: true, secretEnv: "CONTENT_INTERNAL_JOB_SECRET" },
   // US-1870: nightly Inventory Equity snapshot → the equity-over-time trend.
   { name: "equity-snapshot", label: "Inventory Equity snapshot", schedule: "15 5 * * *", category: "flipdesk", endpoint: "/api/jobs/equity-snapshot", recorded: true },
 ];

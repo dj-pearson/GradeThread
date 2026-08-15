@@ -152,9 +152,9 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | condition-index-seedgen | `0 9 * * 1` | `/api/jobs/condition-index-seedgen` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | confidence-calibration | `0 13 * * 0` | `/api/jobs/confidence-calibration` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | consignor-payouts | `*/30 * * * *` | `/api/jobs/consignor-payouts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
-| content-digest | `0 14 * * 1` | `/api/content/scheduler/digest` | `$CONTENT_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| content-digest | `0 14 * * 1` | `/api/content/scheduler/digest` | `$CONTENT_INTERNAL_JOB_SECRET` |  |
 | content-refresh | `30 4 * * *` | `/api/jobs/content-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
-| content-tick | `0 * * * *` | `/api/content/scheduler/tick` | `$CONTENT_INTERNAL_JOB_SECRET` | 200 with skipped:true when idle (cadence gate) — NOT ok:true; not in the cron_runs ledger |
+| content-tick | `0 * * * *` | `/api/content/scheduler/tick` | `$CONTENT_INTERNAL_JOB_SECRET` | 200 with skipped:true when idle (cadence gate) — NOT ok:true |
 | content-watchdog | `0 */3 * * *` | `/api/jobs/content-watchdog` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | credentials-refresh | `40 5 * * *` | `/api/jobs/credentials-refresh` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, revised, up_to_date, capped:false}; revised is 0 on a steady-state run |
 | cron-fleet-health | `17 * * * *` | `/api/jobs/cron-fleet-health` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |

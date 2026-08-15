@@ -390,3 +390,79 @@ Deno.test("US-2310: an unrecorded cron is a deliberate, justified choice", async
       `cron-fleet-health and nothing explains why: ${undocumented.join(", ")}`,
   );
 });
+
+// ---------------------------------------------------------------------------
+// US-2617: `recorded: true` is a CLAIM, and nothing checked it.
+//
+// The /api/jobs/* family is recorded by construction — one middleware covers the
+// whole prefix. Everything else is recorded only because main.ts mounts
+// recordEbayCron on that exact path, and the two facts live in different files.
+//
+// Flip a registry entry to `recorded: true` without the mount and the result is
+// worse than leaving it alone: cron-fleet-health starts EXPECTING ledger rows
+// that can never arrive, so the job reads as permanently stalled and the alert
+// it raises is about the wiring rather than about the job. A stalled-forever
+// entry is exactly how an on-call learns to ignore this channel.
+//
+// Found while closing the blind spot: three entries were flipped in one pass,
+// and nothing here would have caught a missed mount.
+
+Deno.test("US-2617: every recorded cron outside /api/jobs/* has a recorder mounted", async () => {
+  const main = await Deno.readTextFile(MAIN_TS);
+  const routesDir = new URL("../routes/", import.meta.url);
+  const routeSources: string[] = [];
+  for await (const e of Deno.readDir(routesDir)) {
+    if (e.isFile && e.name.endsWith(".ts")) {
+      routeSources.push(await Deno.readTextFile(new URL(e.name, routesDir)));
+    }
+  }
+  const missing: string[] = [];
+
+  for (const entry of CRON_REGISTRY) {
+    if (!entry.recorded) continue;
+    // Covered by the /api/jobs/* chokepoint middleware, by construction.
+    if (entry.endpoint.startsWith("/api/jobs/")) continue;
+
+    // Either an exact mount, or a wildcard prefix that contains it — the eBay
+    // job family is mounted as /api/flipdesk/ebay/jobs/*.
+    const exact = main.includes(`app.use("${entry.endpoint}", recordEbayCron)`);
+    const wildcard = [...main.matchAll(/app\.use\("([^"]+)\/\*", recordEbayCron\)/g)]
+      .some((m) => entry.endpoint.startsWith(`${m[1]}/`));
+
+    // THIRD MECHANISM, and the reason this test was wrong on its first run: a
+    // handler may call recordCronRun itself. drip-tick and newsletter-kickoff
+    // both do, with per-branch statuses the middleware could not produce — the
+    // drip tick records a 404 "no such campaign" as its own error row. A guard
+    // that only knew about the mount reported both as broken, which would have
+    // sent the next reader to fix two things that were already right.
+    const selfRecorded = routeSources.some((src) =>
+      new RegExp(`jobName:\\s*"${entry.name}"`).test(src)
+    );
+
+    if (!exact && !wildcard && !selfRecorded) {
+      missing.push(`${entry.name} → ${entry.endpoint}`);
+    }
+  }
+
+  assertEquals(
+    missing,
+    [],
+    "recorded:true with no recordEbayCron mount — cron-fleet-health will expect " +
+      "ledger rows that never arrive and report these as permanently stalled:\n  " +
+      missing.join("\n  "),
+  );
+});
+
+Deno.test("US-2617: the recorder treats the signed job request as a cron too", async () => {
+  // The content, newsletter and drip schedulers accept EITHER a static
+  // X-Internal-Job-Secret or a signed X-Internal-Job-Signature (HMAC, freshness,
+  // single-use). Keying the recorder only on the static header would record a
+  // caller using the weaker path and silently skip the same job on the stronger
+  // one — a ledger gap that appears precisely when someone improves the caller.
+  const main = await Deno.readTextFile(MAIN_TS);
+  const guard = /const isCron = Boolean\(\s*c\.req\.header\("X-Internal-Job-Secret"\)\s*\?\?\s*c\.req\.header\("X-Internal-Job-Signature"\),?\s*\)/;
+  assert(
+    guard.test(main),
+    "recordEbayCron must treat both internal-call shapes as a cron",
+  );
+});

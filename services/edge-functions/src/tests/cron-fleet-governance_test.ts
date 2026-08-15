@@ -300,8 +300,6 @@ Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is not 
     report.unmonitored,
     [
       "cert-integrity-backfill", // oneOff — a backfill has no cadence to miss
-      "content-digest", // CONTENT_INTERNAL_JOB_SECRET, not the recorder's header
-      "content-tick", // same
       "ebay-orders-sync", // US-2310: unreachable with the job secret at all
       "passport-backfill", // oneOff
       "photo-archive", // US-2310: unreachable

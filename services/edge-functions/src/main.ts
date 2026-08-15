@@ -727,7 +727,22 @@ app.use("/api/jobs/*", async (c, next) => {
 // on the internal job secret + a registered path, so ordinary eBay traffic is a
 // no-op. Mounted only on the specific cron sub-paths.
 const recordEbayCron = createMiddleware(async (c, next) => {
-  const isCron = Boolean(c.req.header("X-Internal-Job-Secret"));
+  // US-2617: BOTH internal-call shapes count. The static header is one way a
+  // scheduler authenticates; the signed variant (HMAC + freshness + single-use,
+  // verifySignedJobRequest) is the other, and the content, newsletter and drip
+  // schedulers all accept it. Keying only on the static header would record a
+  // cron that used the weaker path and silently skip the same job when it used
+  // the stronger one — a ledger gap that appears when someone improves the
+  // caller.
+  //
+  // This is a PRESENCE check, not authentication: it decides "was this an
+  // internal scheduled call", and the handler still decides whether the secret
+  // is valid. A forged header therefore buys nothing except a cron_runs row on
+  // a request that is about to 401, which the recorder faithfully records as a
+  // failure.
+  const isCron = Boolean(
+    c.req.header("X-Internal-Job-Secret") ?? c.req.header("X-Internal-Job-Signature"),
+  );
   const startedMs = isCron ? Date.now() : 0;
   await next();
   if (!isCron) return;
@@ -761,6 +776,16 @@ app.use("/api/flipdesk/ebay/sync/performance", recordEbayCron);
 // positive — it is the question "is this task actually installed?" answering
 // itself for the first time.
 app.use("/api/flipdesk/ebay/oauth/refresh", recordEbayCron);
+// US-2617: the content scheduler's two crons. They were recorded:false because
+// they authenticate against CONTENT_INTERNAL_JOB_SECRET rather than the
+// FLIPDESK one — but that is which SECRET the handler validates, and the
+// recorder only cares which HEADER arrived. Both are X-Internal-Job-Secret (or
+// the signed variant), so the same middleware works unchanged.
+//
+// content-tick is hourly and content-digest weekly; a stop on either is silent,
+// which is the whole argument for recording them.
+app.use("/api/content/scheduler/tick", recordEbayCron);
+app.use("/api/content/scheduler/digest", recordEbayCron);
 
 // Admin billing: user JWT auth, then admin role check
 app.use("/api/admin/*", authMiddleware);
