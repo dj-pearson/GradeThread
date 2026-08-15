@@ -294,40 +294,25 @@ describe("US-2619: every in-Function OG endpoint buffers before responding", () 
   });
 });
 
-describe("US-2619: only font weights workers-og can actually load", () => {
-  // Satori THROWS on a weight it cannot resolve — it does not fall back to the
-  // nearest one. That throw was invisible until US-2619 buffered the render,
-  // because ImageResponse streams and the failure landed after the Response had
-  // gone out.
+describe("US-2619: the font-weight theory is disproven, not merely untested", () => {
+  // A previous pass restricted weights to {500,600,800} and asserted it here,
+  // on the correlation that the one template rendering in a Pages Function was
+  // the only one without a 700.
   //
-  // The correlation that found it: of six templates, exactly one rendered in a
-  // Pages Function, and it was the only one that never used weight 700.
+  // The deployed bundle now carries a commit AFTER that change and the cards
+  // still fall back, so the restriction had no basis and the weights are
+  // restored. This case replaces the guard: it exists to stop the same
+  // correlation being rediscovered and re-implemented.
   const src = readFileSync(
     join(process.cwd(), "functions/_shared/og-template.ts"),
     "utf8",
   );
-  const ALLOWED = new Set(["500", "600", "800"]);
 
-  it("no template asks for a weight outside the proven set", () => {
-    const used = [...new Set(
-      [...src.matchAll(/font-weight:\s*(\d+)/g)].map((m) => m[1]!),
-    )].sort();
-    const bad = used.filter((w) => !ALLOWED.has(w));
-    expect(
-      bad,
-      `workers-og resolves 500/600/800 here. Satori throws on anything else ` +
-        `rather than falling back, and the throw used to surface as a 200 with ` +
-        `an empty body. Found: ${bad.join(", ")}`,
-    ).toEqual([]);
-    // Guard-the-guard: if the regex ever stops matching, an empty set would
-    // pass while checking nothing.
-    expect(used.length).toBeGreaterThan(1);
-  });
-
-  it("records why, not just what", () => {
-    // A bare number list gets "fixed" by someone who needs bold. The reasoning
-    // has to survive next to it.
-    expect(src).toMatch(/Satori THROWS on a weight/);
-    expect(src).toMatch(/Font weights: 500, 600 and 800 ONLY/);
+  it("records that 700 was ruled out, so nobody re-derives it", () => {
+    expect(src).toMatch(/700 is NOT the problem/);
+    expect(src).toMatch(/THAT THEORY IS DISPROVEN/);
+    // And the eliminations stay listed, because the value of this investigation
+    // is mostly in what it has already excluded.
+    expect(src).toMatch(/ELIMINATED SO FAR/);
   });
 });
