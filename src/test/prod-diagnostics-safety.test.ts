@@ -154,7 +154,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       ["applied_migrations", ["version", "applied_at"]],
       ["email_deliveries", ["status", "html", "created_at"]],
       ["submission_images", ["submission_id"]],
-      ["submissions", ["created_at"]],
+      ["submissions", ["created_at", "status", "quality_feedback"]],
       ["disputes", ["status", "updated_at", "grade_report_id"]],
       ["grade_reports", ["overall_score"]],
       ["api_credit_transactions", ["user_id", "delta", "reason", "created_at"]],
@@ -267,6 +267,7 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
       "§24",
       "§25",
       "§26",
+      "§27",
     ]) {
       expect(SQL, `${section} is advertised in the header`).toContain(section);
     }

@@ -62,6 +62,7 @@
 --   §24 US-2286 AC5 — which entitlements came from a sandbox purchase.
 --   §25 US-2606 — did migration 00594 actually land? (run it AFTER applying)
 --   §26 US-2304 AC4 — how often did a missing tag photo cost a vision call?
+--   §27 US-2610 AC5 — which required photo is actually blocking people?
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -1083,3 +1084,46 @@ ORDER BY 1;
 -- -- empty means the path never fired in production and AC4 closes at zero.
 -- -- The AI spend is NOT recoverable from either number; images-per-
 -- -- submission is the multiplier and it is not stored on these rows.
+
+-- ════════════════════════════════════════════════════════════════
+-- §27 US-2610 AC5 — WHICH REQUIRED PHOTO IS ACTUALLY BLOCKING PEOPLE?
+-- ════════════════════════════════════════════════════════════════
+-- REQUIRED_IMAGE_TYPES is front + back + label, all at severity block, so a
+-- garment with no readable tag cannot be graded at all. Some genuinely have
+-- none: heat-transfer cut sizes wear off, resale basics ship tagless,
+-- vintage tags get cut out. US-2610 asks what those sellers photograph
+-- instead — and asks this FIRST, because if the label case is rare the
+-- honest fix is a clearer refusal message and nothing more.
+
+-- ⚠ THIS IS A SNAPSHOT, NOT A HISTORY, and the difference is large.
+-- quality_feedback is set to NULL the moment a grade is produced (00069),
+-- so every seller who added the missing photo and succeeded has already
+-- erased their own row from this count. What is left is the people who are
+-- STUCK. That is the more actionable set and it is not the same question.
+
+SELECT
+  i->>'image_type'                       AS image_type,
+  count(*)                               AS stuck_submissions
+FROM public.submissions s
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE
+    WHEN jsonb_typeof(s.quality_feedback -> 'issues') = 'array'
+      THEN s.quality_feedback -> 'issues'
+    ELSE '[]'::jsonb
+  END
+) AS i
+WHERE s.status = 'needs_photos'
+  AND i->>'severity' = 'block'
+  AND i->>'problem'  = 'missing'
+GROUP BY 1
+ORDER BY 2 DESC;
+
+-- -- The CASE is not defensive dressing: jsonb_array_elements raises on a
+-- -- non-array, and one malformed row would end this session before the
+-- -- sections after it ran. An unexpected shape yields no rows instead.
+
+-- -- READING THIS: label far ahead of front/back is the tagless case and
+-- -- US-2610 is worth building. Roughly level across the three is ordinary
+-- -- incomplete uploads, and the fix is upload-time guidance, not a grading
+-- -- change. Empty means nobody is stuck today — which does NOT mean it
+-- -- never happened, for the reason in the warning above.
