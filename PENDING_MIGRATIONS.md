@@ -1,57 +1,38 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 📏 MEASURED 2026-08-15: production reports `applied = 00606`
+## ✅ NOTHING IS HELD (owner, 2026-08-15): every migration is applied and main is pushed
 
-`GET https://functions.gradethread.com/health/ready` returns
-`{"schema":{"expected":"00603","applied":"00606","status":"ahead"}}` — the
-running edge reading `applied_migrations` through the service-role client, which
-is the database's own answer rather than anyone's recollection.
+The owner applied the outstanding migrations and pushed. `git log origin/main..main`
+is empty and origin/main sits on the same commit as local. Every section below
+that said HELD now says APPLIED. **Nothing in this file is a hold today.**
 
-**What that proves:** 00606 ran. Every entry below it that is still marked HELD
-was written before this measurement and is at least partly stale.
+**How to confirm that rather than take this line's word for it,** once Coolify has
+rolled the edge:
 
-**What it does not prove, and this file already said so once:** the number is a
-MAXIMUM. A database missing 00602 mid-sequence still reports 00606, and the edge
-boot guard would still read "match". One query settles it, and it is the same one
-the 00604 section below asks for:
-
-```sql
-select version from public.applied_migrations where version >= '00595' order by version;
+```bash
+curl -fsS https://functions.gradethread.com/health/ready | jq .schema
 ```
 
-**The edge is BEHIND the database, which is the other half of this reading.**
-`expected` is compiled into the image, so `expected 00603 / applied 00606` means
-the running container was built before 00604–00606 landed. That is not dangerous
-on its own — a newer schema serves an older edge fine — but it does mean the help
-centre's tables exist while nothing is serving them, and `features.auth_email_hook`
-(GT-001/US-2597) will not appear until the redeploy either.
+US-2603 added `missing` to that block: the versions this build ships that the
+database has never recorded. An empty or absent `missing` is the real all-clear.
+A bare `"status":"match"` is NOT — `applied` is a maximum, and a maximum cannot
+see a gap beneath it, which is exactly the state this file spent 2026-08-15
+warning about. If `complete: false` comes back, the applied set could not be read;
+that is "we do not know", not "clean".
 
-**⚠ OWNER ANSWERED 2026-08-15: only SOME of 00604–00606 were applied.** So the
-`00606` above is a maximum with a hole under it, and this is no longer a
-bookkeeping question — it is the exact failure the 00604 section below was
-written to warn about, now confirmed rather than hypothetical:
+**The running edge was still the pre-push image when this was written** —
+`/health/ready` reported `expected 00603 / applied 00606`, i.e. a container built
+before 00604-00606 landed. Nothing is wrong with that on its own; a newer schema
+serves an older edge fine. But `features.auth_email_hook` and `schema.missing`
+only exist in the new image, so a check run before the redeploy is answering
+about the old build.
 
-- **The boot guard compares the MAXIMUM only.** After the next edge deploy it
-  will read `expected 00606 / applied 00606` and report `match` while the
-  database is missing whatever was skipped. A green health check is not evidence
-  here.
-- **00605 and 00606 both depend on 00602/00603, not on 00604**, so 00606 can be
-  recorded with 00604 never having run. The dependency chain does not make the
-  sequence self-checking.
-- **The push stays held** until the list is known. Nothing in the 23 unpushed
-  commits has been sent.
+**Everything below is history, kept on purpose.** Each section records the risk,
+the apply order and the dependencies for a migration that has now run. Read one
+when something misbehaves in a table it created. Do not read this file as a
+queue.
 
-Run this and paste the result — it is the whole answer, and every migration from
-00254 up self-records, so absence in this list means the SQL did not run:
-
-```sql
-select version from public.applied_migrations where version >= '00595' order by version;
-```
-
-Then the headings that ran get `## ✅ APPLIED:` with today's date, the ones that
-did not stay HELD, and the push gate sorts the two lists out on its own.
-
-## ⏳ HELD: 00606_help_analytics.sql (US-2592 — what people read, what they couldn't find)
+## ✅ APPLIED (owner-confirmed 2026-08-15): 00606_help_analytics.sql (US-2592 — what people read, what they couldn't find)
 
 **Risk: LOW.** One new `help_article_views` table (three-column primary key, one
 index, RLS enabled, no policies), one `record_help_article_view` function and one
@@ -88,7 +69,7 @@ slug records nothing rather than creating a row. Crawlers are filtered by user
 agent before the call is made at all, which means these numbers will read LOWER
 than a raw server log and that is the intent.
 
-## ⏳ HELD: 00605_help_feedback_and_freshness.sql (US-2591 — was it any good, is it still true?)
+## ✅ APPLIED (owner-confirmed 2026-08-15): 00605_help_feedback_and_freshness.sql (US-2591 — was it any good, is it still true?)
 
 **Risk: LOW.** One `ADD COLUMN IF NOT EXISTS content_version integer NOT NULL
 DEFAULT 1` on `help_articles`, one trigger function, one trigger, one new
@@ -199,7 +180,7 @@ centre is working.
 
 </details>
 
-## ⏳ HELD: 00603_help_center_search.sql (US-2577 — Help Center search)
+## ✅ APPLIED (owner-confirmed 2026-08-15): 00603_help_center_search.sql (US-2577 — Help Center search)
 
 **Risk: LOW, with one line that is not instant.** Adds a generated `search_tsv`
 column to `help_articles`, a GIN index on it, a `help_search_misses` table with
@@ -241,7 +222,7 @@ deno test asserts both the missing default and that the route hands it
 an IP, not a session. Only the query text, the viewer tier and the hit count,
 because a help query can carry anything a frustrated person types.
 
-## ⏳ HELD: 00602_help_center_articles.sql (US-2572 — the Help Center store)
+## ✅ APPLIED (owner-confirmed 2026-08-15): 00602_help_center_articles.sql (US-2572 — the Help Center store)
 
 **Risk: LOW, but it is not a one-liner.** Three new enums
 (`help_visibility`, `help_article_status`, `help_audience`), two new tables
@@ -287,7 +268,7 @@ A handler bug cannot leak a `members` or `internal` row through the public
 renderer, because the anon role never sees the row at all. If a future migration
 loosens the `anon read published public help` policy, that guarantee is gone.
 
-## ⏳ HELD: 00601_cancellation_requested_notification.sql (US-2560 — a buyer cancellation reaches no notification channel)
+## ✅ APPLIED (owner-confirmed 2026-08-15): 00601_cancellation_requested_notification.sql (US-2560 — a buyer cancellation reaches no notification channel)
 
 **Risk: LOW — the lowest kind there is.** One `ALTER TYPE notification_type ADD
 VALUE IF NOT EXISTS 'cancellation_requested'`. No table is created, altered or
@@ -425,7 +406,7 @@ and would not help: the rollback for this one is a frontend revert.
 
 Apply order: AFTER 00598.
 
-## ⏳ HELD: 00595 – 00598 (the pre-launch money + evidence audit, US-2562..US-2567)
+## ✅ APPLIED (owner-confirmed 2026-08-15): 00595 – 00598 (the pre-launch money + evidence audit, US-2562..US-2567)
 
 **Apply strictly in NNNNN order, after 00594.** `scripts/apply-prod-migrations.sh`
 does that for you; all four are idempotent and safe to re-run.
