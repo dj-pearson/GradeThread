@@ -173,14 +173,33 @@ function main() {
     return 1;
   }
 
+  // BOTH kinds are present. They are different situations with different
+  // remedies, and printing them under one heading is how an operator ends up
+  // applying the wrong fix to the wrong file.
+  //
+  // Measured 2026-08-15: five migrations were listed here under "already on
+  // origin/main" and two of them (00605, 00606) were not on origin at all —
+  // they were the incoming set, sitting unpushed in the working tree, having
+  // been applied to prod exactly as the rule asks. An operator following the
+  // printed advice would have flipped a heading to APPLIED on the strength of a
+  // leak that never happened, and the next genuinely-held migration in that
+  // section would have inherited the flip.
   console.error("");
-  console.error("[held-migration-gate] BLOCKED — held migrations are already on " + upstream + ":");
-  for (const h of leaked) console.error(`  • ${h.file}`);
+  console.error("[held-migration-gate] BLOCKED — two different problems:");
+  console.error("");
+  console.error(`  ALREADY ON ${upstream} — the rule was broken earlier:`);
+  for (const h of already) console.error(`  • ${h.file}`);
   console.error("");
   console.error("  Either the SQL was applied to prod and PENDING_MIGRATIONS.md was");
   console.error("  never updated (flip the heading to '## ✅ APPLIED:' and date it),");
   console.error("  or code shipped ahead of the schema and the migration needs");
   console.error("  applying now. Do not bypass this to make it quiet.");
+  console.error("");
+  console.error("  IN THIS PUSH — still preventable:");
+  for (const h of incoming) console.error(`  • ${h.file}`);
+  console.error("");
+  console.error("  Apply the SQL to prod first, then flip its heading to");
+  console.error("  '## ✅ APPLIED:' and date it.");
   console.error("");
   return 1;
 }

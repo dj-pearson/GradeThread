@@ -135,6 +135,25 @@ describe("US-2346: the hook blocks an INCOMING held migration", () => {
     // never updated after applying; "about to push" means apply the SQL first.
     const src = readFileSync(resolve(process.cwd(), "scripts/held-migration-gate.mjs"), "utf8");
     expect(src).toContain("this push would send a migration");
-    expect(src).toContain("held migrations are already on ");
+    expect(src).toContain("ALREADY ON ");
+  });
+
+  it("does not print an incoming migration under the already-upstream heading", () => {
+    // The defect, measured 2026-08-15 on this repo: with both sets non-empty
+    // the branch printed `leaked` — already PLUS incoming — under a heading
+    // reading "held migrations are already on origin/main". Two of the five it
+    // named were not on origin at all. The remedy it advises for that heading
+    // is "flip it to APPLIED", so following the message would have marked an
+    // unapplied migration as applied, and the section would have carried that
+    // flip forward to the next one written under it.
+    const src = readFileSync(resolve(process.cwd(), "scripts/held-migration-gate.mjs"), "utf8");
+    const both = src.slice(src.indexOf("BOTH kinds are present"));
+    expect(
+      both,
+      "the both-present branch still prints the combined list under one heading",
+    ).not.toMatch(/for \(const h of leaked\)/);
+    // Each list printed from its own array, so the heading above it is true.
+    expect(both).toMatch(/for \(const h of already\)/);
+    expect(both).toMatch(/for \(const h of incoming\)/);
   });
 });

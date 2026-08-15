@@ -1,5 +1,34 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 📏 MEASURED 2026-08-15: production reports `applied = 00606`
+
+`GET https://functions.gradethread.com/health/ready` returns
+`{"schema":{"expected":"00603","applied":"00606","status":"ahead"}}` — the
+running edge reading `applied_migrations` through the service-role client, which
+is the database's own answer rather than anyone's recollection.
+
+**What that proves:** 00606 ran. Every entry below it that is still marked HELD
+was written before this measurement and is at least partly stale.
+
+**What it does not prove, and this file already said so once:** the number is a
+MAXIMUM. A database missing 00602 mid-sequence still reports 00606, and the edge
+boot guard would still read "match". One query settles it, and it is the same one
+the 00604 section below asks for:
+
+```sql
+select version from public.applied_migrations where version >= '00595' order by version;
+```
+
+**The edge is BEHIND the database, which is the other half of this reading.**
+`expected` is compiled into the image, so `expected 00603 / applied 00606` means
+the running container was built before 00604–00606 landed. That is not dangerous
+on its own — a newer schema serves an older edge fine — but it does mean the help
+centre's tables exist while nothing is serving them, and `features.auth_email_hook`
+(GT-001/US-2597) will not appear until the redeploy either.
+
+**So the remaining sequence is: confirm the list above → push → redeploy the edge.**
+Not apply-then-push; the apply has happened.
+
 ## ⏳ HELD: 00606_help_analytics.sql (US-2592 — what people read, what they couldn't find)
 
 **Risk: LOW.** One new `help_article_views` table (three-column primary key, one
