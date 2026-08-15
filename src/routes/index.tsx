@@ -61,6 +61,11 @@ const VerifiedSellerPage = lazy(() => import("@/pages/verified-seller").then(m =
 const TrustProfilePage = lazy(() => import("@/pages/trust-profile").then(m => ({ default: m.TrustProfilePage })));
 const VerifiedDirectoryPage = lazy(() => import("@/pages/verified-directory").then(m => ({ default: m.VerifiedDirectoryPage })));
 const FindsPage = lazy(() => import("@/pages/finds").then(m => ({ default: m.FindsPage })));
+// US-2576: the public Help Center. Edge-SSR'd in production; these are the
+// in-app and dev renderers.
+const HelpHubPage = lazy(() => import("@/pages/help/hub").then(m => ({ default: m.HelpHubPage })));
+const HelpCategoryPage = lazy(() => import("@/pages/help/category").then(m => ({ default: m.HelpCategoryPage })));
+const HelpArticlePage = lazy(() => import("@/pages/help/article").then(m => ({ default: m.HelpArticlePage })));
 const LeaderboardsPage = lazy(() => import("@/pages/leaderboards").then(m => ({ default: m.LeaderboardsPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
@@ -284,6 +289,16 @@ export const router = createBrowserRouter([
       // in-app renderer and the interactive one. The facet paths mirror the
       // Function's (/finds/b/<brand>, /finds/c/<category>) so an SSR link lands
       // somewhere the SPA can render. NOT in PUBLIC_ROUTES (dynamic, not prerendered).
+      // US-2576: the public Help Center. Same shape as /finds — articles are
+      // database rows, so prod serves the SSR Pages Function
+      // (functions/help/[[path]].ts) and these SPA routes are the in-app / dev
+      // renderer. The hub is registered BEFORE the category route so the
+      // one-segment path can't swallow it. NOT in PUBLIC_ROUTES: registering it
+      // would bake a snapshot into dist/ that _routes.json never serves and list
+      // /help in the sitemap twice (sitemap-help.xml is the Function's job).
+      { path: "/help", element: <SuspenseWrapper><HelpHubPage /></SuspenseWrapper> },
+      { path: "/help/:category", element: <SuspenseWrapper><HelpCategoryPage /></SuspenseWrapper> },
+      { path: "/help/:category/:slug", element: <SuspenseWrapper><HelpArticlePage /></SuspenseWrapper> },
       { path: "/finds", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
       { path: "/finds/b/:brandSlug", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },
       { path: "/finds/c/:categorySlug", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },

@@ -141,6 +141,23 @@ export function isReservedHelpSlug(slug: string): boolean {
   return RESERVED_HELP_SLUGS.has(slug.toLowerCase());
 }
 
+// The hub's own copy. Kept identical to functions/_shared/help-render.ts, which
+// serves the same words to crawlers — src/test/help-ssr.test.ts asserts the two
+// match, because a title that differs between the SSR page and the SPA page is
+// a title Google sees change on every hydration.
+export const HELP_HUB_TITLE = "Help Center";
+export const HELP_HUB_DESCRIPTION =
+  "How to grade a garment, run the FlipDesk pipeline, connect a marketplace, " +
+  "use the browser extension, and fix it when something goes wrong.";
+
+export function helpHubPath(): string {
+  return "/help";
+}
+
+export function helpCategoryPath(categorySlug: string): string {
+  return `/help/${categorySlug}`;
+}
+
 /** The public URL an article will live at, once published as 'public'. */
 export function helpArticlePath(categorySlug: string, slug: string): string {
   return `/help/${categorySlug}/${slug}`;

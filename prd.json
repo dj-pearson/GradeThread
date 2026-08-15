@@ -1892,22 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2576",
-      "title": "[HELP CENTER] SPA help routes and PUBLIC_ROUTES registration",
-      "description": "The SSR Function serves first paint to crawlers and cold visitors; the SPA has to render the same thing for in-app navigation. And the hub plus the category landings are static enough to belong in the SEO registry, which is what makes them indexable and sitemapped.",
-      "acceptanceCriteria": [
-        "src/pages/help/{hub,category,article}.tsx render the same content client-side from the public API.",
-        "A new src/lib/seo/help-center.ts exports helpRoutes() (hub + the 14 category paths) and is spread into PUBLIC_ROUTES in src/lib/seo/public-routes.ts.",
-        "The same routes are added to src/prerender/entry-server.tsx, or the CI guard test and the prerender sync-guard fail.",
-        "ROUTE_LAST_MODIFIED entries for the hub and each category.",
-        "Individual articles are deliberately NOT in PUBLIC_ROUTES: they are a dynamic collection and enter the sitemap through the Function, like blog posts and certificates.",
-        "src/lib/seo/__tests__/public-routes.test.ts passes and npm run build succeeds (tsc -b, not --noEmit)."
-      ],
-      "priority": 66,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2577",
       "title": "[HELP CENTER] Help search, public and in-app",
       "description": "A help center without search is a filing cabinet. It also has to work for a crawler and for a visitor with JavaScript off, and it has to survive 300+ articles without shipping the whole corpus to the browser.",

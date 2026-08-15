@@ -58,6 +58,15 @@ const AUTH_OR_FLOW_EXACT = new Set([
   // here would bake a stale snapshot into dist/ that _routes.json never serves
   // and list the path in the sitemap twice.
   "/condition-index",
+  // US-2576: the public Help Center hub. Same treatment, same reason as /finds,
+  // /leaderboards and /condition-index — articles are database rows an admin
+  // edits without a deploy, so the page is edge-SSR'd by
+  // functions/help/[[path]].ts and listed in the sitemap by sitemap-help.xml
+  // (US-2578). Registering it here would bake a snapshot of the shelf into dist/
+  // that _routes.json never serves (the Function wins) and list /help in the
+  // sitemap twice. /help/:category and /help/:category/:slug escape this guard
+  // on the param rule above.
+  "/help",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */

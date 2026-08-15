@@ -241,6 +241,46 @@ describe("the Markdown mirrors", () => {
   });
 });
 
+describe("the SSR and SPA renderers agree (US-2576)", () => {
+  it("the hub title and description are byte-identical on both sides", async () => {
+    // Both surfaces answer at /help — the Function for a cold visitor, the SPA
+    // after hydration. A title that differs between them is a title Google
+    // watches change on every render.
+    const spa = await import("../types/help-center");
+    const ssr = await import("../../functions/_shared/help-render");
+    expect(spa.HELP_HUB_TITLE).toBe(ssr.HELP_HUB_TITLE);
+    expect(spa.HELP_HUB_DESCRIPTION).toBe(ssr.HELP_HUB_DESCRIPTION);
+  });
+
+  it("both sides mint the same URLs", async () => {
+    const spa = await import("../types/help-center");
+    const ssr = await import("../../functions/_shared/help-render");
+    expect(spa.helpHubPath()).toBe(ssr.helpHubPath());
+    expect(spa.helpCategoryPath("grading")).toBe(ssr.helpCategoryPath("grading"));
+    expect(spa.helpArticlePath("grading", "the-scale")).toBe(
+      ssr.helpArticlePath("grading", "the-scale"),
+    );
+  });
+
+  it("/help is NOT in PUBLIC_ROUTES, on purpose", async () => {
+    // Registering it would prerender a snapshot of the shelf into dist/ that
+    // _routes.json never serves (the Function wins) and list /help in the
+    // sitemap twice. Same call already made for /finds and /leaderboards.
+    const { PUBLIC_ROUTES } = await import("../lib/seo/public-routes");
+    expect(PUBLIC_ROUTES.some((r) => r.path === "/help")).toBe(false);
+    expect(PUBLIC_ROUTES.some((r) => r.path.startsWith("/help/"))).toBe(false);
+  });
+
+  it("the SPA renderer reads the same anonymous endpoint as the Function", () => {
+    const src = readFileSync(join(root, "src/hooks/use-help-center.ts"), "utf8");
+    const publicBlock = src.slice(src.indexOf("PUBLIC READS"));
+    expect(publicBlock).toContain("/api/content/public/help");
+    // No auth on the public reads: an access token here would render a
+    // members-only article on a page whose URL anyone can open.
+    expect(publicBlock).not.toContain("edgeFetch(");
+  });
+});
+
 describe("the two failures that are invisible in review", () => {
   it("_routes.json lists /help, /help/* and /help.md", () => {
     // Without these, Cloudflare Pages serves the SPA shell (or a static 404)

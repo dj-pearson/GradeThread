@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { edgeApiUrl } from "@/lib/edge-api";
 import { edgeFetch } from "@/lib/edge-fetch";
 import type {
   HelpArticle,
@@ -30,6 +31,63 @@ async function jfetch<T>(
 
 const ARTICLES_KEY = ["help_articles"];
 const CATEGORIES_KEY = ["help_categories"];
+const PUBLIC_KEY = ["help_public"];
+
+// ───────────────────────────────────────────────────────────────────
+// PUBLIC READS (US-2576)
+//
+// The SPA twin of functions/help/[[path]].ts. In production a visitor lands on
+// the edge-rendered page; these hooks serve in-app navigation and dev, and they
+// read the SAME anonymous endpoint the Function does, so neither surface can
+// show an article the other cannot. No auth header: sending one would let a
+// members-only article render on a page whose URL is public.
+// ───────────────────────────────────────────────────────────────────
+
+export interface PublicHelpIndex {
+  categories: HelpCategory[];
+  articles: Array<
+    Pick<
+      HelpArticle,
+      | "slug"
+      | "title"
+      | "summary"
+      | "category_key"
+      | "audience"
+      | "visibility"
+      | "sort_order"
+      | "updated_at"
+      | "reviewed_at"
+    >
+  >;
+}
+
+async function publicFetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${edgeApiUrl()}${path}`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(res.status === 404 ? "not_found" : "Couldn't load help.");
+  return (await res.json()) as T;
+}
+
+export function usePublicHelpIndex() {
+  return useQuery({
+    queryKey: PUBLIC_KEY,
+    staleTime: 5 * 60_000,
+    queryFn: () => publicFetch<PublicHelpIndex>("/api/content/public/help"),
+  });
+}
+
+export function usePublicHelpArticle(slug: string | undefined) {
+  return useQuery({
+    queryKey: [...PUBLIC_KEY, slug],
+    enabled: Boolean(slug),
+    retry: false,
+    queryFn: () =>
+      publicFetch<{ article: HelpArticle; category: HelpCategory | null }>(
+        `/api/content/public/help/${encodeURIComponent(slug!)}`,
+      ),
+  });
+}
 
 export function useHelpCategories() {
   return useQuery({
