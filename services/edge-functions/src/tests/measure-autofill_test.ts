@@ -136,6 +136,66 @@ Deno.test("measurableKeys: only length-unit fields are photo-measurable", () => 
   ]);
 });
 
+// ── The card is FOUND, not tagged ───────────────────────────────────
+//
+// This is the defect that made every other fix invisible: ai-photo-roles can
+// only assign front|back|tag|detail|defect, so a bulk-uploaded set never
+// contains a photo of type 'measurement'. Every measure surface filtered on
+// exactly that, so the card sat in the set and nothing looked at it.
+
+Deno.test("US-2595: the photo-role classifier still cannot emit 'measurement'", async () => {
+  // If this ever changes, the scan below becomes a fallback rather than the
+  // primary path — worth knowing, and worth failing to find out.
+  const { PHOTO_ROLES } = await import("../lib/ai-photo-roles.ts");
+  assert(
+    !(PHOTO_ROLES as readonly string[]).includes("measurement"),
+    "the scan exists because the classifier has no 'measurement' role",
+  );
+});
+
+Deno.test("US-2595: the autofill scans photos for the card instead of trusting a tag", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/measure-autofill.ts", import.meta.url),
+  );
+  // It must not narrow the query to already-tagged photos — that is the bug.
+  assert(
+    !src.includes('.eq("photo_type", "measurement")'),
+    "narrowing to photo_type='measurement' is what made the card invisible",
+  );
+  assert(src.includes("calibrateMeasurePhoto("), "detection is the finder");
+  // Finding it must retag, or the composer editor and the publish path (both
+  // of which DO filter on photo_type) still can't see it.
+  assert(src.includes('patch.photo_type = "measurement"'));
+  // Bounded: a set of 40 photos must not open all 40.
+  assert(src.includes("MAX_CARD_SCAN"));
+});
+
+Deno.test("US-2595: the scan never opens a private or derived photo", async () => {
+  const src = await Deno.readTextFile(
+    new URL("../lib/measure-autofill.ts", import.meta.url),
+  );
+  // 'internal' and 'certificate' are seller-private (US-1549) and
+  // measurement_overlay is the render we made FROM a card — none can BE one.
+  for (const t of ["measurement_overlay", "internal", "certificate"]) {
+    assert(src.includes(`"${t}"`), `${t} must be excluded from the scan`);
+  }
+});
+
+Deno.test("US-2595: the card must be found before the listing photos load", async () => {
+  // Retagging removes the branded card from the listing gallery. Load the
+  // photos first and the card ships to eBay in the buyer's photo set.
+  const src = await Deno.readTextFile(
+    new URL("../lib/ai-listing.ts", import.meta.url),
+  );
+  const measure = src.indexOf("autofillMeasurementsFromCard(");
+  const load = src.indexOf("const photos = await loadItemPhotoUrls(itemId)");
+  assert(measure > 0 && load > 0);
+  assert(
+    measure < load,
+    "the measure pass must run before loadItemPhotoUrls, not after",
+  );
+});
+
 // ── The generation wiring ───────────────────────────────────────────
 
 Deno.test("US-2595: listing generation runs the measure and size passes itself", async () => {

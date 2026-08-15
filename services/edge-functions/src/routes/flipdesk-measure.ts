@@ -35,6 +35,7 @@ import {
   measurementGroupForItem,
 } from "../lib/measurement-templates.ts";
 import {
+  autofillMeasurementsFromCard,
   MEASURE_ITEM_COLUMNS,
   type MeasureItemRow,
 } from "../lib/measure-autofill.ts";
@@ -47,6 +48,7 @@ import {
 import {
   AiQuotaExhaustedError,
   QUOTA_EXHAUSTED_MESSAGE,
+  refundAiAction,
   withAiAction,
 } from "../lib/ai-metering.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
@@ -379,6 +381,70 @@ flipdeskMeasureRoutes.post("/extract", async (c) => {
     console.error("[flipdesk-measure] extract failed:", err);
     return c.json(
       { error: err instanceof Error ? err.message : "Measurement extraction failed." },
+      502,
+    );
+  }
+});
+
+// US-2595: POST /autofill { item_id } — find the MeasureCard in whatever the
+// seller uploaded and measure the garment, in one call.
+//
+// /calibrate and /extract both take a photo_id the caller already knows is the
+// card. Nobody knows that on a bulk-uploaded set: ai-photo-roles classifies to
+// front|back|tag|detail|defect and cannot emit 'measurement', so the card sits
+// inside a photo labelled something else and every measure surface skips it.
+// This endpoint LOOKS for the card instead — it is a printed target with four
+// ArUco fiducials, so finding it is deterministic — retags it, and measures.
+//
+// The action is refunded when no vision call happened (no card in the set, or
+// nothing left to measure), so a wasted press never costs a seller anything.
+flipdeskMeasureRoutes.post("/autofill", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  let body: { item_id?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const itemId = typeof body.item_id === "string" ? body.item_id : "";
+  if (!itemId) return c.json({ error: "item_id is required" }, 400);
+
+  const { data: itemRow, error: itemErr } = await supabaseAdmin
+    .from("inventory_items")
+    .select(MEASURE_ITEM_COLUMNS)
+    .eq("id", itemId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (itemErr) {
+    console.error("[flipdesk-measure] autofill item load failed:", itemErr.message);
+    return c.json({ error: "Could not load the item." }, 500);
+  }
+  const item = itemRow as MeasureItemRow | null;
+  if (!item) return c.json({ error: "Item not found" }, 404);
+
+  const quota = await checkQuota(ownerId);
+  if (!quota.ok) return c.json(quota.body, quota.status);
+
+  try {
+    const result = await withAiAction(ownerId, quota.limit, () =>
+      autofillMeasurementsFromCard(itemId, ownerId, item));
+    if (!result.ran) await refundAiAction(ownerId);
+    return c.json({
+      ok: result.ran,
+      group: result.group,
+      written: result.written,
+      measurements: result.measurements,
+      reason: result.reason,
+      message: result.message,
+    });
+  } catch (err) {
+    if (err instanceof AiQuotaExhaustedError) {
+      return c.json({ error: QUOTA_EXHAUSTED_MESSAGE }, 429);
+    }
+    console.error("[flipdesk-measure] autofill failed:", err);
+    return c.json(
+      { error: err instanceof Error ? err.message : "Measurement autofill failed." },
       502,
     );
   }

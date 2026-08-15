@@ -105,7 +105,9 @@ export function MeasurementPhotoEditor({
   const [lines, setLines] = useState<EditorLine[]>([]);
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [imgDims, setImgDims] = useState<[number, number] | null>(null);
-  const [busy, setBusy] = useState<"calibrate" | "extract" | "save" | null>(null);
+  const [busy, setBusy] = useState<
+    "calibrate" | "extract" | "save" | "find" | null
+  >(null);
   const dragRef = useRef<EndpointHit | null>(null);
   /** Photo id we've already auto-calibrated, so a failure doesn't loop. */
   const autoCalibratedRef = useRef<string | null>(null);
@@ -151,7 +153,37 @@ export function MeasurementPhotoEditor({
     void runCalibrate({ silent: true });
   }, [photo?.id, calib]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  if (isLoading || !photo) return null; // no MeasureCard shot — nothing to edit
+  // US-2595: no photo tagged 'measurement' does NOT mean no card. The photo-role
+  // classifier can only assign front/back/tag/detail/defect, so on a normally
+  // uploaded set the card is sitting inside a photo labelled something else.
+  // Offer the scan rather than rendering nothing.
+  if (isLoading) return null;
+  if (!photo) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3">
+        <div className="flex items-center gap-1.5 text-sm">
+          <Ruler className="h-4 w-4 shrink-0" />
+          <span>
+            Shot this with the MeasureCard? Find it and measure the garment.
+          </span>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void runAutofill()}
+          disabled={busy !== null}
+          title="Looks through this item's photos for the MeasureCard, then measures every field for its category."
+        >
+          {busy === "find" ? (
+            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ScanSearch className="mr-1.5 h-3.5 w-3.5" />
+          )}
+          Find MeasureCard
+        </Button>
+      </div>
+    );
+  }
 
   const scale = imgDims ? fitScale(imgDims[0], imgDims[1], MAX_W, MAX_H) : 1;
 
@@ -180,6 +212,54 @@ export function MeasurementPhotoEditor({
         toast.success("MeasureCard detected — the photo is calibrated.");
       }
       await qc.invalidateQueries({ queryKey: ["measure_photo", itemId] });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // US-2595: find the card in the item's photos, retag it, and measure — the
+  // whole pipeline in one press, for a set that was never tagged by hand.
+  async function runAutofill() {
+    setBusy("find");
+    try {
+      const res = await edgeFetch("/api/flipdesk/measure/autofill", {
+        method: "POST",
+        json: { item_id: itemId },
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        reason?: string;
+        written?: string[];
+        measurements?: Record<string, unknown>;
+      };
+      if (!res.ok) {
+        toast.error(json.error ?? "Couldn't measure from the photos.");
+        return;
+      }
+      if (!json.ok) {
+        toast.info(
+          json.reason === "already_measured"
+            ? "Every measurement for this category is already filled."
+            : json.message ??
+              "No MeasureCard found in this item's photos. Shoot the garment flat with the card beside it, all four squares visible.",
+        );
+        return;
+      }
+      const written = json.written ?? [];
+      const next = { ...values };
+      for (const key of written) {
+        const v = Number((json.measurements ?? {})[key]);
+        if (Number.isFinite(v)) next[key] = v;
+      }
+      onApply(next, written);
+      await qc.invalidateQueries({ queryKey: ["measure_photo", itemId] });
+      await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      toast.success(
+        `Found the MeasureCard and filled ${written.length} measurement(s) — review each line before listing.`,
+      );
     } finally {
       setBusy(null);
     }

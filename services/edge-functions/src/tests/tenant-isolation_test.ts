@@ -3482,6 +3482,27 @@ Deno.test({
   },
 });
 
+// ── US-2595: flipdesk-measure autofill (US-268 workspace scope) ──────────────
+//
+// POST /autofill takes an item_id from the request body and, when it finds the
+// MeasureCard, RETAGS a photo and writes measurements — so an unscoped handler
+// would let B mutate A's inventory, not merely read it. The item load is
+// .eq("user_id", ownerId), and workspaceMiddleware rejects a non-member's
+// X-Workspace-Owner header before the handler runs at all.
+Deno.test({
+  name: "US-2595: non-member B cannot autofill measurements on A's item",
+  ignore: !CONFIGURED || !WS_OWNER,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/measure/autofill`, {
+      method: "POST",
+      headers: foreignWorkspaceHeaders(),
+      body: JSON.stringify({ item_id: crypto.randomUUID() }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST measure autofill as non-member");
+  },
+});
+
 // ── US-1790: B2B batch-grading status (public /api/v1, API-KEY auth) ──────────
 //
 // GET /api/v1/grades/batch/:id scopes the grading_batches read by the calling

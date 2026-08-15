@@ -126,6 +126,156 @@ export function needsMeasuring(
   });
 }
 
+/** How many of an item's photos the card scan will open. Sellers upload sets of
+ *  8-15; the card shot is normally among the first few, and an unbounded scan
+ *  would make one bad item pay for every other item's generation latency. */
+export const MAX_CARD_SCAN = 12;
+
+/** Photo types that cannot be the calibration frame and are never opened:
+ *  the render we produced FROM one, and the seller-private types the AI is
+ *  forbidden to read at all (US-1549). */
+const NEVER_THE_CARD = new Set([
+  "measurement_overlay",
+  "internal",
+  "certificate",
+]);
+
+interface CardPhoto {
+  photo: {
+    id: string;
+    storage_path: string;
+    photo_type: string | null;
+  };
+  calibration: StoredCalibration;
+  decoded: Image;
+  gray: ReturnType<typeof toGray>["gray"];
+  scale: number;
+}
+
+/**
+ * Find the MeasureCard in the item's photos — by LOOKING for it.
+ *
+ * The card is a standardized printed target with four ArUco fiducials at known
+ * positions, so "is this the calibration frame" is a decidable question, not a
+ * guess. Requiring the seller to tag the shot 'measurement' first is what made
+ * the whole feature dead weight in practice: a bulk-uploaded set is classified
+ * by ai-photo-roles, whose vocabulary is front|back|tag|detail|defect — it has
+ * no 'measurement' at all and never could assign one. So every set uploaded the
+ * normal way arrived with the card sitting in a photo labelled 'front' or
+ * 'detail', and the measure pipeline, which filters on photo_type, saw nothing.
+ *
+ * Detection is deterministic CV and is never billed, so scanning costs image
+ * bandwidth and nothing else. The first photo whose four markers resolve wins;
+ * it is retagged 'measurement' (which also keeps the branded card out of the
+ * listing gallery, exactly as a manual tag would) and its calibration is stored,
+ * so this runs once per item and every later pass reads the cache.
+ */
+async function findCardPhoto(
+  itemId: string,
+): Promise<CardPhoto | { reason: MeasureAutofillReason; message: string | null }> {
+  const { data: rows } = await supabaseAdmin
+    .from("item_photos")
+    .select("id, storage_path, photo_type, measure_calibration, sort_order")
+    .eq("inventory_item_id", itemId)
+    .order("sort_order", { ascending: true });
+  const all = ((rows ?? []) as Array<{
+    id: string;
+    storage_path: string | null;
+    photo_type: string | null;
+    measure_calibration: StoredCalibration | null;
+  }>).filter((p) => p.storage_path && !NEVER_THE_CARD.has(p.photo_type ?? ""));
+
+  // Anything already tagged (or already calibrated) is tried first — that is
+  // the cache hit, and it costs one download instead of twelve.
+  const known = all.filter(
+    (p) => p.photo_type === "measurement" || p.measure_calibration?.v === 1,
+  );
+  const rest = all.filter((p) => !known.includes(p));
+  const candidates = [...known, ...rest].slice(0, MAX_CARD_SCAN);
+  if (candidates.length === 0) {
+    return { reason: "no_measurement_photo", message: null };
+  }
+  if (all.length > candidates.length) {
+    console.warn(
+      `[measure-autofill] item ${itemId}: scanning ${candidates.length} of ${all.length} photos for the card`,
+    );
+  }
+
+  let lastMessage: string | null = null;
+  for (const p of candidates) {
+    const dl = await downloadItemPhoto(p.storage_path!, p.photo_type);
+    if ("error" in dl) {
+      lastMessage = dl.error;
+      continue;
+    }
+    let decoded: Image;
+    try {
+      decoded = (await Image.decode(
+        new Uint8Array(await dl.blob.arrayBuffer()),
+      )) as Image;
+    } catch {
+      lastMessage = "Could not decode the image.";
+      continue;
+    }
+    const { gray, scale } = toGray(decoded);
+
+    // A stored calibration is only trusted on a photo that is actually tagged
+    // as the card — otherwise it is a leftover from a retag and must be re-run.
+    if (p.photo_type === "measurement" && p.measure_calibration?.v === 1) {
+      return {
+        photo: { id: p.id, storage_path: p.storage_path!, photo_type: p.photo_type },
+        calibration: p.measure_calibration,
+        decoded,
+        gray,
+        scale,
+      };
+    }
+
+    const detected = calibrateMeasurePhoto(gray, MEASURE_CARD_VERSIONS);
+    if (!detected.ok) {
+      // "card_not_found" on an ordinary garment shot is the expected answer, not
+      // a failure — only carry a message forward when the card WAS seen and
+      // something else went wrong (blur, partial card), because that is the one
+      // a seller can act on.
+      if (detected.reason !== "card_not_found") lastMessage = detected.message;
+      continue;
+    }
+    const rescaled = rescaleCalibration(detected, scale);
+    const calibration: StoredCalibration = {
+      v: 1,
+      cardVersion: rescaled.cardVersion,
+      ppi: rescaled.ppi,
+      homography: rescaled.homography,
+      quality: rescaled.quality,
+      computedAt: new Date().toISOString(),
+    };
+    // Retag + cache. The retag is what makes this one-and-done: the composer's
+    // editor, the overlay render and the publish path all filter on
+    // photo_type, so after this the card behaves exactly as a hand-tagged one.
+    const patch: Record<string, unknown> = { measure_calibration: calibration };
+    if (p.photo_type !== "measurement") patch.photo_type = "measurement";
+    const { error: upErr } = await supabaseAdmin
+      .from("item_photos")
+      .update(patch as never)
+      .eq("id", p.id);
+    if (upErr) {
+      console.error("[measure-autofill] card tag/calibration persist failed:", upErr.message);
+      // The homography in hand is still valid — measure with it anyway.
+    }
+    return {
+      photo: { id: p.id, storage_path: p.storage_path!, photo_type: "measurement" },
+      calibration,
+      decoded,
+      gray,
+      scale,
+    };
+  }
+  return {
+    reason: lastMessage ? "calibration_failed" : "no_measurement_photo",
+    message: lastMessage,
+  };
+}
+
 /**
  * Calibrate (free) and measure (one bundled AI action) the item's MeasureCard
  * photo, writing the results onto inventory_items.
@@ -149,79 +299,11 @@ export async function autofillMeasurementsFromCard(
     return emptyResult(group, "already_measured", current, currentSources);
   }
 
-  // The item's most recent MeasureCard shot. Scoped through the item, which the
-  // caller has already verified against ownerId.
-  const { data: photoRows } = await supabaseAdmin
-    .from("item_photos")
-    .select("id, storage_path, photo_type, measure_calibration")
-    .eq("inventory_item_id", itemId)
-    .eq("photo_type", "measurement")
-    .order("created_at", { ascending: false })
-    .limit(1);
-  const photo = ((photoRows ?? []) as Array<{
-    id: string;
-    storage_path: string | null;
-    photo_type: string | null;
-    measure_calibration: StoredCalibration | null;
-  }>)[0];
-  if (!photo?.storage_path) {
-    return emptyResult(group, "no_measurement_photo", current, currentSources);
+  const found = await findCardPhoto(itemId);
+  if ("reason" in found) {
+    return emptyResult(group, found.reason, current, currentSources, found.message);
   }
-
-  const dl = await downloadItemPhoto(photo.storage_path, photo.photo_type);
-  if ("error" in dl) {
-    return emptyResult(group, "calibration_failed", current, currentSources, dl.error);
-  }
-  let decoded: Image;
-  try {
-    decoded = (await Image.decode(
-      new Uint8Array(await dl.blob.arrayBuffer()),
-    )) as Image;
-  } catch {
-    return emptyResult(
-      group,
-      "calibration_failed",
-      current,
-      currentSources,
-      "Could not decode the image.",
-    );
-  }
-  const { gray, scale } = toGray(decoded);
-
-  // Reuse a cached calibration; compute one when the seller never pressed
-  // "Detect card" (which is the whole point of this pass).
-  let calibration = photo.measure_calibration?.v === 1
-    ? photo.measure_calibration
-    : null;
-  if (!calibration) {
-    const detected = calibrateMeasurePhoto(gray, MEASURE_CARD_VERSIONS);
-    if (!detected.ok) {
-      return emptyResult(
-        group,
-        "calibration_failed",
-        current,
-        currentSources,
-        detected.message,
-      );
-    }
-    const rescaled = rescaleCalibration(detected, scale);
-    calibration = {
-      v: 1,
-      cardVersion: rescaled.cardVersion,
-      ppi: rescaled.ppi,
-      homography: rescaled.homography,
-      quality: rescaled.quality,
-      computedAt: new Date().toISOString(),
-    };
-    const { error: calErr } = await supabaseAdmin
-      .from("item_photos")
-      .update({ measure_calibration: calibration } as never)
-      .eq("id", photo.id);
-    if (calErr) {
-      console.error("[measure-autofill] calibration persist failed:", calErr.message);
-      // The homography in hand is still valid — measure with it anyway.
-    }
-  }
+  const { photo, calibration, decoded, gray, scale } = found;
 
   const publicUrl = supabaseAdmin.storage
     .from(bucketForItemPhoto(photo.photo_type))

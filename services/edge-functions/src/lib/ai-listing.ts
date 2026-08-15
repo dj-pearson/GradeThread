@@ -1496,39 +1496,10 @@ export async function generateListing(
   const gradeReportId =
     (itemData as { grade_report_id?: string | null }).grade_report_id ?? null;
 
-  // 2. Photos. US-545: the vision passes (generation + aspect refine) send a
-  // cost-disciplined subset — exact-duplicate and near-identical same-role
-  // shots dropped, count capped, defect/tag roles prioritized — since image
-  // tokens dominate per-item cost. Tag-OCR scans the tag set below (bounded
-  // separately; tags are cheap and authoritative).
-  const photos = await loadItemPhotoUrls(itemId);
-  if (photos.length === 0) {
-    throw new Error(`Item ${itemId} has no photos to generate a listing from`);
-  }
-  const visionPhotos = selectListingPhotos(photos);
-
-  const knownFields: Record<string, unknown> = {};
-  for (
-    const [k, v] of Object.entries({
-      title: item.title,
-      brand: item.brand,
-      style: item.style,
-      size: item.size,
-      color: item.color,
-      material: item.material,
-      condition_notes: item.condition_notes,
-    })
-  ) {
-    if (v != null && String(v).trim() !== "") knownFields[k] = v;
-  }
-  // 2a. US-2595: the MeasureCard is one-and-done. If the item has a measurement
-  // shot and any measurable field is still blank, calibrate it (free, pure CV)
-  // and measure it (one bundled vision call) right here — so a generated draft
-  // always carries the numbers the card was photographed to produce. Nothing to
-  // press, and no seller has to know the word "calibrate".
-  //
-  // Fill-only: a value the seller typed is never overwritten, and an item with
-  // every measurement already filled skips the pass entirely (no spend).
+  // 1b. US-2595: the MeasureCard is one-and-done, and it runs BEFORE the photo
+  // load on purpose. Finding the card retags that shot 'measurement', which is
+  // what keeps the branded card out of the listing gallery and out of the vision
+  // budget below — load the photos first and the card ships to eBay.
   let itemMeasurements = (item.measurements ?? {}) as Record<string, unknown>;
   let itemAiSources =
     ((item as { ai_field_sources?: Record<string, unknown> | null })
@@ -1573,6 +1544,32 @@ export async function generateListing(
   // one-line method note inside the measurements block (text only).
   const calibratedMeasurements = hasCalibratedMeasurements(itemAiSources);
 
+
+  // 2. Photos. US-545: the vision passes (generation + aspect refine) send a
+  // cost-disciplined subset — exact-duplicate and near-identical same-role
+  // shots dropped, count capped, defect/tag roles prioritized — since image
+  // tokens dominate per-item cost. Tag-OCR scans the tag set below (bounded
+  // separately; tags are cheap and authoritative).
+  const photos = await loadItemPhotoUrls(itemId);
+  if (photos.length === 0) {
+    throw new Error(`Item ${itemId} has no photos to generate a listing from`);
+  }
+  const visionPhotos = selectListingPhotos(photos);
+
+  const knownFields: Record<string, unknown> = {};
+  for (
+    const [k, v] of Object.entries({
+      title: item.title,
+      brand: item.brand,
+      style: item.style,
+      size: item.size,
+      color: item.color,
+      material: item.material,
+      condition_notes: item.condition_notes,
+    })
+  ) {
+    if (v != null && String(v).trim() !== "") knownFields[k] = v;
+  }
   // 2b. US-543: dedicated tag-OCR ground-truth pass. When a tag/care-label
   // photo exists, run a focused vision pass over ONLY the tag(s) to read
   // brand/size/fiber/style/RN verbatim, then fold confident reads into
