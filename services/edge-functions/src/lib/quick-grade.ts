@@ -17,6 +17,15 @@ import {
 import { safeFetch } from "./ssrf.ts";
 import { captureException } from "./observability.ts";
 import { AiCeilingError } from "./ai-limiter.ts";
+import { applyPostCompositeCaps } from "./post-composite-caps.ts";
+import {
+  DEFAULT_PEER_NORM_CONFIG,
+  evaluatePeerNorm,
+  fetchPeerDistribution,
+  type PeerNormConfig,
+} from "./peer-norm.ts";
+import { reviewConfidenceThreshold } from "./ai-config.ts";
+import { getSetting } from "./system-settings.ts";
 
 // Bound cost/latency: a quick grade never analyzes more than this many images.
 const MAX_QUICK_IMAGES = 4;
@@ -36,6 +45,18 @@ export interface QuickGradeResult {
   gradeTier: string;
   confidence: number;
   needsHumanReview: boolean;
+  /**
+   * US-2309: how high this confidence is allowed to go afterwards.
+   *
+   * Returned rather than kept internal because a cap that lowers the value and
+   * not the ceiling is not a cap (US-2299) — any caller that later boosts on
+   * provenance has to clamp to this. Nothing boosts a quick grade today, and
+   * that is exactly why the ceiling has to leave the function: the next caller
+   * to add one must not have to discover the rule.
+   */
+  confidenceCeiling: number;
+  /** Which post-composite caps fired, if any. Empty on an uncapped grade. */
+  capsApplied: string[];
   factorScores: CompositeGradeResult["factor_scores"];
   imagesAnalyzed: number;
   // US-1836: COARSE photo-authenticity signal only (booleans + confidence). The
@@ -128,13 +149,80 @@ export async function quickGrade(input: QuickGradeInput): Promise<QuickGradeResu
     throw new Error("Image analysis failed for all images");
   }
 
-  const composite = await compositeGrade(perImage, garment);
+  // US-2397: a quick grade is usually front/back shots off a listing, so the
+  // missing-close-up case is the COMMON one here rather than the exception.
+  // Passed through so compositeGrade applies the same cap the full path does;
+  // with a close-up present this argument is false and nothing changes.
+  const fabricCloseupMissing = !dataUris.some((d) => /detail|fabric/i.test(d.type));
+
+  const composite = await compositeGrade(
+    perImage,
+    garment,
+    undefined,
+    undefined,
+    undefined,
+    "",
+    [],
+    false,
+    "",
+    fabricCloseupMissing,
+  );
+
+  // US-2309: the caps that can only be known after the composite. Until this,
+  // quick-grade returned needs_human_review straight out and saw none of them —
+  // so a Snap-to-Value or extension estimate could report 0.8 where the full
+  // pipeline would have capped it at 0.6, while the public methodology page
+  // promises anything under 0.75 reaches a human.
+  //
+  // PARTIAL means "fewer images reached the grader than the caller supplied",
+  // counted at both drop points: an image that would not resolve, and one whose
+  // analysis threw. Either way the grade is a read of less than it was given.
+  const requested = inputs.length;
+  const partialImageSet = perImage.length < requested;
+
+  // Peer-norm is a DB read and a pure comparison — no vision call — so it stays
+  // inside the latency budget the name promises. Best-effort exactly as in the
+  // pipeline: any failure skips the check, never the grade.
+  let peerNormCap: number | null = null;
+  try {
+    const peerCfg: PeerNormConfig = {
+      ...DEFAULT_PEER_NORM_CONFIG,
+      ...(await getSetting<Partial<PeerNormConfig>>("grading_peer_norm", {})),
+    };
+    if (peerCfg.enabled) {
+      const dist = await fetchPeerDistribution({
+        garmentCategory: garment.garment_category,
+        brand: garment.brand,
+        defectSeverities: composite.defects_found.map((d) => d.severity),
+        minSampleSize: peerCfg.minSampleSize,
+      });
+      const verdict = evaluatePeerNorm(composite.overall_score, dist, peerCfg);
+      if (verdict.flagged) peerNormCap = verdict.confidenceCap;
+    }
+  } catch (err) {
+    captureException(err, { level: "warn", route: "quick-grade.peer_norm" });
+  }
+
+  const capped = applyPostCompositeCaps({
+    confidence: composite.confidence_score,
+    ceiling: composite.confidence_ceiling ?? 1,
+    reviewThreshold: reviewConfidenceThreshold(),
+    partialImageSet,
+    verificationDiscrepancies: composite.verification_discrepancies?.length ?? 0,
+    peerNormCap,
+  });
+
   const auth = composite.image_authenticity;
   return {
     overallScore: composite.overall_score,
     gradeTier: composite.grade_tier,
-    confidence: composite.confidence_score,
-    needsHumanReview: composite.needs_human_review,
+    confidence: capped.confidence,
+    // OR, not replace: compositeGrade may already have forced review for a
+    // reason these caps know nothing about (an authenticity flag, a defaulted
+    // factor). A cap can only ever ADD a reason to look.
+    needsHumanReview: composite.needs_human_review || capped.needsHumanReview,
+    confidenceCeiling: capped.ceiling,
+    capsApplied: capped.applied,
     factorScores: composite.factor_scores,
     imagesAnalyzed: perImage.length,
     imageAuthenticity: {

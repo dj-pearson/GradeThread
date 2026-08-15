@@ -244,14 +244,26 @@ struct GradeReportView: View {
     private var confidenceCard: some View {
         let conf = GradeScale.confidenceLabel(report.confidenceScore)
         return HStack(spacing: 12) {
-            Image(systemName: report.confidenceScore >= 0.75 ? "checkmark.shield.fill" : "exclamationmark.shield.fill")
+            Image(systemName: GradeScale.requiresReview(confidence: report.confidenceScore)
+                ? "exclamationmark.shield.fill" : "checkmark.shield.fill")
                 .font(.title3)
                 .foregroundStyle(conf.color)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(conf.label) confidence")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(conf.color)
-                Text("\(Int((report.confidenceScore * 100).rounded()))% — \(report.confidenceScore < 0.75 ? "flagged for human review" : "high enough to certify automatically")")
+                // US-2309: this used to read "high enough to certify
+                // automatically" for anything at or above the review threshold.
+                // It is not: the review threshold (0.75) decides whether a grade
+                // is FLAGGED, and a separate server-side floor decides whether it
+                // finalizes without a human — a grade at 0.80 is neither flagged
+                // nor auto-approved, and this card promised it would certify
+                // itself. The client also has no business knowing the second
+                // number: it is env-tunable server-side, and re-deriving server
+                // state from raw confidence is the same defect US-1409 recorded
+                // three times in this file. So the copy now says only what the
+                // threshold it does own actually means.
+                Text("\(Int((report.confidenceScore * 100).rounded()))% — \(GradeScale.requiresReview(confidence: report.confidenceScore) ? "flagged for human review" : "above the review threshold")")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

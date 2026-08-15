@@ -12,7 +12,7 @@ code_refs:
   - services/edge-functions/src/lib/human-review.ts
   - services/edge-functions/src/lib/defect-weighting.ts
   - services/edge-functions/src/tests/weighted-grade-parity_test.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [grading, contract]
 summary: The 1.0-10.0 scale, the five weighted factors, the rounding rule that has now shipped wrong twice, and which engine criteria are published and therefore no longer free to tune.
 ---
@@ -32,6 +32,37 @@ weighted overall is rounded to **0.1**. Tiers run NWT (10) down to Poor (3–4).
 Confidence below **0.75** routes the submission to human review.
 
 Required photos: front, back, label, and at least one detail shot.
+
+### 0.75 and 0.9 are two different gates, not a mismatch (US-2309, 2026-08-15)
+
+This pair has been read as a contradiction more than once, including by the
+story that finally settled it, so state it as the two-stage gate it is:
+
+| Confidence | What happens |
+|---|---|
+| below **0.75** | `needs_human_review` is set — mandatory review |
+| 0.75 to below **0.9** | not flagged, and not auto-approved either — it waits for a human anyway |
+| **0.9** and above, clean and unflagged | finalizes with no human (`GRADE_AUTO_APPROVE_CONFIDENCE`, env-tunable, "off" disables it) |
+
+So the public claim — anything under 0.75 gets a human — is TRUE and
+conservative: in practice everything under 0.9 does. A client that says a grade
+at 0.80 is "high enough to certify automatically" is wrong, and iOS said exactly
+that until US-2309.
+
+**A client must not re-derive the second number.** It is server-side and
+env-tunable, and the app cannot know it. iOS now describes only the threshold it
+owns ("above the review threshold"), which is the same lesson US-1409 recorded
+three times in `GradeReportView.swift`: read certification from server state,
+never from raw confidence.
+
+### The quick-grade path carries the same caps (US-2309)
+
+`quick-grade.ts` — Snap-to-Value and the browser extension — used to return the
+composite's verdict raw, so it saw none of the post-composite caps: partial
+image set, peer-norm outlier, visual-verification discrepancies. It could report
+0.8 where the full path capped at 0.6, on the surface where the number is most
+externally visible. It now runs `applyPostCompositeCaps`, which shares the
+constants with the pipeline rather than copying them.
 
 ## Factor weights
 
