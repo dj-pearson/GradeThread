@@ -49,8 +49,11 @@ const ITEM_PHOTO_GRIDS: ReadonlyArray<readonly [string, string]> = [
 // Each entry: [file, the dynamic src expression that identifies the grid img].
 const GRID_IMAGES: ReadonlyArray<readonly [string, string]> = [
   // AutoLister grids render through the StagedThumb retry wrapper — the actual
-  // <img> lives inside it, fed the itemPhotoThumb-resolved `url`.
-  ["src/pages/flipdesk/autolister.tsx", "src={url}"],
+  // <img> lives inside it, fed the itemPhotoThumb-resolved `url`. StagedThumb
+  // moved to autolister/photo-drag-tiles.tsx with the rest of the tile-level
+  // pieces (US-2520 ratchet); the call sites that feed it are still in the page,
+  // which is what the itemPhotoThumb assertion below checks.
+  ["src/pages/flipdesk/autolister/photo-drag-tiles.tsx", "src={url}"],
   // Storefront cards — the edge serves thumbnail_url in this field (content-public.ts).
   ["src/pages/verified-seller.tsx", "listing.photo_url"],
   ["src/components/verified/graded-photo-panel.tsx", "src={url}"],

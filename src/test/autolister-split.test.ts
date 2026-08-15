@@ -11,7 +11,11 @@ import { resolve } from "node:path";
 // up on demand is not a ceiling.
 
 const CEILINGS: Record<string, number> = {
-  "src/pages/flipdesk/autolister.tsx": 3910,
+  // Lowered from 3910 when the grouping-workbench tiles moved into
+  // autolister/photo-drag-tiles.tsx. The ratchet had gone red at 3955 first,
+  // which is the mechanism working: the file grew, and the answer was to take
+  // something out rather than to make room.
+  "src/pages/flipdesk/autolister.tsx": 3747,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   "src/pages/flipdesk/autolister-queue.tsx": 1120,
 };
