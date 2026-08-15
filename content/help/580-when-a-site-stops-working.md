@@ -46,7 +46,7 @@ written to be pasted into a ticket or a message. Controls that only exist after
 an interaction, like a menu item inside a menu that has not been opened, are
 reported as such rather than as misses.
 
-<!-- SCREENSHOT: a selector report with two misses highlighted -->
+<!-- SCREENSHOT: a selector report with two misses highlighted (as of 2026-08-15) -->
 
 ## What to do meanwhile
 

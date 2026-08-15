@@ -55,7 +55,7 @@ percent.
 If the label is gone or illegible, say so in the item fields rather than
 leaving it blank.
 
-<!-- SCREENSHOT: a good care label photo next to a blurry one, side by side -->
+<!-- SCREENSHOT: a good care label photo next to a blurry one, side by side (as of 2026-08-15) -->
 
 ## At least one detail
 

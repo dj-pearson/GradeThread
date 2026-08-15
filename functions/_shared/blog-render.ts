@@ -476,6 +476,17 @@ const BASE_STYLES = `
   .cert-factor-score { font-weight: 700; color: #0C1E36; }
   .cert-factor-bar { height: 9px; border-radius: 999px; background: #eef2f6; overflow: hidden; }
   .cert-factor-fill { height: 100%; border-radius: 999px; }
+  /* US-2591: the help-centre feedback widget. Plain form, no JS. */
+  .help-feedback { margin-top: 48px; border-top: 1px solid #e5e7eb; padding-top: 24px; }
+  .help-feedback h2 { font-size: 1.1rem; margin: 0 0 12px; }
+  .help-feedback textarea { width: 100%; max-width: 32rem; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 8px; font: inherit; }
+  .help-feedback-actions { display: flex; gap: 8px; margin-top: 10px; }
+  .help-feedback button { padding: 8px 20px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; font: inherit; cursor: pointer; }
+  .help-feedback button:hover { background: #f9fafb; }
+  .help-search { display: flex; gap: 8px; margin: 16px 0 24px; }
+  .help-search input { flex: 1; max-width: 28rem; padding: 8px 10px; border: 1px solid #e5e7eb; border-radius: 8px; font: inherit; }
+  .help-search button { padding: 8px 18px; border: 1px solid #e5e7eb; border-radius: 8px; background: #fff; font: inherit; cursor: pointer; }
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   .cert-report { white-space: pre-wrap; background: #fafafc; border: 1px solid #eef2f6; border-radius: 12px; padding: 16px 18px; }
 `;
 

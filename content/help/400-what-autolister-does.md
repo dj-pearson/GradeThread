@@ -43,7 +43,7 @@ publish.
 **Prices.** From the comps, if you ran them. From your own history if you did
 not.
 
-<!-- SCREENSHOT: an AutoLister batch mid-run with drafts appearing -->
+<!-- SCREENSHOT: an AutoLister batch mid-run with drafts appearing (as of 2026-08-15) -->
 
 ## What it leaves you
 

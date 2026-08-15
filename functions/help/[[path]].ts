@@ -65,8 +65,10 @@ import {
   renderCategoryGrid,
   renderHelpSearchForm,
   renderHelpSearchResults,
+  renderHelpFeedback,
   renderRelatedHelp,
   renderReviewedLine,
+  renderUpdatedLine,
   toBlogFaqs,
   type HelpArticleResponse,
   type HelpCategoryPayload,
@@ -88,8 +90,14 @@ export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) => {
   // and serve the first visitor's results to the next visitor's question. So
   // search skips the cache entirely rather than relying on its Cache-Control,
   // which withEdgeCache does not read.
-  const path = new URL(context.request.url).pathname.replace(/\/$/, "");
+  const url = new URL(context.request.url);
+  const path = url.pathname.replace(/\/$/, "");
   if (path === "/help/search") return routeHelp(context);
+  // US-2591: same trap, second instance. The cache key ignores the query string,
+  // so a page rendered with ?thanks=1 would be stored under the plain article
+  // URL and every later visitor would be thanked for feedback they never gave.
+  // Anything whose rendering depends on the query string must skip the cache.
+  if (url.searchParams.get("thanks") === "1") return routeHelp(context);
   return withEdgeCache(context, () => routeHelp(context));
 };
 
@@ -103,6 +111,9 @@ async function routeHelp(context: Ctx): Promise<Response> {
     // Before the category branch: "search" is a reserved slug (lib/help-center.ts
     // refuses to mint it) precisely so this path can never collide with a shelf.
     if (path === "/help/search") return await renderSearch(env, url.searchParams.get("q") ?? "");
+    // A GET here is somebody typing the URL of the no-JS form target. Send them
+    // to the hub rather than 404ing on a path that legitimately exists for POST.
+    if (path === "/help/feedback") return Response.redirect(`${siteUrl(env)}/help`, 302);
 
     const segments = path.replace(/^\/help\//, "").split("/");
     const [categorySeg, articleSeg] = segments;
@@ -114,7 +125,12 @@ async function routeHelp(context: Ctx): Promise<Response> {
       if (articleSeg.endsWith(".md")) {
         return await renderArticleMarkdown(env, articleSeg.slice(0, -3));
       }
-      return await renderArticle(env, categorySeg, articleSeg);
+      return await renderArticle(
+        env,
+        categorySeg,
+        articleSeg,
+        url.searchParams.get("thanks") === "1",
+      );
     }
     return helpNotFound(env);
   } catch (err) {
@@ -301,6 +317,7 @@ async function renderArticle(
   env: PagesEnv,
   categorySlug: string,
   slug: string,
+  thanked = false,
 ): Promise<Response> {
   const data = await fetchJson<HelpArticleResponse>(
     env,
@@ -349,6 +366,7 @@ ${renderBreadcrumbs(crumbs, base)}
 <h1>${escape(article.title)}</h1>
 ${article.summary ? `<p>${escape(article.summary)}</p>` : ""}
 ${renderReviewedLine(article)}
+${renderUpdatedLine(article)}
 ${renderTableOfContents(toc)}
 ${
     article.hero_image_url
@@ -360,6 +378,7 @@ ${renderFaqSection(toBlogFaqs(article.faq))}
 ${renderPillarLink(article.pillar_path, pillarLabel(article.pillar_path))}
 ${index ? renderRelatedHelp(index, article.related_slugs) : ""}
 </article>
+${renderHelpFeedback(article.slug, expectedCategorySlug, thanked)}
 <p class="pillar-link">Didn't answer it? <a href="/dashboard/support">Open a support ticket</a>.</p>
 </main>`;
 

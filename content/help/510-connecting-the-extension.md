@@ -27,7 +27,7 @@ That is the whole flow. There is no password typed into the extension, which is
 deliberate: an extension that asked for your password would be asking you to
 trust it with something it does not need.
 
-<!-- SCREENSHOT: the popup before and after connecting -->
+<!-- SCREENSHOT: the popup before and after connecting (as of 2026-08-15) -->
 
 ## What changes
 

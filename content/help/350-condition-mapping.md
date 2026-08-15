@@ -41,7 +41,7 @@ That saves you translating by hand across four channels and, more importantly,
 saves you translating inconsistently, which is what happens when a human does it
 forty times.
 
-<!-- SCREENSHOT: the condition field showing the suggested value with the grade beside it -->
+<!-- SCREENSHOT: the condition field showing the suggested value with the grade beside it (as of 2026-08-15) -->
 
 ## It is a suggestion, not a lock
 

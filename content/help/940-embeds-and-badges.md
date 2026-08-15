@@ -37,7 +37,7 @@ Not something you place; it is what appears when the certificate link is pasted
 into a message, a forum or a social post. It is generated automatically and there
 is nothing to configure.
 
-<!-- SCREENSHOT: a badge and an embed side by side on a product page -->
+<!-- SCREENSHOT: a badge and an embed side by side on a product page (as of 2026-08-15) -->
 
 ## Not on listing photos
 

@@ -55,6 +55,13 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2591: per-article helpfulness votes. Deny-all in both directions.
+  // Readable, it would let one customer read another's comments about the
+  // product, some of which are written in the belief that nobody but us sees
+  // them; writable, it would let anybody manufacture a consensus that an
+  // article is fine. owner_user_id is nullable because the articles are public
+  // and most readers are not signed in.
+  "help_feedback",
   // US-2585: the ticket that was NOT filed — somebody opened the support form,
   // was shown help articles, read one and went away. Deny-all in both
   // directions. Readable, it would hand a customer an analytics feed of what

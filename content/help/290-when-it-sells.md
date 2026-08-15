@@ -47,7 +47,7 @@ rather than a wall.
 Both stay in the reminder set precisely so the copy you have to end by hand is
 the one you are told about every time, rather than the one you forget.
 
-<!-- SCREENSHOT: an item at Sold showing a pending delist for Grailed -->
+<!-- SCREENSHOT: an item at Sold showing a pending delist for Grailed (as of 2026-08-15) -->
 
 ## The numbers land
 

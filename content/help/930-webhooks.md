@@ -26,7 +26,7 @@ Use a path nobody would guess. That is defence in depth rather than security on
 its own: the signature is what makes a delivery trustworthy, and the obscure path
 only reduces the noise.
 
-<!-- SCREENSHOT: the webhook configuration with a registered endpoint -->
+<!-- SCREENSHOT: the webhook configuration with a registered endpoint (as of 2026-08-15) -->
 
 ## Verify the signature
 

@@ -53,7 +53,7 @@ FlipDesk records the reason against the listing rather than letting the item
 quietly disappear from your inventory. An item whose listing was ended by the
 channel is still yours, still on your shelf, and still needs a decision.
 
-<!-- SCREENSHOT: a listing showing an ended-by-channel state with the reason -->
+<!-- SCREENSHOT: a listing showing an ended-by-channel state with the reason (as of 2026-08-15) -->
 
 ## Noticing a listing that went
 

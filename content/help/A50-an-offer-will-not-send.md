@@ -41,7 +41,7 @@ That distinction is the entire reason the two messages are different. Telling
 somebody to reconnect when reconnecting cannot help wastes their time and makes
 them think the problem is theirs.
 
-<!-- SCREENSHOT: the send-offer panel showing the reconnect message -->
+<!-- SCREENSHOT: the send-offer panel showing the reconnect message (as of 2026-08-15) -->
 
 ## Why the messages are separate
 

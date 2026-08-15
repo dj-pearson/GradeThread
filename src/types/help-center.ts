@@ -133,6 +133,8 @@ export const RESERVED_HELP_SLUGS = new Set([
   "edit",
   "categories",
   "category",
+  "feedback",
+  "freshness",
   "admin",
   "api",
 ]);

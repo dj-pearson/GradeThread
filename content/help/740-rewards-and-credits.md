@@ -35,7 +35,7 @@ credits.
 Earned and bought credits are identical once they are on the account. Neither
 expires.
 
-<!-- SCREENSHOT: the rewards page showing credit balance and level -->
+<!-- SCREENSHOT: the rewards page showing credit balance and level (as of 2026-08-15) -->
 
 ## What credits cannot do
 

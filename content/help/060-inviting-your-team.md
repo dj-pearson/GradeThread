@@ -30,7 +30,7 @@ one.
 Invitations expire. If somebody sits on one for a fortnight, send a fresh one
 rather than trying to work out why the old link errors.
 
-<!-- SCREENSHOT: the Team tab with a pending invitation listed -->
+<!-- SCREENSHOT: the Team tab with a pending invitation listed (as of 2026-08-15) -->
 
 ## The roles
 

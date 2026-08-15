@@ -46,7 +46,7 @@ purchases, and only one of them is fixable.
 automated, from the seller's photos, and whether a person reviewed it before it
 published.
 
-<!-- SCREENSHOT: a certificate page showing grade, factors and photos -->
+<!-- SCREENSHOT: a certificate page showing grade, factors and photos (as of 2026-08-15) -->
 
 ## Why a screenshot is not enough
 

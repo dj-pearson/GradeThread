@@ -37,7 +37,7 @@ Do it here rather than in another app. Editing elsewhere and re-uploading leaves
 you with two files that can disagree, and the one you fixed is not necessarily
 the one that got used.
 
-<!-- SCREENSHOT: the photo editor with the rotate control -->
+<!-- SCREENSHOT: the photo editor with the rotate control (as of 2026-08-15) -->
 
 ## Does it affect the grade
 

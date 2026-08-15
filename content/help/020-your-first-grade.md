@@ -49,7 +49,7 @@ flaw, photograph the flaw. Hiding it does not raise the grade; it lowers the
 confidence, and a low-confidence grade gets sent for human review rather than
 published.
 
-<!-- SCREENSHOT: the upload step with all four slots filled -->
+<!-- SCREENSHOT: the upload step with all four slots filled (as of 2026-08-15) -->
 
 More detail shots help. More full-length shots do not: the second and third
 front photo tell the model nothing the first did not.

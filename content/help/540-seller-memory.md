@@ -29,7 +29,7 @@ them is supportable from a handful of observations.
 The popup also has a By seller view, which groups your recent reads by who was
 selling.
 
-<!-- SCREENSHOT: the overlay showing a seller pattern after several reads -->
+<!-- SCREENSHOT: the overlay showing a seller pattern after several reads (as of 2026-08-15) -->
 
 ## Where it lives
 

@@ -47,7 +47,7 @@ wildcard. It has access to eBay, Poshmark, Grailed, Mercari, Depop, Vinted and
 the Vinted country domains, and nothing else. There is no permission to read your
 banking, your email or any other site, because it was never requested.
 
-<!-- SCREENSHOT: the Chrome install prompt showing the four permissions -->
+<!-- SCREENSHOT: the Chrome install prompt showing the four permissions (as of 2026-08-15) -->
 
 ## What works with no account
 

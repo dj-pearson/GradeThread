@@ -44,7 +44,7 @@ The second is an expired link. Confirmation links are deliberately short-lived.
 If you clicked one from an hour-old email and got an error, that is why. Ask for
 a new link from the sign-in page and use it promptly.
 
-<!-- SCREENSHOT: the sign-up form with the Apple and Google buttons visible -->
+<!-- SCREENSHOT: the sign-up form with the Apple and Google buttons visible (as of 2026-08-15) -->
 
 ## What you get before you pay
 

@@ -65,7 +65,7 @@ On a phone, photographs taken offline are queued and uploaded when a connection
 returns, so a stalled upload in poor signal often resolves itself on the way
 home.
 
-<!-- SCREENSHOT: the upload error naming the rejected file -->
+<!-- SCREENSHOT: the upload error naming the rejected file (as of 2026-08-15) -->
 
 ## What happens to metadata
 

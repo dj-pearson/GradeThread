@@ -61,7 +61,7 @@ FlipDesk now flags any value over 65 characters in the composer as you type, so
 the problem surfaces before you press publish. If you meet a stuck offer, the
 length of a specific is the first thing to check.
 
-<!-- SCREENSHOT: the composer flagging an over-length item specific -->
+<!-- SCREENSHOT: the composer flagging an over-length item specific (as of 2026-08-15) -->
 
 The values that most often go over are Material on something with a complex
 composition, and Style on a garment somebody has described lovingly. Shorten

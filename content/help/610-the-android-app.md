@@ -26,7 +26,7 @@ too.
 Either reaches the same account you use on the web, so anything you graded on a
 desktop is already there and anything you grade here appears there.
 
-<!-- SCREENSHOT: the Android sign-in screen -->
+<!-- SCREENSHOT: the Android sign-in screen (as of 2026-08-15) -->
 
 ## What it does
 

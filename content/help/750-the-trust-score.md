@@ -33,7 +33,7 @@ consistent record says more than an erratic one with the same average.
 **Time.** Recent evidence counts for more than old, because a seller's habits
 change.
 
-<!-- SCREENSHOT: a verified seller profile showing standing and graded volume -->
+<!-- SCREENSHOT: a verified seller profile showing standing and graded volume (as of 2026-08-15) -->
 
 ## What it deliberately refuses to measure
 

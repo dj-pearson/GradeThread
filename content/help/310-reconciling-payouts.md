@@ -47,7 +47,7 @@ the sales in the same period.
 The breakdown is per line, so a payout that looks wrong can be read rather than
 guessed at.
 
-<!-- SCREENSHOT: the reconciliation view with matched and unmatched rows -->
+<!-- SCREENSHOT: the reconciliation view with matched and unmatched rows (as of 2026-08-15) -->
 
 ## Unmatched rows
 

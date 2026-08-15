@@ -46,7 +46,7 @@ worth reading.
 Then recency. Clothing is seasonal and fashion moves. Three months is a
 reasonable window for most things and too long for anything trend-driven.
 
-<!-- SCREENSHOT: the comps panel with sold results and the suggested range -->
+<!-- SCREENSHOT: the comps panel with sold results and the suggested range (as of 2026-08-15) -->
 
 ## Reading the spread
 

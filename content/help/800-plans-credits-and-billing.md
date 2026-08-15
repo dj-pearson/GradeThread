@@ -41,7 +41,7 @@ the permanent thing back is the arrangement that wastes least.
 The practical effect is that credits accumulate quietly during normal months and
 absorb the busy one, which is exactly what you want them for.
 
-<!-- SCREENSHOT: the billing panel showing allowance remaining and credit balance -->
+<!-- SCREENSHOT: the billing panel showing allowance remaining and credit balance (as of 2026-08-15) -->
 
 ## When you are charged
 

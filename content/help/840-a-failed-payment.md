@@ -28,7 +28,7 @@ payments are resolved within a day by updating a card.
 
 Nothing is deleted at any point in this process.
 
-<!-- SCREENSHOT: the failed-payment banner with the update-card action -->
+<!-- SCREENSHOT: the failed-payment banner with the update-card action (as of 2026-08-15) -->
 
 ## The three usual causes
 

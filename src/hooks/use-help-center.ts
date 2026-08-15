@@ -6,6 +6,7 @@ import type {
   HelpArticle,
   HelpArticleInput,
   HelpCategory,
+  HelpVisibility,
 } from "@/types/help-center";
 
 // Help Center hooks (US-2574). Two audiences, two base paths:
@@ -177,6 +178,41 @@ export function useHelpReaderSearch(query: string) {
       jfetch<{ query: string; hits: HelpSearchHit[]; viewer: HelpViewerTier }>(
         `/api/help/search?q=${encodeURIComponent(q)}`,
       ),
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────
+// FRESHNESS (US-2591)
+//
+// A stale article is FLAGGED, never unpublished and never dropped from the
+// sitemap. A page that vanishes because nobody re-read it is worse for a
+// reader than one that is slightly out of date, and silently dropping URLs is
+// how a section loses its ranking without anybody deciding to.
+// ───────────────────────────────────────────────────────────────────
+
+export interface HelpFreshnessRow {
+  slug: string;
+  title: string;
+  category_key: string;
+  visibility: HelpVisibility;
+  reviewed_at: string | null;
+  published_at: string | null;
+  review_interval_days: number;
+  is_stale: boolean;
+  days_since_basis: number;
+  feedback: { helpful: number; unhelpful: number; comments: string[] };
+}
+
+export function useHelpFreshness() {
+  return useQuery({
+    queryKey: ["help_freshness"],
+    staleTime: 60_000,
+    queryFn: async () => {
+      const data = await jfetch<{ articles: HelpFreshnessRow[] }>(
+        "/api/content/help/freshness",
+      );
+      return data.articles;
+    },
   });
 }
 

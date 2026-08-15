@@ -64,7 +64,7 @@ lives.
 **Is anything folded?** A fold hides a strip of the garment, and the assessment
 is appropriately cautious about what it cannot see.
 
-<!-- SCREENSHOT: a report with a low confidence figure highlighted -->
+<!-- SCREENSHOT: a report with a low confidence figure highlighted (as of 2026-08-15) -->
 
 ## 5. Check your own calibration
 

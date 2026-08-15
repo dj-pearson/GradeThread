@@ -52,7 +52,7 @@ retries forever is something nobody notices is broken.
 **Respect a Retry-After header** when one is present. It is the server telling
 you the answer rather than making you guess it.
 
-<!-- SCREENSHOT: an example of a 429 response body -->
+<!-- SCREENSHOT: an example of a 429 response body (as of 2026-08-15) -->
 
 ## Designing for the quota
 

@@ -34,7 +34,7 @@ It does not run automatically unless you switch that on in the options. The
 default is off, because each run spends a Vision call, and a setting that quietly
 spends things should not be on by default.
 
-<!-- SCREENSHOT: the overlay on an eBay listing showing a score and factors -->
+<!-- SCREENSHOT: the overlay on an eBay listing showing a score and factors (as of 2026-08-15) -->
 
 ## How many photos it uses
 

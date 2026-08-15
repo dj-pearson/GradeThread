@@ -37,7 +37,7 @@ have moved.
 **Buy or pass**, which is the summary of the above and is a suggestion rather
 than an instruction.
 
-<!-- SCREENSHOT: the flip panel on a listing showing range, margin and verdict -->
+<!-- SCREENSHOT: the flip panel on a listing showing range, margin and verdict (as of 2026-08-15) -->
 
 ## It costs something to ask
 

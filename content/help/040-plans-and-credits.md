@@ -42,7 +42,7 @@ a good fit for a pack of credits you work through at your own pace.
 Packs get cheaper per grade as they get bigger, which is the usual trade: you
 pay less per unit for committing more up front.
 
-<!-- SCREENSHOT: the credit pack options in Billing -->
+<!-- SCREENSHOT: the credit pack options in Billing (as of 2026-08-15) -->
 
 ## A FlipDesk subscription
 

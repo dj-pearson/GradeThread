@@ -39,7 +39,9 @@ import {
   useDeleteHelpArticle,
   useHelpArticles,
   useHelpCategories,
+  useHelpFreshness,
 } from "@/hooks/use-help-center";
+import type { HelpFreshnessRow } from "@/hooks/use-help-center";
 import {
   HELP_STATUS_LABELS,
   HELP_STATUSES,
@@ -75,6 +77,7 @@ export function HelpListPage() {
   const confirm = useConfirm();
   const { data: articles = [], isLoading } = useHelpArticles();
   const { data: categories = [] } = useHelpCategories();
+  const { data: freshness = [] } = useHelpFreshness();
   const create = useCreateHelpArticle();
   const del = useDeleteHelpArticle();
 
@@ -195,6 +198,8 @@ export function HelpListPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FreshnessPanel rows={freshness} />
 
       <div className="flex flex-wrap gap-2">
         <Select value={categoryFilter || "all"} onValueChange={(v) => setCategoryFilter(v === "all" ? "" : v)}>
@@ -319,5 +324,70 @@ export function HelpListPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// US-2591: what needs re-reading, and what readers thought of it.
+//
+// A stale article is FLAGGED here and nothing else happens to it. It keeps its
+// sitemap entry and stays published, because a page that vanishes for want of a
+// review is worse for a reader than one that is slightly out of date.
+function FreshnessPanel({ rows }: { rows: HelpFreshnessRow[] }) {
+  const stale = rows.filter((r) => r.is_stale);
+  const disliked = rows
+    .filter((r) => r.feedback.unhelpful > r.feedback.helpful && r.feedback.unhelpful > 0)
+    .sort((a, b) => b.feedback.unhelpful - a.feedback.unhelpful);
+
+  if (stale.length === 0 && disliked.length === 0) return null;
+
+  return (
+    <Card>
+      <CardContent className="space-y-4 pt-6">
+        {stale.length > 0 && (
+          <div>
+            <h2 className="text-base font-semibold">
+              {stale.length} article{stale.length === 1 ? "" : "s"} past their review date
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Still published and still in the sitemap. Re-read them and save to reset
+              the clock.
+            </p>
+            <ul className="mt-3 space-y-1 text-sm">
+              {stale.slice(0, 10).map((r) => (
+                <li key={r.slug}>
+                  <span className="font-medium">{r.title}</span>{" "}
+                  <span className="text-muted-foreground">
+                    {r.days_since_basis} days since last reviewed, interval{" "}
+                    {r.review_interval_days}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {disliked.length > 0 && (
+          <div>
+            <h2 className="text-base font-semibold">
+              Readers said these did not help
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              More no than yes on the current wording. The comments are where the
+              reason is.
+            </p>
+            <ul className="mt-3 space-y-1 text-sm">
+              {disliked.slice(0, 10).map((r) => (
+                <li key={r.slug}>
+                  <span className="font-medium">{r.title}</span>{" "}
+                  <span className="text-muted-foreground">
+                    {r.feedback.unhelpful} no, {r.feedback.helpful} yes
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

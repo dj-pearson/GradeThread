@@ -27,7 +27,7 @@ The minimum grade is the point. "Barbour, L, under 120, graded 8.0 or better" is
 a search no marketplace can run, because a marketplace's condition field is four
 words a seller chose.
 
-<!-- SCREENSHOT: the alert form with a minimum grade set -->
+<!-- SCREENSHOT: the alert form with a minimum grade set (as of 2026-08-15) -->
 
 ## What it watches
 

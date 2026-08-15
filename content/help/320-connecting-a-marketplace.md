@@ -51,7 +51,7 @@ Sending offers to watchers is one; if you see it reported as unavailable rather
 than failing, that is why, and it is a restriction on our side rather than
 something wrong with your account.
 
-<!-- SCREENSHOT: the Marketplaces page with eBay connected -->
+<!-- SCREENSHOT: the Marketplaces page with eBay connected (as of 2026-08-15) -->
 
 ## Business policies first
 

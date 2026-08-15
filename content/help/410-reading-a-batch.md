@@ -46,7 +46,7 @@ something required, like photos.
 **Failed.** Attempted and did not produce a draft. The reason is recorded per
 item.
 
-<!-- SCREENSHOT: a batch with a mix of done, skipped and failed items -->
+<!-- SCREENSHOT: a batch with a mix of done, skipped and failed items (as of 2026-08-15) -->
 
 ## One failure does not stop the rest
 

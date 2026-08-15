@@ -32,7 +32,7 @@ That is all, and the second one is the useful half. A page where every listing
 says "excellent" is uninformative until you can see that three of them are
 priced like it and the rest are not.
 
-<!-- SCREENSHOT: an eBay search page with scan badges on each result -->
+<!-- SCREENSHOT: an eBay search page with scan badges on each result (as of 2026-08-15) -->
 
 ## Why it can run automatically
 

@@ -35,7 +35,7 @@ whole product.
 **Rewards** tracks a level and a seasonal track that build from grading
 activity. Cosmetic, and safely ignored.
 
-<!-- SCREENSHOT: the sidebar with the Grading group expanded -->
+<!-- SCREENSHOT: the sidebar with the Grading group expanded (as of 2026-08-15) -->
 
 ## FlipDesk
 

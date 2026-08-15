@@ -43,7 +43,7 @@ So the usual correct action for a batch that has genuinely stopped is to wait
 once, then look again. Most of the time it has resumed on its own and the items
 that were pending are now done.
 
-<!-- SCREENSHOT: a batch that was reclaimed, showing the resumed progress -->
+<!-- SCREENSHOT: a batch that was reclaimed, showing the resumed progress (as of 2026-08-15) -->
 
 ## When it does not recover
 

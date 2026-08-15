@@ -52,7 +52,7 @@ does not open a case about it.
 **Flat lay or on-body.** One shot showing how it hangs. A garment photographed
 only flat is hard to judge as clothing.
 
-<!-- SCREENSHOT: the photo grid with the required types marked -->
+<!-- SCREENSHOT: the photo grid with the required types marked (as of 2026-08-15) -->
 
 ## The required set
 

@@ -66,7 +66,7 @@ selector version, and which specific selectors resolved or missed.
 That tells you whether one field moved or the whole adapter is out of date, which
 is the difference between a small fix and a rebuild.
 
-<!-- SCREENSHOT: a selector report showing two misses -->
+<!-- SCREENSHOT: a selector report showing two misses (as of 2026-08-15) -->
 
 The report deliberately carries no page content and no full URL, because it is
 written to be pasted into a ticket. Controls that only exist after an

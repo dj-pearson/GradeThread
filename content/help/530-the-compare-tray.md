@@ -28,7 +28,7 @@ The tray holds **six**. Pin a seventh and the oldest drops out. Six is roughly
 the number of candidates a person actually holds in their head, and a tray of
 twenty is a spreadsheet nobody opens.
 
-<!-- SCREENSHOT: the compare tray with four pinned listings side by side -->
+<!-- SCREENSHOT: the compare tray with four pinned listings side by side (as of 2026-08-15) -->
 
 ## Opening it
 

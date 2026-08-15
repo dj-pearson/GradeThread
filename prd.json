@@ -1892,21 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2591",
-      "title": "[HELP CENTER] Freshness, review cadence and helpfulness feedback",
-      "description": "A help center rots faster than marketing copy, because it describes a UI that changes weekly. Screenshots go stale silently and a wrong article is worse than no article.",
-      "acceptanceCriteria": [
-        "A 'Was this helpful?' yes/no with an optional comment, stored per article.",
-        "reviewed_at drives a 'Last reviewed <date>' line on the article and an admin list of everything past its review_interval_days (default 180).",
-        "A stale article keeps its sitemap entry but is flagged in the dashboard, so freshness never silently drops a URL.",
-        "Screenshots carry the app version or date they were taken, so a UI change can be traced to the shots that need reshooting.",
-        "An article edited after publish gets a visible 'Updated <date>', matching how the blog handles wasUpdatedAfterPublish."
-      ],
-      "priority": 81,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2592",
       "title": "[HELP CENTER] Analytics: what people read, what they cannot find, what it saved",
       "description": "Two numbers decide whether this epic was worth it: how much organic traffic the help center earns, and how many support tickets it prevents. Neither is visible without instrumentation.",

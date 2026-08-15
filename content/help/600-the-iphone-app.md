@@ -36,7 +36,7 @@ Whichever you pick, use the same identity every time. Signing up with a password
 and later using Sign in with Apple on the same email address joins them up
 rather than splitting them, but it is simpler not to test that.
 
-<!-- SCREENSHOT: the sign-in screen showing both options -->
+<!-- SCREENSHOT: the sign-in screen showing both options (as of 2026-08-15) -->
 
 ## What it does
 

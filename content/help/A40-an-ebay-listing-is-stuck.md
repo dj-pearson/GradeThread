@@ -43,7 +43,7 @@ The values that most often run long are Material on something with a complex
 composition, and Style on a garment somebody described lovingly. The full text
 belongs in the description, which has no such limit.
 
-<!-- SCREENSHOT: the composer flagging a missing required specific -->
+<!-- SCREENSHOT: the composer flagging a missing required specific (as of 2026-08-15) -->
 
 ## Read the error as eBay wrote it
 

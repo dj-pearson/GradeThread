@@ -30,7 +30,7 @@ Either way you land on a public page. No sign-in, no app, nothing to install.
 That was a hard requirement: a verification that needs an account is a
 verification nobody performs standing at a market stall.
 
-<!-- SCREENSHOT: a phone scanning a garment tag QR code -->
+<!-- SCREENSHOT: a phone scanning a garment tag QR code (as of 2026-08-15) -->
 
 ## What a passport shows
 

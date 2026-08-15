@@ -34,7 +34,7 @@ minutes of column mapping beats an hour of typing.
 appraise an item and add it. Useful when you are sourcing from another platform
 rather than from a rail.
 
-<!-- SCREENSHOT: the Add item menu showing all four routes -->
+<!-- SCREENSHOT: the Add item menu showing all four routes (as of 2026-08-15) -->
 
 ## Record what you paid
 

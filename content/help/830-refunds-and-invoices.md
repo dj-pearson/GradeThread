@@ -27,7 +27,7 @@ stamped onto the invoice at the time it is issued, so adding them later fixes
 future invoices rather than past ones, and reissuing a year's worth
 retrospectively is considerably more work than one form now.
 
-<!-- SCREENSHOT: the invoice list in the billing area -->
+<!-- SCREENSHOT: the invoice list in the billing area (as of 2026-08-15) -->
 
 ## What the policy covers
 

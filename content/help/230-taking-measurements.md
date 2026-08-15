@@ -47,7 +47,7 @@ that does not sit right on the shoulders cannot be fixed by anything else.
 
 **Skirts.** Waist flat, length, hip if it is fitted.
 
-<!-- SCREENSHOT: the measurement panel with a top's fields filled in -->
+<!-- SCREENSHOT: the measurement panel with a top's fields filled in (as of 2026-08-15) -->
 
 The measurement fields you see depend on the category you catalogued, which is
 one of the reasons to get the category right first.

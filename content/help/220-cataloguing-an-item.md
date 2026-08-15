@@ -41,7 +41,7 @@ their own. This is separate from the grade and it is where the specifics live.
 **SKU.** Optional, and worth adding above about fifty items. It is what ties a
 thing on a shelf to a row on a screen.
 
-<!-- SCREENSHOT: the catalogue form with the category picker open -->
+<!-- SCREENSHOT: the catalogue form with the category picker open (as of 2026-08-15) -->
 
 ## Why category first
 

@@ -37,7 +37,7 @@ tier and factor scores represent.
 **A different item.** What arrived is not the item the certificate was issued
 for.
 
-<!-- SCREENSHOT: the claim form with the certificate number entered -->
+<!-- SCREENSHOT: the claim form with the certificate number entered (as of 2026-08-15) -->
 
 ## What it does not cover
 

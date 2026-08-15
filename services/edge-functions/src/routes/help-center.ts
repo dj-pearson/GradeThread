@@ -215,6 +215,59 @@ helpPublicRoutes.get("/search", async (c) => {
   }
 });
 
+/**
+ * US-2591: was this article any good?
+ *
+ * Anonymous on purpose. The articles are public, so requiring a signed-in
+ * reader would collect feedback only from the minority who happened to be
+ * logged in and then present that as a measurement.
+ *
+ * Accepts JSON or a form body, because the no-JS path is a same-origin HTML
+ * form posted through functions/help/feedback.ts. That path is what makes the
+ * widget work for a visitor with scripts off, which is a real share of the
+ * people a public help page is for.
+ */
+helpPublicRoutes.post("/:slug/feedback", async (c) => {
+  try {
+    const slug = slugifyHelp(c.req.param("slug"));
+    if (!slug) return c.json({ error: "Not found" }, 404);
+
+    // Only a real, publicly-readable article may be voted on. Otherwise the
+    // table becomes a write surface for arbitrary strings.
+    const article = await loadArticle("anon", slug);
+    if (!article) return c.json({ error: "Not found" }, 404);
+
+    const ct = c.req.header("content-type") ?? "";
+    const body = ct.includes("application/json")
+      ? ((await c.req.json().catch(() => ({}))) as Record<string, unknown>)
+      : (Object.fromEntries(await c.req.formData()) as Record<string, unknown>);
+
+    const raw = String(body.helpful ?? "");
+    if (raw !== "yes" && raw !== "no" && raw !== "true" && raw !== "false") {
+      return c.json({ error: "helpful must be yes or no" }, 400);
+    }
+    const helpful = raw === "yes" || raw === "true";
+
+    const comment = typeof body.comment === "string"
+      ? body.comment.trim().slice(0, 1000)
+      : "";
+
+    const { error } = await supabaseAdmin.from("help_feedback").insert({
+      article_slug: slug,
+      // Recorded against the wording they actually read, so a rewrite starts a
+      // clean record rather than inheriting the previous version's score.
+      content_version: (article as unknown as { content_version?: number }).content_version ?? 1,
+      helpful,
+      comment: comment || null,
+      viewer_tier: "anon",
+    });
+    if (error) console.warn("[help.feedback] insert failed", error);
+    return c.json({ ok: true, recorded: !error });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't record that.", err, "help.public.feedback");
+  }
+});
+
 helpPublicRoutes.get("/:slug", async (c) => {
   try {
     const row = await loadArticle("anon", c.req.param("slug"));
@@ -452,6 +505,58 @@ helpAdminRoutes.get("/", async (c) => {
     .order("sort_order", { ascending: true });
   if (error) return failSafe(c, 500, "Couldn't load help articles.", error, "help.admin.list");
   return c.json({ articles: data ?? [] });
+});
+
+/**
+ * US-2591: what needs re-reading, and what readers thought of it.
+ *
+ * Registered BEFORE /:id so the literal path wins the match.
+ *
+ * A stale article is FLAGGED and nothing else. It keeps its sitemap entry and
+ * stays published, because a page that vanishes for want of a review is worse
+ * for a reader than one that is slightly out of date, and quietly dropping URLs
+ * is how a section loses its ranking without anybody deciding to.
+ */
+helpAdminRoutes.get("/freshness", async (c) => {
+  const { data: stale, error: staleErr } = await supabaseAdmin
+    .from("help_articles_stale")
+    .select("slug, title, category_key, visibility, reviewed_at, published_at, review_interval_days, is_stale, days_since_basis")
+    .order("days_since_basis", { ascending: false });
+  if (staleErr) {
+    return failSafe(c, 500, "Couldn't load freshness.", staleErr, "help.admin.freshness");
+  }
+
+  const { data: votes, error: voteErr } = await supabaseAdmin
+    .from("help_feedback")
+    .select("article_slug, content_version, helpful, comment, created_at")
+    .order("created_at", { ascending: false })
+    .limit(500);
+  if (voteErr) {
+    return failSafe(c, 500, "Couldn't load feedback.", voteErr, "help.admin.freshness");
+  }
+
+  // Tally per article. Deliberately NOT a stored score: a rewrite bumps
+  // content_version, and a rolled-up average across versions would let an
+  // article's old wording keep dragging its new wording down.
+  const tally = new Map<string, { helpful: number; unhelpful: number; comments: string[] }>();
+  for (const v of (votes ?? []) as Array<{
+    article_slug: string;
+    helpful: boolean;
+    comment: string | null;
+  }>) {
+    const t = tally.get(v.article_slug) ?? { helpful: 0, unhelpful: 0, comments: [] };
+    if (v.helpful) t.helpful += 1;
+    else t.unhelpful += 1;
+    if (v.comment) t.comments.push(v.comment);
+    tally.set(v.article_slug, t);
+  }
+
+  return c.json({
+    articles: ((stale ?? []) as Array<{ slug: string }>).map((row) => ({
+      ...row,
+      feedback: tally.get(row.slug) ?? { helpful: 0, unhelpful: 0, comments: [] },
+    })),
+  });
 });
 
 // Registered BEFORE /:id so the literal path wins the match.

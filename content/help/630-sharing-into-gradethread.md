@@ -38,7 +38,7 @@ Select the photos wherever they are, press share, and pick GradeThread.
 The app opens on an intake screen and asks what to do with them: start a new
 item, or add to something that already exists. Pick, confirm, done.
 
-<!-- SCREENSHOT: the iOS share sheet with GradeThread selected -->
+<!-- SCREENSHOT: the iOS share sheet with GradeThread selected (as of 2026-08-15) -->
 
 ## Adding to an existing item
 

@@ -49,7 +49,7 @@ again.
 
 **Photos.** In the order you set. The first is the thumbnail everywhere.
 
-<!-- SCREENSHOT: the composer in draft mode with specifics filled -->
+<!-- SCREENSHOT: the composer in draft mode with specifics filled (as of 2026-08-15) -->
 
 ## What the marketplace owns
 

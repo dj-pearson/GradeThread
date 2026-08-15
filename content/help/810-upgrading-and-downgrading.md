@@ -37,7 +37,7 @@ taking back something already paid for. The trade is that a downgrade is not an
 instant way to stop being charged for the current period, and cancelling has the
 same shape for the same reason.
 
-<!-- SCREENSHOT: the plan change screen showing when a downgrade applies -->
+<!-- SCREENSHOT: the plan change screen showing when a downgrade applies (as of 2026-08-15) -->
 
 ## What happens to your work
 

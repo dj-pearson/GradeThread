@@ -45,7 +45,7 @@ writes a header row and populates it.
 Give the sheet to whoever needs it with normal Google sharing. FlipDesk's access
 is to that one sheet.
 
-<!-- SCREENSHOT: the sheet connection with the column ownership legend -->
+<!-- SCREENSHOT: the sheet connection with the column ownership legend (as of 2026-08-15) -->
 
 ## What syncs
 

@@ -38,7 +38,7 @@ back in a year, they will be there.
 
 **Your live listings.** Cancelling does not end anything on a marketplace.
 
-<!-- SCREENSHOT: the cancel confirmation showing what is kept -->
+<!-- SCREENSHOT: the cancel confirmation showing what is kept (as of 2026-08-15) -->
 
 ## Why certificates keep working
 

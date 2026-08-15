@@ -73,7 +73,7 @@ being stored at all.
 Try a private window. If it works there, it is a browser setting rather than the
 account, which narrows it enormously.
 
-<!-- SCREENSHOT: the sign-in screen showing the unconfirmed-email message -->
+<!-- SCREENSHOT: the sign-in screen showing the unconfirmed-email message (as of 2026-08-15) -->
 
 ## Still stuck
 

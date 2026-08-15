@@ -187,6 +187,63 @@ export function renderHelpSearchResults(
   return `<p>${n} result${n === 1 ? "" : "s"} for "${escape(payload.query)}"</p>${rows}`;
 }
 
+/**
+ * US-2591: the helpfulness widget, as a plain HTML form.
+ *
+ * No JavaScript anywhere in it. It posts same-origin to functions/help/feedback.ts,
+ * which forwards to the edge and sends the reader back with ?thanks=1. A fetch()
+ * implementation would work for most people and silently exclude everybody with
+ * scripts off, who on a help page are exactly the people least able to get an
+ * answer another way.
+ *
+ * The comment box is optional and is the most useful field when it is filled in:
+ * "no" tells you an article failed, and the comment tells you how.
+ */
+export function renderHelpFeedback(
+  slug: string,
+  categorySlug: string,
+  thanked: boolean,
+): string {
+  if (thanked) {
+    return `<section class="help-feedback"><p><strong>Thanks.</strong> ` +
+      `That is what tells us which articles to rewrite.</p></section>`;
+  }
+  const hidden = `<input type="hidden" name="slug" value="${escape(slug)}">` +
+    `<input type="hidden" name="category" value="${escape(categorySlug)}">`;
+  return `<section class="help-feedback">
+<h2>Was this helpful?</h2>
+<form action="/help/feedback" method="post">
+${hidden}
+<label class="sr-only" for="help-fb-comment">Anything we missed? (optional)</label>
+<textarea id="help-fb-comment" name="comment" rows="2" maxlength="1000" placeholder="Anything we missed? (optional)"></textarea>
+<div class="help-feedback-actions">
+<button type="submit" name="helpful" value="yes">Yes</button>
+<button type="submit" name="helpful" value="no">No</button>
+</div>
+</form>
+</section>`;
+}
+
+/**
+ * US-2591: "Updated <date>" when an article changed after it was published.
+ *
+ * Distinct from the reviewed line. Reviewed means somebody re-read it and stands
+ * by it; updated means the words changed. Showing only one of the two makes a
+ * corrected article and a re-checked article indistinguishable, and they are not.
+ */
+export function renderUpdatedLine(article: {
+  published_at: string | null;
+  updated_at: string;
+}): string {
+  if (!article.published_at || !article.updated_at) return "";
+  // Day granularity: a same-day edit to a freshly published article is part of
+  // publishing it, not an update worth announcing.
+  if (article.updated_at.slice(0, 10) <= article.published_at.slice(0, 10)) return "";
+  return `<p class="post-meta"><span class="updated">Updated ${
+    escape(formatDate(article.updated_at))
+  }</span></p>`;
+}
+
 /** "Last reviewed <date>", or the publish date when it has never been reviewed. */
 export function renderReviewedLine(article: {
   reviewed_at: string | null;

@@ -72,7 +72,7 @@ the ones you are told about, rather than the ones you forget. Being told every
 time is a worse experience than automation and a much better one than a double
 sale.
 
-<!-- SCREENSHOT: an item showing a pending delist reminder -->
+<!-- SCREENSHOT: an item showing a pending delist reminder (as of 2026-08-15) -->
 
 ## Practical advice
 

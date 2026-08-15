@@ -56,7 +56,7 @@ policies, because a coat and a t-shirt do not cost the same to send.
 Then, in FlipDesk, pick the defaults you want new listings to use. Individual
 listings can override.
 
-<!-- SCREENSHOT: the policy pickers on the Marketplaces page -->
+<!-- SCREENSHOT: the policy pickers on the Marketplaces page (as of 2026-08-15) -->
 
 ## The error when one is missing
 

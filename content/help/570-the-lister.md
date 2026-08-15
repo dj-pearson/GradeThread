@@ -50,7 +50,7 @@ a live listing at the wrong price.
 Vinted has twenty-two country domains. Listing is verified on vinted.com, and an
 uncovered locale says so rather than guessing.
 
-<!-- SCREENSHOT: a lister run showing per-channel progress -->
+<!-- SCREENSHOT: a lister run showing per-channel progress (as of 2026-08-15) -->
 
 ## Grailed can never delist
 

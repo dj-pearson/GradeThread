@@ -44,7 +44,7 @@ it produces exactly the even light a lightbox is engineered to fake.
 Smooth the fabric out. Every fold is a strip the assessment cannot see, and it
 will be appropriately cautious about the part it cannot see.
 
-<!-- SCREENSHOT: the guided capture screen with the required shots listed -->
+<!-- SCREENSHOT: the guided capture screen with the required shots listed (as of 2026-08-15) -->
 
 ## Let the app prompt you
 

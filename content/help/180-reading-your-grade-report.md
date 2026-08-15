@@ -26,7 +26,7 @@ both in your listing: "Excellent, graded 8.2" does more work than either alone,
 because the word sets expectations and the number lets somebody choose between
 your jacket and the other one.
 
-<!-- SCREENSHOT: the top of a report showing the score and tier -->
+<!-- SCREENSHOT: the top of a report showing the score and tier (as of 2026-08-15) -->
 
 ## The five factors
 

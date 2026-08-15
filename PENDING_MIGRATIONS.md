@@ -1,5 +1,43 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00605_help_feedback_and_freshness.sql (US-2591 — was it any good, is it still true?)
+
+**Risk: LOW.** One `ADD COLUMN IF NOT EXISTS content_version integer NOT NULL
+DEFAULT 1` on `help_articles`, one trigger function, one trigger, one new
+`help_feedback` table with two indexes and RLS, and one view
+`help_articles_stale`.
+
+**The column does not rewrite the table.** Postgres 11+ stores a non-volatile
+`DEFAULT` in the catalogue. Same shape as 00604, not 00603.
+
+**Apply order:** after 00604. Depends on `help_articles` (00602) and
+`auth.users`.
+
+**`NOTIFY pgrst, 'reload schema';` — yes.** A new column, a new table and a new
+VIEW. The view in particular is invisible to PostgREST until you send it, so the
+admin freshness report 404s at the API layer without it.
+
+**⚠ NOT VERIFIED AGAINST A REAL POSTGRES**, same as the rest of the epic —
+Docker was not running, so `verify:db` did not execute this SQL. The trigger
+function and the view expression are the parts worth running once before prod.
+
+**Deploy order is the usual one.** `EXPECTED_SCHEMA_VERSION` moves to `00605`,
+so the boot guard refuses a 00604 database. Apply SQL → `NOTIFY pgrst` →
+redeploy edge → push. The frontend is safe to deploy early: the freshness panel
+renders nothing when the endpoint fails.
+
+**Privacy.** `help_feedback` stores the article, the content version, yes/no, an
+optional comment and the viewer TIER. `owner_user_id` is **nullable on purpose**:
+the articles are public, and requiring a signed-in reader would collect feedback
+only from the minority who happened to be logged in and then present that as a
+measurement. Deny-all RLS, classified in `SERVICE_ROLE_ONLY`.
+
+**One behaviour worth knowing before it surprises you.** A stale article is
+**flagged and nothing else**. It stays published and keeps its sitemap entry.
+Anything that unpublished or de-sitemapped an unreviewed article would lose
+rankings for a reason nobody decided on, and a test asserts the sitemap builder
+never looks at `is_stale`.
+
 ## ✅ APPLIED: 00604_help_ticket_deflection.sql (US-2585 — did help prevent the ticket?, owner-confirmed 2026-08-14)
 
 **Owner-reported, not measured from here.** Flipped on the user's word during the

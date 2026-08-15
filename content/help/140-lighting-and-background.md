@@ -65,7 +65,7 @@ Contrast matters too. A cream jumper on a cream sheet loses its edges, and the
 shape of the garment is part of what structural integrity is scored from. Put a
 light garment on a darker ground and a dark one on a lighter ground.
 
-<!-- SCREENSHOT: the same garment on a patterned duvet and on a plain floor -->
+<!-- SCREENSHOT: the same garment on a patterned duvet and on a plain floor (as of 2026-08-15) -->
 
 ## The garment itself
 

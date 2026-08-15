@@ -28,7 +28,7 @@ re-read from a web page is a key anybody with your session can re-read.
 Name keys for where they are used. "Staging worker" and "Zapier" tell you what
 breaks when you revoke one; "key 3" does not.
 
-<!-- SCREENSHOT: the API keys page after creating a key -->
+<!-- SCREENSHOT: the API keys page after creating a key (as of 2026-08-15) -->
 
 ## The sandbox
 

@@ -67,7 +67,7 @@ It is worth it on anything you would mind losing, which for most sellers is
 almost everything. The exception is genuinely low-value items where the postage
 saving beats the occasional loss, and that is a calculation, not a habit.
 
-<!-- SCREENSHOT: the ship step with a tracking number entered -->
+<!-- SCREENSHOT: the ship step with a tracking number entered (as of 2026-08-15) -->
 
 ## International
 
