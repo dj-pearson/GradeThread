@@ -212,6 +212,21 @@ const ROUTE_CARDS = [
     badge: "FAQ",
     badgeLabel: "ANSWERS",
   },
+  {
+    // US-2581: the Help Center hub and its 14 category shelves share this one
+    // card. An article gets a dynamic card naming itself (/og/help/:slug); a
+    // shelf has no single subject to put on one, and a per-category static
+    // image would be 14 files that go stale the moment a category is renamed.
+    file: "public/social/help.png",
+    headline: ["Help Center"],
+    subline: [
+      "Grading, FlipDesk, marketplaces, the",
+      "extension, the apps, and what to do",
+      "when something goes wrong.",
+    ],
+    badge: "?",
+    badgeLabel: "ANSWERS",
+  },
 ];
 
 const wasm = readFileSync(

@@ -125,6 +125,19 @@ export interface HelpSearchPayload {
   hits: HelpSearchHitPayload[];
 }
 
+// US-2581. The hub and the category shelves have no single subject to put on a
+// card, so they share one static image built at deploy time by
+// scripts/generate-og-image.mjs. Articles get a dynamic card per slug.
+export const HELP_STATIC_OG_PATH = "/social/help.png";
+export const HELP_STATIC_OG_ALT =
+  "The GradeThread Help Center: guides for grading, listing, selling and buying.";
+export const OG_CARD_WIDTH = 1200;
+export const OG_CARD_HEIGHT = 630;
+
+export function helpArticleOgPath(slug: string): string {
+  return `/og/help/${encodeURIComponent(slug)}`;
+}
+
 export function helpSearchPath(query?: string): string {
   return query ? `/help/search?q=${encodeURIComponent(query)}` : "/help/search";
 }

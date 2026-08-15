@@ -97,6 +97,52 @@ export function buildBlogOgHtml(input: BlogOgInput): string {
 </div>`;
 }
 
+// US-2581: the Help Center card.
+//
+// Deliberately the same shape as the blog card rather than a new look: help
+// links get pasted next to blog links in the same Discord thread, and a card
+// that does not match the others reads as a different company. The pill carries
+// the CATEGORY rather than the word "Help", because "Marketplaces" tells a
+// reader what they are about to open and "Help" does not.
+//
+// No author line. Help articles are not bylined, and inventing one to fill the
+// slot would be a claim about who wrote it.
+export interface HelpOgInput {
+  title: string;
+  category: string | null;
+  /** "Last reviewed <date>" — the only date on a help article that means anything. */
+  reviewedAt: string | null;
+}
+
+export function buildHelpOgHtml(input: HelpOgInput): string {
+  const pill = input.category?.trim() || "Help";
+  const meta = input.reviewedAt?.trim()
+    ? `Last reviewed ${input.reviewedAt.trim()}`
+    : "GradeThread Help Center";
+  return `<div style="display:flex;flex-direction:column;height:630px;width:1200px;background:linear-gradient(135deg, ${BRAND_NAVY} 0%, ${BRAND_NIGHT} 100%);color:${TEXT_LIGHT};font-family:system-ui,sans-serif;padding:60px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <div style="width:44px;height:44px;border-radius:10px;background:${BRAND_RED};display:flex;align-items:center;justify-content:center;font-weight:800;font-size:24px;color:#fff;">G</div>
+      <div style="font-size:24px;font-weight:600;letter-spacing:0.5px;">GradeThread</div>
+    </div>
+    <div style="display:flex;align-items:center;background:rgba(255,255,255,0.08);padding:8px 16px;border-radius:999px;font-size:18px;font-weight:500;">
+      ${escapeHtml(truncate(pill, 40))}
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;flex:1;justify-content:center;margin-top:20px;">
+    <div style="display:flex;font-size:60px;font-weight:700;line-height:1.15;color:#fff;max-width:1000px;">
+      ${escapeHtml(truncate(input.title, 140))}
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;justify-content:space-between;width:100%;font-size:20px;color:rgba(255,255,255,0.7);">
+    <div>${escapeHtml(meta)}</div>
+    <div>gradethread.com</div>
+  </div>
+</div>`;
+}
+
 export interface SellerOgInput {
   displayName: string;
   totalGraded: number;

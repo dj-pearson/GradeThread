@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   articlesInCategory,
@@ -21,7 +21,9 @@ import {
   type HelpCategoryPayload,
   type HelpIndexPayload,
   type HelpListItemPayload,
+  HELP_STATIC_OG_PATH,
 } from "../../functions/_shared/help-render";
+import { buildHelpOgHtml } from "../../functions/_shared/og-template";
 
 // US-2575: the public Help Center SSR.
 //
@@ -472,6 +474,86 @@ describe("answer engines (US-2580)", () => {
     // claim, in either direction. The blog does not use it either.
     const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
     expect(src).not.toContain("aiDisclosure");
+  });
+});
+
+describe("social cards (US-2581)", () => {
+  it("the card names the article and its category, never an author", () => {
+    // Help articles are not bylined. Inventing a name to fill the slot would be
+    // a claim about who wrote it.
+    const html = buildHelpOgHtml({
+      title: "How to photograph a jacket",
+      category: "Grading",
+      reviewedAt: "August 10, 2026",
+    });
+    expect(html).toContain("How to photograph a jacket");
+    expect(html).toContain("Grading");
+    expect(html).toContain("Last reviewed August 10, 2026");
+    expect(html).toContain("1200px");
+    expect(html).toContain("630px");
+  });
+
+  it("falls back to sane copy when the category or date is missing", () => {
+    const html = buildHelpOgHtml({ title: "Untitled", category: null, reviewedAt: null });
+    expect(html).toContain("Help");
+    expect(html).toContain("GradeThread Help Center");
+  });
+
+  it("escapes the title into the card", () => {
+    const html = buildHelpOgHtml({
+      title: '<script>alert(1)</script>',
+      category: null,
+      reviewedAt: null,
+    });
+    expect(html).not.toContain("<script>alert(1)");
+  });
+
+  it("the article head points at the DYNAMIC card, not the hero image", () => {
+    // A hero is chosen to sit inside an article at whatever ratio suits it.
+    // Cropped to 1200x630 it is usually a detail with no title on it, which is
+    // a worse preview than a card that states what the page answers.
+    const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
+    const block = src.slice(src.indexOf("async function renderArticle("));
+    expect(block).toContain("helpArticleOgPath(article.slug)");
+    expect(block).not.toContain("ogImage: article.hero_image_url");
+  });
+
+  it("hub and category fall back to the static card, at declared dimensions", () => {
+    const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
+    const hub = src.slice(src.indexOf("async function renderHub("), src.indexOf("async function renderSearch("));
+    expect(hub).toContain("HELP_STATIC_OG_PATH");
+    expect(hub).toContain("OG_CARD_WIDTH");
+    expect(hub).toContain("OG_CARD_HEIGHT");
+  });
+
+  it("the static card actually exists, so the og:image cannot 404", () => {
+    expect(existsSync(join(root, "public", HELP_STATIC_OG_PATH))).toBe(true);
+  });
+
+  it("the generator knows how to rebuild it", () => {
+    const src = readFileSync(join(root, "scripts/generate-og-image.mjs"), "utf8");
+    expect(src).toContain("public/social/help.png");
+  });
+
+  it("the card renderer reads the ANONYMOUS endpoint", () => {
+    // So a members-only or internal article has no card here to leak its title.
+    const src = readFileSync(join(root, "functions/og/help/[slug].ts"), "utf8");
+    const calls = [...src.matchAll(/["'`](\/api\/[^"'`]*)["'`]/g)].map((m) => m[1]!);
+    expect(calls.length).toBeGreaterThan(0);
+    for (const p of calls) expect(p.startsWith("/api/content/public/help")).toBe(true);
+  });
+
+  it("an unreachable upstream returns 503, never a card claiming the page is gone", () => {
+    const src = readFileSync(join(root, "functions/og/help/[slug].ts"), "utf8");
+    expect(src).toContain("upstreamUnavailableResponse()");
+    expect(src).toContain("brandedFallbackResponse");
+  });
+
+  it("/og/* is routed to the Functions, so the card is reachable", () => {
+    const routes = JSON.parse(
+      readFileSync(join(root, "public/_routes.json"), "utf8"),
+    ) as { include: string[] };
+    expect(routes.include).toContain("/og/*");
   });
 });
 
