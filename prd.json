@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2572",
+  "nextId": "US-2593",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1758,7 +1758,7 @@
         "Upload progress is shown for the clip; a 60 MB upload with no feedback is indistinguishable from a hang."
       ],
       "priority": 1802,
-      "notes": "SLICE 1 of N SHIPPED - the story is NOT done and is deliberately left open.  AC3's PREMISE IS UNDERSOLD, and that is the most useful thing found here. It describes the no-charge behaviour as matching the web behaviour at new-submission.tsx:877-892, but the guarantee is the SERVER's, not the page's: failVideoGrading in routes/grade.ts returns BEFORE payment precedence runs, refunds a buyer meter debit taken at the gate, sets needs_photos with video_graded false, and answers payment paid:false charged:false. Any client posting the contract inherits that. So AC3 needs NO iOS work at all - and iOS must not implement a client-side do-not-charge, because that is not a guarantee.  SHIPPED: src/lib/video-grading-contract.ts pins the multipart field names (video, video_grading, video_slot_marks, video_capture_source), the exact opt-in string, the two capture sources, and the abstain response shape with an isVideoAbstain helper. new-submission.tsx now APPENDS from those constants instead of spelling the strings inline.  WHY THIS IS THE RIGHT FIRST SLICE. AC2 asks iOS to post the same multipart fields the web path sends. Those names were a private handshake between two files - spelled in new-submission.tsx, read in routes/grade.ts - which is fine with one client and a trap with two: a native client would have to reverse-engineer them out of page code, and a rename on either side would silently break whichever client nobody was looking at. Now there is a spec to implement.  The opt-in is worth calling out: the server compares against the literal string true, so a native client sending 1, TRUE or a JSON boolean would ATTACH a clip and then be graded from photos it never sent. The contract records that and the guard asserts the server still compares exactly.  STILL OPEN, blocked on a macOS toolchain: AC2's actual recorder (AVCapture walk-around mode) and AC4's upload progress - a 60MB upload with no feedback is indistinguishable from a hang. Both are Swift that cannot be compiled or run from this Windows checkout.  AC1's premise re-verified: a grep of ios for AVCaptureMovie, videoURL, walkaround and video_grading still returns zero matches.  Guard: src/test/video-grading-contract.test.ts, 11 cases, but only 1 proven red - and that is honest, not weak. Most of these assertions PIN behaviour that already existed (the edge field reads, the abstain path, the refund) so a second client can rely on it and a refactor cannot quietly move the charge earlier. Only the web-side wiring to the constants is new. The file asserts NOTHING about an iOS recorder existing."
+      "notes": "SLICE 1 of N SHIPPED - the story is NOT done and is deliberately left open.  AC3's PREMISE IS UNDERSOLD, and that is the most useful thing found here. It describes the no-charge behaviour as matching the web behaviour at new-submission.tsx:877-892, but the guarantee is the SERVER's, not the page's: failVideoGrading in routes/grade.ts returns BEFORE payment precedence runs, refunds a buyer meter debit taken at the gate, sets needs_photos with video_graded false, and answers payment paid:false charged:false. Any client posting the contract inherits that. So AC3 needs NO iOS work at all - and iOS must not implement a client-side do-not-charge, because that is not a guarantee.  SHIPPED: src/lib/video-grading-contract.ts pins the multipart field names (video, video_grading, video_slot_marks, video_capture_source), the exact opt-in string, the two capture sources, and the abstain response shape with an isVideoAbstain helper. new-submission.tsx now APPENDS from those constants instead of spelling the strings inline.  WHY THIS IS THE RIGHT FIRST SLICE. AC2 asks iOS to post the same multipart fields the web path sends. Those names were a private handshake between two files - spelled in new-submission.tsx, read in routes/grade.ts - which is fine with one client and a trap with two: a native client would have to reverse-engineer them out of page code, and a rename on either side would silently break whichever client nobody was looking at. Now there is a spec to implement.  The opt-in is worth calling out: the server compares against the literal string true, so a native client sending 1, TRUE or a JSON boolean would ATTACH a clip and then be graded from photos it never sent. The contract records that and the guard asserts the server still compares exactly.  STILL OPEN, blocked on a macOS toolchain: AC2's actual recorder (AVCapture walk-around mode) and AC4's upload progress - a 60MB upload with no feedback is indistinguishable from a hang. Both are Swift that cannot be compiled or run from this Windows checkout.  AC1's premise re-verified: a grep of ios for AVCaptureMovie, videoURL, walkaround and video_grading still returns zero matches.  Guard: src/test/video-grading-contract.test.ts, 11 cases, but only 1 proven red - and that is honest, not weak. Most of these assertions PIN behaviour that already existed (the edge field reads, the abstain path, the refund) so a second client can rely on it and a refactor cannot quietly move the charge earlier. Only the web-side wiring to the constants is new. The file asserts NOTHING about an iOS recorder existing. | SLICE 2 SHIPPED 2026-08-14, story STILL OPEN. AC2's recorder and AC4's progress UI are Swift and need macOS.  AC4's WEB half turns out to be already done and correct - new-submission.tsx routes the video POST through XMLHttpRequest precisely because fetch has no upload-progress event, with the 60 MB reads-as-a-hang reasoning already in the comment. So nothing to fix there. What slice 1 had NOT recorded is the set of rules a recorder has to be BUILT to, and getting those wrong produces clips the server refuses after the entire upload has gone up a phone connection.  THE SHARPEST FIND: THE LIMITS THAT APPLY ARE THE ROUTE'S, AND THEY ARE NOT THE VALIDATION LIBRARY'S. lib/video-validation.ts defaults to 100 MB and 60 seconds. routes/grade.ts passes its own MAX_VIDEO_BYTES of 60 MB and MAX_VIDEO_DURATION_SECONDS of 45. A Swift author reading the validator - the obvious place to look for what a video upload may be - would build a recorder producing 100 MB, 60-second clips that are rejected every time. Both numbers are now in the contract and the guard reads them back out of the ROUTE, and also asserts the library's really are looser, since that gap is the trap.  SECOND: PHOTOS AND A CLIP ARE MUTUALLY EXCLUSIVE, and this is the rule a second client is most likely to break, because the natural iOS flow is additive - stage photos, then also record a walk-around, which feels like sending more evidence. videoPhotoConflict refuses it with a 400. Two reasons worth keeping: the pipeline makes one Vision call per image, so accepting both stacks the 14-slot photo cap on top of the frame cap for one grade's revenue with nothing bounding the request; and it voids the claim the feature is sold on, that every graded view came from one continuous take. So the client must make it a MODE, not an addition.  THIRD, for AC4 one step later: 100 percent uploaded is not 100 percent done. Frame extraction and grading run after the last byte and the server sends no progress for that phase. The web holds the bar at 100 and lets the copy carry the rest. A client that dismisses the sheet at 100 tells the seller their grade is ready while the server has not started.  Also added videoSubmitRejection so a client can refuse a clip BEFORE spending the upload, mirroring the server's order - the photo conflict is reported first, because it is the one thing the seller can fix without re-recording. An UNREADABLE duration deliberately passes through to the server rather than being guessed at locally: null means the client could not read it, which is not the same as knowing it is bad, and guessing would block clips the server would have taken.  A VERIFICATION FLAW FOUND AND FIXED, and it affected this whole loop. I had been running npx tsc -b piped to tail followed by echo TSC-OK. A shell pipeline reports the exit status of the LAST command, so that printed TSC-OK unconditionally - and this iteration it printed TSC-OK directly underneath a real TS2532. Earlier runs were genuinely clean (they printed no errors above the marker) but the check was unsound throughout. Now running the command bare and reading its exit code.  STILL OPEN, blocked on macOS: AC2's AVCapture walk-around recorder and AC4's iOS progress UI. Guard: src/test/video-grading-contract.test.ts, now 25 cases (14 new), verified to bite - drifted the caps to the library defaults and dropped the photo conflict, 3 cases went red naming each. Verified: tsc -b exit 0, lint exit 0, ui:check exit 0, 4109 web tests, deno check exit 0, vault:lint green. No migration."
     },
     {
       "id": "US-2528",
@@ -1875,6 +1875,322 @@
         "US-2525"
       ],
       "notes": "SLICE SHIPPED 2026-08-14, story STILL OPEN. Every AC here is Swift; the iOS CI lane on macOS runners is the gate and nothing was built or run against a simulator. python3 does not exist on this host either, so even the no-ungated-print check did not run.  What DID need doing here, and could only be done here: the protocol iOS is supposed to implement was scattered across four files and two constants that already disagree by construction. New src/lib/support-attachment-contract.ts pins it, and src/test/support-attachment-contract.test.ts reads every value back out of the code that serves it, so the contract cannot be a well-meaning guess and cannot rot once the Swift half lands.  ALL FIVE AC PREMISES VERIFIED against the running code rather than assumed. AC2's endpoints all exist and need no additions: POST /api/support-tickets, POST /:id/messages, POST /:id/close, GET /:id. MAX_ATTACHMENTS_PER_MESSAGE is 3. ATTACHMENT_URL_TTL_SEC is 600, under the 900s US-276 caps the private bucket at. The validator allows jpeg, png, webp. The reopen rule is the server's, not the client's. And the web picker does compress before sending, via compressImage at maxWidth 2400 quality 0.85 - which matters, because AC5 says match the web and an AC that says match X inherits X's behaviour whether or not anyone checked it.  THREE THINGS THE CONTRACT CATCHES THAT A SWIFT AUTHOR WOULD OTHERWISE HIT.  First, the limit already exists TWICE - MAX_ATTACHMENTS_PER_MESSAGE on the edge, which rejects with a 400, and MAX_ATTACHMENTS in the web picker, which stops you selecting. A Swift constant is the third. If the client's limit ever exceeds the server's, the user waits through an upload and THEN gets the error, which is the worst ordering of those two failures. The guard compares all of them.  Second, the key is data_url in snake_case, not dataUrl. The edge reads item?.data_url and a camelCase key decodes to null, which surfaces as One attachment was not an image - a message that blames the bytes when the key was wrong. That is an hour of debugging for the second client implementation and it is now a pinned fact.  Third, and the one AC3 actually turns on: a signed URL can be dead in TWO ways, and a client that only null-checks catches one. Null means signing failed. But a perfectly good STRING expires after 600s, and nothing about the value says so - the response was valid when it arrived and rots in place. The common case is a user reading a thread, switching apps, and coming back to a screen of URLs that look fine and load nothing. isAttachmentUrlUsable takes the fetch time and answers, with a 30s margin so a URL about to die mid-request counts as already gone, and it refuses to treat a backwards clock as evidence of freshness.  A method note worth keeping: I first wrote the data-URL parity check as a regex that matches a regex, and it failed on its own escaping. Replaced by slicing the literal out of the edge source and comparing it to SUPPORT_DATA_URL_PATTERN.source as text. When a pattern-matching-a-pattern breaks you cannot tell a real drift from a backslash you miscounted, which is the opposite of what a guard is for.  Guard verified to BITE: drifted four contract facts at once (the limit, the TTL, the downscale width, and the expiry check reduced to return true) and watched 6 of 19 cases go red naming each.  STILL OPEN: the whole Swift side - a picker in the composer and the reply box, attachment rendering with the placeholder, the Close button, and the on-device downscale. Verified here: tsc -b, lint 16 warnings 0 errors baseline, ui:check 0, 1547 web tests, vault:lint green. No migration."
+    },
+    {
+      "id": "US-2572",
+      "title": "[HELP CENTER] help_articles schema with the public/gated visibility split",
+      "description": "The platform has no help surface. /faq is a hand-written React page and there is nowhere to document FlipDesk's 11-stage pipeline, the unified extension's 6 modes, the iOS/Android apps, or the buyer surfaces. Every article must be able to render BOTH as an indexable public page and as an in-app doc, so one table with a visibility column is the foundation the rest of the epic sits on.",
+      "acceptanceCriteria": [
+        "New migration adds help_categories (key, title, slug, summary, sort_order, icon) and help_articles (id uuid pk, slug citext unique, title, summary, body_html, body_markdown, category_key fk, audience, visibility enum public|gated, status enum draft|published|archived, sort_order, hero_image_url, faq jsonb, related_slugs text[], video_url, pillar_path, published_at, reviewed_at, review_interval_days default 180, created_at, updated_at + updated_at trigger).",
+        "RLS: an anon/public SELECT policy that matches ONLY visibility='public' AND status='published'. No other anon read path exists. Writes are admin-only, mirroring the content-module policies in 00041_content_module.sql.",
+        "Register help_articles in the rls-guard service-role table list (see the tenant-isolation skill) since the edge writes it with the service-role client.",
+        "Migration triple per US-1108: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the SAME commit, self-record footer. Add to PENDING_MIGRATIONS.md and do NOT push until the user applies it.",
+        "Seed the 14 category rows: getting-started, grading, certificates, flipdesk, marketplaces, autolister, extension, mobile, buyers, billing, team, integrations, troubleshooting, account."
+      ],
+      "priority": 62,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge."
+    },
+    {
+      "id": "US-2573",
+      "title": "[HELP CENTER] Edge routes for public help reads and admin authoring",
+      "description": "The SSR Function, the SPA, the in-app reader, the contextual help sheet and the support-ticket deflector all need to read the same rows. One API, two audiences: an anonymous public read that can only ever see published public rows, and an authed read that also sees gated rows.",
+      "acceptanceCriteria": [
+        "GET /api/content/public/help.json returns the category tree plus the published PUBLIC article index. GET /api/content/public/help/:slug returns one full public article. No auth, cacheable, no gated or draft row can escape through either.",
+        "GET /api/content/help and /api/content/help/:slug (authed) return public AND gated published rows for any signed-in user.",
+        "Admin CRUD (POST/PATCH/DELETE /api/content/help/*) behind the same admin gate the blog authoring routes use.",
+        "A request for a gated slug on the PUBLIC endpoint returns 404, not 403: do not confirm that the slug exists.",
+        "Add a case to services/edge-functions/src/routes/__tests__/tenant-isolation_test.ts per US-268, plus deno tests covering: public list excludes gated and draft, authed list includes gated, unknown slug 404 shape."
+      ],
+      "priority": 63,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] Model on services/edge-functions/src/routes/content-public.ts + content-blog.ts."
+    },
+    {
+      "id": "US-2574",
+      "title": "[HELP CENTER] Article editor at /dashboard/content/help",
+      "description": "Articles have to be writable and fixable without a deploy. That is the whole reason the content lives in the database, and it only pays off if the editor is as good as the blog editor already is.",
+      "acceptanceCriteria": [
+        "src/pages/content/help-list.tsx and help-editor.tsx, modeled on blog-list.tsx / blog-editor.tsx, added to the existing Content sidebar group.",
+        "Fields: title, slug (auto-derived, editable), category, audience, visibility toggle labelled 'Public' / 'Members only', summary, body (the same Tiptap editor the blog uses), FAQ pairs, related articles, hero image, video URL, pillar page, status.",
+        "Flipping a published PUBLIC article to gated warns in plain words that its public URL will start returning 404, and asks to confirm.",
+        "Slug collisions blocked client-side and server-side.",
+        "The whole authoring surface is <SEO noindex>.",
+        "npm run ui:check stays at zero findings."
+      ],
+      "priority": 64,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2575",
+      "title": "[HELP CENTER] Pages Function that server-renders the public help center",
+      "description": "This is the answer to 'plain HTML or database items': database rows rendered to complete server HTML at the edge, exactly like functions/blog/[[path]].ts already does for the blog. Bots get full markup with zero JavaScript. Static files would cost a rebuild and a deploy for every typo and would split the content from the in-app reader.",
+      "acceptanceCriteria": [
+        "functions/help/[[path]].ts handles /help (hub), /help/<category> (category landing) and /help/<category>/<slug> (article), reusing functions/_shared/blog-render.ts (renderSsrResponse, withEdgeCache, breadcrumbs, TOC, FAQ section, related posts, escape, upstreamUnavailableResponse).",
+        "Complete <head> on every response: canonical, title, description, OG/Twitter, robots index,follow.",
+        "A gated, draft or unknown slug returns the standard 404 page. Never a login redirect, never a stub that leaks the title.",
+        "Article pages render a table of contents, breadcrumbs, a 'Last reviewed' date, related articles and the pillar link.",
+        "A clean markdown mirror at <url>.md via _shared/html-to-markdown.ts, same as blog posts.",
+        "An upstream failure returns upstreamUnavailableResponse, not a blank shell."
+      ],
+      "priority": 65,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Note the DNS rule in CLAUDE.md: the Function calls functions.gradethread.com, never api.gradethread.com."
+    },
+    {
+      "id": "US-2576",
+      "title": "[HELP CENTER] SPA help routes and PUBLIC_ROUTES registration",
+      "description": "The SSR Function serves first paint to crawlers and cold visitors; the SPA has to render the same thing for in-app navigation. And the hub plus the category landings are static enough to belong in the SEO registry, which is what makes them indexable and sitemapped.",
+      "acceptanceCriteria": [
+        "src/pages/help/{hub,category,article}.tsx render the same content client-side from the public API.",
+        "A new src/lib/seo/help-center.ts exports helpRoutes() (hub + the 14 category paths) and is spread into PUBLIC_ROUTES in src/lib/seo/public-routes.ts.",
+        "The same routes are added to src/prerender/entry-server.tsx, or the CI guard test and the prerender sync-guard fail.",
+        "ROUTE_LAST_MODIFIED entries for the hub and each category.",
+        "Individual articles are deliberately NOT in PUBLIC_ROUTES: they are a dynamic collection and enter the sitemap through the Function, like blog posts and certificates.",
+        "src/lib/seo/__tests__/public-routes.test.ts passes and npm run build succeeds (tsc -b, not --noEmit)."
+      ],
+      "priority": 66,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2577",
+      "title": "[HELP CENTER] Help search, public and in-app",
+      "description": "A help center without search is a filing cabinet. It also has to work for a crawler and for a visitor with JavaScript off, and it has to survive 300+ articles without shipping the whole corpus to the browser.",
+      "acceptanceCriteria": [
+        "/help/search?q= is server-rendered by the Function (robots noindex,follow) so it works with no JS.",
+        "Search runs in Postgres: a generated tsvector column over title, summary and body plus a GIN index. Not client-side filtering.",
+        "The in-app reader (US-2583) searches public AND gated rows; the public endpoint searches public rows only.",
+        "Zero-result queries are recorded for US-2592 to report.",
+        "Results show category, title and the matching snippet."
+      ],
+      "priority": 67,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2578",
+      "title": "[HELP CENTER] sitemap-help.xml, sitemap index entry, IndexNow and lastmod",
+      "description": "Nothing gets indexed that is not in a sitemap, and nothing gated may ever appear in one. The site already runs 13 child sitemaps behind an index; this is the fourteenth.",
+      "acceptanceCriteria": [
+        "functions/sitemap-help.xml.ts lists the hub, every category and every published PUBLIC article, with reviewed_at (falling back to updated_at) as <lastmod>.",
+        "Registered in the sitemap index in functions/sitemap.xml.ts with newestLastmod, like sitemap-blog.xml.",
+        "A test asserts no visibility='gated' and no status!='published' row reaches any sitemap.",
+        "The deploy-time IndexNow submitter (US-297) picks up new and changed help URLs.",
+        "robots.txt continues to allow /help and disallow /dashboard."
+      ],
+      "priority": 68,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2579",
+      "title": "[HELP CENTER] Structured data for help pages, with SSR/SPA parity",
+      "description": "Help content is the kind Google renders rich results for, and the kind answer engines lift verbatim. But react-helmet-async v3 renders no server-side head, so the markup has to be built twice and proved identical, which is the trap every other SEO story in this repo hit.",
+      "acceptanceCriteria": [
+        "Article pages emit TechArticle, or HowTo when the article is step-shaped, plus BreadcrumbList, plus FAQPage when the article carries FAQ pairs.",
+        "Hub and category pages emit CollectionPage plus BreadcrumbList.",
+        "The Function builds the JSON-LD server-side; the SPA emits the same through <SEO jsonLd>; head-builder.ts jsonLdForRoute() mirrors it for the registered hub and category routes.",
+        "No markup for data that does not exist: no aggregateRating, no invented dateModified.",
+        "A parity test asserts the SSR and SPA JSON-LD for the same route match, in the shape of the existing pricing-offer-jsonld.test.ts."
+      ],
+      "priority": 69,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2580",
+      "title": "[HELP CENTER] Expose help to answer engines (llms.txt, llms-full.txt, .md mirrors)",
+      "description": "This is the reason the help center is public rather than gated. Answer engines quote documentation far more readily than marketing copy, because docs are specific and checkable. Every public article needs to be retrievable as clean markdown.",
+      "acceptanceCriteria": [
+        "llms.txt gains a Help Center section listing the category hubs and the top articles, with the same .md hint the blog section uses.",
+        "llms-full.txt includes the markdown body of public help articles, bounded the way the blog section is bounded.",
+        "Every public article is retrievable at /help/<category>/<slug>.md.",
+        "Gated articles appear in none of llms.txt, llms-full.txt or the markdown mirrors. A test asserts it.",
+        "AI disclosure handling matches the blog's (_shared/ai-disclosure.ts)."
+      ],
+      "priority": 70,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. "
+    },
+    {
+      "id": "US-2581",
+      "title": "[HELP CENTER] Dynamic OG images for help articles",
+      "description": "Help links get pasted into Discord, Reddit and support replies more than any marketing page does. A blank card wastes the click.",
+      "acceptanceCriteria": [
+        "functions/og/help/[slug].ts renders a 1200x630 card with the article title and category, reusing functions/_shared/og-template.ts.",
+        "The SSR head points og:image at it; the hub and categories fall back to a static /social/help.png produced by scripts/generate-og-image.mjs.",
+        "src/lib/seo/__tests__/og-images.test.ts still passes: no og:image may 404."
+      ],
+      "priority": 71,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2582",
+      "title": "[HELP CENTER] Wire the help center into the existing SEO link graph",
+      "description": "213 marketing routes already exist and already rank. A help center nothing links to is an orphan and will not rank no matter how good it is. The links also run the other way: help articles are the natural place to send a reader deeper into the pillars.",
+      "acceptanceCriteria": [
+        "Glossary auto-linking (linkGlossaryTerms) runs over help bodies exactly as it does over blog bodies.",
+        "Every article can name a pillar page and renders the link (renderPillarLink).",
+        "/how-it-works, /flipdesk, the /flipdesk/* landings, /developers and /pricing each link to their matching help category.",
+        "/faq keeps its FAQPage markup, and each answer with a deeper article links to it. The FAQ stays the short answer; do not duplicate the article into it.",
+        "/sitemap (the human HTML sitemap) lists the help hub and every category.",
+        "The footer gains a Help link on both the marketing shell and the app shell."
+      ],
+      "priority": 72,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2583",
+      "title": "[HELP CENTER] Members-only docs reader at /dashboard/help",
+      "description": "A small set of docs should not be public: operator runbooks, abuse and fraud thresholds, dispute-handling internals and unreleased features. Those live in the same table with visibility='gated' and are read only here.",
+      "acceptanceCriteria": [
+        "/dashboard/help and /dashboard/help/:slug render public AND gated published articles for signed-in users via the authed API.",
+        "<SEO noindex> on every page, and the route is inside the existing /dashboard disallow in robots.txt.",
+        "Gated articles are visibly marked 'Members only' so an author can see at a glance what is not public.",
+        "Category filter plus the US-2577 search over both visibilities.",
+        "A test asserts no gated slug appears in any sitemap, in llms.txt, or in the prerender output.",
+        "The gating rule (what is gated and why) is written into a vault note under vault/40-growth/ and linked from the vault index, per the vault skill's same-commit rule."
+      ],
+      "priority": 73,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] Gating rule: public by default. Gate ONLY operator runbooks, abuse/fraud thresholds, refund and dispute internals, and unreleased features. Competitor copying is not a reason to gate, since anyone can sign up and screenshot the product in an hour."
+    },
+    {
+      "id": "US-2584",
+      "title": "[HELP CENTER] Contextual help links from the product surfaces",
+      "description": "Documentation nobody can find from inside the product is documentation nobody reads. The help a user needs is almost always about the screen they are already looking at.",
+      "acceptanceCriteria": [
+        "A <HelpLink slug=\"...\"> component renders a question-mark button that opens the article in a side sheet, without leaving the page.",
+        "Placed on at least: new submission, submission detail, the FlipDesk pipeline, the composer, marketplaces, reconciliation, billing, api-keys, team, and connect-extension.",
+        "The sheet reads the same rows as everything else. A slug that does not exist renders nothing rather than a broken link.",
+        "A test enumerates every slug referenced in the codebase and fails on any that has no article."
+      ],
+      "priority": 74,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2585",
+      "title": "[HELP CENTER] Suggest help articles before a support ticket is filed",
+      "description": "The support-ticket surface already exists (src/pages/support-tickets.tsx). Every ticket a good article answers is a ticket the founder does not have to answer twice, and deflection rate is the number that proves the help center is worth maintaining.",
+      "acceptanceCriteria": [
+        "The ticket form searches help as the subject is typed and shows the top 3 matches above the submit button.",
+        "The ticket record stores which articles were shown and whether one was opened.",
+        "Opening an article and then not submitting is recorded as a deflection for US-2592.",
+        "The post-submit confirmation links the closest article.",
+        "Suggestions cover public and gated articles, since the user is signed in."
+      ],
+      "priority": 75,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2586",
+      "title": "[HELP CENTER CONTENT] The article map, plus Getting Started and Grading",
+      "description": "The engine is worthless empty. This story fixes the full inventory in one place so the remaining content stories are checklists rather than judgement calls, then writes the two categories every new user hits first.",
+      "acceptanceCriteria": [
+        "vault/40-growth/help-center-map.md lists every planned article with its category, audience, visibility and target query. Linked from the vault index; vault:index and vault:lint --strict pass.",
+        "All 14 categories exist with a written hub summary, not a placeholder.",
+        "Getting Started published: create an account, your first grade, what a grade means, plans and credits, a dashboard tour, invite your team.",
+        "Grading published: the 1.0-10.0 scale, the five factors and their weights, the required photo set and how to shoot it, lighting and background, confidence and human review, disputes and regrades, and what grading does NOT check (authenticity is a separate service).",
+        "Every article: 600+ words, at least one real screenshot, at least one FAQ pair, a named pillar link, ASCII-only body per the plain-characters rule.",
+        "Grading numbers are read from the code (the grading-engine skill owns the contract), never recalled from memory."
+      ],
+      "priority": 76,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2587",
+      "title": "[HELP CENTER CONTENT] FlipDesk, marketplaces and AutoLister",
+      "description": "FlipDesk is the deepest and least self-explanatory surface in the product, and the one whose questions cost the most support time. Eleven pipeline stages, seven marketplaces and a batch worker, none of them documented.",
+      "acceptanceCriteria": [
+        "One article per pipeline stage: source, catalog, measure, photograph, grade, comp, draft, list, sell, ship, reconcile.",
+        "Marketplace articles: connecting eBay and reconnecting it, business policies, item specifics (including the 65-character aspect limit that strands offers), condition mapping, crosslisting, delisting and listing lifecycle, reconciliation and payout imports, Google Sheets sync.",
+        "AutoLister articles: what a batch does, how to read its status, and what to do when one stalls.",
+        "Every marketplace claim is checked against the code before publishing. Name only channels the Lister actually posts to; the deliberate 501 endpoints (flipdesk-ebay.ts:1840-1850) are not features and must not be documented as coming soon.",
+        "Each article links to its FlipDesk landing page and carries a <HelpLink> slug used by US-2584."
+      ],
+      "priority": 77,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2588",
+      "title": "[HELP CENTER CONTENT] The browser extension and the mobile apps",
+      "description": "The unified extension has six modes and a permissions prompt that scares people off at install. Chrome Web Store listings convert on the strength of the help page they link to, and the iOS and Android apps have no written support at all.",
+      "acceptanceCriteria": [
+        "Extension articles: install and what each permission is for, connecting it to an account, the free anonymous quota and the paid cap, Condition Check on a listing page, Alt+G and the right-click grade, the compare tray, seller memory, Flip mode and what it costs, Scan mode on search grids, the Lister and which marketplaces it posts to, and what to do when a site stops working.",
+        "Mobile articles for iOS and Android: install, sign in, camera capture, the share extension, working offline, push notifications, and why a session may expire.",
+        "Every privacy claim (what stays on the device, what is sent, what is never written to a table) is verified against the extension source before publishing, not paraphrased from its README.",
+        "The Chrome Web Store listing and the app store descriptions link to these articles."
+      ],
+      "priority": 78,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] Sources to verify against, not to copy: extension-unified/README.md, registry.js, src/lib/extension-gates.ts."
+    },
+    {
+      "id": "US-2589",
+      "title": "[HELP CENTER CONTENT] Buyer surfaces, billing, team and the API",
+      "description": "The buyer half of the product is the half with the most search demand and the least documentation, and billing questions are the ones that turn into refunds when they go unanswered.",
+      "acceptanceCriteria": [
+        "Buyer articles: verify a certificate, scan a garment passport, what the buyer guarantee covers and how to file a claim, alerts, rewards and credits, and the trust score.",
+        "Billing articles: the plans, credits versus subscription, upgrade and downgrade, cancel, refunds, invoices, and a failed payment.",
+        "Team articles: invite a member, roles, and who owns a workspace.",
+        "Integrations articles: API keys, the REST API and SDK, the sandbox, rate limits and quotas, webhooks, and the embeds and badges.",
+        "Buyer articles link to /verify, /scan and /buyer-guarantee; the API articles link to /developers rather than restating it."
+      ],
+      "priority": 79,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2590",
+      "title": "[HELP CENTER CONTENT] Troubleshooting, plus the gated operator set",
+      "description": "The last two categories, and the only place in the epic where anything is hidden. Troubleshooting is public because it is exactly what people search at the moment they are most likely to churn. The operator set is gated because it describes how the company defends itself.",
+      "acceptanceCriteria": [
+        "Public troubleshooting articles: cannot sign in, upload failed, a photo rotated the wrong way, the grade seems wrong, an eBay listing is stuck, an offer will not send, the app logged me out, and the extension is not appearing.",
+        "Gated (visibility='gated') articles: the admin review queue, grading prompt versions and the canary process, the human-review workflow, refund and dispute handling, key rotation, an incident-response summary, abuse and rate-limit thresholds, and unreleased feature notes.",
+        "No gated article contains a secret VALUE. It names where the secret is stored, per the Pearson Media rule.",
+        "A test asserts every gated article is absent from the public API, every sitemap, llms.txt and the prerender output.",
+        "Each gated article links to its vault runbook rather than duplicating it, so there is one source of truth."
+      ],
+      "priority": 80,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2591",
+      "title": "[HELP CENTER] Freshness, review cadence and helpfulness feedback",
+      "description": "A help center rots faster than marketing copy, because it describes a UI that changes weekly. Screenshots go stale silently and a wrong article is worse than no article.",
+      "acceptanceCriteria": [
+        "A 'Was this helpful?' yes/no with an optional comment, stored per article.",
+        "reviewed_at drives a 'Last reviewed <date>' line on the article and an admin list of everything past its review_interval_days (default 180).",
+        "A stale article keeps its sitemap entry but is flagged in the dashboard, so freshness never silently drops a URL.",
+        "Screenshots carry the app version or date they were taken, so a UI change can be traced to the shots that need reshooting.",
+        "An article edited after publish gets a visible 'Updated <date>', matching how the blog handles wasUpdatedAfterPublish."
+      ],
+      "priority": 81,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
+    },
+    {
+      "id": "US-2592",
+      "title": "[HELP CENTER] Analytics: what people read, what they cannot find, what it saved",
+      "description": "Two numbers decide whether this epic was worth it: how much organic traffic the help center earns, and how many support tickets it prevents. Neither is visible without instrumentation.",
+      "acceptanceCriteria": [
+        "PostHog events for article view, help search, zero-result search, helpfulness vote, deflection, and contextual-help sheet open.",
+        "An admin report showing top articles, top zero-result queries, deflection rate, and ticket volume by category before and after an article shipped.",
+        "Zero-result queries are the backlog for new articles and are surfaced as a ranked list, not a raw log.",
+        "Help URLs tracked as their own group so organic performance is separable from the blog and the marketing pages."
+      ],
+      "priority": 82,
+      "passes": false,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
     }
   ]
 }
