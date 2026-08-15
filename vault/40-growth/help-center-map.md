@@ -58,12 +58,22 @@ Status: **written** rows exist in `content/help/`. Everything else is planned.
 
 ## certificates
 
+US-2596. Files are numbered 190-193, in the gap between grading (ends 180) and
+flipdesk (starts 200), because the original numbering assigned this shelf no
+block. The prefix is a drafting convenience only; `sort_order` in the
+frontmatter is what orders the shelf.
+
+`embed-a-grade-badge` and `embeds-and-badges` (integrations) deliberately both
+exist and do not overlap: this one is the seller's copy-and-paste path from a
+certificate, that one is the developer's build path with the widget and its
+options. Each links to the other rather than restating it.
+
 | Slug | Visibility | Target query | Status |
 |---|---|---|---|
-| share-a-certificate | public | share a clothing condition certificate | planned |
-| print-a-garment-tag | public | — | planned |
-| embed-a-grade-badge | public | embed condition grade in listing | planned |
-| the-garment-passport | public | garment passport history | planned |
+| share-a-certificate | public | share a clothing condition certificate | written |
+| print-a-garment-tag | public | — | written |
+| embed-a-grade-badge | public | embed condition grade in listing | written |
+| the-garment-passport | public | garment passport history | written |
 
 ## flipdesk
 
