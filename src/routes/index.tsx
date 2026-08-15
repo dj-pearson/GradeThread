@@ -7,9 +7,9 @@ import { createBrowserRouter, Navigate, useLocation } from "react-router";
 import { RootLayout } from "@/layouts/root-layout";
 import { RouteErrorFallback } from "@/components/error-boundary";
 import {
-  COMPETITOR_ALTERNATIVES,
+  COMPETITOR_ALTERNATIVE_SLUGS,
   alternativePath,
-} from "@/lib/seo/competitor-alternatives";
+} from "@/lib/seo/competitor-alternative-slugs";
 
 // RootLayout stays eager (it renders on the first paint of every route). The
 // authenticated layouts + auth guards are lazy: they pull Supabase, react-query
@@ -348,9 +348,9 @@ export const router = createBrowserRouter([
       // routes/sitemap so the three lists cannot drift, and registered
       // EXPLICITLY before /reselling/:slug — that dynamic route would otherwise
       // swallow them and render the guide page's not-found instead.
-      ...COMPETITOR_ALTERNATIVES.map((alt) => ({
-        path: alternativePath(alt.slug),
-        element: <SuspenseWrapper><CompetitorAlternativePage slug={alt.slug} /></SuspenseWrapper>,
+      ...COMPETITOR_ALTERNATIVE_SLUGS.map((slug) => ({
+        path: alternativePath(slug),
+        element: <SuspenseWrapper><CompetitorAlternativePage slug={slug} /></SuspenseWrapper>,
       })),
       { path: "/reselling/:slug", element: <SuspenseWrapper><ResellingGuidePage /></SuspenseWrapper> },
       // US-1667: marketplace comparison hub + pages.

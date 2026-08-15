@@ -48,6 +48,18 @@ const manifestPath = join(root, "build-meta", "bundle-modules.json");
 // src/routes/index.tsx; eager total still comfortably under at ~212.35 KB and no
 // forbidden primitive leaked. Bumped 60→64 for headroom; the lazy admin
 // sub-router slim-down above is still the real fix and is now overdue.)
+// (2026-08-15: the eager total FAILED at 215.10/215 and the ceiling was NOT
+// raised. Two structural fixes had already been named here and both were taken:
+// the admin subtree moved behind its own lazy sub-router (US-2112), and this
+// time `routes/index.tsx` stopped importing COMPETITOR_ALTERNATIVES — a 16 KB
+// editorial data set it read only to get five slugs, shipped to every landing
+// page visitor. The slugs moved to `lib/seo/competitor-alternative-slugs.ts`
+// with a test pinning the two lists in both directions. Entry 63.43 → 59.52,
+// eager 215.10 → 211.19. Budgets left where they are: the headroom is the point
+// of the exercise, and tightening them the same day would spend it again.
+// THE NEXT ONE TO TAKE, when this fails again: the 73 `/dashboard/*` routes are
+// still declared eagerly in index.tsx, behind an auth gate most visitors never
+// pass — the same argument that moved admin.)
 const ENTRY_GZ_BUDGET_KB = 64;
 const EAGER_TOTAL_GZ_BUDGET_KB = 215;
 

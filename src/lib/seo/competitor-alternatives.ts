@@ -233,10 +233,12 @@ export const COMPETITOR_ALTERNATIVES: CompetitorAlternative[] = [
   },
 ];
 
-/** Path for a competitor alternative page. */
-export function alternativePath(slug: string): string {
-  return `/reselling/${slug}-alternative`;
-}
+// US-2600: the path builder moved to ./competitor-alternative-slugs so the
+// ROUTER can import it without pulling this 16 KB data set into the eager entry
+// chunk. Re-exported here because every existing caller reaches for it through
+// this module, and a rename across six call sites buys nothing.
+import { alternativePath } from "./competitor-alternative-slugs";
+export { alternativePath };
 
 export function getAlternativeBySlug(slug: string): CompetitorAlternative | undefined {
   return COMPETITOR_ALTERNATIVES.find((a) => a.slug === slug);
