@@ -13,7 +13,10 @@ import {
   isHelpStatus,
   isHelpVisibility,
   isReservedHelpSlug,
+  isSearchableHelpQuery,
   normalizeFaq,
+  normalizeHelpQuery,
+  type HelpSearchHit,
   projectArticle,
   projectListItem,
   readableStatusesFor,
@@ -126,6 +129,48 @@ function indexPayload(categories: HelpCategoryRow[], rows: HelpArticleRow[]) {
   };
 }
 
+// ── search (US-2577) ──────────────────────────────────────
+// One implementation, three mounts, same rule as the reads: the viewer decides
+// which visibilities the query may reach. Search is the most tempting way around
+// a permission wall, because it looks like a read of "the index" rather than a
+// read of the articles.
+
+async function runSearch(
+  viewer: HelpViewer,
+  rawQuery: string,
+): Promise<{ query: string; hits: HelpSearchHit[] }> {
+  const query = normalizeHelpQuery(rawQuery);
+  if (!isSearchableHelpQuery(query)) return { query, hits: [] };
+
+  const { data, error } = await supabaseAdmin.rpc("help_search", {
+    p_query: query,
+    p_visibilities: visibilitiesFor(viewer),
+    p_limit: 20,
+  });
+  if (error) throw error;
+  const hits = ((data ?? []) as unknown as HelpSearchHit[]).filter((h) =>
+    visibilitiesFor(viewer).includes(h.visibility)
+  );
+
+  // A query that found nothing is the best signal we get for what to write next:
+  // somebody wanted an answer badly enough to type it. Best-effort — a failed
+  // insert must never turn an empty result page into a 500.
+  if (hits.length === 0) {
+    await supabaseAdmin
+      .from("help_search_misses")
+      .insert({ query: rawQuery.slice(0, 200), normalized: query, viewer_tier: viewer, hits: 0 })
+      .then(
+        () => {},
+        (e: unknown) => console.warn("[help.search] miss log failed", e),
+      );
+  }
+  return { query, hits };
+}
+
+function searchQueryOf(c: { req: { query: (k: string) => string | undefined } }): string {
+  return c.req.query("q") ?? "";
+}
+
 // ══════════════════════════════════════════════════════════
 // PUBLIC — anonymous, mounted at /api/content/public/help
 // ══════════════════════════════════════════════════════════
@@ -138,6 +183,16 @@ helpPublicRoutes.get("/", async (c) => {
     return c.json(indexPayload(categories, rows));
   } catch (err) {
     return failSafe(c, 500, "Couldn't load help articles.", err, "help.public.index");
+  }
+});
+
+// Registered BEFORE /:slug so the literal path wins, and matching the reserved
+// slug list in lib/help-center.ts, which forbids an article from taking it.
+helpPublicRoutes.get("/search", async (c) => {
+  try {
+    return c.json(await runSearch("anon", searchQueryOf(c)));
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't run that search.", err, "help.public.search");
   }
 });
 
@@ -171,6 +226,15 @@ helpReaderRoutes.get("/", async (c) => {
     return c.json({ ...indexPayload(categories, rows), viewer });
   } catch (err) {
     return failSafe(c, 500, "Couldn't load help articles.", err, "help.reader.index");
+  }
+});
+
+helpReaderRoutes.get("/search", async (c) => {
+  try {
+    const viewer = await viewerFor(c.get("userId"));
+    return c.json({ ...(await runSearch(viewer, searchQueryOf(c))), viewer });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't run that search.", err, "help.reader.search");
   }
 });
 

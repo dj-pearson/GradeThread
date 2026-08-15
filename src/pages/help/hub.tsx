@@ -1,5 +1,9 @@
-import { Link } from "react-router";
-import { LifeBuoy } from "lucide-react";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router";
+import { LifeBuoy, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -27,6 +31,8 @@ import {
 // /finds, /leaderboards and /condition-index in the registry guard test.
 
 export function HelpHubPage() {
+  const navigate = useNavigate();
+  const [draft, setDraft] = useState("");
   const { data, isLoading, isError, refetch } = usePublicHelpIndex();
 
   const counts = new Map<string, number>();
@@ -47,6 +53,32 @@ export function HelpHubPage() {
       <div className="mx-auto max-w-4xl px-4 py-12">
         <h1 className="text-3xl font-bold tracking-tight">{HELP_HUB_TITLE}</h1>
         <p className="mt-2 max-w-[70ch] text-muted-foreground">{HELP_HUB_DESCRIPTION}</p>
+
+        {/* A plain GET form, so it behaves the same here as in the SSR page. */}
+        <form
+          role="search"
+          className="mt-6 flex gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const q = draft.trim();
+            navigate(q ? `/help/search?q=${encodeURIComponent(q)}` : "/help/search");
+          }}
+        >
+          <Label htmlFor="help-hub-q" className="sr-only">
+            Search help
+          </Label>
+          <Input
+            id="help-hub-q"
+            type="search"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder="What are you stuck on?"
+            autoComplete="off"
+          />
+          <Button type="submit">
+            <Search className="mr-2 h-4 w-4" /> Search
+          </Button>
+        </form>
 
         {isLoading && (
           <div className="mt-8 grid gap-4 sm:grid-cols-2">

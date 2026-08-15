@@ -111,6 +111,69 @@ export function nonEmptyCategories(index: HelpIndexPayload): HelpCategoryPayload
     .sort((a, b) => a.sort_order - b.sort_order);
 }
 
+export interface HelpSearchHitPayload {
+  slug: string;
+  title: string;
+  summary: string;
+  category_key: string;
+  visibility: string;
+  rank: number;
+}
+
+export interface HelpSearchPayload {
+  query: string;
+  hits: HelpSearchHitPayload[];
+}
+
+export function helpSearchPath(query?: string): string {
+  return query ? `/help/search?q=${encodeURIComponent(query)}` : "/help/search";
+}
+
+/**
+ * The search box, as a plain GET form.
+ *
+ * No JavaScript anywhere in it, on purpose: the SSR search page has to answer a
+ * visitor with scripts off and a crawler that runs none, and a box that only
+ * works after hydration is a box that does not work on the first paint people
+ * actually see.
+ */
+export function renderHelpSearchForm(value = ""): string {
+  return `<form class="help-search" action="/help/search" method="get" role="search">
+<label class="sr-only" for="help-q">Search help</label>
+<input id="help-q" type="search" name="q" value="${escape(value)}" placeholder="Search help" autocomplete="off">
+<button type="submit">Search</button>
+</form>`;
+}
+
+/** Search results, resolved through the index so each hit gets a real URL. */
+export function renderHelpSearchResults(
+  index: HelpIndexPayload,
+  payload: HelpSearchPayload,
+): string {
+  if (!payload.query) {
+    return `<p>Type what you are stuck on.</p>`;
+  }
+  if (payload.hits.length === 0) {
+    return `<p>Nothing matched "${escape(payload.query)}". ` +
+      `<a href="/help">Browse the shelves</a> or ` +
+      `<a href="/dashboard/support">open a support ticket</a>.</p>`;
+  }
+  const catSlug = new Map(index.categories.map((c) => [c.key, c.slug]));
+  const catTitle = new Map(index.categories.map((c) => [c.key, c.title]));
+  const rows = payload.hits
+    .map(
+      (h) =>
+        `<a class="post-card" href="${escape(
+          helpArticlePath(catSlug.get(h.category_key) ?? h.category_key, h.slug),
+        )}"><h2>${escape(h.title)}</h2>${
+          h.summary ? `<p>${escape(h.summary)}</p>` : ""
+        }<p>${escape(catTitle.get(h.category_key) ?? h.category_key)}</p></a>`,
+    )
+    .join("");
+  const n = payload.hits.length;
+  return `<p>${n} result${n === 1 ? "" : "s"} for "${escape(payload.query)}"</p>${rows}`;
+}
+
 /** "Last reviewed <date>", or the publish date when it has never been reviewed. */
 export function renderReviewedLine(article: {
   reviewed_at: string | null;

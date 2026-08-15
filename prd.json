@@ -1892,21 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2577",
-      "title": "[HELP CENTER] Help search, public and in-app",
-      "description": "A help center without search is a filing cabinet. It also has to work for a crawler and for a visitor with JavaScript off, and it has to survive 300+ articles without shipping the whole corpus to the browser.",
-      "acceptanceCriteria": [
-        "/help/search?q= is server-rendered by the Function (robots noindex,follow) so it works with no JS.",
-        "Search runs in Postgres: a generated tsvector column over title, summary and body plus a GIN index. Not client-side filtering.",
-        "The in-app reader (US-2583) searches public AND gated rows; the public endpoint searches public rows only.",
-        "Zero-result queries are recorded for US-2592 to report.",
-        "Results show category, title and the matching snippet."
-      ],
-      "priority": 67,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2578",
       "title": "[HELP CENTER] sitemap-help.xml, sitemap index entry, IndexNow and lastmod",
       "description": "Nothing gets indexed that is not in a sitemap, and nothing gated may ever appear in one. The site already runs 13 child sitemaps behind an index; this is the fourteenth.",
@@ -2145,21 +2130,6 @@
       "priority": 83,
       "passes": false,
       "notes": "[FOUND DURING US-2574 2026-08-14] Consumers of support_kb_articles today: services/edge-functions/src/lib/agent-tools.ts, lib/support-tools.ts, main.ts, routes/admin-knowledge-base.ts, tests/support-kb-search_test.ts. No consumer in functions/ or src/ - confirmed by grep, which is what proves it has no public surface. This story is deliberately AFTER the help center ships (priority 83, behind US-2592) so the convergence moves content into a finished home rather than a half-built one. Until it lands the two corpora coexist, and the help center is the one customers see."
-    },
-    {
-      "id": "US-2595",
-      "title": "[AUTOLISTER] A stray photo left over after grouping has no visible way into a group, and Ungroup is hidden behind a red Delete button",
-      "description": "Reported by the seller after an auto-group run left one photo behind. Every mechanism already existed - drag onto a group card, the per-tile Move-to menu, and a per-group dissolve - but all three were unreachable in practice. The drag grip and the Move-to menu on an ungrouped tile were opacity-0 until hover, so on a touch screen they never appear at all and on a mouse you have to already know they are there. The per-group action that dissolves a group back into Ungrouped was labelled Delete with a red trash icon, which reads as destroys my photos, so it is the one button a seller with a bad group will not press. And moving several strays at once was drag-only: the menu moved exactly one photo per open.",
-      "acceptanceCriteria": [
-        "On an ungrouped (stray) tile the drag handle and the Add-to-a-group menu are visible without hover, since hover never fires on touch.",
-        "The per-group action that returns photos to Ungrouped is labelled Ungroup with the Ungroup icon and non-destructive styling, and its toast names the photo count. It deletes nothing.",
-        "With photos selected in the Ungrouped grid, an Add selected to item menu lists every existing group (name plus current photo count) and moves the whole selection in one action.",
-        "The Move-to menu wording follows the source: Add photo to on a stray, Move photo to inside a group.",
-        "Undo still covers all of it - every path routes through applyGroupEdit."
-      ],
-      "priority": 40,
-      "passes": true,
-      "notes": "[DONE 2026-08-14] src/pages/flipdesk/autolister.tsx only - no new state, no new transform, no migration. The DnD machinery from US-1543 was already correct; this story is entirely about whether a seller can SEE it. deleteGroup renamed ungroupGroup (it never deleted photos - the group record is dropped and the ungrouped list recomputes as staged minus groupedIds). iOS already had both affordances (AutoListerSelectionGrid.swift Add to..., AutoListerView.swift Ungroup (photos back to grid)), so this closes a web-only gap rather than adding a feature."
     }
   ]
 }

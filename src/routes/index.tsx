@@ -66,6 +66,7 @@ const FindsPage = lazy(() => import("@/pages/finds").then(m => ({ default: m.Fin
 const HelpHubPage = lazy(() => import("@/pages/help/hub").then(m => ({ default: m.HelpHubPage })));
 const HelpCategoryPage = lazy(() => import("@/pages/help/category").then(m => ({ default: m.HelpCategoryPage })));
 const HelpArticlePage = lazy(() => import("@/pages/help/article").then(m => ({ default: m.HelpArticlePage })));
+const HelpSearchPage = lazy(() => import("@/pages/help/search").then(m => ({ default: m.HelpSearchPage })));
 const LeaderboardsPage = lazy(() => import("@/pages/leaderboards").then(m => ({ default: m.LeaderboardsPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
@@ -297,6 +298,9 @@ export const router = createBrowserRouter([
       // would bake a snapshot into dist/ that _routes.json never serves and list
       // /help in the sitemap twice (sitemap-help.xml is the Function's job).
       { path: "/help", element: <SuspenseWrapper><HelpHubPage /></SuspenseWrapper> },
+      // Before /help/:category: "search" is a reserved slug (no article or
+      // category can take it), so this literal path can never be shadowed.
+      { path: "/help/search", element: <SuspenseWrapper><HelpSearchPage /></SuspenseWrapper> },
       { path: "/help/:category", element: <SuspenseWrapper><HelpCategoryPage /></SuspenseWrapper> },
       { path: "/help/:category/:slug", element: <SuspenseWrapper><HelpArticlePage /></SuspenseWrapper> },
       { path: "/finds", element: <SuspenseWrapper><FindsPage /></SuspenseWrapper> },

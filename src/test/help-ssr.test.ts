@@ -12,6 +12,8 @@ import {
   pillarLabel,
   renderArticleList,
   renderCategoryGrid,
+  renderHelpSearchForm,
+  renderHelpSearchResults,
   renderRelatedHelp,
   renderReviewedLine,
   toBlogFaqs,
@@ -238,6 +240,83 @@ describe("the Markdown mirrors", () => {
     expect(md).toContain("# Help Center");
     expect(md).toContain("## Getting started");
     expect(md).toContain("https://gradethread.com/help/getting-started/your-first-grade");
+  });
+});
+
+describe("search (US-2577)", () => {
+  it("the box is a plain GET form with no JavaScript in it", () => {
+    // The SSR search page has to answer a visitor with scripts off and a
+    // crawler that runs none. A box that only works after hydration does not
+    // work on the first paint people actually see.
+    const html = renderHelpSearchForm();
+    expect(html).toContain('action="/help/search"');
+    expect(html).toContain('method="get"');
+    expect(html).toContain('name="q"');
+    expect(html).not.toMatch(/onclick|onsubmit|<script/i);
+  });
+
+  it("keeps the current query in the box so a refine starts from it", () => {
+    expect(renderHelpSearchForm("ebay fees")).toContain('value="ebay fees"');
+  });
+
+  it("escapes the query back into the box", () => {
+    expect(renderHelpSearchForm('"><script>x</script>')).not.toContain("<script>x");
+  });
+
+  it("results link to the article's real URL via the index", () => {
+    const idx = index({
+      categories: [cat({ key: "grading", title: "Grading", slug: "grading" })],
+      articles: [item({ slug: "the-scale", category_key: "grading" })],
+    });
+    const html = renderHelpSearchResults(idx, {
+      query: "scale",
+      hits: [
+        {
+          slug: "the-scale",
+          title: "The scale",
+          summary: "1.0 to 10.0",
+          category_key: "grading",
+          visibility: "public",
+          rank: 0.9,
+        },
+      ],
+    });
+    expect(html).toContain('href="/help/grading/the-scale"');
+    expect(html).toContain("1 result");
+  });
+
+  it("an empty result set offers the next two things to try, not a dead end", () => {
+    const html = renderHelpSearchResults(index(), { query: "zzz", hits: [] });
+    expect(html).toContain("/help");
+    expect(html).toContain("/dashboard/support");
+  });
+
+  it("escapes the query into the no-results message", () => {
+    const html = renderHelpSearchResults(index(), {
+      query: "<img src=x onerror=1>",
+      hits: [],
+    });
+    expect(html).not.toContain("<img src=x");
+  });
+
+  it("the search page is noindex, FOLLOW, not a bare noindex", () => {
+    // Thin, infinite and duplicative, so not something to rank — but its links
+    // must still pass equity to the articles it found.
+    const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
+    const block = src.slice(src.indexOf("async function renderSearch"));
+    expect(block).toContain('robots: "noindex, follow"');
+  });
+
+  it("the search page skips the edge cache entirely", () => {
+    // withEdgeCache keys on origin + pathname and IGNORES the query string.
+    // For every other page that is what stops utm-tagged links fragmenting the
+    // cache; for search it would serve one visitor's results to the next
+    // visitor's question. Cache-Control alone does not save it — withEdgeCache
+    // does not read Cache-Control.
+    const src = readFileSync(join(root, "functions/help/[[path]].ts"), "utf8");
+    const entry = src.slice(src.indexOf("export const onRequestGet"), src.indexOf("async function routeHelp"));
+    expect(entry).toContain('/help/search');
+    expect(entry).toMatch(/if\s*\(path === "\/help\/search"\)\s*return routeHelp\(context\)/);
   });
 });
 

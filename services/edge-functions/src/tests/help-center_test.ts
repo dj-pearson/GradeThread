@@ -16,7 +16,10 @@ import { assert, assertEquals } from "@std/assert";
 import {
   canView,
   cleanSlugArray,
+  HELP_QUERY_MAX_LENGTH,
   HELP_VISIBILITIES,
+  isSearchableHelpQuery,
+  normalizeHelpQuery,
   type HelpArticleRow,
   type HelpVisibility,
   isReservedHelpSlug,
@@ -212,6 +215,59 @@ Deno.test("US-2591: staleness is measured from reviewed_at, falling back to publ
   assert(!isStale({ reviewed_at: null, published_at: null, review_interval_days: 180 }, now));
   // Unparseable timestamp must not read as "infinitely stale".
   assert(!isStale({ reviewed_at: "not a date", published_at: null, review_interval_days: 180 }, now));
+});
+
+// ── search (US-2577) ──────────────────────────────────────
+
+Deno.test("query normalization folds case and collapses whitespace", () => {
+  // So "eBay  Fees" and "ebay fees" rank together in the zero-result backlog
+  // instead of showing up as two separate misses.
+  assertEquals(normalizeHelpQuery("  eBay   Fees  "), "ebay fees");
+  assertEquals(normalizeHelpQuery("\tHOW\nTO GRADE "), "how to grade");
+});
+
+Deno.test("a query is capped so a paste is not sent to Postgres whole", () => {
+  assertEquals(normalizeHelpQuery("a".repeat(5000)).length, HELP_QUERY_MAX_LENGTH);
+});
+
+Deno.test("one character is not a search", () => {
+  // It matches most of the corpus and costs a full index scan to say so.
+  assertEquals(isSearchableHelpQuery("a"), false);
+  assertEquals(isSearchableHelpQuery("  x "), false);
+  assertEquals(isSearchableHelpQuery(""), false);
+  assertEquals(isSearchableHelpQuery("ai"), true);
+  assertEquals(isSearchableHelpQuery("how do i grade"), true);
+});
+
+Deno.test("search passes visibilitiesFor(viewer), never a literal list", () => {
+  // Search is the most tempting way around a permission wall, because it reads
+  // like a query against "the index" rather than against the articles.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/help-center.ts", import.meta.url),
+  );
+  const block = src.slice(src.indexOf("async function runSearch"));
+  assert(
+    block.includes("p_visibilities: visibilitiesFor(viewer)"),
+    "the RPC must be handed visibilitiesFor(viewer)",
+  );
+  assert(
+    !/p_visibilities:\s*\[/.test(block),
+    "a literal visibility array in the search call bypasses the one tested rule",
+  );
+});
+
+Deno.test("the search RPC has no default visibility argument", () => {
+  // A default would make the safe call and the unsafe call identical at the
+  // call site, and the unsafe one would be shorter to type.
+  const sql = Deno.readTextFileSync(
+    new URL("../../../../supabase/migrations/00603_help_center_search.sql", import.meta.url),
+  );
+  const signature = sql.slice(sql.indexOf("create or replace function public.help_search"));
+  const params = signature.slice(0, signature.indexOf(")"));
+  assert(
+    /p_visibilities\s+text\[\]\s*(,|$)/m.test(params),
+    `p_visibilities must be required, got: ${params}`,
+  );
 });
 
 // ── the guard that keeps the wall in one place ────────────

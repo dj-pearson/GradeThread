@@ -67,6 +67,11 @@ const AUTH_OR_FLOW_EXACT = new Set([
   // sitemap twice. /help/:category and /help/:category/:slug escape this guard
   // on the param rule above.
   "/help",
+  // US-2577: the help search-results page. noindex, follow — thin, infinite and
+  // duplicative, so not something to rank, but its links must keep passing
+  // equity to the articles it found. Registering it would put a noindex page in
+  // the sitemap and prerender an empty result set into dist/.
+  "/help/search",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */

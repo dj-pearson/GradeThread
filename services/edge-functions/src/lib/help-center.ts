@@ -227,6 +227,38 @@ export function projectArticle(row: HelpArticleRow): HelpArticleView {
   };
 }
 
+// ── search (US-2577) ──────────────────────────────────────
+
+export interface HelpSearchHit {
+  slug: string;
+  title: string;
+  summary: string;
+  category_key: string;
+  visibility: HelpVisibility;
+  rank: number;
+}
+
+/** Longest query we will send to Postgres. Anything past this is not a question. */
+export const HELP_QUERY_MAX_LENGTH = 200;
+
+/**
+ * Lowercase and collapse whitespace, so "eBay  Fees" and "ebay fees" rank
+ * together in the zero-result backlog instead of as two separate misses.
+ */
+export function normalizeHelpQuery(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, " ").slice(0, HELP_QUERY_MAX_LENGTH);
+}
+
+/**
+ * Is this worth sending to Postgres at all?
+ *
+ * A single character matches most of the corpus and costs a full index scan to
+ * say so. Two is the shortest query that means anything ("id", "ai").
+ */
+export function isSearchableHelpQuery(raw: string): boolean {
+  return normalizeHelpQuery(raw).length >= 2;
+}
+
 /**
  * US-2591: is this article past its review interval?
  * An article never reviewed falls back to when it was published.

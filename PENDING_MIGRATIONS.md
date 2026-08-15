@@ -1,5 +1,47 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00603_help_center_search.sql (US-2577 — Help Center search)
+
+**Risk: LOW, with one line that is not instant.** Adds a generated `search_tsv`
+column to `help_articles`, a GIN index on it, a `help_search_misses` table with
+two indexes, and the `help_search(text, text[], integer)` function.
+
+**⚠ The `ADD COLUMN ... GENERATED ALWAYS AS ... STORED` rewrites the table.** On
+a table with a handful of rows that is instant. If `help_articles` is already
+large when you apply this, it takes an ACCESS EXCLUSIVE lock for the duration.
+Apply it before the corpus is seeded (US-2586+) and it costs nothing.
+
+**Apply order:** after 00602, which creates the table it alters.
+
+**`NOTIFY pgrst, 'reload schema';` — yes.** A new column and a new RPC. The
+`help_search` function is unreachable through PostgREST until you send it, so
+search returns a 404 from the API layer rather than an empty result.
+
+**⚠ NOT VERIFIED AGAINST A REAL POSTGRES**, same as 00602: Docker was not
+running, so the `verify:db` lane did not execute this SQL. The generated-column
+expression is the part most worth running once before it reaches prod, since a
+non-IMMUTABLE function there is rejected at DDL time.
+
+**The frontend is safe to auto-deploy ahead of the SQL.** The help search page
+calls the edge, which cannot answer until the RPC exists; the page renders its
+"search didn't answer" state rather than breaking.
+
+**The EDGE is not.** `EXPECTED_SCHEMA_VERSION` moves to `00603` in this commit,
+so the boot guard refuses a 00602 database. Order stays: apply SQL → `NOTIFY
+pgrst` → redeploy edge → push.
+
+**The security property to preserve.** `help_search`'s `p_visibilities`
+argument has **no default**, on purpose. A default would make the safe call and
+the unsafe call identical at the call site, and the unsafe one would be shorter
+to type. Search is the most tempting way around a permission wall, because it
+reads like a query against "the index" rather than against the articles. A
+deno test asserts both the missing default and that the route hands it
+`visibilitiesFor(viewer)`.
+
+`help_search_misses` records **no identity of any kind** — not a caller id, not
+an IP, not a session. Only the query text, the viewer tier and the hit count,
+because a help query can carry anything a frustrated person types.
+
 ## ⏳ HELD: 00602_help_center_articles.sql (US-2572 — the Help Center store)
 
 **Risk: LOW, but it is not a one-liner.** Three new enums

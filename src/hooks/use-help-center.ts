@@ -77,6 +77,33 @@ export function usePublicHelpIndex() {
   });
 }
 
+export interface HelpSearchHit {
+  slug: string;
+  title: string;
+  summary: string;
+  category_key: string;
+  visibility: string;
+  rank: number;
+}
+
+/**
+ * Public help search. Two characters minimum, matching the edge's own floor:
+ * a single character matches most of the corpus and costs a full index scan to
+ * say so.
+ */
+export function usePublicHelpSearch(query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: [...PUBLIC_KEY, "search", q.toLowerCase()],
+    enabled: q.length >= 2,
+    staleTime: 60_000,
+    queryFn: () =>
+      publicFetch<{ query: string; hits: HelpSearchHit[] }>(
+        `/api/content/public/help/search?q=${encodeURIComponent(q)}`,
+      ),
+  });
+}
+
 export function usePublicHelpArticle(slug: string | undefined) {
   return useQuery({
     queryKey: [...PUBLIC_KEY, slug],

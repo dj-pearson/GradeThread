@@ -56,18 +56,30 @@ import {
   pillarLabel,
   renderArticleList,
   renderCategoryGrid,
+  renderHelpSearchForm,
+  renderHelpSearchResults,
   renderRelatedHelp,
   renderReviewedLine,
   toBlogFaqs,
   type HelpArticleResponse,
   type HelpCategoryPayload,
   type HelpIndexPayload,
+  type HelpSearchPayload,
 } from "../_shared/help-render";
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;
 
-export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) =>
-  withEdgeCache(context, () => routeHelp(context));
+export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) => {
+  // withEdgeCache keys on origin + pathname and IGNORES the query string, which
+  // is what stops utm-tagged share links fragmenting the cache. For /help/search
+  // that same property is a data leak: every query would collide on one entry
+  // and serve the first visitor's results to the next visitor's question. So
+  // search skips the cache entirely rather than relying on its Cache-Control,
+  // which withEdgeCache does not read.
+  const path = new URL(context.request.url).pathname.replace(/\/$/, "");
+  if (path === "/help/search") return routeHelp(context);
+  return withEdgeCache(context, () => routeHelp(context));
+};
 
 async function routeHelp(context: Ctx): Promise<Response> {
   const { request, env } = context;
@@ -76,6 +88,9 @@ async function routeHelp(context: Ctx): Promise<Response> {
 
   try {
     if (path === "/help") return await renderHub(env);
+    // Before the category branch: "search" is a reserved slug (lib/help-center.ts
+    // refuses to mint it) precisely so this path can never collide with a shelf.
+    if (path === "/help/search") return await renderSearch(env, url.searchParams.get("q") ?? "");
 
     const segments = path.replace(/^\/help\//, "").split("/");
     const [categorySeg, articleSeg] = segments;
@@ -129,6 +144,7 @@ async function renderHub(env: PagesEnv): Promise<Response> {
 ${renderBreadcrumbs(crumbs, base)}
 <h1>${escape(HELP_HUB_TITLE)}</h1>
 <p>${escape(HELP_HUB_DESCRIPTION)}</p>
+${renderHelpSearchForm()}
 ${renderCategoryGrid(index)}
 <p class="pillar-link">Still stuck? <a href="/dashboard/support">Open a support ticket</a>.</p>
 </main>`;
@@ -146,6 +162,56 @@ ${renderCategoryGrid(index)}
       bodyHtml: body,
     },
     { cacheControl: SSR_CACHE_CONTROL },
+  );
+}
+
+// ── /help/search?q= ───────────────────────────────────────
+// noindex, FOLLOW. A search-results page is not something to rank (it is thin,
+// infinite and duplicative), but its links must still pass equity to the
+// articles it found, which a bare noindex would strand.
+async function renderSearch(env: PagesEnv, rawQuery: string): Promise<Response> {
+  const query = rawQuery.trim().slice(0, 200);
+  const [index, results] = await Promise.all([
+    loadIndex(env),
+    query
+      ? fetchJson<HelpSearchPayload>(
+        env,
+        `/api/content/public/help/search?q=${encodeURIComponent(query)}`,
+      )
+      : Promise.resolve<HelpSearchPayload>({ query: "", hits: [] }),
+  ]);
+  if (!index) return helpNotFound(env);
+
+  const base = siteUrl(env);
+  const canonical = `${base}/help/search`;
+  const crumbs = [
+    { name: "GradeThread", url: `${base}/` },
+    { name: HELP_HUB_TITLE, url: `${base}/help` },
+    { name: "Search", url: canonical },
+  ];
+
+  const body = `<main class="container">
+${renderBreadcrumbs(crumbs, base)}
+<h1>Search help</h1>
+${renderHelpSearchForm(query)}
+${renderHelpSearchResults(index, results ?? { query, hits: [] })}
+</main>`;
+
+  return renderSsrResponse(
+    {
+      title: query ? `Search: ${query} — GradeThread Help` : "Search help — GradeThread",
+      description: HELP_HUB_DESCRIPTION,
+      canonicalUrl: canonical,
+      robots: "noindex, follow",
+      ogType: "website",
+      twitterSite: twitterSiteHandle(env),
+      gaMeasurementId: ga4MeasurementId(env),
+      jsonLd: [breadcrumbListLd(crumbs)],
+      bodyHtml: body,
+    },
+    // Never cached at the edge: a shared cache entry keyed on pathname alone
+    // would serve one visitor's results to the next visitor's query.
+    { cacheControl: "no-store" },
   );
 }
 
