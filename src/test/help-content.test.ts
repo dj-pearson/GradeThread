@@ -283,3 +283,37 @@ describe("the internal set (US-2590)", () => {
     }
   });
 });
+
+describe("US-2618: written articles have a path to the database", () => {
+  // 83 articles were written, parsed correctly by every test above, and were
+  // invisible on the live site for weeks — because nothing ran the loader. The
+  // whole suite was green the entire time, which is the point: parsing content
+  // and PUBLISHING it are different claims, and only one of them was checked.
+  it("the loader is reachable by name, not just by remembering a path", () => {
+    // The script existed and was wired to nothing — no npm script, no workflow,
+    // no deploy step. A tool you have to remember the path to is a tool that
+    // gets forgotten.
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), "package.json"), "utf8"));
+    expect(pkg.scripts?.["help:seed"]).toBe("node scripts/seed-help-articles.mjs");
+  });
+
+  it("the production probe would notice an empty Help Center", () => {
+    // The check that closes the loop. A hub serving 200 with no links is
+    // invisible to a status-code check, and that is exactly what happened.
+    const probe = readFileSync(join(process.cwd(), "scripts/probe-public-routes.mjs"), "utf8");
+    expect(probe).toContain("mustLink");
+    expect(probe).toContain("KNOWN_EMPTY_INDEXES");
+  });
+
+  it("the known-empty exception names the article count it is waiting on", () => {
+    // Shrink-only, and the entry has to say what removes it. An exception that
+    // just names a path is a permanent excuse.
+    const probe = readFileSync(join(process.cwd(), "scripts/probe-public-routes.mjs"), "utf8");
+    const entry = /\/help[\s\S]{0,400}?help:seed/.exec(probe);
+    expect(entry, "the /help exception must name the fix").toBeTruthy();
+    // And the count in it should be the real number of files, so a stale
+    // exception is visibly stale rather than vaguely true.
+    const count = loadArticles().length;
+    expect(probe).toContain(`${count} articles exist in content/help/`);
+  });
+});
