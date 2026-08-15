@@ -5,7 +5,7 @@ status: accepted
 source_of_truth: code
 code_refs:
   - functions/_shared/seo-config.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [seo, ai, crawlers, decision]
 summary: Which AI crawlers may cite, which may train, and which are blocked — an approved decision with an env override.
 ---
@@ -73,6 +73,13 @@ Functions runtime):
 
 To block additional scrapers, add their user-agent to `BLOCKED_AI_AGENTS` in
 `functions/_shared/seo-config.ts` (a one-line edit; handler code is untouched).
+
+> [!note] Re-reviewed 2026-08-15 — the drift was in a neighbour, not here
+> `seo-config.ts` changed, so the guard fired. The change was one heading in
+> `buildLlmsFullTxt` that had been rendering "The The GradeThread Clothing
+> Condition Grading Scale" into the served file. Nothing in this note describes
+> that function: the crawler classes, `AI_TRAINING_CRAWLERS`, `BLOCKED_AI_AGENTS`
+> and the robots.txt shape are all untouched. Re-read and re-dated, not edited.
 
 ## Where it shows up
 

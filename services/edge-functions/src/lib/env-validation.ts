@@ -182,6 +182,38 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       "opens the mail on a different device cannot verify. See the send-email " +
       "hook section of vault/10-ops/env-reference.md (GT-001).",
   },
+  // US-2612: the Pages-origin rate-limit bypass, and whether it is armed.
+  //
+  // Every SSR'd public page — blog, certificate, OG image, sitemap — is rendered
+  // by a Cloudflare Pages Function that fetches this service server-to-server.
+  // So a thousand readers arrive here through ONE Pages worker and drain a
+  // single per-IP bucket between them. The bypass exists for exactly that
+  // (US-781): Pages sends `x-pages-origin: <CF_PAGES_ORIGIN_SECRET>` and
+  // pagesOriginBypass() lets it through.
+  //
+  // It is inert unless BOTH sides carry the same value, and it fails SILENTLY:
+  // the pages still render, right up until enough traffic arrives at once, and
+  // then the blog and the sitemap start answering 503 "Temporarily unavailable"
+  // to whoever is unlucky — including Googlebot, which is the audience the whole
+  // SSR layer exists for.
+  //
+  // Observed 2026-08-15: a burst of public-page fetches drove /sitemap.xml to
+  // 503 four times in a row. That burst was a probe rather than real traffic, so
+  // it is not proof the secret is unset — but nothing we serve could tell the
+  // difference, which is the actual defect and what this entry fixes. Production
+  // only; a dev box has no Pages worker in front of it.
+  {
+    name: "pages_origin_bypass",
+    vars: ["CF_PAGES_ORIGIN_SECRET"],
+    enabledWhen: () => edgeEnv() === "production",
+    whenMissing:
+      "every SSR'd blog, certificate and sitemap visitor shares ONE per-IP " +
+      "rate-limit bucket, because they all reach this service through the same " +
+      "Pages worker. Under load the public pages start answering 503 to real " +
+      "readers and to Googlebot. The same value must also be set on the " +
+      "Cloudflare Pages project — setting it here alone changes nothing " +
+      "(US-781).",
+  },
   // US-788: StoreKit / App Store Server Notifications V2. Missing → IAP receipt
   // verification + the appstore webhook can't validate Apple's JWS. Surfaced on
   // /health/ready so a deploy with IAP "on" but these unset is visible (the

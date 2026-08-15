@@ -5,7 +5,7 @@ status: current
 source_of_truth: code
 code_refs:
   - src/lib/admin/runbooks.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [ops, runbooks, duplication, migration]
 summary: Ops procedures are duplicated across repo root, docs/, and a shipped in-app admin feature — and the in-app copy is the one on-call actually reads.
 ---
@@ -99,6 +99,18 @@ with a good rationale.
 > exactly as described — the guard fired, and the copy on-call reads was updated
 > rather than left behind. Nothing about the four-copies finding changed.
 
+> **Re-reviewed 2026-08-15,** and it is now three in a row with the same shape.
+> The guard fired on both copies again after the scheduled-task count moved
+> 77 → 78 for the new grading-self-consistency job. Neither distillation quotes
+> a count, so both were re-read, confirmed accurate, and re-dated rather than
+> edited. The launch note also gained a section recording that Android is not a
+> launch gate; that is a scope decision about the backlog rather than a step in
+> the gate, and the shipped copy is the steps.
+>
+> Three consecutive no-op bumps is worth stating plainly, because the tempting
+> conclusion is that the guard is noisy. It is the opposite: the copies survive
+> a moving generated number precisely BECAUSE they refuse to quote one, and the
+> guard is what keeps checking that the refusal still holds.
 > **Re-reviewed 2026-08-09,** same cause and a smaller change. `runbook-sync`
 > fired on `deploy-order` and `launch-readiness` after `deploy.md` and
 > `launch-checklist.md` moved; the move was the cron COUNT going 75 → 76 for the

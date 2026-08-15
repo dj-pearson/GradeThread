@@ -1,5 +1,5 @@
 // US-777: boot-time env validation + feature-aware readiness.
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import {
   assertRequiredEnv,
   computeFeatureReadiness,
@@ -307,4 +307,54 @@ Deno.test("GT-001: whenMissing never fires for a satisfied group", () => {
     SMTP_HOST: "h", SMTP_USER: "u", SMTP_PASS: "p", SMTP_ADMIN_EMAIL: "a@b.c",
   }));
   assertEquals(r.smtp, "ok");
+});
+
+// ---------------------------------------------------------------------------
+// US-2612: the Pages-origin bypass has to be VISIBLE, because its failure is
+// silent until it is loud.
+//
+// Every SSR'd public page reaches this service through one Cloudflare Pages
+// worker, so without the bypass a thousand readers share one per-IP bucket.
+// Nothing rendered wrong while it is unset; the pages simply start answering
+// 503 to whoever is unlucky once enough traffic arrives at once — Googlebot
+// included, which is the audience the SSR layer exists for.
+
+Deno.test("US-2612: an unset Pages-origin secret names the consequence, not the variable", () => {
+  const prev = Deno.env.get("CF_PAGES_ORIGIN_SECRET");
+  Deno.env.delete("CF_PAGES_ORIGIN_SECRET");
+  const prevEnv = Deno.env.get("EDGE_ENV");
+  Deno.env.set("EDGE_ENV", "production");
+  try {
+    const line = String(computeFeatureReadiness().pages_origin_bypass ?? "");
+    assert(line.startsWith("missing:"), `expected a missing line, got: ${line}`);
+    assertStringIncludes(line, "CF_PAGES_ORIGIN_SECRET");
+    // The half that matters. "missing: CF_PAGES_ORIGIN_SECRET" tells an
+    // operator a name; it does not tell them the blog and the sitemap will
+    // start 503ing at readers under load, which is the thing they would act on.
+    assertStringIncludes(line, "rate-limit bucket");
+    assertStringIncludes(line, "503");
+    // And that setting it here alone is not enough — the Pages project needs
+    // the same value, which is the mistake this specific bypass invites.
+    assertStringIncludes(line, "Cloudflare Pages project");
+  } finally {
+    if (prev === undefined) Deno.env.delete("CF_PAGES_ORIGIN_SECRET");
+    else Deno.env.set("CF_PAGES_ORIGIN_SECRET", prev);
+    if (prevEnv === undefined) Deno.env.delete("EDGE_ENV");
+    else Deno.env.set("EDGE_ENV", prevEnv);
+  }
+});
+
+Deno.test("US-2612: set → ok, and the consequence text does not trail a satisfied group", () => {
+  const prev = Deno.env.get("CF_PAGES_ORIGIN_SECRET");
+  const prevEnv = Deno.env.get("EDGE_ENV");
+  Deno.env.set("CF_PAGES_ORIGIN_SECRET", "s3cret");
+  Deno.env.set("EDGE_ENV", "production");
+  try {
+    assertEquals(computeFeatureReadiness().pages_origin_bypass, "ok");
+  } finally {
+    if (prev === undefined) Deno.env.delete("CF_PAGES_ORIGIN_SECRET");
+    else Deno.env.set("CF_PAGES_ORIGIN_SECRET", prev);
+    if (prevEnv === undefined) Deno.env.delete("EDGE_ENV");
+    else Deno.env.set("EDGE_ENV", prevEnv);
+  }
 });
