@@ -12,6 +12,7 @@ import {
   type SubmissionImageRow as CertSubmissionImageRow,
 } from "../lib/certificate-gallery.ts";
 import { normalizeCertNumber } from "../lib/cert-number.ts";
+import { certDisplayTitle } from "../lib/cert-display-title.ts";
 import {
   resolveRevisionChain,
   type RevisionResolution,
@@ -1119,6 +1120,17 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       original_photos_verified: trust.originalPhotos,
       id: rep.certificate_id,
       title: submission?.title ?? "Graded garment",
+      // US-2613: the seller's title with condition claims removed, for OUR
+      // headline surfaces (the <title>, og:title, the OG card). `title` above
+      // stays verbatim, because the body shows what the seller wrote and this
+      // is a presentation rule rather than an edit to their listing.
+      //
+      // Computed HERE, once, rather than in each renderer: the SSR page and the
+      // OG image are different runtimes (Cloudflare Pages and this Deno
+      // service) and could not share a module, so two implementations would
+      // drift — and the drift would show as a social card and a search snippet
+      // disagreeing about the same certificate.
+      display_title: certDisplayTitle(submission?.title ?? "Graded garment"),
       brand: submission?.brand ?? null,
       garment_type: submission?.garment_type ?? null,
       garment_category: submission?.garment_category ?? null,
@@ -1361,7 +1373,9 @@ contentPublicRoutes.get("/cert-image/:id", async (c) => {
 
     const data: CertImageData = {
       certId,
-      title: sub?.title ?? "Graded garment",
+      // US-2613: our card, so our condition wording. Same helper as the SSR
+      // payload above.
+      title: certDisplayTitle(sub?.title ?? "Graded garment"),
       brand: sub?.brand ?? null,
       score: Number(rep.overall_score),
       gradeTier: rep.grade_tier,

@@ -35,6 +35,8 @@ interface PublicCertificate {
   id: string;
   certificate_number?: string | null;
   title: string;
+  /** US-2613: `title` with condition claims stripped. Optional — see below. */
+  display_title?: string | null;
   brand: string | null;
   garment_type: string | null;
   garment_category: string | null;
@@ -187,7 +189,18 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   const base = siteUrl(env);
   const canonical = `${base}/cert/${cert.id}`;
   const score = cert.overall_score.toFixed(1);
-  const title = `${cert.title} — Grade ${score} (${cert.grade_tier})`;
+  // US-2613: display_title is the seller's title with condition claims removed.
+  // A live certificate read "…Made in Italy NWT — Grade 9.2 (NWOT)": the seller
+  // says tags on, our grade says tags off, both in the search snippet and every
+  // social preview. The stripping happens once on the edge (cert-display-title.ts)
+  // because this page and the OG card are different runtimes and two copies
+  // would drift.
+  //
+  // `?? cert.title` is not defensive habit — it is the deploy order. The edge
+  // and Pages ship separately, so a Pages build can be live against an edge that
+  // predates the field, and the honest fallback is the seller's title unchanged.
+  const headline = cert.display_title ?? cert.title;
+  const title = `${headline} — Grade ${score} (${cert.grade_tier})`;
   const description =
     `Verified GradeThread condition grade: ${score}/10 (${cert.grade_tier})` +
     `${cert.brand ? ` · ${cert.brand}` : ""}. AI-graded across 5 weighted factors.`;
