@@ -198,7 +198,7 @@ Deno.test("US-2595: the card must be found before the listing photos load", asyn
 
 // ── The pass has to say what it did ─────────────────────────────────
 
-Deno.test("US-2596: every outcome is recorded on the item", async () => {
+Deno.test("US-2607: every outcome is recorded on the item", async () => {
   const src = await Deno.readTextFile(
     new URL("../lib/measure-autofill.ts", import.meta.url),
   );
@@ -212,7 +212,7 @@ Deno.test("US-2596: every outcome is recorded on the item", async () => {
   assert(src.includes("ranAt:"));
 });
 
-Deno.test("US-2596: the outcome key cannot be mistaken for a field provenance entry", async () => {
+Deno.test("US-2607: the outcome key cannot be mistaken for a field provenance entry", async () => {
   const { MEASURE_PASS_KEY } = await import("../lib/measure-autofill.ts");
   const { hasCalibratedMeasurements } = await import("../lib/measurements.ts");
   assertEquals(MEASURE_PASS_KEY, "measurements._pass");

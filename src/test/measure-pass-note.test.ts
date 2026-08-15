@@ -1,4 +1,4 @@
-// US-2596: a blank measurements box has to explain itself.
+// US-2607: a blank measurements box has to explain itself.
 //
 // Every step of the MeasureCard pass fails softly on purpose — a bad card shot
 // must never block a listing. The sum of those soft failures was a feature that
@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { measurePassNote } from "@/components/flipdesk/measurement-photo-editor";
 
-describe("US-2596: the measure pass explains itself", () => {
+describe("US-2607: the measure pass explains itself", () => {
   it("says nothing when there is nothing to say", () => {
     // A pass that worked, and a pass that has never run, are both silent —
     // the form below already shows the numbers.

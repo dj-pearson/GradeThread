@@ -68,7 +68,7 @@ interface Props {
 const MAX_W = 640;
 const MAX_H = 480;
 
-// US-2596: the outcome the server records on every measure pass. Mirror of
+// US-2607: the outcome the server records on every measure pass. Mirror of
 // MEASURE_PASS_KEY in services/edge-functions/src/lib/measure-autofill.ts.
 const MEASURE_PASS_KEY = "measurements._pass";
 
@@ -138,7 +138,7 @@ export function MeasurementPhotoEditor({
   });
 
   const calib = photo?.measure_calibration?.v === 1 ? photo.measure_calibration : null;
-  // US-2596: what the last server-side pass did, so a blank measurements box
+  // US-2607: what the last server-side pass did, so a blank measurements box
   // explains itself instead of looking broken.
   const passNote = measurePassNote(
     (aiSources?.[MEASURE_PASS_KEY] as MeasurePass | undefined) ?? null,
@@ -494,7 +494,7 @@ export function MeasurementPhotoEditor({
           Photo measurements
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          {/* US-2596: the whole pipeline in one press — find the card in any of
+          {/* US-2607: the whole pipeline in one press — find the card in any of
               the item's photos, calibrate it, and measure every field. Offered
               even when a card photo is already tagged, because "this one won't
               read" and "the real card is in a different shot" are both common

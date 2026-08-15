@@ -289,7 +289,7 @@ export async function autofillMeasurementsFromCard(
   item: MeasureItemRow,
 ): Promise<MeasureAutofillResult> {
   const result = await runAutofill(itemId, ownerId, item);
-  // US-2596: record WHAT HAPPENED, always. Every step of this pass fails
+  // US-2607: record WHAT HAPPENED, always. Every step of this pass fails
   // softly by design — a bad card photo must never block a listing — and the
   // sum of those soft failures was a feature that produced no measurements and
   // no explanation, on any surface, for anyone. Three separate debugging rounds
@@ -319,7 +319,7 @@ export async function autofillMeasurementsFromCard(
   return result;
 }
 
-/** `ai_field_sources` key holding the last pass's outcome (US-2596). Not a
+/** `ai_field_sources` key holding the last pass's outcome (US-2607). Not a
  *  field provenance entry — it is namespaced with a leading underscore so the
  *  provenance readers, which all match on `measurements.<key>`, skip it. */
 export const MEASURE_PASS_KEY = "measurements._pass";
