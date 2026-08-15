@@ -3,6 +3,7 @@
 // report. Imports cron-runs.ts (nextCronRun) which pulls supabase.ts; prime env.
 import { assert, assertEquals } from "@std/assert";
 
+
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set("SUPABASE_SERVICE_ROLE_KEY", Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-key");
 const {
@@ -14,6 +15,13 @@ const {
 } = await import("../lib/cron-fleet-governance.ts");
 
 const HOUR = 3600_000;
+Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
+Deno.env.set(
+  "SUPABASE_SERVICE_ROLE_KEY",
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
+);
+const { CRON_REGISTRY } = await import("../lib/cron-runs.ts");
+
 const NOW = Date.parse("2026-07-05T12:00:00.000Z");
 
 // ── Expected ticks ───────────────────────────────────────────────────────────
@@ -199,4 +207,95 @@ Deno.test("US-2312 REGRESSION: runs with no outcome columns stay healthy", () =>
   assertEquals(card.failed_runs, 0);
   assertEquals(card.idle_runs, 0);
   assertEquals(card.all_idle, false);
+});
+
+// ---------------------------------------------------------------------------
+// US-2616: the report must say what it could not see.
+//
+// assembleCronFleetReport skips every `recorded: false` and `oneOff` entry,
+// correctly — neither has a ledger cadence to check. But the summary read
+// "70 recorded jobs, all ticking on schedule" while EIGHT of the seventy-eight
+// registry entries were never examined, including `ebay-token-refresh` (hourly)
+// and `ebay-orders-sync` (every 30 minutes). Those are jobs whose silent
+// failure expires seller connections and stops orders arriving — the exact
+// blast radius the fleet alert exists for.
+//
+// The word "recorded" was carrying the whole caveat and no reader was going to
+// unpack it.
+
+Deno.test("US-2616: unmonitored jobs are named, not silently dropped", () => {
+  const report = assembleCronFleetReport({
+    registry: [
+      { name: "a", label: "A", schedule: "0 * * * *", category: "sync", endpoint: "/api/jobs/a", recorded: true },
+      { name: "skipped-unrecorded", label: "U", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/u", recorded: false },
+      { name: "skipped-oneoff", label: "O", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/jobs/o", recorded: true, oneOff: true },
+    ],
+    runsByJob: { a: [{ created_at: new Date(NOW - 30 * 60_000).toISOString(), status: "ok", duration_ms: 100 }] },
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 2 * 3600_000,
+  });
+
+  assertEquals(report.unmonitored, ["skipped-oneoff", "skipped-unrecorded"]);
+  assertEquals(report.jobs_total, 1, "jobs_total still counts only what was examined");
+  assert(
+    report.summary.includes("2 not monitored"),
+    `the summary must state the gap, got: ${report.summary}`,
+  );
+  assert(report.summary.includes("skipped-unrecorded"), "and name them");
+});
+
+Deno.test("US-2616: an unmonitored job does NOT flip all_clear", () => {
+  // These are the edge of what the detector can observe, not failures. Raising
+  // the fleet alert on a permanent condition would train the on-call to ignore
+  // it — the same reasoning as the re-alert suppression in jobs-cron-fleet.ts.
+  const report = assembleCronFleetReport({
+    registry: [
+      { name: "a", label: "A", schedule: "0 * * * *", category: "sync", endpoint: "/api/jobs/a", recorded: true },
+      { name: "u", label: "U", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/u", recorded: false },
+    ],
+    runsByJob: { a: [{ created_at: new Date(NOW - 30 * 60_000).toISOString(), status: "ok", duration_ms: 100 }] },
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 2 * 3600_000,
+  });
+  assertEquals(report.all_clear, true);
+  assertEquals(report.unmonitored, ["u"]);
+});
+
+Deno.test("US-2616: a fully-monitored fleet says nothing extra", () => {
+  const report = assembleCronFleetReport({
+    registry: [
+      { name: "a", label: "A", schedule: "0 * * * *", category: "sync", endpoint: "/api/jobs/a", recorded: true },
+    ],
+    runsByJob: { a: [{ created_at: new Date(NOW - 30 * 60_000).toISOString(), status: "ok", duration_ms: 100 }] },
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 2 * 3600_000,
+  });
+  assertEquals(report.unmonitored, []);
+  assert(!report.summary.includes("not monitored"), report.summary);
+});
+
+Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is not empty", () => {
+  // Reads the shipped registry rather than a fixture, because the number that
+  // matters is the live one. If this ever reaches zero, delete the case — the
+  // gap is closed and the guard has nothing left to protect.
+  const report = assembleCronFleetReport({
+    registry: CRON_REGISTRY,
+    runsByJob: {},
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 3600_000,
+  });
+  assert(report.unmonitored.length > 0, "expected a known blind spot");
+  assert(
+    report.unmonitored.includes("ebay-token-refresh"),
+    `ebay-token-refresh is the sharpest one: got ${report.unmonitored.join(", ")}`,
+  );
+  assertEquals(
+    report.jobs_total + report.unmonitored.length,
+    CRON_REGISTRY.length,
+    "every registry entry is either examined or named as unmonitored — no third state",
+  );
 });

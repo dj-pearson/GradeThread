@@ -190,6 +190,16 @@ export interface CronFleetReport {
   slow: JobScorecard[];
   scorecards: JobScorecard[];
   all_clear: boolean;
+  /**
+   * US-2616: registry entries this report did NOT examine — `recorded: false`
+   * (no ledger cadence to check) and `oneOff` (no cadence at all).
+   *
+   * Deliberately NOT folded into `all_clear`. These are not failures; they are
+   * the edge of what the detector can observe, and flipping the fleet alert on
+   * a permanent condition would train the on-call to ignore it — the same
+   * reasoning as the re-alert suppression in routes/jobs-cron-fleet.ts.
+   */
+  unmonitored: string[];
 }
 
 export function assembleCronFleetReport(params: {
@@ -251,9 +261,43 @@ export function assembleCronFleetReport(params: {
   const slow = scorecards.filter((s) => s.verdict === "slow").sort((a, b) => (b.duration.creep_pct ?? 0) - (a.duration.creep_pct ?? 0));
   const allClear = stalled.length === 0 && failing.length === 0 && slow.length === 0;
 
-  const summary = allClear
-    ? `Cron fleet healthy: ${scorecards.length} recorded jobs, all ticking on schedule.`
-    : `${stalled.length} stalled, ${failing.length} failing, ${slow.length} slow of ${scorecards.length} recorded jobs.`;
+  // US-2616: what this report CANNOT see, stated in the report.
+  //
+  // The loop above skips every `recorded: false` and `oneOff` entry, because
+  // neither has a cadence in the ledger to check. That is correct and it is not
+  // the same as "nothing to worry about": six of the seventy-eight registry
+  // entries are recorded:false, and they include `ebay-token-refresh` (hourly)
+  // and `ebay-orders-sync` (every 30 minutes) — jobs whose silent failure
+  // expires seller connections and stops orders arriving, which is precisely
+  // the blast radius this whole alert exists for (see the header of
+  // routes/jobs-cron-fleet.ts).
+  //
+  // Before this, the summary read "70 recorded jobs, all ticking on schedule".
+  // The word "recorded" was carrying the entire caveat, and no reader was going
+  // to unpack it into "and eight others were never examined". A monitor that
+  // reports all-clear on a subset without naming the subset is the shape of
+  // guard this repo has been bitten by repeatedly.
+  const unmonitored = params.registry
+    .filter((d) => !d.recorded || d.oneOff)
+    .map((d) => d.name)
+    .sort();
 
-  return { summary, jobs_total: scorecards.length, stalled, failing, slow, scorecards, all_clear: allClear };
+  const coverage = unmonitored.length > 0
+    ? ` ${unmonitored.length} not monitored: ${unmonitored.join(", ")}.`
+    : "";
+  const summary = (allClear
+    ? `Cron fleet healthy: ${scorecards.length} recorded jobs, all ticking on schedule.`
+    : `${stalled.length} stalled, ${failing.length} failing, ${slow.length} slow of ${scorecards.length} recorded jobs.`) +
+    coverage;
+
+  return {
+    summary,
+    jobs_total: scorecards.length,
+    stalled,
+    failing,
+    slow,
+    scorecards,
+    all_clear: allClear,
+    unmonitored,
+  };
 }
