@@ -15,6 +15,8 @@ import {
   helpHubPath,
 } from "@/types/help-center";
 import { SITE_URL } from "@/lib/seo/site";
+import { helpArticleLd, helpFaqLd } from "@/lib/seo/help-json-ld";
+import type { JsonLd } from "@/lib/seo/json-ld";
 
 // US-2576: a Help Center article, SPA renderer. Edge-SSR'd in production by
 // functions/help/[[path]].ts; see the note on hub.tsx for why it is not in
@@ -51,6 +53,29 @@ export function HelpArticlePage() {
       description={article?.summary || HELP_HUB_DESCRIPTION}
       canonicalPath={
         article && category ? helpArticlePath(category.slug, article.slug) : helpHubPath()
+      }
+      // Same builders the SSR Function uses, held to it by
+      // src/test/help-json-ld-parity.test.ts. MarketingLayout already emits
+      // Organization + BreadcrumbList, so only the page-type nodes go here.
+      jsonLd={
+        article && category
+          ? ([
+              helpArticleLd(
+                {
+                  slug: article.slug,
+                  title: article.title,
+                  summary: article.summary,
+                  body_html: article.body_html,
+                  faq: article.faq ?? [],
+                  published_at: article.published_at,
+                  reviewed_at: article.reviewed_at,
+                  updated_at: article.updated_at,
+                },
+                `${SITE_URL}${helpArticlePath(category.slug, article.slug)}`,
+              ),
+              helpFaqLd(article.faq),
+            ].filter(Boolean) as JsonLd[])
+          : []
       }
       breadcrumbs={[
         { name: "GradeThread", url: `${SITE_URL}/` },

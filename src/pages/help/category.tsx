@@ -15,6 +15,8 @@ import {
   helpHubPath,
 } from "@/types/help-center";
 import { SITE_URL } from "@/lib/seo/site";
+import { helpCollectionLd } from "@/lib/seo/help-json-ld";
+import type { JsonLd } from "@/lib/seo/json-ld";
 
 // US-2576: a Help Center category shelf, SPA renderer. Edge-SSR'd in production
 // by functions/help/[[path]].ts; see the note on hub.tsx for why neither this
@@ -36,6 +38,21 @@ export function HelpCategoryPage() {
       title={title}
       description={category?.summary || HELP_HUB_DESCRIPTION}
       canonicalPath={category ? helpCategoryPath(category.slug) : helpHubPath()}
+      jsonLd={
+        category
+          ? [
+              helpCollectionLd({
+                name: category.title,
+                description: category.summary,
+                canonical: `${SITE_URL}${helpCategoryPath(category.slug)}`,
+                items: articles.map((a) => ({
+                  title: a.title,
+                  url: `${SITE_URL}${helpArticlePath(category.slug, a.slug)}`,
+                })),
+              }) as JsonLd,
+            ]
+          : []
+      }
       breadcrumbs={[
         { name: "GradeThread", url: `${SITE_URL}/` },
         { name: HELP_HUB_TITLE, url: `${SITE_URL}${helpHubPath()}` },

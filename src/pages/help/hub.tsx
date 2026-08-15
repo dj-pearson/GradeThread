@@ -17,6 +17,9 @@ import {
   helpCategoryPath,
   helpHubPath,
 } from "@/types/help-center";
+import { SITE_URL } from "@/lib/seo/site";
+import { helpCollectionLd } from "@/lib/seo/help-json-ld";
+import type { JsonLd } from "@/lib/seo/json-ld";
 
 // US-2576: the Help Center hub, SPA renderer.
 //
@@ -49,6 +52,17 @@ export function HelpHubPage() {
       title={HELP_HUB_TITLE}
       description={HELP_HUB_DESCRIPTION}
       canonicalPath={helpHubPath()}
+      jsonLd={[
+        helpCollectionLd({
+          name: HELP_HUB_TITLE,
+          description: HELP_HUB_DESCRIPTION,
+          canonical: `${SITE_URL}${helpHubPath()}`,
+          items: categories.map((c) => ({
+            title: c.title,
+            url: `${SITE_URL}${helpCategoryPath(c.slug)}`,
+          })),
+        }) as JsonLd,
+      ]}
     >
       <div className="mx-auto max-w-4xl px-4 py-12">
         <h1 className="text-3xl font-bold tracking-tight">{HELP_HUB_TITLE}</h1>

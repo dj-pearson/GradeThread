@@ -53,6 +53,7 @@ import {
   helpCategoryPath,
   HELP_HUB_DESCRIPTION,
   HELP_HUB_TITLE,
+  nonEmptyCategories,
   pillarLabel,
   renderArticleList,
   renderCategoryGrid,
@@ -66,6 +67,11 @@ import {
   type HelpIndexPayload,
   type HelpSearchPayload,
 } from "../_shared/help-render";
+import {
+  helpArticleLd,
+  helpCollectionLd,
+  helpFaqLd,
+} from "../_shared/help-json-ld";
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;
 
@@ -158,7 +164,18 @@ ${renderCategoryGrid(index)}
       twitterSite: twitterSiteHandle(env),
       gaMeasurementId: ga4MeasurementId(env),
       alternates: [{ type: "text/markdown", href: `${canonical}.md`, title: "Markdown" }],
-      jsonLd: [breadcrumbListLd(crumbs)],
+      jsonLd: [
+        breadcrumbListLd(crumbs),
+        helpCollectionLd({
+          name: HELP_HUB_TITLE,
+          description: HELP_HUB_DESCRIPTION,
+          canonical,
+          items: nonEmptyCategories(index).map((c) => ({
+            title: c.title,
+            url: `${base}${helpCategoryPath(c.slug)}`,
+          })),
+        }),
+      ],
       bodyHtml: body,
     },
     { cacheControl: SSR_CACHE_CONTROL },
@@ -247,7 +264,18 @@ ${renderArticleList(category.slug, articles)}
       ogType: "website",
       twitterSite: twitterSiteHandle(env),
       gaMeasurementId: ga4MeasurementId(env),
-      jsonLd: [breadcrumbListLd(crumbs)],
+      jsonLd: [
+        breadcrumbListLd(crumbs),
+        helpCollectionLd({
+          name: category.title,
+          description: category.summary,
+          canonical,
+          items: articles.map((a) => ({
+            title: a.title,
+            url: `${base}${helpArticlePath(category.slug, a.slug)}`,
+          })),
+        }),
+      ],
       bodyHtml: body,
     },
     { cacheControl: SSR_CACHE_CONTROL },
@@ -325,7 +353,15 @@ ${index ? renderRelatedHelp(index, article.related_slugs) : ""}
       twitterSite: twitterSiteHandle(env),
       gaMeasurementId: ga4MeasurementId(env),
       alternates: [{ type: "text/markdown", href: `${canonical}.md`, title: "Markdown" }],
-      jsonLd: [breadcrumbListLd(crumbs)],
+      // TechArticle, or HowTo when the piece is a real procedure with real
+      // steps. No aggregateRating, no author Person we cannot name, no
+      // dateModified we would have to invent: markup for data that does not
+      // exist is the kind a manual action is issued for.
+      jsonLd: [
+        breadcrumbListLd(crumbs),
+        helpArticleLd(article, canonical),
+        helpFaqLd(article.faq),
+      ].filter(Boolean),
       bodyHtml: body,
     },
     { cacheControl: SSR_CACHE_CONTROL },
