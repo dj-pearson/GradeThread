@@ -58,6 +58,9 @@
 --   §20 US-2289 AC5 — who was charged more than once for one garment.
 --   §21 US-2117 — has any agreement row actually recorded a disclosure version?
 --   §22 US-2444 AC1 — what migration 00122 created, read out of the database.
+--   §23 US-2403 AC1 — is the denied-function segfault path live on this image?
+--   §24 US-2286 AC5 — which entitlements came from a sandbox purchase.
+--   §25 US-2606 — did migration 00594 actually land? (run it AFTER applying)
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -952,3 +955,87 @@ ORDER BY ledger, version;
 -- ════════════════════════════════════════════════════════════════
 -- Done. Paste the whole output back — nothing above is a secret.
 -- ════════════════════════════════════════════════════════════════
+
+-- ════════════════════════════════════════════════════════════════
+-- §23 US-2403 AC1 — IS THE SEGFAULT PATH LIVE ON THIS IMAGE?
+-- ════════════════════════════════════════════════════════════════
+-- A denied FUNCTION call from a role listed in supautils.hint_roles
+-- segfaults the backend and restarts the whole database. Reproduced on the
+-- stock Supabase image; never tested against prod, deliberately, because
+-- the test IS the denial of service.
+
+-- These two reads settle it and neither is invasive. If anon is ABSENT from
+-- hint_roles, prod does not reproduce, AC1 closes, AC2 is already satisfied,
+-- and migration 00527 (parked as .BLOCKED) unblocks along with US-2282.
+
+-- DO NOT "confirm" by calling a revoked function. That call is the outage.
+-- One earlier note in US-2403 said re-running latest_schema_migration() as
+-- anon was cheap and not an attack; it is on the list of fourteen functions
+-- anon cannot execute, so it is exactly the attack.
+
+-- NOT written as `SHOW supautils.hint_roles` on purpose. If supautils is not
+-- loaded, SHOW raises "unrecognized configuration parameter" and, under
+-- ON_ERROR_STOP=1, kills the rest of this session — the exact failure this
+-- file exists to avoid. current_setting(..., true) answers NULL instead,
+-- and NULL is itself the finding: no supautils, no hint path, no crash.
+
+SELECT current_setting('supautils.hint_roles', true) AS hint_roles_or_null;
+
+-- -- READING THIS. NULL or an empty string: the hint path is not running,
+-- -- prod does not reproduce, and 00527/US-2282 unblock. A value CONTAINING
+-- -- anon: this image crashes on a denied function call and the mitigation
+-- -- (clear hint_roles in /etc/postgresql-custom/supautils.conf and restart)
+-- -- comes BEFORE anything else — it cannot be done from SQL, supautils
+-- -- refuses ALTER SYSTEM on it even as superuser.
+
+-- -- Corroborated from outside on 2026-08-15 (US-2606): prod returns NO
+-- -- supautils hint on a denied TABLE read as anon, while a genuine Postgres
+-- -- hint does reach the client. Table denials never crash, so that probe
+-- -- was safe — it inferred what this query answers directly.
+-- --   node scripts/probe-supautils-hint.mjs
+
+-- ════════════════════════════════════════════════════════════════
+-- §24 US-2286 AC5 — WHICH ENTITLEMENTS CAME FROM A SANDBOX PURCHASE
+-- ════════════════════════════════════════════════════════════════
+-- US-2286 stamps the store environment on a grant rather than refusing
+-- sandbox purchases (refusing would fail App Review, which always exercises
+-- IAP in the sandbox). NULL means the grant predates the marker and
+-- countsAsRevenue(NULL) is deliberately true, so historical MRR is not
+-- zeroed. What this shows is whether any grant since then is sandbox.
+
+-- Counts only. No user ids, no emails.
+SELECT
+  coalesce(billing_source, '(none)')        AS billing_source,
+  coalesce(billing_environment, '(pre-marker)') AS environment,
+  count(*)                                   AS accounts
+FROM public.users
+WHERE billing_source IS NOT NULL
+GROUP BY 1, 2
+ORDER BY 1, 2;
+
+-- -- READING THIS: any row with environment = sandbox is a free entitlement
+-- -- booked as if paid. (pre-marker) rows are NOT identifiable from the
+-- -- database alone — that half needs App Store purchase history, which is
+-- -- why AC5 stays an operator task even after this query runs.
+
+-- ════════════════════════════════════════════════════════════════
+-- §25 US-2606 — DID 00594 ACTUALLY LAND?
+-- ════════════════════════════════════════════════════════════════
+-- /health/ready reported missing:["00594"] on 2026-08-15 while status said
+-- match, because the recorded version is a MAXIMUM and a maximum cannot see
+-- a hole beneath it. flipdesk_overview_metrics is the single RPC behind the
+-- FlipDesk Overview page, which throws when it is absent.
+
+-- Run this AFTER applying the migration. Both rows should come back.
+SELECT 'recorded' AS check, count(*)::text AS result
+FROM public.applied_migrations WHERE version = '00594'
+UNION ALL
+SELECT 'function exists', count(*)::text
+FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public' AND p.proname = 'flipdesk_overview_metrics';
+
+-- -- READING THIS: recorded=1 and function exists=1 is the all-clear, and
+-- -- the authoritative version of it is one unauthenticated GET:
+-- --   curl -fsS https://functions.gradethread.com/health/ready | jq .schema
+-- -- An empty or absent "missing" is what closes US-2606. A bare
+-- -- "status":"match" is NOT — that is what it said while 00594 was gone.
