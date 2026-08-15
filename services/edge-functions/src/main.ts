@@ -750,6 +750,17 @@ app.use("/api/flipdesk/ebay/jobs/*", recordEbayCron);
 // "/api/flipdesk/google/sync/push" → "google-sheet-sync"); same generic recorder.
 app.use("/api/flipdesk/google/sync/push", recordEbayCron);
 app.use("/api/flipdesk/ebay/sync/performance", recordEbayCron);
+// US-2617: the hourly token refresh. Its handler has always gated on
+// requireJobSecret, so it was reachable as a cron — it simply was not mounted
+// here, so it left no ledger row and cron-fleet-health could not tell whether it
+// had stopped. If it stops, seller eBay tokens expire and listings stop syncing.
+//
+// EXPECT A STALL ALERT if the Coolify task does not exist: the detector computes
+// expected slots from the schedule, not from prior runs, so a job that has never
+// fired reads as stalled from the first hour. That is the finding, not a false
+// positive — it is the question "is this task actually installed?" answering
+// itself for the first time.
+app.use("/api/flipdesk/ebay/oauth/refresh", recordEbayCron);
 
 // Admin billing: user JWT auth, then admin role check
 app.use("/api/admin/*", authMiddleware);

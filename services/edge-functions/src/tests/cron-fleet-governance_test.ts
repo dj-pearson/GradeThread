@@ -288,10 +288,27 @@ Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is not 
     nowMs: NOW,
     lookbackMs: 3600_000,
   });
-  assert(report.unmonitored.length > 0, "expected a known blind spot");
-  assert(
-    report.unmonitored.includes("ebay-token-refresh"),
-    `ebay-token-refresh is the sharpest one: got ${report.unmonitored.join(", ")}`,
+  // SHRINK-ONLY. The list is pinned by name, so closing a gap fails here and the
+  // fix is to delete that entry — the same discipline as the tracked-and-ignored
+  // and dead-module allowlists. Adding a name back is not how you make this pass.
+  //
+  // ebay-token-refresh was on this list until US-2617 mounted the recorder on
+  // its path. This case is what caught that: it asserted the specific job by
+  // name, so fixing the job reddened the guard rather than the guard quietly
+  // continuing to pass on a smaller set.
+  assertEquals(
+    report.unmonitored,
+    [
+      "cert-integrity-backfill", // oneOff — a backfill has no cadence to miss
+      "content-digest", // CONTENT_INTERNAL_JOB_SECRET, not the recorder's header
+      "content-tick", // same
+      "ebay-orders-sync", // US-2310: unreachable with the job secret at all
+      "passport-backfill", // oneOff
+      "photo-archive", // US-2310: unreachable
+      "reconciliation-sweep", // US-2310: unreachable
+    ],
+    "the fleet monitor's blind spot changed — shrink it by fixing a job, and " +
+      "delete its name here; do not add one back to make this pass",
   );
   assertEquals(
     report.jobs_total + report.unmonitored.length,

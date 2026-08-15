@@ -19,12 +19,19 @@ code_refs:
   - services/edge-functions/src/lib/prompt-blocks.ts
   - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
 
 # The two prompt channels
+
+> [!note] Re-reviewed 2026-08-15 — the drift was a threshold, not a channel
+> `grading-eval.ts` changed, so the guard fired. The change is the eval gate's
+> default max MAE dropping from 1.0 to 0.5 (US-2301 AC6). This note is about
+> which prompt SURFACES the eval can compare, and that is untouched — the gate
+> still compiles the same text into both legs, and the suffix/hash rules are
+> unchanged. The threshold itself now lives in [[grading-eval-gate]].
 
 A grading prompt carries exactly two kinds of text, and which one a block belongs
 to decides whether a seller can steer the grade.

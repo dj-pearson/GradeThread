@@ -219,8 +219,19 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-1518: item-photo thumbnail backfill — drain-to-zero, then keeps up with
   // new iOS uploads; cheap when idle.
   { name: "thumbnail-backfill", label: "Photo thumbnail backfill", schedule: "*/5 * * * *", category: "maintenance", endpoint: "/api/jobs/thumbnail-backfill", recorded: true },
-  // Served under /api/flipdesk/* — not in the ledger (next-run still computed).
-  { name: "ebay-token-refresh", label: "eBay token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/oauth/refresh", recorded: false },
+  // US-2617: RECORDED as of 2026-08-15. It was `recorded: false` with the note
+  // "served under /api/flipdesk/* — not in the ledger", which described where it
+  // lives rather than a reason it could not be seen. The handler already gates
+  // on requireJobSecret (flipdesk-ebay.ts:633), so it was reachable as a cron
+  // the whole time; the only thing missing was the recordEbayCron mount, which
+  // main.ts applies by path.
+  //
+  // Worth the change because of what this job IS: if the hourly refresh stops,
+  // seller eBay tokens expire and their listings stop syncing — a silent
+  // failure, and exactly the blast radius jobs-cron-fleet.ts names as the
+  // reason the fleet alert exists. It was one of eight registry entries the
+  // monitor never examined (US-2616).
+  { name: "ebay-token-refresh", label: "eBay token refresh", schedule: "0 * * * *", category: "sync", endpoint: "/api/flipdesk/ebay/oauth/refresh", recorded: true },
   // ⚠️ US-2310: this endpoint sits behind authMiddleware and its handler has NO
   // requireJobSecret branch, so the documented curl-with-job-secret invocation
   // 401s before the handler runs — and recorded:false means it leaves no
