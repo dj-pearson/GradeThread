@@ -272,6 +272,37 @@ unless a story is blocked; if blocked, note why and move to the next.
       the existing env gate so OFF stays byte-identical) and that GARMENT_TYPES was in
       sync by luck, not by check. Guard `src/test/garment-taxonomy-copies.test.ts`
       (13 cases), verified to bite. Also fixed 2 edge tests red on main.
+## LOOP STOPPED 2026-08-14 — owner's call, nothing left in scope
+
+The 5-minute fix loop was cancelled at the owner's direction after it ran out of
+work it could do. **This is not an abandonment; it is the end state.**
+
+**Delivered.** All 52 review stories plus the follow-ups US-2555..2561, US-2571
+are closed, except the ten below. Every one of those ten has had its non-Swift
+half shipped as a slice with a contract module and a proven-red guard, so the
+Swift lands against a spec instead of a reverse-engineered guess. The review's own
+last unfinished item (gap 6) was checked and withdrawn. 17 commits, every gate
+green (table above).
+
+**Why it stopped.** Ten stories remain: nine need a macOS toolchain to write and
+compile Swift, and US-2528 needs counsel to sign the Terms copy. Neither is
+reachable from this Windows checkout, and neither becomes reachable by pushing —
+pushing runs the iOS CI lane, which VERIFIES Swift, but somebody still has to
+WRITE it on a Mac.
+
+### To pick this up again
+1. Apply `00601` (one `ALTER TYPE ... ADD VALUE`; see PENDING_MIGRATIONS.md).
+2. Push the 17 commits.
+3. On a macOS session, work the ten from this tracker. Each story's prd note names
+   exactly what is left, and the guard file to extend — not to delete.
+
+### Do not re-derive these
+Five story premises turned out **false or narrower than filed** and cost an
+iteration each to discover (US-2510, US-2523, US-2531, US-2556, and the review's
+own gap 6). Three of the five were the same mistake: **searching for a NAME rather
+than for the CAPABILITY.** The lessons section below is the accumulated record;
+read it before opening any of the ten.
+
 ## Pre-push verification, 2026-08-14 — every gate green
 
 Run as a SET over the 16 unpushed commits, reading real exit codes rather than a
