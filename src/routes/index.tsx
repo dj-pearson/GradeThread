@@ -67,6 +67,9 @@ const HelpHubPage = lazy(() => import("@/pages/help/hub").then(m => ({ default: 
 const HelpCategoryPage = lazy(() => import("@/pages/help/category").then(m => ({ default: m.HelpCategoryPage })));
 const HelpArticlePage = lazy(() => import("@/pages/help/article").then(m => ({ default: m.HelpArticlePage })));
 const HelpSearchPage = lazy(() => import("@/pages/help/search").then(m => ({ default: m.HelpSearchPage })));
+// US-2583: the in-app reader. Sees members-only articles, and internal ones
+// for an admin — the SERVER decides which, from the verified user id.
+const HelpReaderPage = lazy(() => import("@/pages/help-reader").then(m => ({ default: m.HelpReaderPage })));
 const LeaderboardsPage = lazy(() => import("@/pages/leaderboards").then(m => ({ default: m.LeaderboardsPage })));
 const FlipdeskVerifiedPage = lazy(() => import("@/pages/flipdesk/verified").then(m => ({ default: m.FlipdeskVerifiedPage })));
 // Public status page (US-500) — live component health probed from the
@@ -574,6 +577,10 @@ export const router = createBrowserRouter([
               // Stripe Connect's return all point here — see the comment on
               // AccountPage's initialTab prop.
               { path: "/dashboard/settings", element: <SuspenseWrapper><AccountPage initialTab="settings" /></SuspenseWrapper> },
+              // US-2583: the members-only docs reader. noindex on every page,
+              // and /dashboard is already disallowed in robots.txt.
+              { path: "/dashboard/help", element: <SuspenseWrapper><HelpReaderPage /></SuspenseWrapper> },
+              { path: "/dashboard/help/:slug", element: <SuspenseWrapper><HelpReaderPage /></SuspenseWrapper> },
               { path: "/dashboard/support", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
               { path: "/dashboard/support/:id", element: <SuspenseWrapper><SupportTicketsPage /></SuspenseWrapper> },
               { path: "/dashboard/billing", element: <SuspenseWrapper><AccountPage initialTab="billing" /></SuspenseWrapper> },

@@ -129,6 +129,57 @@ export function useHelpCategories() {
   });
 }
 
+// ───────────────────────────────────────────────────────────────────
+// THE MEMBERS-ONLY READER (US-2583)
+//
+// /api/help is authMiddleware-only, and the handler resolves the viewer from
+// the verified user id: a customer gets 'public' + 'members', an admin also
+// gets 'internal'. That decision is the server's — these hooks send a token and
+// render whatever comes back, and the `viewer` field is for LABELLING the rows,
+// never for deciding what to request.
+// ───────────────────────────────────────────────────────────────────
+
+export type HelpViewerTier = "anon" | "member" | "admin";
+
+export interface HelpReaderIndex {
+  categories: HelpCategory[];
+  articles: HelpArticle[];
+  viewer: HelpViewerTier;
+}
+
+export function useHelpReaderIndex() {
+  return useQuery({
+    queryKey: ["help_reader"],
+    staleTime: 60_000,
+    queryFn: () => jfetch<HelpReaderIndex>("/api/help"),
+  });
+}
+
+export function useHelpReaderArticle(slug: string | undefined) {
+  return useQuery({
+    queryKey: ["help_reader", slug],
+    enabled: Boolean(slug),
+    retry: false,
+    queryFn: () =>
+      jfetch<{ article: HelpArticle; category: HelpCategory | null; viewer: HelpViewerTier }>(
+        `/api/help/${encodeURIComponent(slug!)}`,
+      ),
+  });
+}
+
+export function useHelpReaderSearch(query: string) {
+  const q = query.trim();
+  return useQuery({
+    queryKey: ["help_reader", "search", q.toLowerCase()],
+    enabled: q.length >= 2,
+    staleTime: 60_000,
+    queryFn: () =>
+      jfetch<{ query: string; hits: HelpSearchHit[]; viewer: HelpViewerTier }>(
+        `/api/help/search?q=${encodeURIComponent(q)}`,
+      ),
+  });
+}
+
 /** Every article including drafts and internals. Admin only, by the mount. */
 export function useHelpArticles() {
   return useQuery({

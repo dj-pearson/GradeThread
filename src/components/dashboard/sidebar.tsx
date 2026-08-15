@@ -17,6 +17,7 @@ import {
   Camera,
   ChevronDown,
   CircleUser,
+  LifeBuoy,
   Code2,
   CalendarClock,
   Handshake,
@@ -207,6 +208,10 @@ const navGroups: NavGroup[] = [
         end: false,
         requires: "manage_api_keys",
       },
+      // US-2583: the in-app help reader. A nav entry rather than only the
+      // header's help menu, because the thing people look for when stuck is a
+      // place in the sidebar, not an icon they have to remember.
+      { to: "/dashboard/help", icon: LifeBuoy, label: "Help", end: false },
     ],
   },
 ];
