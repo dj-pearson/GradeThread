@@ -355,7 +355,18 @@ if (on("android")) {
     // right JDK in front of Gradle. Without it AGP picks whatever `java` PATH
     // resolves to and fails with the bare version string as its whole error.
     Object.assign(process.env, tc.env);
-    const gw = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
+    // ABSOLUTE, and quoted. `gradlew.bat` alone is what this used to run, with
+    // cwd set to android/ — and cmd.exe does not resolve a bare command name
+    // from the current directory, so every Gradle step in this lane died
+    // instantly with "'gradlew.bat' is not recognized" and reported 0.0s.
+    // Ten checks "failed" without ever starting, which reads exactly like ten
+    // broken builds. The POSIX form worked because "./gradlew" is already a
+    // path; this is the one platform where the difference matters, and it is
+    // the platform the lane exists for.
+    // Quoted by hand rather than with JSON.stringify: that escapes every
+    // backslash, so the command line carries C:\\Users\\… — which Windows
+    // tolerates and nothing else should have to.
+    const gw = `"${resolve(androidDir, process.platform === "win32" ? "gradlew.bat" : "gradlew")}"`;
     const py = tc.python;
     const a = { cwd: androidDir };
 

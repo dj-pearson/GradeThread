@@ -22,6 +22,7 @@ import {
   JDK_PREFERRED,
   androidDir,
   readLocalProperties,
+  unescapedLocalPropertiesLine,
   resolveToolchain,
   writeLocalProperties,
 } from "./toolchain.mjs";
@@ -101,7 +102,23 @@ if (tc.python) {
 // ---------------------------------------------------------------- local.properties
 const lp = readLocalProperties();
 const lpPath = join(androidDir, "local.properties");
-if (lp?.["sdk.dir"] && existsSync(lp["sdk.dir"])) {
+const unescaped = unescapedLocalPropertiesLine();
+if (lp?.["sdk.dir"] && existsSync(lp["sdk.dir"]) && unescaped && fix) {
+  // US-2602: the path resolves, so the old check called it OK — and lintDebug
+  // failed the whole lane on PropertyEscape. Android Studio writes the
+  // unescaped form, so the machine most likely to have this is the one that
+  // opened the project in the IDE first. Rewrite it rather than report it: the
+  // value is unchanged, only its spelling.
+  writeLocalProperties(lp["sdk.dir"]);
+  line(ok("FIXED"), "local.properties", `escaped for Android Lint (was: ${unescaped})`);
+} else if (lp?.["sdk.dir"] && existsSync(lp["sdk.dir"]) && unescaped) {
+  line(
+    warn("--"),
+    "local.properties",
+    "sdk.dir has an unescaped ':' — Android Lint fails the build on this " +
+      "(PropertyEscape). Re-run with --fix.",
+  );
+} else if (lp?.["sdk.dir"] && existsSync(lp["sdk.dir"])) {
   line(ok("OK"), "local.properties", `sdk.dir=${lp["sdk.dir"]}`);
 } else if (tc.sdk.ok && fix) {
   writeLocalProperties(tc.sdk.sdkDir);

@@ -179,6 +179,56 @@ export function readLocalProperties() {
 }
 
 /**
+ * Is the file on disk written the way Android Lint demands?
+ *
+ * US-2602: lintDebug FAILS the whole Android lane on `PropertyEscape` when
+ * `sdk.dir` carries an unescaped drive colon — "Windows file separators (\) and
+ * drive letter separators (':') must be escaped". Android Studio writes the
+ * unescaped form, so any machine set up through the IDE has a local.properties
+ * that makes `npm run verify:android` red for a reason that has nothing to do
+ * with the code being verified. CI never sees it: there is no local.properties
+ * on a runner, where AGP reads ANDROID_HOME.
+ *
+ * Returns null when there is nothing to fix (no file, or already escaped), and
+ * the offending raw line when there is.
+ */
+export function unescapedLocalPropertiesLine() {
+  const f = join(androidDir, "local.properties");
+  if (!existsSync(f)) return null;
+  for (const line of readFileSync(f, "utf8").split(/\r?\n/)) {
+    if (!/^\s*sdk\.dir\s*=/.test(line)) continue;
+    return unescapedPropertyValue(line.slice(line.indexOf("=") + 1)) ? line.trim() : null;
+  }
+  return null;
+}
+
+/**
+ * Does this .properties VALUE contain a separator Lint would reject?
+ *
+ * Walked rather than matched with a lookbehind, because the escape character is
+ * also one of the characters being escaped: in `C\:/Users`, the backslash is the
+ * fix, not the problem, and a naive "a colon or backslash not preceded by a
+ * backslash" test flags the very form Lint asks for. So: a backslash consumes
+ * the next character and is fine when that character is `\` or `:`; anything
+ * else after it is a lone separator, and a bare `:` is one too.
+ */
+export function unescapedPropertyValue(value) {
+  for (let i = 0; i < value.length; i++) {
+    const c = value[i];
+    if (c === "\\") {
+      const next = value[i + 1];
+      if (next === "\\" || next === ":") {
+        i++;
+        continue;
+      }
+      return true; // a backslash escaping something that is not a separator
+    }
+    if (c === ":") return true;
+  }
+  return false;
+}
+
+/**
  * The SDK, plus which of its pieces are present.
  *
  * `components` is reported rather than gated on, because the pieces are needed
