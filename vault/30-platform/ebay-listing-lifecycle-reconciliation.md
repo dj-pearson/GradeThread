@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/routes/flipdesk-automations.ts
   - services/edge-functions/src/lib/active-listings.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-15
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error.
 ---
@@ -36,6 +36,14 @@ completed sale skips the item write entirely.
 
 A multi-variation listing has no offer id and ends by group key via
 `withdrawByInventoryItemGroup` (US-1978) — same classification, different call.
+
+**And REVISES the same way, as of US-2395 (2026-08-15).** `resolveReviseStrategy`
+is group-first, keyed on the pinned `listings.inventory_sku`, and mirrors
+`resolveEndStrategy` deliberately: two resolvers in one file answering the same
+question differently is what left revise 409-ing on a listing the end path
+handled fine. The one divergence is intentional — no mechanism is `none` for
+revise, not `local`. Ending locally is a real outcome; a revise that did nothing
+must say so.
 
 **Policy-removed listings vanish from the offers feed.** eBay drops them out of
 the active offers response, so they come back from `listAllOffers` with **no

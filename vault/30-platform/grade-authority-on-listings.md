@@ -11,7 +11,7 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -43,6 +43,16 @@ treatment because it would look better.
    `generateUniqueCertNumber` (`lib/cert-number.ts`) and exposed on the public
    cert view. Buyers verify at **`/verify`**, which resolves the number
    anonymously. That is what replaces a clickable link.
+
+**All three reach a multi-variation listing too, as of US-2395 (2026-08-15).**
+The group revise is handed the same link-stripped, grade-promoted description
+and the same aspect map the single-offer path builds, so the grade line and the
+`Condition Grade` specific ride to every variant item and to each variant's
+offer. That is a consequence of the group path reusing the assembly rather than
+repeating it — worth stating because the failure it avoids is silent: a
+variation listing whose grade text quietly stopped being re-asserted, with
+`stripCertLinks` skipped along with it, would put an off-eBay link back on a
+live listing on the next revise.
 
 The split between 1 and 2 is not arbitrary: the client writes the grade line
 because the item row has the grade, and the **server** appends the cert number

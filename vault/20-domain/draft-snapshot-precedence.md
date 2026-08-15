@@ -10,7 +10,7 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-12
+reviewed: 2026-08-15
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -31,6 +31,13 @@ So once a listings row holds a value, **the item's copy stops mattering**. That
 is correct — an eBay-optimised title should not be undone by an inventory
 edit — but it makes a whole class of bug possible: edit the item, publish, and
 get the old text with no error anywhere.
+
+One narrowing, US-2593 (2026-08-14): a composer save now writes the effective
+listing title back onto `inventory_items.title`, so the two stop diverging on
+the surface that owns both. The precedence above is unchanged — publish still
+reads the listing first — but the item's copy is no longer left at whatever it
+was named on the day it was created. Which fields flow which way is
+[[sync-source-of-truth]]'s to state, not this note's.
 
 ## Why this is mostly safe: one full editor, and one grid that half-syncs
 

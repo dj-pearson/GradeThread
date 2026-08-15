@@ -5798,7 +5798,16 @@ async function reviseOneListing(
   // sync was requested, OR a structured-field resync was requested (US-1490 —
   // category/condition/specifics). We send full state — photos, aspects, brand —
   // so any drift from the photo manager / category picker also syncs here.
-  if (hasTitle || hasDesc || syncPhotos || resyncFields) {
+  //
+  // US-2395: `|| groupRevise` is load-bearing rather than tidy. A price-only or
+  // quantity-only revise satisfies none of the first four conditions, so this
+  // block is skipped — and the GROUP branch lives inside it. Without this the
+  // request would fall through to the offer-side push at the end and call
+  // updateOfferFields with the empty offerId a group listing resolves to. The
+  // extra item and group PUTs a price-only group revise now performs are the
+  // same idempotent ones publish sends, and the group is being re-published in
+  // that path anyway.
+  if (hasTitle || hasDesc || syncPhotos || resyncFields || groupRevise) {
     const { data: itemRow } = await supabaseAdmin
       .from("inventory_items")
       .select(
@@ -6376,7 +6385,12 @@ async function reviseOneListing(
   // (offer.listingDescription overrides product.description, availableQuantity
   // controls the listed quantity, categoryId is the eBay leaf category). Batched
   // into one PUT. US-1490: a resync re-asserts the category on the live offer.
-  if (hasPrice || hasDesc || hasQty || resyncFields) {
+  // US-2395: never for a group. The group branch above returns, so reaching here
+  // with groupRevise set would mean a new early-exit path skipped it — and the
+  // offerId a group resolves to is the empty string, which would put a malformed
+  // eBay request on the seller's live listing. Cheap guard against a mistake
+  // that would only show up in production.
+  if (!groupRevise && (hasPrice || hasDesc || hasQty || resyncFields)) {
     try {
       await updateOfferFields(userId, offerId, {
         price: hasPrice ? (nextPrice as number) : undefined,

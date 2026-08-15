@@ -348,3 +348,36 @@ Deno.test("US-2395: both paths clear the drift marker through one function", () 
       "is not clearing the marker",
   );
 });
+
+Deno.test("US-2395: a price-only revise still reaches the group branch", () => {
+  // The bug this pins, found while reviewing the change rather than by a test:
+  // the group branch lives inside the "did a product field change?" block, and a
+  // price-only or quantity-only revise satisfies none of its conditions. Without
+  // groupRevise in that condition the request falls through to the offer-side
+  // push and calls updateOfferFields with the EMPTY offerId a group resolves to
+  // — a malformed eBay write against a live listing, and only in production.
+  const at = EBAY_SRC.indexOf(
+    "if (hasTitle || hasDesc || syncPhotos || resyncFields",
+  );
+  assertEquals(at > -1, true, "the product-field block moved or was renamed");
+  const condition = EBAY_SRC.slice(at, EBAY_SRC.indexOf("{", at));
+  assertEquals(
+    condition.includes("groupRevise"),
+    true,
+    "a price-only revise on a variation listing now skips the group branch",
+  );
+});
+
+Deno.test("US-2395: the offer-side push never runs for a group", () => {
+  // Belt and braces for the same failure: even if a future edit adds an early
+  // exit that skips the group branch, the offer push must not fire with the
+  // empty offer id.
+  const at = EBAY_SRC.indexOf("await updateOfferFields(userId, offerId, {");
+  assertEquals(at > -1, true, "the offer-side push moved or was renamed");
+  const before = EBAY_SRC.slice(Math.max(0, at - 400), at);
+  assertEquals(
+    /if \(!groupRevise &&/.test(before),
+    true,
+    "the offer-side push is no longer guarded against a group listing",
+  );
+});

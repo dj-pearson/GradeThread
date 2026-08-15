@@ -11,7 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-10
+reviewed: 2026-08-15
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
@@ -91,6 +91,14 @@ recorded as `inventory_derived` so a later manual edit still wins.
 
 The point to hold on to: **there are three paths now, and any fourth must fill
 the same way.** The reason revise broke in the first place was that it did not.
+
+> [!note] The fourth path arrived and did not repeat it (US-2395, 2026-08-15)
+> The multi-variation group revise is a fourth caller, and it fills correctly by
+> construction rather than by remembering to: `reviseVariationGroup` is handed
+> the SAME `reviseWireAspects` the single-offer re-PUT sends, computed once
+> above it, and writes each variant's own variation values over the top. A
+> second assembly for the group is exactly how this note's original defect would
+> have come back, so there isn't one.
 
 ## `requiredMissingAspects` has two more callers (US-2424, US-2425)
 
