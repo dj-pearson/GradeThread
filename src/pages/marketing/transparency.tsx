@@ -455,14 +455,14 @@ export function TransparencyPage() {
                 d: "Reviewer corrections (including when design was mistaken for damage) and post-sale buyer disputes are fed back as signal on where grading drifts.",
               },
               {
-                t: "New models must clear a published eval gate",
+                t: "A promoted prompt version must clear a published eval gate",
                 d: data
-                  ? `A candidate version cannot grade live items until it beats a maximum error of ${data.gate.max_mae.toFixed(
+                  ? `A candidate version cannot be promoted to serve live traffic until it beats a maximum error of ${data.gate.max_mae.toFixed(
                       1,
                     )} and at least ${(data.gate.min_agreement * 100).toFixed(
                       0,
-                    )}% agreement on a golden set of expert-graded garments.`
-                  : "A candidate version cannot grade live items until it beats a fixed maximum error and minimum agreement on a golden set of expert-graded garments.",
+                    )}% agreement on a golden set of expert-graded garments, measured on the same model that will run it. The prompt shipped inside the service is the fallback when no promoted version is active; it follows the same shadow, eval and canary sequence as policy rather than as an automatic refusal.`
+                  : "A candidate version cannot be promoted to serve live traffic until it beats a fixed maximum error and minimum agreement on a golden set of expert-graded garments, measured on the same model that will run it. The prompt shipped inside the service is the fallback when no promoted version is active; it follows the same shadow, eval and canary sequence as policy rather than as an automatic refusal.",
               },
               {
                 t: "An automated monitor watches for regressions",
@@ -491,9 +491,10 @@ export function TransparencyPage() {
             <h2 className="text-2xl font-bold">Model changelog</h2>
           </div>
           <p className="mt-3 text-muted-foreground">
-            Grading model versions that have cleared the eval gate, newest first.
-            Each row is a version proven against the golden set before it went
-            live.
+            Golden-set eval runs that cleared the gate, newest first. Each row is
+            a measured run rather than a promotion: clearing the gate is what
+            makes a version eligible to serve, and a version can clear it without
+            being promoted.
           </p>
           {data && data.changelog.length > 0 ? (
             <div className="mt-8 overflow-x-auto rounded-lg border">

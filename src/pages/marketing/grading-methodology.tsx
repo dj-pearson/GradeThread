@@ -99,12 +99,21 @@ export function GradingMethodologyPage() {
             <strong>{GRADING_REVIEW_CONFIDENCE_THRESHOLD.toFixed(2)}</strong>, the
             submission is routed to a human reviewer before the grade is finalized
             — low-confidence cases never ship unchecked. Additional triggers force
-            review regardless of the score: a defect the model and the images
-            disagree on, an authenticity flag, or an incomplete photo set. Buyers
-            can dispute a grade, reviewer corrections feed back into the accuracy
-            loop, and every new model version must clear a fixed eval gate against
-            a golden set of expert-graded garments before it grades live items. We
-            publish the resulting platform-wide accuracy on the{" "}
+            review regardless of the score: two or more contradictions found when
+            the photos are re-checked against the assessment, an authenticity or
+            tampering flag, or an incomplete photo set. A single contradiction
+            lowers confidence rather than forcing review, which can route the
+            grade anyway once it falls below the threshold. Buyers
+            can dispute a grade, and reviewer corrections feed back into the
+            accuracy loop. A grading prompt promoted through our admin flow cannot
+            serve live traffic unless its most recent run against a golden set of
+            expert-graded garments cleared fixed error and agreement thresholds,
+            on the same model that will run it. That refusal is enforced in code.
+            The prompt that ships inside the service is the fallback when no
+            promoted version is active, and changing it is a deploy rather than a
+            promotion, so it is held to the same shadow, eval and canary sequence
+            by policy rather than by that automatic refusal. We publish the
+            resulting platform-wide accuracy on the{" "}
             <Link
               to="/transparency"
               className="font-medium text-brand-navy hover:underline dark:text-foreground"
