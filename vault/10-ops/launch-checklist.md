@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-02
+reviewed: 2026-08-15
 tags: [ops, launch, checklist]
 summary: The env gate, scheduled tasks, backup drill and smoke tests before going live.
 ---
@@ -300,6 +300,18 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
 - ☐ Reseller feature scope confirmed — Best Offer responses and returns/
   cancellations are **out of scope** for launch (handled in eBay Seller Hub);
   see `vault/30-platform/flipdesk-reseller-gaps.md` (US-469)
+- ☑ **Platform scope: web and iOS. Android is NOT a launch gate** (owner,
+  2026-08-15, US-2015 AC4). It keeps building — its verify lane runs locally and
+  in CI and passes — but it gets no store listing in this cycle, and **no open
+  Android story blocks launch**. Read them as post-launch work.
+
+  Worth stating because the backlog reads the other way: the audit that filed
+  US-2015 described Android as a skeleton with one edge endpoint, and that was
+  true when written and is not now. It calls 39, and grading, inventory,
+  marketplaces, money and billing all hold real code, with widgets, push and a
+  Spanish catalogue. Anyone triaging "what is left before launch" will find a
+  large Android surface that looks unfinished; it is unfinished, and it is
+  deliberately not on this list.
 - ☐ All blockers in `prd.json` (US-772…US-785) marked `passes:true`
 
 **Launch approved by:** ________________  **Date:** ____________

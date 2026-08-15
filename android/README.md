@@ -10,6 +10,13 @@ Reference: [`vault/90-archive/android-conversion-plan.md`](../vault/90-archive/a
 map for directories that contained no code; both are corrected below. iOS has
 ~578 Swift files across ~60 feature areas, Android ~250 Kotlin files across ~12.
 
+**It is also not a launch gate** (owner, 2026-08-15, US-2015 AC4). Launch is web
+and iOS. Android keeps building and its verify lane stays green — locally and in
+CI — but it gets no store listing this cycle, and no open Android story blocks
+launch. That is a scope decision, not a verdict on the code: read the open
+Android stories as post-launch work rather than as a list of things holding
+anything up. See `vault/10-ops/launch-checklist.md` §7.
+
 **Built and wired:** auth (PKCE) · Room offline cache + sync coordinator, delta
 pull, mutation queue *and its replay*, delete reconciliation · CameraX capture and
 staged uploads · AI attribute extraction · Snap-to-Value · the full certified
