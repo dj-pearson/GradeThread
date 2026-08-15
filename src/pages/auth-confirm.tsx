@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/card";
 import { FieldError } from "@/components/ui/form-feedback";
 import { toast } from "sonner";
+import { track } from "@/lib/analytics";
 import { SEO } from "@/components/seo";
 
 // This page lives OUTSIDE AuthLayout (so our post-verify navigation isn't
@@ -97,9 +98,11 @@ export function AuthConfirmPage() {
     void (async () => {
       try {
         await verifyEmailTokenHash(tokenHash, type);
+        track("signup.email_verified", { via: "link" });
         goAfterVerify();
       } catch {
         // The link is invalid/expired — fall back to manual code entry.
+        track("signup.verify_failed", { reason: "link_expired" });
         setPhase("form");
         setErrorMessage(
           "That confirmation link is invalid or has expired. Enter the code from your email, or request a new one.",
@@ -132,9 +135,11 @@ export function AuthConfirmPage() {
     setPhase("submitting");
     try {
       await verifyEmailCode(email, trimmedCode, type);
+      track("signup.email_verified", { via: "code" });
       goAfterVerify();
     } catch (err) {
       const msg = err instanceof Error ? err.message.toLowerCase() : "";
+      track("signup.verify_failed", { reason: msg.includes("expired") ? "code_expired" : "code_rejected" });
       setErrorMessage(
         msg.includes("expired")
           ? "That code has expired. Request a new one below."
@@ -149,6 +154,7 @@ export function AuthConfirmPage() {
     setResendBusy(true);
     try {
       await resendConfirmationEmail(email);
+      track("signup.confirm_resend", { at: "confirm" });
       toast.success("If that account needs confirming, we've sent a new code.");
       setResendCooldown(45);
     } catch (err) {

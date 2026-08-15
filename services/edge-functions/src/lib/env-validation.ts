@@ -53,6 +53,12 @@ export interface FeatureGroup {
    *  `vars` list is still used to render the "missing: …" hint when it returns
    *  false. Pure (env-getter in, boolean out) so it stays unit-testable. */
   satisfiedWhen?: (get: EnvGetter) => boolean;
+  /** Optional plain-language CONSEQUENCE, appended to the readiness line when
+   *  the group is not satisfied. "missing: X" tells an operator what to set and
+   *  nothing about what is broken meanwhile — which is how release="dev" sat in
+   *  production for three weeks (US-2001). Use it where the degraded behaviour
+   *  is silent rather than obvious. */
+  whenMissing?: string;
 }
 
 // The shared Google OAuth client serves every Google integration by default;
@@ -149,6 +155,33 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       has(get, "MONITOR_ALERT_EMAIL") ||
       has(get, "SMTP_ADMIN_EMAIL"),
   },
+  // GT-001: the branded auth-email hook, and the reason it belongs on a health
+  // surface rather than in a runbook.
+  //
+  // With it configured, GoTrue POSTs every signup-confirmation / reset / magic
+  // link / email-change to routes/auth-hooks.ts, which renders a 6-digit code
+  // AND a confirm link on our own frontend (/auth/confirm?token_hash=…). Both
+  // resolve on any device, because verifyOtp needs nothing the sender's browser
+  // is holding.
+  //
+  // With it UNSET, /send-email returns 500 and GoTrue falls back to its built-in
+  // templates. Those link at emailRedirectTo, which under PKCE arrives carrying
+  // ?code=… — and that code only exchanges in the browser that started the
+  // signup, because the verifier lives in its localStorage. A person who signs
+  // up on a laptop and opens the mail on their phone cannot finish, and the
+  // difference between the two states is invisible from outside: same signup
+  // form, same "check your email" screen, an email that looks plausible either
+  // way. Production only; a dev box has nobody to email.
+  {
+    name: "auth_email_hook",
+    vars: ["AUTH_EMAIL_HOOK_SECRET"],
+    enabledWhen: () => edgeEnv() === "production",
+    whenMissing:
+      "GoTrue is falling back to its built-in email templates, whose confirm " +
+      "link only completes in the browser that started the signup. Anyone who " +
+      "opens the mail on a different device cannot verify. See the send-email " +
+      "hook section of vault/10-ops/env-reference.md (GT-001).",
+  },
   // US-788: StoreKit / App Store Server Notifications V2. Missing → IAP receipt
   // verification + the appstore webhook can't validate Apple's JWS. Surfaced on
   // /health/ready so a deploy with IAP "on" but these unset is visible (the
@@ -207,9 +240,10 @@ export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string
     // is missing and refuses to say which. Name the group instead: the reason
     // lives in the group's own comment and, for this one, in the release key
     // beside it.
-    out[g.name] = miss.length > 0
+    const base = miss.length > 0
       ? `missing: ${miss.join(", ")}`
       : `set but not satisfied — every var is present; see the ${g.name} check`;
+    out[g.name] = g.whenMissing ? `${base} — ${g.whenMissing}` : base;
   }
   return out;
 }

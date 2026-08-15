@@ -5,15 +5,30 @@ import { isIdentityLinkingError, OAUTH_LINKING_MESSAGE } from "@/lib/auth-identi
 import { readAuthError } from "@/lib/auth-error";
 import { PENDING_INVITE_KEY } from "@/pages/accept-invite";
 import { RETURN_TO_KEY, sanitizeReturnTo } from "@/lib/return-to";
+import { isCrossDeviceConfirmation } from "@/lib/auth-pkce";
+import { track } from "@/lib/analytics";
 import { SEO } from "@/components/seo";
 
 // How long to wait for the auth exchange to complete before giving up and
 // showing an error instead of an indefinite spinner (US-370).
 const CALLBACK_TIMEOUT_MS = 15_000;
 
+// GT-001: when the code cannot be spent in this browser at all, waiting the full
+// fifteen seconds only delays the same answer. Still a wait rather than an
+// instant verdict: supabase-js may have exchanged the code and cleared the
+// verifier before this component mounted, and that success shows up as a session
+// within a beat. Anything real resolves well inside four seconds.
+const CROSS_DEVICE_TIMEOUT_MS = 4_000;
+
 export function AuthCallbackPage() {
   const navigate = useNavigate();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Read once, on mount: the verifier is deleted by a SUCCESSFUL exchange, so a
+  // later read would call a completed sign-in a cross-device failure.
+  const [crossDevice] = useState(() =>
+    isCrossDeviceConfirmation(window.location.search),
+  );
+  const [crossDeviceHelp, setCrossDeviceHelp] = useState(false);
 
   const goAfterSignIn = useCallback(() => {
     // If the user got here through a workspace invitation, send them back to
@@ -74,21 +89,65 @@ export function AuthCallbackPage() {
     });
 
     // 4. Timeout fallback so a stalled exchange never leaves the user on an
-    //    infinite spinner.
+    //    infinite spinner. GT-001: a code this browser cannot spend gets the
+    //    shorter wait and a different answer — "try again" is advice that cannot
+    //    work, and it was the last thing a lost signup ever read.
     const timer = window.setTimeout(() => {
-      finish(() =>
+      finish(() => {
+        if (crossDevice) {
+          track("signup.verify_failed", { reason: "cross_device_pkce" });
+          setErrorMessage(null);
+          setCrossDeviceHelp(true);
+          return;
+        }
+        track("signup.verify_failed", { reason: "callback_timeout" });
         setErrorMessage(
           "Sign-in is taking longer than expected. Please try signing in again.",
-        )
-      );
-    }, CALLBACK_TIMEOUT_MS);
+        );
+      });
+    }, crossDevice ? CROSS_DEVICE_TIMEOUT_MS : CALLBACK_TIMEOUT_MS);
 
     return () => {
       settled = true;
       sub.subscription.unsubscribe();
       window.clearTimeout(timer);
     };
-  }, [goAfterSignIn, navigate]);
+  }, [goAfterSignIn, navigate, crossDevice]);
+
+  // GT-001: the link works, it just cannot finish HERE. Say that, and give the
+  // two routes that do work from this device.
+  if (crossDeviceHelp) {
+    return (
+      <div className="flex h-screen items-center justify-center p-4">
+        <SEO title="Finish confirming your email" noindex />
+        <div className="max-w-sm text-center">
+          <h1 className="text-lg font-semibold text-brand-navy dark:text-foreground">
+            Finish this on the device you signed up on
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            This link completes in the browser that started the signup, and it
+            was opened somewhere else. Nothing is wrong with your account.
+          </p>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Either open the same link in that browser, or enter the 6-digit code
+            from the email here instead.
+          </p>
+          <Link
+            to="/auth/confirm"
+            className="mt-4 inline-block text-sm font-medium text-brand-red-text hover:underline"
+          >
+            Enter the code from the email
+          </Link>
+          <p className="mt-4 text-xs text-muted-foreground">
+            Already confirmed?{" "}
+            <Link to="/login" className="font-medium hover:underline">
+              Sign in
+            </Link>
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (errorMessage) {
     return (

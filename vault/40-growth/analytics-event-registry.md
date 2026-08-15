@@ -8,7 +8,7 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-08-09
+reviewed: 2026-08-15
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
@@ -80,5 +80,32 @@ step to `BUYER_FUNNEL_STEPS` legalises its event automatically, and a typo in a
 hand-written `buyer_funnel_*` literal is still rejected. No `as`, no `any`, no
 widening — which matters, because any of those would have reopened exactly the
 hole the registry closes.
+
+## An absent event is a claim you cannot check (GT-001, 2026-08-15)
+
+Signup emitted `trial.started`, `signup.buyer` and `signup.source_selected`.
+Verification emitted nothing at all — not the check-your-email screen, not a
+resend, not a success, not a failure. So "people sign up and never come back"
+was sayable and not locatable: the funnel ended at the last event before the
+part that was broken.
+
+Four names close it, and the `reason` on the failure one is the point of the
+exercise rather than a detail:
+
+| Event | What it observes |
+|---|---|
+| `signup.confirm_sent` | the check-your-email screen rendered; the denominator |
+| `signup.confirm_resend` | a second email was asked for (`at`: signup or confirm) |
+| `signup.email_verified` | a confirmation completed (`via`: link or code) |
+| `signup.verify_failed` | it did not (`reason`: cross_device_pkce, link_expired, code_expired, code_rejected, callback_timeout) |
+
+`cross_device_pkce` is the one worth watching. It counts people who opened the
+mail on a device that cannot finish the exchange, which is a configuration
+problem wearing the costume of user error — see the `auth_email_hook` group in
+`env-validation.ts`. A spike there is an operator action, not a UX experiment.
+
+These are emitted from the CLIENT, so they see only people who reach the app. An
+email that never arrives produces `signup.confirm_sent` and then silence, the
+same shape as an email ignored. The two are told apart by SES delivery, not here.
 
 Related: [[buyer-economy]].

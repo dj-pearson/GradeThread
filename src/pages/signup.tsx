@@ -141,6 +141,10 @@ export function SignupPage() {
         isBuyer ? "buyer" : undefined,
       );
       setIsConfirmation(true);
+      // GT-001: the top of the verify funnel. Everything after this point is
+      // outside the app, so this count is the denominator the drop-off is
+      // measured against.
+      track("signup.confirm_sent", { method: "email" });
       if (isBuyer) {
         track("signup.buyer", { at: "signup" });
         // US-1845: the same moment as a funnel STEP, carrying acquisition
@@ -241,6 +245,7 @@ export function SignupPage() {
     setResendBusy(true);
     try {
       await resendConfirmationEmail(email);
+      track("signup.confirm_resend", { at: "signup" });
       // Neutral, enumeration-safe copy: never reveals whether the address is
       // registered/unverified.
       toast.success("If that account needs confirming, we've sent a new link.");
@@ -266,6 +271,13 @@ export function SignupPage() {
           <CardDescription>
             We sent a confirmation email to <strong>{email}</strong>. Click the
             link, or enter the 6-digit code, to verify your account.
+          </CardDescription>
+          {/* GT-001: said here because it is only actionable here. The link
+              completes fastest in this browser; someone who reads the mail on
+              their phone should type the code instead of clicking. */}
+          <CardDescription className="mt-2">
+            Opening the email on your phone? Enter the code below rather than
+            clicking the link, which finishes fastest in this browser.
           </CardDescription>
         </CardHeader>
         <CardContent className="text-center">

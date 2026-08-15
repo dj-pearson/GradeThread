@@ -526,6 +526,20 @@ With the hook on, GoTrue stops using its own SMTP for these emails; they flow
 through the edge service to SES. Delivery still depends on SES being out of
 sandbox — the hook changes rendering and routing, not deliverability.
 
+**Check whether it is actually on, from outside (GT-001):**
+
+```bash
+curl -s https://functions.gradethread.com/health/ready | jq .features.auth_email_hook
+```
+
+`"ok"` means the edge holds the secret. Anything else means GoTrue is sending its
+own template, and that template's confirm link carries a **PKCE code that only
+exchanges in the browser which started the signup** — so anyone who opens the
+mail on their phone after signing up on a laptop cannot verify at all. The app
+now detects that case and offers the 6-digit code instead of a fifteen-second
+spinner (`src/lib/auth-pkce.ts`), but the recovery is a smaller funnel than the
+link, and the fix is this secret rather than that fallback.
+
 ### Web push (VAPID, US-1901)
 
 | Variable | Required | Purpose |

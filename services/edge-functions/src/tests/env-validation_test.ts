@@ -271,3 +271,40 @@ Deno.test("US-2003: a genuinely absent var is still NAMED", () => {
   const status = computeFeatureReadiness(get);
   assertEquals(status.observability?.includes("SENTRY_DSN"), true);
 });
+
+// ── GT-001: the branded auth-email hook has to be visible from outside ──
+//
+// The state this catches is silent by construction. With the hook unset, GoTrue
+// sends its own template, whose confirm link carries a PKCE code that only
+// exchanges in the browser that started the signup — so a person who opens the
+// mail on their phone cannot verify, and the deploy looks identical from every
+// endpoint we serve. /health/ready is where that becomes one GET.
+
+Deno.test("GT-001: prod without AUTH_EMAIL_HOOK_SECRET is degraded, and names the var", () => {
+  const r = computeFeatureReadiness(envOf(PROD_OK));
+  assertEquals(r.auth_email_hook?.startsWith("missing: AUTH_EMAIL_HOOK_SECRET"), true);
+});
+
+Deno.test("GT-001: the line states the CONSEQUENCE, not just the variable", () => {
+  // "missing: AUTH_EMAIL_HOOK_SECRET" tells an operator what to set and nothing
+  // about what is broken meanwhile. release="dev" sat in prod for three weeks
+  // behind exactly that kind of line (US-2001).
+  const r = computeFeatureReadiness(envOf(PROD_OK));
+  const line = r.auth_email_hook ?? "";
+  assertEquals(line.includes("different device"), true, line);
+  assertEquals(line.includes("GT-001"), true, line);
+});
+
+Deno.test("GT-001: configured → ok, with no consequence text trailing it", () => {
+  const r = computeFeatureReadiness(envOf({ ...PROD_OK, AUTH_EMAIL_HOOK_SECRET: "v1,whsec_x" }));
+  assertEquals(r.auth_email_hook, "ok");
+});
+
+Deno.test("GT-001: whenMissing never fires for a satisfied group", () => {
+  // The append happens on the failure branch only. If it leaked onto "ok" the
+  // health page would tell an operator to go fix a working feature.
+  const r = computeFeatureReadiness(envOf({
+    SMTP_HOST: "h", SMTP_USER: "u", SMTP_PASS: "p", SMTP_ADMIN_EMAIL: "a@b.c",
+  }));
+  assertEquals(r.smtp, "ok");
+});

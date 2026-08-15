@@ -120,6 +120,16 @@ export const ANALYTICS_EVENTS = {
   // ── Signup and onboarding ─────────────────────────────────────────────────
   "signup.buyer": "Signup was reached with a buyer intent.",
   "signup.source_selected": "A signup source was chosen.",
+  // GT-001: the verify-email funnel. Signup was already observable and
+  // verification was not, so "people sign up and never come back" could be
+  // stated but not located. These four are the steps between the two, and each
+  // records the CLIENT reaching a state — a person who never opens the mail
+  // emits none of them, which is itself the answer when the counts collapse
+  // between `signup.confirm_sent` and `signup.email_verified`.
+  "signup.confirm_sent": "The check-your-email screen was shown after signup.",
+  "signup.confirm_resend": "A confirmation email was requested again.",
+  "signup.email_verified": "An email confirmation completed and a session exists.",
+  "signup.verify_failed": "An email confirmation attempt failed; `reason` says how.",
   "onboarding.use_case_selected": "A use case was chosen during onboarding.",
   "onboarding.notifications_enabled": "Notifications were enabled from the checklist.",
   "onboarding.activation_checklist_dismissed": "The activation checklist was dismissed.",
