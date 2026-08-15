@@ -1100,3 +1100,30 @@ four credit packs), so a store-owned buyer subscription cannot occur, and the
 seller-plan-bundled case already routes to seller billing, which does show the App Store
 banner (`buyer/billing.tsx:327-332`). The one-click cancel with no confirmation
 (`buyer/billing.tsx:159`) stands as a P2.
+
+## Correction to the cross-platform gap table
+
+Gap 6 — **"My stores" (Radar store linking)**, listed P3 with *"needs a final
+targeted check"* — is **withdrawn**. It was the one item in this review left with
+its verification unfinished, and no story was filed against it. The check has now
+been made and it is **not a gap**.
+
+iOS calls the same endpoint the web tab does, `/api/flipdesk/radar/my-stores`
+(`Prospect/RadarService.swift` `myStores(sort:)`), and it renders the result
+rather than merely holding it: `RadarStore.swift` assigns `personal =
+payload.stores`, and `RadarNearbyView.swift` draws a `PersonalSummaryRow` plus an
+"N sourced here" line per venue, with its own loading and error states. Android
+has a `MyStoresService` too.
+
+What iOS does not have is a tab **called** "My stores" — it folds the personal
+numbers into the Radar Nearby list beside each venue, which is the better shape
+for a screen you use while standing in a shop. **The finding was a search for a
+NAME, not for the CAPABILITY**, which is the same mistake corrected twice
+elsewhere in this review (US-2510, US-2556).
+
+One real asymmetry survives and is deliberately not filed: web offers eight sorts
+behind a Select and iOS asks for `roi` with no control. That is a lesser surface
+over identical data, not a missing capability. `src/test/radar-my-stores-parity.test.ts`
+pins all of the above, including that the sort iOS sends is one the server
+accepts — the route silently falls back to its default on an unknown value, so a
+typo there would sort the screen by something other than what the client thinks.
