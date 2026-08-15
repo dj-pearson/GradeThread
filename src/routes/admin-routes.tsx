@@ -31,6 +31,7 @@ const KnowledgePage = lazy(() => import("@/pages/content/knowledge").then(m => (
 // is the AI-prompt reference doc set, a different thing entirely.
 const HelpListPage = lazy(() => import("@/pages/content/help-list").then(m => ({ default: m.HelpListPage })));
 const HelpEditorPage = lazy(() => import("@/pages/content/help-editor").then(m => ({ default: m.HelpEditorPage })));
+const HelpReportPage = lazy(() => import("@/pages/content/help-report").then(m => ({ default: m.HelpReportPage })));
 const ContentSettingsPage = lazy(() => import("@/pages/content/content-settings").then(m => ({ default: m.ContentSettingsPage })));
 const ContentAnalyticsPage = lazy(() => import("@/pages/content/analytics").then(m => ({ default: m.ContentAnalyticsPage })));
 const ChangelogPage = lazy(() => import("@/pages/admin/changelog").then(m => ({ default: m.ChangelogPage })));
@@ -222,6 +223,7 @@ export function AdminRoutes() {
       <Route path="content/topics" element={<SuspenseWrapper><TopicBankPage /></SuspenseWrapper>} />
       <Route path="content/knowledge" element={<SuspenseWrapper><KnowledgePage /></SuspenseWrapper>} />
       <Route path="content/help" element={<SuspenseWrapper><HelpListPage /></SuspenseWrapper>} />
+      <Route path="content/help/report" element={<SuspenseWrapper><HelpReportPage /></SuspenseWrapper>} />
       <Route path="content/help/editor/:id" element={<SuspenseWrapper><HelpEditorPage /></SuspenseWrapper>} />
       <Route path="content/analytics" element={<SuspenseWrapper><ContentAnalyticsPage /></SuspenseWrapper>} />
       <Route path="content/changelog" element={<SuspenseWrapper><ChangelogPage /></SuspenseWrapper>} />

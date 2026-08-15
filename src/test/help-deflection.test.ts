@@ -95,10 +95,14 @@ describe("the edge endpoint", () => {
   });
 
   it("never fails loudly — the page has already been left", () => {
-    const block = src.slice(
-      src.indexOf('helpReaderRoutes.post("/deflected"'),
-      src.indexOf('helpReaderRoutes.get("/:slug"'),
-    );
+    // Bounded to THIS handler, not to the next GET. Slicing that far swept in
+    // every route registered between them, so the assertion started reporting
+    // on a neighbour's error handling (US-2592).
+    const start = src.indexOf('helpReaderRoutes.post("/deflected"');
+    const end = src.indexOf("helpReaderRoutes.", start + 1);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const block = src.slice(start, end);
     expect(block).toContain("console.warn");
     expect(block).not.toContain("failSafe(c, 500");
   });

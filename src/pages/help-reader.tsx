@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router";
 import { LifeBuoy, Lock, Search, Users } from "lucide-react";
 import { SEO } from "@/components/seo";
@@ -19,10 +19,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  recordHelpArticleRead,
+  useHelpFeedback,
   useHelpReaderArticle,
   useHelpReaderIndex,
   useHelpReaderSearch,
 } from "@/hooks/use-help-center";
+import { track } from "@/lib/analytics";
 import { HELP_VISIBILITY_LABELS, type HelpVisibility } from "@/types/help-center";
 
 // US-2583: the in-app Help Center reader at /dashboard/help.
@@ -86,6 +89,23 @@ function HelpReaderIndexPage() {
   }, [data]);
 
   const searching = query.trim().length >= 2;
+
+  // US-2592: the in-app half of the search signal. Ref-guarded for the same
+  // reason the public page is — a cached result on a back-navigation would
+  // otherwise count as somebody searching again.
+  const trackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!searching || search.isLoading || search.isError) return;
+    const q = query.trim();
+    if (trackedRef.current === q) return;
+    trackedRef.current = q;
+    const hits = search.data?.hits.length ?? 0;
+    track(hits === 0 ? "help_search_zero_results" : "help_search", {
+      query: q,
+      hits,
+      surface: "app",
+    });
+  }, [searching, query, search.isLoading, search.isError, search.data]);
   const rows = searching
     ? (search.data?.hits ?? []).map((h) => ({
         slug: h.slug,
@@ -235,6 +255,21 @@ function HelpReaderArticle({ slug }: { slug: string }) {
 
   const basis = article?.reviewed_at ?? article?.published_at ?? null;
 
+  // US-2592: count the read once per article per mount. The ref is what stops a
+  // TanStack cache hit on a back-navigation from counting the same read again —
+  // without it the number measures navigation rather than reading.
+  const countedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!article || countedRef.current === article.slug) return;
+    countedRef.current = article.slug;
+    recordHelpArticleRead(article.slug);
+    track("help_article_view", {
+      slug: article.slug,
+      category: article.category_key,
+      surface: "app",
+    });
+  }, [article]);
+
   return (
     <div className="space-y-4">
       <SEO title={article?.title ?? "Help"} noindex />
@@ -305,7 +340,9 @@ function HelpReaderArticle({ slug }: { slug: string }) {
             </section>
           )}
 
-          <p className="mt-10 text-sm text-muted-foreground">
+          <HelpArticleFeedback slug={article.slug} />
+
+          <p className="mt-6 text-sm text-muted-foreground">
             Didn't answer it?{" "}
             <Link to="/dashboard/support" className="underline">
               Open a support ticket
@@ -314,6 +351,44 @@ function HelpReaderArticle({ slug }: { slug: string }) {
           </p>
         </article>
       )}
+    </div>
+  );
+}
+
+/**
+ * US-2592: "was this helpful?" for the in-app reader.
+ *
+ * One vote per article per visit, and the buttons are replaced by the thank-you
+ * rather than staying live. A widget that lets somebody click Yes eleven times
+ * is not collecting an opinion, it is collecting a click count.
+ */
+function HelpArticleFeedback({ slug }: { slug: string }) {
+  const [voted, setVoted] = useState<boolean | null>(null);
+  const feedback = useHelpFeedback();
+
+  const vote = (helpful: boolean) => {
+    setVoted(helpful);
+    feedback.mutate({ slug, helpful });
+    track("help_feedback_vote", { slug, helpful, surface: "app" });
+  };
+
+  if (voted !== null) {
+    return (
+      <p className="mt-10 text-sm text-muted-foreground" role="status">
+        {voted ? "Thanks." : "Thanks. We'll take another look at this one."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-10 flex items-center gap-3 text-sm">
+      <span className="text-muted-foreground">Was this helpful?</span>
+      <Button type="button" variant="outline" size="sm" onClick={() => vote(true)}>
+        Yes
+      </Button>
+      <Button type="button" variant="outline" size="sm" onClick={() => vote(false)}>
+        No
+      </Button>
     </div>
   );
 }

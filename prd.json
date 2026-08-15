@@ -1892,20 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2592",
-      "title": "[HELP CENTER] Analytics: what people read, what they cannot find, what it saved",
-      "description": "Two numbers decide whether this epic was worth it: how much organic traffic the help center earns, and how many support tickets it prevents. Neither is visible without instrumentation.",
-      "acceptanceCriteria": [
-        "PostHog events for article view, help search, zero-result search, helpfulness vote, deflection, and contextual-help sheet open.",
-        "An admin report showing top articles, top zero-result queries, deflection rate, and ticket volume by category before and after an article shipped.",
-        "Zero-result queries are the backlog for new articles and are surfaced as a ranked list, not a raw log.",
-        "Help URLs tracked as their own group so organic performance is separable from the blog and the marketing pages."
-      ],
-      "priority": 82,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2594",
       "title": "[HELP CENTER] Converge support_kb_articles into help_articles so the assistant and the help page cannot disagree",
       "description": "Found while building US-2574: support_kb_articles (00183, US-830) already exists. It is the ONLY corpus the AI Support Assistant may answer from, it has slug/title/body_md/category/audience/is_published/versioned revisions and a weighted FTS column, and it has an admin editor at /admin/support/kb. What it does NOT have is any public web surface: nothing in functions/ or src/ renders it, so it is invisible to Google, to answer engines and to logged-out customers. help_articles (00602) is the superset and owns the web surface. Leaving both is the two-copies-must-agree failure in its worst form: the assistant would quote one wording of an answer while the public page shows another, and nobody would notice until a customer pasted a screenshot.",

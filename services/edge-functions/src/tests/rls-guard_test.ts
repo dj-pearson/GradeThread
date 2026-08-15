@@ -55,6 +55,13 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-2592: daily help article view counters. Deny-all in both directions.
+  // Readable, it would publish which of our articles are struggling, which is a
+  // map of what the product confuses people about; writable, it would let anyone
+  // manufacture a "top article" and steer what we choose to maintain. It holds
+  // no identity column at all — the grain is (article, surface, day) — so there
+  // is nothing here for a tenant policy to scope to in the first place.
+  "help_article_views",
   // US-2591: per-article helpfulness votes. Deny-all in both directions.
   // Readable, it would let one customer read another's comments about the
   // product, some of which are written in the belief that nobody but us sees

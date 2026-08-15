@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { Search } from "lucide-react";
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
@@ -17,6 +17,7 @@ import {
   helpHubPath,
 } from "@/types/help-center";
 import { SITE_URL } from "@/lib/seo/site";
+import { track } from "@/lib/analytics";
 
 // US-2577: Help Center search, SPA renderer. Edge-SSR'd in production by
 // functions/help/[[path]].ts, which answers the same URL with no JavaScript at
@@ -38,6 +39,25 @@ export function HelpSearchPage() {
   const catSlug = new Map((index?.categories ?? []).map((c) => [c.key, c.slug]));
   const catTitle = new Map((index?.categories ?? []).map((c) => [c.key, c.title]));
   const hits = data?.hits ?? [];
+
+  // US-2592: one event per ANSWERED query, and a distinct one when the answer
+  // was nothing.
+  //
+  // Guarded by a ref rather than by the effect's dependency list. TanStack
+  // serves a cached result instantly on a back-navigation, so a plain effect
+  // would re-fire the same search every time somebody returned to the page and
+  // the volume would be a measure of navigation, not of searching.
+  const trackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!query || isLoading || isError) return;
+    if (trackedRef.current === query) return;
+    trackedRef.current = query;
+    track(hits.length === 0 ? "help_search_zero_results" : "help_search", {
+      query,
+      hits: hits.length,
+      surface: "public",
+    });
+  }, [query, isLoading, isError, hits.length]);
 
   return (
     <MarketingLayout

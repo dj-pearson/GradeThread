@@ -33,7 +33,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ExternalLink, LifeBuoy, Lock, Plus, Trash2, Users } from "lucide-react";
+import { BarChart3, ExternalLink, LifeBuoy, Lock, Plus, Trash2, Users } from "lucide-react";
 import {
   useCreateHelpArticle,
   useDeleteHelpArticle,
@@ -131,16 +131,21 @@ export function HelpListPage() {
         title="Help Center"
         subtitle="Every article, public and private. Visibility decides who reads it and whether Google indexes it."
         actions={
-          <Button
-            onClick={() => {
-              setNewTitle("");
-              setNewCategory(categoryFilter || categories[0]?.key || "");
-              setNewOpen(true);
-            }}
-            disabled={create.isPending || categories.length === 0}
-          >
-            <Plus className="mr-2 h-4 w-4" /> New article
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => navigate("/admin/content/help/report")}>
+              <BarChart3 className="mr-2 h-4 w-4" /> Report
+            </Button>
+            <Button
+              onClick={() => {
+                setNewTitle("");
+                setNewCategory(categoryFilter || categories[0]?.key || "");
+                setNewOpen(true);
+              }}
+              disabled={create.isPending || categories.length === 0}
+            >
+              <Plus className="mr-2 h-4 w-4" /> New article
+            </Button>
+          </div>
         }
       />
 

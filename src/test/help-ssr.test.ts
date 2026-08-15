@@ -354,7 +354,14 @@ describe("the SSR and SPA renderers agree (US-2576)", () => {
 
   it("the SPA renderer reads the same anonymous endpoint as the Function", () => {
     const src = readFileSync(join(root, "src/hooks/use-help-center.ts"), "utf8");
-    const publicBlock = src.slice(src.indexOf("PUBLIC READS"));
+    // Bounded to the PUBLIC section. Slicing to the end of the file made this
+    // guard fail on the first authed helper added below it, which says nothing
+    // about whether the public reads are anonymous (US-2592).
+    const start = src.indexOf("PUBLIC READS");
+    const end = src.indexOf("READER", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const publicBlock = src.slice(start, end);
     expect(publicBlock).toContain("/api/content/public/help");
     // No auth on the public reads: an access token here would render a
     // members-only article on a page whose URL anyone can open.

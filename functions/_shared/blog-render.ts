@@ -332,6 +332,10 @@ interface LayoutInput {
   // US-255: when set, inject GA4 gtag.js (Consent Mode v2, all-denied default —
   // mirrors index.html). Pass ga4MeasurementId(env) from the Pages Function.
   gaMeasurementId?: string | null;
+  // US-2592: GA4 content_group for this page (e.g. "help"). Makes a section's
+  // organic performance one dimension in GA4 rather than a URL-prefix filter
+  // somebody has to remember to apply. Ignored without gaMeasurementId.
+  contentGroup?: string;
   // US-877: extra <link rel="alternate"> tags (e.g. the clean-Markdown view of a
   // post for AI answer engines). Emitted verbatim into the head.
   alternates?: Array<{ type: string; href: string; title?: string }>;
@@ -347,10 +351,17 @@ interface LayoutInput {
 // defaults everything to denied (GDPR/CCPA), queues config on the dataLayer,
 // and defers gtag.js to idle so it stays off the LCP path. No cookies are set
 // until consent is granted elsewhere.
-function ga4Snippet(measurementId: string, nonce?: string): string {
+//
+// US-2592: `contentGroup` sets GA4's content_group on the config call, so a
+// whole section's organic performance is one dimension instead of a URL prefix
+// somebody has to remember to filter on. Sanitised to a short slug because it is
+// interpolated into an inline script.
+function ga4Snippet(measurementId: string, nonce?: string, contentGroup?: string): string {
   const id = measurementId.replace(/[^A-Za-z0-9-]/g, "");
   const nonceAttr = nonce ? ` nonce="${nonce}"` : "";
-  return `<script${nonceAttr}>(function(){window.dataLayer=window.dataLayer||[];function gtag(){window.dataLayer.push(arguments);}window.gtag=gtag;gtag("consent","default",{ad_storage:"denied",ad_user_data:"denied",ad_personalization:"denied",analytics_storage:"denied",wait_for_update:500});gtag("js",new Date());gtag("config","${id}");function load(){if(window.__gtagLoaded)return;window.__gtagLoaded=true;var s=document.createElement("script");s.async=true;s.src="https://www.googletagmanager.com/gtag/js?id=${id}";document.head.appendChild(s);}if("requestIdleCallback" in window){requestIdleCallback(load,{timeout:4000});}else{setTimeout(load,2500);}})();</script>`;
+  const group = (contentGroup ?? "").replace(/[^a-z0-9_-]/gi, "").slice(0, 40);
+  const config = group ? `,{content_group:"${group}"}` : "";
+  return `<script${nonceAttr}>(function(){window.dataLayer=window.dataLayer||[];function gtag(){window.dataLayer.push(arguments);}window.gtag=gtag;gtag("consent","default",{ad_storage:"denied",ad_user_data:"denied",ad_personalization:"denied",analytics_storage:"denied",wait_for_update:500});gtag("js",new Date());gtag("config","${id}"${config});function load(){if(window.__gtagLoaded)return;window.__gtagLoaded=true;var s=document.createElement("script");s.async=true;s.src="https://www.googletagmanager.com/gtag/js?id=${id}";document.head.appendChild(s);}if("requestIdleCallback" in window){requestIdleCallback(load,{timeout:4000});}else{setTimeout(load,2500);}})();</script>`;
 }
 
 // Inline base styles. Kept tiny on purpose. Inherits the brand colors
@@ -585,7 +596,7 @@ ${twitterImageMeta}
 ${input.twitterSite ? `<meta name="twitter:site" content="${escape(input.twitterSite)}">` : ""}
 ${ogType === "article" ? renderArticleMetaTags(input.articleMeta) : ""}
 <style>${BASE_STYLES}</style>
-${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId, input.nonce) : ""}
+${input.gaMeasurementId ? ga4Snippet(input.gaMeasurementId, input.nonce, input.contentGroup) : ""}
 ${affiliateCaptureSnippet(input.nonce)}
 ${ldScripts}
 </head>

@@ -130,6 +130,24 @@ export const ANALYTICS_EVENTS = {
   "content.published": "Content was published.",
   "topic.researched": "A topic was researched.",
 
+  // ── Help center (US-2592) ─────────────────────────────────────────────────
+  //
+  // ⚠ THESE EVENTS SEE ONLY THE REACT APP, AND THAT IS THE MOST IMPORTANT THING
+  // TO KNOW ABOUT THEM. Every PUBLIC help URL is server-rendered by a Pages
+  // Function and the app never mounts on it, so posthog-js is not there. A "top
+  // articles" chart built from `help_article_view` is a chart of in-app reading,
+  // not of the organic traffic the help centre exists to earn — that number is
+  // counted server-side into help_article_views and shown in the admin report.
+  // The two are reported side by side and must never be summed.
+  "help_article_view": "A help article was opened INSIDE the app (SPA route or in-app reader).",
+  "help_search": "A help search ran and returned at least one hit.",
+  "help_search_zero_results":
+    "A help search returned nothing — the backlog signal, also recorded in help_search_misses.",
+  "help_feedback_vote": "A reader voted on whether an article helped.",
+  "help_deflection":
+    "The support form was left without a ticket after a suggested article was opened.",
+  "help_contextual_open": "A contextual help sheet was opened from a product surface.",
+
   // ── Buyer feature adoption ────────────────────────────────────────────────
   // One event with a `feature` property rather than one event per feature —
   // adoption is a group-by. See buyer-analytics.ts for why.

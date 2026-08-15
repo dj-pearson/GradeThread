@@ -1,5 +1,42 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## ⏳ HELD: 00606_help_analytics.sql (US-2592 — what people read, what they couldn't find)
+
+**Risk: LOW.** One new `help_article_views` table (three-column primary key, one
+index, RLS enabled, no policies), one `record_help_article_view` function and one
+`help_zero_result_queries` function. Nothing existing is altered.
+
+**Apply order:** after 00605. Depends on `help_articles` (00602) and
+`help_search_misses` (00603).
+
+**`NOTIFY pgrst, 'reload schema';` — yes.** A new table and two new RPCs. Both
+functions are invisible to PostgREST until you send it, so the view counter
+silently records nothing and the admin report 500s without it.
+
+**⚠ NOT VERIFIED AGAINST A REAL POSTGRES**, same as the rest of the epic —
+Docker was not running, so `verify:db` did not execute this SQL. The parts worth
+running once by hand are the `insert ... select ... where exists ... on conflict`
+in `record_help_article_view` (that combination is the least ordinary SQL in the
+epic) and the `array_agg(... order by ...)` inside `help_zero_result_queries`.
+
+**Deploy order is the usual one.** `EXPECTED_SCHEMA_VERSION` moves to `00606`,
+so the boot guard refuses a 00605 database. Apply SQL → `NOTIFY pgrst` →
+redeploy edge → push. The frontend is safe to deploy early: the report page
+shows its error state and the in-app view counter fails silently by design.
+
+**Privacy.** `help_article_views` holds NO identity of any kind — not a user id,
+not a session, not an IP, not a referrer. Its grain is (article, surface, day).
+That is what makes it writable from an anonymous public page with no consent
+prompt, and it is why the counter is not simply PostHog. Deny-all RLS, classified
+in `SERVICE_ROLE_ONLY`.
+
+**One behaviour worth knowing before it surprises you.** The public view counter
+is reachable anonymously (the Pages Function calls it on every article read), so
+the RPC validates the slug shape AND requires the article to exist. A made-up
+slug records nothing rather than creating a row. Crawlers are filtered by user
+agent before the call is made at all, which means these numbers will read LOWER
+than a raw server log and that is the intent.
+
 ## ⏳ HELD: 00605_help_feedback_and_freshness.sql (US-2591 — was it any good, is it still true?)
 
 **Risk: LOW.** One `ADD COLUMN IF NOT EXISTS content_version integer NOT NULL

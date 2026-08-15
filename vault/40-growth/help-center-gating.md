@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/help-center.ts
   - services/edge-functions/src/routes/help-center.ts
   - src/pages/help-reader.tsx
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [help-center, seo, security, contract]
 summary: Help articles have three visibilities, not two; the wall is RLS plus one edge function, and public by default is the rule that pays for the whole feature.
 ---
@@ -88,6 +88,21 @@ stored. See [[env-reference]].
   permission wall, because it reads like a query against "the index" rather than
   against the articles.
 
+## Writes are gated by the same function
+
+Two endpoints let a reader write against an article, and both resolve the
+article through `loadArticle(viewer, slug)` before they insert anything:
+
+- `POST /api/content/public/help/:slug/feedback` — anonymous, so it can only
+  accept a vote on a `public` article.
+- `POST /api/help/:slug/feedback` — authenticated, so a customer can rate a
+  `members` article and an admin an `internal` one. The vote records the
+  viewer's TIER, never who they are.
+
+`POST .../:slug/view` is the same shape: the counter RPC requires the article to
+exist, so neither endpoint is a way to write arbitrary slugs into a table. See
+[[help-center-measurement]].
+
 ## Where it is read
 
 - Public: `/help` and below, edge-SSR'd by `functions/help/[[path]].ts`.
@@ -99,4 +114,5 @@ stored. See [[env-reference]].
 
 - [[seo-public-route-registry]] — why `/help` is not a registered static route
 - [[ai-crawler-policy]] — which crawlers may cite the public half
+- [[help-center-measurement]] — how reads and deflections are counted
 - [[service-role-tables]] — the same bypasses-RLS hazard, elsewhere

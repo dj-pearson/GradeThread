@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useState } from "react";
 import { useHelpReaderArticle } from "@/hooks/use-help-center";
 import type { ProductHelpSlugKey } from "@/lib/help-slugs";
+import { track } from "@/lib/analytics";
 
 // US-2584: the contextual help button.
 //
@@ -56,7 +57,12 @@ export function HelpLink({ slug, label, className }: HelpLinkProps) {
         size="icon"
         className={className}
         aria-label={label ?? `Help: ${article.title}`}
-        onClick={() => setOpen(true)}
+        onClick={() => {
+          setOpen(true);
+          // US-2592: which product surfaces send people looking for help is the
+          // one thing this button can measure that a pageview cannot.
+          track("help_contextual_open", { slug, category: article.category_key });
+        }}
       >
         <HelpCircle className="h-4 w-4" />
       </Button>

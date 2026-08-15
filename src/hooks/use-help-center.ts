@@ -181,6 +181,45 @@ export function useHelpReaderSearch(query: string) {
   });
 }
 
+/**
+ * US-2592: count an in-app read, under surface 'app'.
+ *
+ * Fire-and-forget, and deliberately NOT a mutation: nothing in the UI depends on
+ * whether it landed, and a failed analytics write must not produce a toast on a
+ * page somebody was only trying to read.
+ *
+ * The public SSR pages count themselves from the Pages Function. This one is
+ * separate on purpose — an article everybody opens from inside the product and
+ * nobody ever finds through search is a different result.
+ */
+export function recordHelpArticleRead(slug: string): void {
+  void jfetch(`/api/help/${encodeURIComponent(slug)}/view`, { method: "POST" }).catch(() => {
+    /* analytics must never surface to the reader */
+  });
+}
+
+/**
+ * US-2592: vote on an article from inside the app.
+ *
+ * The public form can only accept votes on PUBLIC articles, so this is the only
+ * way a members-only or internal article ever gets rated — and those are the
+ * ones with no other feedback channel, because nobody lands on an operator
+ * runbook from a search engine.
+ */
+export function useHelpFeedback() {
+  return useMutation({
+    mutationFn: (input: { slug: string; helpful: boolean; comment?: string }) =>
+      jfetch<{ ok: boolean; recorded: boolean }>(
+        `/api/help/${encodeURIComponent(input.slug)}/feedback`,
+        {
+          method: "POST",
+          json: { helpful: input.helpful ? "yes" : "no", comment: input.comment ?? "" },
+        },
+      ),
+    onError: () => toast.error("Couldn't record that. Try again in a moment."),
+  });
+}
+
 // ───────────────────────────────────────────────────────────────────
 // FRESHNESS (US-2591)
 //
@@ -213,6 +252,57 @@ export function useHelpFreshness() {
       );
       return data.articles;
     },
+  });
+}
+
+// ───────────────────────────────────────────────────────────────────
+// THE REPORT (US-2592)
+//
+// Built from Postgres, not from PostHog. The surface that earns the organic
+// traffic is server-rendered and posthog-js is not on it, and a report that
+// lived in a third-party dashboard would not be a report the product has.
+// ───────────────────────────────────────────────────────────────────
+
+export interface HelpReportArticle {
+  slug: string;
+  title: string;
+  category_key: string;
+  visibility: string;
+  public_views: number;
+  app_views: number;
+  helpful: number;
+  unhelpful: number;
+  deflections: number;
+}
+
+export interface HelpZeroResultQuery {
+  normalized: string;
+  sample: string;
+  misses: number;
+  last_seen: string;
+  anon_misses: number;
+}
+
+export interface HelpReport {
+  window_days: number;
+  since: string;
+  articles: HelpReportArticle[];
+  zero_result_queries: HelpZeroResultQuery[];
+  deflection: { deflected: number; tickets: number; rate: number | null };
+  tickets: {
+    split_at: string;
+    window_days: number;
+    before: Array<{ category: string; count: number }>;
+    after: Array<{ category: string; count: number }>;
+    after_complete: boolean;
+  };
+}
+
+export function useHelpReport(days: number) {
+  return useQuery({
+    queryKey: ["help_report", days],
+    staleTime: 60_000,
+    queryFn: () => jfetch<HelpReport>(`/api/content/help/report?days=${days}`),
   });
 }
 

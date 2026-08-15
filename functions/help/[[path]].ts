@@ -80,10 +80,26 @@ import {
   helpCollectionLd,
   helpFaqLd,
 } from "../_shared/help-json-ld";
+import {
+  countHelpArticleView,
+  HELP_CONTENT_GROUP,
+  helpArticleSlugForCount,
+} from "../_shared/help-analytics";
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;
 
 export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) => {
+  // US-2592: count the read before anything else decides how to serve it.
+  //
+  // It happens HERE rather than inside renderArticle for one reason: withEdgeCache
+  // can return a stored response without the renderer running at all, and a
+  // counter inside the renderer would miss every cache hit — under-reporting
+  // exactly the articles that are popular enough to stay cached.
+  //
+  // waitUntil, so it never delays the response, and the slug alone is sent. The
+  // upstream RPC requires the article to exist, so a made-up URL counts nothing.
+  countHelpView(context);
+
   // withEdgeCache keys on origin + pathname and IGNORES the query string, which
   // is what stops utm-tagged share links fragmenting the cache. For /help/search
   // that same property is a data leak: every query would collide on one entry
@@ -100,6 +116,17 @@ export const onRequestGet: PagesFunction<PagesEnv> = (context: Ctx) => {
   if (url.searchParams.get("thanks") === "1") return routeHelp(context);
   return withEdgeCache(context, () => routeHelp(context));
 };
+
+function countHelpView(context: Ctx): void {
+  const slug = helpArticleSlugForCount(new URL(context.request.url).pathname);
+  if (!slug) return;
+  const pending = countHelpArticleView(
+    context.env,
+    slug,
+    context.request.headers.get("user-agent"),
+  );
+  if (pending) context.waitUntil(pending);
+}
 
 async function routeHelp(context: Ctx): Promise<Response> {
   const { request, env } = context;
@@ -189,6 +216,7 @@ ${renderCategoryGrid(index)}
       ogImageHeight: OG_CARD_HEIGHT,
       twitterSite: twitterSiteHandle(env),
       gaMeasurementId: ga4MeasurementId(env),
+      contentGroup: HELP_CONTENT_GROUP,
       alternates: [{ type: "text/markdown", href: `${canonical}.md`, title: "Markdown" }],
       jsonLd: [
         breadcrumbListLd(crumbs),
@@ -249,6 +277,7 @@ ${renderHelpSearchResults(index, results ?? { query, hits: [] })}
       ogType: "website",
       twitterSite: twitterSiteHandle(env),
       gaMeasurementId: ga4MeasurementId(env),
+      contentGroup: HELP_CONTENT_GROUP,
       jsonLd: [breadcrumbListLd(crumbs)],
       bodyHtml: body,
     },
@@ -294,6 +323,7 @@ ${renderArticleList(category.slug, articles)}
       ogImageHeight: OG_CARD_HEIGHT,
       twitterSite: twitterSiteHandle(env),
       gaMeasurementId: ga4MeasurementId(env),
+      contentGroup: HELP_CONTENT_GROUP,
       jsonLd: [
         breadcrumbListLd(crumbs),
         helpCollectionLd({
@@ -397,6 +427,7 @@ ${renderHelpFeedback(article.slug, expectedCategorySlug, thanked)}
       ogImageHeight: OG_CARD_HEIGHT,
       twitterSite: twitterSiteHandle(env),
       gaMeasurementId: ga4MeasurementId(env),
+      contentGroup: HELP_CONTENT_GROUP,
       alternates: [{ type: "text/markdown", href: `${canonical}.md`, title: "Markdown" }],
       // TechArticle, or HowTo when the piece is a real procedure with real
       // steps. No aggregateRating, no author Person we cannot name, no

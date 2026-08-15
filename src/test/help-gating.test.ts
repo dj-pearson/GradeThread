@@ -25,9 +25,17 @@ const read = (p: string) => readFileSync(join(root, p), "utf8");
  * Every file here explains its own wall in prose, and that prose names the very
  * strings the scan is looking for. Without this the guard fails on its own
  * documentation, which is the fastest way to get a guard deleted.
+ *
+ * ⚠ LINE comments first, THEN block comments, and the order is load-bearing.
+ * The help Function's header comment contains a literal slash-star sequence in
+ * the path `/help` plus a wildcard, which the block-comment pattern reads as an
+ * opening delimiter. Running it first ate everything down to the next block
+ * terminator a hundred lines later, so this guard was silently scanning a
+ * truncated file and could not have seen a bad call in the part it swallowed
+ * (found in US-2592).
  */
 function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  return src.replace(/^\s*\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
 /** Every file that produces something a crawler or an answer engine consumes. */

@@ -10,6 +10,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { edgeApiUrl } from "@/lib/edge-api";
+import { track } from "@/lib/analytics";
 import { useHelpReaderArticle, useHelpReaderSearch } from "@/hooks/use-help-center";
 
 // US-2585: the answer offered before the ticket is written.
@@ -82,6 +83,11 @@ export function TicketDeflector({ subject, onSuggestions }: TicketDeflectorProps
         `${edgeApiUrl()}/api/help/deflected`,
         new Blob([payload], { type: "application/json" }),
       );
+      // US-2592: the same event in PostHog, where it can be joined to the rest
+      // of the session. The beacon above is the authoritative count — PostHog
+      // needs consent and the beacon does not, so the two will not agree, and
+      // the admin report reads the table.
+      track("help_deflection", { slug: s.opened, shown: s.shown.length });
     };
     // visibilitychange, not unload: unload is unreliable on mobile Safari and
     // is ignored entirely when the tab is discarded from the background.

@@ -27,6 +27,17 @@ import {
   slugifyHelp,
   visibilitiesFor,
 } from "../lib/help-center.ts";
+import {
+  deflectionRate,
+  type HelpArticleMeta,
+  type HelpDeflectionRow,
+  type HelpFeedbackRow,
+  type HelpViewRow,
+  rankArticles,
+  reportWindowDays,
+  splitTicketsByCategory,
+  type TicketRow,
+} from "../lib/help-analytics.ts";
 
 // Help Center API (US-2573). Three mounts, three audiences, one table:
 //
@@ -227,45 +238,89 @@ helpPublicRoutes.get("/search", async (c) => {
  * widget work for a visitor with scripts off, which is a real share of the
  * people a public help page is for.
  */
+async function handleFeedback(
+  c: {
+    req: {
+      param: (k: string) => string;
+      header: (k: string) => string | undefined;
+      json: () => Promise<unknown>;
+      formData: () => Promise<FormData>;
+    };
+    json: (body: unknown, status?: number) => Response;
+  },
+  viewer: HelpViewer,
+): Promise<Response> {
+  const slug = slugifyHelp(c.req.param("slug"));
+  if (!slug) return c.json({ error: "Not found" }, 404);
+
+  // Only an article THIS viewer may read can be voted on. Otherwise the table
+  // becomes a write surface for arbitrary strings, and the 404 for an article
+  // above the viewer's tier is the same 404 a made-up slug gets.
+  const article = await loadArticle(viewer, slug);
+  if (!article) return c.json({ error: "Not found" }, 404);
+
+  const ct = c.req.header("content-type") ?? "";
+  const body = ct.includes("application/json")
+    ? ((await c.req.json().catch(() => ({}))) as Record<string, unknown>)
+    : (Object.fromEntries(await c.req.formData()) as Record<string, unknown>);
+
+  const raw = String(body.helpful ?? "");
+  if (raw !== "yes" && raw !== "no" && raw !== "true" && raw !== "false") {
+    return c.json({ error: "helpful must be yes or no" }, 400);
+  }
+  const helpful = raw === "yes" || raw === "true";
+
+  const comment = typeof body.comment === "string"
+    ? body.comment.trim().slice(0, 1000)
+    : "";
+
+  const { error } = await supabaseAdmin.from("help_feedback").insert({
+    article_slug: slug,
+    // Recorded against the wording they actually read, so a rewrite starts a
+    // clean record rather than inheriting the previous version's score.
+    content_version: (article as unknown as { content_version?: number }).content_version ?? 1,
+    helpful,
+    comment: comment || null,
+    viewer_tier: viewer,
+  });
+  if (error) console.warn("[help.feedback] insert failed", error);
+  return c.json({ ok: true, recorded: !error });
+}
+
 helpPublicRoutes.post("/:slug/feedback", async (c) => {
   try {
-    const slug = slugifyHelp(c.req.param("slug"));
-    if (!slug) return c.json({ error: "Not found" }, 404);
-
-    // Only a real, publicly-readable article may be voted on. Otherwise the
-    // table becomes a write surface for arbitrary strings.
-    const article = await loadArticle("anon", slug);
-    if (!article) return c.json({ error: "Not found" }, 404);
-
-    const ct = c.req.header("content-type") ?? "";
-    const body = ct.includes("application/json")
-      ? ((await c.req.json().catch(() => ({}))) as Record<string, unknown>)
-      : (Object.fromEntries(await c.req.formData()) as Record<string, unknown>);
-
-    const raw = String(body.helpful ?? "");
-    if (raw !== "yes" && raw !== "no" && raw !== "true" && raw !== "false") {
-      return c.json({ error: "helpful must be yes or no" }, 400);
-    }
-    const helpful = raw === "yes" || raw === "true";
-
-    const comment = typeof body.comment === "string"
-      ? body.comment.trim().slice(0, 1000)
-      : "";
-
-    const { error } = await supabaseAdmin.from("help_feedback").insert({
-      article_slug: slug,
-      // Recorded against the wording they actually read, so a rewrite starts a
-      // clean record rather than inheriting the previous version's score.
-      content_version: (article as unknown as { content_version?: number }).content_version ?? 1,
-      helpful,
-      comment: comment || null,
-      viewer_tier: "anon",
-    });
-    if (error) console.warn("[help.feedback] insert failed", error);
-    return c.json({ ok: true, recorded: !error });
+    return await handleFeedback(c, "anon");
   } catch (err) {
     return failSafe(c, 500, "Couldn't record that.", err, "help.public.feedback");
   }
+});
+
+/**
+ * US-2592: count a read of a public article.
+ *
+ * This exists because PostHog cannot see these pages. Every public help URL is
+ * server-rendered and the React app never mounts on it, which is what makes it
+ * index well and also what makes posthog-js absent. A "top articles" list built
+ * from PostHog alone would rank in-app reading and silently omit the organic
+ * traffic this whole epic is for.
+ *
+ * Best-effort in exactly the way the deflection endpoint is: it is called from
+ * the Pages Function inside waitUntil, after the HTML has already gone out. A
+ * failure here must never affect what the reader saw.
+ *
+ * No identity is taken and none is available: the counter's grain is
+ * (article, surface, day). The RPC validates the slug and requires the article
+ * to exist, so this endpoint cannot be used to invent rows.
+ */
+helpPublicRoutes.post("/:slug/view", async (c) => {
+  const slug = slugifyHelp(c.req.param("slug"));
+  if (!slug) return c.json({ ok: true, recorded: false });
+  const { error } = await supabaseAdmin.rpc("record_help_article_view", {
+    p_slug: slug,
+    p_surface: "public",
+  });
+  if (error) console.warn("[help.view] rpc failed", error);
+  return c.json({ ok: true, recorded: !error });
 });
 
 helpPublicRoutes.get("/:slug", async (c) => {
@@ -352,6 +407,42 @@ helpReaderRoutes.post("/deflected", async (c) => {
     article_opened: opened,
   });
   if (error) console.warn("[help.deflected] insert failed", error);
+  return c.json({ ok: true, recorded: !error });
+});
+
+/**
+ * US-2592: the in-app half of "was this any good?".
+ *
+ * The public form (US-2591) can only accept votes on PUBLIC articles, so until
+ * now a members-only or internal article could not be rated at all — and those
+ * are the ones with no other feedback channel, because nobody arrives at an
+ * operator runbook from a search engine. The vote is recorded with the viewer's
+ * tier, so an internal note's score is not mixed in with a public article's.
+ */
+helpReaderRoutes.post("/:slug/feedback", async (c) => {
+  try {
+    return await handleFeedback(c, await viewerFor(c.get("userId")));
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't record that.", err, "help.reader.feedback");
+  }
+});
+
+/**
+ * The same counter for the in-app reader, recorded under surface 'app'.
+ *
+ * Kept apart from 'public' rather than summed. An article that everybody opens
+ * from inside the product and nobody ever finds through search is a different
+ * result from one that ranks, and adding the two together is how you conclude
+ * the help centre is earning traffic it is not.
+ */
+helpReaderRoutes.post("/:slug/view", async (c) => {
+  const slug = slugifyHelp(c.req.param("slug"));
+  if (!slug) return c.json({ ok: true, recorded: false });
+  const { error } = await supabaseAdmin.rpc("record_help_article_view", {
+    p_slug: slug,
+    p_surface: "app",
+  });
+  if (error) console.warn("[help.view] rpc failed", error);
   return c.json({ ok: true, recorded: !error });
 });
 
@@ -557,6 +648,103 @@ helpAdminRoutes.get("/freshness", async (c) => {
       feedback: tally.get(row.slug) ?? { helpful: 0, unhelpful: 0, comments: [] },
     })),
   });
+});
+
+/**
+ * US-2592: did any of this work?
+ *
+ * Registered BEFORE /:id so the literal path wins the match.
+ *
+ * Two numbers decide whether the epic paid for itself: how much organic traffic
+ * the help centre earns, and how many tickets it prevents. This endpoint answers
+ * both from Postgres, because the surface that earns the traffic is
+ * server-rendered and PostHog is not on it. See lib/help-analytics.ts for why
+ * the two measurement systems are reported side by side and never summed.
+ */
+helpAdminRoutes.get("/report", async (c) => {
+  try {
+    const days = reportWindowDays(c.req.query("days"));
+    const now = new Date();
+    const sinceIso = new Date(now.getTime() - days * 86_400_000).toISOString();
+    const sinceDay = sinceIso.slice(0, 10);
+
+    const [articlesRes, viewsRes, feedbackRes, deflectionsRes, missesRes, ticketsRes] =
+      await Promise.all([
+        supabaseAdmin
+          .from("help_articles")
+          .select("slug, title, category_key, visibility, published_at"),
+        supabaseAdmin
+          .from("help_article_views")
+          .select("article_slug, surface, views")
+          .gte("day", sinceDay),
+        supabaseAdmin
+          .from("help_feedback")
+          .select("article_slug, helpful")
+          .gte("created_at", sinceIso),
+        supabaseAdmin
+          .from("help_deflections")
+          .select("article_opened")
+          .gte("created_at", sinceIso),
+        supabaseAdmin.rpc("help_zero_result_queries", { p_since: sinceIso, p_limit: 50 }),
+        // Two windows either side of the split, so the query has to reach back
+        // twice the reporting window.
+        supabaseAdmin
+          .from("support_tickets")
+          .select("created_at, triage_category")
+          .gte("created_at", new Date(now.getTime() - days * 2 * 86_400_000).toISOString()),
+      ]);
+
+    const firstErr = articlesRes.error ?? viewsRes.error ?? feedbackRes.error ??
+      deflectionsRes.error ?? missesRes.error ?? ticketsRes.error;
+    if (firstErr) {
+      return failSafe(c, 500, "Couldn't build the help report.", firstErr, "help.admin.report");
+    }
+
+    const meta = (articlesRes.data ?? []) as unknown as HelpArticleMeta[];
+    const deflections = (deflectionsRes.data ?? []) as unknown as HelpDeflectionRow[];
+    const tickets = (ticketsRes.data ?? []) as unknown as TicketRow[];
+
+    const articles = rankArticles(
+      meta,
+      (viewsRes.data ?? []) as unknown as HelpViewRow[],
+      (feedbackRes.data ?? []) as unknown as HelpFeedbackRow[],
+      deflections,
+    );
+
+    // Only tickets INSIDE the reporting window belong in the rate; the wider
+    // pull above exists for the before/after split.
+    const ticketsInWindow = tickets.filter((t) => t.created_at >= sinceIso).length;
+    const deflected = deflections.filter((d) => d.article_opened).length;
+
+    // The split is the day the most recent article shipped, because that is the
+    // event the question is about. Falling back to the window start keeps the
+    // panel truthful on a corpus that has never published anything.
+    const latestPublish = meta
+      .map((m) => m.published_at)
+      .filter((v): v is string => typeof v === "string")
+      .sort()
+      .at(-1);
+
+    return c.json({
+      window_days: days,
+      since: sinceIso,
+      articles,
+      zero_result_queries: missesRes.data ?? [],
+      deflection: {
+        deflected,
+        tickets: ticketsInWindow,
+        rate: deflectionRate(deflected, ticketsInWindow),
+      },
+      tickets: splitTicketsByCategory(
+        tickets,
+        latestPublish ? new Date(latestPublish) : new Date(sinceIso),
+        days,
+        now,
+      ),
+    });
+  } catch (err) {
+    return failSafe(c, 500, "Couldn't build the help report.", err, "help.admin.report");
+  }
 });
 
 // Registered BEFORE /:id so the literal path wins the match.

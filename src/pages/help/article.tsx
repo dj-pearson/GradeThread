@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { LifeBuoy } from "lucide-react";
 
@@ -17,6 +17,7 @@ import {
 import { SITE_URL } from "@/lib/seo/site";
 import { helpArticleLd, helpFaqLd } from "@/lib/seo/help-json-ld";
 import type { JsonLd } from "@/lib/seo/json-ld";
+import { track } from "@/lib/analytics";
 
 // US-2576: a Help Center article, SPA renderer. Edge-SSR'd in production by
 // functions/help/[[path]].ts; see the note on hub.tsx for why it is not in
@@ -44,6 +45,24 @@ export function HelpArticlePage() {
       navigate(helpArticlePath(category.slug, article.slug), { replace: true });
     }
   }, [article, category, categorySlug, navigate]);
+
+  // US-2592: PostHog only, and NO server-side count here.
+  //
+  // In production this route is reached by client-side navigation inside the
+  // app; a full page load of the same URL is answered by the Pages Function,
+  // which counts it there. Counting in both places would double every first
+  // visit, and a view number that is sometimes 2 is worse than one that is
+  // sometimes missing.
+  const trackedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!article || trackedRef.current === article.slug) return;
+    trackedRef.current = article.slug;
+    track("help_article_view", {
+      slug: article.slug,
+      category: article.category_key,
+      surface: "spa",
+    });
+  }, [article]);
 
   const reviewedBasis = article?.reviewed_at ?? article?.published_at ?? null;
 
