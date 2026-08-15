@@ -23,7 +23,11 @@ import {
   upstreamUnavailableResponse,
   type PagesEnv,
 } from "../../_shared/blog-render";
-import { brandedFallbackResponse, buildHelpOgHtml } from "../../_shared/og-template";
+import {
+  brandedFallbackResponse,
+  buildHelpOgHtml,
+  renderOgImage,
+} from "../../_shared/og-template";
 import type { HelpArticleResponse } from "../../_shared/help-render";
 
 type Ctx = EventContext<PagesEnv, "slug", Record<string, unknown>>;
@@ -60,20 +64,21 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
         })
       : null;
 
-    return new ImageResponse(
-      buildHelpOgHtml({
-        title: article.title,
-        category: category?.title ?? null,
-        reviewedAt,
-      }),
-      {
-        width: 1200,
-        height: 630,
-        headers: {
-          "Cache-Control": OG_CACHE_CONTROL,
-          "Content-Type": "image/png",
-        },
-      },
+    // US-2619: bytes before responding. This path has NEVER actually rendered —
+    // help_articles is empty in production, so every request has taken the
+    // article-not-found branch and served the branded fallback, which is why it
+    // read as healthy while carrying the same latent fault as /og/social/card.
+    return await renderOgImage(
+      () =>
+        new ImageResponse(
+          buildHelpOgHtml({
+            title: article.title,
+            category: category?.title ?? null,
+            reviewedAt,
+          }),
+          { width: 1200, height: 630 },
+        ),
+      { "Cache-Control": OG_CACHE_CONTROL },
     );
   } catch (err) {
     console.error("[og/help] render failed:", err);

@@ -17,6 +17,7 @@ import {
   buildSocialCardHtml,
   brandedFallbackResponse,
   isSocialCardRatio,
+  renderOgImage,
   type SocialCardKind,
   type SocialCardRatio,
   SOCIAL_CARD_SIZES,
@@ -61,14 +62,17 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context) => {
       product,
       eyebrow,
     });
-    return new ImageResponse(html, {
-      width: size.width,
-      height: size.height,
-      headers: {
-        "Cache-Control": CARD_CACHE_CONTROL,
-        "Content-Type": "image/png",
-      },
-    });
+    // US-2619: rendered to bytes before responding. ImageResponse streams, so
+    // a raster failure used to happen after this function had already returned
+    // 200 — the catch below never fired and the client got an empty PNG.
+    return await renderOgImage(
+      () =>
+        new ImageResponse(html, {
+          width: size.width,
+          height: size.height,
+        }),
+      { "Cache-Control": CARD_CACHE_CONTROL },
+    );
   } catch (err) {
     console.error("[og/social/card] render failed:", err);
     return await fallbackImage(env);

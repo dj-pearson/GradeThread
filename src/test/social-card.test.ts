@@ -7,6 +7,8 @@
 // the template Satori consumes is well-formed for every aspect ratio.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, sep } from "node:path";
 import {
   buildBlogOgHtml,
   buildCertBadgeHtml,
@@ -238,5 +240,56 @@ describe("sibling share-image templates", () => {
     });
     expect(labelOnly).toContain("out of 10");
     expect(labelOnly).toContain("Pre-owned garment");
+  });
+});
+
+describe("US-2619: every in-Function OG endpoint buffers before responding", () => {
+  // The fix, asserted at the call sites rather than only in the helper.
+  //
+  // ImageResponse streams: the raster runs as the body is consumed, AFTER the
+  // Response has been constructed and returned. So `return new ImageResponse(…)`
+  // inside a try/catch is a try/catch that cannot see its own failure — which is
+  // how /og/social/card and /og/blog served 200 with zero bytes while their
+  // branded fallback sat there unused.
+  const OG_DIR = join(process.cwd(), "functions/og");
+
+  function ogEntrypoints(dir: string): string[] {
+    const out: string[] = [];
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) out.push(...ogEntrypoints(p));
+      else if (e.name.endsWith(".ts")) out.push(p);
+    }
+    return out;
+  }
+
+  it("no endpoint returns an ImageResponse directly", () => {
+    const offenders: string[] = [];
+    for (const file of ogEntrypoints(OG_DIR)) {
+      const src = readFileSync(file, "utf8");
+      if (!src.includes("ImageResponse")) continue;
+      // `return new ImageResponse(` — the shape that streams past the catch.
+      if (/return\s+new\s+ImageResponse\s*\(/.test(src)) {
+        offenders.push(file.replace(process.cwd(), "").split(sep).join("/"));
+      }
+    }
+    expect(
+      offenders,
+      "these return a streaming ImageResponse, so a raster failure escapes their " +
+        "own try/catch and the client gets a 200 with an empty body. Wrap with " +
+        "renderOgImage().",
+    ).toEqual([]);
+  });
+
+  it("renderOgImage treats zero bytes as a failure", () => {
+    // The observed symptom was silence, not an exception. Whatever the root
+    // cause turns out to be, an empty buffer must never leave as a success.
+    const helper = readFileSync(
+      join(process.cwd(), "functions/_shared/og-template.ts"),
+      "utf8",
+    );
+    expect(helper).toContain("export async function renderOgImage");
+    expect(helper).toMatch(/byteLength === 0/);
+    expect(helper).toMatch(/throw new Error\("og render produced 0 bytes"\)/);
   });
 });

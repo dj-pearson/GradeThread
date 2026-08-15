@@ -6,8 +6,18 @@
 // than a generic logo. Mirrors functions/og/cert/[id].ts.
 
 import { ImageResponse } from "workers-og";
-import { fetchJson, siteUrl, UpstreamUnavailable, upstreamUnavailableResponse, type PagesEnv } from "../../_shared/blog-render";
-import { buildSellerOgHtml, brandedFallbackResponse } from "../../_shared/og-template";
+import {
+  fetchJson,
+  siteUrl,
+  UpstreamUnavailable,
+  upstreamUnavailableResponse,
+  type PagesEnv,
+} from "../../_shared/blog-render";
+import {
+  brandedFallbackResponse,
+  buildSellerOgHtml,
+  renderOgImage,
+} from "../../_shared/og-template";
 
 interface SellerResponse {
   seller: { display_name: string };
@@ -47,14 +57,13 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       totalIsCapped: data.stats.total_is_capped,
     });
 
-    return new ImageResponse(html, {
-      width: 1200,
-      height: 630,
-      headers: {
-        "Cache-Control": OG_CACHE_CONTROL,
-        "Content-Type": "image/png",
-      },
-    });
+    // US-2619: bytes before responding. Same latent fault as the social card,
+    // and same reason it looked fine — a handle that does not exist takes the
+    // fallback branch, so the real render had never been exercised.
+    return await renderOgImage(
+      () => new ImageResponse(html, { width: 1200, height: 630 }),
+      { "Cache-Control": OG_CACHE_CONTROL },
+    );
   } catch (err) {
     console.error("[og/verified] render failed:", err);
     return await fallbackImage(env);

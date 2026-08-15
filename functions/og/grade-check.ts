@@ -8,7 +8,11 @@
 // points back at the free tool so a share pulls new visitors into the funnel.
 
 import { ImageResponse } from "workers-og";
-import { buildGradeResultCardHtml, brandedFallbackResponse } from "../_shared/og-template";
+import {
+  brandedFallbackResponse,
+  buildGradeResultCardHtml,
+  renderOgImage,
+} from "../_shared/og-template";
 import { siteUrl, type PagesEnv } from "../_shared/blog-render";
 import { qrSvgDataUri } from "../_shared/qr";
 
@@ -85,14 +89,16 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context) => {
       valueText,
       qrDataUri: qrSvgDataUri(toolUrl, { ecl: "M" }),
     });
-    return new ImageResponse(html, {
-      width: CARD_WIDTH,
-      height: CARD_HEIGHT,
-      headers: {
-        "Cache-Control": CARD_CACHE_CONTROL,
-        "Content-Type": "image/png",
-      },
-    });
+    // US-2619: this one WORKS in production (134022 real bytes) and is buffered
+    // anyway, for the zero-byte guard rather than the fix. All four in-Function
+    // OG endpoints now fail the same way, which matters more than leaving the
+    // healthy one different: the next person reading any of them finds the same
+    // shape, and a silent empty render here would be as invisible as it was on
+    // the social card.
+    return await renderOgImage(
+      () => new ImageResponse(html, { width: CARD_WIDTH, height: CARD_HEIGHT }),
+      { "Cache-Control": CARD_CACHE_CONTROL },
+    );
   } catch (err) {
     console.error("[og/grade-check] render failed:", err);
     // US-2108 AC3: branded card rather than a blank preview.

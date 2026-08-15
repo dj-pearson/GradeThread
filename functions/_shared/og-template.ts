@@ -553,3 +553,44 @@ export async function brandedFallbackResponse(siteOrigin: string): Promise<Respo
     },
   });
 }
+
+/**
+ * Render an `ImageResponse` to BYTES before answering, so a raster failure is
+ * catchable (US-2619).
+ *
+ * THE BUG THIS EXISTS FOR. `new ImageResponse(html, …)` returns immediately with
+ * a streaming body; Satori rasters lazily as that body is consumed. So a failure
+ * happens AFTER the Response has been constructed and returned, which means:
+ *
+ *   - the endpoint's own `try/catch` never fires,
+ *   - `brandedFallbackResponse` never runs,
+ *   - and the client gets a well-formed `200 image/png` with ZERO bytes.
+ *
+ * Measured in production 2026-08-15: /og/social/card returned 0 bytes on every
+ * ratio, and so did /og/blog for a real published post. A blank preview on every
+ * auto-filled social image and every Pinterest pin, with nothing anywhere
+ * reporting a problem.
+ *
+ * Awaiting `arrayBuffer()` moves the raster INSIDE the caller's try, so a throw
+ * becomes the branded card the fallback was always meant to produce. An empty
+ * buffer is treated as a failure too, because the observed symptom was silence
+ * rather than an exception — whatever the root cause turns out to be, "zero
+ * bytes" must never leave here as a success.
+ *
+ * The cost is holding ~130KB in memory and finishing the raster before the first
+ * byte goes out. The work happens either way; only its timing moves.
+ */
+export async function renderOgImage(
+  build: () => Response,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const streamed = build();
+  const buf = await streamed.arrayBuffer();
+  if (buf.byteLength === 0) {
+    throw new Error("og render produced 0 bytes");
+  }
+  return new Response(buf, {
+    status: 200,
+    headers: { "Content-Type": "image/png", ...headers },
+  });
+}

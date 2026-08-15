@@ -16,6 +16,7 @@ import {
 import {
   buildBlogOgHtml,
   brandedFallbackResponse,
+  renderOgImage,
 } from "../../_shared/og-template";
 
 type Ctx = EventContext<PagesEnv, "slug", Record<string, unknown>>;
@@ -68,14 +69,13 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       heroImageUrl: post.hero_image_url,
     });
 
-    return new ImageResponse(html, {
-      width: 1200,
-      height: 630,
-      headers: {
-        "Cache-Control": OG_CACHE_CONTROL,
-        "Content-Type": "image/png",
-      },
-    });
+    // US-2619: bytes before responding — see renderOgImage. This endpoint was
+    // returning 200 with an empty body for real published posts, so every blog
+    // link preview was blank and the catch below never saw it.
+    return await renderOgImage(
+      () => new ImageResponse(html, { width: 1200, height: 630 }),
+      { "Cache-Control": OG_CACHE_CONTROL },
+    );
   } catch (err) {
     console.error("[og/blog] render failed:", err);
     return await fallbackImage(env);
