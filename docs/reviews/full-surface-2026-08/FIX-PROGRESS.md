@@ -272,6 +272,39 @@ unless a story is blocked; if blocked, note why and move to the next.
       the existing env gate so OFF stays byte-identical) and that GARMENT_TYPES was in
       sync by luck, not by check. Guard `src/test/garment-taxonomy-copies.test.ts`
       (13 cases), verified to bite. Also fixed 2 edge tests red on main.
+## Where this loop stands, 2026-08-14
+
+**Every remaining review story is blocked on something this checkout cannot do.**
+Verified by reading each story's own STILL-OPEN marker, not assumed:
+
+| Story | What is left | Blocked on |
+|---|---|---|
+| US-2503 | four buyer screens, the entitlement test, the plan screen | macOS |
+| US-2504 | the AVCapture recorder, the iOS progress UI | macOS |
+| US-2528 | the Terms copy itself | counsel sign-off |
+| US-2531 | one link on the Marketplaces screen | macOS |
+| US-2532 | the 2FA control | macOS |
+| US-2533 | the analytics section + range wiring | macOS |
+| US-2534 | labels + move actions on eight screens | macOS |
+| US-2535 | the `users.use_case` write, telemetry retention | macOS |
+| US-2557 | the TabView badge, `setBadgeCount` | macOS |
+| US-2561 | picker, attachment rendering, Close button, downscale | macOS |
+
+Every one has had its non-Swift half shipped as a slice, with a contract module
+and a guard, so the Swift lands against a spec rather than a reverse-engineered
+guess. **The macOS lane only runs on a PUSH**, and the branch has been unpushable
+because it carries a held migration — so the fastest way to unblock ten stories
+is to apply `00601` and push.
+
+### The one thing that was NOT blocked, and it mattered
+`389fbfae` — CLAUDE.md said "Only `python3 ios/Scripts/no-ungated-print.py` runs
+locally". **There is no python3 on this box**, so the single iOS check documented
+as locally available was not available at all, and the real local iOS safety net
+was zero — while ten stories sat deferred on the reasoning that Swift written
+here would be unverified. Ported to `src/test/ios-ungated-print.test.ts` (11
+cases) so `npm run verify` covers it with no Python. The Python stays for iOS CI
+and a parity case fails if the two ever scan different trees.
+
 ## Notes carried between iterations
 
 - Two stories are LEGAL, not engineering: US-2527 and US-2528. They ship when
@@ -1090,3 +1123,24 @@ host and not the other, so the local one was dropped.
   reasoning in the comment. Half an hour of reading turned "build progress
   reporting" into "record the one non-obvious thing about it" (100% uploaded is
   not 100% done). Fifth stale-or-narrower premise this loop.
+
+- **A documented mitigation that cannot run is worse than an admitted gap.**
+  Ten stories were deferred on "Swift written here would be unverified until
+  CI", and the contributor docs answered that with a command requiring an
+  interpreter this machine does not have. Nobody noticed because the line reads
+  as reassurance and nobody runs a check they have been told is the only one
+  available. **When a doc names a local command as the safety net, RUN IT** —
+  the failure mode is silent and it compounds every time the gap is cited.
+
+- **Port a guard, do not move it.** The Python still runs in iOS CI, where the
+  five checks that genuinely need Python live. Moving the sixth would have
+  quietly reduced macOS coverage to buy local coverage. The parity case comparing
+  the two scan scopes is the part that makes two copies safe — US-2342 exists
+  precisely because four scripts each kept their own copy of that list and all
+  four omitted `Packages`, where the money math lives.
+
+- **Check `git status` before `git add -A`, every time.** This iteration's stage
+  picked up `src/lib/pwa/` and a modified `vite.config.ts` from the concurrent
+  agent working the same tree. Committing them would have attributed someone
+  else's in-progress work to this story and possibly shipped it half-done. Stage
+  the files you touched BY NAME when another agent is live.
