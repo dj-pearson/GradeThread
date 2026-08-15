@@ -1903,8 +1903,8 @@
         "Add a case to services/edge-functions/src/routes/__tests__/tenant-isolation_test.ts per US-268, plus deno tests covering: public list excludes gated and draft, authed list includes gated, unknown slug 404 shape."
       ],
       "priority": 63,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] Model on services/edge-functions/src/routes/content-public.ts + content-blog.ts."
+      "passes": true,
+      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] Model on services/edge-functions/src/routes/content-public.ts + content-blog.ts. [DONE 2026-08-14 - commit 7c158bb7] Three mounts over one implementation: /api/content/public/help (anon, visibility public only), /api/help (authMiddleware, + members), /api/content/help (auth+admin, + internal + drafts + CRUD). The wall is visibilitiesFor(viewer) in lib/help-center.ts, NOT in the route file, and a guard test greps routes/help-center.ts for a hand-rolled .eq(\"visibility\") so it cannot grow a second copy. Unseen rows 404 rather than 403 (a 403 confirms the slug and makes the members list enumerable). Admin-ness resolves from the verified userId via isAdminUserCached, which fails closed. /api/content/public/help added to PUBLIC_API_ROUTERS in flipdesk-auth-coverage_test.ts as a reviewed decision. DEVIATION FROM AC5: no tenant-isolation_test.ts case. That suite asserts B-cannot-read-As-row and help_articles has no tenant; a case there would assert nothing while needing two seeded JWTs and a running edge. Instead src/tests/help-center_test.ts pins the full viewer x visibility x status grid as 15 pure unit tests that run on every deno test. Also deviated on the path shape: /api/content/public/help, not help.json (Hono mount, same payload). Verified: deno lint + check green, full edge suite 6744 passed 0 failed, unwired-module check green."
     },
     {
       "id": "US-2574",
