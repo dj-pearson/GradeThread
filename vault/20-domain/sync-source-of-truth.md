@@ -8,16 +8,25 @@ code_refs:
   - services/edge-functions/src/lib/sync-precedence.ts
   - services/edge-functions/src/routes/flipdesk-google-sync.ts
   - services/edge-functions/src/lib/sheet-map.ts
-reviewed: 2026-07-18
+reviewed: 2026-08-15
 tags: [flipdesk, sync, contract]
 summary: Provenance model, field ownership and linking-source rules for bidirectional marketplace and sheet sync.
 ---
 
-> **Migrated, not re-verified (US-2052).** This note moved into the vault
-> unchanged. Its `reviewed` date is when the document was last EDITED, not
-> when anyone last checked it against `code_refs` — stamping the migration
-> date would have asserted a verification that did not happen. Expect the
-> drift guard to flag it; that flag is correct.
+> **Checked against the registry on 2026-08-15, and it had drifted.** This note
+> spent from US-2052 until now carrying the migration caveat below, which is now
+> discharged for the part that matters: every list in the field-ownership table
+> was compared against `sync-precedence.ts` line by line. Ten of eleven
+> `EBAY_OWNED_LISTING_FIELDS`, both read-only signals and all four identity
+> fields matched. `GRADETHREAD_OWNED_ITEM_FIELDS` did not — the code has
+> **seven** entries and this table listed six, missing `measurements`. Corrected
+> in place. That is the whole value of the drift guard: the note was wrong about
+> a field nobody may pull or import, which is the sort of omission that reads as
+> permission.
+>
+> Still NOT re-verified: the prose about the 3-way sheet merge in
+> `flipdesk-google-sync.ts`. `sheet-map.ts` and `sync-precedence.ts` were read;
+> that route was not.
 # Sync Source-of-Truth Contract
 
 > Canonical reference for how listing/inventory data is reconciled across **eBay**, **GradeThread/FlipDesk**, and **linking sources** (CSV import, Google Sheets).
@@ -45,7 +54,7 @@ Authority is **per-listing, decided by provenance** — not global. Each listing
 | `LISTING_READONLY_SIGNALS` | `is_active`, `listing_status` | Subset of `EBAY_OWNED_LISTING_FIELDS`. These flow in regardless of `listing_origin`: GradeThread must know when eBay ends or marks a listing sold. |
 | `LISTING_IDENTITY_FIELDS` | `listed_at`, `platform_listing_id`, `platform_offer_id`, `listing_url` | **eBay ASSIGNS these**, so GradeThread cannot own them even on a listing it originated and published — there is no local value for a pull to overwrite. They flow in for BOTH origins. |
 | `LISTING_PULL_ALLOWED_ON_GT_ORIGIN` | the two rows above, combined | What an inbound pull may write on a `gradethread`-origin listing. Everything else in `EBAY_OWNED_LISTING_FIELDS` is locked. |
-| `GRADETHREAD_OWNED_ITEM_FIELDS` | `grade_value`, `condition_notes`, `acquired_price`, `acquired_date`, `sku`, `source_id` | Always owned by GradeThread — no eBay pull (for any `listing_origin`) and no CSV import may write these. |
+| `GRADETHREAD_OWNED_ITEM_FIELDS` | `grade_value`, `condition_notes`, `measurements`, `acquired_price`, `acquired_date`, `sku`, `source_id` | Always owned by GradeThread — no eBay pull (for any `listing_origin`) and no CSV import may write these. |
 
 The server (`buildListingPullPatch`, `validateEbayOriginEdit`) enforces these boundaries; no client-side precedence logic exists.
 
@@ -103,6 +112,15 @@ it because eBay is where the seller's own words go.
 For Sheets this is settled policy rather than a merge outcome: **the GradeThread
 title is the truth**, and the Title cell is a mirror on both tabs. See
 [[google-sheets-sync]].
+
+The enforcement is in `sheet-map.ts`, and its shape is worth knowing because it
+is not a plain refusal: a mapped Title column is **create-only**. Naming a new
+item from the sheet still works, and a blank title still gets filled — but once
+a title exists, an edit to that cell is added to the push set and rewritten from
+the database rather than pulled. So the seller's edit is not lost silently; it
+is visibly reverted on the next sync, which is the honest form of "this cell is
+a mirror". The place to change a title is the composer, where the same value is
+what goes to eBay.
 
 ## Shared fields: item columns ↔ eBay item specifics (single-entry rule)
 

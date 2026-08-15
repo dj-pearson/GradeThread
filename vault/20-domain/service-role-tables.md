@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a two-entry exemption list that carries repayment triggers.
 ---
@@ -46,6 +46,18 @@ This is subtler than it looks and is the part people get wrong:
 So name the owning column `owner_user_id` or `subject_user_id`, and resist the
 urge to explain in a comment that the table has no `user_id` — saying the words
 is what triggers it.
+
+> [!note] A third case: nothing to scope to at all (US-2592, 2026-08-15)
+> `help_article_views` registered without an owning column of any kind. Its grain
+> is `(article, surface, day)` — no user id, no session, no IP — which is what
+> lets a public help page increment it with no consent prompt.
+>
+> That is different from the usual operator table, which HAS an owner and simply
+> is not read through RLS. Here a tenant policy has nothing to attach to, so
+> asking for one is not a stricter version of the same thing, it is a category
+> error. Register it, and say in the justification why the table holds no
+> identity rather than only that it is operator-facing — otherwise the next
+> reviewer reasonably asks for the policy the guard would have demanded.
 
 > [!tip] Two owner columns? Drop `_user` entirely.
 > `admin_impersonation_sessions` (US-2351) has both an actor and a target. The
