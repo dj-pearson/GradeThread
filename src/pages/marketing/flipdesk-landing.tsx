@@ -5,6 +5,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { NotFoundPage } from "@/pages/not-found";
 import { getFlipdeskLandingByPath } from "@/lib/seo/flipdesk-landing";
 import {
@@ -113,6 +114,12 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
       </section>
 
       <MarketingCTA />
+      <div className="px-6 pb-12 lg:px-12">
+        <div className="mx-auto max-w-5xl">
+          <HelpCategoryLink category="flipdesk" label="Every pipeline stage, one guide each:" />
+        </div>
+      </div>
+
     </MarketingLayout>
   );
 }

@@ -34,6 +34,7 @@ import {
   notFoundResponse,
   renderBreadcrumbs,
   renderFaqSection,
+  linkGlossaryTerms,
   renderPillarLink,
   renderSsrResponse,
   renderTableOfContents,
@@ -327,7 +328,12 @@ async function renderArticle(
   // it is optional: a failure loses the "Related" block, not the article.
   const index = article.related_slugs.length ? await loadIndex(env).catch(() => null) : null;
 
-  const { html: bodyWithAnchors, toc } = buildTableOfContents(article.body_html);
+  // US-2582: the first prose mention of a canonical grading term (NWT, the tier
+  // names, the five weighted factors) becomes a link to its /grading/ spoke, the
+  // same treatment blog posts get. It runs BEFORE the TOC pass so an anchor id
+  // is never derived from markup this inserted.
+  const { html: linkedBody } = linkGlossaryTerms(article.body_html);
+  const { html: bodyWithAnchors, toc } = buildTableOfContents(linkedBody);
   const crumbs = [
     { name: "GradeThread", url: `${base}/` },
     { name: HELP_HUB_TITLE, url: `${base}/help` },

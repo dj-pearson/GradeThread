@@ -15,6 +15,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import {
   FLIPDESK_FAQS,
   flipdeskJsonLd,
@@ -214,6 +215,12 @@ export function FlipDeskPage() {
         heading="Resell on a standard, not an opinion"
         sub="FlipDesk works with eBay and runs your reselling workflow end-to-end, putting a verifiable condition grade in every listing — the trust signal that sells faster and comes back less."
       />
+      <div className="px-6 pb-12 lg:px-12">
+        <div className="mx-auto max-w-5xl">
+          <HelpCategoryLink category="flipdesk" label="Every pipeline stage, one guide each:" />
+        </div>
+      </div>
+
     </MarketingLayout>
   );
 }

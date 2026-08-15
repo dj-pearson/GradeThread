@@ -593,6 +593,7 @@ ${input.bodyHtml}
 <footer class="site">
   <div class="container">
     &copy; ${new Date().getFullYear()} Pearson Media LLC &middot; GradeThread &middot;
+    <a href="/help">Help</a> &middot;
     <a href="/privacy">Privacy</a> &middot;
     <a href="/terms">Terms</a> &middot;
     <a href="/rss.xml">RSS</a>

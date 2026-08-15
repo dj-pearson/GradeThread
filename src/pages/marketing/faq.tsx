@@ -4,6 +4,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { ALL_FAQS, faqJsonLd } from "@/pages/marketing/marketing-jsonld";
 
 export function FaqPage() {
@@ -64,6 +65,12 @@ export function FaqPage() {
       </section>
 
       <MarketingCTA />
+      <div className="px-6 pb-12 lg:px-12">
+        <div className="mx-auto max-w-5xl">
+          <HelpCategoryLink category="getting-started" label="Longer answers, with screenshots:" />
+        </div>
+      </div>
+
     </MarketingLayout>
   );
 }

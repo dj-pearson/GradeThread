@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { MarketingLayout } from "@/components/marketing/marketing-layout";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
+import { HELP_CATEGORIES, helpCategoryPath } from "@/types/help-center";
 
 // US-291 (indexability): a human-readable HTML sitemap. The XML sitemap is for
 // crawlers; this page gives BOTH people and crawlers a single in-site hop to
@@ -26,6 +27,19 @@ const DYNAMIC_HUBS: Record<string, LinkItem[]> = {
   Content: [
     { path: "/blog", title: "Blog" },
     { path: "/authors", title: "Authors" },
+  ],
+  // US-2582: the help center. Like /blog it is edge-SSR'd rather than
+  // registered in PUBLIC_ROUTES, so it has to be hand-linked here — and it
+  // matters more than most, because this page is the one in-site hop that makes
+  // the long tail reachable by internal link rather than only by XML sitemap.
+  // The shelves come from HELP_CATEGORIES, which a test holds to the migration
+  // seed, so a new category cannot be added without this list noticing.
+  Help: [
+    { path: "/help", title: "Help Center" },
+    ...HELP_CATEGORIES.map((c) => ({
+      path: helpCategoryPath(c.slug),
+      title: c.title,
+    })),
   ],
 };
 
@@ -116,7 +130,7 @@ function buildSections(): Array<{ title: string; links: LinkItem[] }> {
 
   // Emit in a stable, readable order: catch-all first, then declared sections,
   // then the Content group, alphabetized within each.
-  const order = [CATCH_ALL, ...SECTIONS.map((s) => s.title), "Content"];
+  const order = [CATCH_ALL, ...SECTIONS.map((s) => s.title), "Help", "Content"];
   const seen = new Set<string>();
   const result: Array<{ title: string; links: LinkItem[] }> = [];
   for (const title of order) {

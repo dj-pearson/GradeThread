@@ -3,6 +3,7 @@ import {
   HelpCircle,
   BookOpen,
   LifeBuoy,
+  MessageCircleQuestion,
   Code2,
   Keyboard,
   Activity,
@@ -42,9 +43,16 @@ export function SupportLauncher() {
       <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>Help &amp; support</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => navigate("/faq")}>
+        {/* US-2582: "Help center" now goes to the actual help center. It has
+            pointed at /faq since before one existed, which was fine then and is
+            a wrong door now — /faq is 20 short answers, /help is the manual. */}
+        <DropdownMenuItem onClick={() => navigate("/help")}>
           <LifeBuoy className="mr-2 h-4 w-4" />
           Help center
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => navigate("/faq")}>
+          <MessageCircleQuestion className="mr-2 h-4 w-4" />
+          Common questions
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => navigate("/how-it-works")}>
           <BookOpen className="mr-2 h-4 w-4" />

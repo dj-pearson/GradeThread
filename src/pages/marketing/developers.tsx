@@ -8,6 +8,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { FLIPDESK_PLANS } from "@/lib/constants";
 
 const ENDPOINTS = [
@@ -393,6 +394,12 @@ export function DevelopersPage() {
         heading="Build with the grading standard"
         sub="Get an API key, try the free sandbox, and ship standardized condition grading into your product."
       />
+      <div className="px-6 pb-12 lg:px-12">
+        <div className="mx-auto max-w-5xl">
+          <HelpCategoryLink category="integrations" label="API keys, the sandbox, rate limits and webhooks:" />
+        </div>
+      </div>
+
     </MarketingLayout>
   );
 }

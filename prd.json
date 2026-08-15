@@ -1892,22 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2582",
-      "title": "[HELP CENTER] Wire the help center into the existing SEO link graph",
-      "description": "213 marketing routes already exist and already rank. A help center nothing links to is an orphan and will not rank no matter how good it is. The links also run the other way: help articles are the natural place to send a reader deeper into the pillars.",
-      "acceptanceCriteria": [
-        "Glossary auto-linking (linkGlossaryTerms) runs over help bodies exactly as it does over blog bodies.",
-        "Every article can name a pillar page and renders the link (renderPillarLink).",
-        "/how-it-works, /flipdesk, the /flipdesk/* landings, /developers and /pricing each link to their matching help category.",
-        "/faq keeps its FAQPage markup, and each answer with a deeper article links to it. The FAQ stays the short answer; do not duplicate the article into it.",
-        "/sitemap (the human HTML sitemap) lists the help hub and every category.",
-        "The footer gains a Help link on both the marketing shell and the app shell."
-      ],
-      "priority": 72,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2583",
       "title": "[HELP CENTER] Members-only docs reader at /dashboard/help",
       "description": "A small set of docs should not be public: operator runbooks, abuse and fraud thresholds, dispute-handling internals and unreleased features. Those live in the same table with visibility='gated' and are read only here.",

@@ -160,6 +160,10 @@ export function MarketingLayout({
                 <FooterLink to="/compare">Compare Marketplaces</FooterLink>
                 <FooterLink to="/reselling">Reselling Guides</FooterLink>
                 <FooterLink to="/tools/grade-checker">Free Grading Tools</FooterLink>
+                {/* US-2582: the help center, on every public page. 213 marketing
+                    routes already rank; a help center nothing links to is an
+                    orphan no matter how good it is. */}
+                <FooterLink to="/help">Help Center</FooterLink>
               </FooterColumn>
               <FooterColumn title="Sellers">
                 <FooterLink to="/whats-it-worth">What's It Worth?</FooterLink>

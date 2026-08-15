@@ -154,6 +154,36 @@ export function helpHubPath(): string {
   return "/help";
 }
 
+/**
+ * The seeded category shelf (US-2582).
+ *
+ * Mirrors the seed in supabase/migrations/00602_help_center_articles.sql, and
+ * src/test/help-categories.test.ts fails if the two ever disagree. It exists so
+ * PRERENDERED surfaces — the human HTML sitemap in particular — can link every
+ * shelf in crawlable markup, which a client-side fetch cannot do.
+ *
+ * The titles here are for internal link text only. What a visitor reads on the
+ * page itself comes from the database row, so renaming a shelf is still a
+ * one-place change; this list going stale costs a slightly-off link label and a
+ * failing test, not a broken URL.
+ */
+export const HELP_CATEGORIES: ReadonlyArray<{ key: string; slug: string; title: string }> = [
+  { key: "getting-started", slug: "getting-started", title: "Getting started" },
+  { key: "grading", slug: "grading", title: "Grading" },
+  { key: "certificates", slug: "certificates", title: "Certificates and passports" },
+  { key: "flipdesk", slug: "flipdesk", title: "FlipDesk" },
+  { key: "marketplaces", slug: "marketplaces", title: "Marketplaces" },
+  { key: "autolister", slug: "autolister", title: "AutoLister and bulk work" },
+  { key: "extension", slug: "extension", title: "Browser extension" },
+  { key: "mobile", slug: "mobile", title: "iPhone and Android apps" },
+  { key: "buyers", slug: "buyers", title: "For buyers" },
+  { key: "billing", slug: "billing", title: "Billing" },
+  { key: "team", slug: "team", title: "Team and workspaces" },
+  { key: "integrations", slug: "integrations", title: "API and integrations" },
+  { key: "troubleshooting", slug: "troubleshooting", title: "Troubleshooting" },
+  { key: "account", slug: "account", title: "Account and privacy" },
+];
+
 export function helpCategoryPath(categorySlug: string): string {
   return `/help/${categorySlug}`;
 }

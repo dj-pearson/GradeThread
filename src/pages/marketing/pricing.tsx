@@ -6,6 +6,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import {
   GRADETHREAD_TIERS,
   CREDIT_PACKS,
@@ -413,6 +414,12 @@ export function PricingPage() {
       </section>
 
       <MarketingCTA />
+      <div className="px-6 pb-12 lg:px-12">
+        <div className="mx-auto max-w-5xl">
+          <HelpCategoryLink category="billing" label="Plans, credits, refunds and invoices, explained:" />
+        </div>
+      </div>
+
     </MarketingLayout>
   );
 }

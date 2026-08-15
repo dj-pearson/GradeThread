@@ -5,6 +5,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { GRADE_FACTORS } from "@/lib/constants";
 import {
   HOW_IT_WORKS_STEPS,
@@ -138,6 +139,12 @@ export function HowItWorksPage() {
       </section>
 
       <MarketingCTA />
+      <div className="px-6 pb-12 lg:px-12">
+        <div className="mx-auto max-w-5xl">
+          <HelpCategoryLink category="grading" label="How to shoot each photo, and what the grade means:" />
+        </div>
+      </div>
+
     </MarketingLayout>
   );
 }
