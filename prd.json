@@ -1892,21 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2587",
-      "title": "[HELP CENTER CONTENT] FlipDesk, marketplaces and AutoLister",
-      "description": "FlipDesk is the deepest and least self-explanatory surface in the product, and the one whose questions cost the most support time. Eleven pipeline stages, seven marketplaces and a batch worker, none of them documented.",
-      "acceptanceCriteria": [
-        "One article per pipeline stage: source, catalog, measure, photograph, grade, comp, draft, list, sell, ship, reconcile.",
-        "Marketplace articles: connecting eBay and reconnecting it, business policies, item specifics (including the 65-character aspect limit that strands offers), condition mapping, crosslisting, delisting and listing lifecycle, reconciliation and payout imports, Google Sheets sync.",
-        "AutoLister articles: what a batch does, how to read its status, and what to do when one stalls.",
-        "Every marketplace claim is checked against the code before publishing. Name only channels the Lister actually posts to; the deliberate 501 endpoints (flipdesk-ebay.ts:1840-1850) are not features and must not be documented as coming soon.",
-        "Each article links to its FlipDesk landing page and carries a <HelpLink> slug used by US-2584."
-      ],
-      "priority": 77,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2588",
       "title": "[HELP CENTER CONTENT] The browser extension and the mobile apps",
       "description": "The unified extension has six modes and a permissions prompt that scares people off at install. Chrome Web Store listings convert on the strength of the help page they link to, and the iOS and Android apps have no written support at all.",

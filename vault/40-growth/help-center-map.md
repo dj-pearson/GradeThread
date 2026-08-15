@@ -67,41 +67,47 @@ Status: **written** rows exist in `content/help/`. Everything else is planned.
 
 ## flipdesk
 
-One article per pipeline stage, plus the two cross-cutting ones. US-2587.
+US-2587. One article per step a person takes. The pipeline article covers all
+THIRTEEN statuses, including the waiting state and the two endings, because the
+board has thirteen columns even though the workflow has eleven steps.
 
 | Slug | Visibility | Status |
 |---|---|---|
-| the-flipdesk-pipeline **(button)** | public | planned |
-| sourcing-and-adding-items | public | planned |
-| cataloguing-an-item | public | planned |
-| taking-measurements | public | planned |
-| photographing-for-a-listing | public | planned |
-| comping-and-pricing | public | planned |
-| writing-a-listing-in-the-composer **(button)** | public | planned |
-| publishing-a-listing | public | planned |
-| when-it-sells | public | planned |
-| shipping-and-labels | public | planned |
-| reconciling-payouts **(button)** | public | planned |
+| the-flipdesk-pipeline **(button)** | public | written |
+| sourcing-and-adding-items | public | written |
+| cataloguing-an-item | public | written |
+| taking-measurements | public | written |
+| photographing-for-a-listing | public | written |
+| grading-an-item-in-flipdesk | public | written |
+| comping-and-pricing | public | written |
+| writing-a-listing-in-the-composer **(button)** | public | written |
+| publishing-a-listing | public | written |
+| when-it-sells | public | written |
+| shipping-and-labels | public | written |
 
 ## marketplaces
 
+`reconciling-payouts` lives here rather than under flipdesk, matching the
+category `src/lib/help-slugs.ts` registers for it.
+
 | Slug | Visibility | Status |
 |---|---|---|
-| connecting-a-marketplace **(button)** | public | planned |
-| ebay-business-policies | public | planned |
-| item-specifics-and-the-65-character-limit | public | planned |
-| condition-mapping | public | planned |
-| crosslisting | public | planned |
-| delisting-and-lifecycle | public | planned |
-| google-sheets-sync | members | planned |
+| connecting-a-marketplace **(button)** | public | written |
+| ebay-business-policies | public | written |
+| item-specifics-and-the-65-character-limit | public | written |
+| condition-mapping | public | written |
+| crosslisting | public | written |
+| delisting-and-lifecycle | public | written |
+| reconciling-payouts **(button)** | public | written |
+| google-sheets-sync | members | written |
 
 ## autolister
 
 | Slug | Visibility | Status |
 |---|---|---|
-| what-autolister-does | public | planned |
-| reading-a-batch | public | planned |
-| when-a-batch-stalls | public | planned |
+| what-autolister-does | public | written |
+| reading-a-batch | public | written |
+| when-a-batch-stalls | public | written |
 
 ## extension
 
