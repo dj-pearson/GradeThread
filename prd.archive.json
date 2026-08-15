@@ -37931,6 +37931,52 @@
       "id": "US-2015",
       "passes": true,
       "dependsOn": []
+    },
+    {
+      "id": "US-2603",
+      "passes": true,
+      "title": "Surface the applied migration SET on /health/ready, not just the max",
+      "description": "The schema block on /health/ready reports `applied` as a MAXIMUM, and a maximum cannot see a gap beneath it. Apply 00606 while 00605 never ran and every version check reports \"match\" forever, because the watermark only moves forward. This is the state prod was in on 2026-08-15: it reported {\"expected\":\"00603\",\"applied\":\"00606\",\"status\":\"ahead\"} while only some of 00604-00606 had actually been run, and the only way to find out which was a psql session against prod. checkSchemaCompleteness() in lib/schema-version.ts has computed exactly the right answer since US-2009 (missing = in the manifest, absent from applied_migrations; unexpected = recorded with no file in this build); its result went only to the container log, and its own docstring already claimed it surfaced on /health/ready. Publish it, cached, so an operator can answer the question with one unauthenticated GET.",
+      "acceptanceCriteria": [
+        "GET /health/ready returns schema.missing when a version in this build's manifest is absent from applied_migrations, EVEN WHEN status is \"match\".",
+        "schema.unexpected is reported separately from schema.missing: they mean opposite things and demand opposite fixes.",
+        "A failed read renders as complete:false, never as an empty missing[] that reads as proof of health.",
+        "Neither finding affects the ready decision or the HTTP status: a diagnostic must not be able to pull the container out of rotation.",
+        "The read is cached (~60s) rather than snapshotted at boot: a migration applied while the container is up must show up within a tick.",
+        "vault/10-ops/migrations-process.md documents the curl and warns that the generate_series backfill fills over a real gap."
+      ],
+      "priority": 2,
+      "notes": "Done 2026-08-15. routes/health.ts: SchemaSummary gains missing/unexpected/complete; summarizeSchema takes the completeness result; new cachedSchemaCompleteness (SCHEMA_COMPLETENESS_TTL_MS=60000, failures deliberately NOT cached) wraps checkSchemaCompleteness from lib/schema-version.ts, wired into the /health/ready handler behind dbOk. lib/schema-version.ts docstring corrected: it claimed the result surfaced on /health/ready before it did. Verified: 7 new cases in src/tests/health_test.ts (29 passed), including a gap reported while status is match, complete:false never rendering as clean, phantoms kept separate from gaps, and readiness unaffected; both new guards sabotage-verified by reverting the complete:false branch and the failed-read cache skip and watching exactly those two fail. deno check + lint clean. vault/10-ops/migrations-process.md gains 'The max hides a hole' with the curl and a warning that the generate_series backfill fills over a real gap; seo-performance-images.md line refs re-read and corrected (1283->1305, 399->410, 256->255), vault:lint strict clean."
+    },
+    {
+      "id": "US-2604",
+      "passes": true,
+      "title": "Work only the owner can do is scattered across 115 stories with no queue",
+      "description": "A large share of the open backlog is blocked on a person: rotate a signing key, approve an eBay scope, click through a live Grailed sell form, run a query against prod. Every one is recorded honestly and every one is recorded somewhere different - a title prefix on one story, a sentence buried in a 4000-character note on the next, a parenthetical on a third. So the queue is real, six months of careful records went into it, and it cannot be read. Passes keep re-opening the same stories, re-reading the same notes and re-deferring the same actions. Declare operator work structurally and print it.",
+      "acceptanceCriteria": [
+        "Operator work is declared as an acceptance criterion starting OPERATOR:, not as prose in a note.",
+        "npm run prd:operator prints the declared criteria verbatim, ordered by comparePriority.",
+        "Stories that only SAY a human is needed are reported in a separate section, labelled as extracted evidence rather than as instructions.",
+        "The undeclared patterns never match prose about operators - only a predicate asserting the work is a person's.",
+        "The report states that its count is a floor, not a census.",
+        "The convention is written down where the next agent will find it, and both directions are test-guarded."
+      ],
+      "priority": 40,
+      "notes": "Done 2026-08-15. NEW scripts/prd-operator.mjs (npm run prd:operator, plus --declared/--all/--json) and scripts/prd-operator.d.mts so the vitest case imports it without TS7016. Two sections, and the split is the point: DECLARED quotes an OPERATOR:-prefixed acceptance criterion exactly, UNDECLARED pulls the matched sentence out of a note as EVIDENCE and says so. Merging them would give a hand-pulled sentence the same authority as a declared criterion. DECLARED_RE accepts '[OPERATOR] x' bracketed with no separator but requires one on the bare word, or every criterion opening with that word would qualify. THE REAL WORK WAS THE PATTERNS: the first draft used plain substrings and matched prose ABOUT operators rather than work FOR one - 'operator read' inside 'an operator reading that at 3am' (US-2003, US-2301) and 'operator-only' inside 'customer-readable vs operator-only' (US-2572). All three stories DO have operator work and all three got quoted the wrong sentence, which is the same failure as being wrong and worse because it looks checked. Every pattern is now anchored to a predicate. extractSentence starts at the append-only ' | ' segment boundary so a quote can never attribute an old segment's claim to a newer one, the same reasoning as prd-lint's segment-ordered HELD resolution. Current output: 1 declared (US-2597) + 17 undeclared. The report states in its own footer that this is a FLOOR not a census - a bare grep for 'operator' hits 53 open stories, most of them prose, and the tightened list deliberately drops stories whose operator work is phrased in a way it cannot recognise. Verified: 11 cases in src/test/prd-operator-queue.test.ts (11 passed) covering both directions plus a structural case asserting no pattern matches a bare mention; sabotage-verified by loosening the operator-only pattern to a substring, which reddened the false-positive case specifically. tsc -b clean, eslint clean. Convention written to vault/70-agent/operator-queue-convention.md (type: contract, code_refs on both files) and cross-linked from backlog-priority-contract.md; vault:lint strict clean at 177 notes."
+    },
+    {
+      "id": "US-2605",
+      "passes": true,
+      "title": "Adopt the operator convention across the backlog, and make the [Pn] tags actually rank",
+      "description": "US-2604 built the queue and the convention; the backlog had not adopted either. Twelve stories recorded their remaining human step in prose, so the reporter could only hand-pull a sentence. Separately, 21 open stories carried a [P0]/[P1]/[P2] severity tag with NO priority field - and priority sorts ascending with a missing value meaning UNRANKED, which sorts LAST. Ten [P0] security findings were therefore ordered below every ranked story, the exact opposite of what the tag asserts. Also clears seven stories whose notes still described a migration as HELD after the owner applied everything and pushed: HELD is not a status, it is an instruction to stop, and a stale one has cost real sessions here.",
+      "acceptanceCriteria": [
+        "Every story whose remaining work is operator-only declares it as an OPERATOR: acceptance criterion, added rather than rewritten.",
+        "Each [Pn]-tagged story with no priority gets one, in a band per tag, with ties left to the id ordering the contract already defines.",
+        "Stories whose HELD wording is now false carry a correction in the form prd-lint recognises.",
+        "npm run prd:lint reports zero warnings."
+      ],
+      "priority": 40,
+      "notes": "Done 2026-08-15. AC1: 12 stories gain an OPERATOR: criterion (US-2002, 2095, 2282, 2284, 2286, 2289, 2328, 2335, 2337, 2447, 2471, 2478), each written from that story's own notes and APPENDED, never rewriting an existing criterion - the notes are append-only for the same reason. The queue went from 1 declared / 17 hand-pulled to 14 declared / 6, and the remaining 6 are whole-story operator work whose titles already say [OPERATOR]. AC2: 21 tagged stories ranked in one band per tag (P0=5, P1=25, P2=45), NOT a hand-invented order inside the band - comparePriority already breaks ties on numeric id, so equal severity gets a stable order without anyone pretending US-2284 outranks US-2286. Ten P0 security findings had been sorting below every ranked story. AC3: seven stories (US-1980, 2458, 2531, 2532, 2533, 2534, 2572) carried HELD wording that went false when the owner applied everything and pushed. THE FIRST CORRECTION DID NOT WORK AND THE GUARD WAS RIGHT TO KEEP WARNING: prd-lint resolves a stale hold on an explicit token (STATUS CORRECTION / STALE HELD-MIGRATION CLAIM), and my first note said the right thing in words it does not read. A guard that stayed loud until the correction was stated in the form it can parse is the behaviour you want; a guard that guessed at intent would be the bug. Second segment uses the token. AC4: npm run prd:lint now reports OK with ZERO warnings, down from two. Verified: prd:lint clean, prd:operator output read in full, 409 script tests pass."
     }
   ]
 }
