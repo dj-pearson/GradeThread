@@ -141,8 +141,14 @@
   --secondary-foreground: #0c1e36;
   --muted: #f0f4f8;
   --muted-foreground: #64748b;
-  --accent: #f03d5f;
-  --accent-foreground: #ffffff;
+  /* US-2334: --accent is the HOVER / highlighted-row surface (button outline
+     and ghost hover, badge hover, dropdown and command-palette selection), not
+     a CTA. It was the vibrant brand red with white text at 3.79:1, under the
+     4.5:1 AA floor, on every one of those surfaces. It is now a pale red wash
+     carrying the AA-safe red as its text: 4.75:1. The brand red is untouched
+     everywhere it is actually the brand (bg-brand-red, charts, the sidebar). */
+  --accent: #fdeaee;
+  --accent-foreground: #cc1f3d;
   /* US-439: AA-safe destructive red (text 5.26:1 on light; white-on-button
      5.48:1). Inverts in .dark. */
   --destructive: #cc1f3d;
@@ -179,8 +185,13 @@
   --secondary-foreground: #fafafc;
   --muted: #162a45;
   --muted-foreground: #94a3b8;
-  --accent: #f03d5f;
-  --accent-foreground: #ffffff;
+  /* US-2334: the dark twin of the wash above, and the number that decided it is
+     not the text contrast. A darker wash reads better under text but vanishes
+     against --card (#0c1e36): #2a1620 is 1.02:1 against it, which is a hover
+     state you cannot see. #42232e is 1.20:1 against the card and 1.38:1 against
+     the page, while still carrying the dark-mode red at 4.61:1. */
+  --accent: #42232e;
+  --accent-foreground: #fb5e78;
   /* US-439: lighter destructive red in dark mode keeps red text legible
      (5.56:1 on cards); the button variant's `dark:bg-destructive/60` darkens it
      enough for white text (6.21:1). */
