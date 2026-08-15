@@ -11,6 +11,7 @@ import {
   aggregateJobStats,
   failingJobCount,
   isRunnableJob,
+  jobSecretEnvFor,
   manualRunAudit,
   type RawRun,
 } from "../lib/ops-jobs.ts";
@@ -156,9 +157,19 @@ adminOpsRoutes.post("/jobs/:key/run", async (c) => {
     return c.json({ error: "Unknown or non-runnable job" }, 404);
   }
 
-  const secret = Deno.env.get("FLIPDESK_INTERNAL_JOB_SECRET");
+  // US-2617: the secret THIS job's endpoint validates, not the shared default.
+  //
+  // Four recorded jobs authenticate against their own env var — drip-tick,
+  // newsletter-kickoff, content-tick and content-digest — and Run-now sent the
+  // FlipDesk secret to all of them. The endpoint answered 401, and an operator
+  // reading a red Run-now result concludes the JOB is broken when the caller
+  // was. The registry has carried `secretEnv` since US-1561 for exactly this.
+  const secretEnv = jobSecretEnvFor(key);
+  const secret = Deno.env.get(secretEnv);
   if (!secret) {
-    return c.json({ error: "Job runner secret not configured" }, 503);
+    // Name the variable. "Job runner secret not configured" sent whoever read
+    // it to check the one they already had set.
+    return c.json({ error: `Job runner secret not configured: ${secretEnv}` }, 503);
   }
 
   // Serialize concurrent manual triggers (double-click / two operators) with a

@@ -102,6 +102,13 @@ Deno.test("US-2400 AC2: human_reviewed survives into the certificate payload", (
 const ROUTE_ADDED = new Set([
   "id",
   "title",
+  // US-2613: the seller title with condition claims stripped, derived in the
+  // handler from submissions.title. Route-added like "title" itself — there is
+  // no grade_reports column behind it, which is why it belongs here and not in
+  // the public_grade_reports view. See
+  // vault/20-domain/public-certificate-read-paths.md for why that asymmetry is
+  // deliberate rather than the drift this file usually catches.
+  "display_title",
   "brand",
   "garment_type",
   "garment_category",

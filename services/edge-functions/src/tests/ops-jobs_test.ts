@@ -10,12 +10,14 @@ const {
   aggregateJobStats,
   failingJobCount,
   isRunnableJob,
+  jobSecretEnvFor,
   mapRunStatus,
   manualRunAudit,
   OPS_RUN_AUDIT_ACTION,
   FAILING_THRESHOLD,
 } = await import("../lib/ops-jobs.ts");
 const { acquireJobLock } = await import("../lib/job-lock.ts");
+const { CRON_REGISTRY } = await import("../lib/cron-runs.ts");
 import type { JobLockRpc } from "../lib/job-lock.ts";
 import type { CronDef } from "../lib/cron-runs.ts";
 import type { RawRun } from "../lib/ops-jobs.ts";
@@ -49,11 +51,47 @@ Deno.test("mapRunStatus maps stored vocabulary to the US-881 enum", () => {
 });
 
 // ── isRunnableJob ────────────────────────────────────────────────────
-Deno.test("isRunnableJob: only /api/jobs/* (recorded) crons are runnable", () => {
-  // From the real registry: a recorded job is runnable, an eBay cron is not.
+Deno.test("isRunnableJob: a recorded cron is runnable, wherever it is served", () => {
+  // This case used to assert `ebay-token-refresh` was NOT runnable, on the
+  // reading that "recorded" meant "served at /api/jobs/*". US-2617 wired that
+  // job into the ledger, and the old assertion turned out to be pinning a proxy
+  // rather than a rule — drip-tick and newsletter-kickoff had been recorded and
+  // served elsewhere for a long time.
   assertEquals(isRunnableJob("email-retry"), true);
-  assertEquals(isRunnableJob("ebay-token-refresh"), false);
+  assertEquals(isRunnableJob("ebay-token-refresh"), true);
   assertEquals(isRunnableJob("does-not-exist"), false);
+  // Still not runnable: it cannot even be invoked with the job secret
+  // (US-2310), so offering a Run-now button would be offering a 401.
+  assertEquals(isRunnableJob("ebay-orders-sync"), false);
+});
+
+Deno.test("US-2617: Run-now asks for the secret the job's own endpoint validates", () => {
+  // The bug this closes is pre-existing and quiet: Run-now sent
+  // FLIPDESK_INTERNAL_JOB_SECRET to every job. Four of them authenticate
+  // against their own env var, so the endpoint answered 401 and the operator
+  // read a red result as "this job is broken" when the CALLER was.
+  assertEquals(jobSecretEnvFor("email-retry"), "FLIPDESK_INTERNAL_JOB_SECRET");
+  assertEquals(jobSecretEnvFor("drip-tick"), "DRIP_INTERNAL_JOB_SECRET");
+  assertEquals(jobSecretEnvFor("newsletter-kickoff"), "NEWSLETTER_INTERNAL_JOB_SECRET");
+  assertEquals(jobSecretEnvFor("content-tick"), "CONTENT_INTERNAL_JOB_SECRET");
+  assertEquals(jobSecretEnvFor("content-digest"), "CONTENT_INTERNAL_JOB_SECRET");
+  // Unknown key falls back to the shared default rather than throwing — the
+  // caller has already rejected it via isRunnableJob.
+  assertEquals(jobSecretEnvFor("does-not-exist"), "FLIPDESK_INTERNAL_JOB_SECRET");
+});
+
+Deno.test("US-2617: every runnable job's secret env is one the registry declares", () => {
+  // Guard-the-guard: the map above is hand-written, and a new job with its own
+  // secret would otherwise be sent the default silently. Derive the expectation
+  // from the registry instead of trusting the list.
+  for (const def of CRON_REGISTRY) {
+    if (!def.recorded) continue;
+    assertEquals(
+      jobSecretEnvFor(def.name),
+      def.secretEnv ?? "FLIPDESK_INTERNAL_JOB_SECRET",
+      `${def.name}: Run-now would send the wrong secret`,
+    );
+  }
 });
 
 // ── aggregateJobStats ────────────────────────────────────────────────

@@ -73,8 +73,20 @@ Deno.test("cronNameForPath resolves recorded eBay cron endpoints to their regist
 
 Deno.test("cronNameForPath returns null for unregistered or unrecorded paths", () => {
   // Not a cron path at all.
-  assertEquals(cronNameForPath("/api/flipdesk/ebay/listings/pull"), null);
-  // A registered-but-NOT-recorded cron must not record through this recorder.
-  assertEquals(cronNameForPath("/api/flipdesk/ebay/oauth/refresh"), null);
   assertEquals(cronNameForPath("/api/flipdesk/nope"), null);
+  // A registered-but-NOT-recorded cron must not record through this recorder.
+  // ebay-orders-sync is the honest example now: US-2310 found it sits behind
+  // authMiddleware with no job-secret branch, so it 401s on every fire and
+  // there is genuinely nothing to record.
+  assertEquals(cronNameForPath("/api/flipdesk/ebay/listings/pull"), null);
+});
+
+Deno.test("US-2617: the eBay token refresh now resolves, because it is recorded", () => {
+  // This path was the "unrecorded" example in the case above until US-2617.
+  // Its handler always gated on requireJobSecret, so it was invocable as a cron
+  // the whole time — only the recorder mount was missing, and `recorded: false`
+  // described where it lived rather than a reason it could not be seen.
+  assertEquals(cronNameForPath("/api/flipdesk/ebay/oauth/refresh"), "ebay-token-refresh");
+  assertEquals(cronNameForPath("/api/content/scheduler/tick"), "content-tick");
+  assertEquals(cronNameForPath("/api/content/scheduler/digest"), "content-digest");
 });

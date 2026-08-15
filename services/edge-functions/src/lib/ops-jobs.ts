@@ -10,7 +10,7 @@
 // rows_processed columns (migration 00205) rather than a redundant job_runs
 // table — see that migration's header for the reconciliation rationale.
 
-import { CRON_REGISTRY, type CronDef, nextCronRun } from "./cron-runs.ts";
+import { CRON_REGISTRY, type CronDef, DEFAULT_JOB_SECRET_ENV, nextCronRun } from "./cron-runs.ts";
 
 // US-881 status vocabulary. The ledger stores success/error/skipped; "running"
 // is derived live from a currently-held job_locks row, never persisted.
@@ -31,16 +31,41 @@ export function mapRunStatus(stored: string): Exclude<JobRunStatus, "running"> {
   }
 }
 
-// A job is manually runnable only when it's served at /api/jobs/<name>
-// (recorded === true) — those are reachable by the internal Run-now trigger.
-// The eBay/Google crons (recorded === false) live under /api/flipdesk/* and
-// need per-user context, so they are observe-only in the console.
+// A job is manually runnable when the console can invoke it server-to-server:
+// `recorded === true` marks the jobs that answer to an internal job secret.
+//
+// US-2617: this comment used to say "only when it's served at /api/jobs/<name>",
+// treating `recorded` as a PROXY for that path. It was never quite true —
+// drip-tick and newsletter-kickoff have been recorded and outside /api/jobs/*
+// for a long time — and it stopped being true at all when the eBay token
+// refresh and the two content ticks were wired into the ledger. The predicate
+// is unchanged; the description of it is now accurate.
+//
+// What the console must NOT assume is which SECRET a job wants. See
+// `jobSecretEnvFor` below: four recorded jobs authenticate against their own
+// env var, and sending the default to them is a 401 that looks like a broken
+// job rather than a broken caller.
 export const RUNNABLE_JOB_KEYS: ReadonlySet<string> = new Set(
   CRON_REGISTRY.filter((d) => d.recorded).map((d) => d.name),
 );
 
 export function isRunnableJob(key: string): boolean {
   return RUNNABLE_JOB_KEYS.has(key);
+}
+
+/**
+ * The env var holding the secret THIS job's endpoint validates.
+ *
+ * US-2617: the registry has carried `secretEnv` since US-1561 precisely because
+ * the drip, content and newsletter ticks do not share the FlipDesk secret — and
+ * the Run-now trigger sent the FlipDesk one to all of them anyway. That is a
+ * 401 the operator reads as "this job is broken", on jobs that are fine.
+ *
+ * Falls back to the shared default, which is correct for the /api/jobs/* family.
+ */
+export function jobSecretEnvFor(key: string): string {
+  const def = CRON_REGISTRY.find((d) => d.name === key);
+  return def?.secretEnv ?? DEFAULT_JOB_SECRET_ENV;
 }
 
 // Audit action recorded for every manual Run-now (asserted in tests + used by
