@@ -140,6 +140,7 @@ import { finishCronRun } from "./lib/cron-run-outcome.ts";
 import { createMiddleware } from "hono/factory";
 import { publicGradingRoutes } from "./routes/public-grading.ts";
 import { handleGradingMonitorCron } from "./lib/grading-monitor.ts";
+import { handleGradingSelfConsistencyCron } from "./routes/jobs-grading-self-consistency.ts";
 import { handleStuckSubmissionsCron } from "./lib/stuck-submissions.ts";
 import { handlePushTokenPruneCron } from "./lib/push-token-prune.ts";
 import { handleSyncReaperCron } from "./lib/sync-run-lock.ts";
@@ -1436,6 +1437,8 @@ app.route("/api/grading/public", publicGradingRoutes);
 // admin-JWT middleware doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync + reprice crons).
 app.post("/api/jobs/grading-monitor", (c) => handleGradingMonitorCron(c));
+// US-2035: sampled regrade reproducibility. Off unless GRADING_SELF_CONSISTENCY_SAMPLE is set.
+app.post("/api/jobs/grading-self-consistency", (c) => handleGradingSelfConsistencyCron(c));
 // US-895 AI cost budget guardrails cron. OUTSIDE /api/admin; the handler enforces
 // X-Internal-Job-Secret itself. Evaluates per-feature spend budgets and, on a
 // fresh breach, alerts + (for action=kill) flips the feature kill-switch off.

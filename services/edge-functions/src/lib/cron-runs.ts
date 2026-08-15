@@ -96,6 +96,9 @@ export const CRON_REGISTRY: CronDef[] = [
   // a closed tab or a redeploy never strands a half-imported catalog.
   { name: "flipdesk-import-reclaim", label: "CSV import reclaim", schedule: "*/5 * * * *", category: "maintenance", endpoint: "/api/jobs/flipdesk-import-reclaim", recorded: true },
   { name: "grading-monitor", label: "Grading regression monitor", schedule: "0 */12 * * *", category: "grading", endpoint: "/api/jobs/grading-monitor", recorded: true },
+  // US-2035: weekly by design — it costs vision calls per sample, and reproducibility
+  // moves with a model or prompt change rather than hourly. No-ops unless sampling is on.
+  { name: "grading-self-consistency", label: "Regrade reproducibility sample", schedule: "20 4 * * 1", category: "grading", endpoint: "/api/jobs/grading-self-consistency", recorded: true },
   // US-1773: cross-garment durability aggregation (daily) backing the public durability rankings.
   { name: "durability-aggregate", label: "Durability aggregation", schedule: "0 2 * * *", category: "grading", endpoint: "/api/jobs/durability-aggregate", recorded: true },
   // US-1557: weekly per-category review-threshold calibration (shadow-first).

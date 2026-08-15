@@ -117,6 +117,14 @@ const ALLOWLIST: Record<string, string> = {
   "flipdesk-grading.ts": "FlipDesk grading submissions — billed per-grade",
   "webhooks.ts": "payment webhooks re-enter the grading pipeline (per-grade billing)",
   "support-assistant.ts": "support assistant is an operator cost, not user AI spend",
+  "jobs-grading-self-consistency.ts":
+    "US-2035 reproducibility sampler: an internal cron, not a user action. " +
+    "Metering it would charge whoever's submission happened to be sampled for " +
+    "spend the platform chose — the wrong user, for a grade they never asked " +
+    "for and never see. Bounded instead by its own switches: OFF unless " +
+    "GRADING_SELF_CONSISTENCY_SAMPLE is set, sample hard-capped at 25 in code " +
+    "whatever the env says, a job lock so two replicas cannot double it, and " +
+    "the global daily Vision ceiling underneath all of it.",
   "admin-grading.ts": "operator tooling (super-admin gated)",
   "admin-bulk.ts": "operator tooling (super-admin gated)",
   "admin-jobs.ts": "operator tooling (super-admin gated)",

@@ -809,21 +809,6 @@
       "notes": "[P1][SEO/Diagnosis] USER ACTION REQUIRED (console access + DNS). This is the single highest-leverage item in the audit: seo-geo-strategy.md (grow pSEO) and seo-indexability.md (trim it) deliberately contradict each other, and that argument cannot be settled without this data. Everything templated stays parked until it lands."
     },
     {
-      "title": "Grading determinism (US-481) is void on the default model, and the code still claims it",
-      "description": "ai-config.ts:157-179 documents that grading ALWAYS uses a low temperature, defaulting to 0 (fully greedy decoding), because a certified score backs a public 'standardized' value prop. But gradingSamplingParams() returns output_config.effort — not temperature — for effort-based models, and the default grading model (DEFAULTS.model = claude-sonnet-5) is effort-based. So getGradingTemperature() is never called on the shipping path, GRADING_MAX_TEMPERATURE and the whole clamping apparatus are dead code, and grading runs at the model's own non-greedy decoding. A regrade of the same photos can return a different score with no explanation.",
-      "acceptanceCriteria": [
-        "DECIDE the product position: is a regrade of identical photos allowed to return a different score? That is a trust question, not an engineering one.",
-        "If determinism is still the promise: add a self-consistency check (grade twice, compare, flag divergence) or pin a decoding mode that guarantees it.",
-        "If it is NOT the promise: correct the ai-config.ts comment block, which currently asserts a property the code does not have, and disclose run-to-run variance wherever the 'standardized grade' claim is made.",
-        "Either way the comment must stop describing temperature clamping as though it governs grading."
-      ],
-      "priority": 1995,
-      "notes": "[P1][Grading/Trust] Found 2026-07-18 by the grading-engine deep dive. I VERIFIED the mechanism myself: DEFAULTS.model is claude-sonnet-5 (ai-config.ts:12), modelUsesEffort() matches it (:189-192), and gradingSamplingParams() returns the effort branch with no temperature (:228-233). This is NOT a code bug — effort-based models do not accept temperature, so the US-1033 migration was a correct API fix. The defect is that it silently removed a DOCUMENTED GUARANTEE and nobody updated the guarantee. Code that claims a property it no longer has is the most dangerous state for a trust product, because everyone downstream reasons from the claim rather than the behaviour. I deliberately did not 'fix' it: the right answer is a product decision — restore determinism (costly, possibly not available on this model family) or stop promising it (cheap, but it changes what a certificate means). [2026-07-19 PARTIAL — AC3(a)+AC4 DONE, AC1/AC2/AC3(b) BLOCKED ON A PRODUCT DECISION] Verified the technical claim in full: getDefaultModel()=claude-sonnet-5 is effort-based, so gradingSamplingParams() returns output_config.effort and NO temperature; getGradingTemperature()/GRADING_MAX_TEMPERATURE are dead on the shipping path. Found a THIRD layer the story did not name: grading-reliability.ts implements the self-consistency math AC2 asks for, is pure and tested, but has ZERO non-test callers — the env-gated live-sampling job it describes was never built. So the determinism promise is unenforced at every level: no greedy decoding, no measurement, no gate. Done: both false comment blocks (ai-config.ts, grading-reliability.ts) now describe reality and name the open decision; new src/tests/grading-determinism_test.ts pins the actual behaviour (4 tests) so the claim cannot silently drift back. BLOCKED: AC1 is explicitly a trust/product call — is a regrade of identical photos allowed to return a different score? AC2 depends on that answer (wire grading-reliability.ts as a live self-consistency gate vs accept variance); AC3(b) public-copy disclosure depends on it too. NOTE: do NOT remedy by pinning a temperature — effort-based models 400 on it (US-1033).",
-      "id": "US-2035",
-      "passes": false,
-      "dependsOn": []
-    },
-    {
       "id": "US-2103",
       "priority": 1996,
       "passes": false,

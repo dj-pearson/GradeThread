@@ -10,10 +10,19 @@
 // temperature, and decodes non-greedily. See the US-2035 block in ai-config.ts.
 //
 // That makes this module MORE important, not less: it is the only thing that
-// could detect the resulting run-to-run variance. But it currently has ZERO
-// non-test callers — the "separate, env-gated job" described below was never
-// built, so nothing measures self-consistency on live traffic and nothing flags
-// divergence. The math here is correct and tested; it is simply unwired.
+// could detect the resulting run-to-run variance.
+//
+// WIRED 2026-08-15 (US-2035), after the owner chose to MEASURE before promising
+// determinism either way — the product decision is a different one if the spread
+// is 0.1 than if it is 0.8, and nobody had the number. The job is
+// `routes/jobs-grading-self-consistency.ts`: it samples recent graded
+// submissions, regrades each through the real grader N times, and feeds the
+// overall scores here.
+//
+// It is OFF unless `GRADING_SELF_CONSISTENCY_SAMPLE` is set, because every
+// sample costs vision calls. So on a default deploy this module still has no
+// live callers — the difference is that it is now a switch somebody can throw
+// rather than a job nobody wrote.
 //
 // This module is the measurement + gate: feed it the overall scores from N
 // repeated grades of one input and it reports the spread and whether it's
