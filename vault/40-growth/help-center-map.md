@@ -142,22 +142,22 @@ default, and the seller handle living only in storage.local.
 
 | Slug | Visibility | Status |
 |---|---|---|
-| verify-a-certificate | public | planned |
-| scan-before-you-buy | public | planned |
-| the-buyer-guarantee | public | planned |
-| alerts | public | planned |
-| rewards-and-credits | public | planned |
-| the-trust-score | public | planned |
+| verify-a-certificate | public | written |
+| the-buyer-guarantee | public | written |
+| scan-before-you-buy | public | written |
+| alerts | public | written |
+| rewards-and-credits | public | written |
+| the-trust-score | public | written |
 
 ## billing
 
 | Slug | Visibility | Status |
 |---|---|---|
-| plans-credits-and-billing **(button)** | members | planned |
-| upgrading-and-downgrading | members | planned |
-| cancelling | members | planned |
-| refunds-and-invoices | members | planned |
-| a-failed-payment | members | planned |
+| plans-credits-and-billing **(button)** | members | written |
+| upgrading-and-downgrading | members | written |
+| cancelling | members | written |
+| refunds-and-invoices | members | written |
+| a-failed-payment | members | written |
 
 ## team
 
@@ -174,11 +174,11 @@ answer in the same place, not a trail of three.
 
 | Slug | Visibility | Status |
 |---|---|---|
-| api-keys-and-the-sandbox **(button)** | public | planned |
-| the-rest-api | public | planned |
-| rate-limits-and-quotas | public | planned |
-| webhooks | public | planned |
-| embeds-and-badges | public | planned |
+| api-keys-and-the-sandbox **(button)** | public | written |
+| the-rest-api | public | written |
+| rate-limits-and-quotas | public | written |
+| webhooks | public | written |
+| embeds-and-badges | public | written |
 
 ## troubleshooting
 

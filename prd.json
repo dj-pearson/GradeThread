@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2596",
+  "nextId": "US-2597",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1892,21 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2589",
-      "title": "[HELP CENTER CONTENT] Buyer surfaces, billing, team and the API",
-      "description": "The buyer half of the product is the half with the most search demand and the least documentation, and billing questions are the ones that turn into refunds when they go unanswered.",
-      "acceptanceCriteria": [
-        "Buyer articles: verify a certificate, scan a garment passport, what the buyer guarantee covers and how to file a claim, alerts, rewards and credits, and the trust score.",
-        "Billing articles: the plans, credits versus subscription, upgrade and downgrade, cancel, refunds, invoices, and a failed payment.",
-        "Team articles: invite a member, roles, and who owns a workspace.",
-        "Integrations articles: API keys, the REST API and SDK, the sandbox, rate limits and quotas, webhooks, and the embeds and badges.",
-        "Buyer articles link to /verify, /scan and /buyer-guarantee; the API articles link to /developers rather than restating it."
-      ],
-      "priority": 79,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2590",
       "title": "[HELP CENTER CONTENT] Troubleshooting, plus the gated operator set",
       "description": "The last two categories, and the only place in the epic where anything is hidden. Troubleshooting is public because it is exactly what people search at the moment they are most likely to churn. The operator set is gated because it describes how the company defends itself.",
@@ -1966,6 +1951,22 @@
       "priority": 83,
       "passes": false,
       "notes": "[FOUND DURING US-2574 2026-08-14] Consumers of support_kb_articles today: services/edge-functions/src/lib/agent-tools.ts, lib/support-tools.ts, main.ts, routes/admin-knowledge-base.ts, tests/support-kb-search_test.ts. No consumer in functions/ or src/ - confirmed by grep, which is what proves it has no public surface. This story is deliberately AFTER the help center ships (priority 83, behind US-2592) so the convergence moves content into a finished home rather than a half-built one. Until it lands the two corpora coexist, and the help center is the one customers see."
+    },
+    {
+      "id": "US-2596",
+      "title": "[HELP CENTER CONTENT] The certificates shelf",
+      "description": "The certificates category is seeded, linked from the hub and named in the help center map, and no story owns it. US-2589 covered the BUYER side of certificates (verify, scan, guarantee) but not the SELLER side: how to share one, print a garment tag, embed a badge, and what a passport is from the owner rather than the scanner. Left as-is it is a shelf that renders empty, which the hub deliberately hides - so the category exists in the database, is absent from the site, and nobody notices.",
+      "acceptanceCriteria": [
+        "share-a-certificate: where the link lives, putting it near the top of a listing, the QR code, and what a buyer sees when they open it.",
+        "print-a-garment-tag: producing the tag, what the code resolves to, and why a tag on the wrong garment is the failure to design against.",
+        "embed-a-grade-badge: badge vs embed vs share card, and the rule that a badge never goes on a marketplace listing photo (several treat overlaid graphics as a policy problem).",
+        "the-garment-passport: from the owner side - creating one, claiming one received, and why a multi-year condition history is worth more at resale than a single snapshot.",
+        "All four 600+ words, 2 FAQ pairs, a pillar_path, ASCII, screenshots MARKED not embedded, and added to vault/40-growth/help-center-map.md as written.",
+        "No overlap with the buyer articles: those explain reading a certificate, these explain producing one."
+      ],
+      "priority": 84,
+      "passes": false,
+      "notes": "[FOUND DURING US-2589 2026-08-15] The map lists four planned articles on this shelf and the epic assigned them to no story: US-2586 was getting-started+grading, US-2587 flipdesk+marketplaces+autolister, US-2588 extension+mobile, US-2589 buyers+billing+team+integrations, US-2590 troubleshooting+internal. Certificates fell between them. Small story, four articles, and it closes the last unowned shelf."
     }
   ]
 }
