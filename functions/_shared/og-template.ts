@@ -48,7 +48,7 @@ export function buildCertOgHtml(input: CertOgInput): string {
     <div style="display:flex;font-size:22px;color:rgba(255,255,255,0.7);margin-bottom:8px;">
       ${escapeHtml(input.brand ?? "Pre-owned garment")}
     </div>
-    <div style="display:flex;font-size:54px;font-weight:700;line-height:1.1;margin-bottom:24px;max-width:780px;">
+    <div style="display:flex;font-size:54px;font-weight:800;line-height:1.1;margin-bottom:24px;max-width:780px;">
       ${escapeHtml(truncate(input.title, 80))}
     </div>
     <div style="display:flex;align-items:flex-end;gap:24px;">
@@ -85,7 +85,7 @@ export function buildBlogOgHtml(input: BlogOgInput): string {
   </div>
 
   <div style="display:flex;flex-direction:column;flex:1;justify-content:center;margin-top:20px;">
-    <div style="display:flex;font-size:60px;font-weight:700;line-height:1.15;color:#fff;max-width:1000px;">
+    <div style="display:flex;font-size:60px;font-weight:800;line-height:1.15;color:#fff;max-width:1000px;">
       ${escapeHtml(truncate(input.title, 140))}
     </div>
   </div>
@@ -131,7 +131,7 @@ export function buildHelpOgHtml(input: HelpOgInput): string {
   </div>
 
   <div style="display:flex;flex-direction:column;flex:1;justify-content:center;margin-top:20px;">
-    <div style="display:flex;font-size:60px;font-weight:700;line-height:1.15;color:#fff;max-width:1000px;">
+    <div style="display:flex;font-size:60px;font-weight:800;line-height:1.15;color:#fff;max-width:1000px;">
       ${escapeHtml(truncate(input.title, 140))}
     </div>
   </div>
@@ -169,7 +169,7 @@ export function buildSellerOgHtml(input: SellerOgInput): string {
 
   <div style="display:flex;flex-direction:column;flex:1;justify-content:center;margin-top:20px;">
     <div style="display:flex;font-size:22px;color:rgba(255,255,255,0.7);margin-bottom:8px;">GradeThread Verified Seller</div>
-    <div style="display:flex;font-size:64px;font-weight:700;line-height:1.1;max-width:1000px;">
+    <div style="display:flex;font-size:64px;font-weight:800;line-height:1.1;max-width:1000px;">
       ${escapeHtml(truncate(input.displayName, 60))}
     </div>
   </div>
@@ -261,7 +261,7 @@ export function buildCertSlabHtml(input: CertSlabInput): string {
         </div>
         <div style="display:flex;flex-direction:column;">
           <div style="display:flex;font-size:16px;color:rgba(255,255,255,0.8);">GradeThread Verified</div>
-          <div style="display:flex;font-size:26px;font-weight:700;color:#fff;">${escapeHtml(input.gradeTier)}</div>
+          <div style="display:flex;font-size:26px;font-weight:800;color:#fff;">${escapeHtml(input.gradeTier)}</div>
         </div>
       </div>`
     : "";
@@ -287,7 +287,7 @@ export function buildCertSlabHtml(input: CertSlabInput): string {
   <div style="display:flex;align-items:flex-end;justify-content:space-between;width:100%;">
     <div style="display:flex;flex-direction:column;flex:1;padding-right:24px;">
       <div style="display:flex;font-size:22px;color:rgba(255,255,255,0.65);margin-bottom:6px;">${escapeHtml(input.brand ?? "Pre-owned garment")}</div>
-      <div style="display:flex;font-size:40px;font-weight:700;line-height:1.1;">${escapeHtml(truncate(input.title, 52))}</div>
+      <div style="display:flex;font-size:40px;font-weight:800;line-height:1.1;">${escapeHtml(truncate(input.title, 52))}</div>
       <div style="display:flex;font-size:18px;color:rgba(255,255,255,0.55);margin-top:14px;">AI-graded · gradethread.com/cert/${escapeHtml(certIdShort)}…</div>
     </div>
     <div style="display:flex;flex-direction:column;align-items:center;background:#fff;border-radius:20px;padding:14px;">
@@ -370,10 +370,10 @@ export function buildSocialCardHtml(input: SocialCardInput): string {
   } else if (input.kind === "quote") {
     main = `<div style="display:flex;flex-direction:column;">
       <div style="display:flex;font-size:${Math.round(width * 0.12)}px;font-weight:800;color:${BRAND_RED};line-height:0.8;height:${Math.round(width * 0.07)}px;">“</div>
-      <div style="display:flex;font-size:${titleSize}px;font-weight:700;line-height:1.2;color:#fff;max-width:${width - pad * 2}px;">${escapeHtml(truncate(input.text, 200))}</div>
+      <div style="display:flex;font-size:${titleSize}px;font-weight:800;line-height:1.2;color:#fff;max-width:${width - pad * 2}px;">${escapeHtml(truncate(input.text, 200))}</div>
     </div>`;
   } else {
-    main = `<div style="display:flex;font-size:${titleSize}px;font-weight:700;line-height:1.15;color:#fff;max-width:${width - pad * 2}px;">${escapeHtml(truncate(input.text, 160))}</div>`;
+    main = `<div style="display:flex;font-size:${titleSize}px;font-weight:800;line-height:1.15;color:#fff;max-width:${width - pad * 2}px;">${escapeHtml(truncate(input.text, 160))}</div>`;
   }
 
   const eyebrowBlock = eyebrow
@@ -489,6 +489,30 @@ export function buildGradeResultCardHtml(input: GradeResultCardInput): string {
 export const FALLBACK_PNG_BASE64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
 
+// ── Font weights: 500, 600 and 800 ONLY (US-2619) ───────────────────────────
+//
+// workers-og ships a fixed set of font weights, and Satori THROWS on a weight
+// it cannot resolve rather than falling back to the nearest one. That throw
+// used to be invisible: ImageResponse streams, so it landed after the Response
+// had been returned and the client got a 200 with zero bytes.
+//
+// THE EVIDENCE, and it is a clean correlation rather than a hunch. Of the six
+// templates here, exactly one rendered in a Pages Function — the grade-result
+// card — and it was the only one that never used weight 700. The social card
+// and the blog card both used it and both failed. The help and seller cards use
+// it too and have never actually rendered (their requests take the not-found
+// branch). The certificate card uses it and works, on the EDGE, which is a
+// different runtime with its own fonts.
+//
+// Four other causes were eliminated first: gradients (all six use one, including
+// the working one), images (the working one embeds a data-URI QR), any CSS
+// PROPERTY present in both failures and absent from the success (there is none),
+// and module depth (a probe rendered the failing template from the working
+// directory and still fell back).
+//
+// So: use 800 where 700 was wanted. Both 800 and 600 are proven to raster here.
+// If a new weight is ever needed, load the font for it explicitly rather than
+// assuming a graceful fallback — there is not one.
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
