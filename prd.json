@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2595",
+  "nextId": "US-2596",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2145,6 +2145,21 @@
       "priority": 83,
       "passes": false,
       "notes": "[FOUND DURING US-2574 2026-08-14] Consumers of support_kb_articles today: services/edge-functions/src/lib/agent-tools.ts, lib/support-tools.ts, main.ts, routes/admin-knowledge-base.ts, tests/support-kb-search_test.ts. No consumer in functions/ or src/ - confirmed by grep, which is what proves it has no public surface. This story is deliberately AFTER the help center ships (priority 83, behind US-2592) so the convergence moves content into a finished home rather than a half-built one. Until it lands the two corpora coexist, and the help center is the one customers see."
+    },
+    {
+      "id": "US-2595",
+      "title": "[AUTOLISTER] A stray photo left over after grouping has no visible way into a group, and Ungroup is hidden behind a red Delete button",
+      "description": "Reported by the seller after an auto-group run left one photo behind. Every mechanism already existed - drag onto a group card, the per-tile Move-to menu, and a per-group dissolve - but all three were unreachable in practice. The drag grip and the Move-to menu on an ungrouped tile were opacity-0 until hover, so on a touch screen they never appear at all and on a mouse you have to already know they are there. The per-group action that dissolves a group back into Ungrouped was labelled Delete with a red trash icon, which reads as destroys my photos, so it is the one button a seller with a bad group will not press. And moving several strays at once was drag-only: the menu moved exactly one photo per open.",
+      "acceptanceCriteria": [
+        "On an ungrouped (stray) tile the drag handle and the Add-to-a-group menu are visible without hover, since hover never fires on touch.",
+        "The per-group action that returns photos to Ungrouped is labelled Ungroup with the Ungroup icon and non-destructive styling, and its toast names the photo count. It deletes nothing.",
+        "With photos selected in the Ungrouped grid, an Add selected to item menu lists every existing group (name plus current photo count) and moves the whole selection in one action.",
+        "The Move-to menu wording follows the source: Add photo to on a stray, Move photo to inside a group.",
+        "Undo still covers all of it - every path routes through applyGroupEdit."
+      ],
+      "priority": 40,
+      "passes": true,
+      "notes": "[DONE 2026-08-14] src/pages/flipdesk/autolister.tsx only - no new state, no new transform, no migration. The DnD machinery from US-1543 was already correct; this story is entirely about whether a seller can SEE it. deleteGroup renamed ungroupGroup (it never deleted photos - the group record is dropped and the ungrouped list recomputes as staged minus groupedIds). iOS already had both affordances (AutoListerSelectionGrid.swift Add to..., AutoListerView.swift Ungroup (photos back to grid)), so this closes a web-only gap rather than adding a feature."
     }
   ]
 }

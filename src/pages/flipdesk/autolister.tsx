@@ -401,8 +401,15 @@ function PhotoDragTile({
         {...attributes}
         {...listeners}
         aria-label={groupId == null ? "Drag to add to a group" : "Drag to move or reorder"}
-        title="Drag to move"
-        className="absolute left-1 top-7 z-10 cursor-grab rounded bg-black/55 p-1 text-white opacity-0 focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100"
+        title={groupId == null ? "Drag onto a group to add this photo" : "Drag to move"}
+        className={cn(
+          "absolute left-1 top-7 z-10 cursor-grab rounded bg-black/55 p-1 text-white focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100",
+          // US-2595: inside a group the tiles are dense and every photo already
+          // has a home, so the handle stays hover-only. An UNGROUPED tile is a
+          // stray the seller still has to place — its handle is the whole way
+          // in, so it is always on (hover never fires on a touch screen).
+          groupId == null ? "opacity-100" : "opacity-0",
+        )}
       >
         <GripVertical className="h-3 w-3" />
       </button>
@@ -418,6 +425,7 @@ function MovePhotoMenu({
   onMove,
   onNewGroup,
   className,
+  alwaysVisible = false,
 }: {
   photoId: string;
   currentGroupId: string | null;
@@ -425,16 +433,20 @@ function MovePhotoMenu({
   onMove: (photoId: string, targetGroupId: string | null) => void;
   onNewGroup: (photoId: string) => void;
   className?: string;
+  /** US-2595: on an ungrouped stray this is the pointer-free way into a group,
+   *  so it is shown at all times rather than only on hover. */
+  alwaysVisible?: boolean;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
           type="button"
-          aria-label="Move to group"
-          title="Move to group…"
+          aria-label={currentGroupId == null ? "Add to a group" : "Move to group"}
+          title={currentGroupId == null ? "Add to a group…" : "Move to group…"}
           className={cn(
-            "z-10 rounded-full bg-black/55 p-1 text-white opacity-0 focus-visible:opacity-100 group-hover:opacity-100",
+            "z-10 rounded-full bg-black/55 p-1 text-white focus-visible:opacity-100 group-hover:opacity-100",
+            alwaysVisible ? "opacity-100" : "opacity-0",
             className,
           )}
         >
@@ -442,7 +454,9 @@ function MovePhotoMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="max-h-64 w-56 overflow-y-auto">
-        <DropdownMenuLabel>Move photo to</DropdownMenuLabel>
+        <DropdownMenuLabel>
+          {currentGroupId == null ? "Add photo to" : "Move photo to"}
+        </DropdownMenuLabel>
         <DropdownMenuItem onClick={() => onNewGroup(photoId)}>New group</DropdownMenuItem>
         {currentGroupId != null && (
           <DropdownMenuItem onClick={() => onMove(photoId, null)}>
@@ -2658,9 +2672,16 @@ export function FlipdeskAutolisterPage() {
     );
   }
 
-  function deleteGroup(groupId: string) {
+  /**
+   * US-2595: dissolve ONE group. Nothing is deleted — the photos land back in
+   * Ungrouped, where they can be re-grouped. This used to be labelled "Delete"
+   * with a red trash icon, which read as "destroys my photos", so sellers with
+   * a bad group had no action they were willing to click.
+   */
+  function ungroupGroup(groupId: string) {
+    const count = groups.find((g) => g.id === groupId)?.photoIds.length ?? 0;
     applyGroupEdit(
-      "Group deleted — its photos are back in Ungrouped.",
+      `Group dissolved — ${count} photo${count === 1 ? "" : "s"} back in Ungrouped.`,
       (prev) => prev.filter((g) => g.id !== groupId),
       "move",
     );
@@ -3210,6 +3231,33 @@ export function FlipdeskAutolisterPage() {
               <Plus className="mr-1 h-4 w-4" />
               New group from selected ({selected.size})
             </Button>
+            {/* US-2595: the strays left over after auto-grouping usually belong
+                to a group that already exists. Selecting them and picking the
+                group is the no-drag path to that; drag still works per tile. */}
+            {selected.size > 0 && groups.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="secondary">
+                    <FolderInput className="mr-1 h-4 w-4" />
+                    Add selected to item ({selected.size})
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="max-h-72 w-64 overflow-y-auto">
+                  <DropdownMenuLabel>Add to which item</DropdownMenuLabel>
+                  {groups.map((g, i) => (
+                    <DropdownMenuItem
+                      key={g.id}
+                      onClick={() => movePhotos(Array.from(selected), g.id)}
+                    >
+                      <span className="truncate">{g.name || `Item ${i + 1}`}</span>
+                      <span className="ml-auto pl-2 text-xs text-muted-foreground">
+                        {g.photoIds.length}
+                      </span>
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
             {selected.size > 0 && (
               <Button
                 size="sm"
@@ -3382,7 +3430,8 @@ export function FlipdeskAutolisterPage() {
                   >
                     <Pencil className="h-3 w-3" />
                   </button>
-                  {/* US-1543: non-pointer fallback for adding to a group. */}
+                  {/* US-1543: non-pointer fallback for adding to a group.
+                      US-2595: always visible on a stray — see the prop. */}
                   <MovePhotoMenu
                     photoId={p.id}
                     currentGroupId={null}
@@ -3390,6 +3439,7 @@ export function FlipdeskAutolisterPage() {
                     onMove={(pid, target) => movePhotos([pid], target)}
                     onNewGroup={newGroupFromPhoto}
                     className="absolute left-7 top-1"
+                    alwaysVisible
                   />
                   {processing && (
                     <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/40">
@@ -3685,11 +3735,11 @@ export function FlipdeskAutolisterPage() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    className="text-destructive"
-                    onClick={() => deleteGroup(g.id)}
+                    onClick={() => ungroupGroup(g.id)}
+                    title="Break this group up — its photos go back to Ungrouped. Nothing is deleted."
                   >
-                    <Trash2 className="mr-1 h-4 w-4" />
-                    Delete
+                    <Ungroup className="mr-1 h-4 w-4" />
+                    Ungroup
                   </Button>
                 </div>
               </div>
