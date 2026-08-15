@@ -58,9 +58,40 @@ const DYNAMIC = [
   { path: "/rss.xml", type: /^application\/rss\+xml/ },
   { path: "/llms.txt", type: /^text\/plain/ },
   { path: "/llms-full.txt", type: /^text\/plain/ },
-  { path: "/blog", type: /^text\/html/ },
-  { path: "/help", type: /^text\/html/ },
+  // US-2618: `mustLink` catches the failure a status code cannot. Both of these
+  // are INDEXES — their whole job is to link to what they index — and an empty
+  // one still answers 200 with a full page of chrome.
+  //
+  // Not hypothetical. On 2026-08-15 /help served 200 at 15KB with ZERO article
+  // links, while 83 written articles sat in content/help/ and the loader that
+  // puts them in the database was wired to nothing. A live, empty hub is worse
+  // than no page: thin content on a domain with an unresolved indexing problem,
+  // and every check we had said it was fine.
+  { path: "/blog", type: /^text\/html/, mustLink: /href="\/blog\/[^"]+"/ },
+  { path: "/help", type: /^text\/html/, mustLink: /href="\/help\/[^"]+"/ },
 ];
+
+/**
+ * Indexes known to be empty right now, each with the work that removes it.
+ *
+ * SHRINK-ONLY. An entry is a promise to fix, not a category: when the content
+ * lands, delete the line and the check starts failing if it empties again.
+ * Adding a path here to turn a red run green is the misuse — an entry has to
+ * name the work.
+ *
+ * Reported rather than failed, because this condition is TRUE TODAY. A check
+ * that is red on the day it ships gets ignored before it earns any authority,
+ * which is why scripts/db-denied-rpc-crash-check.mjs is advisory and what
+ * US-1927's notes record happening to a permanently-red guard.
+ */
+const KNOWN_EMPTY_INDEXES = new Map([
+  [
+    "/help",
+    "US-2618 — 83 articles exist in content/help/ and none are in the database. " +
+      "Run `npm run help:seed` against production with the service-role key, " +
+      "then delete this entry.",
+  ],
+]);
 
 /**
  * The deploy runbook's own diagnostic, verbatim: an app route must be 200
@@ -76,7 +107,7 @@ function arg(name, fallback) {
   return i === -1 ? fallback : process.argv[i + 1];
 }
 
-async function probe(url) {
+async function probe(url, opts = {}) {
   try {
     const res = await fetch(url, { redirect: "manual" });
     const body = res.status === 200 ? await res.text() : "";
@@ -87,15 +118,27 @@ async function probe(url) {
       title: (/<title[^>]*>([^<]*)<\/title>/i.exec(body) ?? [, ""])[1].trim(),
       canonical: (/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/i.exec(body) ?? [, ""])[1],
       bytes: body.length,
+      // Kept only when a caller looks inside. Holding 42 route bodies in memory
+      // is pointless when all we read from them is a title.
+      body: opts.keepBody ? body : "",
     };
   } catch (err) {
-    return { status: 0, type: "", location: String(err).slice(0, 80), title: "", canonical: "", bytes: 0 };
+    return {
+      status: 0,
+      type: "",
+      location: String(err).slice(0, 80),
+      title: "",
+      canonical: "",
+      bytes: 0,
+      body: "",
+    };
   }
 }
 
 async function main() {
   const origin = (arg("origin", "https://gradethread.com")).replace(/\/+$/, "");
   const failures = [];
+  const knownGaps = [];
   const note = (route, got, why) => failures.push({ route, got, why });
 
   const routes = registeredPaths();
@@ -118,9 +161,23 @@ async function main() {
   }
 
   for (const d of DYNAMIC) {
-    const r = await probe(`${origin}${d.path}`);
-    if (r.status !== 200) note(d.path, `HTTP ${r.status}`, "dynamic surface did not serve");
-    else if (!d.type.test(r.type)) note(d.path, r.type || "(none)", `expected ${d.type}`);
+    const r = await probe(`${origin}${d.path}`, { keepBody: Boolean(d.mustLink) });
+    if (r.status !== 200) {
+      note(d.path, `HTTP ${r.status}`, "dynamic surface did not serve");
+      continue;
+    }
+    if (!d.type.test(r.type)) note(d.path, r.type || "(none)", `expected ${d.type}`);
+    if (d.mustLink && !d.mustLink.test(r.body)) {
+      const known = KNOWN_EMPTY_INDEXES.get(d.path);
+      if (known) knownGaps.push(`${d.path}: ${known}`);
+      else {
+        note(
+          d.path,
+          `200, ${r.bytes} bytes, no matching links`,
+          "an index that links to nothing — the page renders, the content is absent",
+        );
+      }
+    }
   }
 
   for (const p of APP_SHELL) {
@@ -141,9 +198,16 @@ async function main() {
 
   const checked = routes.length + DYNAMIC.length + APP_SHELL.length + 1;
   if (process.argv.includes("--json")) {
-    console.log(JSON.stringify({ origin, checked, failures }, null, 2));
+    console.log(JSON.stringify({ origin, checked, failures, knownGaps }, null, 2));
   } else {
     console.log(`probed ${checked} URLs against ${origin}`);
+    // Printed before the verdict, always. A known gap that only appears in a
+    // failing run is invisible on exactly the runs where it is the whole story.
+    if (knownGaps.length > 0) {
+      console.log(`\n! ${knownGaps.length} known gap(s), reported not failed:`);
+      for (const g of knownGaps) console.log(`   ${g}`);
+      console.log("");
+    }
     if (failures.length === 0) {
       console.log(`✓ all clear — ${routes.length} registered routes, ${DYNAMIC.length} dynamic surfaces, ${APP_SHELL.length} app routes, 1 junk path`);
     } else {

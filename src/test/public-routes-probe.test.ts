@@ -65,3 +65,37 @@ describe("US-2611: it runs against a deploy, never against a pull request", () =
     expect(wf).toContain("src/lib/seo");
   });
 });
+
+describe("US-2618: an index that links to nothing", () => {
+  const src = read(SCRIPT);
+
+  it("checks that /help and /blog actually link to their content", () => {
+    // A status code cannot see this. /help served 200 at 15KB with zero article
+    // links while 83 written articles sat in content/help/ and the loader was
+    // wired to nothing. Every check we had said the page was fine.
+    expect(src).toContain("mustLink");
+    // Substring rather than a regex-of-a-regex: escaping a pattern that is
+    // itself a pattern is how this assertion stops meaning anything.
+    expect(src).toContain('mustLink: /href="\\/help\\/[^"]+"/');
+    expect(src).toContain('mustLink: /href="\\/blog\\/[^"]+"/');
+  });
+
+  it("keeps known-empty indexes as a named, shrink-only exception", () => {
+    // Reported rather than failed, because the condition is true today and a
+    // check that is red on the day it ships gets ignored before it earns any
+    // authority. The entry has to name the work that removes it.
+    expect(src).toContain("KNOWN_EMPTY_INDEXES");
+    expect(src).toContain("SHRINK-ONLY");
+    expect(src).toMatch(/US-2618/);
+    expect(src).toMatch(/help:seed/);
+  });
+
+  it("prints known gaps before the verdict, not only on a green run", () => {
+    // A gap that shows up only when everything else passes is invisible on
+    // exactly the runs where it is the whole story.
+    const printOrder = src.indexOf("known gap(s), reported not failed");
+    const verdict = src.indexOf("all clear —");
+    expect(printOrder).toBeGreaterThan(0);
+    expect(printOrder).toBeLessThan(verdict);
+  });
+});
