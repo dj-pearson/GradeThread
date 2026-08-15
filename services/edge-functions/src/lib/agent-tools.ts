@@ -26,6 +26,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { AgentRow, AgentToolRegistry } from "./agent-kernel.ts";
 import { supabaseAdmin } from "./supabase.ts";
+import { unifiedHelpCorpusEnabled } from "./support-tools.ts";
 import { fetchAllPages } from "./paged-read.ts";
 import { isPlaceholderRelease, resolveRelease } from "./release-identity.ts";
 import { aggregateJobStats, failingJobCount, isRunnableJob, type RawRun } from "./ops-jobs.ts";
@@ -782,12 +783,28 @@ export function prodToolIO(): ToolIO {
       }));
     },
     fetchKbCatalog: async (limit) => {
-      const { data } = await supabaseAdmin
-        .from("support_kb_articles")
-        .select("slug, title")
-        .eq("is_published", true)
-        .order("title", { ascending: true })
-        .limit(limit);
+      // US-2594: same flag as the retrieval tool, and it must move WITH it —
+      // a catalog listing one corpus while search reads the other would offer
+      // the operator titles the assistant cannot then quote.
+      //
+      // PUBLIC ONLY on the help side. This catalog exists to show what the
+      // assistant can answer from, and the widest audience it answers is the
+      // anonymous one; listing `members` titles here would advertise articles
+      // most askers cannot be shown.
+      const { data } = unifiedHelpCorpusEnabled()
+        ? await supabaseAdmin
+          .from("help_articles")
+          .select("slug, title")
+          .eq("status", "published")
+          .eq("visibility", "public")
+          .order("title", { ascending: true })
+          .limit(limit)
+        : await supabaseAdmin
+          .from("support_kb_articles")
+          .select("slug, title")
+          .eq("is_published", true)
+          .order("title", { ascending: true })
+          .limit(limit);
       return ((data ?? []) as Array<{ slug: string; title: string }>).map((r) => ({ slug: String(r.slug), title: String(r.title) }));
     },
     persistTicketTriage: async (items, nowIso) => {

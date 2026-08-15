@@ -60,7 +60,10 @@ export type MeasureAutofillReason =
   | "no_measurable_fields"
   | "already_measured"
   | "calibration_failed"
-  | "extract_failed";
+  | "extract_failed"
+  // US-2608: the pass ran and the model answered, but every value failed its
+  // plausibility band, so nothing was saved. Success that fills nothing.
+  | "all_rejected";
 
 export interface MeasureAutofillResult {
   ran: boolean;
@@ -433,12 +436,23 @@ async function runAutofill(
     /* best-effort logging */
   }
 
+  // US-2608: the pass ran, the card read, the model answered — and every value
+  // it produced failed its plausibility band, so nothing was written. That is a
+  // DIFFERENT outcome from "it worked", and reporting it as success is how a
+  // seller ends up staring at an empty measurements box after a pass that
+  // charged them an AI action. The rejected lines are still on the photo for
+  // the editor to draw.
+  const rejected = result.measurements.filter((m) => m.flagged).map((m) => m.key);
+  const allRejected = merged.written.length === 0 && rejected.length > 0;
+
   return {
     ran: true,
     group,
     written: merged.written,
-    reason: null,
-    message: null,
+    reason: allRejected ? "all_rejected" : null,
+    message: allRejected
+      ? `Measured ${rejected.join(", ")} but the numbers came out implausible, so none were saved — open the editor and drag each line onto the right landmark.`
+      : null,
     model: result.model,
     tokensIn: result.tokensIn,
     tokensOut: result.tokensOut,

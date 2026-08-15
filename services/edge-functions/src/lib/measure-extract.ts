@@ -69,9 +69,18 @@ export function plausibilityBand(
     "outerwear.sleeve": [5, 40],
     "bottom.waist": [10, 32],
     "bottom.inseam": [4, 40],
-    "bottom.rise": [6, 20],
+    // US-2608: was [6, 20]. A 20in front rise is not a garment — adult rises run
+    // roughly 8-13in and the extremes of high-waisted vintage and low-rise still
+    // sit inside 7-16. The old ceiling was wide enough to wave through the exact
+    // failure this band exists to catch: when the model puts the crotch partway
+    // down the leg, the rise absorbs the error and the inseam loses it, and a
+    // rise of 17-20in read as plausible.
+    "bottom.rise": [7, 16],
     "bottom.hip": [12, 36],
     "bottom.leg_opening": [3, 16],
+    "suit.waist": [10, 32],
+    "suit.inseam": [4, 40],
+    "suit.rise": [7, 16],
     "dress.bust": [12, 34],
     "dress.waist": [10, 32],
     "dress.hip": [12, 36],
@@ -177,6 +186,66 @@ export function normalizeProposals(
 }
 
 /**
+ * US-2608: `rise` and `inseam` are not two independent measurements. They are
+ * two rays from ONE landmark — the crotch — and the tool asks for them
+ * separately, so nothing ever checked that the model put that landmark in the
+ * same place twice.
+ *
+ * That is the failure mode this catches, and it is the one sellers actually
+ * report: the crotch lands partway down the leg, the rise swallows the error
+ * and the inseam loses it. The SUM stays about right, which is why neither
+ * number looks obviously wrong on its own and why per-key bands can miss it.
+ *
+ * Orientation: the prompt asks for a flat, top-down shot, so the waistband is
+ * above the crotch and the hem below it. That makes the crotch the LOWER end of
+ * the rise (larger y) and the UPPER end of the inseam (smaller y). A garment
+ * shot sideways breaks that assumption rather than the check, so the check
+ * stands down unless both measurements are predominantly vertical.
+ *
+ * Disagreement flags BOTH — we know one of them is wrong and not which.
+ */
+export const CROTCH_AGREEMENT_IN = 1;
+
+function crotchEndOf(
+  m: ExtractedMeasurement,
+  which: "lower" | "upper",
+): [number, number] | null {
+  const [a, b] = m.endpoints;
+  const dx = Math.abs(b[0] - a[0]);
+  const dy = Math.abs(b[1] - a[1]);
+  if (dy <= dx) return null; // not a vertical measurement — orientation unknown
+  const aIsLower = a[1] > b[1];
+  if (which === "lower") return aIsLower ? a : b;
+  return aIsLower ? b : a;
+}
+
+export function reconcileCrotch(
+  measurements: ExtractedMeasurement[],
+  homography: number[],
+): ExtractedMeasurement[] {
+  const rise = measurements.find((m) => m.key === "rise");
+  const inseam = measurements.find((m) => m.key === "inseam");
+  if (!rise || !inseam) return measurements;
+  const fromRise = crotchEndOf(rise, "lower");
+  const fromInseam = crotchEndOf(inseam, "upper");
+  if (!fromRise || !fromInseam) return measurements;
+
+  // Compare on the CARD PLANE, so the tolerance is inches of garment rather
+  // than pixels of whatever resolution the seller's phone shoots.
+  const [ax, ay] = applyHomography(homography, fromRise[0], fromRise[1]);
+  const [bx, by] = applyHomography(homography, fromInseam[0], fromInseam[1]);
+  const gap = Math.hypot(ax - bx, ay - by);
+  if (gap <= CROTCH_AGREEMENT_IN) return measurements;
+
+  const reason = `crotch_disagreement_${roundQuarterInch(gap)}in`;
+  return measurements.map((m) =>
+    m.key === "rise" || m.key === "inseam"
+      ? { ...m, flagged: true, flagReason: m.flagReason ?? reason }
+      : m
+  );
+}
+
+/**
  * Fill-only merge into the item's stores. A value the seller typed (present
  * with NO ai provenance) is never overwritten; an AI-measured value refreshes;
  * blanks fill. Returns the patched maps plus which keys were written.
@@ -194,6 +263,17 @@ export function mergeMeasurementsFillOnly(
   const aiFieldSources = { ...(aiSources ?? {}) };
   const written: string[] = [];
   for (const m of extracted) {
+    // US-2608: a measurement we do not believe must not become a buyer-facing
+    // fact. `flagged` means the value failed its plausibility band or the model
+    // was unsure, and until now it was written anyway — onto the item, into the
+    // eBay Size specifics, and burned into the measurements photo the buyer
+    // sees. A wrong inseam published as a number is worse than a blank, because
+    // a blank is honest and a number is a promise.
+    //
+    // The measurement is still RETURNED (and its line still stored), so the
+    // editor draws it for the seller to drag onto the right landmark — which is
+    // the one place a human can fix it.
+    if (m.flagged) continue;
     const existing = measurements[m.key];
     const hasValue = existing != null && String(existing).trim() !== "";
     const aiOwned = `measurements.${m.key}` in aiFieldSources;
@@ -219,8 +299,15 @@ const LANDMARK_GUIDANCE: Record<string, string> = {
   shoulder: "left shoulder seam to right shoulder seam, straight across the back",
   sleeve: "shoulder seam to the end of the cuff, along the sleeve",
   waist: "left edge of the waistband to the right edge, straight across",
-  inseam: "crotch seam straight down to the bottom of the leg hem",
-  rise: "crotch seam up to the top of the front waistband",
+  // US-2608: the crotch is the landmark this pass gets wrong, and it costs two
+  // measurements at once — the rise absorbs the error and the inseam loses it.
+  // Naming the geometry ("the POINT where the two inner leg seams MEET") beats
+  // naming the part ("crotch seam"), because the seam is a long line and the
+  // model was picking a point partway along it, down the inside of the leg.
+  inseam:
+    "start at the CROTCH POINT — the single point where the two inner leg seams meet, in the UPPER part of the garment just below the waistband, NOT partway down the leg — then straight down to the bottom of the leg hem",
+  rise:
+    "start at the SAME CROTCH POINT used for the inseam (where the two inner leg seams meet) and go straight up to the top edge of the front waistband; on most garments this is 8-13 inches",
   hip: "widest point of the hips, straight across",
   leg_opening: "one edge of the leg hem to the other, straight across",
   insole: "heel end of the insole to the toe end",
@@ -380,7 +467,7 @@ export async function extractMeasurements(
   }
 
   return {
-    measurements: results,
+    measurements: reconcileCrotch(results, input.homography),
     model: response.model ?? model,
     tokensIn: response.usage?.input_tokens ?? 0,
     tokensOut: response.usage?.output_tokens ?? 0,

@@ -100,6 +100,13 @@ export function measurePassNote(pass: MeasurePass | null): string | null {
       return "This category isn't measured from a photo.";
     case "extract_failed":
       return "The card was read but measuring failed. Try again in a moment.";
+    case "all_rejected":
+      // US-2608: the pass ran and produced numbers, and every one of them was
+      // rejected as implausible. Nothing was saved, on purpose — a wrong inseam
+      // published as a number is worse than a blank. The lines are still drawn
+      // below for dragging, which is the fix a human can actually make.
+      return pass.message ??
+        "The measurements came out implausible, so none were saved. Drag each line onto the right landmark below and save.";
     default:
       return pass.message;
   }
@@ -304,6 +311,16 @@ export function MeasurementPhotoEditor({
       await qc.invalidateQueries({ queryKey: ["measure_photo", itemId] });
       await qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
       await qc.invalidateQueries({ queryKey: ["items_full"] });
+      // US-2608: "found the card and filled 0 measurements" is not a success.
+      // Every value can be rejected as implausible, and saying so — with the
+      // lines still drawn to drag — beats a green toast over an empty box.
+      if (written.length === 0) {
+        toast.warning(
+          measurePassNote({ reason: json.reason ?? "all_rejected", message: json.message ?? null }) ??
+            "Found the MeasureCard but saved nothing — drag each line onto the right landmark below.",
+        );
+        return;
+      }
       toast.success(
         `Found the MeasureCard and filled ${written.length} measurement(s) — review each line before listing.`,
       );

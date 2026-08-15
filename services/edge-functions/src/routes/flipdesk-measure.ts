@@ -510,14 +510,25 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
   for (const [key, l] of Object.entries(lineMap)) {
     // The saved item measurement (editor-corrected) wins over extract-time.
     const saved = Number((item.measurements ?? {})[key]);
-    const inches = Number.isFinite(saved) && saved > 0 ? saved : l.inches;
-    lines.push({ key, label: l.label, e1: l.e1, e2: l.e2, inches });
+    // US-2608: ONLY saved measurements are rendered. A line exists for every
+    // landmark the model proposed, including the ones the plausibility bands
+    // rejected — those are kept so the editor can draw them for the seller to
+    // drag, but they are exactly the numbers that must never be burned into the
+    // photo a buyer sees. Falling back to `l.inches` here published the
+    // rejected value under a picture of a tape measure, which is the most
+    // credible a wrong number can possibly look.
+    if (!Number.isFinite(saved) || saved <= 0) continue;
+    lines.push({ key, label: l.label, e1: l.e1, e2: l.e2, inches: saved });
   }
   if (lines.length === 0) {
     return c.json(
       {
-        error:
-          "No measurement lines yet — run /measure/extract (or place lines in the editor) first.",
+        error: Object.keys(lineMap).length > 0
+          // US-2608: lines exist but none is a saved measurement — every one was
+          // rejected as implausible. Say that, rather than "run extract first",
+          // which sends the seller to re-run the pass that just failed.
+          ? "Every measurement on this photo was rejected as implausible — open the editor, drag each line onto the right landmark and save, then regenerate the photo."
+          : "No measurement lines yet — run /measure/extract (or place lines in the editor) first.",
       },
       422,
     );

@@ -500,6 +500,39 @@ function kbSnippet(body: string, query: string, max = KB_SNIPPET_MAX): string {
   return snip;
 }
 
+/**
+ * US-2594: read `help_articles` instead of `support_kb_articles`.
+ *
+ * OFF BY DEFAULT AND FAIL-CLOSED, because the two corpora converge in a
+ * specific ORDER and the wrong order fails quietly. The rows have to land in
+ * `help_articles` first; flipping this before they do leaves the assistant
+ * searching an empty table, and its designed behaviour on an empty result is to
+ * say it does not know and offer a human. That is a total outage of the support
+ * assistant wearing the face of a polite answer, which is exactly the kind of
+ * failure nobody files a bug about.
+ *
+ * So the sequence is: run `scripts/migrate-support-kb-to-help.mjs --apply`,
+ * check the row count, THEN set HELP_CORPUS_UNIFIED=1. See
+ * vault/20-domain/help-corpus-convergence.md.
+ */
+export function unifiedHelpCorpusEnabled(): boolean {
+  const v = (Deno.env.get("HELP_CORPUS_UNIFIED") ?? "").trim().toLowerCase();
+  return v === "1" || v === "true";
+}
+
+/**
+ * The visibilities an asker may be shown, widest-first.
+ *
+ * The three-value model is not the two-value one with a rename. `internal` is
+ * new and holds operator runbooks, and it is readable by NOBODY through this
+ * tool — not by a subscriber, not by an admin asking through the assistant.
+ * Retrieval feeds a model that quotes what it is given, so the safe rule is the
+ * one with no caller-dependent exception to get wrong later.
+ */
+export function visibleHelpVisibilities(audience: KbAudience): string[] {
+  return audience === "subscriber" ? ["public", "members"] : ["public"];
+}
+
 export async function searchKnowledgeBase(
   args: KbSearchArgs,
   db: SupportDb = defaultDb,
@@ -508,17 +541,25 @@ export async function searchKnowledgeBase(
   // No query → no fabrication, explicit empty set.
   if (!query) return [];
 
-  const audiences = visibleAudiences(args.audience);
+  // `websearch` is the most forgiving parse for free-text user questions, and
+  // both corpora carry a weighted GIN-indexed `search_tsv` — 00183 for the
+  // support KB, 00603 for help_articles — so the shape of the query is the same
+  // either side of the flag. Only PUBLISHED rows the asker is allowed to see
+  // are ever matched. The body comes back so the snippet can be derived here;
+  // a whole article is never returned.
+  const q = unifiedHelpCorpusEnabled()
+    ? db
+      .from("help_articles")
+      .select("slug, title, body_markdown")
+      .eq("status", "published")
+      .in("visibility", visibleHelpVisibilities(args.audience))
+    : db
+      .from("support_kb_articles")
+      .select("slug, title, body_md")
+      .eq("is_published", true)
+      .in("audience", visibleAudiences(args.audience));
 
-  // FTS via the GIN tsvector index (idx_support_kb_articles_search_tsv).
-  // `websearch` is the most forgiving parse for free-text user questions. Only
-  // PUBLISHED rows in an allowed audience are ever matched. Fetch the body so we
-  // can derive a snippet locally; never return the whole article.
-  const { data, error } = await db
-    .from("support_kb_articles")
-    .select("slug, title, body_md")
-    .eq("is_published", true)
-    .in("audience", audiences)
+  const { data, error } = await q
     .textSearch("search_tsv", query, { config: "english", type: "websearch" })
     .limit(KB_MAX_RESULTS);
   if (error || !data) return [];
@@ -528,6 +569,9 @@ export async function searchKnowledgeBase(
     .map((r) => ({
       slug: String(r.slug ?? ""),
       title: String(r.title ?? ""),
-      snippet: kbSnippet(String(r.body_md ?? ""), query),
+      // Whichever corpus answered, the body column differs and the snippet
+      // does not. `??` rather than `||` so an article whose body is genuinely
+      // empty stays empty instead of silently reading the other column.
+      snippet: kbSnippet(String(r.body_markdown ?? r.body_md ?? ""), query),
     }));
 }

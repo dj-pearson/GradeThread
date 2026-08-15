@@ -64,3 +64,31 @@ describe("US-2607: the measure pass explains itself", () => {
     expect(edge).toContain('MEASURE_PASS_KEY = "measurements._pass"');
   });
 });
+
+describe("US-2608: a rejected measurement is not a success", () => {
+  it("explains that nothing was saved, and what to do instead", () => {
+    const note = measurePassNote({ reason: "all_rejected", message: null });
+    expect(note).toMatch(/implausible/i);
+    expect(note).toMatch(/drag/i);
+  });
+
+  it("prefers the server's list of what it rejected", () => {
+    expect(
+      measurePassNote({
+        reason: "all_rejected",
+        message: "Measured rise, inseam but the numbers came out implausible.",
+      }),
+    ).toBe("Measured rise, inseam but the numbers came out implausible.");
+  });
+
+  it("the composer warns rather than celebrates when nothing was filled", () => {
+    // A green "found the card!" toast over an empty measurements box is the
+    // thing that made this feature feel broken three separate times.
+    const src = readFileSync(
+      "src/components/flipdesk/measurement-photo-editor.tsx",
+      "utf8",
+    );
+    expect(src).toContain("if (written.length === 0)");
+    expect(src).toContain("toast.warning(");
+  });
+});

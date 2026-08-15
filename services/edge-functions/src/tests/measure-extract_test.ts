@@ -133,15 +133,20 @@ Deno.test("fill-only merge: seller values survive, AI values refresh, blanks fil
   );
   assertEquals(merged.measurements["chest"], 21); // seller wins
   assertEquals(merged.measurements["length"], 28.5); // AI refreshes AI
-  assertEquals(merged.measurements["sleeve"], 25); // blank fills
-  assertEquals(merged.written.sort(), ["length", "sleeve"]);
+  // US-2608: the sleeve was FLAGGED (low confidence), so the blank stays blank.
+  // This used to fill it, which is how an implausible number reached the item,
+  // the eBay Size specifics and the measurements photo a buyer sees. A blank is
+  // honest; a number is a promise.
+  assert(!("sleeve" in merged.measurements));
+  assertEquals(merged.written.sort(), ["length"]);
   assert(!("measurements.chest" in merged.aiFieldSources));
-  const sleeveSrc = merged.aiFieldSources["measurements.sleeve"] as {
+  assert(!("measurements.sleeve" in merged.aiFieldSources));
+  const lengthSrc = merged.aiFieldSources["measurements.length"] as {
     source: string;
     flagged: boolean;
   };
-  assertEquals(sleeveSrc.source, "ai_measured");
-  assertEquals(sleeveSrc.flagged, true);
+  assertEquals(lengthSrc.source, "ai_measured");
+  assertEquals(lengthSrc.flagged, false);
 });
 
 Deno.test("endpoints through a calibration homography yield true inches", () => {
@@ -163,4 +168,110 @@ Deno.test("measurement-templates edge mirror matches the web copy byte-for-byte"
     new URL("../../../../src/lib/measurement-templates.ts", import.meta.url),
   );
   assertEquals(edge, web, "regenerate the edge mirror from src/lib/measurement-templates.ts");
+});
+
+// ── US-2608: the crotch is ONE landmark, and a number we don't believe ────────
+//    never becomes a buyer-facing fact.
+
+const { reconcileCrotch, CROTCH_AGREEMENT_IN } = await import(
+  "../lib/measure-extract.ts"
+);
+
+/** 100 px/in pure-scale calibration: image px / 100 = inches. */
+const SCALE_H = [1 / 100, 0, 0, 0, 1 / 100, 0, 0, 0, 1];
+
+function bottomPair(
+  riseCrotch: [number, number],
+  inseamCrotch: [number, number],
+) {
+  return [
+    {
+      // rise runs UP from the crotch to the waistband
+      key: "rise",
+      label: "Front rise",
+      endpoints: [riseCrotch, [riseCrotch[0], riseCrotch[1] - 1000]] as
+        [[number, number], [number, number]],
+      inches: 10,
+      confidence: 0.9,
+      flagged: false,
+      flagReason: null,
+    },
+    {
+      // inseam runs DOWN from the crotch to the hem
+      key: "inseam",
+      label: "Inseam",
+      endpoints: [inseamCrotch, [inseamCrotch[0], inseamCrotch[1] + 3000]] as
+        [[number, number], [number, number]],
+      inches: 30,
+      confidence: 0.9,
+      flagged: false,
+      flagReason: null,
+    },
+  ];
+}
+
+Deno.test("US-2608: rise and inseam agreeing on the crotch are left alone", () => {
+  // Same point, so nothing to reconcile.
+  const out = reconcileCrotch(bottomPair([500, 1200], [500, 1200]), SCALE_H);
+  assert(out.every((m) => !m.flagged));
+});
+
+Deno.test("US-2608: a crotch the two measurements disagree on flags BOTH", () => {
+  // 300px apart at 100px/in = 3in — well past the 1in tolerance. One of the two
+  // is wrong and we cannot tell which, so neither may be published.
+  const out = reconcileCrotch(bottomPair([500, 1200], [500, 1500]), SCALE_H);
+  assertEquals(out.filter((m) => m.flagged).map((m) => m.key).sort(), [
+    "inseam",
+    "rise",
+  ]);
+  assert(out[0].flagReason?.startsWith("crotch_disagreement"));
+});
+
+Deno.test("US-2608: a gap inside the tolerance is not a disagreement", () => {
+  // Half an inch apart — landmark jitter, not a mislocated crotch.
+  const out = reconcileCrotch(bottomPair([500, 1200], [500, 1250]), SCALE_H);
+  assert(out.every((m) => !m.flagged));
+  assert(CROTCH_AGREEMENT_IN >= 0.5);
+});
+
+Deno.test("US-2608: the check stands down on a garment shot sideways", () => {
+  // Both measurements horizontal: "above" and "below" carry no meaning, so
+  // guessing which endpoint is the crotch would invent a failure.
+  const sideways = [
+    {
+      key: "rise",
+      label: "Front rise",
+      endpoints: [[1200, 500], [200, 500]] as [[number, number], [number, number]],
+      inches: 10,
+      confidence: 0.9,
+      flagged: false,
+      flagReason: null,
+    },
+    {
+      key: "inseam",
+      label: "Inseam",
+      endpoints: [[1500, 500], [4500, 500]] as [[number, number], [number, number]],
+      inches: 30,
+      confidence: 0.9,
+      flagged: false,
+      flagReason: null,
+    },
+  ];
+  assert(reconcileCrotch(sideways, SCALE_H).every((m) => !m.flagged));
+});
+
+Deno.test("US-2608: a garment with only one of the pair is untouched", () => {
+  const riseOnly = bottomPair([500, 1200], [500, 9999]).slice(0, 1);
+  assert(reconcileCrotch(riseOnly, SCALE_H).every((m) => !m.flagged));
+});
+
+Deno.test("US-2608: the rise band rejects the mislocated-crotch signature", () => {
+  // The failure sellers report: the crotch lands partway down the leg, so the
+  // rise swallows the error. 18in is not a rise on any garment, and the old
+  // [6, 20] band waved exactly this through.
+  const [lo, hi] = plausibilityBand("bottom", "rise", null)!;
+  assert(18 > hi, "an 18in front rise must be outside the band");
+  assert(lo <= 8 && hi >= 13, "ordinary rises (8-13in) must stay inside it");
+  // A suit's trouser half is measured with the same tape.
+  assertEquals(plausibilityBand("suit", "rise", null), [lo, hi]);
 });
