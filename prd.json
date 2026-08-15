@@ -1892,21 +1892,6 @@
       "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] DECISION: articles are DATABASE rows rendered to complete server HTML at the edge (the functions/blog/[[path]].ts pattern), NOT static .html files. A crawler cannot tell the difference; static files would mean a rebuild+deploy per typo and would fork the public copy from the in-app copy. Public by default; only operator/abuse/unreleased docs are visibility='gated'. Name collision warning: src/pages/content/knowledge.tsx already exists and is the AI-prompt reference docs, a different thing. Call this surface Help Center everywhere, never Knowledge. [CODE SLICE COMPLETE 2026-08-14 - commit a4137ed5, HELD] Migration 00602_help_center_articles.sql: 3 enums, help_categories + help_articles, 5 indexes, 2 updated_at triggers, 6 RLS policies, 14 seeded categories. EXPECTED_SCHEMA_VERSION -> 00602 same commit, manifest regenerated, self-record footer present; schema-version_test + rls-guard_test green, full deno test 2544/0, full web verify green except a pre-existing nanoid npm-audit high. DEVIATION FROM AC: visibility is public|members|internal, NOT public|gated - gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer. AC4 registration in SERVICE_ROLE_ONLY was deliberately NOT done: that list is for zero-policy deny-all tables and this one has policies, no user_id and no parent FK, so rls-guard does not classify it. NOT verified against a real Postgres - Docker was down so the verify:db lane skipped; nothing has executed this SQL. REMAINING (user): start Docker + npm run verify:db, then apply 00601 and 00602 to prod, NOTIFY pgrst, redeploy edge, then OK the push. See PENDING_MIGRATIONS.md."
     },
     {
-      "id": "US-2590",
-      "title": "[HELP CENTER CONTENT] Troubleshooting, plus the gated operator set",
-      "description": "The last two categories, and the only place in the epic where anything is hidden. Troubleshooting is public because it is exactly what people search at the moment they are most likely to churn. The operator set is gated because it describes how the company defends itself.",
-      "acceptanceCriteria": [
-        "Public troubleshooting articles: cannot sign in, upload failed, a photo rotated the wrong way, the grade seems wrong, an eBay listing is stuck, an offer will not send, the app logged me out, and the extension is not appearing.",
-        "Gated (visibility='gated') articles: the admin review queue, grading prompt versions and the canary process, the human-review workflow, refund and dispute handling, key rotation, an incident-response summary, abuse and rate-limit thresholds, and unreleased feature notes.",
-        "No gated article contains a secret VALUE. It names where the secret is stored, per the Pearson Media rule.",
-        "A test asserts every gated article is absent from the public API, every sitemap, llms.txt and the prerender output.",
-        "Each gated article links to its vault runbook rather than duplicating it, so there is one source of truth."
-      ],
-      "priority": 80,
-      "passes": false,
-      "notes": "[HELP CENTER EPIC US-2572..US-2592 - planned 2026-08-14] "
-    },
-    {
       "id": "US-2591",
       "title": "[HELP CENTER] Freshness, review cadence and helpfulness feedback",
       "description": "A help center rots faster than marketing copy, because it describes a UI that changes weekly. Screenshots go stale silently and a wrong article is worse than no article.",

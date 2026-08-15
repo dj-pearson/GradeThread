@@ -217,3 +217,69 @@ describe("the in-product buttons line up", () => {
     }
   });
 });
+
+describe("the internal set (US-2590)", () => {
+  const internal = articles.filter((a) => a.visibility === "internal");
+
+  it("exists", () => {
+    expect(internal.length).toBeGreaterThan(0);
+  });
+
+  it("every internal article is marked 'internal', never 'members'", () => {
+    // members = any signed-in CUSTOMER. Operator runbooks are not
+    // customer-readable just because somebody signed up.
+    for (const a of internal) {
+      expect(a.visibility, a.slug).toBe("internal");
+      expect(a.audience, a.slug).toBe("operator");
+    }
+  });
+
+  it("no internal article contains a secret VALUE", () => {
+    // The rule is: name where the secret lives, never the value. A runbook
+    // holding a value puts it in every backup and search index it touches.
+    const SECRET_SHAPES = [
+      /\bsk[-_][A-Za-z0-9]{16,}/, // stripe-style
+      /\bey[A-Za-z0-9_-]{20,}\./, // JWT
+      /\bAKIA[0-9A-Z]{16}\b/, // aws
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+      /\b[A-Za-z0-9+/]{40,}={0,2}\b/, // long base64 run
+      /\b[0-9a-f]{32,}\b/i, // long hex run
+    ];
+    for (const a of internal) {
+      for (const re of SECRET_SHAPES) {
+        expect(a.body_markdown, `${a.slug} matches ${re}`).not.toMatch(re);
+      }
+    }
+  });
+
+  it("every internal article links a vault note or a skill rather than restating it", () => {
+    // One source of truth. A runbook copied into an article is a runbook that
+    // will disagree with itself.
+    for (const a of internal) {
+      const linksVault = /\[\[[a-z0-9-]+\]\]/.test(a.body_markdown);
+      const linksSkill = /`[a-z-]+` skill/.test(a.body_markdown);
+      expect(linksVault || linksSkill, `${a.slug} links no vault note or skill`).toBe(true);
+    }
+  });
+
+  it("no PUBLIC article links a vault note", () => {
+    // Wikilinks are an internal navigation device. One in a public article
+    // renders as literal double brackets on a page a customer is reading.
+    for (const a of articles.filter((x) => x.visibility === "public")) {
+      expect(a.body_markdown, `${a.slug} contains a wikilink`).not.toMatch(/\[\[[a-z0-9-]+\]\]/);
+    }
+  });
+
+  it("the vault notes they link actually exist", () => {
+    const names = new Set(
+      readdirSync(join(root, "vault"), { recursive: true, withFileTypes: true })
+        .filter((d) => d.isFile() && d.name.endsWith(".md"))
+        .map((d) => d.name.replace(/\.md$/, "")),
+    );
+    for (const a of internal) {
+      for (const m of a.body_markdown.matchAll(/\[\[([a-z0-9-]+)\]\]/g)) {
+        expect(names.has(m[1]!), `${a.slug} links [[${m[1]}]] which does not exist`).toBe(true);
+      }
+    }
+  });
+});

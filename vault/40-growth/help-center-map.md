@@ -182,16 +182,36 @@ answer in the same place, not a trail of three.
 
 ## troubleshooting
 
+`the-app-logged-me-out` was folded into [[#mobile]]'s `staying-signed-in`
+rather than written twice: the diagnosis is the same on web and on a phone, and
+the interval between logouts is the thing that identifies it either way.
+
 | Slug | Visibility | Status |
 |---|---|---|
-| cannot-sign-in | public | planned |
-| upload-failed | public | planned |
-| a-photo-rotated-wrong | public | planned |
-| the-grade-seems-wrong | public | planned |
-| an-ebay-listing-is-stuck | public | planned |
-| an-offer-will-not-send | public | planned |
-| the-app-logged-me-out | public | planned |
-| the-extension-is-not-appearing | public | planned |
+| cannot-sign-in | public | written |
+| upload-failed | public | written |
+| a-photo-rotated-wrong | public | written |
+| the-grade-seems-wrong | public | written |
+| an-ebay-listing-is-stuck | public | written |
+| an-offer-will-not-send | public | written |
+| the-extension-is-not-appearing | public | written |
+
+## internal (US-2590)
+
+Every row is `visibility: internal`, `audience: operator`, and sits on the
+troubleshooting shelf. None contains a secret VALUE; each names where the value
+lives and links its vault runbook rather than restating it, so there is one
+source of truth. Guarded by `src/test/help-content.test.ts`, which greps for
+secret-shaped strings and checks every linked vault note exists.
+
+| Slug | Links to | Status |
+|---|---|---|
+| ops-the-review-queue | `grading-engine` skill, [[grading-scale-and-weights]] | written |
+| ops-prompt-versions-and-canary | `grading-engine` skill, [[grading-prompt-channels]] | written |
+| ops-refunds-and-disputes | [[billing-refunds]] | written |
+| ops-key-rotation | [[key-rotation]], [[env-reference]] | written |
+| ops-incident-response | [[incident-response]], [[edge-hang-vs-crash-loop]] | written |
+| ops-abuse-and-rate-limits | [[capacity]], [[env-reference]] | written |
 
 ## account
 
@@ -201,20 +221,6 @@ answer in the same place, not a trail of three.
 | exporting-your-data | members | planned |
 | deleting-your-account | public | planned |
 
-## internal (US-2590)
-
-Every row here is `visibility: internal`. None contains a secret VALUE; each
-names where the secret lives and links its vault runbook rather than restating
-it, so there is one source of truth.
-
-| Slug | Links to | Status |
-|---|---|---|
-| ops-the-review-queue | grading-engine skill | planned |
-| ops-prompt-versions-and-canary | grading-engine skill | planned |
-| ops-refunds-and-disputes | [[billing-refunds]] | planned |
-| ops-key-rotation | [[key-rotation]] | planned |
-| ops-incident-response | [[incident-response]] | planned |
-| ops-abuse-thresholds | [[capacity]] | planned |
 
 ## Related
 
