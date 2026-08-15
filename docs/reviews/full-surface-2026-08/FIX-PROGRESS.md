@@ -232,6 +232,16 @@ unless a story is blocked; if blocked, note why and move to the next.
 
 
 ### Follow-ups filed during the loop
+- [~] US-2561 (unranked) iOS support tickets: attachments and close - SLICE SHIPPED
+      `ec9d3a8d` (still OPEN). Every AC is Swift. All five premises VERIFIED against
+      the running code; the endpoints all exist and none needed adding. New
+      `src/lib/support-attachment-contract.ts` pins the protocol, and the guard reads
+      every value back out of the code that serves it. Catches the three things a
+      second client gets wrong: the limit already lives in TWO constants (a Swift one
+      is the third), the key is `data_url` not `dataUrl` (camelCase decodes to null
+      and blames the bytes), and a signed url dies TWO ways - null, and a perfectly
+      good string that expires after 600s. Guard `src/test/support-attachment-contract.test.ts`
+      (19 cases), verified to bite on 4 simultaneous drifts. Swift half needs macOS.
 - [~] US-2557 (1953) iOS shows no unread notification count - SLICE SHIPPED `1b3587d2`
       (still OPEN). AC1/AC2 premises VERIFIED as filed. But TWO things the Swift half
       reads from were wrong: **no push has ever carried a badge** (apns.ts has supported
@@ -994,3 +1004,33 @@ host and not the other, so the local one was dropped.
   20, you clicked, it read 0, and the older unread rows stayed unread forever.
   Neither symptom was visible while both halves shared the same wrong source.
   After correcting a count, re-read every action that CHANGES it.
+
+- **Never write a regex that matches a regex.** The data-URL parity check started
+  as a pattern matching the edge's pattern literal and failed on its own
+  escaping. When that breaks you cannot tell a real drift from a backslash you
+  miscounted, which is the opposite of what a guard is for. Slice the literal out
+  as TEXT and compare it to `pattern.source`.
+
+- **A signed URL is dead in two ways and a null-check only catches one.** The
+  obvious case is `url: null` from a signing failure. The one that actually
+  reaches users is a perfectly good STRING that expired: the response was valid
+  when it arrived and rots in place, so nothing about the value says it is dead.
+  Any short-TTL URL handed to a client needs the FETCH TIME travelling with it,
+  and a margin, so a link dying mid-request is treated as already gone. This
+  applies to every `createSignedUrl` surface in the repo, not just support.
+
+- **An "N clients must agree" fact is worth writing down BEFORE the second client
+  exists.** Support's attachment limit already lived in two constants that agree
+  only because nobody has changed one. Filing that as a contract while the Swift
+  half is still blocked is the cheapest this fix will ever be - after the third
+  copy exists, the same work is a three-way reconciliation with a shipped app in
+  it. Third time this loop that the answer to "the edge can't import it" was a
+  contract module plus a source-reading guard (US-2571 taxonomy, US-2560
+  post-sale state, now this).
+
+- **When an AC says "match X", read X first.** AC5 said downscale on device "as
+  the web picker does". Only reading the picker gives you the numbers that
+  actually ship (compressImage, maxWidth 2400, quality 0.85) - and had the web
+  NOT been compressing, the honest answer would have been to say so rather than
+  implement a parity requirement against a bug. Same lesson as US-2557's AC3,
+  twice in two iterations.
