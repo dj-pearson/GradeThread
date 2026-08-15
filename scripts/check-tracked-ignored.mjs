@@ -27,55 +27,26 @@
 import { execFileSync } from "node:child_process";
 
 /**
- * Paths already in this state on 2026-08-08, each with the decision it is
- * waiting on. The list may only SHRINK: a path that leaves the state must leave
- * this list too, which is what stops a "temporary" baseline becoming permanent.
+ * Paths in this state that the owner has decided to keep. EMPTY, and that is
+ * the finished condition rather than a coincidence.
  *
- * None of these is resolvable as a side effect of a lint fix — every one changes
- * what a fresh clone receives, which is the repo owner's call.
+ * US-2437 AC3 (owner, 2026-08-15): all 32 were untracked with
+ * `git rm --cached`. Every one was generated or extracted output that ALSO
+ * carried a gitignore line — 20 unzipped fragments of FlipDesk_PRD_v1.docx (the .docx
+ * itself is tracked and is the artifact), 9 generated hf_* media files, one
+ * App Store screenshot, one .pyc, and supabase/.temp/cli-latest. Nothing in
+ * the repo referenced any of them, and the ignore line was already somebody
+ * saying they should not be tracked.
+ *
+ * Nothing was lost: the files stay on disk and stay in git history, so the
+ * repository does not shrink — what stops is the state where an ignore rule
+ * does nothing and a regenerated file reads as modified forever.
+ *
+ * The list may only SHRINK, so re-adding an entry is not the way to make this
+ * check pass. If a new path shows up, it is a new instance of the same bug and
+ * the fix is to decide which half is wrong, per the message below.
  */
-const KNOWN = [
-  // supabase/.temp/ — written by `supabase start`. US-2437 AC3: this is the
-  // original instance, and the one that cost four dead ignore lines.
-  "supabase/.temp/cli-latest",
-
-  // temp_prd/ — an unzipped .docx (FlipDesk_PRD_v1). Committed as loose OOXML
-  // parts, then ignored as a directory. The .docx itself is the artifact worth
-  // keeping; these 19 fragments are its extracted innards.
-  "temp_prd/[Content_Types].xml",
-  "temp_prd/_rels/.rels",
-  "temp_prd/docProps/app.xml",
-  "temp_prd/docProps/core.xml",
-  "temp_prd/docProps/custom.xml",
-  "temp_prd/word/_rels/comments.xml.rels",
-  "temp_prd/word/_rels/document.xml.rels",
-  "temp_prd/word/_rels/fontTable.xml.rels",
-  "temp_prd/word/_rels/footer1.xml.rels",
-  "temp_prd/word/_rels/footnotes.xml.rels",
-  "temp_prd/word/_rels/header1.xml.rels",
-  "temp_prd/word/comments.xml",
-  "temp_prd/word/document.xml",
-  "temp_prd/word/fontTable.xml",
-  "temp_prd/word/footer1.xml",
-  "temp_prd/word/footnotes.xml",
-  "temp_prd/word/header1.xml",
-  "temp_prd/word/numbering.xml",
-  "temp_prd/word/settings.xml",
-  "temp_prd/word/styles.xml",
-
-  // Generated media / build debris committed before its ignore rule landed.
-  "assets/hf_20260701_161519_a331a38a-3bfe-4cdf-a13a-eaa7a274f1ae.mp4",
-  "assets/hf_20260701_162650_5b7b9767-c2a9-407a-855f-d90ed9f81ea2.mp4",
-  "assets/hf_20260705_193157_0ce821b9-771d-4508-9d53-16c5f6385bd1.mp4",
-  "assets/hf_20260705_193405_5aea28a7-852e-4b53-9186-e95db03acd1f.mp4",
-  "assets/hf_20260705_201453_d8c8b99f-26ba-4a65-b357-1bf1b8689eba.png",
-  "assets/hf_20260705_201507_904f7d95-4d69-484a-a500-0c7f99dad218.png",
-  "assets/hf_20260705_201518_3844d0ee-1389-459c-8fb0-8ca46d99953f.png",
-  "assets/hf_20260705_201527_0367e5bc-a60f-433a-9933-6648f764c801.png",
-  "assets/hf_20260705_201537_db00d1fc-cff5-423e-91fd-cc5548ed5314.png",
-  "ios-screenshots/screenshots-appstore/ipad-13/iPad Pro 13-inch (M4)-01_Home.png",
-  "ios/Scripts/__pycache__/check-ats.cpython-313.pyc",
-];
+const KNOWN = [];
 
 function trackedAndIgnored() {
   const out = execFileSync(
@@ -120,5 +91,7 @@ if (resolved.length > 0) {
 if (failed) process.exit(1);
 
 console.log(
-  `✓ no new tracked-and-ignored files (${KNOWN.length} known, awaiting an owner decision)`,
+  KNOWN.length === 0
+    ? "✓ no tracked-and-ignored files, and no known exceptions"
+    : `✓ no new tracked-and-ignored files (${KNOWN.length} known, awaiting an owner decision)`,
 );
