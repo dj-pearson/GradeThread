@@ -16,7 +16,7 @@
 -- Still strictly read-only: no INSERT, UPDATE, DELETE, CREATE, ALTER or DROP.
 -- ══════════════════════════════════════════════════════════════════
 
--- READ-ONLY production diagnostics. Answers the prod-data questions that eight
+-- READ-ONLY production diagnostics. Answers the prod-data questions that nineteen
 -- open stories are each individually blocked on, in ONE session.
 --
 --   SUPABASE_DB_URL="postgres://…@host:5432/postgres" \
@@ -32,9 +32,9 @@
 -- it is the reason this exists as a script rather than as ad-hoc pasted SQL.
 --
 -- WHY ONE SCRIPT. Each of the stories below has sat open for weeks with its
--- last acceptance criterion reading "needs prod access". That is eight separate
--- asks of the one person who can answer them, which is how a question stops
--- being asked. One paste, one output, every answer.
+-- last acceptance criterion reading "needs prod access". That is nineteen
+-- separate asks of the one person who can answer them, which is how a question
+-- stops being asked. One paste, one output, every answer.
 --
 --   §1  US-2009 AC2 — is any migration MISSING from the middle of the sequence?
 --   §2  US-2009 AC2 — is any recorded migration a PHANTOM with no file?
@@ -55,6 +55,9 @@
 --   §17 US-2398 AC3 — how far off were the admin paid/churn counts?
 --   §18 US-2406 AC5 — has any feature flag been targeted at a plan?
 --   §19 US-2288 AC4 — free-trial exposure: started, converted, and spend.
+--   §20 US-2289 AC5 — who was charged more than once for one garment.
+--   §21 US-2117 — has any agreement row actually recorded a disclosure version?
+--   §22 US-2444 AC1 — what migration 00122 created, read out of the database.
 --
 -- Paste the whole output back. Nothing in it is a secret: no keys, no tokens,
 -- no email addresses, no image URLs. §5 returns dispute IDs and grades, which
@@ -719,6 +722,232 @@ FROM public.account_deletion_log d;
 -- -- enough. (b) above zero means it is already being used and the control
 -- -- has to survive deletion — which is what AC2 asks for, and why it must
 -- -- be keyed on something that outlives the users row.
+
+-- ════════════════════════════════════════════════════════════════
+-- §20 US-2289 AC5 — WHO WAS CHARGED MORE THAN ONCE FOR ONE GARMENT
+-- ════════════════════════════════════════════════════════════════
+-- The bug: gradeBatchItem created a submission and charged on EVERY
+-- invocation, and the reclaim cron re-ran a stale job with no reference to
+-- the attempt that had already paid. MAX_GRADE_JOB_ATTEMPTS is 5, so one
+-- garment could take five debits and produce five certificates. Each
+-- attempt was individually correct, which is why nothing caught it.
+
+-- The fix charges through an idempotency key of grade-batch-job:<job id>,
+-- so post-fix debits are deduped by a partial unique index. That key is
+-- also what makes the damage measurable: a NULL key on a batch-era debit
+-- is a pre-fix charge.
+
+-- -- (a) Per batch: jobs versus debits taken inside its window. A batch
+-- -- where debits exceed jobs was charged more than once for the same work.
+-- -- The window is padded 30 minutes past the batch updated_at because the
+-- -- reclaim runs on a */5 cron and a resumed attempt can settle after the
+-- -- batch row last moved.
+WITH batch_window AS (
+  SELECT b.id                AS batch_id,
+         b.user_id,
+         b.created_at        AS started_at,
+         b.updated_at + interval '30 minutes' AS ended_at,
+         count(j.id)         AS jobs,
+         max(j.attempts)     AS max_attempts
+  FROM public.grading_batches b
+  LEFT JOIN public.grading_batch_jobs j ON j.batch_id = b.id
+  GROUP BY b.id, b.user_id, b.created_at, b.updated_at
+)
+SELECT
+  w.batch_id,
+  w.user_id,
+  w.started_at::date                       AS batch_date,
+  w.jobs,
+  w.max_attempts,
+  count(t.id)                              AS debits_in_window,
+  count(t.id) FILTER (WHERE t.idempotency_key IS NULL) AS pre_fix_debits,
+  greatest(count(t.id) - w.jobs, 0)        AS suspected_extra_charges,
+  abs(sum(t.delta) FILTER (WHERE t.delta < 0))         AS credits_debited
+FROM batch_window w
+LEFT JOIN public.grade_credit_transactions t
+       ON t.user_id = w.user_id
+      AND t.reason  = 'grade_debit'
+      AND t.created_at BETWEEN w.started_at AND w.ended_at
+GROUP BY w.batch_id, w.user_id, w.started_at, w.jobs, w.max_attempts
+HAVING count(t.id) > w.jobs
+ORDER BY suspected_extra_charges DESC, w.started_at DESC
+LIMIT 100;
+
+-- -- (b) The refund list. One row per affected customer, which is the
+-- -- shape AC5 needs: extra debits owed back, and when it happened.
+WITH batch_window AS (
+  SELECT b.id AS batch_id, b.user_id,
+         b.created_at AS started_at,
+         b.updated_at + interval '30 minutes' AS ended_at,
+         count(j.id) AS jobs
+  FROM public.grading_batches b
+  LEFT JOIN public.grading_batch_jobs j ON j.batch_id = b.id
+  GROUP BY b.id, b.user_id, b.created_at, b.updated_at
+),
+excess AS (
+  SELECT w.user_id,
+         greatest(count(t.id) - w.jobs, 0) AS extra,
+         min(w.started_at)                 AS first_seen,
+         max(w.started_at)                 AS last_seen
+  FROM batch_window w
+  LEFT JOIN public.grade_credit_transactions t
+         ON t.user_id = w.user_id
+        AND t.reason  = 'grade_debit'
+        AND t.created_at BETWEEN w.started_at AND w.ended_at
+  GROUP BY w.user_id, w.jobs, w.batch_id
+)
+SELECT user_id,
+       sum(extra)        AS credits_to_refund,
+       min(first_seen)::date AS first_affected,
+       max(last_seen)::date  AS last_affected
+FROM excess
+WHERE extra > 0
+GROUP BY user_id
+ORDER BY credits_to_refund DESC;
+
+-- -- (c) Duplicate certificates from the same bug: more than one grade
+-- -- report for one account inside one batch window beyond its job count.
+-- -- Refunding the credit does not withdraw the certificate, and a garment
+-- -- with two public certificates is a trust problem rather than a billing
+-- -- one, so it is counted separately.
+SELECT
+  b.id                        AS batch_id,
+  b.user_id,
+  count(DISTINCT j.id)        AS jobs,
+  count(DISTINCT r.id)        AS grade_reports_in_window
+FROM public.grading_batches b
+LEFT JOIN public.grading_batch_jobs j ON j.batch_id = b.id
+LEFT JOIN public.submissions s
+       ON s.user_id = b.user_id
+      AND s.created_at BETWEEN b.created_at AND b.updated_at + interval '30 minutes'
+LEFT JOIN public.grade_reports r ON r.submission_id = s.id
+GROUP BY b.id, b.user_id
+HAVING count(DISTINCT r.id) > count(DISTINCT j.id)
+ORDER BY (count(DISTINCT r.id) - count(DISTINCT j.id)) DESC
+LIMIT 50;
+
+-- -- (d) Is the fix holding? Every debit taken since it shipped should
+-- -- carry a grade-batch-job key, and no key should appear twice — the
+-- -- partial unique index makes the second impossible, so a non-zero count
+-- -- here would mean the index is missing rather than that dedupe failed.
+SELECT
+  count(*) FILTER (WHERE idempotency_key LIKE 'grade-batch-job:%') AS keyed_batch_debits,
+  count(*) FILTER (WHERE idempotency_key IS NULL AND reason = 'grade_debit') AS unkeyed_debits,
+  max(created_at) FILTER (WHERE idempotency_key LIKE 'grade-batch-job:%') AS newest_keyed,
+  max(created_at) FILTER (WHERE idempotency_key IS NULL AND reason = 'grade_debit') AS newest_unkeyed
+FROM public.grade_credit_transactions;
+
+-- -- READING THIS: an empty (a) and (b) means the window between the bug
+-- -- shipping and the fix landing produced no double charge, and AC5 closes
+-- -- as "audited, nothing owed" rather than being left open forever. Rows in
+-- -- (b) are a refund list. In (d), a newest_unkeyed LATER than newest_keyed
+-- -- means some grading path still charges outside the chokepoint.
+
+-- ════════════════════════════════════════════════════════════════
+-- §21 US-2117 — HAS AN AGREEMENT ROW EVER CARRIED A DISCLOSURE VERSION?
+-- ════════════════════════════════════════════════════════════════
+-- US-2117 stayed open on one narrow thing: every test of the disclosure
+-- version is a unit or source test, and nobody has OBSERVED a row carrying
+-- one. The value rides in Stripe subscription_data.metadata — the same
+-- channel that already carries user_id in production — so the mechanism is
+-- not speculative. But this column exists to be trusted years later in a
+-- dispute, and "we are confident it writes" is the wrong standard for that.
+
+SELECT
+  count(*)                                              AS agreements_total,
+  count(*) FILTER (WHERE disclosure_version IS NOT NULL) AS with_disclosure_version,
+  min(created_at) FILTER (WHERE disclosure_version IS NOT NULL) AS first_versioned,
+  max(created_at)                                       AS newest_agreement
+FROM public.subscription_agreements;
+
+-- -- Which versions, and on which plans. A single unexpected string here
+-- -- (or a version nobody recognises) is worth more than the count above.
+SELECT disclosure_version, plan, billing_interval, count(*) AS rows,
+       max(created_at) AS newest
+FROM public.subscription_agreements
+GROUP BY disclosure_version, plan, billing_interval
+ORDER BY newest DESC
+LIMIT 30;
+
+-- -- READING THIS: agreements_total at zero means nobody has subscribed
+-- -- since the table shipped, and the question is still open rather than
+-- -- answered. A non-zero total with with_disclosure_version at zero is the
+-- -- bad answer: rows are being written and the metadata is not arriving.
+
+-- ════════════════════════════════════════════════════════════════
+-- §22 US-2444 AC1 — WHAT MIGRATION 00122 CREATED
+-- ════════════════════════════════════════════════════════════════
+-- 00122_verified_storefront_listings.sql was named in .gitignore and never
+-- committed, so its DDL was applied to prod by hand and exists nowhere in
+-- the repo. AC1 insists the replacement be written from the DATABASE, not
+-- reconstructed from the feature commit — that commit shows what the code
+-- EXPECTED, which is exactly the thing that may differ.
+
+-- Everything below is a catalog read. Paste it back whole; the replacement
+-- migration is written from it.
+
+-- -- (a) Tables and columns whose name mentions the storefront.
+SELECT c.table_name, c.column_name, c.data_type, c.is_nullable, c.column_default
+FROM information_schema.columns c
+WHERE c.table_schema = 'public'
+  AND (c.table_name ILIKE '%storefront%' OR c.column_name ILIKE '%storefront%')
+ORDER BY c.table_name, c.ordinal_position;
+
+-- -- (b) Indexes on those tables.
+SELECT tablename, indexname, indexdef
+FROM pg_indexes
+WHERE schemaname = 'public' AND tablename ILIKE '%storefront%'
+ORDER BY tablename, indexname;
+
+-- -- (c) RLS policies. A table restored without its policies is a table
+-- -- that reads to everyone, so these are the half worth being exact about.
+SELECT tablename, policyname, permissive, roles, cmd, qual, with_check
+FROM pg_policies
+WHERE schemaname = 'public' AND tablename ILIKE '%storefront%'
+ORDER BY tablename, policyname;
+
+-- -- (d) Is RLS actually enabled on them?
+SELECT c.relname AS table_name, c.relrowsecurity AS rls_enabled, c.relforcerowsecurity AS rls_forced
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname ILIKE '%storefront%';
+
+-- -- (e) Functions and triggers mentioning it — the parts a column dump
+-- -- silently omits, and the usual reason a hand-applied migration cannot
+-- -- be inferred from the table alone.
+SELECT p.proname AS function_name, pg_get_function_identity_arguments(p.oid) AS args
+FROM pg_proc p
+JOIN pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND (p.proname ILIKE '%storefront%' OR pg_get_functiondef(p.oid) ILIKE '%storefront%')
+ORDER BY p.proname;
+
+SELECT c.relname AS table_name, t.tgname AS trigger_name,
+       pg_get_triggerdef(t.oid) AS definition
+FROM pg_trigger t
+JOIN pg_class c ON c.oid = t.tgrelid
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public' AND NOT t.tgisinternal AND c.relname ILIKE '%storefront%'
+ORDER BY c.relname, t.tgname;
+
+-- -- (f) Which ledger, if any, knows about 00122. applied_migrations is the
+-- -- WRONG place to look on its own: self-recording footers only start at
+-- -- 00254, so an absent row there is expected and carries no signal. The
+-- -- supabase_migrations ledger is the one that could have a 00122 row, and
+-- -- whether it does decides whether the replacement migration has to insert
+-- -- the version or merely create the objects.
+SELECT 'applied_migrations' AS ledger, version, applied_at::text AS recorded_at
+FROM public.applied_migrations
+WHERE version IN ('00121', '00122', '00123')
+UNION ALL
+SELECT 'schema_migrations', version, NULL
+FROM supabase_migrations.schema_migrations
+WHERE version LIKE '00121%' OR version LIKE '00122%' OR version LIKE '00123%'
+ORDER BY ledger, version;
+
+-- -- READING THIS: an empty (a) does not mean nothing was applied. It means
+-- -- the objects are not named after the feature, and the next place to look
+-- -- is the storefront code path for the table it actually reads.
 
 -- ════════════════════════════════════════════════════════════════
 -- Done. Paste the whole output back — nothing above is a secret.
