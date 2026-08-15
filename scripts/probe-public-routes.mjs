@@ -102,6 +102,28 @@ const KNOWN_EMPTY_INDEXES = new Map([
 const APP_SHELL = ["/dashboard/flipdesk/inventory", "/admin", "/login"];
 const JUNK = "/this-path-should-not-exist-9f3a2b";
 
+/**
+ * Open Graph images, which fail in two ways a status code cannot see (US-2619).
+ *
+ * EMPTY: /og/social/card and /og/blog/:slug return 200, `image/png`, and ZERO
+ * bytes. workers-og's ImageResponse streams, so a raster failure happens after
+ * the Response is constructed — the endpoint's own try/catch never fires and its
+ * branded fallback never runs. Every auto-filled social image and every
+ * Pinterest pin is a blank preview.
+ *
+ * FALLBACK-AS-SUCCESS: the branded fallback is `/og-image.png`, served at a
+ * fixed length. An endpoint quietly serving it is also 200 `image/png`, which
+ * is how /og/help and /og/verified read as healthy while their real render path
+ * had never run at all. So the check compares against the fallback's own size
+ * rather than trusting the content type.
+ */
+const OG_MIN_BYTES = 2000;
+const OG_FALLBACK_PATH = "/og-image.png";
+const OG_TARGETS = [
+  { path: "/og/social/card?ratio=pin", known: "US-2619 — empty body, ImageResponse streams past the try/catch" },
+  { path: "/og/grade-check" },
+];
+
 function arg(name, fallback) {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? fallback : process.argv[i + 1];
@@ -132,6 +154,18 @@ async function probe(url, opts = {}) {
       bytes: 0,
       body: "",
     };
+  }
+}
+
+/** Byte length of a binary response. Separate from probe(), which parses HTML. */
+async function probeBytes(url) {
+  try {
+    const res = await fetch(url, { redirect: "manual" });
+    if (res.status !== 200) return { status: res.status, bytes: 0 };
+    const buf = await res.arrayBuffer();
+    return { status: 200, bytes: buf.byteLength };
+  } catch {
+    return { status: 0, bytes: 0 };
   }
 }
 
@@ -188,6 +222,22 @@ async function main() {
     }
   }
 
+  // OG images. Measure the fallback first so "did it just serve the fallback?"
+  // is a comparison rather than a guess at a magic number.
+  const fallbackBytes = (await probeBytes(`${origin}${OG_FALLBACK_PATH}`)).bytes;
+  for (const t of OG_TARGETS) {
+    const r = await probeBytes(`${origin}${t.path}`);
+    let problem = null;
+    if (r.status !== 200) problem = `HTTP ${r.status}`;
+    else if (r.bytes < OG_MIN_BYTES) problem = `200 with ${r.bytes} bytes — a blank preview`;
+    else if (fallbackBytes > 0 && r.bytes === fallbackBytes) {
+      problem = `200 but byte-identical to ${OG_FALLBACK_PATH} — the fallback, not a render`;
+    }
+    if (!problem) continue;
+    if (t.known) knownGaps.push(`${t.path}: ${t.known}`);
+    else note(t.path, problem, "an OG image that is not a real render");
+  }
+
   const junk = await probe(`${origin}${JUNK}`);
   if (junk.status !== 404) {
     // The other half of the runbook's diagnostic, and the one nobody checks: a
@@ -196,7 +246,7 @@ async function main() {
     note(JUNK, `HTTP ${junk.status}`, "a junk path must 404, not fall through");
   }
 
-  const checked = routes.length + DYNAMIC.length + APP_SHELL.length + 1;
+  const checked = routes.length + DYNAMIC.length + APP_SHELL.length + OG_TARGETS.length + 1;
   if (process.argv.includes("--json")) {
     console.log(JSON.stringify({ origin, checked, failures, knownGaps }, null, 2));
   } else {

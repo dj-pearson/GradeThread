@@ -99,3 +99,32 @@ describe("US-2618: an index that links to nothing", () => {
     expect(printOrder).toBeLessThan(verdict);
   });
 });
+
+describe("US-2619: an OG image that is 200 but not a render", () => {
+  const src = read(SCRIPT);
+
+  it("rejects a zero-byte image", () => {
+    // /og/social/card returns 200, image/png, and nothing. workers-og streams,
+    // so the raster fails after the Response is built — the endpoint's own
+    // try/catch never fires and its branded fallback never runs.
+    expect(src).toContain("OG_MIN_BYTES");
+    expect(src).toMatch(/a blank preview/);
+  });
+
+  it("rejects the branded fallback masquerading as a render", () => {
+    // The sharper half. /og/help and /og/verified both returned 133915 bytes —
+    // byte-for-byte /og-image.png — and read as perfectly healthy. Comparing
+    // against the fallback's own measured size is the only way to tell, and it
+    // is measured at run time rather than hardcoded, so the check survives a
+    // new fallback image.
+    expect(src).toContain("OG_FALLBACK_PATH");
+    expect(src).toMatch(/byte-identical to \$\{OG_FALLBACK_PATH\}/);
+    expect(src).toContain("fallbackBytes");
+  });
+
+  it("keeps a working renderer in the list, not only the broken one", () => {
+    // Guard-the-guard: a list containing only known-broken entries would pass
+    // forever on its exceptions and never prove the check can see a good render.
+    expect(src).toContain('"/og/grade-check"');
+  });
+});
