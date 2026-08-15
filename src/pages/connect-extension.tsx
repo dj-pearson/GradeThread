@@ -23,6 +23,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { HelpLink } from "@/components/help/help-link";
 
 type Phase = "checking" | "need-signin" | "connecting" | "connected" | "error";
 
@@ -122,6 +123,7 @@ export function ConnectExtensionPage() {
       <Card className="w-full max-w-md">
         <CardHeader>
           <CardTitle>Connect the GradeThread extension</CardTitle>
+          <HelpLink slug="installing-the-browser-extension" label="Help: installing the extension" />
           <CardDescription>
             Link your browser extension to your account to raise your read limit and
             unlock seller tools when you have a FlipDesk plan.

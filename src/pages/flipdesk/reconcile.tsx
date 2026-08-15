@@ -96,6 +96,7 @@ import { PhotoTagSelect } from "@/components/flipdesk/photo-tag-select";
 import { usePhotoProfile, type PhotoProfile } from "@/lib/photo-profiles";
 import type { FlipdeskPhotoType, ReconcileAssignmentSnapshot } from "@/types/database";
 import { cn } from "@/lib/utils";
+import { HelpLink } from "@/components/help/help-link";
 
 interface DumpPhoto extends ClusterablePhoto {
   name: string;
@@ -602,6 +603,7 @@ export function FlipdeskReconcilePage() {
         icon={Layers}
         title="Reconcile"
         subtitle="Cluster a photo haul into items, match eBay SKUs, and close the loop on payouts & fees — all in one place."
+              actions={<HelpLink slug="reconciling-payouts" label="Help: reconciling payouts" />}
       />
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>

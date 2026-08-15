@@ -37,6 +37,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { ApiUsagePanel } from "@/components/api/api-usage-panel";
 import { ApiOverageCard } from "@/components/api/api-overage-card";
 import { WhiteLabelPanel } from "@/components/api/white-label-panel";
+import { HelpLink } from "@/components/help/help-link";
 
 interface ApiKeyItem {
   id: string;
@@ -272,6 +273,7 @@ export function ApiKeysPage() {
         <PageHeader
           title="API Keys"
           subtitle="Manage your API keys for programmatic access."
+                  actions={<HelpLink slug="api-keys-and-the-sandbox" label="Help: API keys and the sandbox" />}
         />
 
         <Card>

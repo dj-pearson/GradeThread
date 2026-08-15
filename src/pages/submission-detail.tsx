@@ -89,6 +89,7 @@ import type {
   ImageType,
 } from "@/types/database";
 import type { RetakeBridgeState } from "@/lib/retake-submission";
+import { HelpLink } from "@/components/help/help-link";
 
 function getConfidenceLabel(score: number): {
   label: string;
@@ -712,6 +713,7 @@ export function SubmissionDetailPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-bold">{submission.title}</h1>
+            <HelpLink slug="reading-your-grade-report" label="Help: reading your grade report" />
             <p className="text-sm text-muted-foreground">
               Submitted {new Date(submission.created_at).toLocaleDateString()}
             </p>

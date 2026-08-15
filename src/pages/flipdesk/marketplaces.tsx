@@ -89,6 +89,7 @@ import {
   useCancelExtensionWork,
   useExtensionQueue,
 } from "@/hooks/use-extension-queue";
+import { HelpLink } from "@/components/help/help-link";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
 // MARKETPLACE_TIER single source of truth). eBay + Shopify are tier "api" and
@@ -1370,6 +1371,7 @@ export function FlipdeskMarketplacesPage() {
         icon={Plug}
         title="Marketplaces"
         subtitle="How FlipDesk talks to the platforms you sell on."
+              actions={<HelpLink slug="connecting-a-marketplace" label="Help: connecting a marketplace" />}
       />
 
       {/* US-463: a connection deactivated by a permanent token-refresh failure

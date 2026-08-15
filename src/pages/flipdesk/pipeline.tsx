@@ -104,6 +104,7 @@ import {
 } from "@/lib/item-filter";
 import type { ItemStatus, ItemCategory } from "@/types/database";
 import type { ItemListRow } from "@/lib/item-list-columns";
+import { HelpLink } from "@/components/help/help-link";
 
 const COLUMN_CAP = 50;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -524,6 +525,7 @@ export function FlipdeskPipelinePage() {
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Inventory</h1>
+              <HelpLink slug="the-flipdesk-pipeline" label="Help: the FlipDesk pipeline" />
               <p className="text-sm text-muted-foreground">
                 Drag a card to advance its status, or select cards for a batch
                 move. Click a card for full details.

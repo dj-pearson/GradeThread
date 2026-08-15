@@ -56,6 +56,7 @@ import type {
   WorkspaceMemberRow,
   WorkspaceRole,
 } from "@/types/database";
+import { HelpLink } from "@/components/help/help-link";
 
 interface MemberWithProfile extends WorkspaceMemberRow {
   member_email: string;
@@ -269,6 +270,7 @@ export function TeamPage() {
         <PageHeader
           title="Team"
           subtitle={`You're a ${WORKSPACE_ROLE_LABEL[role ?? "viewer"]} in this workspace.`}
+                  actions={<HelpLink slug="inviting-your-team" label="Help: roles and invites" />}
         />
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">

@@ -66,6 +66,7 @@ import {
   TrendingUp,
   X,
 } from "lucide-react";
+import { HelpLink } from "@/components/help/help-link";
 
 function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
@@ -213,6 +214,7 @@ export function BillingPage() {
         <PageHeader
           title="Billing"
           subtitle="Manage your subscription and credits."
+                  actions={<HelpLink slug="plans-credits-and-billing" label="Help: plans, credits and billing" />}
         />
         <ErrorState
           title="Couldn't load your billing details"

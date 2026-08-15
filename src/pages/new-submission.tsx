@@ -87,6 +87,7 @@ import type { RetakeBridgeState } from "@/lib/retake-submission";
 import { GradePricingSummary } from "@/components/submission/grade-pricing-summary";
 import { CoverageMeter } from "@/components/submission/coverage-meter";
 import { coverageFromImageTypes, COVERAGE_GUARANTEE_FLOOR } from "@/lib/coverage";
+import { HelpLink } from "@/components/help/help-link";
 
 // US-2204: the "link to inventory item" dropdown loads EVERY ungraded item in
 // the workspace, so it is the widest read on this page and it grows with the
@@ -1062,6 +1063,7 @@ export function NewSubmissionPage() {
       <PageHeader
         title="New Submission"
         subtitle="Submit a garment for AI-powered condition grading."
+              actions={<HelpLink slug="your-first-grade" label="Help: which photos to take" />}
       />
 
       {pendingDraft ? (

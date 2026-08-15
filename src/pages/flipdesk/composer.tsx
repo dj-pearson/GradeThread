@@ -169,6 +169,7 @@ import {
   TITLE_MAX,
   type ComposerListingState,
 } from "@/lib/composer-save";
+import { HelpLink } from "@/components/help/help-link";
 
 
 // Legacy rows can carry a coarse category string that predates ITEM_CATEGORIES.
@@ -2406,6 +2407,7 @@ export function FlipdeskComposerPage({
             <h1 className="text-2xl font-bold tracking-tight">
               {editorMode === "draft" ? "Listing composer" : "Edit item"}
             </h1>
+            <HelpLink slug="writing-a-listing-in-the-composer" label="Help: writing a listing" />
             <p className="truncate text-sm text-muted-foreground">
               {editorMode === "live"
                 ? `Editing the live listing for "${item.item_title}".`
