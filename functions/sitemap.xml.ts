@@ -9,6 +9,7 @@
 import {
   UpstreamUnavailable,
   upstreamUnavailableResponse,
+  withEdgeCache,
   type PagesEnv,
 } from "./_shared/blog-render";
 import type { SitemapUrl } from "./_shared/sitemap";
@@ -32,7 +33,35 @@ import {
   SITEMAP_HEADERS,
 } from "./_shared/sitemap";
 
-export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
+/**
+ * US-2614: served from the worker cache, like every other SSR surface.
+ *
+ * MEASURED 2026-08-15, not assumed. /blog and /cert/:id both answer
+ * `x-gt-cache: HIT`; /sitemap.xml carried no such header at all, so it was the
+ * one public surface rebuilding itself on every single request.
+ *
+ * That is expensive in a way the others are not: the builder below makes
+ * ELEVEN parallel upstream fetches. The edge caps /api/content/public/* at 60
+ * requests per minute per IP and fails closed, and every SSR page reaches it
+ * through one Cloudflare Pages worker — so three uncached sitemap fetches in a
+ * minute is 33 calls against that shared bucket, and eight is 88, which is how
+ * a probe drove this endpoint to 503 four times running.
+ *
+ * The bypass that is meant to exempt this hop is currently OFF
+ * (features.pages_origin_bypass on /health/ready reports the secret missing,
+ * US-2612), so the cap is live. This does not fix that and is not a substitute
+ * for it — the secret still has to be set on both sides. It removes the
+ * multiplier, which is worth having either way: a crawler re-fetching the
+ * sitemap should not cost eleven database reads each time.
+ *
+ * Correctness is unchanged. withEdgeCache only stores 200s that are publicly
+ * cacheable, so the 503 the UpstreamUnavailable branch returns is never cached
+ * — a transient blip cannot pin a Retry-After for an hour.
+ */
+export const onRequestGet: PagesFunction<PagesEnv> = (context) =>
+  withEdgeCache(context, () => buildSitemap(context.env));
+
+async function buildSitemap(env: PagesEnv): Promise<Response> {
   // US-2097: a transient upstream failure must NOT produce a structurally valid
   // sitemap that silently omits whole URL classes — served 200 and cached for an
   // hour, which tells crawlers those pages do not exist. Worse, a dropped
@@ -135,4 +164,4 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
         ]);
 
   return new Response(xml, { status: 200, headers: { ...SITEMAP_HEADERS } });
-};
+}

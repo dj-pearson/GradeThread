@@ -71,3 +71,55 @@ describe("US-2097: sitemap upstream failures serve 503, not a partial 200", () =
     expect(src).toMatch(/upstreamUnavailableResponse\(\)/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// US-2614: /sitemap.xml goes through the worker cache like every other SSR
+// surface, and the 503 branch above must NOT be what gets cached.
+//
+// MEASURED 2026-08-15: /blog and /cert/:id both answered `x-gt-cache: HIT`;
+// /sitemap.xml carried no such header, so it rebuilt on every request. That is
+// expensive here in a way it is not elsewhere — the builder makes eleven
+// parallel upstream fetches, against an edge that caps public content at 60
+// requests per minute per IP and fails closed, with every SSR page arriving
+// through one Pages worker. Eight uncached fetches is 88 calls, which is
+// exactly how a probe drove this endpoint to 503 four times running.
+describe("US-2614: the sitemap is cached, and its failure is not", () => {
+  const src = readFileSync(join(process.cwd(), "functions/sitemap.xml.ts"), "utf8");
+
+  it("wraps the handler in withEdgeCache", () => {
+    expect(src).toContain("withEdgeCache");
+    expect(src).toMatch(/onRequestGet[^=]*=\s*\(context\)\s*=>\s*\n?\s*withEdgeCache\(/);
+  });
+
+  it("still serves 503 on an upstream failure rather than a partial sitemap", () => {
+    // The caching change must not have swallowed the US-2097 guard. A
+    // structurally valid sitemap missing whole URL classes, served 200 and
+    // cached for an hour, tells crawlers those pages do not exist — and can
+    // flip the document from a sitemapindex to a truncated urlset.
+    expect(src).toContain("upstreamUnavailableResponse()");
+    expect(src).toContain("UpstreamUnavailable");
+  });
+
+  it("EVERY section sitemap is cached, not just the index", () => {
+    // The index points at fifteen sections. A crawler that reads it then
+    // fetches all of them paid for fifteen uncached builds; caching only the
+    // index would fix the smallest part of that.
+    const files = readdirSync(join(process.cwd(), "functions"))
+      .filter((f) => /^sitemap.*.xml.ts$/.test(f));
+    expect(files.length).toBeGreaterThan(10);
+    const uncached = files.filter((f) =>
+      !readFileSync(join(process.cwd(), "functions", f), "utf8").includes("withEdgeCache"),
+    );
+    expect(uncached, `these rebuild on every request: ${uncached.join(", ")}`).toEqual([]);
+  });
+  it("relies on withEdgeCache refusing to store a non-200", () => {
+    // Guard-the-guard, and the load-bearing half: if withEdgeCache ever cached
+    // error responses, a single blip would pin a Retry-After 503 on the sitemap
+    // for the whole TTL — worse than the uncached behaviour this replaced.
+    const cache = readFileSync(
+      join(process.cwd(), "functions/_shared/blog-render.ts"),
+      "utf8",
+    );
+    expect(cache).toMatch(/response\.status !== 200[\s\S]{0,120}return response/);
+  });
+});
