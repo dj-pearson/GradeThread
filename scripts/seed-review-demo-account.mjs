@@ -19,8 +19,11 @@
 //      that's why this script doesn't bulk-insert them.)
 //   2. Put a REAL, reachable contact number in
 //      ios/fastlane/metadata/review_information/phone_number.txt.
-//   3. Re-run `python3 ios/Scripts/no-ungated-print.py` (still the only
-//      Windows-runnable iOS check) and proceed with submission.
+//   3. Re-run the ungated-print guard and proceed with submission. That is
+//      `npx vitest run src/test/ios-ungated-print.test.ts` on any machine — it
+//      used to say `python3 ios/Scripts/no-ungated-print.py`, which cannot run
+//      on the Windows dev box at all, so the check this step asks for was being
+//      skipped rather than performed.
 
 import { createClient } from "@supabase/supabase-js";
 import { writeFileSync } from "node:fs";
