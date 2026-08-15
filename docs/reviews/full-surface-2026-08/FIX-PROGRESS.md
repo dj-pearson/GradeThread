@@ -33,7 +33,7 @@ Work in priority order (ASCENDING — lowest number first). Do not skip ahead
 unless a story is blocked; if blocked, note why and move to the next.
 
 ### P1 — do these first
-- [~] US-2503 (1800) iOS buyer tools unreachable — SLICE 1 SHIPPED `74a2be2a` (still OPEN): `GET /api/buyer/entitlements` serves the resolved payload from the existing edge resolver, so iOS gates from ONE source rather than a Swift copy of the matrix (AC3 was not satisfiable without it). Fail-safe to FREE, no-store, 2 tenant-isolation cases. Guard `src/test/buyer-entitlements-contract.test.ts`. AC2/AC4/AC5 still need macOS.
+- [~] US-2503 (1800) iOS buyer tools unreachable — SLICE 1 `74a2be2a` + SLICE 2 `010d7463` (still OPEN). Slice 1: `GET /api/buyer/entitlements` serves the resolved payload so iOS gates from ONE source rather than a Swift copy of the matrix (AC3 was not satisfiable without it). Slice 2: every one of the 13 bundled capabilities is now classified `shipped | planned | desktop-only` inside the EXISTING `buyer-features.ts` registry, so a new buyer capability does not compile until someone decides — and a `shipped` claim must name a Swift file that EXISTS, which is AC5 read literally. Guard `src/test/buyer-ios-delivery.test.ts` (9 cases). AC2/AC4 and AC5's Swift screen still need macOS.
 - [~] US-2504 (1802) Walk-around video grading web-only — SLICE 1 SHIPPED `994561a1` (still OPEN): `src/lib/video-grading-contract.ts` pins the multipart field names, the exact opt-in string and the abstain response. **AC3 needs no iOS work** — the no-charge guarantee is the SERVER's (`failVideoGrading` returns before payment and refunds the buyer debit). Guard `src/test/video-grading-contract.test.ts`. AC2's recorder + AC4's progress still need macOS.
 - [x] US-2505 (1804) Human-review claim lock bypassable — DONE d97a307d
 - [x] US-2506 (1806) /condition-index 404s on every public page — DONE 117e99cc
@@ -1034,3 +1034,31 @@ host and not the other, so the local one was dropped.
   NOT been compressing, the honest answer would have been to say so rather than
   implement a parity requirement against a bug. Same lesson as US-2557's AC3,
   twice in two iterations.
+
+- **A THRESHOLD IS NOT A PROPERTY.** The US-2503 guard's check against "no bullet
+  advertises a screen that does not exist" was a count: at most two capabilities
+  may claim shipped. Flipping an entry from `planned` to `shipped` kept the
+  count under the limit, so the guard stayed GREEN on the exact defect it was
+  written for. Fixed by making the claim name a Swift FILE and asserting the file
+  exists. When a guard's subject is "X must really exist", assert the existence,
+  never a number that correlates with it.
+
+- **Break the guard in the direction of the DEFECT, not just in some direction.**
+  My bite-check broke two things at once and one of them went red, which read as
+  "the guard works". It did not — the reddened case was the unrelated one. Check
+  WHICH assertion failed, not just that the run was red. Same class as the
+  vacuous-test lesson but sneakier, because the evidence looks right.
+
+- **A fourth vacuous assertion, caught before shipping this time:**
+  `["ios/GradeThread"].flatMap(() => [])` compared to `[]` is always true. They
+  keep appearing when a test needs a placeholder while the real check is being
+  worked out, and they survive because a passing test is not re-read. If an
+  assertion cannot fail, delete it rather than leaving it as scaffolding.
+
+- **Extend the registry that exists before writing a parallel one.**
+  `buyer-features.ts` already keyed every buyer capability by `BuyerGateFlags`
+  with a `live` flag. Adding iOS delivery there rather than in a new module got
+  the exhaustiveness for free — `Record<keyof BuyerGateFlags, …>` means a new
+  capability does not compile until it is classified. A parallel registry would
+  have needed its own guard to stay in step, which is the drift this loop has now
+  fixed four times.
