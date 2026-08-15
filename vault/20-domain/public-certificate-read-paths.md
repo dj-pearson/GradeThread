@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/routes/content-public.ts
   - src/pages/certificate.tsx
   - src/test/public-grade-report-view-parity.test.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
@@ -28,6 +28,27 @@ projections**, each with its own column list. Neither knows about the other.
 **A new publicly-visible `grade_reports` column must be added to BOTH, in the
 same commit.** Extending one and calling the story done is the default failure,
 not an unusual one.
+
+## One field is deliberately on the edge path only
+
+`display_title` (US-2613) is the seller title with condition claims stripped,
+so the certificate does not publish "…NWT — Grade 9.2 (NWOT)" in its own
+<title>. It is returned by the edge endpoint and has no counterpart in
+`public_grade_reports`, which looks exactly like the asymmetry this note
+exists to catch. It is not, for two reasons worth stating so nobody "fixes"
+it:
+
+1. **It is not a `grade_reports` column.** It is derived in the handler from
+   `submissions.title`, so there is nothing for a view to project. The rule
+   above is about stored columns and still holds unchanged.
+2. **The SPA does not need it.** `certificate.tsx` builds its document title
+   and its <SEO> title from the grade and tier alone — no seller string — and
+   the one place it does render `submission.title` is an on-page heading,
+   where showing what the seller wrote is the intended behaviour.
+
+So the two paths still agree on everything a reader sees. If the SPA ever
+starts putting the seller title in a <title>, that changes and this field has
+to reach it.
 
 ## Why it keeps happening
 

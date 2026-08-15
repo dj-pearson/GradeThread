@@ -8,12 +8,19 @@ code_refs:
   - services/edge-functions/src/lib/grade-adjustment.ts
   - services/edge-functions/src/routes/content-public.ts
   - services/edge-functions/src/tests/certificate-revision-stamp_test.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-15
 tags: [grading, certificates, provenance, seo]
 summary: A certificate records when its certified content was last rewritten in place; NULL means never revised, and a regrade must never set it.
 ---
 
 # Certificate revision provenance
+
+> [!note] Re-reviewed 2026-08-15 — the drift was a neighbouring field
+> `content-public.ts` changed, so the guard fired. The change adds
+> `display_title` to the certificate payload (US-2613): the seller title with
+> condition claims stripped, for our headline surfaces. It touches nothing this
+> note describes — the revision chain, the superseded-by resolution and the
+> what-changed provenance are all untouched. Re-read and re-dated, not edited.
 
 ## The column
 
