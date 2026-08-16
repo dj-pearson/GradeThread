@@ -118,8 +118,11 @@ export const OPENAPI_SPEC = {
         summary: "Submit a garment for grading",
         description:
           "Uploads photos and enqueues grading. Charges via included grades → credits; if neither " +
-          "covers it, returns 402. Images may be `url` (https) or base64. Requires `front`, `back`, " +
-          "`label`, and at least one `detail*` image; max 14 images.",
+          "covers it, returns 402. Images may be `url` (https) or base64. Requires `front`, `back` " +
+          "and `label`; max 14 images.\n\nA `detail*` close-up is strongly recommended and is NOT " +
+          "required (US-2397). Without one the garment is still graded, but confidence is capped at " +
+          "0.6 and the submission is routed to human review, so the result takes longer. Send one " +
+          "whenever you have it; a garment you cannot photograph up close is still gradable.",
         security: [{ ApiKeyAuth: ["submit"] }],
         parameters: [idempotencyKeyParam],
         requestBody: {
@@ -469,7 +472,10 @@ export const OPENAPI_SPEC = {
             type: "array",
             minItems: 1,
             maxItems: 14,
-            description: "Must include front, back, label + ≥1 detail*; each image_type at most once.",
+            description:
+              "Must include front, back and label; each image_type at most once. A detail* " +
+              "close-up is recommended, not required — without one the grade is capped at 0.6 " +
+              "confidence and human-reviewed.",
             items: { $ref: "#/components/schemas/GradeImage" },
           },
         },

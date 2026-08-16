@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2640",
+  "nextId": "US-2641",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2231,6 +2231,20 @@
         "The global default is reconciled too: Android compresses to 2048 where web defaults to 2400, which is a separate difference from the macro tiers and needs its own answer."
       ],
       "priority": 45
+    },
+    {
+      "id": "US-2640",
+      "passes": true,
+      "title": "The public API spec still requires a detail photo that US-2397 made optional",
+      "description": "openapi.json says in two places - the POST /grades description and the images schema description - that a submission \"Requires front, back, label, and at least one detail* image\". The API requires front, back and label and nothing more: api-v1.ts REQUIRED_IMAGE_TYPES is those three, and image-quality.ts blocks on those three while treating detail and defect shots as supplementary. The third clause is the PRE-US-2397 rule. The owner decided on 2026-08-03 that refusing a garment with clean front/back/label coverage cost sellers grades they had the photos for, so a missing fabric close-up became a confidence cap of 0.6 plus human review rather than a refusal. THE DIRECTION OF THE ERROR IS WHAT MATTERS: overstating a requirement costs nothing to the caller who complies, and turns away the caller who cannot. A customer whose garments have no photographable close-up reads the spec and concludes the API will not grade them, when it will. The developers page carries the same claim in prose.",
+      "acceptanceCriteria": [
+        "openapi.json stops saying a detail* image is required, in both the POST description and the images schema, and states the real consequence of omitting one.",
+        "The developers page prose matches: front, back and label required, detail recommended.",
+        "A test pins the spec required-image set against REQUIRED_IMAGE_TYPES, the image ceiling against the derived IMAGE_TYPES length, and the batch cap and key length against their constants.",
+        "The public rate table is checked in both directions: every buyable tier appears with matching numbers, and no unbuyable tier does."
+      ],
+      "priority": 40,
+      "notes": "Done 2026-08-16. All four AC met. THE SPEC WAS DESCRIBING A RULE THAT WAS DELIBERATELY REMOVED. openapi.json required a detail* image in two places while api-v1.ts REQUIRED_IMAGE_TYPES is front, back, label and image-quality.ts blocks on exactly those three, treating detail and defect shots as supplementary. Verified on both sides rather than one. That third clause is the pre-US-2397 rule, and US-2397 was an owner decision on 2026-08-03 with a stated reason: refusing a garment with clean front/back/label coverage cost sellers grades they had the photos for. The refusal became NO_FABRIC_CLOSEUP_CONFIDENCE_CAP 0.6 plus human review. WHY THE DIRECTION MATTERS, and it is the part worth keeping: overstating a requirement costs the complying caller nothing and turns away the caller who CANNOT comply. Someone whose garments have no photographable close-up reads \"requires ... at least one detail*\" and concludes the API will not grade them. It will - capped and human-checked. Both spec strings now say front, back and label are required and name the real consequence of omitting a close-up (0.6 cap, human review, slower result) rather than either pretending it is free or pretending it is refused. The developers page prose matched the old claim and now matches the new one. THE OTHER FOUR CLAIMS WERE ALREADY TRUE and are pinned anyway, because this exact class has shipped once: US-2515 removed an \"Enterprise, 600/120\" row from the public rate table for a plan nobody can buy, after it had been quoted publicly, and the fix left behind a COMMENT saying the table mirrors the server exactly - a claim with no gate. So the rate check runs in BOTH directions: every buyable tier must appear with matching numbers, and no unbuyable tier may (enterprise and super_admin are real server tiers that are not for sale). The image ceiling is checked against IMAGE_TYPES.length rather than the literal 14, because that number is DERIVED - adding one image type would silently make a hardcoded 14 wrong in two places. Batch cap and idempotency key length are pinned to MAX_BATCH_ITEMS and MAX_KEY_LENGTH. SABOTAGE-VERIFIED FOUR WAYS, each reverted green: reasserting the detail requirement, raising MAX_BATCH_ITEMS server-side, changing the pro tier server-side, and adding an Enterprise row to the public table - which is the US-2515 defect itself, and it reddened naming it as a tier nobody can buy. VERIFIED: tsc -b clean, eslint clean, deno check + deno lint clean, 5/5 new cases plus the 6 surface-parity cases from US-2635 still passing together."
     }
   ]
 }

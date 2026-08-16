@@ -187,7 +187,8 @@ export function DevelopersPage() {
           <li>
             <strong className="text-foreground">Go live.</strong> Drop the{" "}
             <code className="rounded bg-muted px-1 py-0.5">/sandbox</code> path, attach
-            real photos (front, back, label + a detail), and submit to{" "}
+            real photos (front, back and label are required; a detail close-up is
+            recommended), and submit to{" "}
             <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades</code>. Poll{" "}
             <code className="rounded bg-muted px-1 py-0.5">/api/v1/grades/:id</code> or
             receive a webhook.
