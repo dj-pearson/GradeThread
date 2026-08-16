@@ -73,6 +73,20 @@ local stack" must not match). And the caveat is an instruction rather than a
 disclaimer: **re-measure the floor periodically**, because writing "this is a
 floor" costs nothing and finding out by how much is the only part that helps.
 
+**Measured twice more the same day, and it converges.** A second scan found two
+stories still invisible, both using `BLOCKED ON A HUMAN`; eleven other candidate
+phrasings ("only you can", "cannot be automated", "waiting on the owner") matched
+nothing at all. A third scan found zero. So the queue is now close to a census
+rather than a floor — which is worth knowing precisely because it stops being
+true the moment somebody writes the next note. The method is the durable part:
+scan the notes with a deliberately over-wide pattern set, read every quote it
+pulls, keep the ones anchored to a predicate, and pin the near-misses.
+
+**Declaring is better than detecting.** Every story the scans surfaced got an
+`OPERATOR:` criterion written from its own evidence, which moves it into the
+exact list and makes the detection unnecessary for that story. The undeclared
+section is a migration aid, not the destination.
+
 ## The false positives that shipped first
 
 The undeclared patterns are anchored to a predicate (`is an operator action`,

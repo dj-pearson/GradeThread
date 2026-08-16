@@ -89,6 +89,13 @@ export const UNDECLARED_PATTERNS = [
   // "a human with the product open", "a human with the Stripe Dashboard".
   /\ba human with the\b/i,
   /\bis a Stripe (?:D|d)ashboard(?:\/API)? setting\b/i,
+  // Third measurement, same day: after the seven above, exactly two stories were
+  // still invisible and both used this one phrase. Eleven other candidate
+  // phrasings ("only you can", "cannot be automated", "waiting on the owner")
+  // matched NOTHING in the current backlog — so the floor is now close to the
+  // census, and adding more speculative patterns would be tuning against
+  // sentences nobody has written.
+  /\bBLOCKED ON A HUMAN\b/i,
 ];
 
 /** Sentence around `idx`, trimmed to something a terminal line can hold. */

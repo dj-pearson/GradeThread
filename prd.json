@@ -1590,7 +1590,8 @@
         "A successful publish writes one listings row with platform='vinted' and listing_url",
         "vinted is added to the cross-listing delist path so cross-listing-sale.ts resolves it to DelistMethod 'extension' and never to 'unsupported' (which would leave a live listing and trip the US-2165 delist_unresolved marker)",
         "MARKETPLACE_TIER.vinted stays 'extension' and MARKETPLACE_MECHANISM.vinted stays 'extension'; src/lib/__tests__/marketplace-mechanism.test.ts passes",
-        "Vinted disclosure copy exists per US-2475, including that Vinted is EU-first and that Crosslist does not serve EU customers at all"
+        "Vinted disclosure copy exists per US-2475, including that Vinted is EU-first and that Crosslist does not serve EU customers at all",
+        "OPERATOR: the LIST flow is already live (selectors verified 2026-08-11 on www.vinted.com/items/new). What is left is DELIST: open one of your OWN live Vinted listings while signed in and re-run the popup selector check, then set delist.enabled. The earlier probe missed because it ran on a page that was not the seller's own listing, where the action menu cannot exist - that miss is not evidence about the selectors. Until then a Vinted sibling of an item sold elsewhere gets a pending-delist marker and a reminder rather than being left silently live."
       ],
       "priority": 37,
       "dependsOn": [
@@ -1609,7 +1610,8 @@
         "A successful publish writes one listings row with platform='facebook' and listing_url",
         "facebook resolves to DelistMethod 'extension' in cross-listing-sale.ts, never 'unsupported'",
         "The Facebook host is added to manifest.json host_permissions AND to the selectors.js delist hosts allowlist; extension-unified/test/manifest-hosts.test.cjs and host-permissions.test.cjs pass",
-        "Disclosure copy per US-2475 notes that Meta's platform terms restrict automated interaction and that the flow runs only in the seller's own session"
+        "Disclosure copy per US-2475 notes that Meta's platform terms restrict automated interaction and that the flow runs only in the seller's own session",
+        "OPERATOR: run the popup selector check on the live Facebook Marketplace create form while signed in, then set enabled with a version and lastVerified. The code is written and deliberately stops at Next rather than publishing: auto-publishing with a guessed category gets the listing removed and the account flagged, so a human confirms the category on every publish by design. Marketplace class names are hashed and churn every deploy, which is why the selectors are ARIA-anchored and why they need re-checking against the real page rather than a fixture."
       ],
       "priority": 38,
       "dependsOn": [

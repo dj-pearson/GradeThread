@@ -79,6 +79,9 @@ describe("undeclared detection", () => {
       "That is a human with the product open, not a code change.",
       "Whether Cancel subscription is enabled there is a Stripe Dashboard setting.",
       "a live end-to-end pass that cannot be run from here: buy one label.",
+      // Third wave, and the last: after the second set, exactly two stories were
+      // still invisible and both used this phrase.
+      "BLOCKED ON A HUMAN for the enable: live Vinted sell form, logged in.",
     ];
     for (const notes of real) {
       const { undeclared } = collect([story({ id: "US-1", notes })]);
