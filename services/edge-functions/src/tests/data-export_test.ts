@@ -109,3 +109,75 @@ Deno.test("export of user A contains zero rows belonging to user B", async () =>
     );
   }
 });
+
+// ── US-2648: the two export paths must answer with the same set ───────────────
+//
+// There are two. GET /api/account/export streams the self-serve download;
+// assembleUserExport() builds the archive the admin compliance queue hands to a
+// subject. They are the same obligation answered twice, and they had drifted:
+// the self-serve route iterates BUYER_PII_TABLES and this module did not, so the
+// FORMAL path returned less than the self-serve one — no body measurements, no
+// closet, no saved searches, no watchlist, no reward ledger, no guarantee
+// claims.
+//
+// US-1846 built the register so that could not happen, and said so: the export
+// route iterates it rather than a document beside the code. Only one of the two
+// routes ever did. This is the check that would have caught it, comparing the
+// SETS rather than trusting either list.
+
+import { BUYER_PII_TABLES } from "../lib/buyer-pii.ts";
+import { SELLER_EXPORT_TABLES } from "../lib/data-export.ts";
+
+/** Tables the self-serve streaming route reaches, read from its source. */
+function selfServeTables(): Set<string> {
+  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+  const start = src.indexOf('accountRoutes.get("/export"');
+  assert(start > -1, "the self-serve export route was renamed");
+  const block = src.slice(start, src.indexOf("accountRoutes.", start + 40));
+  const out = new Set<string>();
+  for (const m of block.matchAll(/\.from\("([a-z0-9_]+)"\)/g)) out.add(m[1]!);
+  for (const m of block.matchAll(/pageOf\("([a-z0-9_]+)"/g)) out.add(m[1]!);
+  // Reached through the register rather than named inline.
+  if (/BUYER_PII_TABLES/.test(block)) for (const t of BUYER_PII_TABLES) out.add(t.table);
+  return out;
+}
+
+Deno.test("US-2648: the admin archive covers every registered table", () => {
+  const src = Deno.readTextFileSync(new URL("../lib/data-export.ts", import.meta.url));
+  assert(
+    /BUYER_PII_TABLES/.test(src),
+    "assembleUserExport does not iterate the buyer register, so a compliance " +
+      "export returns less than the same person's self-serve download",
+  );
+  assert(
+    /SELLER_EXPORT_TABLES/.test(src),
+    "the seller register is declared and not iterated",
+  );
+});
+
+Deno.test("US-2648: neither path reaches a table the other misses", () => {
+  const selfServe = selfServeTables();
+  const admin = new Set<string>();
+  const src = Deno.readTextFileSync(new URL("../lib/data-export.ts", import.meta.url));
+  for (const m of src.matchAll(/\.from\("([a-z0-9_]+)"\)/g)) admin.add(m[1]!);
+  for (const t of [...BUYER_PII_TABLES, ...SELLER_EXPORT_TABLES]) admin.add(t.table);
+
+  // Storage-manifest joins the admin path makes and the stream does not: it
+  // returns object PATHS where the stream hands back the rows themselves.
+  const MANIFEST_ONLY = new Set(["submission_images", "item_photos"]);
+  const missingFromAdmin = [...selfServe].filter((t) => !admin.has(t)).sort();
+  const missingFromSelfServe = [...admin]
+    .filter((t) => !selfServe.has(t) && !MANIFEST_ONLY.has(t))
+    .sort();
+
+  assertEquals(
+    missingFromAdmin,
+    [],
+    "the self-serve download returns these and the compliance archive does not",
+  );
+  assertEquals(
+    missingFromSelfServe,
+    [],
+    "the compliance archive returns these and the self-serve download does not",
+  );
+});

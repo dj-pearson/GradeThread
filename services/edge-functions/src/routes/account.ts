@@ -346,6 +346,23 @@ accountRoutes.get("/export", async (c) => {
               : null,
           ],
           ["listings", pageOf("listings", (q) => q.eq("user_id", userId))],
+          // US-2648: the seller-side records a subject would look for first and
+          // that this response has never carried.
+          //
+          // grade_credit_transactions is their MONEY - every credit bought,
+          // spent, refunded or expired. flipdesk_expenses is their own
+          // bookkeeping, receipts included. disputes are the cases they filed,
+          // with our decisions on them. All three are user_id-owned, cascade on
+          // erasure, and are the subject own records by any reading of Art. 15.
+          //
+          // Paged like the rest: a credit ledger and an expense book both grow
+          // without bound for an active seller.
+          [
+            "grade_credit_transactions",
+            pageOf("grade_credit_transactions", (q) => q.eq("user_id", userId)),
+          ],
+          ["expenses", pageOf("flipdesk_expenses", (q) => q.eq("user_id", userId))],
+          ["disputes", pageOf("disputes", (q) => q.eq("user_id", userId))],
           ["sales", pageOf("sales", (q) => q.eq("user_id", userId))],
           // US-1864: the reseller's own Thrift Radar visit log. Paged rather than
           // eager because it grows with field trips, and included because it is
