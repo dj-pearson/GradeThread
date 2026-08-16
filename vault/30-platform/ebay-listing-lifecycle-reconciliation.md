@@ -9,7 +9,9 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/routes/flipdesk-automations.ts
   - services/edge-functions/src/lib/active-listings.ts
-reviewed: 2026-08-15
+  - services/edge-functions/src/lib/marketplace-adapters/ebay.ts
+  - services/edge-functions/src/lib/listing-lifecycle.ts
+reviewed: 2026-08-16
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error.
 ---
@@ -66,6 +68,10 @@ identical at the call site. It is **three** ways, not two — the third is the o
 that bites:
 
 - **already not live** — 4xx/404, or a not-published message → **reconcile**
+- **a fact about the CALLER** — 401/403 → **retry**, live state unknown. An
+  expired token, a revoked grant, a missing `sell.inventory` scope, or a withdraw
+  aimed at an offer a *different* connected account owns all answer 4xx while the
+  listing stays up. Excluded from the already-ended arm in US-2641.
 - **transient** — 429/5xx → **retry**, live state unknown
 - **not connected** — `isNoEbayConnectionError`, thrown by `getUserAccessToken`
   *before* any withdraw is attempted → **retry, and never reconcile**. The
@@ -80,6 +86,23 @@ Getting this backwards in either direction is expensive, and asymmetrically so.
 Retry-on-gone loops forever but a later tick can still fix it;
 reconcile-on-transient marks a live listing dead, which nothing recovers. So
 anything unclear must classify as **retry**.
+
+> [!warning] Classify, then VERIFY (US-2641)
+> The already-ended arm is an **inference**: "eBay refused the withdraw" is not
+> the same fact as "the listing is not live". It is usually right and silently
+> catastrophic when it is wrong — the row reads ended while buyers can still buy.
+> So on the offer path both the eBay-namespaced end route and the adapter now
+> re-read the offer after a failure and **refuse to mark the row ended while
+> `getPublishedListingId` still returns a live listing**, answering 502 that names
+> it. One read, only on the failure path.
+>
+> The same fix closed two contract violations the shared path had quietly
+> inherited when US-2162 pointed the Listings page at it: `ebayAdapter.delist`
+> dropped `marketplace_connection_id`, so it withdrew through whichever account is
+> primary *today* (US-1507), and `loadOwnedListing` resolved the group key from
+> the seller-editable `inventory_items.sku` instead of the pinned
+> `listings.inventory_sku` (US-1999). Both produce a 4xx that reads as
+> "already ended".
 
 > [!warning] "Every path uses the helper" was true when written, then wasn't
 > This section used to claim *every* End/Relist path called the helper rather
@@ -126,6 +149,38 @@ Adopting a dead listing costs a silent no-publish, which is recoverable and now
 visible. Refusing to adopt a live one costs a **duplicate live listing**, which
 is not recoverable and is the entire reason the check exists. Unknown statuses
 therefore keep the old behaviour. Pinned by `publish-idempotency_test.ts`.
+
+### The status rule was reading the wrong status (2026-08-16, US-2641)
+
+The rule above works when eBay says `listingStatus: "ENDED"`. It does not when
+eBay says nothing at all, and after a **seller ends the listing on eBay's own
+site** that is the usual response: `offer.listing.listingId` still names the dead
+listing, `listing.listingStatus` is frequently absent, and the "unknown adopts"
+asymmetry then does exactly the thing this section was written to stop.
+
+The offer answers the question directly. **`offer.status` goes back to
+`UNPUBLISHED` when the listing ends**, and an offer that is not `PUBLISHED` has
+nothing to adopt whatever it remembers. `livePublishedListingId` checks it first;
+a *missing* offer status still falls through to the listing rules, so the safe
+side is unchanged.
+
+Same root cause, second symptom: **eBay will not re-publish an offer bound to a
+dead listing.** It answers `25001 "A system error has occurred. Internal Server
+Error"` to every attempt, forever — a seller who ended a listing on eBay and then
+relisted from FlipDesk got it four times in a row with nothing that could clear
+it. eBay's recovery is to destroy the offer and create a new one, so
+`publishItemForOwner` now does that when `isOfferBoundToDeadListing` holds for
+the offer it was about to reuse. That predicate is narrow on purpose: an offer
+that merely failed to publish (a missing item specific) carries **no** listingId
+and is left alone, so an ordinary rejection never churns the offer id and never
+loses the `syncExistingOffer` correction that actually fixes it.
+
+The relist flag is the third piece. `POST /listings/push` takes `relist`, which
+is what withdraws the old offer before publishing; the Listings page has sent it
+since US-560 and **the composer never did** — and the composer is where a seller
+actually relists, since "end it, fix it, publish again" all happen on that one
+page. Pinned by `relist-after-ebay-end_test.ts` and
+`composer-relist-and-price-push.test.ts`.
 
 > [!note] Read this next to the classifier above
 > `isOfferAlreadyEndedError` decides whether an *error* means "already gone".

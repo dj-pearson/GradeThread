@@ -136,7 +136,10 @@ import {
   useRecommendedCoverage,
 } from "@/hooks/use-ebay";
 import { useCrossPush } from "@/hooks/use-cross-listing";
-import { useEndListing } from "@/hooks/use-listing-lifecycle";
+import {
+  useEndListing,
+  useUpdateListingPrice,
+} from "@/hooks/use-listing-lifecycle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useSellThroughForecast } from "@/hooks/use-forecast";
 import { useNavigationGuard } from "@/hooks/use-navigation-guard";
@@ -1345,6 +1348,25 @@ export function FlipdeskComposerPage({
   // the edit goes to the item's `target_price` instead — the next thing the seed
   // order reads, and the sheet's Target Price column — rather than being
   // dropped on the floor until the seller finds the Save button.
+  //
+  // US-2641: on a LIVE listing the price does NOT go straight into the row. It
+  // goes through /listings/:id/price, which pushes to the marketplace FIRST and
+  // writes our copy only if that succeeded. Writing the row directly is what let
+  // a seller retype a wrong price on a live eBay listing, watch the card say
+  // "Price saved", and leave eBay charging the old one — with every FlipDesk
+  // surface agreeing with the seller and only eBay disagreeing. A price that is
+  // saved locally and not live is the one state this field must never report as
+  // saved.
+  const updateListingPrice = useUpdateListingPrice();
+  // Mirrors the server's wasPublishedUpstream: reaching the marketplace is what
+  // makes the price a two-sided fact, and a published-then-drafted row still has
+  // a live listing to correct.
+  const priceIsLive = !!(
+    listing &&
+    (listing.platform_offer_id ||
+      listing.platform_listing_id ||
+      listing.synced_to_ebay_at)
+  );
   const persistPriceRef = useRef<(raw: string) => Promise<void>>(async () => {});
   persistPriceRef.current = async (raw: string) => {
     const next = parseAutosavePrice(raw);
@@ -1355,7 +1377,16 @@ export function FlipdeskComposerPage({
     if (mountedRef.current) setPriceSaveState("saving");
     try {
       const listingId = listing?.id ?? item.listing_id ?? null;
-      if (listingId) {
+      if (listingId && priceIsLive) {
+        await updateListingPrice.mutateAsync({ listingId, price: next });
+        // The endpoint owns listing_price; this only clears the AI-estimate flag,
+        // which is not part of the lifecycle contract. Typing a price IS the
+        // human review that stops it being an unverified estimate.
+        await supabase
+          .from("listings")
+          .update({ price_is_estimated: false } as never)
+          .eq("id", listingId);
+      } else if (listingId) {
         const { error } = await supabase
           .from("listings")
           // price_is_estimated tracks the explicit save: typing a price IS the
@@ -2984,6 +3015,7 @@ export function FlipdeskComposerPage({
             isEbayOrigin={isEbayOrigin}
             ebayOwnedHint={ebayOwnedHint}
             priceSaveState={priceSaveState}
+            priceIsLive={priceIsLive}
           />
 
           <CostMarginCard
@@ -3232,10 +3264,25 @@ export function FlipdeskComposerPage({
         </div>
       </div>
 
+      {/* US-2641: relist mode when this item HAS been on eBay before — an ended
+          listing, or a live one being replaced. The Listings page has passed
+          this since US-560; the composer never did, and the composer is where a
+          seller actually relists ("end it, fix it, publish again" all happen on
+          this page). Without the flag the server skips the withdraw-first step
+          and re-publishes the OLD offer, which after a seller-side end on eBay
+          answers 25001 forever or adopts the ended listing's id and reports
+          success — the relist that says it worked and links to the listing you
+          just ended. `listing` is this item's own row, so a never-listed draft
+          still publishes normally. */}
       <PublishToEbayDialog
         open={publishOpen}
         onOpenChange={setPublishOpen}
         itemId={item.id}
+        relist={
+          listing?.listing_status === "ended" ||
+          listing?.listing_status === "active"
+        }
+        listingActive={listing?.listing_status === "active"}
       />
 
       {/* US-552: review/accept the AI rewrite — reuses the extract panel so

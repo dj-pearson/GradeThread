@@ -2659,16 +2659,54 @@ const DEAD_LISTING_STATUSES = new Set([
 
 // The listingId of an offer that is live RIGHT NOW, or null. Split out from
 // getPublishedListingId so the status rule is unit-testable without eBay.
+//
+// The OFFER's own status is checked before the listing's, and it is the check
+// that closes the hole the comment above describes. eBay answers the "is this
+// live" question in two places and only one of them is reliably updated when a
+// seller ends the listing on eBay's own site: `offer.status` goes back to
+// UNPUBLISHED, while `offer.listing.listingId` keeps naming the dead listing and
+// `listing.listingStatus` is frequently absent from that response entirely. So
+// the listingStatus rule below — the only rule there used to be — saw a
+// listingId, no dead status, and adopted. That is the silent relist: the push
+// reported success, wrote the ENDED listing's id and url back onto the row, and
+// the seller's "View on eBay" pointed at the listing they had just ended.
+//
+// An offer that is not PUBLISHED has nothing to adopt, whatever it remembers.
+// A MISSING status still falls through to the listing rules (unchanged), so the
+// safe-side asymmetry documented above survives for responses that omit it.
 export function livePublishedListingId(offer: {
+  status?: string | null;
   listing?: { listingId?: string; listingStatus?: string } | null;
 }): string | null {
   const listingId = offer?.listing?.listingId;
   if (!listingId) return null;
+  const offerStatus = offer?.status;
+  if (typeof offerStatus === "string" && offerStatus.trim() &&
+      offerStatus.trim().toUpperCase() !== "PUBLISHED") {
+    return null;
+  }
   const status = offer.listing?.listingStatus;
   if (typeof status === "string" && DEAD_LISTING_STATUSES.has(status.toUpperCase())) {
     return null;
   }
   return listingId;
+}
+
+// An offer that is BOUND TO A DEAD LISTING: eBay still records a listingId on it,
+// but that listing is not live. This is the state a seller-side end on eBay
+// leaves behind, and re-publishing such an offer does not work — eBay answers
+// error 25001 ("A system error has occurred") to every attempt, forever. The
+// recovery eBay supports is to destroy the offer and create a fresh one, which
+// is what publishItemForOwner does when this returns true.
+//
+// Deliberately NARROW. A brand-new offer that failed to publish for a data
+// reason (a missing item specific, a bad category) has no listingId at all and
+// is not matched here, so an ordinary rejection never churns the offer id.
+export function isOfferBoundToDeadListing(offer: {
+  status?: string | null;
+  listing?: { listingId?: string; listingStatus?: string } | null;
+}): boolean {
+  return Boolean(offer?.listing?.listingId) && livePublishedListingId(offer) === null;
 }
 
 // Reads the offer and returns its live listingId if eBay has already published
@@ -2677,10 +2715,13 @@ export function livePublishedListingId(offer: {
 // the lookup fails (all treated as "not live yet").
 export async function getPublishedListingId(
   userId: string,
-  offerId: string
+  offerId: string,
+  // US-1507: read through the account the listing belongs to (null → primary).
+  connectionId?: string,
 ): Promise<string | null> {
   try {
-    const offer = (await getOffer(userId, offerId)) as {
+    const offer = (await getOffer(userId, offerId, connectionId)) as {
+      status?: string | null;
       listing?: { listingId?: string; listingStatus?: string };
     };
     return livePublishedListingId(offer);
@@ -3065,7 +3106,17 @@ export function isOfferAlreadyEndedError(err: unknown): boolean {
   const status = typeof e.status === "number" ? e.status : 0;
   // Transient / unknown live-state — do NOT treat as already-ended.
   if (status === 429 || status >= 500) return false;
-  // Any 4xx on a withdraw of a known offer = not in a withdraw-able (live) state.
+  // US-2641: 401 and 403 are statements about the CALLER, not about the listing.
+  // An expired token, a revoked grant, a missing sell.inventory scope, or a
+  // withdraw aimed at an offer another connected account owns all answer 4xx
+  // while the listing stays live and sellable. Reading those as "already ended"
+  // marks the row ended and leaves buyers able to buy — the oversell direction,
+  // and the one the seller has no way to notice. Callers surface a real error.
+  if (status === 401 || status === 403) return false;
+  // Any other 4xx on a withdraw of a known offer = not in a withdraw-able (live)
+  // state. Callers on the eBay path VERIFY this against the offer before
+  // reconciling (see the ebay adapter's delist), because the inference is only
+  // usually right.
   if (status >= 400 && status < 500) return true;
   // Non-HTTP error (no numeric status) — fall back to a message match.
   const msg = (e.message ?? "").toLowerCase();

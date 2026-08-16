@@ -51,6 +51,15 @@ export interface PriceCardProps {
   ebayOwnedHint: string | undefined;
   /** US-2634: the price writes itself; this is what that write is doing. */
   priceSaveState: FieldSaveState;
+  /**
+   * US-2641: true when this listing is already on the marketplace, so the write
+   * is a REPRICE of something buyers can see rather than a draft edit. The two
+   * cases fail differently and a seller has to be told which one they are in:
+   * a draft that did not save costs a retype, a live price that did not push
+   * leaves eBay charging the old number while every screen here shows the new
+   * one.
+   */
+  priceIsLive: boolean;
 }
 
 const PRICE_SAVE_TEXT: Record<FieldSaveState, string> = {
@@ -58,6 +67,14 @@ const PRICE_SAVE_TEXT: Record<FieldSaveState, string> = {
   saving: "Saving price...",
   saved: "Price saved",
   error: "Price not saved yet — use Save draft",
+};
+
+const LIVE_PRICE_SAVE_TEXT: Record<FieldSaveState, string> = {
+  idle: "",
+  saving: "Sending the new price to the marketplace...",
+  saved: "Price updated on the marketplace",
+  error:
+    "The marketplace did not take the new price, so it was not saved — the old price is still live. Try Save & resubmit.",
 };
 // Condition, price, quantity and Best Offer — the levers that decide what a
 // buyer pays. Cost basis and its read-outs deliberately live in their own card
@@ -91,6 +108,7 @@ export function PriceCard({
   isEbayOrigin,
   ebayOwnedHint,
   priceSaveState,
+  priceIsLive,
 }: PriceCardProps) {
   // US-2405: warn (never block) when auto-accept sits far under the asking
   // price — the shape a threshold takes once the price has moved past it.
@@ -248,7 +266,9 @@ export function PriceCard({
                   : "text-muted-foreground",
               )}
             >
-              {PRICE_SAVE_TEXT[priceSaveState]}
+              {(priceIsLive ? LIVE_PRICE_SAVE_TEXT : PRICE_SAVE_TEXT)[
+                priceSaveState
+              ]}
             </p>
           )}
           {priceEstimated && (

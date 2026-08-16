@@ -64,18 +64,26 @@ export async function loadOwnedListing(
     .select(
       "id, inventory_item_id, platform, listing_price, listing_status, listing_url, " +
         "platform_offer_id, platform_listing_id, listing_origin, batch_id, " +
-        "synced_to_ebay_at, marketplace_connection_id, variations, " +
+        "synced_to_ebay_at, marketplace_connection_id, variations, inventory_sku, " +
         "inventory_items!inner(user_id, sku)",
     )
     .eq("id", listingId)
     .maybeSingle();
   if (!data) return null;
   const row = data as unknown as OwnedListingRow & {
+    inventory_sku: string | null;
     inventory_items: { user_id: string; sku: string | null };
   };
   if (row.inventory_items.user_id !== ownerId) return null;
-  // The group key lives on the ITEM, not the listing row.
-  return { ...row, item_sku: row.inventory_items.sku };
+  // US-1999: the PINNED sku the listing actually went live under wins over the
+  // item's current one. eBay created the inventory_item_group under the pinned
+  // value, so a seller who has since renamed the SKU would otherwise have the
+  // group withdraw aimed at a key that does not exist — eBay 404s, the caller
+  // reads that as "already ended", and the variation listing stays live while
+  // FlipDesk reports it ended. The eBay-namespaced end route has read the pinned
+  // value since US-1999; this loader, which now serves the same operation, did
+  // not. Falls back to the item's sku for rows published before the pin existed.
+  return { ...row, item_sku: row.inventory_sku ?? row.inventory_items.sku };
 }
 
 // Was this row ever actually published to its marketplace? This is orthogonal to

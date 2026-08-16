@@ -882,6 +882,8 @@ flipdeskListingsRoutes.post("/:id/end", async (c) => {
       // US-2166: without these an eBay variation listing cannot be ended.
       variations: row.variations,
       itemSku: row.item_sku,
+      // US-1507: end through the account that published it.
+      connectionId: row.marketplace_connection_id,
     });
     if (!res.ok) {
       return c.json(
@@ -1252,6 +1254,8 @@ flipdeskListingsRoutes.post("/bulk-end", async (c) => {
         // offer id and ends by group key.
         variations: row.variations,
         itemSku: row.item_sku,
+        // US-1507: same as the single end — the publishing account.
+        connectionId: row.marketplace_connection_id,
       });
       if (!res.ok) {
         results.push({ listing_id: id, ok: false, error: res.error });

@@ -26,6 +26,17 @@ export interface EbayFix {
 const OVERLOADED_EBAY_ERROR_IDS = new Set<number>([25002, 2004]);
 
 const EBAY_ERROR_FIX: Record<number, EbayFix> = {
+  // eBay's own words for 25001 are "A system error has occurred. Internal Server
+  // Error", which is true, unhelpful, and what a seller relisting a garment saw
+  // four times in a row with no way forward. In practice on a publish it means
+  // the offer is stuck: eBay will not put this offer back up, usually because
+  // the listing it belongs to was ended outside the API. US-2641 recreates the
+  // offer automatically, so a seller who still reaches this message has hit
+  // something that survived that, and retrying is genuinely the next move.
+  25001: {
+    message:
+      "eBay couldn't publish this listing and didn't say why. We've rebuilt the eBay-side draft — try publishing again. If it fails a second time, wait a few minutes: this is usually eBay's end.",
+  },
   // Overloaded generic (see above) — last-resort text only.
   25002: {
     message:

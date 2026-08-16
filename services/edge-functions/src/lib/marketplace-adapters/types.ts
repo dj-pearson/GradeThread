@@ -94,6 +94,18 @@ export interface AdapterEndInput {
    */
   variations?: unknown;
   itemSku?: string | null;
+  /**
+   * US-1507: the marketplace connection the listing was PUBLISHED under, when
+   * the row records one. Null/undefined means the seller's primary account.
+   *
+   * The eBay-namespaced end route has passed this since US-1507; the adapter
+   * did not, so the platform-agnostic End withdrew through whichever account is
+   * primary TODAY. On a seller with a second connection that withdraw names an
+   * offer the account does not own, eBay answers 4xx, the caller reads that as
+   * "already ended", and the row is marked ended while the listing is still up
+   * and still sellable. Silent, and on the oversell side.
+   */
+  connectionId?: string | null;
 }
 
 export type AdapterResult =

@@ -73,9 +73,11 @@ import {
   isEbayConfigured,
   isNegotiationScopeAvailable,
   isOfferAlreadyExistsError,
+  isOfferBoundToDeadListing,
   listAllOffers,
   listOffersForSku,
   getOffer,
+  getPublishedListingId,
   getInventoryItemAspects,
   listRecentOrders,
   listRecentTransactions,
@@ -6926,6 +6928,30 @@ flipdeskEbayRoutes.delete("/listings/:id", async (c) => {
     } catch (err) {
       const outcome = classifyWithdrawFailure(err);
       if ("abort" in outcome) return outcome.abort;
+      // US-2641: classifyWithdrawFailure INFERS "already not live" from a 4xx.
+      // The inference is usually right, and when it is wrong the row is marked
+      // ended while buyers can still buy — the failure the seller cannot see.
+      // One read of the offer settles it, and only on this failure path.
+      const stillLive = await getPublishedListingId(
+        userId,
+        strategy.offerId,
+        endConnectionId,
+      );
+      if (stillLive) {
+        console.error(
+          `[flipdesk-ebay] end: withdraw of offer ${strategy.offerId} failed but ` +
+            `listing ${stillLive} is STILL LIVE — refusing to mark it ended`,
+        );
+        return c.json(
+          {
+            error: "eBay refused to end this listing and it is still live.",
+            detail:
+              `eBay would not end listing ${stillLive}. End it in Seller Hub, ` +
+              "then mark it ended here.",
+          },
+          502,
+        );
+      }
       note = outcome.note;
     }
   } else {
@@ -7479,9 +7505,14 @@ export async function publishItemForOwner(
     const listingDuration = ctx.summary.auctionDuration;
 
     // 3. Create or reuse an offer for this SKU.
-    let offerId: string;
-    try {
-      const created = await createOffer(ownerId, {
+    const offerPolicies = {
+      fulfillmentPolicyId: policies.fulfillmentPolicyId,
+      paymentPolicyId: policies.paymentPolicyId,
+      returnPolicyId: policies.returnPolicyId,
+      ...(bestOfferTerms ? { bestOfferTerms } : {}),
+    };
+    const mintOffer = () =>
+      createOffer(ownerId, {
         sku,
         marketplaceId: getMarketplaceId(),
         format: ctx.summary.format,
@@ -7489,15 +7520,14 @@ export async function publishItemForOwner(
         categoryId: ctx.summary.categoryId,
         listingDescription: ctx.summary.description,
         listingDuration,
-        listingPolicies: {
-          fulfillmentPolicyId: policies.fulfillmentPolicyId,
-          paymentPolicyId: policies.paymentPolicyId,
-          returnPolicyId: policies.returnPolicyId,
-          ...(bestOfferTerms ? { bestOfferTerms } : {}),
-        },
+        listingPolicies: offerPolicies,
         pricingSummary,
         merchantLocationKey: policies.merchantLocationKey,
       });
+
+    let offerId: string;
+    try {
+      const created = await mintOffer();
       offerId = created.offerId;
     } catch (err) {
       if (!isOfferAlreadyExistsError(err)) throw err;
@@ -7505,24 +7535,58 @@ export async function publishItemForOwner(
       const found = existing.find((o) => !!o.offerId);
       if (!found) throw err;
       offerId = found.offerId;
-      // The existing offer was created on an earlier attempt and may carry a
-      // stale shipping policy / price / category (eBay 25007 keeps firing on
-      // publish until the offer itself is corrected). Push the current draft +
-      // selected policies onto it before publishing.
-      await syncExistingOffer(ownerId, offerId, {
-        availableQuantity: ctx.summary.quantity,
-        categoryId: ctx.summary.categoryId,
-        listingDescription: ctx.summary.description,
-        listingDuration,
-        listingPolicies: {
-          fulfillmentPolicyId: policies.fulfillmentPolicyId,
-          paymentPolicyId: policies.paymentPolicyId,
-          returnPolicyId: policies.returnPolicyId,
-          ...(bestOfferTerms ? { bestOfferTerms } : {}),
-        },
-        pricingSummary,
-        merchantLocationKey: policies.merchantLocationKey,
-      });
+
+      // US-2641: an offer eBay has bound to a DEAD listing cannot be published
+      // again. When a seller ends the listing on eBay's own site, the offer
+      // survives still pointing at the ended listing, and every re-publish of it
+      // answers 25001 "A system error has occurred. Internal Server Error" —
+      // which is what a seller who ended a listing on eBay and then relisted from
+      // FlipDesk actually got, four times in a row, with nothing that could ever
+      // clear it. eBay's recovery is to destroy the offer and create a new one.
+      //
+      // listOffersForSku already returns the offer's status and its listing's, so
+      // the check costs no extra call. It is narrow by construction: an offer that
+      // simply failed to publish (a missing item specific) carries no listingId
+      // and is left alone, so an ordinary rejection never churns the offer id.
+      if (
+        isOfferBoundToDeadListing({
+          status: found.status,
+          listing: {
+            listingId: found.listingId ?? undefined,
+            listingStatus: found.listingStatus ?? undefined,
+          },
+        })
+      ) {
+        console.warn(
+          `[flipdesk-ebay] offer ${offerId} is bound to dead listing ` +
+            `${found.listingId} (offer status ${found.status ?? "?"}, listing ` +
+            `status ${found.listingStatus ?? "?"}) — recreating it before publish`,
+        );
+        // deleteOffer is destructive and would end a LIVE listing as a side
+        // effect; isOfferBoundToDeadListing has just established this one is not
+        // live, which is the guard its contract asks the caller to supply.
+        try {
+          await deleteOffer(ownerId, offerId, ctx.connectionId ?? undefined);
+        } catch (delErr) {
+          if (!isAlreadyDeletedError(delErr)) throw delErr;
+        }
+        const remade = await mintOffer();
+        offerId = remade.offerId;
+      } else {
+        // The existing offer was created on an earlier attempt and may carry a
+        // stale shipping policy / price / category (eBay 25007 keeps firing on
+        // publish until the offer itself is corrected). Push the current draft +
+        // selected policies onto it before publishing.
+        await syncExistingOffer(ownerId, offerId, {
+          availableQuantity: ctx.summary.quantity,
+          categoryId: ctx.summary.categoryId,
+          listingDescription: ctx.summary.description,
+          listingDuration,
+          listingPolicies: offerPolicies,
+          pricingSummary,
+          merchantLocationKey: policies.merchantLocationKey,
+        });
+      }
     }
 
     // 4. Publish — or ADOPT an already-published listing (US-464). If a prior

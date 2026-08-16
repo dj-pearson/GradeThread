@@ -6,8 +6,10 @@ import {
 } from "../../routes/flipdesk-ebay.ts";
 import {
   buildConsentUrl,
+  getPublishedListingId,
   getUserAccessToken,
   isEbayConfigured,
+  isOfferAlreadyEndedError,
   withdrawByInventoryItemGroup,
   withdrawOffer,
 } from "../ebay-client.ts";
@@ -116,12 +118,45 @@ export const ebayAdapter: MarketplaceAdapter = {
       itemSku: input.itemSku ?? null,
       platformOfferId: input.platformOfferId,
     });
+    // US-1507: withdraw through the account that PUBLISHED this listing, not
+    // through whichever connection happens to be primary now. The eBay-namespaced
+    // end route has done this since US-1507; this one did not, so a seller with a
+    // second eBay connection got a 4xx the caller then read as "already ended" —
+    // row marked ended, listing still live and still sellable.
+    const connectionId = input.connectionId ?? undefined;
     if (strategy.kind === "group") {
-      await withdrawByInventoryItemGroup(input.ownerId, strategy.groupKey);
+      await withdrawByInventoryItemGroup(input.ownerId, strategy.groupKey, connectionId);
       return { ok: true };
     }
     if (strategy.kind === "offer") {
-      await withdrawOffer(input.ownerId, strategy.offerId);
+      try {
+        await withdrawOffer(input.ownerId, strategy.offerId, connectionId);
+      } catch (err) {
+        // US-2641: "eBay refused the withdraw" is not the same fact as "the
+        // listing is not live", and the End route treats the first as the second
+        // — it marks the row ended and answers ok. That inference is usually
+        // right and silently catastrophic when it is wrong: the seller is told
+        // the item is off eBay while buyers can still buy it. So ASK. One read of
+        // the offer settles it, and it only runs on the failure path.
+        if (!isOfferAlreadyEndedError(err)) throw err;
+        const stillLive = await getPublishedListingId(
+          input.ownerId,
+          strategy.offerId,
+          connectionId,
+        );
+        if (stillLive) {
+          return {
+            ok: false,
+            status: 502,
+            error:
+              "eBay refused to end this listing and it is still live " +
+              `(listing ${stillLive}). End it in Seller Hub, then mark it ended here.`,
+          };
+        }
+        // Confirmed not live — let the caller reconcile, which is what
+        // isOfferAlreadyEndedError exists for.
+        throw err;
+      }
       return { ok: true };
     }
     // Nothing live to withdraw. The caller decides whether that is a clean
