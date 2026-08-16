@@ -367,6 +367,60 @@ export const OPENAPI_SPEC = {
         },
       },
     },
+    // US-2635: the three sandbox reads. The spec described the sandbox in
+    // info.description and declared a Sandbox tag, then listed only the POST —
+    // so a client generated from this file could submit a mock grade and had no
+    // way to fetch the result, which is the whole point of a sandbox.
+    "/api/v1/sandbox/grades/{id}": {
+      get: {
+        tags: ["Sandbox"],
+        summary: "Fetch a deterministic mock grade",
+        description:
+          "Returns a sample grade for any id — deterministic, so the same id always " +
+          "yields the same body. Poll this after POST /api/v1/sandbox/grades to " +
+          "exercise your read path without spending credits.",
+        security: [{ ApiKeyAuth: ["read"] }],
+        parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "Sample grade (meta.sandbox = true)",
+            content: { "application/json": { schema: envelope({ type: "object" }) } },
+          },
+          "403": errorResponse,
+        },
+      },
+    },
+    "/api/v1/sandbox/price-guide": {
+      get: {
+        tags: ["Sandbox"],
+        summary: "Deterministic mock price-guide catalog",
+        description: "The sandbox mirror of GET /api/v1/price-guide. Fixed sample items.",
+        security: [{ ApiKeyAuth: ["read"] }],
+        responses: {
+          "200": {
+            description: "Sample catalog (meta.sandbox = true)",
+            content: { "application/json": { schema: envelope({ type: "object" }) } },
+          },
+          "403": errorResponse,
+        },
+      },
+    },
+    "/api/v1/sandbox/price-guide/{slug}": {
+      get: {
+        tags: ["Sandbox"],
+        summary: "Deterministic mock value bands for one item",
+        description: "The sandbox mirror of GET /api/v1/price-guide/{slug}.",
+        security: [{ ApiKeyAuth: ["read"] }],
+        parameters: [{ name: "slug", in: "path", required: true, schema: { type: "string" } }],
+        responses: {
+          "200": {
+            description: "Sample value bands (meta.sandbox = true)",
+            content: { "application/json": { schema: envelope({ type: "object" }) } },
+          },
+          "403": errorResponse,
+        },
+      },
+    },
   },
   components: {
     securitySchemes: {

@@ -23,6 +23,7 @@ const ENDPOINTS = [
   { method: "GET", path: "/api/v1/sandbox/grades/:id", scope: "read", desc: "Free mock fetch — returns a sample grade." },
   { method: "GET", path: "/api/v1/price-guide", scope: "read", desc: "List published Resale Condition Index items (the catalog)." },
   { method: "GET", path: "/api/v1/price-guide/:slug", scope: "read", desc: "Resale value range + sell-through by grade band for an item." },
+  { method: "GET", path: "/api/v1/sandbox/price-guide", scope: "read", desc: "Free mock catalog — the sandbox mirror of the list endpoint." },
   { method: "GET", path: "/api/v1/sandbox/price-guide/:slug", scope: "read", desc: "Free mock price guide — deterministic sample, no live data." },
 ];
 
