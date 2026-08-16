@@ -21,12 +21,23 @@
 // reports a dead URL as healthy. Running the real handler and dropping the body
 // cannot drift from its GET, because it IS its GET.
 //
-// THE COST, stated plainly: a HEAD now does the same work as a GET. For the
-// sitemaps that is a database read, and for the og/* routes it is a raster.
-// That is the price of a correct status line. If a specific route ever needs a
-// cheap HEAD, give that route its own handler and say why there — do not make
-// this helper conditional, because a helper with two behaviours is how the
-// next reader ends up with the canned one by accident.
+// THE COST, stated plainly and then checked. A HEAD now does the same work as a
+// GET — a database read for the sitemaps, a raster for the og/* routes — and it
+// is WORSE than a cached GET, not merely equal to one: `withEdgeCache`
+// (functions/_shared/blog-render.ts) short-circuits on any non-GET method, so a
+// HEAD skips the edge cache on both the read and the write and always rebuilds.
+// That is the price of a correct status line, and it is the reason a route
+// hammered by HEAD probes would be felt.
+//
+// The same check found the thing that could have made this fix WORSE than the
+// bug: Cloudflare's `cache.put` rejects a non-GET request, so a cache helper
+// that did not guard on method would have turned every HEAD into a 500. This
+// one guards. It is the only place in functions/ that reads `request.method`.
+//
+// If a specific route ever needs a cheap HEAD, give that route its own handler
+// and say why there — do not make this helper conditional, because a helper
+// with two behaviours is how the next reader ends up with the canned one by
+// accident.
 
 /**
  * Wrap a GET handler so it can serve HEAD: same status, same headers, no body.
