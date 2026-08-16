@@ -64,12 +64,13 @@ Deno.test("isRunnableJob: a recorded cron is runnable, wherever it is served", (
   // it turned out ebay-order-backstop was the same sweep, working.
   assertEquals(isRunnableJob("ebay-orders-sync"), false);
   assertEquals(isRunnableJob("ebay-order-backstop"), true);
-  // photo-archive became runnable in the same story, by the opposite move: it
-  // had no working equivalent, so it got the /jobs/ route and the fleet loop.
+  // photo-archive and reconciliation-sweep became runnable in the same story,
+  // by the opposite move: neither had a working equivalent, so each got the
+  // /jobs/ route and the fleet loop. Every US-2310 cron is now invocable, so
+  // there is no longer a "still not runnable" example to name here — only
+  // one-off backfills and unknown keys are false.
   assertEquals(isRunnableJob("photo-archive"), true);
-  // Still not runnable: it cannot even be invoked with the job secret
-  // (US-2310), so offering a Run-now button would be offering a 401.
-  assertEquals(isRunnableJob("reconciliation-sweep"), false);
+  assertEquals(isRunnableJob("reconciliation-sweep"), true);
 });
 
 Deno.test("US-2617: Run-now asks for the secret the job's own endpoint validates", () => {

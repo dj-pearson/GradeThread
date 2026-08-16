@@ -355,9 +355,49 @@ const AUTO_MATCH_MIN_MARGIN = 0.2;
 // scoring ≥ AUTO_MATCH_MIN_SCORE with a margin of ≥ AUTO_MATCH_MIN_MARGIN
 // over the next-best alternative. Returns counts; ambiguous rows stay in
 // the queue for /queue + /match.
-flipdeskReconciliationRoutes.post("/run", async (c) => {
-  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+export interface ReconcileSweepCounts {
+  auto_matched: number;
+  ambiguous: number;
+  no_candidates: number;
+  scanned: number;
+}
 
+/**
+ * Owners holding at least one unreconciled payout row. Used ONLY by the
+ * reconciliation-sweep cron (routes/jobs-reconciliation-sweep.ts), which then
+ * re-enters {@link reconcilePayoutsForOwner} per owner — so every match is
+ * still scoped to the tenant that owns the payout.
+ *
+ * Named for the fleet rather than exposing an "all tenants" flag on the
+ * per-owner function, so it cannot be reached by accident from a seller route.
+ */
+export async function listOwnersWithUnreconciledPayouts(
+  scanLimit: number,
+): Promise<{ owners: string[]; error: unknown }> {
+  const { data, error } = await supabaseAdmin
+    .from("payout_imports")
+    .select("user_id")
+    .eq("reconciled", false)
+    // Oldest first: a payout that has sat unmatched longest is the one whose
+    // candidate sales are closest to ageing out of the date window.
+    .order("payout_date", { ascending: true, nullsFirst: false })
+    .limit(scanLimit);
+  if (error) return { owners: [], error };
+  const seen = new Set<string>();
+  for (const r of (data ?? []) as Array<{ user_id: string | null }>) {
+    if (r.user_id) seen.add(r.user_id);
+  }
+  return { owners: [...seen], error: null };
+}
+
+/**
+ * Auto-match one owner's unambiguous payouts. Tenant-scoped by construction:
+ * the payout read filters on the owner id, candidate sales are loaded for that
+ * same id, and the link RPC takes it as p_user_id.
+ */
+export async function reconcilePayoutsForOwner(
+  userId: string,
+): Promise<ReconcileSweepCounts> {
   const { data: payoutsRaw } = await supabaseAdmin
     .from("payout_imports")
     .select("id, user_id, payout_date, amount, reconciled, sale_id, raw_payload, created_at")
@@ -368,12 +408,7 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
   const payouts = (payoutsRaw ?? []) as PayoutRow[];
 
   if (payouts.length === 0) {
-    return c.json({
-      auto_matched: 0,
-      ambiguous: 0,
-      no_candidates: 0,
-      scanned: 0,
-    });
+    return { auto_matched: 0, ambiguous: 0, no_candidates: 0, scanned: 0 };
   }
 
   // Same candidate set as /queue: date-windowed sales UNIONED with
@@ -464,12 +499,17 @@ flipdeskReconciliationRoutes.post("/run", async (c) => {
     autoMatched++;
   }
 
-  return c.json({
+  return {
     auto_matched: autoMatched,
     ambiguous,
     no_candidates: noCandidates,
     scanned: payouts.length,
-  });
+  };
+}
+
+flipdeskReconciliationRoutes.post("/run", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  return c.json(await reconcilePayoutsForOwner(userId));
 });
 
 // Manually apply a payout row to a specific sale. Writes the link both

@@ -191,6 +191,7 @@ import { handleCronFleetHealthCron } from "./routes/jobs-cron-fleet.ts";
 import { handleMarketplaceEventsCron } from "./routes/jobs-marketplace-events.ts";
 import { handleEbayOrderBackstopCron } from "./routes/jobs-ebay-order-backstop.ts";
 import { handlePhotoArchiveCron } from "./routes/jobs-photo-archive.ts";
+import { handleReconciliationSweepCron } from "./routes/jobs-reconciliation-sweep.ts";
 import { handleEbayNotificationReconcileCron } from "./routes/jobs-ebay-notification-reconcile.ts";
 import { adminSeoRoutes, handleGscSyncCron } from "./routes/admin-seo.ts";
 import { adminGrowthRoutes, handleGrowthDispatchCron } from "./routes/admin-growth.ts";
@@ -1628,6 +1629,9 @@ app.post("/api/jobs/ebay-notification-reconcile", (c) =>
 // Coolify task 401'd every night and left no ledger row (US-2310). It walks the
 // fleet here and re-enters the per-owner archival for each owner it finds.
 app.post("/api/jobs/photo-archive", (c) => handlePhotoArchiveCron(c));
+// US-2617: the nightly payout reconciliation sweep, and the last of the three
+// crons US-2310 found unreachable. Same shape and same reason as the one above.
+app.post("/api/jobs/reconciliation-sweep", (c) => handleReconciliationSweepCron(c));
 // US-308/US-309 admin SEO endpoints. /summary + /gsc/sync are admin JWT
 // gated by the /api/admin/* middleware groups above.
 app.route("/api/admin/seo", adminSeoRoutes);

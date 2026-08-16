@@ -306,29 +306,28 @@ async function handlerAcceptsJobSecret(endpoint: string): Promise<boolean | null
 }
 
 /**
- * The crons US-2310 found already broken, verified 2026-08-01.
+ * The crons US-2310 found already broken, verified 2026-08-01. **Now empty.**
  *
- * This list exists so the guard can be green TODAY while still catching the
- * next one — not to excuse these. Fixing one is not a one-line change: each is
- * a per-user handler, so it needs a job-secret branch AND a server-side tenant
- * loop, which is the open half of US-2310.
+ * It existed so the guard could be green TODAY while still catching the next
+ * one, and it was shrink-only: fixing an entry without removing it from here
+ * failed as loudly as adding a new broken cron. All three came off in US-2617
+ * and it is deliberately KEPT at zero rather than deleted, because the empty
+ * array is what makes a new entry an obvious regression instead of a normal
+ * edit.
  *
- * Two came off it in US-2617, by different routes, and the ORDER of those two
- * checks is the lesson. ebay-orders-sync was DELETED, not fixed:
- * ebay-order-backstop (US-1965) was already the same half-hourly fleet sweep
- * through triggerEbaySyncForUser, so building it the loop it seemed to want
- * would have shipped a second copy of a working job. photo-archive had no such
- * equivalent and got the loop for real (routes/jobs-photo-archive.ts). So for
- * the name below: look for an existing job FIRST, then write the loop.
+ * THE THREE NEEDED THREE DIFFERENT ANSWERS, which is the reason to check before
+ * fixing. ebay-orders-sync was DELETED, not fixed: ebay-order-backstop
+ * (US-1965) was already the same half-hourly fleet sweep through
+ * triggerEbaySyncForUser, so building it the loop it seemed to want would have
+ * shipped a second copy of a working job. photo-archive and
+ * reconciliation-sweep had no equivalent and got the loop for real
+ * (routes/jobs-photo-archive.ts, routes/jobs-reconciliation-sweep.ts).
  *
- * It may only ever SHRINK. The test below pins its exact contents, so fixing an
- * entry without removing it from here fails just as loudly as adding a new
- * broken cron — which is what stops a "temporary" allowlist from becoming
- * permanent.
+ * So if a name ever lands here again: look for an existing job FIRST, then
+ * write the loop. The search costs a grep and the wrong answer costs a
+ * duplicate sweep against a shared rate limit.
  */
-const KNOWN_UNREACHABLE_CRONS = [
-  "reconciliation-sweep → /api/flipdesk/reconciliation/run",
-] as const;
+const KNOWN_UNREACHABLE_CRONS: readonly string[] = [];
 
 Deno.test("US-2310: every registered cron endpoint is reachable with only the job secret", async () => {
   const main = await Deno.readTextFile(MAIN_TS);
@@ -467,13 +466,19 @@ Deno.test("US-2617: ebay-orders-sync stays deleted, because backstop is the real
 });
 
 Deno.test("US-2310: the known-broken list is not silently growing", () => {
-  // Stated as its own case so the NUMBER is visible in the test output. One
-  // scheduled task has most likely never run in production; that is a fact
-  // worth seeing on every CI run until it is zero. It was three before US-2617.
+  // Stated as its own case so the NUMBER is visible in the test output. It read
+  // 3 from 2026-08-01 to 2026-08-15 — three scheduled tasks that had most
+  // likely never run in production — and US-2617 took it to 0.
+  //
+  // Kept rather than deleted, and asserting 0 rather than "<= 3": a guard whose
+  // budget has slack is a guard that permits one more. There is no longer a
+  // number to spend.
   assertEquals(
     KNOWN_UNREACHABLE_CRONS.length,
-    1,
-    "US-2310's remaining work is to take this to 0 — it must never go up",
+    0,
+    "US-2310 is closed at zero. A name here means a cron that 401s on every " +
+      "fire and leaves no trace — fix it rather than listing it, and check for " +
+      "an existing job before writing its tenant loop.",
   );
 });
 

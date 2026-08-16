@@ -1518,6 +1518,48 @@ Deno.test({
   },
 });
 
+// US-2617: the reconciliation sweep walks EVERY owner holding an unreconciled
+// payout and links payout rows to sales through reconcile_payout_link — a write
+// into another tenant's books. It resolves each owner from the payout row, so
+// the job secret is the only gate between a signed-in user and a fleet-wide
+// auto-match.
+Deno.test({
+  name: "reconciliation-sweep job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/reconciliation-sweep`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/reconciliation-sweep with a user JWT should 401 (no job secret), got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "reconciliation-sweep job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/reconciliation-sweep`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/reconciliation-sweep with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
 // US-2272: the credential-refresh cron sweeps EVERY verified seller's live eBay
 // listings and revises their descriptions. It resolves the tenant from each row
 // (users → that seller's own listings, scoped by user_id) and takes no ids from

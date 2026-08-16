@@ -58,28 +58,30 @@ makes a manifest sufficient — without it, a never-installed task would be
 indistinguishable from a job with nothing to do.
 
 > [!warning] The monitor reports what it can see, and says what it cannot
-> Three registry entries are outside the ledger (US-2616/US-2617): one cannot be
-> invoked with the job secret at all, and two are one-off backfills with no
-> cadence to miss. The fleet report names them under `unmonitored` rather than
-> quietly reporting all-clear on a subset. Read that list before trusting a green
-> run.
+> Two registry entries are outside the ledger, and both are permanent: one-off
+> backfills have no cadence to miss, so being outside the monitor is correct
+> rather than a gap. It was **eight** on 2026-08-15 morning, including the hourly
+> eBay token refresh; US-2616 made the report name them under `unmonitored`
+> instead of reporting all-clear on a subset, and US-2617 closed every fixable
+> one. Read that list before trusting a green run — it is short now, but the
+> value is that a new job cannot be quietly parked in it.
 
 ## What is still manual, and therefore still a risk
 
 - **Creating and removing tasks in Coolify.** The drift check catches a missing
-  one within an hour; it cannot catch an *extra* task hitting an endpoint the
-  registry does not know about. That is not hypothetical: US-2617 deleted the
-  `ebay-orders-sync` entry because `ebay-order-backstop` was already the same
-  half-hourly sweep, working — so the Coolify task by that name is now an extra
-  one, hitting a seller route that answers 401, and only a person can remove it.
+  one within an hour; it cannot catch an *extra* task, or one pointed at the
+  wrong URL. US-2617 left three of those: `ebay-orders-sync` should be deleted
+  outright, and `photo-archive` and `reconciliation-sweep` need their URLs moved
+  to `/api/jobs/…`. Until a person does that, nothing in the repo will say so.
 - **A broken entry can look like a missing feature, and the check is cheap.**
-  Two entries pointed at seller routes that read the caller's JWT, so both jobs
-  had never once succeeded, and they needed opposite fixes. `ebay-orders-sync`
-  was a duplicate: `ebay-order-backstop` was already the same half-hourly sweep,
-  so building the `/jobs/` route it seemed to want would have put two fleet
-  sweeps on one eBay rate-limit bucket. `photo-archive` had no equivalent and
-  got the route for real. **Look for the existing job first, then write the
-  loop** — the search costs a grep and the wrong answer costs a duplicate.
+  Three entries pointed at seller routes that read the caller's JWT, so none of
+  the three jobs had ever once succeeded (US-2310) — and they needed three
+  different fixes. `ebay-orders-sync` was a duplicate: `ebay-order-backstop` was
+  already the same half-hourly sweep, so building the `/jobs/` route it seemed
+  to want would have put two fleet sweeps on one eBay rate-limit bucket.
+  `photo-archive` and `reconciliation-sweep` had no equivalent and got the route
+  for real. **Look for the existing job first, then write the loop** — the
+  search costs a grep and the wrong answer costs a duplicate.
 - **The alert destination.** `ops_alert_webhook_url` and `ops_alert_email` both
   default to an empty string, and an empty destination means the whole path ends
   in an admin screen nobody is watching. Both rows exist in production; whether

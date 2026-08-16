@@ -65,14 +65,14 @@ export async function recordCronRun(run: CronRunInsert): Promise<void> {
 // which secret validates it — so a mount was all most of them needed.
 //
 // What genuinely still cannot be recorded, and why:
-//   • reconciliation-sweep — behind authMiddleware with no requireJobSecret
-//     branch, so it 401s before the handler runs (US-2310,
-//     KNOWN_UNREACHABLE_CRONS). It cannot run, so there is nothing to record.
-//     Two others left this set in US-2617, by different routes: ebay-orders-sync
-//     was DELETED (ebay-order-backstop was already the working version of the
-//     same sweep — check for an existing job before writing a second one), and
-//     photo-archive got the /jobs/ route + fleet loop it actually needed.
-//   • oneOff backfills — no cadence to miss.
+//   • oneOff backfills — no cadence to miss. That is the whole list now.
+//
+// US-2310's three unreachable crons all left this set in US-2617, and the three
+// needed three different answers, which is the reason to check before fixing:
+// ebay-orders-sync was DELETED (ebay-order-backstop was already the working
+// version of the same sweep), while photo-archive and reconciliation-sweep each
+// got the /jobs/ route + fleet loop they actually needed. Look for the job that
+// already does it, then write the loop.
 
 export interface CronDef {
   name: string;
@@ -285,13 +285,14 @@ export const CRON_REGISTRY: CronDef[] = [
   // /api/flipdesk/images/archive is still the seller's own "Archive now".
   { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/jobs/photo-archive", recorded: true, healthy: "200 {owners,eligible_owners,archived,freed_bytes,...}; skipped:true with reason r2_not_configured is healthy, and archived 0 is normal once the backlog drains" },
   // Payout reconciliation sweep (auto-link payout rows to sales).
-  // ⚠️ US-2310: unreachable with only the job secret — behind authMiddleware
-  // with no requireJobSecret branch, so it 401s before the handler runs and
-  // leaves no ledger row. The last one. Fix it the way photo-archive above was
-  // fixed: a /jobs/ route that walks owners, not a secret branch on the seller
-  // route. Check first whether some other job already reconciles payouts —
-  // ebay-orders-sync turned out to be a duplicate of one that already worked.
-  { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/flipdesk/reconciliation/run", recorded: false },
+  // ⚠️ THE ENDPOINT CHANGED (US-2617), the last of the three US-2310 found.
+  // This pointed at /api/flipdesk/reconciliation/run, a SELLER route, so the
+  // nightly task 401'd and left no ledger row. Checked for an existing
+  // equivalent first (guarantee-pool and ebay-notification-reconcile both
+  // reconcile something else entirely) and then wrote the loop:
+  // routes/jobs-reconciliation-sweep.ts. The Coolify task URL must be updated;
+  // /api/flipdesk/reconciliation/run is still the seller's own "Auto-match".
+  { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/jobs/reconciliation-sweep", recorded: true, healthy: "200 {owners,eligible_owners,auto_matched,ambiguous,...}; ambiguous is not an error — those rows are queued for the seller on purpose" },
   // US-1047: auto leave-feedback (no-op unless system setting feedback.auto_leave).
   { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: true, healthy: "200; no-op unless system setting feedback.auto_leave=true" },
   // US-561: promoted-listings performance sync.

@@ -277,10 +277,15 @@ Deno.test("US-2616: a fully-monitored fleet says nothing extra", () => {
   assert(!report.summary.includes("not monitored"), report.summary);
 });
 
-Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is not empty", () => {
+Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is now only the one-offs", () => {
   // Reads the shipped registry rather than a fixture, because the number that
-  // matters is the live one. If this ever reaches zero, delete the case — the
-  // gap is closed and the guard has nothing left to protect.
+  // matters is the live one.
+  //
+  // It began at EIGHT and is down to two, both of them permanent: a one-off
+  // backfill has no cadence to miss, so it is correctly outside the monitor
+  // rather than a gap. That is why this case is not deleted now the fixable
+  // part is closed — it is what stops a future job being quietly parked in the
+  // blind spot alongside them.
   const report = assembleCronFleetReport({
     registry: CRON_REGISTRY,
     runsByJob: {},
@@ -292,17 +297,17 @@ Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is not 
   // fix is to delete that entry — the same discipline as the tracked-and-ignored
   // and dead-module allowlists. Adding a name back is not how you make this pass.
   //
-  // ebay-token-refresh was on this list until US-2617 mounted the recorder on
-  // its path, and ebay-orders-sync until the same story gave it a /jobs/ route.
-  // This case is what caught both: it asserts the specific jobs by name, so
-  // fixing one reddens the guard rather than the guard quietly continuing to
-  // pass on a smaller set.
+  // Six names came off during US-2617 — ebay-token-refresh (a recorder mount),
+  // content-tick and content-digest (the same), ebay-orders-sync (deleted as a
+  // duplicate), photo-archive and reconciliation-sweep (new /jobs/ routes with
+  // fleet loops). This case caught every one of them: it asserts the specific
+  // jobs by name, so fixing one reddens the guard rather than the guard quietly
+  // continuing to pass on a smaller set.
   assertEquals(
     report.unmonitored,
     [
       "cert-integrity-backfill", // oneOff — a backfill has no cadence to miss
       "passport-backfill", // oneOff
-      "reconciliation-sweep", // US-2310: unreachable with the job secret at all
     ],
     "the fleet monitor's blind spot changed — shrink it by fixing a job, and " +
       "delete its name here; do not add one back to make this pass",

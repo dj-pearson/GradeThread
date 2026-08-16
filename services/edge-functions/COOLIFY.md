@@ -405,7 +405,7 @@ curl -fsS -X POST -H "X-Internal-Job-Secret: $<SECRET_ENV>" http://localhost:878
 | publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | radar-aggregate | `20 * * * *` | `/api/jobs/radar-aggregate` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, events, venues, aggregates, suppressed, removed, kFloor, pruned}; suppressed > 0 is NORMAL and means the k-anonymity floor withheld those venues |
-| reconciliation-sweep | `0 5 * * *` | `/api/flipdesk/reconciliation/run` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| reconciliation-sweep | `0 5 * * *` | `/api/jobs/reconciliation-sweep` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 {owners,eligible_owners,auto_matched,ambiguous,...}; ambiguous is not an error — those rows are queued for the seller on purpose |
 | reprice-rules | `0 */6 * * *` | `/api/jobs/reprice-rules` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | reprice-scan | `0 */6 * * *` | `/api/jobs/reprice-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | reward-nudges | `0 15 * * *` | `/api/jobs/reward-nudges` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 with {ok:true, evaluated, sent, holdout, skipped, scanned, converted}; sent can be 0 — most evaluated users are frequency-capped or have no true candidate |
