@@ -4,12 +4,46 @@
 // payloads, disables an auth step — MUST be read through isDebugAllowed() so
 // it is guaranteed inert in production, regardless of how the env is set.
 
-// Resolve the deploy environment. Defaults to "production" when unset so a
-// misconfigured container fails CLOSED (debug bypasses off) rather than open.
+/**
+ * Resolve the deploy environment. Defaults to "production" when unset so a
+ * misconfigured container fails CLOSED (debug bypasses off) rather than open.
+ *
+ * ⚠ BLANK COUNTS AS UNSET, and that is the whole point of this helper.
+ *
+ * This used to be `Deno.env.get("EDGE_ENV") ?? Deno.env.get("DENO_ENV") ??
+ * "production"`. `??` falls through on null/undefined and NEVER on an empty
+ * string — so `EDGE_ENV=` (a blank field in the Coolify UI, or a trailing `=`
+ * in an env file) resolved to `""`, which is not "production", and the service
+ * silently stopped believing it was in production. Measured 2026-08-16:
+ *
+ *   EDGE_ENV absent  → edgeEnv()="production", missingRequiredEnv() lists
+ *                      STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+ *                      FLIPDESK_INTERNAL_JOB_SECRET, EDGE_ENCRYPTION_KEY,
+ *                      CERT_SIGNING_KEY, API_KEY_PEPPER
+ *   EDGE_ENV=""      → edgeEnv()="",           missingRequiredEnv() returns []
+ *
+ * So a blank value made /health/ready report READY with none of those secrets,
+ * turned off the `pages_origin_bypass` reporting US-2612 is waiting on, made
+ * `isProduction()` false everywhere it gates behaviour, and short-circuited
+ * `assertAdminMfaConfig` below — which exists to refuse to boot with admin MFA
+ * disabled.
+ *
+ * This is the same defect the release identity had (see lib/release-identity.ts,
+ * whose header states the rule: fall through on a placeholder VALUE, not merely
+ * on an unset key). That fix did not reach here.
+ */
+export function resolveEdgeEnv(
+  get: (k: string) => string | undefined = (k) => Deno.env.get(k),
+): string {
+  const first = (get("EDGE_ENV") ?? "").trim();
+  if (first) return first.toLowerCase();
+  const second = (get("DENO_ENV") ?? "").trim();
+  if (second) return second.toLowerCase();
+  return "production";
+}
+
 export function edgeEnv(): string {
-  return (Deno.env.get("EDGE_ENV") ?? Deno.env.get("DENO_ENV") ?? "production")
-    .trim()
-    .toLowerCase();
+  return resolveEdgeEnv();
 }
 
 export function isProduction(): boolean {
@@ -35,8 +69,11 @@ export function isAdminMfaEnforced(): boolean {
 export function assertAdminMfaConfig(
   getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k),
 ): void {
-  const env = (getEnv("EDGE_ENV") ?? getEnv("DENO_ENV") ?? "production")
-    .trim().toLowerCase();
+  // Through the shared resolver, so a blank EDGE_ENV cannot skip this check.
+  // It carried its own copy of the `??` chain, which meant `EDGE_ENV=` returned
+  // here early and the boot-time refusal to start with admin MFA disabled
+  // simply did not run.
+  const env = resolveEdgeEnv(getEnv);
   if (env !== "production") return;
 
   const enforced =

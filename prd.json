@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2660",
+  "nextId": "US-2661",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2030,6 +2030,21 @@
         "vault/10-ops/backups.md gains a storage restore procedure next to the Postgres one, and the drill log gains a storage row. Today both are Postgres-only and read as though the whole system is covered.",
         "Decide and record what a PARTIAL restore looks like: a single deleted object recovered from a dated storage-deleted/ prefix is a different operation from a full-volume rebuild, and only the second is a disaster-recovery drill. Both should be written down; today neither is.",
         "OPERATOR: move the rclone crypt password and salt off the DB host and take a second offline copy, then record where (never the value) in vault/10-ops/key-rotation.md. Nothing in this repository can do it, and until it is done the offsite photo mirror does not survive the loss of the host it is backing up."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-2660",
+      "passes": false,
+      "title": "A blank EDGE_ENV silently turned off every production-only control",
+      "description": "Found 2026-08-16 while reading features.pages_origin_bypass for US-2612. edgeEnv() was Deno.env.get(\"EDGE_ENV\") ?? Deno.env.get(\"DENO_ENV\") ?? \"production\", and ?? falls through on null/undefined but NEVER on an empty string. So EDGE_ENV= — a blank field in the Coolify UI, or a trailing = in an env file — resolved to \"\", which is not \"production\", and the service silently stopped believing it was in production.  MEASURED, not argued, against the real modules:   EDGE_ENV absent -> edgeEnv()=\"production\", missingRequiredEnv() lists     STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, FLIPDESK_INTERNAL_JOB_SECRET,     EDGE_ENCRYPTION_KEY, CERT_SIGNING_KEY, API_KEY_PEPPER   EDGE_ENV=\"\"     -> edgeEnv()=\"\",           missingRequiredEnv() returns []  So a blank value made /health/ready report READY with none of those secrets; disabled the pages_origin_bypass reporting US-2612 is waiting on; made isProduction() false everywhere it gates behaviour, including isDebugAllowed(), which is the function that keeps security-weakening flags inert in production; and short-circuited assertAdminMfaConfig, which carried its own copy of the same ?? chain and exists to REFUSE TO BOOT with admin MFA disabled.  THE CODE HALF IS FIXED IN THE SAME COMMIT (resolveEdgeEnv treats blank as unset; both call sites go through it; 4 cases in src/tests/edge-env-blank_test.ts, sabotage-verified four ways). This story exists for the half code cannot answer: whether any deployed environment currently HAS a blank EDGE_ENV, and whether the schema-guard fatal that took prod down on 2026-08-16 could have been silently disabled by one.  SAME DEFECT THE RELEASE IDENTITY HAD. lib/release-identity.ts states the rule in its header — fall through on a placeholder VALUE, not merely on an unset key — after the identical bug cost three weeks on US-2001. That fix never reached lib/env.ts, three files away.",
+      "acceptanceCriteria": [
+        "Confirm no deployed environment has a blank EDGE_ENV: read it on the Coolify edge resource and in any env file the deploy uses. A blank value is indistinguishable from a correct one in the UI, which is why this needs looking at rather than assuming.",
+        "Confirm what production actually reported while a blank value would have been in effect: /health/ready returning ready with missing_env absent is the signature, and it is the same signature as a correctly configured service, so the check is the variable rather than the endpoint.",
+        "Decide whether an UNRECOGNISED EDGE_ENV should also fail closed. Today any non-empty string is accepted as-is, so EDGE_ENV=prod (a plausible typo) is not production and disables every prod-only control exactly as the blank did. The fix in this commit deliberately did NOT change that, because a whitelist would break staging and any future environment name, and that is a decision rather than an oversight.",
+        "A guard that the ?? chain cannot come back anywhere else it matters: grep for  and  across the edge and decide, per site, whether an empty value is a legitimate answer.",
+        "OPERATOR: read EDGE_ENV on the Coolify edge resource and confirm it is the literal string production (AC1/AC2). Nothing in this repository can see it. If it is blank, the service has been running with every prod-only secret check skipped and admin-MFA boot enforcement off, and the fix is to set it — the code half is already shipped.",
+        "AC4 RESTATED (the original lost its patterns to shell backtick expansion): a guard that the null-coalescing chain cannot come back anywhere it matters. Search the edge for the two shapes — a nullish-coalesce directly onto Deno.env.get, and a nullish-coalesce onto a string default like 'production' — and decide, per site, whether an EMPTY value is a legitimate answer there. Where it is not, the value must be trimmed and treated as absent, which is what resolveEdgeEnv now does."
       ],
       "priority": 5
     }
