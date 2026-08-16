@@ -148,16 +148,97 @@ Deno.test("US-2646: the delete route sweeps the compliance-exports bucket", () =
   );
 });
 
-Deno.test("US-2646: every bucket this account writes to is swept", () => {
-  // The pattern behind US-1637, US-2645 and this one is always the same: a new
-  // writer into a bucket, by an author with no reason to open a deletion
-  // routine. Naming the buckets here means the next one has to argue with a
-  // test rather than simply not be noticed.
+// ── US-2647: the bucket list is DERIVED, because my hand-written one was blind ──
+//
+// The first version of this test named three buckets by reading what the code
+// already swept, which is precisely the mistake the code made. It passed while
+// `avatars` — a PUBLIC bucket holding profile photographs, uploaded straight
+// from the browser to {userId}/avatar_* — was never swept at all. A guard built
+// from the answer cannot find the answer's omissions.
+//
+// So the list comes from the MIGRATIONS: every bucket the schema creates, minus
+// the ones explicitly argued to hold no user-owned objects. An entry in that
+// exemption list has to say why, and a new bucket lands in neither list, so it
+// fails until someone decides which it is.
+const OPERATOR_BUCKETS: Record<string, string> = {
+  "content-images": "Blog and marketing imagery, written by the content module. No user_id in the path and no user-owned objects.",
+  "content-videos": "Generated social/marketing video, same ownership as content-images.",
+  "authenticity-references": "The operator's brand-tell reference library (00500). Curated by admins, not uploaded by accounts.",
+  "cert-assets": "Rendered certificate imagery keyed to a grade_report, which is deliberately RETAINED after erasure as the non-PII product. Deleting these would break public certificates that must stay verifiable.",
+};
+
+Deno.test("US-2647: every user-writable bucket is swept, and the list is derived", () => {
   const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
-  for (const bucket of ["submission-images", "item-photos", "compliance-exports"]) {
-    assert(
-      src.includes(`removeAll("${bucket}"`),
-      `nothing sweeps the ${bucket} bucket on account deletion`,
-    );
+  const migrations = new URL("../../../../supabase/migrations/", import.meta.url);
+
+  const buckets = new Set<string>();
+  for (const entry of Deno.readDirSync(migrations)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const sql = Deno.readTextFileSync(new URL(entry.name, migrations));
+    for (const m of sql.matchAll(/INSERT INTO storage\.buckets[\s\S]{0,300}?'([a-z0-9-]{4,})'/g)) {
+      buckets.add(m[1]!);
+    }
   }
+  assert(buckets.size >= 6, `only ${buckets.size} buckets parsed from the migrations`);
+
+  const unswept: string[] = [];
+  for (const bucket of buckets) {
+    if (bucket in OPERATOR_BUCKETS) continue;
+    if (!src.includes(`removeAll("${bucket}"`)) unswept.push(bucket);
+  }
+  assertEquals(
+    unswept,
+    [],
+    "these buckets exist and account deletion never sweeps them. Either add a " +
+      "removeAll for the bucket, or add it to OPERATOR_BUCKETS with the reason " +
+      "it holds no user-owned objects.",
+  );
+});
+
+Deno.test("US-2647: every operator-bucket exemption still names a real bucket and a reason", () => {
+  const migrations = new URL("../../../../supabase/migrations/", import.meta.url);
+  const buckets = new Set<string>();
+  for (const entry of Deno.readDirSync(migrations)) {
+    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
+    const sql = Deno.readTextFileSync(new URL(entry.name, migrations));
+    for (const m of sql.matchAll(/INSERT INTO storage\.buckets[\s\S]{0,300}?'([a-z0-9-]{4,})'/g)) {
+      buckets.add(m[1]!);
+    }
+  }
+  for (const [bucket, why] of Object.entries(OPERATOR_BUCKETS)) {
+    assert(buckets.has(bucket), `${bucket} is exempted but no migration creates it`);
+    assert(why.length > 50, `${bucket} needs a real reason, not a label`);
+  }
+});
+
+Deno.test("US-2647: the avatar sweep lists the folder, it does not read the url", () => {
+  // `avatars` is the one source with no table enumerating its objects.
+  // settings.tsx uploads to a TIMESTAMPED path, so every change writes a new
+  // object and users.avatar_url names only the CURRENT one. Reading that column
+  // would erase the latest avatar and leave every superseded one behind — worse
+  // than today, because it would look handled.
+  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+  assert(
+    /removeAll\("avatars", await listUserFolder\("avatars", userId\)\)/.test(src),
+    "the avatars sweep must list the user's folder, not read users.avatar_url",
+  );
+  assert(
+    !/avatar_url[\s\S]{0,80}?removeAll\("avatars"/.test(src),
+    "the avatar sweep is reading avatar_url, which names only the current object",
+  );
+});
+
+Deno.test("US-2647: expense receipts are swept from their own private bucket", () => {
+  // 00564: "a card tail, a billing address, sometimes a full name". Reading the
+  // column is exact here because flipdesk-expenses.ts removes the previous
+  // object on replace AND on delete, so no superseded receipts accumulate.
+  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+  assert(
+    /\.from\("flipdesk_expenses"\)[\s\S]{0,120}?\.select\("receipt_path"\)/.test(src),
+    "account.ts never selects flipdesk_expenses.receipt_path",
+  );
+  assert(
+    src.includes('removeAll("expense-receipts"'),
+    "the receipt paths are read but the bucket is never swept",
+  );
 });

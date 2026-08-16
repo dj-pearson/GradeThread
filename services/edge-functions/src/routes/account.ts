@@ -211,6 +211,31 @@ function getStripe(): Stripe | null {
   return new Stripe(key, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
 }
 
+/**
+ * US-2647: every object under `{userId}/` in a bucket, as full paths.
+ *
+ * For buckets whose objects no table enumerates. `avatars` is the case: the
+ * browser uploads to a timestamped path and only the CURRENT url is stored on
+ * the users row, so the folder is the only complete list.
+ *
+ * Best-effort by design — a listing failure is logged and returns nothing
+ * rather than throwing, because it must not be the reason an erasure request
+ * fails partway through. The caller's other sweeps have already run.
+ */
+async function listUserFolder(bucket: string, userId: string): Promise<string[]> {
+  const { data, error } = await supabaseAdmin.storage
+    .from(bucket)
+    .list(userId, { limit: 1000 });
+  if (error) {
+    console.error(`[account/delete] storage list failed (${bucket}):`, error.message);
+    return [];
+  }
+  return (data ?? [])
+    .map((o) => (o as { name?: string }).name)
+    .filter((n): n is string => !!n)
+    .map((n) => `${userId}/${n}`);
+}
+
 // Supabase storage .remove() takes an array; chunk to stay well under any
 // request-size limits when a user has many photos.
 async function removeAll(bucket: string, paths: string[]) {
@@ -683,7 +708,7 @@ accountRoutes.post("/delete", async (c) => {
   const subIds = (subs.data ?? []).map((r) => (r as { id: string }).id);
   const itemIds = (items.data ?? []).map((r) => (r as { id: string }).id);
 
-  const [subImgs, itemPhotos, disputeRows, arrivalRows, exportRows] = await Promise.all([
+  const [subImgs, itemPhotos, disputeRows, arrivalRows, exportRows, receiptRows] = await Promise.all([
     // US-1637: also sweep original_storage_path — the metadata-INTACT original
     // (EXIF/GPS deliberately preserved for forensics, US-339). Selecting only
     // storage_path left GPS-bearing PII in the bucket after "deletion".
@@ -718,6 +743,15 @@ accountRoutes.post("/delete", async (c) => {
       .from("data_requests")
       .select("file_path")
       .eq("user_id", userId),
+    // US-2647: expense receipts, in their own PRIVATE bucket. 00564's comment
+    // is blunt about what these hold — "a card tail, a billing address,
+    // sometimes a full name". Reading the column is exact here rather than a
+    // folder listing, because flipdesk-expenses.ts already removes the previous
+    // object on both replace and delete, so no superseded receipts accumulate.
+    supabaseAdmin
+      .from("flipdesk_expenses")
+      .select("receipt_path")
+      .eq("user_id", userId),
   ]);
 
   const submissionImagePaths = collectSubmissionImagePaths(
@@ -740,9 +774,32 @@ accountRoutes.post("/delete", async (c) => {
     ),
   ];
 
+  const expenseReceiptPaths = [
+    ...new Set(
+      ((receiptRows.data ?? []) as { receipt_path: string | null }[])
+        .map((r) => r.receipt_path)
+        .filter((p): p is string => !!p),
+    ),
+  ];
+
   await removeAll("submission-images", submissionImagePaths);
   await removeAll("item-photos", itemPhotoPaths);
   await removeAll("compliance-exports", complianceExportPaths);
+  await removeAll("expense-receipts", expenseReceiptPaths);
+  // US-2647: avatars, and this one is the only bucket in the set that is PUBLIC.
+  //
+  // Profile pictures upload straight from the browser to `avatars` at
+  // {userId}/avatar_{timestamp}.{ext}, and the only pointer is `users.avatar_url`
+  // — a public URL, not a path. So the cascade takes the pointer and leaves a
+  // PUBLICLY FETCHABLE photograph of the person who just deleted their account.
+  //
+  // LISTED BY FOLDER RATHER THAN READ FROM A ROW, deliberately, and it is the
+  // only source here that can be: settings.tsx uploads to a TIMESTAMPED path,
+  // so every change writes a new object and `avatar_url` names only the current
+  // one. Reading the column would erase the latest avatar and leave every
+  // superseded one behind — a worse outcome than today's, because it would look
+  // handled.
+  await removeAll("avatars", await listUserFolder("avatars", userId));
   const storagePurged = true;
 
   // 2. Delete the Stripe customer (this also cancels any active subscriptions).
