@@ -16,6 +16,10 @@ import { acquireJobLock } from "./job-lock.ts";
 import { captureException, logEvent, recordMetric } from "./observability.ts";
 import { emitOpsEvent } from "./ops-events.ts";
 import { purgeAbandonedIssueAssets } from "./newsletter-imagery.ts";
+// US-2642: the window the Privacy Policy promises for extension listing checks.
+// Imported, never restated — this is a published retention commitment and two
+// copies of that number is how a page and a job come to disagree.
+import { INGEST_RETENTION_DAYS } from "./listing-ingest.ts";
 
 const BUCKET = "submission-images";
 const BATCH_LIMIT = 200;
@@ -34,6 +38,13 @@ const EMAIL_DEAD_LETTER_BODY_DAYS = 180;
 // a never-pruned table so it cannot become one enormous transaction. The cron is
 // daily, so a historical backlog drains over consecutive nights.
 const EMAIL_PURGE_BATCH = 5_000;
+
+// US-2642: rows per run for the ingested_listings backstop. Its OWN constant
+// rather than reusing EMAIL_PURGE_BATCH: that name would be wrong here, and a
+// test counts the email batch cap by occurrence, so borrowing it would have
+// read as a third email sweep. Same size and same reason - bound the first
+// pass over a table nothing has ever swept fleet-wide.
+const INGEST_PURGE_BATCH = 5_000;
 
 function retentionDays(): number {
   const raw = Number(Deno.env.get("DATA_RETENTION_DAYS"));
@@ -153,6 +164,8 @@ export async function handleDataRetentionCron(c: {
   let newsletterObjectsDeleted = 0;
   // US-2563: rows dropped from api_idempotency_records this run.
   let idempotencyRecordsPruned = 0;
+  // US-2642: ingested_listings rows past the published 90-day window.
+  let ingestedListingsPurged = 0;
   try {
     const result = await purgeExpiredGradingPii();
     // US-584: keep the cron-run ledger bounded (30-day window). Best-effort —
@@ -239,6 +252,56 @@ export async function handleDataRetentionCron(c: {
           emailBodiesStripped = ids.length;
         }
       }
+    }
+
+    // US-2642: ingested_listings, the extension's record of listings a buyer
+    // asked us to check.
+    //
+    // THE PRIVACY POLICY MAKES THIS AN UNCONDITIONAL PROMISE: "Deleted
+    // automatically 90 days after the check." The only prune that existed ran
+    // INLINE ON THE WRITE PATH, scoped to the ingesting buyer, and its own
+    // comment explains why — one indexed delete against one owner's rows, no
+    // dependency on a separate job staying healthy. That reasoning is sound for
+    // an ACTIVE buyer and does not cover the one whose data matters most here:
+    // someone who used the extension, stopped, and never writes again. Their
+    // browsing history has no next write to prune it, so it sat indefinitely
+    // against a promise with no "if you keep using it" attached.
+    //
+    // So this is a BACKSTOP, not a replacement. The inline prune stays as the
+    // fast path; this catches the tail the fast path cannot reach by design.
+    // Fleet-wide and time-only: no id, owner or window comes from a request.
+    // Best-effort, like the prunes above — a browsing-history sweep must never
+    // be the reason the grading-PII purge reports failure.
+    try {
+      const ingestCutoff = new Date(
+        Date.now() - INGEST_RETENTION_DAYS * 86_400_000,
+      ).toISOString();
+      // Select ids then delete by id, per the US-1552 gotcha: PostgREST
+      // mutation behaviour differs between self-hosted prod and the newer local
+      // stack, so CI cannot catch a regression in a fancier single statement.
+      const { data: staleBatch, error: staleScanErr } = await supabaseAdmin
+        .from("ingested_listings")
+        .select("id")
+        .lt("created_at", ingestCutoff)
+        .limit(INGEST_PURGE_BATCH);
+      if (staleScanErr) {
+        captureException(staleScanErr, { route: "data-retention.ingested_listings_scan" });
+      } else {
+        const ids = ((staleBatch ?? []) as Array<{ id: string }>).map((r) => r.id);
+        if (ids.length > 0) {
+          const { error: staleErr } = await supabaseAdmin
+            .from("ingested_listings")
+            .delete()
+            .in("id", ids);
+          if (staleErr) {
+            captureException(staleErr, { route: "data-retention.ingested_listings" });
+          } else {
+            ingestedListingsPurged = ids.length;
+          }
+        }
+      }
+    } catch (err) {
+      captureException(err, { route: "data-retention.ingested_listings" });
     }
 
     // US-2006 AC4: did this sweep actually advance? Only suspicious when there
@@ -345,6 +408,10 @@ export async function handleDataRetentionCron(c: {
       email_purge_batch: EMAIL_PURGE_BATCH,
       newsletter_issues_swept: newsletterIssuesSwept,
       newsletter_objects_deleted: newsletterObjectsDeleted,
+      // US-2642: a published retention promise now has a number an operator can
+      // read, rather than only the write-path prune nobody can observe.
+      ingested_listings_purged: ingestedListingsPurged,
+      ingested_listings_retention_days: INGEST_RETENTION_DAYS,
     });
   } catch (err) {
     captureException(err, { route: "data-retention.cron" });

@@ -224,3 +224,76 @@ Deno.test("US-2006: a negative or absent prior count still alerts from 1", () =>
     assertEquals(d.consecutive, 1);
   }
 });
+
+// ── US-2642: a published retention promise needs a sweep that reaches everyone ──
+//
+// The Privacy Policy says of listings checked through the extension: "Deleted
+// automatically 90 days after the check." Unconditional, no "while you keep
+// using it" attached.
+//
+// The only prune was INLINE ON THE WRITE PATH in public-grading.ts, scoped to
+// the ingesting buyer. That is right for an active buyer and structurally
+// cannot reach the case the promise most needs to cover: someone who used the
+// extension, stopped, and never writes again. No next write, no prune, and
+// their browsing history sits forever while a public page says otherwise.
+//
+// These pin the backstop, and they pin the INLINE prune too — deleting the fast
+// path and leaving only a nightly job would be a quiet regression in latency
+// for the active buyer, which is the thing the inline comment argues for.
+
+Deno.test("US-2642: the cron sweeps ingested_listings fleet-wide", () => {
+  assert(
+    /\.from\("ingested_listings"\)[\s\S]{0,400}?\.delete\(\)/.test(CRON),
+    "nothing in the retention cron deletes ingested_listings, so a buyer who " +
+      "stops using the extension keeps their checked-listing history forever — " +
+      "against an unconditional promise in the Privacy Policy",
+  );
+});
+
+Deno.test("US-2642: that sweep is time-scoped and bounded", () => {
+  const at = CRON.indexOf('.from("ingested_listings")');
+  assert(at > -1, "the ingested_listings sweep was renamed or removed");
+  const window = CRON.slice(at, at + 700);
+  assert(
+    /\.lt\("created_at", ingestCutoff\)/.test(window),
+    "the sweep must be scoped to a cutoff — an unfiltered delete on this table " +
+      "would destroy every buyer's current checks",
+  );
+  assert(
+    /\.limit\(INGEST_PURGE_BATCH\)/.test(window),
+    "the first fleet-wide pass over a table nothing has ever swept must be bounded",
+  );
+  // Fleet-wide by design, so nothing may narrow it to a caller-supplied owner.
+  assert(
+    !/\.eq\("user_id"/.test(window),
+    "this is a fleet sweep; scoping it to one user_id would recreate the gap it exists to close",
+  );
+});
+
+Deno.test("US-2642: the window is imported, not restated", () => {
+  // A published commitment written down twice is how a page and a job come to
+  // disagree, and the page is the one a regulator reads.
+  assert(
+    /import \{ INGEST_RETENTION_DAYS \} from "\.\/listing-ingest\.ts"/.test(SRC),
+    "the retention window must come from listing-ingest.ts, not a local literal",
+  );
+  assert(
+    !/const\s+INGEST_RETENTION_DAYS\s*=/.test(SRC),
+    "data-retention.ts declares its own copy of the retention window",
+  );
+});
+
+Deno.test("US-2642: the inline write-path prune is still there", () => {
+  // The backstop is an ADDITION. Removing the inline prune would mean an active
+  // buyer's own stale rows wait for a nightly job, which is exactly what that
+  // code's comment argues against.
+  const ingest = Deno.readTextFileSync(
+    new URL("../routes/public-grading.ts", import.meta.url),
+  );
+  assert(
+    /INGEST_RETENTION_DAYS[\s\S]{0,600}?\.from\("ingested_listings"\)[\s\S]{0,200}?\.delete\(\)[\s\S]{0,200}?\.eq\("user_id", ownerId\)/
+      .test(ingest),
+    "the per-owner inline prune on the ingest write path is gone; the nightly " +
+      "backstop was added alongside it, not instead of it",
+  );
+});
