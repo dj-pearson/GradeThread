@@ -21,7 +21,7 @@ function loadJobs() {
     "utf8",
   );
   const selfObj = {};
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", src)(selfObj);
   assert.ok(selfObj.GT_LISTER_JOBS, "job-store.js must assign self.GT_LISTER_JOBS");
   return selfObj.GT_LISTER_JOBS;

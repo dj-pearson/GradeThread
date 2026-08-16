@@ -49,7 +49,7 @@ assert.strictEqual(
   const sel = (() => {
     const src = fs.readFileSync(path.join(dir, "lister", "selectors.js"), "utf8");
     const scope = {};
-    // eslint-disable-next-line no-new-func
+     
     return new Function("self", `${src}; return self.GT_LISTER_SELECTORS;`)(scope);
   })();
 

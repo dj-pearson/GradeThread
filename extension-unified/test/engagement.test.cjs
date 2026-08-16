@@ -34,7 +34,7 @@ const assert = require("node:assert");
   const engage = fs2.readFileSync(path2.join(dir2, "lister", "poshmark-engage.js"), "utf8");
   const src2 = fs2.readFileSync(path2.join(dir2, "lister", "selectors.js"), "utf8");
   const scope2 = {};
-  // eslint-disable-next-line no-new-func
+   
   const SEL2 = new Function("self", `${src2}; return self.GT_LISTER_SELECTORS;`)(scope2);
 
   assert.ok(
@@ -100,7 +100,7 @@ const dir = path.resolve(__dirname, "..");
 function load(rel, globalName) {
   const src = fs.readFileSync(path.join(dir, rel), "utf8");
   const scope = {};
-  // eslint-disable-next-line no-new-func
+   
   return new Function("self", `${src}; return self.${globalName};`)(scope);
 }
 

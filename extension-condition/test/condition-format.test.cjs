@@ -16,7 +16,7 @@ const path = require("node:path");
 function loadFmt(file) {
   const src = fs.readFileSync(file, "utf8");
   const selfObj = {};
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", "module", src)(selfObj, { exports: {} });
   assert.ok(selfObj.GT_CC_FMT, "condition-format.js must set self.GT_CC_FMT (" + file + ")");
   return selfObj.GT_CC_FMT;

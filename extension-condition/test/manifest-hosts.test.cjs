@@ -21,7 +21,7 @@ const dir = path.resolve(__dirname, "..");
 function loadBundledConfig() {
   const src = fs.readFileSync(path.join(dir, "selectors.js"), "utf8");
   const selfObj = {};
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", src)(selfObj);
   return selfObj.GT_CC_CONFIG;
 }

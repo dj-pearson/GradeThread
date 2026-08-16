@@ -24,7 +24,7 @@ const dir = path.resolve(__dirname, "..");
 function loadIntoSelf(rel) {
   const selfObj = {};
   const src = fs.readFileSync(path.join(dir, rel), "utf8");
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", "module", src)(selfObj, { exports: {} });
   return selfObj;
 }
@@ -127,10 +127,10 @@ assert.strictEqual(IMG.dedupeUrls(twoSizes, 1, EBAY_PATTERN).length, 1);
 const cfg = loadIntoSelf("research/selectors.js").GT_CC_CONFIG;
 for (const [key, a] of Object.entries(cfg.adapters)) {
   if (!a.assetIdPattern) continue;
-  let re;
-  assert.doesNotThrow(() => {
-    re = new RegExp(a.assetIdPattern, "i");
-  }, `adapter ${key}.assetIdPattern is not a valid regex`);
+  assert.doesNotThrow(
+    () => new RegExp(a.assetIdPattern, "i"),
+    `adapter ${key}.assetIdPattern is not a valid regex`,
+  );
   assert.ok(
     /\((?!\?)/.test(a.assetIdPattern),
     `adapter ${key}.assetIdPattern has no capture group — it would never produce ` +
@@ -154,7 +154,7 @@ for (const [api, why] of [
   );
 }
 
-const menuHandler = /onClicked\.addListener\(function \(info, tab\) \{([\s\S]*?)\n    \}\);/.exec(bg);
+const menuHandler = /onClicked\.addListener\(function \(info, tab\) \{([\s\S]*?)\n {4}\}\);/.exec(bg);
 assert.ok(menuHandler, "background.js must handle contextMenus.onClicked");
 assert.ok(
   /tabs\.sendMessage/.test(menuHandler[1]),
@@ -228,7 +228,7 @@ const selectorsSrc = fs.readFileSync(
   "utf8",
 );
 const listerScope = {};
-// eslint-disable-next-line no-new-func
+ 
 new Function("self", `${selectorsSrc}; return self.GT_LISTER_SELECTORS;`)(listerScope);
 const listerHosts = new Set(
   Object.values(listerScope.GT_LISTER_SELECTORS).flatMap((c) => c.hosts || []),

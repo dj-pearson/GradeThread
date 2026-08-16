@@ -127,7 +127,7 @@ for (const [key, adapter] of Object.entries(cfg.adapters)) {
     /function userAsked\(\)\s*\{\s*openCollapsed = false;/.test(src),
     "research/marketplace.js must clear the collapsed-open state on a deliberate request",
   );
-  const runGrade = /async function runGrade\([^)]*\)\s*\{([\s\S]*?)\n  \}/.exec(src);
+  const runGrade = /async function runGrade\([^)]*\)\s*\{([\s\S]*?)\n {2}\}/.exec(src);
   assert.ok(runGrade, "runGrade must still exist");
   assert.ok(
     runGrade[1].includes("userAsked()"),

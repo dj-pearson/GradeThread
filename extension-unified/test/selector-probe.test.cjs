@@ -26,7 +26,7 @@ const dir = path.resolve(__dirname, "..");
 function load(rel, globalName) {
   const src = fs.readFileSync(path.join(dir, rel), "utf8");
   const scope = {};
-  // eslint-disable-next-line no-new-func
+   
   return new Function("self", `${src}; return self.${globalName};`)(scope);
 }
 
@@ -569,10 +569,10 @@ const matchNone = () => false;
   assert.ok(/PROBE_ACTIONISH/.test(tBody),
     "probeTestIds must rank action-shaped names ahead of the rest, or one long " +
       "tag list buries every control on the page");
-  const actionish = /var PROBE_ACTIONISH = new RegExp\(([\s\S]*?)\n  \);/.exec(common);
+  const actionish = /var PROBE_ACTIONISH = new RegExp\(([\s\S]*?)\n {2}\);/.exec(common);
   assert.ok(actionish, "PROBE_ACTIONISH must be declared as a literal");
   // Rebuild it and check both directions on the values that caused this.
-  // eslint-disable-next-line no-eval
+   
   const re = eval(`new RegExp(${actionish[1].replace(/,\s*$/, "")})`);
   for (const control of [
     "delete_listing", "edit_listing", "modal-close-btn", "confirm-delete",
@@ -658,17 +658,30 @@ const matchNone = () => false;
   // submit: it prefills and hands the tab back. If that ever changes, this
   // selector would advance a wizard step and report a listing that was never
   // posted, which is the worst outcome the lister has.
+  // 2026-08-16 (US-2624): this used to pin the exact phrase "do NOT auto-submit
+  // by default", and "by default" was wrong — it implied an option. runFlow took
+  // an `opts` argument, every call site passed { autoSubmit: false }, and the
+  // function never read it. So the flag read as the reason nothing gets clicked
+  // while the real reason was that no code clicks. The argument is gone, and the
+  // guard now checks the RULE rather than one sentence: the block must still
+  // discuss auto-submit, must not click, and runFlow must not grow an option.
   const common = fs.readFileSync(path.join(dir, "lister/common.js"), "utf8");
+  const at = common.indexOf("auto-submit");
   assert.ok(
-    /do NOT auto-submit by default/.test(common),
+    at > -1,
     "common.js no longer documents the no-auto-submit rule. Poshmark's `submit` " +
       "selector points at a wizard's \"Next\" button on the strength of it — " +
       "clicking that would advance a step and report a listing nobody posted.",
   );
   assert.ok(
-    !/\.click\(\)/.test(common.slice(common.indexOf("do NOT auto-submit"),
-      common.indexOf("do NOT auto-submit") + 900)),
+    !/\.click\(\)/.test(common.slice(at, at + 900)),
     "something clicks in the block that promises not to submit",
+  );
+  assert.ok(
+    /GT\.runFlow = async function \(flow, payload\) \{/.test(common),
+    "runFlow grew a third argument. If that is an auto-submit option, the " +
+      "Poshmark `submit` selector points at a wizard's Next button and this " +
+      "test is the only thing standing between a caller and a phantom listing.",
   );
   assert.ok(
     SELECTORS.poshmark.submit.includes('[data-et-name="next"]'),

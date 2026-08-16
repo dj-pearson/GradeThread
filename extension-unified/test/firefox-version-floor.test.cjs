@@ -42,7 +42,7 @@ const packagerSrc = fs.readFileSync(
 function firefoxTargets() {
   const out = [];
   // Each EXTENSIONS entry is `{ dir: "...", ... firefox: {...} }`.
-  const entryRe = /\{\s*(?:\/\/[^\n]*\n\s*)*dir:\s*"([^"]+)"([\s\S]*?)\n  \},/g;
+  const entryRe = /\{\s*(?:\/\/[^\n]*\n\s*)*dir:\s*"([^"]+)"([\s\S]*?)\n {2}\},/g;
   for (const m of packagerSrc.matchAll(entryRe)) {
     const [, dir, body] = m;
     if (/firefox:\s*\{[\s\S]*?blocked:/.test(body)) continue; // Firefox zip skipped

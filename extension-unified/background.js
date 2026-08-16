@@ -1021,7 +1021,7 @@ async function startJob(kind, payload, sender, sendResponse, clientRef) {
           (kind === "delist" ? "delist" : "cross-post") + ". Try again.",
       });
     } catch (_e) { /* port already gone */ }
-    // eslint-disable-next-line no-console
+     
     console.error("[GradeThread Lister] job start failed", err);
   }
 }
@@ -1437,7 +1437,7 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   }
 
   if (msg.type === "GT_LISTER_LOG") {
-    // eslint-disable-next-line no-console
+     
     console.debug("[GradeThread Lister][content]", msg.message);
     return false;
   }

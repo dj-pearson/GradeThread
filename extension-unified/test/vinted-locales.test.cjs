@@ -30,7 +30,7 @@ const dir = path.resolve(__dirname, "..");
 function loadSelectors() {
   const src = fs.readFileSync(path.join(dir, "lister", "selectors.js"), "utf8");
   const scope = {};
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", `${src}; return self.GT_LISTER_SELECTORS;`)(scope);
   return scope.GT_LISTER_SELECTORS;
 }

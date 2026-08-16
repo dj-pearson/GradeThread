@@ -21,7 +21,7 @@ function loadBundledConfig() {
     "utf8",
   );
   const selfObj = {};
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", src)(selfObj);
   assert.ok(selfObj.GT_CC_CONFIG, "research/selectors.js must assign self.GT_CC_CONFIG");
   return selfObj.GT_CC_CONFIG;

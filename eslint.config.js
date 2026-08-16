@@ -14,9 +14,10 @@ export default tseslint.config(
   // ds-bundle/ is a gitignored, generated local artifact (design-sync bundle);
   // it isn't in the CI checkout, and flat config doesn't auto-skip gitignored
   // files, so lint it here would fail locally on rules it can't resolve.
-  // extension-condition/ + extension/ are plain-MV3 browser extensions (vanilla
-  // JS, no build) with their own runtime; the app's ts/tsx config would mis-lint
-  // them.
+  // The three MV3 extensions used to be ignored here on the grounds that the
+  // app's ts/tsx config would mis-lint them. True, and it was the wrong remedy
+  // (US-2624): the answer to "this config does not fit that code" is a config
+  // that does, not no config at all. They got their own block below.
   {
     ignores: [
       "dist",
@@ -28,9 +29,6 @@ export default tseslint.config(
       "sdk/**",
       "remotion/**",
       "ds-bundle/**",
-      "extension/**",
-      "extension-condition/**",
-      "extension-unified/**",
     ],
   },
   {
@@ -94,6 +92,70 @@ export default tseslint.config(
       "jsx-a11y/iframe-has-title": "error",
       "jsx-a11y/no-redundant-roles": "error",
       "jsx-a11y/tabindex-no-positive": "error",
+    },
+  },
+
+  // ── US-2624: the three MV3 extensions ────────────────────────────────────
+  //
+  // These ship to real browsers and run content scripts on Poshmark, Mercari,
+  // eBay and Grailed pages while holding the seller's token. Nothing linted
+  // them. The .cjs suites under test/ check behaviour, and `extension/` has no
+  // test directory at all, so a typo'd global in a content script broke on a
+  // marketplace page and nowhere earlier.
+  //
+  // `no-undef` is the rule that earns this block. Everything here is vanilla
+  // JS with no build step and no type checker, so an undeclared identifier has
+  // no other chance of being caught before a seller hits it.
+  {
+    ...js.configs.recommended,
+    files: [
+      "extension/**/*.js",
+      "extension-condition/**/*.js",
+      "extension-unified/**/*.js",
+    ],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "script",
+      globals: {
+        ...globals.browser,
+        ...globals.webextensions,
+        // MV3 service workers. `globals` puts these under serviceworker, which
+        // also drags in a `self` typed for a worker; these two are all the
+        // background scripts actually use.
+        importScripts: "readonly",
+        clients: "readonly",
+        // Several shared modules are UMD: `if (typeof module !== "undefined")
+        // module.exports = api` so the .cjs suites can require the same file the
+        // browser loads as a plain script. The guard is the point — declaring
+        // the name keeps no-undef useful for everything else.
+        module: "readonly",
+      },
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      // `catch (_e)` is the convention across all three, matching the app.
+      "no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
+  {
+    // The .cjs suites are Node, not a browser. Given browser globals they trip
+    // no-redeclare on the DOM names they deliberately stub (`global.CSS`).
+    ...js.configs.recommended,
+    files: ["extension-condition/test/**/*.cjs", "extension-unified/test/**/*.cjs"],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: "commonjs",
+      globals: { ...globals.node },
+    },
+    rules: {
+      ...js.configs.recommended.rules,
+      "no-unused-vars": [
+        "error",
+        { argsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
     },
   }
 );

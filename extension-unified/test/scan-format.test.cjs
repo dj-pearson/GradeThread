@@ -23,7 +23,7 @@ function loadIntoSelf(...relPaths) {
   const selfObj = {};
   for (const rel of relPaths) {
     const src = fs.readFileSync(path.join(dir, rel), "utf8");
-    // eslint-disable-next-line no-new-func
+     
     new Function("self", "module", src)(selfObj, { exports: {} });
   }
   return selfObj;
@@ -261,7 +261,7 @@ const SRC = mkt
   .map((l) => l.replace(/(^|[^:])\/\/.*$/, "$1"))
   .join("\n");
 
-const invalidateBody = /function invalidate\(\)\s*\{([\s\S]*?)\n  \}/.exec(SRC);
+const invalidateBody = /function invalidate\(\)\s*\{([\s\S]*?)\n {2}\}/.exec(SRC);
 assert.ok(invalidateBody, "marketplace.js must still define invalidate()");
 assert.ok(
   /onSearchPage\s*=\s*false/.test(invalidateBody[1]),

@@ -164,7 +164,7 @@
   function payloadFor(batch, extVersion, now) {
     const b = normalizeBatch(batch, now);
     if (totalOf(b) <= 0) return null;
-    const version = typeof extVersion === "string" && /^[\w.\-]{1,32}$/.test(extVersion)
+    const version = typeof extVersion === "string" && /^[\w.-]{1,32}$/.test(extVersion)
       ? extVersion
       : null;
     return { counts: b.counts, extVersion: version };

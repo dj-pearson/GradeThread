@@ -95,10 +95,6 @@ async function activeTabInfo() {
   return { id: null, host: null };
 }
 
-async function activeHost() {
-  return (await activeTabInfo()).host;
-}
-
 function send(msg) {
   // Promise form works on both Chrome (MV3) and Firefox (browser.*); a failure
   // (worker asleep / no receiver) resolves to null rather than rejecting.

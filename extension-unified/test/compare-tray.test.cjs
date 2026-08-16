@@ -22,7 +22,7 @@ const dir = path.resolve(__dirname, "..");
 function loadIntoSelf(rel) {
   const selfObj = {};
   const src = fs.readFileSync(path.join(dir, rel), "utf8");
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", "module", src)(selfObj, { exports: {} });
   return selfObj;
 }
@@ -152,7 +152,7 @@ assert.strictEqual(T.priceCents(null), null);
 
 // ── the tray costs nothing to fill ────────────────────────────────────────
 const mkt = fs.readFileSync(path.join(dir, "research", "marketplace.js"), "utf8");
-const pinBlock = /function pinControls\([^)]*\)\s*\{([\s\S]*?)\n  \}/.exec(mkt);
+const pinBlock = /function pinControls\([^)]*\)\s*\{([\s\S]*?)\n {2}\}/.exec(mkt);
 assert.ok(pinBlock, "marketplace.js must define pinControls");
 assert.ok(
   !/GT_CC_GRADE|runGrade\(\)/.test(pinBlock[1]),

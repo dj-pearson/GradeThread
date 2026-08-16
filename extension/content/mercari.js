@@ -16,7 +16,7 @@
     try {
       partial = job.kind === "delist"
         ? await GT.runDelistFlow(SEL.mercari.delist, payload)
-        : await GT.runFlow(SEL.mercari, payload, { autoSubmit: false });
+        : await GT.runFlow(SEL.mercari, payload);
     } catch (err) {
       partial = {
         ok: false,

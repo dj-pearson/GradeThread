@@ -237,7 +237,7 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
   }
 
   if (msg.type === "GT_LISTER_LOG") {
-    // eslint-disable-next-line no-console
+     
     console.debug("[GradeThread Lister][content]", msg.message);
     return false;
   }

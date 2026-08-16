@@ -16,7 +16,7 @@
     try {
       partial = job.kind === "delist"
         ? await GT.runDelistFlow(SEL.poshmark.delist, payload)
-        : await GT.runFlow(SEL.poshmark, payload, { autoSubmit: false });
+        : await GT.runFlow(SEL.poshmark, payload);
     } catch (err) {
       partial = {
         ok: false,

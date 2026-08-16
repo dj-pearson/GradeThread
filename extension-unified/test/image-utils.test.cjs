@@ -18,7 +18,7 @@ const path = require("node:path");
 function loadImageUtils() {
   const src = fs.readFileSync(path.resolve(__dirname, "..", "research", "image-utils.js"), "utf8");
   const selfObj = {};
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", src)(selfObj);
   assert.ok(selfObj.GT_CC_IMG, "image-utils.js must assign self.GT_CC_IMG");
   return selfObj.GT_CC_IMG;

@@ -20,7 +20,7 @@
     } catch (_e) {
       /* background may be asleep; logging is best-effort */
     }
-    // eslint-disable-next-line no-console
+     
     console.debug("[GradeThread Lister]", msg);
   };
 
@@ -225,8 +225,7 @@
   // The platform script decides whether to auto-submit; by default we fill and
   // leave the seller to review + click the platform's own List button, then we
   // read the resulting URL.
-  GT.runFlow = async function (flow, payload, opts) {
-    opts = opts || {};
+  GT.runFlow = async function (flow, payload) {
     if (!flow || !flow.enabled) {
       return {
         ok: false,
@@ -302,7 +301,7 @@
     GT.log("filled " + payload.platform + " form (photos " +
       photos.attached + "/" + photos.total + " attached)");
 
-    // We deliberately do NOT auto-submit by default: category/size/condition
+    // We NEVER auto-submit, and there is no option to: category/size/condition
     // pickers vary too much to set safely, and the seller is responsible for a
     // final review (clickwrap). We mark the title field so it's obvious the
     // form was prefilled, then report a "filled" result.
@@ -669,7 +668,7 @@
     try {
       partial = job.kind === "delist"
         ? await GT.runDelistFlow(cfg.delist, payload)
-        : await GT.runFlow(cfg, payload, { autoSubmit: false });
+        : await GT.runFlow(cfg, payload);
     } catch (err) {
       partial = {
         ok: false,

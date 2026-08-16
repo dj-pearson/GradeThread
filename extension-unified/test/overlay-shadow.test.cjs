@@ -42,7 +42,7 @@ const CSS_REL = SUB === "research" ? "research/overlay.css" : "overlay.css";
 function loadIntoSelf(rel) {
   const selfObj = {};
   const src = fs.readFileSync(path.join(dir, rel), "utf8");
-  // eslint-disable-next-line no-new-func
+   
   new Function("self", "module", src)(selfObj, { exports: {} });
   return selfObj;
 }
