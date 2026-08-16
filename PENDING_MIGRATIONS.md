@@ -1,6 +1,119 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🟡 TWO HELD MIGRATIONS (added 2026-08-16)
+## 🟢 NOTHING IS WAITING ON SQL (re-measured 2026-08-16)
+
+```json
+{"expected":"00608","applied":"00609","status":"ahead","unexpected":["00609"]}
+```
+
+No `missing` key, so the applied SET was read and it is complete — 00607, 00608
+**and 00609** are all in `applied_migrations`. The `unexpected: ["00609"]` is the
+running edge saying it is older than the database, which is the SAFE direction
+and the one the runbook asks for.
+
+**The COMMIT for 00609 is still held** — that is a separate thing from the SQL,
+and the rule is about the push. Nothing is at risk while it waits.
+
+### ✅ APPLIED (measured 2026-08-16): 00609 — stamp the store environment on each App Store credit grant (US-2286)
+
+**Applied to prod ahead of its commit**, almost certainly by the same directory
+run that applied 00607 and 00608 — `apply-prod-migrations.sh` applies every file
+in the tree, and this one was sitting there uncommitted.
+
+**That the recorded version proves the whole file ran** is worth spelling out,
+because elsewhere in this file a recorded version has been over-read. The apply
+script is `set -euo pipefail` and each file runs under `ON_ERROR_STOP=1`, so a
+failure aborts before anything is recorded; and the self-record footer is the
+LAST statement in the file. Either path means every statement before it
+succeeded. This is not the "below the maximum, therefore applied" inference that
+was wrong about 00594 — that one reasoned about a version nobody had recorded.
+
+⚠ **`NOTIFY pgrst, 'reload schema';` — send it if you have not.** The function's
+SIGNATURE changed, and PostgREST resolves an RPC through its cached schema. The
+running edge calls with the five old argument names, which the new defaulted
+signature accepts (proof 2 below), so purchases are not currently failing — but
+send the reload before the next edge deploy, whose call names `p_environment`:
+
+```sql
+NOTIFY pgrst, 'reload schema';
+```
+
+Everything below is the record of what it does.
+
+**Risk: LOW. Additive column, defaulted parameter, and the deploy order is safe
+in the direction the standing rule already requires.**
+
+`ADD COLUMN IF NOT EXISTS environment text` on
+`public.appstore_processed_transactions`, a CHECK allowing NULL / `production` /
+`sandbox`, a COMMENT, then a `DROP FUNCTION` + `CREATE FUNCTION` of
+`public.grant_appstore_credits` with one new trailing parameter,
+`p_environment text DEFAULT NULL`.
+
+00559 stamped the USER and the Play purchase table and left this one alone,
+because it is written ONLY through that SECURITY DEFINER function and stamping
+it needs a signature change. The user column says what the account's LAST
+purchase was; this table is the per-transaction record the AC5 audit reads.
+Every row written before this lands is unattributable permanently — Apple's
+receipt is not re-queryable from the database.
+
+- **DROP then CREATE, not `CREATE OR REPLACE`.** Postgres identifies a function
+  by its argument list, so replacing it with an extra parameter would leave BOTH
+  versions and make the existing 5-argument call ambiguous. Both statements are
+  in one migration, therefore one transaction, so there is no window where the
+  function is missing.
+- **The new parameter is DEFAULTED, which is what makes the gap safe.** Between
+  applying this and redeploying the edge, the CURRENT edge calls with five named
+  arguments and keeps resolving. Rows written in that window get NULL.
+- **No REVOKE, deliberately.** This function has carried the default EXECUTE to
+  PUBLIC since 00104. Tightening it looks obviously right and is currently
+  unsafe — US-2403 found a denied call from anon/authenticated segfaults the
+  backend on this Postgres image, which is why 00527 is parked as `.BLOCKED`.
+  The permission question lands with US-2282/US-2403.
+- **Nothing in the frontend reads the new column**, so a Cloudflare Pages
+  auto-deploy ahead of the SQL changes nothing.
+
+✅ **EXECUTED, unlike 00608.** Docker came up on the authoring host, so
+`node scripts/verify.mjs --db` re-applied every migration from zero onto a
+throwaway stack including this one, and four claims were then proven against
+that real Postgres inside a rolled-back transaction:
+
+1. a six-argument call stamps `environment = 'sandbox'` on the claim row;
+2. a **five-argument** call — the current edge, after this migration and before
+   its deploy — still resolves and leaves `environment` NULL;
+3. the CHECK raises `check_violation` on `'staging'`;
+4. a duplicate delivery still no-ops: the balance is unchanged and no second
+   ledger row is written.
+
+**Apply order was:** after 00608 (done).
+
+**Verify:** buy a credit pack in sandbox, then
+
+```sql
+select transaction_id, credits_granted, environment
+  from public.appstore_processed_transactions
+ order by created_at desc limit 5;
+```
+
+The newest row should read `sandbox`. Older rows stay NULL and must not be read
+as production.
+
+---
+
+## ✅ APPLIED (owner-confirmed 2026-08-16): 00607 and 00608
+
+Both were applied by the owner during the 2026-08-16 outage recovery, and the
+edge came back reporting
+`{"expected":"00608","applied":"00608","status":"match"}` with no `missing` key.
+
+> [!danger] **How these two came to be applied is worth more than the fact.**
+> They were HELD, and they reached `origin/main` anyway — twice in one day,
+> without the owner OKing a push. The edge redeployed from that commit with
+> `EXPECTED_SCHEMA_VERSION=00608` against a database at 00606, the boot guard
+> burned its 40s grace window and exited, Coolify restarted it, and the whole
+> site answered 503 through Traefik ("no available server") until the SQL was
+> applied. **The held-migration rule is not bureaucracy; this is the failure it
+> prevents.** If a commit containing a migration appears on `origin/main`
+> without an explicit OK, treat prod as at risk immediately.
 
 ### 00608 — exclude sandbox purchases from revenue reporting (US-2286)
 
@@ -25,10 +138,12 @@ a paying subscriber in MRR. After this, it is not.
   a test undoes the six inserts and asserts the result matches those files
   exactly. Nothing was retyped.
 
-⚠ **NOT EXECUTED ANYWHERE.** Docker is down on the authoring host, so there was
-no throwaway Postgres. `CREATE OR REPLACE` is idempotent and a syntax error
-would abort the statement without changing the live function, but **apply this
-one where you can read the output** rather than as part of an unattended run.
+~~⚠ **NOT EXECUTED ANYWHERE.**~~ **Corrected 2026-08-16: it has been.** That
+warning was written while Docker was down on the authoring host. Docker came up
+later the same day and `node scripts/verify.mjs --db` re-applied every migration
+from zero onto a throwaway stack, this one included, so both view bodies are
+known to parse and to create. What was still true when it was applied to prod:
+nothing had compared the NUMBERS before and after.
 
 **Apply order:** after 00607. Then:
 
@@ -76,11 +191,12 @@ required.)
 
 ---
 
-## ✅ Everything before 00607 is applied (re-measured 2026-08-15, 23:30)
+## ✅ Everything through 00609 is applied (see the measurement at the top of this file)
 
-```json
-{"expected":"00606","applied":"00606","status":"match"}
-```
+The reading immediately after the outage recovery was
+`{"expected":"00608","applied":"00608","status":"match"}`. The previous measurement,
+2026-08-15 at 23:30, was `{"expected":"00606","applied":"00606","status":"match"}`
+— kept because the reasoning attached to it is the point.
 
 No `missing` key and no `complete: false` — the applied SET was read and it is
 complete. **00594 has been applied**, closing the gap this section spent the day

@@ -119,6 +119,18 @@ async function grantCredits(
     p_transaction_id: txn.transactionId,
     p_original_transaction_id: txn.originalTransactionId,
     p_product_id: txn.productId,
+    // US-2286 (00609): which environment actually verified this transaction.
+    // `withVerifier` has always handed this to the callback and the consumable
+    // path threw it away — the same discard 00559 fixed for the user row and
+    // the reconciler. Without it every grant is unattributable, and the AC5
+    // audit ("which of these came from sandbox") has nothing to read.
+    //
+    // No `?? "sandbox"` default here, unlike reconcile.ts. There the fallback
+    // is deliberate — an unmarked transaction should not be booked as revenue.
+    // Here NULL is the honest value: it means we did not record one, which is
+    // exactly what the column's comment says NULL means, and inventing
+    // "sandbox" would put a claim in an audit table that nothing measured.
+    p_environment: txn.verifiedEnvironment ?? null,
   });
   // US-1620 / C7: classify a DB error as transient so the webhook retries.
   failIfDbError(error, `grant_appstore_credits for user ${userId}`);

@@ -48,6 +48,7 @@ New here? Read [[CONTRACT]] before adding a note.
 ## 50-business — pricing and economics
 
 - [[ai-profitability]] — reference — Per-surface model choice, unit cost and margin, with the keep/downgrade call for each.
+- [[billing-environment-marker]] — contract — Sandbox and test purchases are accepted on purpose and must not be counted as money; this is the three-state marker that separates them and the SQL spelling that keeps historical revenue intact.
 - [[deliverability]] — runbook — SES/SMTP configuration, warmup, DMARC alignment and what to check when mail stops landing.
 - [[flipdesk-plan-gating]] — contract — Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 - [[google-ads-setup]] — runbook — Account structure, conversion wiring and the gclid path for the Ads Command Center.
