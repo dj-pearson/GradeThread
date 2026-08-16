@@ -1,6 +1,41 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ✅ NOTHING IS HELD AND NOTHING IS MISSING (re-measured 2026-08-15, 23:30)
+## 🟡 ONE HELD MIGRATION: 00607 (added 2026-08-16)
+
+**`00607_seed_missing_feature_flags.sql`** — seeds four rows into
+`public.feature_flags`: `forensic_grade`, `passport_forecast`,
+`trial_conversion_drip`, `inventory_equity`.
+
+**Risk: LOW, and deliberately behaviour-neutral.** All four are read fail-open
+today — no call site passes `defaultEnabled:false`, and a missing row already
+resolves to enabled — so seeding `enabled = true` changes nothing at runtime.
+It only makes the switch exist somewhere an operator can reach it. `ON CONFLICT
+(key) DO NOTHING`, so re-running keeps any override.
+
+**Why it matters:** the admin console lists ROWS, and the toggle endpoint answers
+404 "Unknown feature flag" when there is none. Three of these four promise
+operator control in their own code comments and had none.
+
+**No client-side read of anything new.** Nothing in this commit reads a new
+column or enum, so a frontend auto-deploy ahead of the SQL is harmless — the
+only consequence of applying it late is that the four switches stay unreachable,
+which is today's status quo.
+
+**Apply order:** after 00606, which is already applied. Then:
+
+```sql
+NOTIFY pgrst, 'reload schema';
+```
+
+(No table or column changed, so the reload is belt-and-braces rather than
+required.)
+
+**Verify after applying:** the four keys appear in
+`GET /api/admin/feature-flags`, and `PUT` on any of them stops answering 404.
+
+---
+
+## ✅ Everything before 00607 is applied (re-measured 2026-08-15, 23:30)
 
 ```json
 {"expected":"00606","applied":"00606","status":"match"}
