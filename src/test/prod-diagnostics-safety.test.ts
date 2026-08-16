@@ -1,7 +1,20 @@
 // US-2009 / US-2021 / US-2006 / US-2041 / US-2390: scripts/prod-diagnostics.sql
 // is a script an operator pastes into a PROD psql session. Two properties have
-// to hold, and neither is checkable by running it — running it is the thing
-// we're trying to make safe.
+// to hold.
+//
+// ⚠ CORRECTED 2026-08-16. This header used to say neither property "is
+// checkable by running it — running it is the thing we're trying to make safe".
+// That is true of PROD and it quietly became an argument for never executing
+// the file anywhere, which is how two session-killing defects survived review:
+// a bare `SHOW` of a parameter that may not exist, and `pg_get_functiondef`
+// reaching pg_catalog's aggregates. Neither was findable by reading; both fell
+// out on the first end-to-end run. A throwaway stack is not prod —
+// `supabase db reset` builds one from the migration corpus — so run it there:
+//
+//   docker exec -i supabase_db_gradethread psql -U postgres -d postgres \
+//     -v ON_ERROR_STOP=1 -f - < scripts/prod-diagnostics.sql
+//
+// The static checks below still earn their keep between runs.
 //
 //   1. IT NEVER WRITES. An operator's willingness to run a diagnostic on prod
 //      depends entirely on that, and the review that establishes it happens
@@ -338,5 +351,66 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     const section = SQL.slice(start, next === -1 ? undefined : next);
     expect(section).toContain("row_number() OVER");
     expect(section).not.toMatch(/SELECT[\s\S]*?\bf\.user_id\b[\s\S]*?FROM/);
+  });
+
+  it("pg_get_functiondef only ever sees rows already narrowed to plain functions", () => {
+    // CAUGHT 2026-08-16, the first time this file was executed end to end (a
+    // throwaway local stack, once Docker was available). §22(e) read:
+    //
+    //   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    //   WHERE n.nspname = 'public'
+    //     AND (p.proname ILIKE '…' OR pg_get_functiondef(p.oid) ILIKE '…')
+    //
+    // and it fails on EVERY Postgres. `pg_get_functiondef` RAISES on an
+    // aggregate — "array_agg is an aggregate function" — and a namespace filter
+    // expressed as a JOIN narrows nothing the planner is obliged to apply
+    // first, so the call landed on pg_catalog's aggregates. Under
+    // ON_ERROR_STOP=1 that abandons every remaining section: the operator gets
+    // a dead prod session instead of an answer, which is the same failure mode
+    // as the bare-SHOW case above and the same promise broken.
+    //
+    // The fix is a MATERIALIZED CTE, which is an optimization fence rather than
+    // a hope about qual ordering, filtering on `prokind = 'f'` first. This case
+    // pins the fence, because dropping the keyword looks like tidying up.
+    // Comments are stripped FIRST. Written against the raw text, this matched
+    // the paragraph above — which names the function while explaining the
+    // trap — found it before the real call site, and failed on correct SQL.
+    // Same shape as the bug it is guarding: a filter that looks like it applies
+    // and does not.
+    const strip = (t: string) =>
+      t
+        .split("\n")
+        .filter((l) => !l.trim().startsWith("--") && !l.trim().startsWith("\\echo"))
+        .join("\n");
+    for (const raw of [SQL, CONSOLE_SQL]) {
+      const text = strip(raw);
+      if (!text.includes("pg_get_functiondef")) continue;
+      // Look BACKWARD from the call — the narrowing has to precede it.
+      const before = text.slice(0, text.indexOf("pg_get_functiondef"));
+      expect(before, "pg_get_functiondef needs a MATERIALIZED narrowing above it")
+        .toMatch(/AS MATERIALIZED \([\s\S]*prokind = 'f'/);
+      expect(text).not.toMatch(/JOIN pg_namespace[\s\S]{0,200}pg_get_functiondef/);
+    }
+  });
+
+  it("every section still runs — the file has been executed, not only read", () => {
+    // The header of this test file used to say neither property was checkable
+    // by running the script, "because running it is the thing we're trying to
+    // make safe". That reasoning was about PROD, and it quietly became an
+    // argument for never executing the file at all. A throwaway Postgres is not
+    // prod: `supabase db reset` builds one from the migration corpus, and the
+    // whole file now runs against it under ON_ERROR_STOP=1 and exits 0.
+    //
+    // That is how the two real defects in this file were found — the bare SHOW
+    // and the aggregate above — and neither was findable by reading. This case
+    // does not run psql (vitest has no database); it pins the section count so
+    // that a new section is a visible prompt to re-run it by hand:
+    //
+    //   docker exec -i supabase_db_gradethread psql -U postgres -d postgres \
+    //     -v ON_ERROR_STOP=1 -f - < scripts/prod-diagnostics.sql
+    const sections = new Set(
+      [...SQL.matchAll(/^\\echo '(§\d+)/gm)].map((m) => m[1]),
+    );
+    expect(sections.size).toBe(27);
   });
 });

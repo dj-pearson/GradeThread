@@ -1222,6 +1222,29 @@ export function FlipdeskComposerPage({
     (!!listing.platform_offer_id ||
       (!!listing.variations && !!listing.platform_listing_id));
 
+  // US-2657: a row that REACHED the marketplace, whatever its local status says.
+  //
+  // This is deliberately wider than isLiveListing, and only the End action uses
+  // it. A listing row sitting in 'draft' status while carrying an eBay id is
+  // still something the delete guard counts as live, so an item in that state
+  // could be neither deleted ("this item has a live listing") nor ended (End
+  // renders only for isLiveListing here, and only on the Active tab of the
+  // Listings page). The seller was left with a duplicate they could not remove
+  // and no control anywhere that addressed the row causing it.
+  //
+  // Safe to offer, because End itself is honest now: the server verifies with
+  // eBay before it reconciles, and refuses to mark anything ended while eBay
+  // still reports the listing live (US-2641). Mirrors the server's
+  // wasPublishedUpstream.
+  const wasPublishedListing =
+    !!listing &&
+    listing.listing_status !== "ended" &&
+    listing.listing_status !== "sold" &&
+    (!!listing.platform_offer_id ||
+      !!listing.platform_listing_id ||
+      !!listing.synced_to_ebay_at);
+  const canEndListing = isLiveListing || wasPublishedListing;
+
   // One editor, three shapes. The FIELDS are identical at every status — only
   // the header wording and the footer actions differ, which is the whole point:
   // a listing can't lose an editor (and with it a required item specific)
@@ -2140,14 +2163,24 @@ export function FlipdeskComposerPage({
   // "Save & publish to eBay" and the relist needs no separate control.
   async function handleEndListing() {
     if (!listing) return;
+    const name = listing.listing_title || title.trim() || "This item";
     const ok = await confirm({
-      title: "End this listing on eBay?",
-      description:
-        `"${listing.listing_title || title.trim() || "This item"}" will be ` +
-        "withdrawn from eBay and moved back to Drafts, where you can fix it " +
-        "and publish it again. Buyers won't be able to see or buy it in the " +
-        "meantime, and it starts over with no listing age or watchers.",
-      confirmLabel: "End listing",
+      title: isLiveListing ? "End this listing on eBay?" : "Unlink this eBay listing?",
+      // US-2657: the wider End covers a row that reached eBay but is not live
+      // here any more, and promising the live-listing outcome for that case
+      // would be wrong in both directions — there may be nothing to withdraw,
+      // and the item is already out of the live pipeline. Say what each one does.
+      description: isLiveListing
+        ? `"${name}" will be withdrawn from eBay and moved back to Drafts, where ` +
+          "you can fix it and publish it again. Buyers won't be able to see or " +
+          "buy it in the meantime, and it starts over with no listing age or " +
+          "watchers."
+        : `"${name}" shows as a draft here but is still linked to an eBay ` +
+          "listing, which is what stops the item being deleted. We'll end that " +
+          "listing on eBay if it's still live, and mark it ended here either " +
+          "way. If eBay says it is still live, we'll refuse and tell you rather " +
+          "than marking it ended behind your back.",
+      confirmLabel: isLiveListing ? "End listing" : "End & unlink",
       destructive: true,
     });
     if (!ok) return;
@@ -2847,14 +2880,14 @@ export function FlipdeskComposerPage({
             showRelist={item.status === "archived" || item.status === "returned"}
             // Same gate as "Save & resubmit": if there is something live enough
             // to push edits to, there is something to end.
-            showEndListing={isLiveListing}
+            showEndListing={canEndListing}
             endingListing={endListing.isPending}
             busy={saving}
           />
 
           <PhotosCard
             item={item}
-            liveListingId={isLiveListing ? (listing?.id ?? null) : null}
+            liveListingId={canEndListing ? (listing?.id ?? null) : null}
             primaryPhoto={primaryPhoto}
             setPrimaryPhotoId={setPrimaryPhotoId}
             photosDirtyRef={photosDirtyRef}

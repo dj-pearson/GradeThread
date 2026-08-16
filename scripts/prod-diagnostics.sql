@@ -977,12 +977,27 @@ WHERE n.nspname = 'public' AND c.relkind = 'r' AND c.relname ILIKE '%storefront%
 \echo '-- (e) Functions and triggers mentioning it — the parts a column dump'
 \echo '-- silently omits, and the usual reason a hand-applied migration cannot'
 \echo '-- be inferred from the table alone.'
-SELECT p.proname AS function_name, pg_get_function_identity_arguments(p.oid) AS args
-FROM pg_proc p
-JOIN pg_namespace n ON n.oid = p.pronamespace
-WHERE n.nspname = 'public'
-  AND (p.proname ILIKE '%storefront%' OR pg_get_functiondef(p.oid) ILIKE '%storefront%')
-ORDER BY p.proname;
+-- ⚠ The CTE is `AS MATERIALIZED` on purpose and removing it breaks this query
+-- on EVERY Postgres. `pg_get_functiondef` RAISES on an aggregate ("array_agg is
+-- an aggregate function"), so the call has to see only the rows already
+-- narrowed to plain functions in `public`. This was originally written with the
+-- namespace filter as a JOIN, which does not narrow anything: the planner is
+-- free to evaluate the qual before the join, and it does — the call landed on
+-- pg_catalog's aggregates and aborted the session under ON_ERROR_STOP=1, which
+-- is precisely what this file's header promises it cannot do to you. Caught
+-- 2026-08-16 the first time the file was ever executed end to end.
+-- `MATERIALIZED` is an optimization fence (PG12+), so it is a guarantee rather
+-- than a hope about qual ordering.
+WITH public_functions AS MATERIALIZED (
+  SELECT p.oid, p.proname
+  FROM pg_proc p
+  WHERE p.pronamespace = 'public'::regnamespace
+    AND p.prokind = 'f'   -- 'a' aggregate / 'w' window both raise above
+)
+SELECT proname AS function_name, pg_get_function_identity_arguments(oid) AS args
+FROM public_functions
+WHERE proname ILIKE '%storefront%' OR pg_get_functiondef(oid) ILIKE '%storefront%'
+ORDER BY proname;
 
 \echo ''
 SELECT c.relname AS table_name, t.tgname AS trigger_name,

@@ -135,7 +135,11 @@ import {
   useEndListing,
   useUpdateListingPrice,
 } from "@/hooks/use-listing-lifecycle";
-import { useDeleteItem } from "@/hooks/use-items-full";
+import {
+  deleteBlockListingUrl,
+  type DeleteItemError,
+  useDeleteItem,
+} from "@/hooks/use-items-full";
 import { scoreListability } from "@/lib/listability";
 import {
   ITEM_STATUSES,
@@ -1703,7 +1707,22 @@ export function FlipdeskListingsPage() {
                   setDeleteTarget(null);
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : "Delete failed.";
-                  toast.error(msg);
+                  // US-2657: the server now names the listing it refused over.
+                  // Give the seller a way to open it — the usual answer is "that
+                  // row belongs to the other copy of this item", and no wording
+                  // gets them there on its own.
+                  const url = deleteBlockListingUrl(err as DeleteItemError);
+                  toast.error(msg, {
+                    duration: 16_000,
+                    ...(url
+                      ? {
+                          action: {
+                            label: "Open the listing",
+                            onClick: () => window.open(url, "_blank", "noreferrer"),
+                          },
+                        }
+                      : {}),
+                  });
                 }
               }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"

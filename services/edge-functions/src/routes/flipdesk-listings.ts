@@ -50,6 +50,7 @@ import {
   originLockResponse,
   platformName,
   pushPriceUpstream,
+  liveBlockReason,
   wasPublishedUpstream,
 } from "../lib/listing-lifecycle.ts";
 
@@ -646,31 +647,55 @@ flipdeskListingsRoutes.delete("/item/:id", async (c) => {
   const { data: listings } = await supabaseAdmin
     .from("listings")
     .select(
-      "listing_status, platform_offer_id, platform_listing_id, synced_to_ebay_at",
+      "id, platform, listing_status, listing_url, platform_offer_id, " +
+        "platform_listing_id, synced_to_ebay_at",
     )
     .eq("inventory_item_id", itemId);
-  const hasLive = (listings ?? []).some((l) => {
-    const row = l as {
-      listing_status: string | null;
-      platform_offer_id: string | null;
-      platform_listing_id: string | null;
-      synced_to_ebay_at: string | null;
-    };
-    const status = row.listing_status ?? "";
-    // Terminal states never block.
-    if (status === "ended" || status === "sold") return false;
-    // An active lifecycle status is live (covers eBay + manually-marked-listed).
-    if (status === "active" || status === "relisted") return true;
-    // Any other status (e.g. 'draft'): only live if it was actually published to
-    // a marketplace — a real offer/listing id or a completed eBay sync.
-    return !!row.platform_offer_id || !!row.platform_listing_id ||
-      !!row.synced_to_ebay_at;
-  });
-  if (hasLive) {
+  type DeleteBlockRow = {
+    id: string;
+    platform: string | null;
+    listing_status: string | null;
+    listing_url: string | null;
+    platform_offer_id: string | null;
+    platform_listing_id: string | null;
+    synced_to_ebay_at: string | null;
+  };
+  // US-2657: WHICH listing blocks, and why. The refusal used to be one sentence
+  // with no subject — "This item has a live listing" — which is unactionable
+  // precisely when it is most confusing: the seller is looking at a page that
+  // says DRAFT. A stale published-draft row and a genuinely live listing produce
+  // the identical message, and the two need opposite responses (end it vs.
+  // realise the row is pointing at something else). So name it.
+  const blocking = ((listings ?? []) as unknown as DeleteBlockRow[])
+    .map((row) => ({ row, reason: liveBlockReason(row) }))
+    .filter((b): b is { row: DeleteBlockRow; reason: NonNullable<ReturnType<typeof liveBlockReason>> } =>
+      b.reason !== null
+    );
+  if (blocking.length > 0) {
+    const blockingListings = blocking.map(({ row, reason }) => ({
+      listing_id: row.id,
+      platform: row.platform ?? "ebay",
+      listing_status: row.listing_status,
+      listing_url: row.listing_url,
+      platform_listing_id: row.platform_listing_id,
+      reason,
+    }));
+    // The published-draft case is the one worth spelling out. The seller's screen
+    // says draft, so "end the listing first" reads as nonsense until they know we
+    // are talking about a row that reached the marketplace and never came back.
+    const anyPublishedDraft = blocking.some((b) => b.reason === "published_draft");
+    const names = blockingListings
+      .map((b) => `${b.platform} (${b.listing_status ?? "no status"})`)
+      .join(", ");
     return c.json({
-      error:
-        "This item has a live listing. End the listing first, then delete it.",
+      error: anyPublishedDraft
+        ? `This item is still linked to a listing that reached the marketplace: ` +
+          `${names}. It shows as a draft here, but it was published at some point ` +
+          `and never ended, so deleting the item would orphan it. End that listing ` +
+          `first — or if it belongs to a different item, unlink it there.`
+        : `This item has a live listing: ${names}. End the listing first, then delete it.`,
       code: "has_live_listing",
+      blocking_listings: blockingListings,
     }, 409);
   }
 

@@ -227,9 +227,43 @@ export function useItemFull(itemId: string | undefined) {
 // The server refuses items with a live listing or any sale (see the
 // DELETE /api/flipdesk/listings/item/:id guards) and returns a 409 with a
 // `code` the caller surfaces. On success every items_full consumer refreshes.
+/**
+ * US-2657: the listings the server refused over, so the message can name them.
+ * `published_draft` is the confusing one — the row reads DRAFT on screen but
+ * reached the marketplace and never ended.
+ */
+export interface DeleteBlockingListing {
+  listing_id: string;
+  platform: string;
+  listing_status: string | null;
+  listing_url: string | null;
+  platform_listing_id: string | null;
+  reason: "active_status" | "published_draft";
+}
+
 export interface DeleteItemError extends Error {
   status?: number;
   code?: string;
+  blockingListings?: DeleteBlockingListing[];
+}
+
+/**
+ * A link to the listing that blocked a delete, or null.
+ *
+ * The refusal is only actionable if the seller can go LOOK at the thing being
+ * refused over — most of the time the answer is "oh, that row belongs to the
+ * other copy of this item", and no wording gets them there on its own.
+ */
+export function deleteBlockListingUrl(
+  err: DeleteItemError | null | undefined,
+): string | null {
+  for (const b of err?.blockingListings ?? []) {
+    if (b.listing_url) return b.listing_url;
+    if (b.platform === "ebay" && b.platform_listing_id) {
+      return `https://www.ebay.com/itm/${b.platform_listing_id}`;
+    }
+  }
+  return null;
 }
 
 export function useDeleteItem() {
@@ -245,6 +279,9 @@ export function useDeleteItem() {
         const err: DeleteItemError = new Error(json.error || "Delete failed.");
         err.status = res.status;
         err.code = json.code;
+        if (Array.isArray(json.blocking_listings)) {
+          err.blockingListings = json.blocking_listings as DeleteBlockingListing[];
+        }
         throw err;
       }
       return json as { ok: true; item_id: string };

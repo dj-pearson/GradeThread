@@ -96,6 +96,59 @@ export function wasPublishedUpstream(row: OwnedListingRow): boolean {
   );
 }
 
+/**
+ * Is this listing LIVE — something a buyer could still purchase?
+ *
+ * US-2657: this rule used to live inline in the delete guard, which meant the
+ * app carried three different answers to one question. `itemHasActiveListing`
+ * asks `is_active`, the composer asks `listing_status === "active" && an offer
+ * id`, and this asked a third thing — so a row could read DRAFT on the screen and
+ * LIVE to the server, and a seller deleting a duplicate was refused with no way
+ * to see what the server had seen. This is the careful version, and it is now the
+ * shared one.
+ *
+ * The published-DRAFT case is why it cannot just read `is_active`: a row still in
+ * 'draft' status that nonetheless reached the marketplace is live while
+ * is_active is false, so is_active alone under-reports it.
+ */
+export function isListingLive(row: {
+  listing_status: string | null;
+  platform_offer_id: string | null;
+  platform_listing_id: string | null;
+  synced_to_ebay_at: string | null;
+}): boolean {
+  return liveBlockReason(row) !== null;
+}
+
+/**
+ * WHY a listing counts as live, or null when it doesn't.
+ *
+ * Returned to the client so a refusal can name its own cause. "This item has a
+ * live listing" with nothing else is unactionable when the screen says draft —
+ * the seller has no way to tell a genuinely live listing from a stale row, and
+ * both are things they hit in the same week.
+ */
+export function liveBlockReason(row: {
+  listing_status: string | null;
+  platform_offer_id: string | null;
+  platform_listing_id: string | null;
+  synced_to_ebay_at: string | null;
+}): "active_status" | "published_draft" | null {
+  const status = row.listing_status ?? "";
+  // Terminal states never block.
+  if (status === "ended" || status === "sold") return null;
+  // An active lifecycle status is live (covers eBay + manually-marked-listed).
+  if (status === "active" || status === "relisted") return "active_status";
+  // Any other status (e.g. 'draft'): only live if it actually reached a
+  // marketplace — a real offer/listing id or a completed eBay sync.
+  if (
+    row.platform_offer_id || row.platform_listing_id || row.synced_to_ebay_at
+  ) {
+    return "published_draft";
+  }
+  return null;
+}
+
 // The 409 an eBay-ORIGINATED listing gets for any write to a field eBay owns
 // (US-1976). Computed against the row's real platform, so a Shopify row is never
 // mislabelled as eBay-owned.
