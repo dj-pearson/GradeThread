@@ -41,6 +41,31 @@ if (!SUPABASE_URL || !SERVICE_KEY || !ANON_KEY) {
   Deno.exit(1);
 }
 
+// ── LOCAL ONLY, ENFORCED (added 2026-08-16) ──────────────────────────────
+//
+// Every comment in this file said "never production" and NOTHING checked. That
+// was survivable while `ensureUser` merely reset a password on an existing row.
+// It stopped being survivable the moment the same function started DELETING the
+// user to make the fixture re-runnable, because deleting an auth user cascades
+// through their data — so a mistyped SUPABASE_URL would erase real accounts
+// rather than inconvenience them.
+//
+// Not overridable by a flag. A flag would get used, and the whole value of this
+// check is that it holds on the day someone is pasting env vars in a hurry.
+{
+  const host = new URL(SUPABASE_URL).hostname;
+  const isLocal = host === "127.0.0.1" || host === "localhost" ||
+    host === "0.0.0.0" || host === "::1" || host === "[::1]";
+  if (!isLocal) {
+    console.error(
+      `[seed] REFUSING to run against ${host}. This script DELETES and ` +
+        "re-creates its fixture users, which cascades through their rows. It " +
+        "is for the throwaway `supabase start` stack only.",
+    );
+    Deno.exit(1);
+  }
+}
+
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
@@ -87,16 +112,36 @@ async function findUserByEmail(email: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * Make the fixture genuinely re-runnable by starting the two tenants from
+ * nothing (fixed 2026-08-16).
+ *
+ * REUSING THE USER WAS NOT ENOUGH, and the failures were a queue rather than
+ * one bug. A second run against any stack died at `api_keys` on
+ * `idx_api_keys_key_hash`, and with that fixed, immediately again at
+ * `listing_templates` on `listing_templates_user_id_name_key` — every fixture
+ * row this file inserts under a fixed human-readable name is one more unique
+ * constraint waiting. Fixing them one at a time is a queue with no end, and
+ * each failure leaves a HALF-BUILT fixture behind, which is worse than
+ * refusing: the suite then runs against a partial tenant and the errors point
+ * anywhere but here.
+ *
+ * Nobody noticed because every CI lane run starts from `supabase start`. A
+ * fixture that works exactly once looks identical to a fixture that works.
+ *
+ * DELETING THE AUTH USER is the reset, not a per-table cleanup: the fixture's
+ * rows hang off the tenant by foreign key, so removing the user removes them,
+ * and there is no list of tables to keep in step with the inserts below. Only
+ * the two `@tenant-isolation.test` addresses are ever touched, and this script
+ * refuses a non-local SUPABASE_URL (the guard above, added with this change
+ * because the comments claiming it were not enforcement).
+ */
 async function ensureUser(email: string): Promise<string> {
   const existing = await findUserByEmail(email);
   if (existing) {
-    const { error } = await admin.auth.admin.updateUserById(existing, {
-      password: PASSWORD,
-      email_confirm: true,
-    });
-    if (error) die(`updateUserById(${email}) failed: ${error.message}`);
-    log(`user exists: ${email} (${existing})`);
-    return existing;
+    const { error: delErr } = await admin.auth.admin.deleteUser(existing);
+    if (delErr) die(`reset ${email} failed: ${delErr.message}`);
+    log(`user reset: ${email} (${existing} deleted, re-creating)`);
   }
   const { data, error } = await admin.auth.admin.createUser({
     email,
@@ -242,10 +287,27 @@ async function main(): Promise<void> {
     ebay_value: "40.00",
   });
 
+  // ── PER-RUN HASH (fixed 2026-08-16) ─────────────────────────────────
+  //
+  // This was the literal string "fixture-hash-not-a-real-key", and
+  // idx_api_keys_key_hash is UNIQUE — so the SECOND run of this seeder against
+  // any stack died with `duplicate key value violates unique constraint`. Every
+  // other step in this file already tolerates a re-run (it logs "user exists"
+  // and reuses the row), so the intent was always re-runnability; this one
+  // insert did not honour it.
+  //
+  // It never surfaced because each CI lane run starts from `supabase start`.
+  // Same shape as the money fixture's ledger delete, arriving through a
+  // different door: a fixture that works exactly once looks identical to a
+  // fixture that works.
+  //
+  // Per-run rather than an upsert on the hash: the tests only need A to OWN a
+  // key, not a specific one, and a stable hash across runs would let a stale
+  // row from an earlier run satisfy a later assertion.
   out.TEST_USER_A_API_KEY_ID = await insert("api_keys", {
     user_id: aId,
     name: "fixture key",
-    key_hash: "fixture-hash-not-a-real-key",
+    key_hash: `fixture-hash-not-a-real-key-${crypto.randomUUID()}`,
     key_prefix: "gt_fixt",
   });
 
