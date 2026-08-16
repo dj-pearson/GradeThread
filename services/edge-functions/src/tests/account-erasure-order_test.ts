@@ -138,3 +138,82 @@ Deno.test("there is still exactly ONE auth user deletion in the edge service", a
       "same retention + redaction sequence, or it erases financial PII silently.",
   );
 });
+
+// ── US-2651: the ADMIN erasure branch runs the same two steps, in the same order ──
+//
+// The self-serve path has had guards on this ordering for a while. The admin
+// compliance ANONYMIZE branch — the FORMAL path, used for a written erasure
+// request — ran neither step at all.
+//
+// It asserted the outcome instead. Its own comment says financial and audit
+// records "hold no direct PII once the user row + storage are anonymized". That
+// is only true because retainFinancialRecords strips
+// flipdesk_subscription_events.raw_payload, the verbatim Stripe object carrying
+// customer email and billing address. Nothing stripped it here, so the formal
+// erasure retained exactly the PII it claimed not to.
+//
+// And purgeEmailKeyedPii never ran, so every table keyed by ADDRESS rather than
+// by user id — email_deliveries among them, which stores the full rendered html
+// of every critical message we sent — stayed queryable after an erasure that
+// reported success.
+
+async function adminComplianceSource(): Promise<string> {
+  return await Deno.readTextFile(
+    new URL("../routes/admin-compliance.ts", import.meta.url),
+  );
+}
+
+Deno.test("US-2651: the admin branch redacts financial PII before anything destructive", async () => {
+  const src = await adminComplianceSource();
+  const retain = src.indexOf("retainFinancialRecords(");
+  assert(
+    retain > -1,
+    "the admin erasure branch does not call retainFinancialRecords, so the " +
+      "Stripe payload it retains still carries customer email and billing address",
+  );
+  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths)");
+  const anonymize = src.indexOf("anonEmail");
+  assert(storagePurge > -1 && anonymize > -1, "this guard is stale — anchors moved");
+  assert(
+    retain < storagePurge,
+    "retainFinancialRecords must run before the storage purge: it can REFUSE, " +
+      "and refusing is only safe while the account is whole",
+  );
+  assert(
+    retain < anonymize,
+    "retainFinancialRecords must run before the users row is anonymized",
+  );
+});
+
+Deno.test("US-2651: a refusal aborts the admin erasure rather than continuing", async () => {
+  const src = await adminComplianceSource();
+  assert(
+    /if \(!retention\.ok\)/.test(src),
+    "the admin branch ignores a retention refusal",
+  );
+  const refuse = src.indexOf("if (!retention.ok)");
+  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths)");
+  assert(
+    refuse < storagePurge,
+    "the refusal must be handled before anything is destroyed",
+  );
+});
+
+Deno.test("US-2651: the admin branch purges email-keyed PII while the address still exists", async () => {
+  const src = await adminComplianceSource();
+  const purge = src.indexOf("purgeEmailKeyedPii(");
+  assert(
+    purge > -1,
+    "the admin erasure branch never purges email-keyed tables, so the address " +
+      "stays queryable in email_deliveries and friends",
+  );
+  // account-email-purge.ts says the ordering is load-bearing: after the users
+  // row is anonymized there is no address left to key the purge on.
+  const anonymize = src.indexOf("anonEmail");
+  assert(anonymize > -1, "this guard is stale — the anonymize step moved");
+  assert(
+    purge < anonymize,
+    "purgeEmailKeyedPii must run BEFORE users.email is overwritten, or it has " +
+      "nothing to key on",
+  );
+});

@@ -5,6 +5,8 @@ import {
   collectOwnedStorageObjects,
   type PurgeDb,
 } from "../lib/account-storage-purge.ts";
+import { retainFinancialRecords } from "../lib/financial-retention.ts";
+import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import {
@@ -498,6 +500,60 @@ async function processDelete(
     .update({ status: "processing" })
     .eq("id", requestId);
 
+  // 0. US-2651: redact the PII inside the records we deliberately KEEP, and let
+  //    that step refuse the whole erasure if it cannot.
+  //
+  //    THIS BRANCH ASSERTED THE OUTCOME WITHOUT DOING THE WORK. Its own comment
+  //    says financial and audit records "hold no direct PII once the user row +
+  //    storage are anonymized". That is only true because something strips
+  //    flipdesk_subscription_events.raw_payload — the verbatim Stripe object,
+  //    which carries customer email and billing address. The self-serve path
+  //    calls retainFinancialRecords to do exactly that. This one never did, so
+  //    the FORMAL erasure path retained the customer's email and billing
+  //    address in a payload it described as PII-free.
+  //
+  //    Ordered first for the same reason as in account.ts: this step can REFUSE,
+  //    and refusing is only safe while the account is still whole. A refusal
+  //    after the storage purge leaves a half-erased account.
+  const retention = await retainFinancialRecords(userId, {
+    countLedgerRows: async (id) => {
+      const { count, error } = await supabaseAdmin
+        .from("grade_credit_transactions")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", id);
+      return { count: count ?? null, error: error ? error.message : null };
+    },
+    redactSubscriptionEvents: async (id) => {
+      const { data, error } = await supabaseAdmin.rpc(
+        "redact_subscription_event_pii",
+        { p_user_id: id },
+      );
+      return {
+        redacted: typeof data === "number" ? data : null,
+        error: error ? error.message : null,
+      };
+    },
+    report: (message, err) => {
+      console.error(message, err instanceof Error ? err.message : (err ?? ""));
+    },
+  });
+  if (!retention.ok) {
+    // Nothing has been touched yet. Say so plainly and leave the request in
+    // 'processing' for the operator rather than marking it complete.
+    console.error(
+      `[admin-compliance] REFUSING to erase ${userId}: ${retention.reason}`,
+    );
+    return c.json(
+      {
+        error:
+          "Could not complete the erasure: the financial-retention step failed. " +
+          "Nothing was removed. See the logs and retry.",
+        code: "retention_precondition_failed",
+      },
+      503,
+    );
+  }
+
   // 1. Purge storage objects (derive paths from owned rows before anonymizing).
   //
   // US-2649: driven off the SHARED collector, not a second hand-written list.
@@ -524,6 +580,36 @@ async function processDelete(
   // 2. Destroy stored credentials: marketplace OAuth tokens + API keys.
   await supabaseAdmin.from("marketplace_connections").delete().eq("user_id", userId);
   await supabaseAdmin.from("api_keys").delete().eq("user_id", userId);
+
+  // 2b. US-2651: erase the PII the cascade cannot reach, keyed by EMAIL.
+  //
+  //     This branch never ran it. lib/account-email-purge.ts exists because a
+  //     whole class of tables is keyed by address rather than by user id —
+  //     email_deliveries among them, which stores the full rendered html of
+  //     every critical message we ever sent. The self-serve path purges them;
+  //     here the address stayed queryable after an erasure that reported
+  //     success.
+  //
+  //     ORDER IS LOAD-BEARING and the module says so: this must run BEFORE the
+  //     users row is anonymized, because after that there is no address left to
+  //     key the purge on. Step 3 below overwrites users.email, so reading it
+  //     here is the last chance.
+  const purgeEmail = u.email?.trim().toLowerCase() ?? "";
+  if (purgeEmail) {
+    await purgeEmailKeyedPii(purgeEmail, {
+      del: async (table, column, value) => {
+        const { error } = await supabaseAdmin.from(table).delete().eq(column, value);
+        return { error: error ? { message: error.message } : null };
+      },
+      anonymize: async (table, column, value, clear) => {
+        const patch: Record<string, null> = {};
+        for (const col of clear) patch[col] = null;
+        const { error } = await supabaseAdmin.from(table).update(patch).eq(column, value);
+        return { error: error ? { message: error.message } : null };
+      },
+      report: (message) => console.error(message),
+    });
+  }
 
   // 3. Anonymize the PII on the public users row (retain the row so financial /
   //    audit records keyed to it stay referentially intact).
