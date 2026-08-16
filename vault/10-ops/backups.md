@@ -231,11 +231,20 @@ bash scripts/ops/restore-drill.sh        # PASS/FAIL + timings
 |---|---|---|---|---|
 | 2026-06-12 | Full pg dump (schema at migration 00151 + seeded auth user/submission/grade_report/inventory_item/storage.object rows) → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container via `restore-drill.sh` | PASS — latest migration, all row counts, and all 270 RLS policies matched source | dump 1s, restore 11s | Ralph (US-494) |
 | 2026-08-08 | **Encrypted** artifact: local stack at migration 00559 (5 auth users → 5 `public.users`, 20 submissions, 375 RLS policies) → `age` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. Also run separately through the real `backup-postgres.sh` + `restore-postgres.sh` pair, restoring from a **different directory** than the backup wrote, which is what an offsite fetch actually does. | PASS — migration, all row counts and all 375 policies matched source | dump 1s, restore 5s | US-2416 |
+| 2026-08-16 | **Encrypted** artifact: local stack at migration **00609** → `rage` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. **388 RLS policies**, up from 375 in August. ⚠ All row counts were **0** — the stack was the throwaway one `supabase db reset` builds, so this run proves the schema, policy and encryption path and says nothing about restoring DATA. The 2026-08-08 row above is the one that covers that. | PASS — migration 00609 and all 388 policies matched source | dump 1s, restore 8s | US-2618 loop |
 | _before launch_ | A real **prod** offsite dump → scratch host (LAUNCH_CHECKLIST §5) | | | |
 
 > [!danger] **LAUNCH GATE:** the local drill proves the *procedure*; §5 of
 > `vault/10-ops/launch-checklist.md` still requires one drill against a real prod offsite
 > dump before launch. A backup that has never been restored is not a backup.
+
+> [!tip] Running it on Windows no longer needs a flag
+> `restore-drill.sh` used to default to `age`, which is not packaged for Windows,
+> so on the dev box it stopped with an error — after completing the pg_dump —
+> and the fix was a sentence in its own header. It now prefers `age` and falls
+> back to `rage` (format-compatible), announcing which it used. `AGE_BIN` still
+> pins one where both exist. A drill is the thing people run rarely and under
+> stress; a documented workaround is not a working default.
 
 ## Related
 

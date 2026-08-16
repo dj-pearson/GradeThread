@@ -25,9 +25,10 @@
 #   PGPASSWORD        supabase_admin password in both containers (default postgres,
 #                     which is what the supabase CLI stack uses)
 #   KEEP=1            keep the scratch container + dump for inspection
-#   AGE_BIN           age implementation (default `age`; `rage` is the Rust
-#                     build, format-compatible, and the only one packaged for
-#                     Windows — `scoop install rage`)
+#   AGE_BIN           age implementation. Unset, it prefers `age` and falls back
+#                     to `rage` (the Rust build, format-compatible, and the only
+#                     one packaged for Windows — `scoop install rage`). Set it to
+#                     pin one on a host that has both.
 #   AGE_KEYGEN_BIN    keygen binary (default "<AGE_BIN>-keygen")
 #   DRILL_SKIP_ENCRYPTION=1  skip step 2. Deliberate opt-out only; it makes the
 #                     drill measure a procedure prod does not use.
@@ -96,12 +97,38 @@ if [ "${DRILL_SKIP_ENCRYPTION:-}" = "1" ]; then
   echo "[drill] 2/5 encryption round-trip SKIPPED (DRILL_SKIP_ENCRYPTION=1)"
   echo "[drill] WARNING: prod ships ENCRYPTED backups — this run does not prove they restore"
 else
-  AGE_BIN="${AGE_BIN:-age}"
+  # Pick the implementation rather than demanding one. `rage` is the Rust build,
+  # format-compatible, and the only one packaged for Windows — so on the dev box
+  # the default `age` is never present and the drill stopped with an error the
+  # first time anyone ran it, having already done the pg_dump. The header said to
+  # re-run with AGE_BIN=rage; a drill is exactly the thing people run rarely and
+  # under stress, and "it told you in a comment" is not a working default.
+  #
+  # An explicit AGE_BIN still wins, so pinning one implementation on a host that
+  # has both stays possible.
+  if [ -z "${AGE_BIN:-}" ]; then
+    if command -v age >/dev/null 2>&1; then AGE_BIN=age
+    elif command -v rage >/dev/null 2>&1; then
+      AGE_BIN=rage
+      echo "[drill] age not found; using rage (format-compatible)"
+    else
+      AGE_BIN=age
+    fi
+  fi
   AGE_KEYGEN_BIN="${AGE_KEYGEN_BIN:-${AGE_BIN}-keygen}"
   command -v "$AGE_BIN" >/dev/null 2>&1 || {
-    echo "ERROR: $AGE_BIN not found. Prod backups are encrypted, so a drill without it" >&2
-    echo "       proves nothing about restoring them. Install age (or \`scoop install rage\`" >&2
-    echo "       and re-run with AGE_BIN=rage), or set DRILL_SKIP_ENCRYPTION=1 knowingly." >&2
+    echo "ERROR: neither age nor rage found. Prod backups are encrypted, so a drill" >&2
+    echo "       without one proves nothing about restoring them. Install age, or" >&2
+    echo "       \`scoop install rage\` on Windows, or set DRILL_SKIP_ENCRYPTION=1" >&2
+    echo "       knowingly." >&2
+    exit 1
+  }
+  command -v "$AGE_KEYGEN_BIN" >/dev/null 2>&1 || {
+    # Checked separately because it fails LATER otherwise — after the dump, at
+    # the keygen line, with a bare "command not found" that names neither the
+    # step nor the fix.
+    echo "ERROR: $AGE_BIN is installed but $AGE_KEYGEN_BIN is not." >&2
+    echo "       Set AGE_KEYGEN_BIN to the keygen binary for your build." >&2
     exit 1
   }
   echo "[drill] 2/5 encryption round-trip via $AGE_BIN (ephemeral keypair)"
