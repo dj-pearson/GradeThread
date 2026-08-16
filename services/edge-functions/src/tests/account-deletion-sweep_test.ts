@@ -101,3 +101,63 @@ Deno.test("US-2645: the delete route actually reads the table", () => {
     "the rows are read but never passed to the collector",
   );
 });
+
+// ── US-2646: the compliance export archive is the fifth source, and the worst ──
+//
+// processExport assembles a subject's COMPLETE account — submissions, inventory,
+// listings, sales, and a storage manifest — into one file in the private
+// `compliance-exports` bucket. Nothing has ever removed an object from that
+// bucket. The data_requests row cascades on self-serve deletion, so the archive
+// was left with nothing pointing at it.
+//
+// It is the most complete copy of a person that exists here, and it exists
+// BECAUSE they exercised a data right. Leaving it behind when they exercise the
+// other one is the sharpest version of this whole pattern.
+//
+// A DIFFERENT BUCKET, so this is checked separately from the collector: a test
+// that only exercised collectSubmissionImagePaths would say nothing about it.
+
+Deno.test("US-2646: the delete route sweeps the compliance-exports bucket", () => {
+  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+  // ANCHORED ON `file_path`, NOT on the table name. account.ts also reads
+  // data_requests for the self-serve INTAKE endpoint, scoped to the same
+  // userId — so a table-name assertion matched that instead and passed with the
+  // sweep read deleted outright. Verified: removing the sweep read left this
+  // test green until the anchor moved to the column only the sweep asks for.
+  assert(
+    /\.from\("data_requests"\)[\s\S]{0,120}?\.select\("file_path"\)/.test(src),
+    "account.ts never selects data_requests.file_path for the storage sweep",
+  );
+  assert(
+    /exportRows\.data[\s\S]{0,200}?complianceExportPaths|complianceExportPaths[\s\S]{0,300}?exportRows\.data/
+      .test(src),
+    "the archive paths are read but never reach the remove call",
+  );
+  assert(
+    /removeAll\("compliance-exports"/.test(src),
+    "the export archive paths are read but never removed",
+  );
+  // Order matters: the paths must be gathered BEFORE the cascade destroys the
+  // rows that name them. Same reason the other four are read up front.
+  const gather = src.indexOf('.from("data_requests")');
+  const cascade = src.indexOf("auth.admin.deleteUser");
+  assert(gather > -1, "the data_requests read vanished");
+  assert(
+    cascade === -1 || gather < cascade,
+    "the archive path must be read before the account cascade removes the row",
+  );
+});
+
+Deno.test("US-2646: every bucket this account writes to is swept", () => {
+  // The pattern behind US-1637, US-2645 and this one is always the same: a new
+  // writer into a bucket, by an author with no reason to open a deletion
+  // routine. Naming the buckets here means the next one has to argue with a
+  // test rather than simply not be noticed.
+  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+  for (const bucket of ["submission-images", "item-photos", "compliance-exports"]) {
+    assert(
+      src.includes(`removeAll("${bucket}"`),
+      `nothing sweeps the ${bucket} bucket on account deletion`,
+    );
+  }
+});

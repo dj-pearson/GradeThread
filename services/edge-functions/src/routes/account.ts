@@ -683,7 +683,7 @@ accountRoutes.post("/delete", async (c) => {
   const subIds = (subs.data ?? []).map((r) => (r as { id: string }).id);
   const itemIds = (items.data ?? []).map((r) => (r as { id: string }).id);
 
-  const [subImgs, itemPhotos, disputeRows, arrivalRows] = await Promise.all([
+  const [subImgs, itemPhotos, disputeRows, arrivalRows, exportRows] = await Promise.all([
     // US-1637: also sweep original_storage_path — the metadata-INTACT original
     // (EXIF/GPS deliberately preserved for forensics, US-339). Selecting only
     // storage_path left GPS-bearing PII in the bucket after "deletion".
@@ -705,6 +705,19 @@ accountRoutes.post("/delete", async (c) => {
       .from("purchase_arrival_captures")
       .select("storage_path")
       .eq("user_id", userId),
+    // US-2646: any COMPLIANCE EXPORT ARCHIVE assembled for this person, in the
+    // separate private `compliance-exports` bucket.
+    //
+    // This is the most complete copy of an account that exists — processExport
+    // assembles submissions, inventory, listings, sales and a storage manifest
+    // into one file — and it exists precisely BECAUSE the person exercised a
+    // data right. Nothing has ever removed an object from that bucket. The
+    // data_requests row cascades on self-serve deletion, so the archive was
+    // left behind with nothing pointing at it.
+    supabaseAdmin
+      .from("data_requests")
+      .select("file_path")
+      .eq("user_id", userId),
   ]);
 
   const submissionImagePaths = collectSubmissionImagePaths(
@@ -716,8 +729,20 @@ accountRoutes.post("/delete", async (c) => {
     .map((r) => (r as { storage_path: string | null }).storage_path)
     .filter((p): p is string => !!p);
 
+  // US-2646: a different bucket, so a separate sweep. Kept beside the others
+  // rather than folded into the collector, whose name and contract are about
+  // submission-images specifically.
+  const complianceExportPaths = [
+    ...new Set(
+      ((exportRows.data ?? []) as { file_path: string | null }[])
+        .map((r) => r.file_path)
+        .filter((p): p is string => !!p),
+    ),
+  ];
+
   await removeAll("submission-images", submissionImagePaths);
   await removeAll("item-photos", itemPhotoPaths);
+  await removeAll("compliance-exports", complianceExportPaths);
   const storagePurged = true;
 
   // 2. Delete the Stripe customer (this also cancels any active subscriptions).
