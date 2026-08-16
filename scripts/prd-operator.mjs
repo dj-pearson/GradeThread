@@ -1,12 +1,21 @@
 #!/usr/bin/env node
 // prd-operator — what the OWNER has to do, pulled out of the backlog.
 //
-// WHY THIS EXISTS. 53 of 115 open stories carry work no agent and no CI lane
-// can do: rotate a key, approve a scope, click through a live sell form, run a
-// query against prod. Each one is recorded honestly, and each one is recorded
-// in a different place — halfway through a 4000-character note, in a title
-// prefix, in an acceptance criterion. So the queue was real and unreadable, and
-// the same stories kept getting re-opened, re-read and re-deferred.
+// WHY THIS EXISTS. Roughly half the open stories carry work no agent and no CI
+// lane can do: rotate a key, approve a scope, click through a live sell form,
+// run a query against prod. Each one is recorded honestly, and each one is
+// recorded in a different place — halfway through a 4000-character note, in a
+// title prefix, in an acceptance criterion. So the queue was real and
+// unreadable, and the same stories kept getting re-opened, re-read and
+// re-deferred.
+//
+// THE FLOOR CAVEAT AT THE BOTTOM OF THIS FILE IS NOT DECORATION. It was checked
+// (2026-08-15) by scanning the same notes with a wider signal set: the queue
+// reported 37 and the honest number was 49, with three of the eight misses at
+// priority 25. The patterns had been tuned on stories that used the word
+// "operator", so stories saying "a PROD query this host cannot run" or "not
+// agent work" were invisible. Those phrasings are matched now. Re-measure
+// rather than trusting the total — that is what the caveat is asking for.
 //
 // TWO SECTIONS, AND THE SPLIT IS THE POINT.
 //
@@ -66,6 +75,20 @@ export const UNDECLARED_PATTERNS = [
   /\bneeds a logged-in human\b/i,
   /\bcannot be done from here\b/i,
   /\bnot automatable from this host\b/i,
+  // Added after measuring the gap this file's own closing caveat predicted.
+  // The first pattern set was tuned against stories that used the word
+  // "operator", and it found 6 undeclared. A wider scan of the same notes found
+  // 14 — eight stories saying a person is needed in words the queue could not
+  // see, including three at priority 25. Each pattern below is still anchored to
+  // a predicate, and each was checked against every quote it pulls.
+  /\bthis host cannot run\b/i,
+  /\bcannot be (?:done|run|verified|proven|answered) from (?:here|this host)\b/i,
+  /\bnot agent work\b/i,
+  /\bneeds a prod (?:query|read|session)\b/i,
+  /\bneeds a partner answer\b/i,
+  // "a human with the product open", "a human with the Stripe Dashboard".
+  /\ba human with the\b/i,
+  /\bis a Stripe (?:D|d)ashboard(?:\/API)? setting\b/i,
 ];
 
 /** Sentence around `idx`, trimmed to something a terminal line can hold. */

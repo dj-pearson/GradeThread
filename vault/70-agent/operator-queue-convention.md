@@ -58,6 +58,21 @@ criterion, which is the failure this note is trying to prevent, not repeat.
 > is simply absent. That is an argument for the convention, not a reason to
 > read the number as a total.
 
+**And the floor was 24% low the first time anyone checked it (2026-08-15).**
+Re-scanning the same notes with a wider signal set moved the queue from 37 to
+49. Eight stories were saying a person was needed in words the patterns could
+not see — "a PROD query this host cannot run", "not agent work", "a human with
+the product open", "needs a partner answer" — because the first set was tuned on
+stories that happened to use the word *operator*. Three of the eight were at
+priority 25, so they were near the top of the backlog and invisible in the one
+artifact meant to surface them.
+
+Two things follow. The phrasings above are matched now, with near-miss negatives
+pinned in the test (a note saying "verified by running the prod query against a
+local stack" must not match). And the caveat is an instruction rather than a
+disclaimer: **re-measure the floor periodically**, because writing "this is a
+floor" costs nothing and finding out by how much is the only part that helps.
+
 ## The false positives that shipped first
 
 The undeclared patterns are anchored to a predicate (`is an operator action`,

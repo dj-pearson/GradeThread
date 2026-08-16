@@ -69,6 +69,16 @@ describe("undeclared detection", () => {
       "the enable itself needs a logged-in human against the live sell form.",
       "AC4 is an operator read of crash/analytics and cannot be done from here.",
       "Core deliverable is NOT automatable from this host.",
+      // The second wave: eight stories were saying a person was needed in words
+      // the first pattern set could not see, because it was tuned on notes that
+      // used the word "operator" and these do not.
+      "That is a PROD query this host cannot run, and it should gate AC2.",
+      "AC4 REMAINS and is not agent work: a prod audit for rows that already drifted.",
+      "OPEN AC4: needs a prod query I cannot run — did anyone purchase Pro on iOS?",
+      "AC4 needs a partner answer and AC5 needs prod; both are named below.",
+      "That is a human with the product open, not a code change.",
+      "Whether Cancel subscription is enabled there is a Stripe Dashboard setting.",
+      "a live end-to-end pass that cannot be run from here: buy one label.",
     ];
     for (const notes of real) {
       const { undeclared } = collect([story({ id: "US-1", notes })]);
@@ -82,6 +92,14 @@ describe("undeclared detection", () => {
       "gated was doing two jobs (customer-readable vs operator-only) and one flag would have published operator runbooks to every customer.",
       "The message names the remedy because an operator under pressure will fabricate cases.",
       "So an operator working this checklist will not set a name nothing reads.",
+      // The second wave's own near-misses. Each of these is a sentence about
+      // work that WAS done, or about a host, and each would have been matched by
+      // the obvious loose version of a pattern above ("prod query", "cannot
+      // run", "human", "Stripe Dashboard").
+      "Verified by running the prod query against a local stack with ON_ERROR_STOP=1.",
+      "The container cannot run migrations, which is why the gate exists.",
+      "A human reading that alert at 3am learns nothing from it.",
+      "The Stripe Dashboard shows the same figure, so the two agree.",
     ];
     for (const notes of notThis) {
       const { undeclared } = collect([story({ id: "US-1", notes })]);
