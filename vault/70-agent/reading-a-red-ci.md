@@ -5,7 +5,7 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-01
+reviewed: 2026-08-16
 tags: [ci, agent, verification]
 summary: The frontend CI job fails on knowledge guards far more often than on code, so read which STEP failed before assuming a regression.
 ---
@@ -95,6 +95,35 @@ git show HEAD:<file> | grep -c $'\r'   # 0 ⇒ git has LF; your tree is the prob
 
 Check that before "fixing" the document. One such test was made line-ending
 agnostic rather than the doc being edited, which is the right direction of fix.
+
+## Two lanes red together usually means ONE cause
+
+`web: production build (incl. prerender)` and `web: vitest + coverage` **share
+`dist/`**. When the prerender aborts it leaves a stub `dist/index.html` (~7 KB,
+no SSR body), and every prerender-parity test then fails on the stub. On
+2026-08-16 that read as **19 failures**; 18 were the stub and one was real.
+
+So when those two are the only red lanes and `tsc -b`, eslint, the edge suite and
+the iOS guards all pass, **look for one cause, not two** — and read the actual
+build error before anything else. It is at the top of the run, above the wall of
+test output that everyone reads first.
+
+### `transport invoke timed out after 60000ms` → delete `node_modules/.vite`
+
+```
+[prerender] ERROR: prerender failed: transport invoke timed out after 60000ms
+  (data: {"name":"fetchModule", … "/src/components/marketing/trending-finds.tsx" …})
+```
+
+A poisoned Vite dep cache. `rm -rf node_modules/.vite` and rebuild: three
+consecutive failures on an idle box became a clean 53-second build with 217 pages.
+
+**The distinguishing signal, because the wrong diagnosis costs about an hour:**
+a *loaded machine* stalls on a **random** module; a *poisoned cache* stalls on the
+**same** module every run. All three failures named the same import, and that was
+the tell — it was first read as contention, and it was not. Check the named import
+chain for a cycle too; on that occasion there was none, and none of the files had
+changed in over a week.
 
 ## Lane health is not uniform
 
