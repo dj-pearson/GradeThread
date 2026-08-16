@@ -59,6 +59,21 @@ export interface FeatureGroup {
    *  production for three weeks (US-2001). Use it where the degraded behaviour
    *  is silent rather than obvious. */
   whenMissing?: string;
+  /** Appended EVEN WHEN THE GROUP IS SATISFIED, for a feature whose other half
+   *  lives somewhere this service cannot read.
+   *
+   *  WHY THIS EXISTS (US-2597/US-2612). `whenMissing` disappears the moment the
+   *  variable is set — which is exactly the wrong moment for a two-sided
+   *  feature. `pages_origin_bypass` spelled out "the same value must also be set
+   *  on the Cloudflare Pages project", and that sentence would have vanished on
+   *  the first half of a two-step change, leaving a bare `ok` that means "our
+   *  side is set" and reads as "this feature works". `auth_email_hook` was
+   *  already in that state on 2026-08-15: reporting `ok` while nothing here can
+   *  see whether GoTrue is actually pointed at the hook.
+   *
+   *  A readiness line that overstates is worse than one that admits an edge: the
+   *  operator stops looking. Use this wherever "ok" is only half the answer. */
+  alsoUnverifiable?: string;
 }
 
 // The shared Google OAuth client serves every Google integration by default;
@@ -176,6 +191,13 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     name: "auth_email_hook",
     vars: ["AUTH_EMAIL_HOOK_SECRET"],
     enabledWhen: () => edgeEnv() === "production",
+    alsoUnverifiable:
+      "this only proves AUTH_EMAIL_HOOK_SECRET is set HERE. Whether GoTrue is " +
+      "actually calling the hook depends on GOTRUE_HOOK_SEND_EMAIL_ENABLED / " +
+      "_URI / _SECRET on the auth container, which this service cannot read. " +
+      "With those unset GoTrue quietly uses its built-in templates and the " +
+      "cross-device signup is still broken — confirm by signing up and opening " +
+      "the mail on a different device (US-2597).",
     whenMissing:
       "GoTrue is falling back to its built-in email templates, whose confirm " +
       "link only completes in the browser that started the signup. Anyone who " +
@@ -206,6 +228,12 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     name: "pages_origin_bypass",
     vars: ["CF_PAGES_ORIGIN_SECRET"],
     enabledWhen: () => edgeEnv() === "production",
+    alsoUnverifiable:
+      "set HERE, which is one of the two halves. The SAME value must be on the " +
+      "Cloudflare Pages project, and a Pages env change only takes effect on the " +
+      "next build — so a redeploy is required after setting it. A mismatched or " +
+      "Pages-side-missing secret behaves exactly like no secret at all, and this " +
+      "line cannot tell the difference (US-781/US-2612).",
     whenMissing:
       "every SSR'd blog, certificate and sitemap visitor shares ONE per-IP " +
       "rate-limit bucket, because they all reach this service through the same " +
@@ -261,7 +289,10 @@ export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string
       ? g.satisfiedWhen(get)
       : g.vars.every((v) => has(get, v));
     if (satisfied) {
-      out[g.name] = "ok";
+      // "ok" alone is a claim about THIS service's environment. For a two-sided
+      // feature that is only half the answer, and the half we can see is the
+      // one that stops the operator looking at the other.
+      out[g.name] = g.alsoUnverifiable ? `ok — ${g.alsoUnverifiable}` : "ok";
       continue;
     }
     const miss = g.vars.filter((v) => !has(get, v));

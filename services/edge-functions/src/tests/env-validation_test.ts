@@ -295,9 +295,31 @@ Deno.test("GT-001: the line states the CONSEQUENCE, not just the variable", () =
   assertEquals(line.includes("GT-001"), true, line);
 });
 
-Deno.test("GT-001: configured → ok, with no consequence text trailing it", () => {
+Deno.test("GT-001: configured → ok, and it says WHICH HALF it verified", () => {
+  // This case used to assert a bare "ok", and that was right about `whenMissing`
+  // and wrong about this feature. Two-sided is the point: the secret being set
+  // HERE proves nothing about GOTRUE_HOOK_SEND_EMAIL_* on the auth container,
+  // and with those unset GoTrue quietly uses its built-in templates while this
+  // line says ok. Observed in production on 2026-08-15, reading ok, with the
+  // cross-device signup still unproven (US-2597).
+  //
+  // The rule the old assertion protected is unchanged and still pinned below:
+  // `whenMissing` never trails a satisfied group. This is a different field
+  // whose whole purpose is to trail one.
   const r = computeFeatureReadiness(envOf({ ...PROD_OK, AUTH_EMAIL_HOOK_SECRET: "v1,whsec_x" }));
-  assertEquals(r.auth_email_hook, "ok");
+  const line = String(r.auth_email_hook ?? "");
+  assert(line.startsWith("ok"), `expected a satisfied line, got: ${line}`);
+  assertStringIncludes(line, "GOTRUE_HOOK_SEND_EMAIL");
+  assertStringIncludes(line, "cannot read");
+  // And NOT the missing-branch consequence, which would read as an alarm on a
+  // feature whose configured half is fine.
+  //
+  // Anchored to "falling back", which is unique to whenMissing. My first
+  // version used "different device" and failed against my own text — the
+  // satisfied line legitimately ends with the same advice (sign up, open the
+  // mail elsewhere), because that is how you check the half this cannot see.
+  // A negative assertion has to name something only the WRONG branch says.
+  assertEquals(line.includes("falling back"), false, line);
 });
 
 Deno.test("GT-001: whenMissing never fires for a satisfied group", () => {
@@ -344,13 +366,25 @@ Deno.test("US-2612: an unset Pages-origin secret names the consequence, not the 
   }
 });
 
-Deno.test("US-2612: set → ok, and the consequence text does not trail a satisfied group", () => {
+Deno.test("US-2612: set → ok, and it says the Pages half is still unverified", () => {
+  // The unset line above already says "the same value must also be set on the
+  // Cloudflare Pages project". That sentence vanishes the moment the edge half
+  // is set — which is precisely the moment an operator is halfway through a
+  // two-step change and most likely to stop. So the satisfied line has to carry
+  // it too, including the redeploy, because a Pages env change only takes
+  // effect on the next build and a Pages-side-missing secret behaves exactly
+  // like no secret at all.
   const prev = Deno.env.get("CF_PAGES_ORIGIN_SECRET");
   const prevEnv = Deno.env.get("EDGE_ENV");
   Deno.env.set("CF_PAGES_ORIGIN_SECRET", "s3cret");
   Deno.env.set("EDGE_ENV", "production");
   try {
-    assertEquals(computeFeatureReadiness().pages_origin_bypass, "ok");
+    const line = String(computeFeatureReadiness().pages_origin_bypass ?? "");
+    assert(line.startsWith("ok"), `expected a satisfied line, got: ${line}`);
+    assertStringIncludes(line, "Cloudflare Pages project");
+    assertStringIncludes(line, "redeploy");
+    // Not the alarm text: the half we can see really is fine.
+    assertEquals(line.includes("503"), false, line);
   } finally {
     if (prev === undefined) Deno.env.delete("CF_PAGES_ORIGIN_SECRET");
     else Deno.env.set("CF_PAGES_ORIGIN_SECRET", prev);
