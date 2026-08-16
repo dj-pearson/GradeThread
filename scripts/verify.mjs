@@ -238,6 +238,10 @@ if (on("vault")) {
   // registry) against the vault notes they were distilled from. This is the
   // copy on-call reads during an incident, and it had no guard at all.
   run("vault: shipped runbook copies vs vault", "node scripts/runbook-sync.mjs");
+  // US-2630: the env reference against what the code actually reads. It sits in
+  // the vault lane because that file IS a vault note, and it is the one a person
+  // follows when rebuilding the stack.
+  run("vault: env reference vs code", "node scripts/check-env-reference.mjs");
 }
 
 // ── Edge (Deno) — mirrors security.yml "deno-check" job ───────────────────────

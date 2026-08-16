@@ -21,6 +21,21 @@ summary: Every env var the codebase reads, which of the eight deployment surface
 > Provisioning notes ("where to obtain a value") were folded in here by US-2048;
 > the `ENVIRONMENT.md` this note used to link to no longer exists.
 
+> [!important] "Every env var the codebase reads" is now ENFORCED, not aspirational
+> `scripts/check-env-reference.mjs` scans `services/edge-functions/src`,
+> `functions/` and `src/` for `Deno.env.get`, `process.env`,
+> `import.meta.env.VITE_*` and the Pages `env.` binding, and fails the build
+> on any name this file does not carry. It runs in the vault lane of
+> `npm run verify` and in CI. It found four when it was written:
+> `API_IDEMPOTENCY_REQUIRED`, `EVIDENCE_MAX_DEFECT_CROPS`,
+> `GRADING_AI_PROVIDER` and `GRADING_PHOTO_ROLES` — all four flags whose
+> default is the current behaviour, which is exactly the kind that goes
+> unwritten and then cannot be found when someone needs to change it.
+>
+> Test fixtures are excluded structurally, not by name: the edge suite reads
+> 44 `TEST_USER_A_*` ids that nobody standing up an environment should ever
+> set, and listing them here would bury the ones that matter.
+
 > [!important] Six edge vars are boot-FATAL in production — the ✅/🟡 split is not a judgement call
 > `lib/env-validation.ts` is the authority, not this table's icons. `CORE_REQUIRED`
 > (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) plus one of
@@ -193,6 +208,9 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `VERIFIED_360_MIN_ANGLES` | ⬜ Coolify edge | Minimum distinct angles a turntable capture must cover to qualify, alongside `_MIN_COVERAGE`. |
 | `AI_TIMEOUT_MS` / `AI_MAX_RETRIES` / `AI_ENABLE_CACHING` | ⬜ Coolify edge | Per-call timeout, retry cap, and prompt-cache toggle. Read by `lib/ai-config.ts`. |
 | `AI_MAX_CONCURRENCY` | ⬜ Coolify edge | In-process cap on simultaneous AI calls (`lib/ai-limiter.ts`). |
+| `GRADING_AI_PROVIDER` | ⬜ Coolify edge | Picks the vision provider without a deploy (`lib/ai-provider-anthropic.ts`). Today `anthropic` is the only implementation; an unknown value **warns and falls back** rather than throwing, because a typo here must not take grading down. Not the same thing as `AI_DEFAULT_PROVIDER` in the note below, which is read by nothing. |
+| `GRADING_PHOTO_ROLES` | ⬜ Coolify edge | Opt-in (`1`/`true`) for role-named photo prompts — the model is told a photo shows the fabric or the hem rather than that it landed in slot `detail_2` (US-2471). Off leaves every prompt byte-identical, which is what makes it safe to ship dark; turning it on is a grading-behaviour change and goes through shadow → eval → canary like any other. |
+| `EVIDENCE_MAX_DEFECT_CROPS` | ⬜ Coolify edge | How many defect crops an evidence pack may carry (`lib/evidence-pack.ts`, default 6). A non-numeric or negative value falls back to the default rather than erroring. |
 | `AI_GLOBAL_DAILY_CALL_CEILING` | ⬜ Coolify edge | Hard daily call ceiling across the whole service — the spend backstop, distinct from the budget *alerts* below. |
 | `GRADING_MAX_CONCURRENT_PIPELINES` | ⬜ Coolify edge | How many grading pipelines may buffer images at once (`lib/grading-capacity.ts`). This is a **memory** bound, not a rate limit: each buffering pipeline holds its photos in RAM, so raising it on a small container trades throughput for OOM. |
 
@@ -388,6 +406,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `EXTENSION_TOKEN_SECRET` 🔒 | 🟡 Coolify edge | Signs the short-lived tokens the FlipDesk lister browser extension presents. |
 | `EXTENSION_ALLOWED_ORIGINS` | 🟡 Coolify edge | Comma-separated origin allow-list for extension requests (CORS). |
 | `EXTENSION_FRAUD_FLAGS_ENABLED` | ⬜ Coolify edge | Surfaces fraud flags on the extension's public grading response. |
+| `API_IDEMPOTENCY_REQUIRED` | ⬜ Coolify edge | `true` makes an `Idempotency-Key` header **mandatory** on the charging public-API routes (`POST /api/v1/grades` and `/grades/batch`). Advisory by default so the middleware could ship without breaking live integrations; flip it once clients have adopted the header, and expect a 400 on any that have not. |
 | `ESG_EXPORT_ENABLED` | ⬜ Coolify edge | Enables the ESG/sustainability export on the public grading API. |
 | `PUBLIC_AUTHENTICITY_CHECK_ENABLED` | ⬜ Coolify edge | Exposes the authenticity check on the public API. Off by default — see [[shipped-but-unwired]] on the authenticity gate. |
 | `DATA_RETENTION_DAYS` | ⬜ Coolify edge | Retention window for the data-cleanup job. |
