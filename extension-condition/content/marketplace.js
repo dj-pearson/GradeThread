@@ -190,10 +190,29 @@
     return root;
   }
 
-  function header() {
+  // US-2622: the header is the only part of the card guaranteed to be on screen
+  // (the host caps its height and the body scrolls under it), so it carries both
+  // ways out: collapse to the bar alone, or close outright.
+  function header(root) {
     const bar = el("div", "gt-cc-head");
     bar.appendChild(el("span", "gt-cc-brand", "GradeThread"));
     bar.appendChild(el("span", "gt-cc-badge", S.overlayBadge));
+
+    // Collapse rather than close, for the shopper who wants the page back but
+    // not the read gone.
+    const collapse = el("button", "gt-cc-collapse");
+    collapse.setAttribute("type", "button");
+    collapse.setAttribute("aria-label", S.collapseLabel);
+    collapse.setAttribute("aria-expanded", "true");
+    collapse.textContent = "-";
+    collapse.addEventListener("click", function () {
+      const collapsed = root.classList.toggle("gt-cc-collapsed");
+      collapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      collapse.setAttribute("aria-label", collapsed ? S.expandLabel : S.collapseLabel);
+      collapse.textContent = collapsed ? "+" : "-";
+    });
+    bar.appendChild(collapse);
+
     const close = el("button", "gt-cc-close");
     close.setAttribute("type", "button");
     close.setAttribute("aria-label", S.closeLabel);
@@ -205,8 +224,13 @@
 
   function renderState(build, opts) {
     const root = mountRoot();
-    root.appendChild(header());
+    root.appendChild(header(root));
     const body = el("div", "gt-cc-body");
+    // US-2622: the body is the card's scroll region, and a scrollable region
+    // that cannot be focused cannot be scrolled from the keyboard at all.
+    body.setAttribute("tabindex", "0");
+    body.setAttribute("role", "group");
+    body.setAttribute("aria-label", S.overlayBadge);
     build(body);
     root.appendChild(body);
     // US-1884 (AC3): on a terminal state (result/error) move focus to the close

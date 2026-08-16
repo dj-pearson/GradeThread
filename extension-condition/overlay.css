@@ -18,9 +18,17 @@
  * inline `!important` declarations in overlay-host.js (OVERLAY_HOST_STYLE) —
  * the top of the author cascade, which no page rule can outrank. */
 
+/* US-2622: the card is a COLUMN inside a height-capped host, so its two parts
+   have different jobs. The header must always be on screen (it carries the only
+   two controls), and the report, whatever length the endpoint returns, has to
+   absorb the difference by scrolling. `min-height: 0` is what allows that: a
+   flex item refuses to shrink below its content without it, and the card would
+   overflow the host's cap exactly as it did before the cap existed. */
 #gt-cc-overlay.gt-cc-root {
   all: initial;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   width: 100%;
   box-sizing: border-box; /* `all: initial` reset it; the 1px border must fit */
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -33,6 +41,7 @@
 }
 
 #gt-cc-overlay .gt-cc-head {
+  flex: 0 0 auto; /* never shrinks: it carries collapse and close */
   display: flex;
   align-items: center;
   gap: 8px;
@@ -51,23 +60,57 @@
   letter-spacing: 0.6px;
   color: #cfe0ff;
 }
-#gt-cc-overlay .gt-cc-close {
+/* US-2622: both header controls, sized as touch targets rather than as 18px of
+   glyph. The overlay runs on phone browsers too, where a 0-by-4px hit area on a
+   dismiss control is the difference between closing it and giving up. */
+#gt-cc-overlay .gt-cc-close,
+#gt-cc-overlay .gt-cc-collapse {
   all: unset;
+  box-sizing: border-box;
   cursor: pointer;
-  margin-left: auto;
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   color: #cfe0ff;
-  padding: 0 4px;
+  min-width: 28px;
+  padding: 6px 4px;
+  border-radius: 8px;
+  text-align: center;
 }
-#gt-cc-overlay .gt-cc-close:hover { color: #ffffff; }
+#gt-cc-overlay .gt-cc-collapse { margin-left: auto; }
+#gt-cc-overlay .gt-cc-close { font-size: 18px; }
+#gt-cc-overlay .gt-cc-close:hover,
+#gt-cc-overlay .gt-cc-collapse:hover { color: #ffffff; background: rgba(255, 255, 255, 0.14); }
+#gt-cc-overlay .gt-cc-close:focus-visible,
+#gt-cc-overlay .gt-cc-collapse:focus-visible { outline: 2px solid #e94560; outline-offset: 1px; }
 
+/* US-2622: the scroll region. Everything above and below it is fixed-size, so
+   this is where a report of any length is absorbed.
+
+   `overscroll-behavior: contain` stops a flick that reaches the end of the
+   report from continuing into the marketplace's own page, which on a phone
+   reads as the overlay having thrown the shopper somewhere else. */
 #gt-cc-overlay .gt-cc-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #c3c3d2 transparent;
   padding: 14px 14px 16px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  /* Listing titles and seller handles arrive unsegmented and arbitrarily long;
+     one of them must never push the card sideways. */
+  overflow-wrap: break-word;
 }
+#gt-cc-overlay .gt-cc-body:focus-visible { outline: 2px solid #e94560; outline-offset: -2px; }
+
+/* Collapsed: the header alone, parked in the corner. The read is still there,
+   one click away, which is the difference between this and closing it. */
+#gt-cc-overlay.gt-cc-collapsed .gt-cc-body { display: none; }
 #gt-cc-overlay .gt-cc-lead {
   margin: 0;
   font-size: 13px;
@@ -189,6 +232,7 @@
     color: #f5f5f5;
     border-color: #2c2c44;
   }
+  #gt-cc-overlay .gt-cc-body { scrollbar-color: #4a4a63 transparent; }
   #gt-cc-overlay .gt-cc-lead { color: #d7d7e2; }
   #gt-cc-overlay .gt-cc-tier { color: #cfe0ff; }
   #gt-cc-overlay .gt-cc-disclaimer { color: #9a9ab0; }

@@ -186,13 +186,44 @@ assert.ok(
     );
   }
   const names = decls.map((d) => d[0]);
-  for (const required of ["position", "z-index", "width", "max-width"]) {
+  for (const required of ["position", "z-index", "width", "max-width", "max-height", "display"]) {
     assert.ok(names.includes(required), `the host must declare ${required} inline`);
   }
   assert.strictEqual(
     decls.filter((d) => d[0] === "position")[0][1],
     "fixed",
     "the overlay is a fixed corner card",
+  );
+
+  // ── US-2622: the host is BOUNDED, and it is a column ──────────────────────
+  //
+  // Without a height cap a card anchored at `bottom` grows upward off the top of
+  // the viewport, taking its header (and therefore the close button) with it, and
+  // nothing scrolls because a fixed element ignores the page's scroll. That is
+  // not a styling nit: it is an overlay the shopper can neither read nor dismiss.
+  const maxHeights = decls.filter((d) => d[0] === "max-height").map((d) => d[1]);
+  assert.ok(
+    maxHeights.length >= 1,
+    "the host must cap its own height — an uncapped card grows off the top of the viewport",
+  );
+  assert.ok(
+    maxHeights.some((v) => v.includes("dvh")),
+    "the last max-height must be in dvh: on a phone `vh` is frozen at the tallest viewport, " +
+      "so a vh-only cap hides the bottom of the card behind the URL bar",
+  );
+  assert.ok(
+    maxHeights.some((v) => v.includes("vh") && !v.includes("dvh")),
+    "keep a `vh` cap before the dvh one — an engine without dvh drops that declaration " +
+      "as invalid and would be left with no cap at all",
+  );
+  assert.strictEqual(
+    decls.filter((d) => d[0] === "display").pop()[1],
+    "flex",
+    "the host lays the card out as a flex item so the card can shrink inside the cap",
+  );
+  assert.ok(
+    names.includes("flex-direction"),
+    "the host must declare flex-direction — a row would cap the card's WIDTH, not its height",
   );
 }
 
@@ -215,6 +246,79 @@ assert.ok(
     /box-sizing:\s*border-box/.test(cardRule[1]),
     `${CSS_REL}: the card rule resets with \`all: initial\`, which restores content-box — ` +
       "without border-box its 1px border overflows the host's fixed width",
+  );
+
+  // ── US-2622: the card absorbs a report of ANY length by scrolling ─────────
+  //
+  // The host's cap is only half the fix. A capped host containing a card that
+  // cannot shrink just moves the overflow one node down: the card still renders
+  // at its full 1100px, `overflow: hidden` on it clips the rest, and the shopper
+  // reads a report that stops mid-sentence with no way to see the end.
+  //
+  // Three declarations make the difference, and each is easy to drop in a later
+  // edit without anything looking wrong on a SHORT read — which is exactly the
+  // read a developer tests with.
+  assert.ok(
+    /display:\s*flex/.test(cardRule[1]) && /flex-direction:\s*column/.test(cardRule[1]),
+    `${CSS_REL}: the card must be a flex COLUMN — the header is fixed-size and the body is ` +
+      "the part that scrolls, which is a relationship only a flex column expresses",
+  );
+  assert.ok(
+    /min-height:\s*0/.test(cardRule[1]),
+    `${CSS_REL}: the card needs \`min-height: 0\` — a flex item refuses to shrink below its ` +
+      "content without it, so the card would overflow the host's cap and clip the report",
+  );
+
+  const bodyRule = /#gt-cc-overlay\s+\.gt-cc-body\s*\{([^}]*)\}/.exec(cssSource);
+  assert.ok(bodyRule, `${CSS_REL} must declare the body rule`);
+  assert.ok(
+    /overflow-y:\s*auto/.test(bodyRule[1]),
+    `${CSS_REL}: .gt-cc-body must scroll — it is the only part of the card that may, and ` +
+      "the report's length is the endpoint's choice, not ours",
+  );
+  assert.ok(
+    /min-height:\s*0/.test(bodyRule[1]),
+    `${CSS_REL}: .gt-cc-body needs \`min-height: 0\` or it never shrinks and never scrolls`,
+  );
+  assert.ok(
+    /overscroll-behavior:\s*contain/.test(bodyRule[1]),
+    `${CSS_REL}: .gt-cc-body must contain its overscroll — otherwise a flick that reaches the ` +
+      "end of the report keeps going and scrolls the marketplace's page underneath",
+  );
+}
+
+// ── 4b. The header carries a way out, and it is always reachable ────────────
+//
+// The close button used to be the only control, and it lived at the top of a card
+// that could be taller than the screen. Both controls are now pinned in a header
+// the card may not shrink, so this checks the pieces are all present: the content
+// script builds them, and the sheet styles them.
+{
+  const src = fs.readFileSync(path.join(dir, `${SUB}/marketplace.js`), "utf8");
+  assert.ok(
+    /class="gt-cc-head"|"gt-cc-head"/.test(src),
+    `${SUB}/marketplace.js must still render a header bar`,
+  );
+  assert.ok(
+    src.includes('el("button", "gt-cc-collapse")'),
+    `${SUB}/marketplace.js must render the collapse control — on a long read it is the only ` +
+      "way to get the page back without discarding the grade",
+  );
+  assert.ok(
+    /body\.setAttribute\("tabindex", "0"\)/.test(src),
+    `${SUB}/marketplace.js: the scrolling body must be focusable, or it cannot be scrolled ` +
+      "from the keyboard at all",
+  );
+  const headRule = /#gt-cc-overlay\s+\.gt-cc-head\s*\{([^}]*)\}/.exec(cssSource);
+  assert.ok(headRule, `${CSS_REL} must declare the header rule`);
+  assert.ok(
+    /flex:\s*0 0 auto/.test(headRule[1]),
+    `${CSS_REL}: .gt-cc-head must not shrink — it carries the collapse and close controls, ` +
+      "and a squeezed header is an overlay that cannot be dismissed",
+  );
+  assert.ok(
+    /\.gt-cc-collapsed\s+\.gt-cc-body\s*\{[^}]*display:\s*none/.test(cssSource),
+    `${CSS_REL}: the collapsed state must hide the body`,
   );
 }
 

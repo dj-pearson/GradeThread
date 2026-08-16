@@ -75,6 +75,10 @@
   // clears it and runs long before the reporting section further down.
   let sellerMissReported = false;
   let escHandler = null; // US-1884 (AC3): active Esc-to-dismiss listener, if any.
+  // US-2622: open as the header bar alone rather than as a full card. Set at boot
+  // on a listing the viewer OWNS, and cleared the moment they ask for anything —
+  // a seller who clicks "Get condition read" on their own item means it.
+  let openCollapsed = false;
 
   // US-1878 (AC3): the GENERATION token.
   //
@@ -111,6 +115,10 @@
     onSearchPage = false;
     // A new page gets a fresh chance to report its own selector miss.
     sellerMissReported = false;
+    // US-2622: and a fresh chance to decide whether it is the viewer's own
+    // listing. Carrying the old page's answer over would open collapsed on a
+    // stranger's item, or full-height on the next one of yours.
+    openCollapsed = false;
   }
 
   async function send(msg) {
@@ -237,6 +245,38 @@
     return raw;
   }
 
+  // US-2622: is the viewer looking at their OWN listing?
+  //
+  // A seller opening their own item gets no new information from a buyer-side
+  // condition read: they graded the garment in FlipDesk, and the panel that
+  // opened over it was answering a question they had already answered. So the
+  // overlay opens as its header bar on an owned listing, one click from the full
+  // read, rather than either shouting or disappearing.
+  //
+  // The selectors are OWNER-ONLY controls, and the distinction is not academic:
+  // eBay shows every shopper a "Sell one like this" link into the same /sl/list
+  // flow the owner's "Sell a similar item" uses, so matching the href would hide
+  // the read from exactly the people it exists for. Absent on an adapter we
+  // haven't verified this way, which reads as "not yours" and changes nothing.
+  function isOwnListing() {
+    const sels = adapter && adapter.ownListing;
+    if (!Array.isArray(sels)) return false;
+    for (const sel of sels) {
+      try {
+        if (document.querySelector(sel)) return true;
+      } catch (_e) {
+        continue; // a bad remote selector never decides this either way
+      }
+    }
+    return false;
+  }
+
+  // Any deliberate request for a read cancels the collapsed opening — including
+  // for every render after it, so a re-read does not fold itself away again.
+  function userAsked() {
+    openCollapsed = false;
+  }
+
   // ── overlay UI ─────────────────────────────────────────────────────────
   function el(tag, cls, text) {
     const n = document.createElement(tag);
@@ -286,10 +326,37 @@
     return root;
   }
 
-  function header() {
+  // US-2622: the header is the only part of the card guaranteed to be on screen
+  // (the host caps its height and the body scrolls under it), so it carries both
+  // ways out: collapse to the bar alone, or close outright.
+  function header(root) {
     const bar = el("div", "gt-cc-head");
     bar.appendChild(el("span", "gt-cc-brand", "GradeThread"));
-    bar.appendChild(el("span", "gt-cc-badge", S.overlayBadge));
+    // US-2622: on an owned listing the bar says WHY it is a bar. A panel that
+    // silently opens smaller than last time reads as a glitch.
+    bar.appendChild(el("span", "gt-cc-badge", openCollapsed ? S.ownListingBadge : S.overlayBadge));
+
+    // Collapse rather than close, for the shopper who wants the page back but
+    // not the read gone. Closing an in-flight read invalidates it; collapsing
+    // deliberately does not, so a grade started before the collapse is there
+    // when they open it again.
+    const collapse = el("button", "gt-cc-collapse");
+    collapse.setAttribute("type", "button");
+    function setCollapsed(collapsed) {
+      collapse.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      collapse.setAttribute("aria-label", collapsed ? S.expandLabel : S.collapseLabel);
+      collapse.textContent = collapsed ? "+" : "-";
+    }
+    setCollapsed(openCollapsed);
+    collapse.addEventListener("click", function () {
+      const collapsed = root.classList.toggle("gt-cc-collapsed");
+      setCollapsed(collapsed);
+      // Opening it by hand is an answer to the question the collapsed bar asked,
+      // so every render after this one opens too.
+      if (!collapsed) userAsked();
+    });
+    bar.appendChild(collapse);
+
     const close = el("button", "gt-cc-close");
     close.setAttribute("type", "button");
     close.setAttribute("aria-label", S.closeLabel);
@@ -307,10 +374,21 @@
 
   function renderState(build, opts) {
     const root = mountRoot();
-    root.appendChild(header());
+    root.appendChild(header(root));
     const body = el("div", "gt-cc-body");
+    // US-2622: the body is the card's scroll region, and a scrollable region
+    // that cannot be focused cannot be scrolled from the keyboard at all. A
+    // group role gives it a name in the accessibility tree rather than
+    // appearing as an unlabelled scrollable div.
+    body.setAttribute("tabindex", "0");
+    body.setAttribute("role", "group");
+    body.setAttribute("aria-label", S.overlayBadge);
     build(body);
     root.appendChild(body);
+    // US-2622: an owned listing opens as the bar. The card is fully built either
+    // way — collapsing is a CSS state, not a shorter render — so expanding it
+    // costs nothing and spends no quota.
+    if (openCollapsed) root.classList.add("gt-cc-collapsed");
     // US-1884 (AC3): on a terminal state (result/error) move focus to the close
     // button so keyboard users land on the overlay; never steal focus during the
     // transient loading state.
@@ -914,6 +992,10 @@
 
   async function runGrade(explicitUrls) {
     if (grading) return;
+    // US-2622: every path into here is a request for a read (the launcher, the
+    // re-read, Alt+G, the image context menu, or an opt-in auto-run the shopper
+    // switched on themselves), so nothing after this opens as a bar.
+    userAsked();
     const title = extractTitle();
     const brand = extractBrand();
     const condition = extractCondition();
@@ -1260,6 +1342,11 @@
     // applies everywhere else.
     caps = await send({ type: "GT_GET_CAPABILITIES" });
     if (stale()) return;
+
+    // US-2622: decided BEFORE the first render, because it changes how that
+    // render opens. Read straight from the DOM (no round trip), so it costs a
+    // couple of querySelector calls on a page we are already on.
+    openCollapsed = isOwnListing();
 
     // Recall: if this exact listing was already graded, show that SAME grade
     // instead of the launcher (a return visit to a graded item is stable, and it

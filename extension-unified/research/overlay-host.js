@@ -43,15 +43,39 @@
   //
   // These live here rather than in overlay.css because the host is the ONE node
   // the page can reach, so it is the one node whose layout must be unbeatable.
+  //
+  // US-2622 — THE HOST IS BOUNDED, AND IT IS A COLUMN.
+  //
+  // The host used to be `display: block` with a width and no height limit. A card
+  // anchored at `bottom` that is free to grow grows UPWARDS, so a long read (a
+  // full factor breakdown plus a coverage-gap list is over 1100px) put its own
+  // header, and with it the close button, above the top of the viewport. Nothing
+  // scrolled, because the card sets `overflow: hidden` and the page's own scroll
+  // moves the page, not a fixed element. The overlay was unreadable and could not
+  // be dismissed by mouse.
+  //
+  // So the host now caps its own height and lays its child out as a column. The
+  // cap belongs HERE rather than in the sheet for the same reason the rest of the
+  // layout does: it is the one node a marketplace can select, so the one node
+  // whose bound has to be unbeatable.
+  //
+  // `dvh` is declared after `vh` on purpose. A phone's viewport shrinks when the
+  // URL bar comes back, and `vh` is frozen at the tallest state, so a vh-only cap
+  // hides the bottom of the card behind browser chrome. An engine without `dvh`
+  // drops that declaration as invalid and keeps the `vh` one.
   var OVERLAY_HOST_STYLE = [
     ["all", "initial"],
     ["position", "fixed"],
-    ["right", "20px"],
-    ["bottom", "20px"],
+    ["right", "16px"],
+    ["bottom", "16px"],
     ["z-index", "2147483000"], // below the max so native dialogs still win
-    ["width", "300px"],
-    ["max-width", "calc(100vw - 40px)"],
-    ["display", "block"],
+    ["width", "360px"],
+    ["max-width", "calc(100vw - 32px)"],
+    ["max-height", "calc(100vh - 32px)"],
+    ["max-height", "calc(100dvh - 32px)"],
+    ["display", "flex"],
+    ["flex-direction", "column"],
+    ["align-items", "stretch"],
   ];
 
   // Scan badges are appended INSIDE a marketplace's own result tile, so their

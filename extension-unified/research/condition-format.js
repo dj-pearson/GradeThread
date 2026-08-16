@@ -49,6 +49,9 @@
     // Chrome of the overlay.
     overlayBadge: "condition check",
     closeLabel: "Close GradeThread condition check",
+    collapseLabel: "Collapse the condition check",
+    expandLabel: "Expand the condition check",
+    ownListingBadge: "your listing",
 
     // Launcher + loading.
     launcherLead: "Independent AI condition read on this {marketplace} listing.",

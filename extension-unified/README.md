@@ -30,6 +30,14 @@ extensions into a single MV3 extension:
   to any request, and nothing is written to `reputation_events` /
   `buyer_trust_scores` (US-2148 — a seller-adverse score needs its own model and
   a human-confirmed basis, which a handful of unconfirmed reads is not).
+- **A panel that fits the screen and the report (US-2622)** — the overlay caps its
+  own height (in `dvh`, so a phone's URL bar can't hide the bottom), pins the
+  header, and scrolls the report inside itself. Before this a long read grew
+  upward past the top of the viewport, taking the close button with it: unreadable
+  and undismissable by mouse. The header also carries a collapse control, and on a
+  listing you OWN the panel opens as that bar alone — eBay's owner-only Revise
+  controls are the tell, deliberately *not* the "Sell one like this" link every
+  visitor sees (`test/own-listing.test.cjs`).
 - **Flip mode (US-2238)** — the SELLER's question about the same listing. On a
   detail page, a FlipDesk account gets "Should I flip this?": the listing's own
   photos are shadow-graded, priced against condition-matched eBay comps, and

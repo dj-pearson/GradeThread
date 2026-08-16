@@ -26,8 +26,8 @@
 // from telemetry without shipping a new build.
 
 const GT_CC_CONFIG = {
-  version: "2026.07.8",
-  lastVerified: "2026-07-29",
+  version: "2026.08.1",
+  lastVerified: "2026-08-16",
   configUrl: "https://gradethread.com/extension/marketplace-selectors.json",
   adapters: {
     ebay: {
@@ -67,6 +67,16 @@ const GT_CC_CONFIG = {
         ".x-price-primary .ux-textspans",
         "[data-testid='x-price-primary'] .ux-textspans",
         ".x-bin-price__content .ux-textspans"
+      ],
+      // US-2622: proof the VIEWER OWNS this listing. Owner-only controls, and
+      // only owner-only ones: 'Sell one like this' is shown to buyers too, and
+      // it links to the same /sl/list flow as 'Sell a similar item', so matching
+      // on the href alone would hide the read from the shoppers it is for.
+      // Verified 2026-08-16 against an owned listing (both match) and a
+      // stranger's (neither does).
+      ownListing: [
+        "a[href*='ReviseItem']",
+        ".ux-layout-section__textual-display--reviseList"
       ],
       itemSpec: {
         row: ".ux-labels-values",
