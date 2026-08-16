@@ -114,6 +114,63 @@ function liveAllowedSet(): { version: string; values: string[] } {
 }
 
 /**
+ * The same question for `buyer_billing_source`, whose CHECK is written INLINE on
+ * `ADD COLUMN` in 00414 and therefore has no name in the source at all — Postgres
+ * generates `users_buyer_billing_source_check`. So this looks the constraint up
+ * by the COLUMN it constrains rather than by a name that is not written down.
+ *
+ * The `(?<![a-z_])` matters: `billing_source` is a suffix of
+ * `buyer_billing_source`, and without it the seller lookup would match the buyer
+ * column's inline CHECK in 00414 and report the wrong migration.
+ */
+function liveAllowedSetForColumn(column: string): { version: string; values: string[] } {
+  const files = readdirSync(MIGRATIONS_DIR)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+  const pattern = new RegExp(
+    `CHECK\\s*\\(\\s*(?<![a-z_])${column}\\s+IS\\s+NULL\\s+OR\\s+(?<![a-z_])${column}\\s+IN\\s*\\(([^)]*)\\)`,
+    "i",
+  );
+
+  let found: { version: string; values: string[] } | null = null;
+  for (const file of files) {
+    const sql = readFileSync(join(MIGRATIONS_DIR, file), "utf8");
+    const match = sql.match(pattern);
+    if (!match) continue;
+    found = {
+      version: file.slice(0, 5),
+      values: [...(match[1] ?? "").matchAll(/'([^']+)'/g)]
+        .map((m) => m[1] ?? "")
+        .filter(Boolean)
+        .sort(),
+    };
+  }
+  if (!found) {
+    throw new Error(`No migration constrains ${column} with an IN (...) list.`);
+  }
+  return found;
+}
+
+/** Every literal written to a given column, by file. Same shape as above. */
+function writtenLiteralsFor(column: string): Map<string, string[]> {
+  const byValue = new Map<string, string[]>();
+  const pattern = new RegExp(`(?<![A-Za-z0-9_])${column}"?\\s*:\\s*"([a-z_]+)"`, "g");
+  for (const dir of WRITE_SCAN_DIRS) {
+    for (const file of walk(dir)) {
+      for (const match of readFileSync(file, "utf8").matchAll(pattern)) {
+        const value = match[1];
+        if (!value) continue;
+        const rel = file.slice(REPO_ROOT.length + 1).split("\\").join("/");
+        const sites = byValue.get(value) ?? [];
+        if (!sites.includes(rel)) sites.push(rel);
+        byValue.set(value, sites);
+      }
+    }
+  }
+  return byValue;
+}
+
+/**
  * Every literal assigned to billing_source in a WRITE position — an
  * object-literal key, which is what supabase-js .insert()/.update()/.upsert()
  * payloads and their TypeScript row types are built from.
@@ -185,5 +242,65 @@ describe("users_billing_source_chk matches the code's billing_source literals", 
     expect(values).toContain("googleplay");
     expect(values).toContain("appstore");
     expect(values).toContain("stripe");
+  });
+});
+
+// The BUYER column had the identical exposure and no guard. Added 2026-08-16
+// after checking the constraint on a database built from the whole corpus:
+//
+//   users_billing_source_chk       => stripe, appstore, googleplay   (00558)
+//   users_buyer_billing_source_check => stripe, appstore, googleplay (00414)
+//
+// Both are correct TODAY, so this is not a bug fix. It is the missing half of
+// the correspondence — the original test excludes `buyer_billing_source` by
+// design (it is a different column with a different constraint) and nothing
+// picked it back up, so a fourth buyer processor would reproduce US-2287 exactly
+// on the column that was not watched.
+//
+// ⚠ And the buyer side is HARDER to fix once it breaks, which is the reason to
+// guard it rather than trust it. 00414 writes the CHECK inline on `ADD COLUMN IF
+// NOT EXISTS`, so the constraint is unnamed in the source and the whole
+// statement is skipped once the column exists — the exact mechanism that let
+// 00104's stale definition survive every later apply. Widening it means DROP
+// CONSTRAINT by the name Postgres generated, `users_buyer_billing_source_check`,
+// which is discoverable from pg_constraint and from nowhere in this repo.
+describe("users_buyer_billing_source_check matches the buyer literals", () => {
+  const COLUMN = "buyer_billing_source";
+
+  it("allows every literal the code writes", () => {
+    const { version, values } = liveAllowedSetForColumn(COLUMN);
+    const written = writtenLiteralsFor(COLUMN);
+    const rejected = [...written.entries()]
+      .filter(([value]) => !values.includes(value))
+      .map(([value, sites]) => `  '${value}' written at: ${sites.join(", ")}`);
+
+    expect(
+      rejected,
+      `${COLUMN}'s CHECK (migration ${version}) allows [${values.join(", ")}] ` +
+        `but the code writes values it rejects. Each one fails with 23514 — the ` +
+        `buyer is charged and entitled to nothing:\n${rejected.join("\n")}\n\n` +
+        `Fix: a migration that DROPs users_buyer_billing_source_check by name ` +
+        `and re-adds it. A second ADD COLUMN IF NOT EXISTS will not work.`,
+    ).toEqual([]);
+  });
+
+  it("allows nothing the code never writes", () => {
+    const { version, values } = liveAllowedSetForColumn(COLUMN);
+    const written = new Set(writtenLiteralsFor(COLUMN).keys());
+    const orphaned = values.filter((value) => !written.has(value));
+    expect(
+      orphaned,
+      `${COLUMN}'s CHECK (migration ${version}) permits [${orphaned.join(", ")}], ` +
+        `which no code path writes.`,
+    ).toEqual([]);
+  });
+
+  it("is read from the buyer column, not the seller one", () => {
+    // `billing_source` is a suffix of `buyer_billing_source`. Without the
+    // lookbehind both lookups resolve to whichever migration happens to be
+    // higher-numbered, and the test would pass while comparing the wrong
+    // constraint against the wrong writers — green, and measuring nothing.
+    expect(liveAllowedSetForColumn(COLUMN).version).toBe("00414");
+    expect(liveAllowedSet().version).toBe("00558");
   });
 });
