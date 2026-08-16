@@ -16,7 +16,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Ruler, ScanSearch, Sparkles } from "lucide-react";
+import { Download, Loader2, Ruler, ScanSearch, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/lib/supabase";
@@ -144,6 +144,24 @@ export function MeasurementPhotoEditor({
     },
   });
 
+  // US-2625: the generated measurements photo, for the download button. It is
+  // a separate row from the card frame this editor edits.
+  const { data: overlay = null } = useQuery({
+    queryKey: ["measure_overlay", itemId],
+    queryFn: async (): Promise<{ id: string; photo_url: string } | null> => {
+      const { data, error } = await supabase
+        .from("item_photos")
+        .select("id, photo_url")
+        .eq("inventory_item_id", itemId)
+        .eq("photo_type", "measurement_overlay")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return (data ?? null) as { id: string; photo_url: string } | null;
+    },
+  });
+
   const calib = photo?.measure_calibration?.v === 1 ? photo.measure_calibration : null;
   // US-2607: what the last server-side pass did, so a blank measurements box
   // explains itself instead of looking broken.
@@ -155,7 +173,7 @@ export function MeasurementPhotoEditor({
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [imgDims, setImgDims] = useState<[number, number] | null>(null);
   const [busy, setBusy] = useState<
-    "calibrate" | "extract" | "save" | "find" | null
+    "calibrate" | "extract" | "save" | "find" | "download" | null
   >(null);
   const dragRef = useRef<EndpointHit | null>(null);
   /** Photo id we've already auto-calibrated, so a failure doesn't loop. */
@@ -329,6 +347,39 @@ export function MeasurementPhotoEditor({
     }
   }
 
+  // US-2625: hand the seller the generated measurements photo as a file.
+  //
+  // It is served from the storage domain, which is cross-origin from the app —
+  // and the browser IGNORES the `download` attribute on a cross-origin href, so
+  // a plain link opens the image in a tab instead of saving it. Fetching the
+  // bytes and saving an object URL is what actually produces a file, and it
+  // also lets the file be named after the item rather than a timestamp.
+  async function downloadOverlay() {
+    if (!overlay?.photo_url) return;
+    setBusy("download");
+    try {
+      const res = await fetch(overlay.photo_url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `measurements-${itemId.slice(0, 8)}.jpg`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (err) {
+      toast.error(
+        `Couldn't download the measurements photo: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function runExtract() {
     setBusy("extract");
     try {
@@ -439,7 +490,11 @@ export function MeasurementPhotoEditor({
         method: "POST",
         json: { item_id: itemId },
       }).then(
-        () => qc.invalidateQueries({ queryKey: ["item_photos", itemId] }),
+        () => {
+          void qc.invalidateQueries({ queryKey: ["item_photos", itemId] });
+          // US-2625: the download button points at the row this render replaces.
+          void qc.invalidateQueries({ queryKey: ["measure_overlay", itemId] });
+        },
         () => {},
       );
       await qc.invalidateQueries({ queryKey: ["items_full"] });
@@ -565,6 +620,27 @@ export function MeasurementPhotoEditor({
                 Save
               </Button>
             </>
+          )}
+          {/* US-2625: the generated measurements photo as a file. It is
+              deliberately kept out of the eBay photo set (eBay rejects added
+              graphics), so downloading it is the only way to use it anywhere
+              else — a Poshmark listing, a message to a buyer asking "will this
+              fit". */}
+          {overlay?.photo_url && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void downloadOverlay()}
+              disabled={busy !== null}
+              title="Save the generated measurements photo to your computer."
+            >
+              {busy === "download" ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Download photo
+            </Button>
           )}
         </div>
       </div>

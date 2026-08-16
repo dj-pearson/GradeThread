@@ -66,6 +66,35 @@ export function filterListablePhotos<
   return rows.filter((r) => !isNonListableItemPhoto(r.photo_type, r.photo_role));
 }
 
+// US-2625: eBay's picture policy bans added text, graphics and borders on
+// listing images, and 'measurement_overlay' is nothing BUT added graphics —
+// measurement lines and inch labels burned into the pixels. Sellers hit this as
+// a publish rejection, which is the worst place to find out.
+//
+// Scoped to eBay on purpose rather than added to NON_LISTABLE_PHOTO_TYPES: a
+// measurements graphic is welcome on Poshmark, Depop and Mercari, where it is
+// close to expected. The render stays listable everywhere else.
+export const EBAY_INELIGIBLE_PHOTO_TYPES = new Set<string>([
+  "measurement_overlay",
+]);
+
+export function isEbayIneligiblePhoto(photoType?: string | null): boolean {
+  return EBAY_INELIGIBLE_PHOTO_TYPES.has(photoType ?? "");
+}
+
+/**
+ * The photo set for an eBay listing: listable (US-1549) AND allowed by eBay's
+ * picture policy. Every eBay image selection must go through this rather than
+ * filterListablePhotos, or the annotated render reaches publish and is rejected.
+ */
+export function filterEbayPhotos<
+  T extends { photo_type?: string | null; photo_role?: string | null },
+>(rows: T[]): T[] {
+  return filterListablePhotos(rows).filter(
+    (r) => !isEbayIneligiblePhoto(r.photo_type),
+  );
+}
+
 export const ITEM_PHOTOS_BUCKET = "item-photos";
 export const SUBMISSION_IMAGES_BUCKET = "submission-images";
 

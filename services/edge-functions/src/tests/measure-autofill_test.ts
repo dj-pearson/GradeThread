@@ -162,7 +162,9 @@ Deno.test("US-2595: the autofill scans photos for the card instead of trusting a
     !src.includes('.eq("photo_type", "measurement")'),
     "narrowing to photo_type='measurement' is what made the card invisible",
   );
-  assert(src.includes("calibrateMeasurePhoto("), "detection is the finder");
+  // US-2627: detection now goes through the resolution ladder, so a card that
+  // is small because the GARMENT is big still resolves.
+  assert(src.includes("calibrateAdaptive("), "detection is the finder");
   // Finding it must retag, or the composer editor and the publish path (both
   // of which DO filter on photo_type) still can't see it.
   assert(src.includes('patch.photo_type = "measurement"'));

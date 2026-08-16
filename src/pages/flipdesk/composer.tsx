@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -54,6 +54,7 @@ import {
   titleKeywords,
 } from "@/lib/listing-templates";
 import { garmentDescriptorFor } from "@/lib/measurement-templates";
+import { applyMeasurementsBlock } from "@/lib/measurements";
 import { titleQuality } from "@/lib/title-quality";
 import {
   EBAY_CONDITION_OPTIONS,
@@ -307,6 +308,26 @@ export function FlipdeskComposerPage({
   const [measurements, setMeasurements] = useState<
     Record<string, number | string>
   >({});
+  // US-2626: a measurement the seller just corrected has to reach the LISTING,
+  // not only the item. Every measurement edit — dragging an anchor point on the
+  // MeasureCard photo, resizing a line, typing a value into the form, or the
+  // automatic pass filling blanks — routes through here so the description's
+  // measurements block is rewritten from the current numbers.
+  //
+  // applyMeasurementsBlock is marker-delimited and idempotent: it strips any
+  // existing block before appending, so repeated saves never stack duplicates,
+  // and clearing every measurement removes the section instead of leaving a
+  // stale one behind. The seller's own prose above the markers is untouched.
+  const applyMeasurements = useCallback(
+    (next: Record<string, number | string>) => {
+      setMeasurements(next);
+      setDescription((prev) =>
+        applyMeasurementsBlock(prev, next, measurementUnit)
+      );
+    },
+    [measurementUnit],
+  );
+
   // Item-level logistics (SKU / storage location / container), editable here for
   // parity with the iOS item canvas so the seller can label & locate the
   // physical item while drafting. These save to inventory_items (not the eBay
@@ -2578,7 +2599,7 @@ export function FlipdeskComposerPage({
             item={item}
             garment={measurementGarment}
             measurements={measurements}
-            setMeasurements={setMeasurements}
+            setMeasurements={applyMeasurements}
           />
 
           <TitleCard
@@ -2623,7 +2644,7 @@ export function FlipdeskComposerPage({
             categoryCandidates={listing?.category_candidates ?? null}
             initialised={initialised}
             measurements={measurements}
-            setMeasurements={setMeasurements}
+            setMeasurements={applyMeasurements}
             measurementUnit={measurementUnit}
             itemAspectSource={itemAspectSource}
             onCategoryChange={(id, path) => {

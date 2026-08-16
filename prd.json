@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2625",
+  "nextId": "US-2628",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2016,6 +2016,50 @@
       ],
       "priority": 40,
       "notes": "Done 2026-08-16. All four AC met, and the first lint run paid for itself. AC1: eslint.config.js loses the three ignores and gains two blocks - sources get browser + webextension globals, script sourceType, importScripts/clients for the MV3 service workers, and module as a READONLY GLOBAL rather than a per-file disable, because several shared files are UMD (if typeof module !== undefined) so the .cjs suites can require the same file the browser loads as a script; declaring the name keeps no-undef useful for everything else. The .cjs suites get NODE globals only, since browser globals make them trip no-redeclare on the DOM names they stub on purpose, and a config that calls a deliberate stub an error is a config someone switches off. no-unused-vars carries the same ^_ convention as the app, which is what 165 of the 182 raw errors were. AC2, and this is the finding worth the story: GT.runFlow ACCEPTED AN opts ARGUMENT, DEFAULTED IT, AND NEVER READ IT, in both extension-unified/lister/common.js and its extension/content/common.js mirror, while all four call sites passed { autoSubmit: false }. Three lines below the dead parameter the comment said the flow deliberately does not auto-submit BY DEFAULT - so the flag read as the reason nothing gets clicked, when the real reason is that no code clicks at all. That is the dangerous direction: a reader trusting the flag could remove it as redundant, or implement it and change an unconditional refusal into an option. The argument and all four { autoSubmit: false } are gone and the comment now says the refusal is unconditional. SECOND REAL FINDING, three of them: the poshmark, mercari and grailed login urlPatterns were written \"poshmark.com/...\" in a STRING literal, where the backslash is eaten, so the dot matched any character. vinted and facebook, added later, already use the doubled form - somebody learned it and did not go back. Now consistent. Also fixed: a hyphen escaped inside a character class, a dead activeHost() in popup.js, an unread re binding in depth.test.cjs, six unreadable multi-space regexes and 31 stale eslint-disable directives. AC3: src/test/eslint-covers-extensions.test.ts asks ESLint itself via isPathIgnored + calculateConfigForFile, not the config file text - a source assertion would pass while an ignores entry three blocks lower quietly won. It resolves every sample once in beforeAll (the first call loads typescript-eslint and costs ~25s; the rest are free) and runs in the node environment, which took the file from 75s to 30s. AC4: A GUARD CAUGHT ME, WHICH IS THE SYSTEM WORKING. selector-probe.test.cjs pinned the literal phrase \"do NOT auto-submit by default\" because Poshmark rebuilt create-listing as a wizard whose primary action is Next, and the submit selector points at it - safe only while nothing clicks. My reword broke it. Repaired to pin the RULE instead of one sentence: the block must still discuss auto-submit, must still not click, and runFlow must not grow a third argument. The phrase it used to pin was itself the inaccurate part. VERIFIED: eslint 0 errors across all three trees (was 182), npm run lint 0 errors, test-extensions 31/31, tsc -b clean, 4/4 new cases, and the 4 existing lister/popup suites 57/57. Sabotage-verified three ways, each reverted green: a typod global in extension-unified reddened no-undef, the same in the legacy extension/ reddened it there, and re-growing runFlow third argument reddened the repaired guard by name. A fourth sabotage - putting extension-unified/** back in ignores - reddened all four cases of the new test."
+    },
+    {
+      "id": "US-2625",
+      "title": "[FLIPDESK] The MeasureCard tag menu offered the render and hid the card",
+      "description": "The photo-tag picker emitted one option per ROLE for the measurement type, so it offered the tape close-ups (Measure: Chest, Measure: Waist) and never the bare type — which IS the MeasureCard calibration frame, the one photo the whole measuring pipeline reads. Every photo profile listed a MeasureCard slot; the menu silently dropped it. The closest-looking option left was \"Measurements photo (generated)\", the render this app writes itself, and picking it took the photo out of the card scan, marked it as the overlay writer's to DELETE, and produced an eBay publish rejection.",
+      "acceptanceCriteria": [
+        "The picker offers the bare  type as \"MeasureCard photo (card beside the garment)\", alongside its tape roles.",
+        "System-generated types (measurement_overlay) are never offered as a manual choice; an already-tagged photo still renders its label.",
+        "measurement_overlay is excluded from the eBay photo set (eBay bans added text/graphics) and stays listable on every other marketplace.",
+        "The overlay cleanup deletes only rows this renderer wrote, matched on the measurement_overlay_<ts> filename — a seller-tagged photo is never destroyed.",
+        "The composer measurement editor has a ?focus=measurements deep link so an AutoLister batch can reach the drag-adjust editor.",
+        "The generated measurements photo can be downloaded as a file (fetch + object URL — a cross-origin download attribute is ignored)."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "[SHIPPED 2026-08-16] NO MIGRATION. The drag-adjust editor already existed and was simply unreachable from the AutoLister, which is why it was asked for as a new feature."
+    },
+    {
+      "id": "US-2626",
+      "title": "[FLIPDESK] A corrected measurement reaches the listing description, not just the item",
+      "description": "Dragging an anchor point, resizing a line, typing a value into the measurement form and the automatic pass all wrote inventory_items.measurements and stopped there. The description keeps its own marker-delimited measurements block, written once at generation time, so every later correction was invisible to the buyer.",
+      "acceptanceCriteria": [
+        "Every measurement edit routes through one setter that rewrites the description block from the current values.",
+        "The block refreshes in place rather than stacking — three corrections leave one block.",
+        "Clearing every measurement removes the section instead of leaving a stale one.",
+        "The seller's own prose above the markers is untouched."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "[SHIPPED 2026-08-16] applyMeasurementsBlock already existed and was already idempotent; nothing in the composer called it after generation."
+    },
+    {
+      "id": "US-2627",
+      "title": "[FLIPDESK] MeasureCard detection adapts to the size of the garment",
+      "description": "The minimum-marker gate measured the card in the DOWNSCALED working image (MAX_DETECT_DIM 2000), so it was really asking how much of the FRAME the card fills — a property of the garment, not the photograph. Pants laid flat run ~42in, so a 4032px photo puts the card's 1in markers at ~80px natively and ~40px after the squeeze, exactly on the limit. Sellers were told to \"move the camera closer\", which crops the garment the card is there to measure.",
+      "acceptanceCriteria": [
+        "Detection climbs a resolution ladder (2000 → 3000 → 4200, clamped to the photo, never upscaled) while the failure is one more pixels could fix.",
+        "Blur and a bent card never escalate — more pixels render the same problem larger.",
+        "During the card scan a photo showing no markers at all stops after the cheap rung, so a dozen garment shots do not each pay three passes; a photo the seller tagged as the card gets the full climb.",
+        "The gray returned belongs to the attempt that ran, so endpoint snapping stays in the right coordinate space."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "[SHIPPED 2026-08-16] The escalation decision is a pure function (shouldEscalate/detectRungs) because testing it through real images means synthesising multi-megapixel textured photos — the first version of that test asserted a climb on a blank white image the detector had correctly called too blurry. OPEN: the flat-to-circumference doubling for waist/hip/chest is NOT in this story; see the follow-up."
     }
   ]
 }

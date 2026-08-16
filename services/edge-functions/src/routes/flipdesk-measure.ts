@@ -25,7 +25,6 @@ import {
   downloadItemPhoto,
 } from "../lib/item-photo-storage.ts";
 import { MEASURE_CARD_VERSIONS } from "../lib/measure-card.ts";
-import { calibrateMeasurePhoto } from "../lib/measure-detect.ts";
 import {
   extractMeasurements,
   mergeMeasurementsFillOnly,
@@ -73,6 +72,7 @@ export {
   toGray,
 } from "../lib/measure-calibrate.ts";
 import {
+  calibrateAdaptive,
   rescaleCalibration,
   toGray,
   type StoredCalibration,
@@ -142,9 +142,20 @@ flipdeskMeasureRoutes.post("/calibrate", async (c) => {
     return c.json({ error: "Could not decode the image." }, 422);
   }
 
-  const { gray, scale } = toGray(decoded);
-  let result = calibrateMeasurePhoto(gray, MEASURE_CARD_VERSIONS);
+  // US-2627: the caller named this photo, so it gets the full resolution climb
+  // (evidenceOnly: false) — "no markers at 2000px" on a pair of pants is a
+  // resolution problem, not an answer.
+  const adaptive = calibrateAdaptive(decoded, MEASURE_CARD_VERSIONS, {
+    evidenceOnly: false,
+  });
+  const scale = adaptive.scale;
+  let result = adaptive.result;
   if (!result.ok) {
+    if (adaptive.attempted.length > 1) {
+      console.warn(
+        `[flipdesk-measure] ${photo.id}: card unreadable at ${adaptive.attempted.join("/")}px — ${result.reason}`,
+      );
+    }
     // Quality-gate failures are actionable 422s, not server errors.
     return c.json(
       {
@@ -583,11 +594,19 @@ flipdeskMeasureRoutes.post("/overlay", async (c) => {
   }
 
   // Replace any previous overlay: remove old rows (+ objects, best-effort).
+  //
+  // US-2625: only rows THIS renderer wrote. The tag picker used to offer
+  // "Measurements photo (generated)" as a manual choice, so sellers reasonably
+  // applied it to their own MeasureCard shot — and this cleanup would then
+  // delete that photo AND its blob on the next render. Matching the filename
+  // this route mints (`measurement_overlay_<ts>.jpg`) is what separates "a
+  // render I am replacing" from "a photo somebody took".
   const { data: oldRows } = await supabaseAdmin
     .from("item_photos")
     .select("id, storage_path")
     .eq("inventory_item_id", item.id)
-    .eq("photo_type", "measurement_overlay");
+    .eq("photo_type", "measurement_overlay")
+    .like("storage_path", "%/measurement_overlay_%");
   for (
     const old of (oldRows ?? []) as Array<
       { id: string; storage_path: string | null }

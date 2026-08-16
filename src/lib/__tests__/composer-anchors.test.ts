@@ -57,6 +57,12 @@ describe("composer focus anchors (US-954)", () => {
     expect(Object.keys(COMPOSER_FOCUS_ANCHORS).sort()).toEqual([
       "category",
       "condition",
+      // US-2625. Not a publish blocker — a wrong measurement never stops a
+      // listing going out, which is precisely why it needed a route. The
+      // drag-adjust editor lives in the composer (deliberately the one item
+      // editor), so a seller working an AutoLister batch had no way to reach
+      // it and asked for a feature that was already built.
+      "measurements",
       "photos",
       "price",
       "specifics",

@@ -84,4 +84,10 @@ export const COMPOSER_FOCUS_ANCHORS: Record<string, string> = {
   photos: "composer-photos",
   price: "listing-price",
   condition: "ebay-condition",
+  // US-2625: the drag-adjust measurement editor lives in the composer, and the
+  // composer is deliberately the ONE item editor. A seller working an AutoLister
+  // batch had no route to it, so "the inseam is wrong" had no fix — hence the
+  // ask for a way to move the anchor points, for a thing that already existed
+  // and could not be reached.
+  measurements: "composer-measurements",
 };

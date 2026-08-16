@@ -29,7 +29,9 @@ import {
 import { FLIPDESK_PHOTO_TYPES, PHOTO_TYPE_LABELS } from "@/lib/constants";
 import { measurementGroupFor } from "@/lib/measurement-templates";
 import {
+  bareFormLabel,
   isRetiredPhotoType,
+  isSystemGeneratedPhotoType,
   RETIRED_PHOTO_TYPES,
   roleLabel,
   rolesForType,
@@ -60,20 +62,35 @@ function parseSlot(slot: string): { type: FlipdeskPhotoType; role: string | null
 }
 
 /**
- * Every choice a seller may pick, minus the retired types. A type that takes
- * roles contributes one option PER ROLE and none for the bare type — picking
- * "Detail" with no qualifier is not a thing anyone wants when "Fabric close-up"
- * is sitting right there, and an unqualified option would quietly compete with
- * the qualified ones for the same slot.
+ * Every choice a seller may pick, minus the retired types and the renders this
+ * app writes for itself. A type that takes roles contributes one option PER
+ * ROLE and none for the bare type — picking "Detail" with no qualifier is not a
+ * thing anyone wants when "Fabric close-up" is sitting right there, and an
+ * unqualified option would quietly compete with the qualified ones for the same
+ * slot. The exception is a type in BARE_FORM_LABELS, whose bare form means
+ * something the roles do not (US-2625).
  */
 function allOptions(garment: string | null | undefined): TagOption[] {
   const group = measurementGroupFor(garment);
   const out: TagOption[] = [];
   for (const t of FLIPDESK_PHOTO_TYPES) {
     if (isRetiredPhotoType(t)) continue;
+    // US-2625: never offer a render this app writes for itself. Picking
+    // "Measurements photo (generated)" for a real MeasureCard shot took the
+    // photo out of the card scan and marked it as the overlay writer's to
+    // delete, and neither consequence was visible from the menu.
+    if (isSystemGeneratedPhotoType(t)) continue;
     const roles = rolesForType(t, group);
+    // US-2625: a type whose bare form is its own choice contributes BOTH — the
+    // MeasureCard frame (no role) and the tape close-ups (a role each). Without
+    // this the card slot existed in every photo profile and in no menu, so the
+    // one photo the measuring pipeline reads could not be tagged at all.
+    const bare = bareFormLabel(t);
+    if (bare) out.push({ slot: t, type: t, role: null, label: bare });
     if (roles.length === 0) {
-      out.push({ slot: t, type: t, role: null, label: PHOTO_TYPE_LABELS[t] });
+      if (!bare) {
+        out.push({ slot: t, type: t, role: null, label: PHOTO_TYPE_LABELS[t] });
+      }
       continue;
     }
     for (const r of roles) {

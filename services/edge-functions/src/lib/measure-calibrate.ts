@@ -4,7 +4,12 @@
 // what keeps flipdesk-measure_test.ts importing from the route valid.
 
 import { Image } from "imagescript";
-import { matMul3, type CalibrateResult, type GrayImage } from "./measure-detect.ts";
+import {
+  calibrateMeasurePhoto,
+  matMul3,
+  type CalibrateResult,
+  type GrayImage,
+} from "./measure-detect.ts";
 
 /** Stored shape of item_photos.measure_calibration (versioned). */
 export interface StoredCalibration {
@@ -87,4 +92,107 @@ export function rescaleCalibration(
       ),
     })),
   };
+}
+
+// ── US-2627: the card is small because the GARMENT is big ────────────────────
+//
+// Detection ran at one fixed working size (MAX_DETECT_DIM), and the
+// minimum-marker gate measured the card THERE rather than in the photo the
+// seller actually took. So the gate was really "how much of the frame does the
+// card fill", and that is a property of the garment, not of the photograph.
+//
+// The arithmetic, for a pair of pants: laid flat they run ~42in, so the frame
+// covers ~50in. A 4032px-tall phone photo is then ~80px per inch, and the
+// card's 1in markers are ~80px — plenty. Downscale to 2000px and they land at
+// ~40px, exactly on the limit. A slightly bigger garment, or a little more
+// margin around it, and the same well-shot photo is rejected with "move the
+// camera closer" — advice that cannot be followed, because moving closer crops
+// the garment the card is there to measure.
+//
+// So escalate instead of refusing: retry at higher resolution until the markers
+// have the pixels the gate wants. The cheap rung still handles the common case
+// (a shirt, a shot with the card near the lens), and the cost is paid once per
+// photo — the calibration is cached on the row afterwards.
+export const DETECT_DIM_LADDER = [MAX_DETECT_DIM, 3000, 4200] as const;
+
+/** Failures that MORE PIXELS can fix. Blur and a bent card cannot be. */
+const RESOLUTION_SENSITIVE = new Set([
+  "markers_too_small",
+  "card_not_fully_visible",
+  "card_not_found",
+]);
+
+export interface AdaptiveCalibration {
+  result: CalibrateResult;
+  /** The gray the winning (or final) attempt used — reuse it for edge snapping. */
+  gray: GrayImage;
+  /** resized = original * scale, for the attempt in `gray`. */
+  scale: number;
+  /** Longest edge each attempt ran at, for logging a hard case. */
+  attempted: number[];
+}
+
+/**
+ * Calibrate, climbing the resolution ladder while the failure is one more
+ * pixels could fix.
+ *
+ * `evidenceOnly` (the default) stops after the cheap rung when NO marker was
+ * seen at all. That is what keeps the card SCAN affordable: it opens up to a
+ * dozen photos and all but one of them are a garment with no card in it, so
+ * paying three detections each to confirm the obvious would triple the cost of
+ * every generation. Pass false when something already says this photo is the
+ * card — a seller's own tag, or a direct /calibrate call naming it — because
+ * then "no markers found" is itself likely a resolution problem.
+ */
+/**
+ * The working sizes to try for a photo whose longest edge is `native`, cheapest
+ * first. Never upscales (there is no more detail to find) and never repeats a
+ * size, so a small photo runs exactly once.
+ */
+export function detectRungs(native: number): number[] {
+  return [...new Set(DETECT_DIM_LADDER.map((d) => Math.min(d, native)))];
+}
+
+/**
+ * Whether another, larger pass could plausibly change this answer.
+ *
+ * Split out because it is the whole decision, and testing it through real
+ * images means synthesising multi-megapixel textured photos to reach one
+ * branch — which is how the first version of this test asserted a climb on a
+ * blank white image that the detector had (correctly) called too blurry.
+ */
+export function shouldEscalate(
+  result: CalibrateResult,
+  evidenceOnly: boolean,
+): boolean {
+  if (result.ok) return false;
+  // Blur and a bent card are properties of the photograph. More pixels only
+  // render the same problem larger.
+  if (!RESOLUTION_SENSITIVE.has(result.reason)) return false;
+  // No marker anywhere at the cheap size, and nothing claims this IS the card:
+  // stop rather than spend two more passes proving a garment shot is a garment
+  // shot. Twelve photos per item makes that the difference between a scan that
+  // is free and one that is not.
+  if (evidenceOnly && result.quality.markersFound === 0) return false;
+  return true;
+}
+
+export function calibrateAdaptive(
+  img: Image,
+  cards: Parameters<typeof calibrateMeasurePhoto>[1],
+  opts: { evidenceOnly?: boolean } = {},
+): AdaptiveCalibration {
+  const evidenceOnly = opts.evidenceOnly ?? true;
+  const rungs = detectRungs(Math.max(img.width, img.height));
+
+  let last: AdaptiveCalibration | null = null;
+  const attempted: number[] = [];
+  for (const dim of rungs) {
+    const { gray, scale } = toGray(img, dim);
+    const result = calibrateMeasurePhoto(gray, cards);
+    attempted.push(dim);
+    last = { result, gray, scale, attempted: [...attempted] };
+    if (!shouldEscalate(result, evidenceOnly)) return last;
+  }
+  return last!;
 }

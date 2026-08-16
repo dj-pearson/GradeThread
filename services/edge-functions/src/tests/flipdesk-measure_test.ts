@@ -17,6 +17,9 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
+const { MEASURE_CARD_VERSIONS: MEASURE_CARD_VERSIONS_FIXTURE } = await import(
+  "../lib/measure-card.ts"
+);
 const { toGray, rescaleCalibration, MAX_DETECT_DIM } = await import(
   "../routes/flipdesk-measure.ts"
 );
@@ -113,4 +116,80 @@ Deno.test("calibration is free; extraction is the billed AI action (US-1573)", (
   assert(extractBlock.includes("checkQuota(ownerId)"));
   assert(extractBlock.includes("withAiAction(ownerId, quota.limit"));
   assert(extractBlock.includes("AiQuotaExhaustedError"));
+});
+
+// ── US-2627: a big garment makes the card small ──────────────────────
+//
+// The minimum-marker gate measured the card in the DOWNSCALED working image, so
+// it was really asking "how much of the frame does the card fill" — a property
+// of the garment, not the photograph. Pants laid flat put the card's 1in
+// markers at ~40px once a 4032px photo is squeezed to 2000, which is exactly
+// the limit, and the seller was told to "move the camera closer" — advice that
+// cannot be followed, because moving closer crops the garment being measured.
+
+const { calibrateAdaptive, detectRungs, shouldEscalate, DETECT_DIM_LADDER } =
+  await import("../lib/measure-calibrate.ts");
+const { MEASURE_CARD_VERSIONS } = await import("../lib/measure-card.ts");
+
+const QUALITY = (markersFound: number) => ({
+  markersFound,
+  minMarkerSidePx: markersFound ? 12 : 0,
+  blurScore: 500,
+  reprojResidualIn: Infinity,
+});
+import type { CalibrateFailure, CalibrateResult } from "../lib/measure-detect.ts";
+const failure = (reason: CalibrateFailure, markersFound: number): CalibrateResult =>
+  ({ ok: false, reason, message: "", quality: QUALITY(markersFound) });
+
+Deno.test("US-2627: rungs start cheap, climb, and never upscale", () => {
+  assertEquals(DETECT_DIM_LADDER[0], MAX_DETECT_DIM);
+  const big = detectRungs(6000);
+  assertEquals(big, [...DETECT_DIM_LADDER]);
+  assertEquals(big, [...big].sort((a, b) => a - b));
+  // Clamped to the photo's own size...
+  assertEquals(detectRungs(4032), [2000, 3000, 4032]);
+  // ...and a photo smaller than the cheap rung runs exactly once.
+  assertEquals(detectRungs(900), [900]);
+  assertEquals(detectRungs(2000), [2000]);
+});
+
+Deno.test("US-2627: escalate only when more pixels could change the answer", () => {
+  // The reported failure: markers seen, too small to decode. This is the case
+  // that told sellers to move closer and crop the garment.
+  assert(shouldEscalate(failure("markers_too_small", 4), true));
+  // Part of the card resolved — evidence enough to spend another pass.
+  assert(shouldEscalate(failure("card_not_fully_visible", 2), true));
+  // Nothing resolution can fix.
+  assert(!shouldEscalate(failure("photo_too_blurry", 0), false));
+  assert(!shouldEscalate(failure("card_bent_or_angled", 4), false));
+  // A success never climbs.
+  assert(
+    !shouldEscalate(
+      { ok: true, cardVersion: 1, ppi: 100, homography: [], markers: [], quality: QUALITY(4) },
+      false,
+    ),
+  );
+});
+
+Deno.test("US-2627: a scan does not pay to prove a garment shot is a garment shot", () => {
+  // No marker anywhere, and nothing claims this photo is the card. The scan
+  // opens up to a dozen photos per item; climbing on each would triple the cost
+  // of every generation.
+  assert(!shouldEscalate(failure("card_not_found", 0), true));
+  // But when the seller TAGGED it as the card, "nothing at 2000px" is a
+  // resolution problem, not an answer.
+  assert(shouldEscalate(failure("card_not_found", 0), false));
+});
+
+Deno.test("US-2627: the returned gray belongs to the attempt that ran", () => {
+  // extractMeasurements snaps endpoints in this gray's space using `scale`. A
+  // gray from one rung paired with a scale from another would move every
+  // endpoint by the ratio between them.
+  const img = new Image(900, 600);
+  img.fill(0xffffffff);
+  const out = calibrateAdaptive(img, MEASURE_CARD_VERSIONS);
+  assertEquals(out.attempted, [900]);
+  assertEquals(out.scale, 1);
+  assertEquals(out.gray.width, 900);
+  assertEquals(out.gray.height, 600);
 });

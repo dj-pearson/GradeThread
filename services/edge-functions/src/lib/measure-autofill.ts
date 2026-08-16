@@ -26,8 +26,8 @@ import { Image } from "imagescript";
 import { supabaseAdmin } from "./supabase.ts";
 import { bucketForItemPhoto, downloadItemPhoto } from "./item-photo-storage.ts";
 import { MEASURE_CARD_VERSIONS } from "./measure-card.ts";
-import { calibrateMeasurePhoto } from "./measure-detect.ts";
 import {
+  calibrateAdaptive,
   rescaleCalibration,
   toGray,
   type StoredCalibration,
@@ -220,11 +220,10 @@ async function findCardPhoto(
       lastMessage = "Could not decode the image.";
       continue;
     }
-    const { gray, scale } = toGray(decoded);
-
     // A stored calibration is only trusted on a photo that is actually tagged
     // as the card — otherwise it is a leftover from a retag and must be re-run.
     if (p.photo_type === "measurement" && p.measure_calibration?.v === 1) {
+      const { gray, scale } = toGray(decoded);
       return {
         photo: { id: p.id, storage_path: p.storage_path!, photo_type: p.photo_type },
         calibration: p.measure_calibration,
@@ -234,7 +233,17 @@ async function findCardPhoto(
       };
     }
 
-    const detected = calibrateMeasurePhoto(gray, MEASURE_CARD_VERSIONS);
+    // US-2627: climb the resolution ladder when more pixels could help. A photo
+    // the seller TAGGED as the card gets the full climb even with no markers
+    // found at the cheap size — they have asserted the card is in there, and on
+    // a large garment it can be too small to see at 2000px. An untagged photo
+    // has to show a marker first, or a dozen garment shots would each pay for
+    // three detections to establish they are garment shots.
+    const { result: detected, gray, scale } = calibrateAdaptive(
+      decoded,
+      MEASURE_CARD_VERSIONS,
+      { evidenceOnly: p.photo_type !== "measurement" },
+    );
     if (!detected.ok) {
       // "card_not_found" on an ordinary garment shot is the expected answer, not
       // a failure — only carry a message forward when the card WAS seen and

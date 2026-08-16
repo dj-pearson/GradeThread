@@ -7,7 +7,7 @@ import { captureException } from "../lib/observability.ts";
 import { planComplianceSync } from "../lib/ebay-compliance-plan.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
 import {
-  filterListablePhotos,
+  filterEbayPhotos,
   publicItemPhotoUrl,
 } from "../lib/item-photo-storage.ts";
 import {
@@ -6086,7 +6086,7 @@ async function reviseOneListing(
       .order("sort_order", { ascending: true });
     // US-1549: 'internal' photos (price tags, receipts) never go to eBay.
     const imageUrls = toEbayImageUrls(
-      filterListablePhotos(
+      filterEbayPhotos(
         (photoRows ?? []) as Array<{
           storage_path: string | null;
           photo_url: string | null;
@@ -8785,7 +8785,7 @@ flipdeskEbayRoutes.get("/negotiation/eligible", async (c) => {
         for (
           // US-1549: skip 'internal' photos so a reference shot (price tag)
           // never becomes the representative image.
-          const p of filterListablePhotos(
+          const p of filterEbayPhotos(
             (photoRows ?? []) as Array<{
               inventory_item_id: string;
               storage_path: string | null;
@@ -10158,7 +10158,7 @@ export async function resyncGradeToLiveListing(
     .order("sort_order", { ascending: true });
   // US-1549: 'internal' photos (price tags, receipts) never go to eBay.
   const imageUrls = toEbayImageUrls(
-    filterListablePhotos(
+    filterEbayPhotos(
       (photoRows ?? []) as Array<{
         storage_path: string | null;
         photo_url: string | null;
@@ -10426,7 +10426,7 @@ export async function assemblePublishContext(
   // US-1549: 'internal' photos (price tags, receipts) are excluded from the
   // whole publish context — they never reach eBay, never count toward the
   // photo blockers, and never surface as the composer's gallery.
-  const listablePhotoRows = filterListablePhotos((photoRows ?? []) as Array<{
+  const listablePhotoRows = filterEbayPhotos((photoRows ?? []) as Array<{
     id: string;
     storage_path: string | null;
     photo_url: string | null;

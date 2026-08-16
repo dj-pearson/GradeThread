@@ -276,3 +276,47 @@ export const RETIRED_PHOTO_TYPES: Record<
 export function isRetiredPhotoType(type: string): boolean {
   return type in RETIRED_PHOTO_TYPES;
 }
+
+// ── US-2625: the two ways a picker can offer the wrong thing ────────────────
+
+/**
+ * Types the SYSTEM produces and a seller must never be handed as a choice.
+ *
+ * `measurement_overlay` is the annotated render this app writes from a
+ * calibrated card shot. Offering it as a manual tag was actively harmful in
+ * three directions at once: the card scan skips it (it is a render, it cannot
+ * BE a card), the overlay writer treats rows of that type as its own output to
+ * replace, and eBay rejects the graphic outright. A seller reading
+ * "Measurements photo (generated)" next to their MeasureCard shot had every
+ * reason to pick it, and doing so silently disabled the measuring.
+ */
+export const SYSTEM_GENERATED_PHOTO_TYPES = new Set<string>([
+  "measurement_overlay",
+]);
+
+export function isSystemGeneratedPhotoType(type: string): boolean {
+  return SYSTEM_GENERATED_PHOTO_TYPES.has(type);
+}
+
+/**
+ * Types whose BARE form — the type with no role — is its own distinct choice,
+ * offered ALONGSIDE the roles rather than replaced by them.
+ *
+ * `measurement` is the only one, and the distinction is load-bearing rather
+ * than cosmetic: `measurement` + a role is a tape close-up, which lists;
+ * `measurement` + NO role is the MeasureCard calibration frame, which never
+ * lists and is the single photo the whole measuring pipeline reads
+ * (isNonListableItemPhoto encodes exactly this split).
+ *
+ * A picker that emits only the roles therefore offers no way to tag the one
+ * photo that matters. That is what happened: the profiles listed a MeasureCard
+ * slot, the picker filtered its options through this vocabulary, the bare form
+ * was absent, and the slot vanished from the menu without anyone noticing.
+ */
+export const BARE_FORM_LABELS: Record<string, string> = {
+  measurement: "MeasureCard photo (card beside the garment)",
+};
+
+export function bareFormLabel(type: string): string | null {
+  return BARE_FORM_LABELS[type] ?? null;
+}

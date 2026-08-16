@@ -547,3 +547,51 @@ Deno.test("US-2501: de-dup keys on the image URL, not the photo tag", () => {
   assertEquals(urls, ["https://cdn/same.webp", "https://cdn/other.webp"]);
   assertEquals(duplicatesRemoved, 1);
 });
+
+// ── US-2625: eBay rejects added graphics ────────────────────────────
+//
+// 'measurement_overlay' is the annotated render this app writes from a
+// calibrated card shot — measurement lines and inch labels burned into the
+// pixels. eBay's picture policy bans added text, graphics and borders, so it
+// came back as a publish rejection, which is the worst place to learn it.
+
+const { filterEbayPhotos, isEbayIneligiblePhoto } = await import(
+  "../lib/item-photo-storage.ts"
+);
+
+Deno.test("US-2625: the annotated render never reaches eBay", () => {
+  const rows = [
+    { photo_type: "front", photo_role: null },
+    { photo_type: "measurement_overlay", photo_role: null },
+    { photo_type: "back", photo_role: null },
+  ];
+  assertEquals(
+    filterEbayPhotos(rows).map((r) => r.photo_type),
+    ["front", "back"],
+  );
+  assert(isEbayIneligiblePhoto("measurement_overlay"));
+  assert(!isEbayIneligiblePhoto("front"));
+});
+
+Deno.test("US-2625: it stays listable everywhere else", () => {
+  // A measurements graphic is welcome on Poshmark, Depop and Mercari — close to
+  // expected there. The exclusion is eBay's policy, not ours, so it is scoped
+  // to eBay rather than added to NON_LISTABLE_PHOTO_TYPES.
+  const rows = [{ photo_type: "measurement_overlay", photo_role: null }];
+  assertEquals(filterListablePhotos(rows).length, 1);
+});
+
+Deno.test("US-2625: eBay still drops everything filterListablePhotos drops", () => {
+  // The eBay filter is a NARROWING of the listable set, never a replacement —
+  // a seller's price-tag reference shot must not reappear through it.
+  const rows = [
+    { photo_type: "internal", photo_role: null },
+    { photo_type: "measurement", photo_role: null }, // the branded card frame
+    { photo_type: "measurement", photo_role: "chest" }, // a tape close-up
+    { photo_type: "front", photo_role: null },
+  ];
+  assertEquals(
+    filterEbayPhotos(rows).map((r) => `${r.photo_type}:${r.photo_role}`),
+    ["measurement:chest", "front:null"],
+  );
+});
