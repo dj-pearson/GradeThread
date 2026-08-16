@@ -129,9 +129,18 @@ public struct CaptureSlot: Hashable, Identifiable, Sendable {
     /// Authenticity slots get the most: the tell IS the fine detail — a struck
     /// serial, a maker's mark, stitch pitch. Sized against the 10MB byte ceiling
     /// both clients enforce.
+    /// US-2638: `measurement` sits in the top tier for a different reason than
+    /// the authenticity slots do. It is not a macro shot at all - the card lies
+    /// BESIDE a whole garment - but the detector needs about 40px across each
+    /// 1in fiducial square, and a pair of pants laid flat fills roughly 50in of
+    /// frame. At the 2400px default those squares land near 48px before any
+    /// server-side downscale, which is on the edge and over it for anything
+    /// larger or shot with more margin. Raised on web in US-2632; this side was
+    /// not mirrored in the same commit, so an iOS seller kept the old cap on the
+    /// one photo whose entire job is metrology.
     public var uploadMaxLongEdge: CGFloat {
         switch serverPhotoType {
-        case "serial", "marking", "surface", "corner", "sole": 3600
+        case "serial", "marking", "surface", "corner", "sole", "measurement": 3600
         case "tag", "label", "detail", "defect", "interior", "certificate": 3000
         default: PhotoCompressor.defaultMaxLongEdge
         }
