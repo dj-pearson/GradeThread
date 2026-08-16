@@ -14,6 +14,7 @@ import { CONDITION_DESC_MAX } from "@/lib/composer-save";
 import type { ListingAiSnapshot } from "@/types/database";
 import type { ListingFormatValue } from "@/components/flipdesk/listing-format-controls";
 import type { useEbayCategoryConditions } from "@/hooks/use-ebay";
+import type { FieldSaveState } from "@/lib/composer-autosave";
 
 type CategoryConditions = NonNullable<
   ReturnType<typeof useEbayCategoryConditions>["data"]
@@ -48,7 +49,16 @@ export interface PriceCardProps {
   aiSnapshot: ListingAiSnapshot | null;
   isEbayOrigin: boolean;
   ebayOwnedHint: string | undefined;
+  /** US-2634: the price writes itself; this is what that write is doing. */
+  priceSaveState: FieldSaveState;
 }
+
+const PRICE_SAVE_TEXT: Record<FieldSaveState, string> = {
+  idle: "",
+  saving: "Saving price...",
+  saved: "Price saved",
+  error: "Price not saved yet — use Save draft",
+};
 // Condition, price, quantity and Best Offer — the levers that decide what a
 // buyer pays. Cost basis and its read-outs deliberately live in their own card
 // (US-2254): they are inventory bookkeeping and analysis, not listing inputs.
@@ -80,6 +90,7 @@ export function PriceCard({
   aiSnapshot,
   isEbayOrigin,
   ebayOwnedHint,
+  priceSaveState,
 }: PriceCardProps) {
   // US-2405: warn (never block) when auto-accept sits far under the asking
   // price — the shape a threshold takes once the price has moved past it.
@@ -225,6 +236,21 @@ export function PriceCard({
               />
             )}
           </div>
+          {/* US-2634: the price no longer waits for the Save button. Announced
+              politely so a screen reader hears the save without losing the caret. */}
+          {!isEbayOrigin && priceSaveState !== "idle" && (
+            <p
+              aria-live="polite"
+              className={cn(
+                "text-xs",
+                priceSaveState === "error"
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+              )}
+            >
+              {PRICE_SAVE_TEXT[priceSaveState]}
+            </p>
+          )}
           {priceEstimated && (
             <p className="text-xs text-muted-foreground">
               {priceCompSource === "active_asking"

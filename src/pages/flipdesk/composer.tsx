@@ -57,6 +57,13 @@ import { garmentDescriptorFor } from "@/lib/measurement-templates";
 import { applyMeasurementsBlock } from "@/lib/measurements";
 import { titleQuality } from "@/lib/title-quality";
 import {
+  AUTOSAVE_DELAY_MS,
+  parseAutosavePrice,
+  shouldAutosavePrice,
+  shouldAutosaveTitle,
+  type FieldSaveState,
+} from "@/lib/composer-autosave";
+import {
   EBAY_CONDITION_OPTIONS,
   ITEM_CATEGORIES,
   ITEM_STATUS_LABELS,
@@ -402,6 +409,18 @@ export function FlipdeskComposerPage({
   // match means there is unsaved work worth warning about. null until seeding
   // completes, so a still-loading form can never look dirty.
   const [savedSnapshot, setSavedSnapshot] = useState<string | null>(null);
+  // US-2634: Title and Price autosave. The `*SavedRef`s hold what the DATABASE
+  // has — seeded from the row, re-stamped by every write (autosave and both
+  // explicit saves). The `pending*Ref`s hold a debounced edit that has not
+  // landed yet, so leaving the page can flush it instead of dropping it. See
+  // src/lib/composer-autosave.ts for the rules and the reason they exist.
+  const titleSavedRef = useRef<string | null>(null);
+  const pendingTitleRef = useRef<string | null>(null);
+  const priceSavedRef = useRef<number | null>(null);
+  const pendingPriceRef = useRef<string | null>(null);
+  const mountedRef = useRef(true);
+  const [titleSaveState, setTitleSaveState] = useState<FieldSaveState>("idle");
+  const [priceSaveState, setPriceSaveState] = useState<FieldSaveState>("idle");
   // Lifted from the category picker so the comps panel reacts to a pick
   // before the user commits via "Save eBay specifics".
   const [livePickedCategoryId, setLivePickedCategoryId] = useState<
@@ -647,9 +666,15 @@ export function FlipdeskComposerPage({
     // Wait for photos too — seeding primary_photo_id against an empty (still-
     // loading) set would seed null and Save would WIPE the saved primary photo.
     if (photosLoading) return;
-    setTitle(
-      (listing?.listing_title ?? item.item_title ?? "").slice(0, TITLE_MAX),
+    const seededTitle = (listing?.listing_title ?? item.item_title ?? "").slice(
+      0,
+      TITLE_MAX,
     );
+    setTitle(seededTitle);
+    // US-2634: the baseline the autosave compares against is what the row
+    // already holds. Stamping it here (not "" ) is what stops the very first
+    // render from writing the seed straight back.
+    titleSavedRef.current = seededTitle.trim();
     setDescription(listing?.listing_description ?? item.item_description ?? "");
     // Same fallback publish applies server-side: explicit listing value, else
     // grade-derived mapping — surfaced here so it's visible and editable.
@@ -665,6 +690,15 @@ export function FlipdeskComposerPage({
         (p): p is number => p != null && p > 0,
       ) ?? null;
     setPrice(seedPrice != null ? String(seedPrice) : "");
+    // US-2634: same baseline rule as the title — the value the box was SEEDED
+    // with, so the first render can't write the seed straight back. Note it is
+    // the seeded value rather than `listing.listing_price`: when the price came
+    // from the item's target price, the seller has not decided anything yet, and
+    // materializing it into the listing row would silently clear the "AI
+    // estimate — verify" badge on a price nobody reviewed.
+    priceSavedRef.current = parseAutosavePrice(
+      seedPrice != null ? String(seedPrice) : "",
+    );
     setCost(item.purchase_price != null ? String(item.purchase_price) : "");
     setPriceEstimated(listing?.price_is_estimated ?? false);
     setPriceCompSource(listing?.price_comp_source ?? null);
@@ -853,6 +887,41 @@ export function FlipdeskComposerPage({
       JSON.stringify(livePickedAspects ?? null),
     );
     setAspectsDirty(false);
+    // US-2634: an explicit save wrote the title and price too, so the autosave
+    // baselines move with it. Without this the next keystroke would re-write a
+    // value the database already has.
+    const savedTitle = (
+      typeof overrides?.title === "string" ? overrides.title : title
+    ).trim();
+    if (savedTitle) {
+      titleSavedRef.current = savedTitle;
+      pendingTitleRef.current = null;
+      setTitleSaveState("idle");
+    }
+    const savedPrice = parseAutosavePrice(
+      typeof overrides?.price === "string" ? overrides.price : price,
+    );
+    if (savedPrice !== null) {
+      priceSavedRef.current = savedPrice;
+      pendingPriceRef.current = null;
+      setPriceSaveState("idle");
+    }
+  }
+
+  // US-2634: stamp ONE field into the saved snapshot. `markSaved` would stamp
+  // all 27, which after a title autosave would declare the seller's
+  // untouched-but-unsaved description clean and switch off the leave-warning
+  // that protects it.
+  function markFieldSnapshot(field: "title" | "price", next: string) {
+    setSavedSnapshot((prev) => {
+      if (prev === null) return prev;
+      try {
+        const parsed = JSON.parse(prev) as typeof snapshotValues;
+        return JSON.stringify({ ...parsed, [field]: next });
+      } catch {
+        return prev;
+      }
+    });
   }
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -1208,6 +1277,171 @@ export function FlipdeskComposerPage({
     (listing?.platform_listing_id
       ? `https://www.ebay.com/itm/${listing.platform_listing_id}`
       : null);
+
+  // ── US-2634: the Title and Price save themselves ───────────────────────────
+  //
+  // Everything downstream reads the DATABASE, not this form: the Listings tab,
+  // the eBay push, and the Google Sheets sync (Inventory tab = the item's own
+  // `title`; List Price = `listings.listing_price`). Before this, only the Save
+  // button moved either one into those columns, so a seller who fixed a title
+  // or a price and navigated away left the ORIGINAL in the row — and the sheet
+  // kept syncing it. That read as a sync bug; it was a save that never happened.
+  //
+  // The title moves BOTH its columns together, exactly as the explicit saves do
+  // (US-2593): the listing's `listing_title` and the item's `title`. Writing one
+  // alone is how the two drift.
+  //
+  // Held in refs so the debounce effects below can stay keyed on their own
+  // field. Re-pointing them every render is deliberate — the effects read
+  // `.current` at fire time, so a write always closes over fresh state without
+  // the timer restarting whenever an unrelated field changes.
+  const persistTitleRef = useRef<(raw: string) => Promise<void>>(async () => {});
+  persistTitleRef.current = async (raw: string) => {
+    const next = raw.trim();
+    if (!item || !next || next === titleSavedRef.current) {
+      pendingTitleRef.current = null;
+      return;
+    }
+    if (mountedRef.current) setTitleSaveState("saving");
+    try {
+      // Item first, then the listing — the same order (and the same reason) as
+      // saveDraft: there is no transaction around the pair, so the half that
+      // can fail on its own goes first.
+      const { error: itemErr } = await supabase
+        .from("inventory_items")
+        .update({ title: next } as never)
+        .eq("id", item.id);
+      if (itemErr) throw itemErr;
+      const listingId = listing?.id ?? item.listing_id ?? null;
+      if (listingId) {
+        const { error: listingErr } = await supabase
+          .from("listings")
+          .update({ listing_title: next } as never)
+          .eq("id", listingId);
+        if (listingErr) throw listingErr;
+      }
+      titleSavedRef.current = next;
+      pendingTitleRef.current = null;
+      // Stamp the RAW value the seller typed, not the trimmed one written: the
+      // snapshot compares against form state, so stamping the trim would leave
+      // a trailing space reading as unsaved work forever.
+      markFieldSnapshot("title", raw);
+      if (mountedRef.current) setTitleSaveState("saved");
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      if (listingId) {
+        await qc.invalidateQueries({ queryKey: ["listing", listingId] });
+      }
+    } catch (err) {
+      // Never a toast: this fires while the seller is typing, and a toast per
+      // failed keystroke is its own outage. The card shows the state, and the
+      // Save button is still there as the deliberate retry.
+      console.error("[composer] title autosave failed", err);
+      if (mountedRef.current) setTitleSaveState("error");
+    }
+  };
+
+  // The price has no item-side twin to keep in step: `buildItemPatch` writes no
+  // price at all, so the listing row owns it. When there is no listing row yet,
+  // the edit goes to the item's `target_price` instead — the next thing the seed
+  // order reads, and the sheet's Target Price column — rather than being
+  // dropped on the floor until the seller finds the Save button.
+  const persistPriceRef = useRef<(raw: string) => Promise<void>>(async () => {});
+  persistPriceRef.current = async (raw: string) => {
+    const next = parseAutosavePrice(raw);
+    if (!item || next === null || next === priceSavedRef.current) {
+      pendingPriceRef.current = null;
+      return;
+    }
+    if (mountedRef.current) setPriceSaveState("saving");
+    try {
+      const listingId = listing?.id ?? item.listing_id ?? null;
+      if (listingId) {
+        const { error } = await supabase
+          .from("listings")
+          // price_is_estimated tracks the explicit save: typing a price IS the
+          // human review that stops it being an unverified AI estimate.
+          .update({ listing_price: next, price_is_estimated: false } as never)
+          .eq("id", listingId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("inventory_items")
+          .update({ target_price: next } as never)
+          .eq("id", item.id);
+        if (error) throw error;
+      }
+      priceSavedRef.current = next;
+      pendingPriceRef.current = null;
+      markFieldSnapshot("price", raw);
+      if (mountedRef.current) setPriceSaveState("saved");
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      if (listingId) {
+        await qc.invalidateQueries({ queryKey: ["listing", listingId] });
+      }
+    } catch (err) {
+      console.error("[composer] price autosave failed", err);
+      if (mountedRef.current) setPriceSaveState("error");
+    }
+  };
+
+  useEffect(() => {
+    if (
+      !shouldAutosaveTitle({
+        initialised,
+        isEbayOrigin,
+        saving,
+        title,
+        lastSavedTitle: titleSavedRef.current,
+      })
+    ) {
+      // Typing back to the saved value (or clearing the box) cancels the
+      // pending write. Leaving it armed would let the unmount flush resurrect a
+      // title the seller had already undone.
+      pendingTitleRef.current = null;
+      return;
+    }
+    pendingTitleRef.current = title;
+    setTitleSaveState("idle");
+    const timer = window.setTimeout(() => {
+      void persistTitleRef.current(title);
+    }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [title, initialised, isEbayOrigin, saving]);
+
+  useEffect(() => {
+    if (
+      !shouldAutosavePrice({
+        initialised,
+        isEbayOrigin,
+        saving,
+        price,
+        lastSavedPrice: priceSavedRef.current,
+      })
+    ) {
+      pendingPriceRef.current = null;
+      return;
+    }
+    pendingPriceRef.current = price;
+    setPriceSaveState("idle");
+    const timer = window.setTimeout(() => {
+      void persistPriceRef.current(price);
+    }, AUTOSAVE_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [price, initialised, isEbayOrigin, saving]);
+
+  // Leaving mid-debounce must not drop the edit — closing the composer is the
+  // exact moment the old behaviour lost work. The writes are fire-and-forget:
+  // the component is going away, so nothing is left to render their result.
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      const pendingTitle = pendingTitleRef.current;
+      if (pendingTitle) void persistTitleRef.current(pendingTitle);
+      const pendingPrice = pendingPriceRef.current;
+      if (pendingPrice) void persistPriceRef.current(pendingPrice);
+    };
+  }, []);
 
   // Pre-push reminder: item specifics and the description are independent, so a
   // specific the seller CHANGED this session can leave the description stale. Flag
@@ -2619,6 +2853,7 @@ export function FlipdeskComposerPage({
             runListingCopy={() => void runListingCopy()}
             isEbayOrigin={isEbayOrigin}
             ebayOwnedHint={ebayOwnedHint}
+            saveState={titleSaveState}
           />
           <SpecificsSection
             // US-2264: "Complete with AI" persists a resolved category + aspects
@@ -2748,6 +2983,7 @@ export function FlipdeskComposerPage({
             aiSnapshot={aiSnapshot}
             isEbayOrigin={isEbayOrigin}
             ebayOwnedHint={ebayOwnedHint}
+            priceSaveState={priceSaveState}
           />
 
           <CostMarginCard

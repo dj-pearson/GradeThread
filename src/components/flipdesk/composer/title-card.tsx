@@ -11,6 +11,7 @@ import { TITLE_MAX } from "@/lib/composer-save";
 import type { ItemFullRow, ListingAiSnapshot } from "@/types/database";
 import type { RewriteAction } from "@/hooks/use-ai-extract";
 import type { titleQuality } from "@/lib/title-quality";
+import type { FieldSaveState } from "@/lib/composer-autosave";
 
 type TitleQuality = ReturnType<typeof titleQuality>;
 export interface TitleCardProps {
@@ -34,7 +35,16 @@ export interface TitleCardProps {
   /** US-2258: eBay owns the title on a mirror — locks the input AND every write action. */
   isEbayOrigin: boolean;
   ebayOwnedHint: string | undefined;
+  /** US-2634: the title writes itself; this is what that write is doing. */
+  saveState: FieldSaveState;
 }
+
+const SAVE_STATE_TEXT: Record<FieldSaveState, string> = {
+  idle: "",
+  saving: "Saving title...",
+  saved: "Title saved",
+  error: "Title not saved yet — use Save draft",
+};
 // Title, with the US-1892 quality meter: utilization band, brand-first check,
 // policy/quality lint, and pack-to-80 chips from the listing's mined demand terms
 // and high-value filled aspects.
@@ -55,6 +65,7 @@ export function TitleCard({
   runListingCopy,
   isEbayOrigin,
   ebayOwnedHint,
+  saveState,
 }: TitleCardProps) {
   return (
     <Card>
@@ -95,6 +106,21 @@ export function TitleCard({
             {titleLen}/{TITLE_MAX}
           </span>
         </div>
+        {/* US-2634: the title no longer waits for the Save button. Announced
+            politely so a screen reader hears the save without losing the caret. */}
+        {!isEbayOrigin && saveState !== "idle" && (
+          <p
+            aria-live="polite"
+            className={cn(
+              "text-xs",
+              saveState === "error"
+                ? "text-destructive"
+                : "text-muted-foreground",
+            )}
+          >
+            {SAVE_STATE_TEXT[saveState]}
+          </p>
+        )}
         {/* US-1892: utilization bar — green in the 70–80 sweet spot. */}
         <div
           className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
