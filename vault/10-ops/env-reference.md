@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-16
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
@@ -177,7 +177,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `ANTHROPIC_API_KEY` 🔒 | ✅* Coolify edge | Anthropic key — powers grading, enrichment, listing copy. |
 | `CLAUDE_API_KEY` 🔒 | ⬜ Coolify edge | Alias read if `ANTHROPIC_API_KEY` is unset. (*one of the two required.) |
 | `OPENAI_API_KEY` 🔒 | ⬜ Coolify edge | OpenAI key — reserved for future multi-provider routing. |
-| `DEFAULT_AI_MODEL` | ⬜ Coolify edge | Vision model for grading/composite. Code default is `claude-sonnet-5` (`lib/ai-config.ts`); **`.env.example` still ships `claude-sonnet-4-6`**, so copying the example file pins an older model than leaving the var unset does. |
+| `DEFAULT_AI_MODEL` | ⬜ Coolify edge | Vision model for grading/composite. Code default is `claude-sonnet-5` (`lib/ai-config.ts`). **Leave it unset** — `.env.example` no longer pins a value, and none of the four model vars does (US-2633). It used to ship `claude-sonnet-4-6`, so copying the file downgraded the grading model AND moved grading off the effort path onto the temperature path, because `modelUsesEffort()` lists sonnet-5 and not sonnet-4-6. |
 | `LIGHTWEIGHT_AI_MODEL` | ⬜ Coolify edge | Cheap text model for enrichment/copy (default `claude-haiku-4-5-…`). |
 | `DEFAULT_IMAGE_MODEL` | ⬜ Coolify edge | Model used for image-bearing extract calls. |
 | `GRADING_COMPOSITE_MODEL` | ⬜ Coolify edge | Model for the composite multi-photo grading pass. |

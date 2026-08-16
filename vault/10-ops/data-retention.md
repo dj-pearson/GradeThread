@@ -4,8 +4,13 @@ aliases: [DATA_RETENTION, GDPR, right to erasure]
 type: runbook
 status: current
 source_of_truth: vault
-code_refs: []
-reviewed: 2026-08-10
+code_refs:
+  - services/edge-functions/src/lib/account-storage-purge.ts
+  - services/edge-functions/src/routes/account.ts
+  - services/edge-functions/src/routes/admin-compliance.ts
+  - services/edge-functions/src/lib/account-email-purge.ts
+  - services/edge-functions/src/lib/financial-retention.ts
+reviewed: 2026-08-16
 tags: [ops, privacy, gdpr, retention]
 summary: The retention schedule and purge job, plus the export and erasure paths that satisfy portability and right-to-be-forgotten.
 ---
@@ -85,24 +90,72 @@ How GradeThread handles user data lifecycle for GDPR / CCPA (US-275).
 
 ## Export (right to portability)
 
-A signed-in user can export their own data via `GET /api/account/export`
-(`services/edge-functions/src/routes/account.ts`): profile, submissions, grade
-reports, inventory items, listings, sales, and sources, scoped to their
-`user_id`. Returned as a downloadable JSON attachment.
+**There are TWO export paths and they must answer with the same set.**
+`GET /api/account/export` (`routes/account.ts`) streams the self-serve
+download; `assembleUserExport()` (`lib/data-export.ts`) builds the archive the
+admin compliance queue hands to a subject.
+
+Both are driven off REGISTERS rather than hand-written lists — `BUYER_PII_TABLES`
+(`lib/buyer-pii.ts`) plus `SELLER_EXPORT_TABLES` — because a hand-written list
+is what left every buyer table out of the response for a whole epic (US-1846),
+and then left the FORMAL path returning less than the self-serve one for months
+after that was fixed (US-2648). `data-export_test.ts` compares the two as SETS
+in both directions; do not add a table to one path only.
+
+Both also return a `storage_objects` manifest built from the same collector the
+ERASURE paths use, so "what we hold for you" and "what we delete for you" cannot
+describe different sets (US-2650). The self-serve manifest ships PATHS, not
+signed URLs — the person is already authenticated as themselves; whether Art. 15
+"a copy" obliges the bytes is an open legal question recorded on that story.
 
 ## Deletion (right to erasure)
 
-The authed **`POST /api/account/delete`** edge endpoint (`routes/account.ts`)
-performs the full teardown. The Settings page exposes it via a "Delete account"
-card requiring the user to type `DELETE MY ACCOUNT`. The endpoint:
+**THERE ARE TWO ERASURE PATHS, AND THE SECOND ONE INHERITS NOTHING.**
 
-1. Removes the user's Supabase Storage objects (`submission-images`,
-   `item-photos`) — derived from the owned DB rows before the cascade runs.
-2. Deletes the Stripe customer (which also cancels any active subscription).
-3. Deletes the `auth.users` row via the admin API; the `ON DELETE CASCADE`
-   chain rooted at `public.users` then wipes all DB-resident user data
-   (submissions, grade_reports, inventory_items, listings, sales, sources,
-   item_photos, marketplace_connections, api_keys, …).
+`POST /api/account/delete` (`routes/account.ts`) is the self-serve teardown —
+the Settings page requires the user to type `DELETE MY ACCOUNT`. It DELETES the
+`auth.users` row, so the `ON DELETE CASCADE` chain rooted at `public.users`
+wipes the DB-resident data and every `ON DELETE SET NULL` trigger fires.
+
+`processDelete()` (`routes/admin-compliance.ts`) is the formal path a written
+erasure request goes through — super_admin, a fresh MFA step-up and a typed
+confirm. It **ANONYMIZES and KEEPS** the `users` row so financial and audit
+records stay referentially intact.
+
+> [!important] Everything the self-serve path gets free from the cascade, the
+> admin path must do BY HAND
+> This is the single rule that explains six separate leaks (US-2645, US-2646,
+> US-2647, US-2649, US-2651, US-2652). Keeping the row means no FK fires: no
+> cascade delete, and no `ON DELETE SET NULL` — so the Garment Passport linkage
+> survived with `identity_revealed` still true, on a public surface, after an
+> erasure that reported success.
+
+Both paths now run the same sequence, in this order:
+
+1. **`retainFinancialRecords()`** — counts the retained ledger and REDACTS
+   `flipdesk_subscription_events.raw_payload`, the verbatim Stripe object
+   carrying customer email and billing address. It can REFUSE, and refusing is
+   only safe while the account is whole, which is why it runs first.
+2. **`collectOwnedStorageObjects()`** (`lib/account-storage-purge.ts`) — the
+   ONE list of every storage object an account owns, across **five** buckets:
+   `submission-images` (served copies, EXIF-intact originals, dispute evidence,
+   arrival captures), `item-photos`, `compliance-exports`, `expense-receipts`
+   and `avatars`. Avatars are found by LISTING the user's folder, because
+   uploads are timestamped and `users.avatar_url` names only the current one.
+3. **`purgeEmailKeyedPii()`** — before the address is destroyed (see below).
+4. **Garment Passport teardown** — `identity_revealed`, `identity_revealed_at`
+   and `linked_user_id` cleared explicitly on `owner_nodes`.
+5. **Stripe customer delete** — also cancels a live subscription. Stripe keeps
+   charges and invoices against a deleted customer, so the retained financial
+   record is unaffected.
+6. Then the path diverges: self-serve deletes the auth user; the admin path
+   anonymizes and bans it.
+
+The bucket list in step 2 is DERIVED from `INSERT INTO storage.buckets` across
+the migrations, not hand-written — a hand-written one passed for months while
+`avatars` leaked, and the derived form found `expense-receipts` on its first
+run. `account-deletion-sweep_test.ts` fails on any bucket that is neither swept
+nor carrying a written reason.
 
 The legacy `delete_account()` RPC (migration `00043`) still exists for the
 client-side self-service path, but it only does step 3 — prefer the endpoint,

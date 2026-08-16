@@ -9,7 +9,7 @@ code_refs:
   - supabase/migrations/00037_pricing_split.sql
   - services/edge-functions/src/lib/credit-ledger.ts
   - services/edge-functions/src/routes/account.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-16
 tags: [billing, ledger, retention, privacy, contract]
 summary: grade_credit_transactions is a financial record — no foreign key deletes it, no trigger permits editing it, and account erasure redacts the PII around it instead of removing it.
 ---
@@ -61,6 +61,17 @@ keeping `event_type`, `from_plan`, `to_plan`, `stripe_event_id` and `created_at`
 — the audit fields that answer "what plan were they on when they were charged".
 The redaction writes a marker object rather than NULL, so a reader can tell
 "redacted on erasure" from "never captured".
+
+> [!warning] BOTH erasure paths must run it, and for a long time only one did
+> `retainFinancialRecords()` performs that redaction, and until US-2651 it was
+> called only from `POST /api/account/delete`. The admin compliance ANONYMIZE
+> branch — the FORMAL path a written erasure request goes through — never called
+> it, while carrying a comment asserting that the records it keeps "hold no
+> direct PII once the user row + storage are anonymized". That sentence is only
+> true BECAUSE something strips `raw_payload`, so the formal path retained
+> exactly the customer email and billing address it claimed to have removed.
+> Both paths call it now, ahead of anything destructive, and
+> `account-erasure-order_test.ts` pins the call AND the ordering in each.
 
 ### The deletion record proves it
 

@@ -12,7 +12,7 @@ code_refs:
   - src/pages/legal/privacy.tsx
   - src/pages/legal/__tests__/privacy-buyer.test.tsx
   - extension-unified/SUBMISSION.md
-reviewed: 2026-08-14
+reviewed: 2026-08-16
 tags: [buyer, privacy, legal, consent, contract]
 summary: Buyer personal data is enumerated in one register that the export iterates; legally-sensitive buyer copy is either behind an operator kill-switch that defaults off or bound to a fixed disclosure, and both are asserted rather than described.
 ---
@@ -29,11 +29,20 @@ what we are allowed to say to one.
 ## The register is the mechanism, not the list
 
 `BUYER_PII_TABLES` (`lib/buyer-pii.ts`) enumerates every table holding buyer
-personal data, and `GET /api/account/export` **iterates it**. That ordering is
-the whole point. The export previously named seller tables by hand, so a buyer
-who filed a subject-access request received a file containing none of their
-measurements, closet, saved searches, watchlist, reward ledger or guarantee
-claims — with nothing in it to indicate the omission.
+personal data, and **both export paths iterate it**. That ordering is the whole
+point. The export previously named seller tables by hand, so a buyer who filed a
+subject-access request received a file containing none of their measurements,
+closet, saved searches, watchlist, reward ledger or guarantee claims — with
+nothing in it to indicate the omission.
+
+> [!warning] "The export iterates it" was true of ONE export for months
+> There are two: `GET /api/account/export` streams the self-serve download, and
+> `assembleUserExport()` builds the archive the admin compliance queue hands to a
+> subject. Only the first iterated the register, so the FORMAL path — the one a
+> written request goes through — returned LESS than the same person got from
+> their own settings page (US-2648). A register fixes a hand-written list only
+> where something iterates it, and nothing compared the two until
+> `data-export_test.ts` began comparing them as SETS in both directions.
 
 Each table was individually careful: RLS on, an owner-scoped policy, a cascade
 to `auth.users`. Nobody owned the **set**, and both of the obligations that
