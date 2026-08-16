@@ -302,6 +302,56 @@ Two things to know before running it:
 
 Link this from the public privacy policy when the deletion UI ships.
 
+## What actually purges the audit and event tables (US-2643, measured 2026-08-16)
+
+**No application audit or event table has a time-based sweep. Not one.** The
+privacy page's retention row — "Server & security logs: up to 90 days, then
+purged or aggregated" — is not true of anything in `public`. If that row is
+meant to cover Coolify, Cloudflare and Sentry only, it is fine and needs a
+wording change to say so; if it is meant to cover these tables, they are the
+work.
+
+Measured two ways, not read: `node scripts/audit-table-retention.mjs --logs`
+for direct deletes, and `pg_constraint` on a stack built from the whole
+migration corpus for the foreign keys. 26 tables match the log/audit/event
+shape; 3 are swept and 23 are not.
+
+**Swept on a schedule (3).** `buyer_notification_log`,
+`processed_webhook_events`, `radar_scan_events`.
+
+**Purged only when a user deletes themselves (9).** ON DELETE CASCADE to
+`users` or `auth.users`: `ai_enrichment_log`, `badge_click_events`,
+`north_star_milestone_log`, `north_star_weekly_log`, `referral_events`,
+`reputation_events`, `share_events`, `support_abuse_events`, `user_events`.
+Plus `garment_events`, which cascades from `garments` rather than from the user.
+
+> [!warning] "Cascade" here means ONE of the two erasure paths, not both.
+> `POST /api/account/delete` calls `auth.admin.deleteUser` (`account.ts:827`),
+> so the cascade fires. The formal compliance erasure — `processDelete()` in
+> `admin-compliance.ts` — **anonymizes and KEEPS the row on purpose**, because
+> we are obligated to retain some of it. No cascade fires on that path. So a
+> formally-erased user's rows in all ten tables above still exist, holding
+> whatever the anonymizer did not reach. See the two-paths rule above.
+
+**Survive account deletion with the user id nulled (6).** ON DELETE SET NULL:
+`admin_audit_log`, `ai_usage_events`, `api_usage_events`, `email_consent_audit`,
+`marketing_send_log`, `ops_events`. Retention here is forever by design for
+`admin_audit_log` — append-only is pinned by `audit-append-only_test.ts` (see
+[[service-role-tables]]), and a deletable audit log is not an audit log.
+Any 90-day claim needs an explicit carve-out for it.
+
+**Linked to no user at all, and nothing purges them (7).**
+`account_deletion_log`, `ads_change_audit`, `content_webhook_log`,
+`ebay_account_deletion_log`, `ebay_pending_webhook_events`,
+`flipdesk_subscription_events`, `newsletter_webhook_log`. These grow without
+bound. `flipdesk_subscription_events` is the one to look at first: 00595
+deliberately dropped its cascading foreign key so the financial record outlives
+the account, and 00595 also added `redact_subscription_event_pii` to strip the
+PII inside the rows it keeps — which is the pattern the other six do not have.
+
+`ebay_pending_webhook_events` is a QUEUE rather than a log, so unbounded growth
+there is a different bug from unbounded retention.
+
 ## Related
 
 - [[incident-response]] — a breach triggers the notification chain, not just a purge

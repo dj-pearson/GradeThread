@@ -19,7 +19,12 @@
 // pointing the other way.
 
 import { describe, expect, it } from "vitest";
-import { statementAt, deletedTables, declaredTables } from "./audit-table-retention.mjs";
+import {
+  statementAt,
+  deletedTables,
+  declaredTables,
+  parseFkRows,
+} from "./audit-table-retention.mjs";
 
 const at = (src, table) => statementAt(src, src.indexOf(`.from("${table}")`));
 
@@ -112,3 +117,68 @@ function deletedTablesFrom(src) {
   }
   return out;
 }
+
+// US-2643: `--fk` splits "no delete found" into three different answers, and the
+// psql row parser is where that can go quietly wrong. A table whose foreign keys
+// fail to parse lands in "grows without bound" — the exact false-absence this
+// whole tool exists to stop producing, arriving through a new door.
+describe("US-2643: pg_constraint rows are matched to the right table", () => {
+  // Real output shape: `-tAF|`, three columns, child schema-qualified only when
+  // it is not on the search_path.
+  const RAW = [
+    "user_events|users|cascade",
+    "admin_audit_log|users|set null",
+    "support_abuse_events|auth.users|cascade",
+    "support_abuse_events|support_conversations|set null",
+    "public.garment_events|garments|cascade",
+    "unrelated_table|users|cascade",
+    // The collision the `public.`-only rule exists for: a DIFFERENT schema's
+    // table sharing a public name. Postgres has `auth.audit_log_entries`, and
+    // this repo has `public.admin_audit_log` — near enough that a rule stripping
+    // every schema silently merges strangers. Without this row the fixture had
+    // no qualified CHILD except `public.`, so the two rules were
+    // indistinguishable and the sabotage for it came back silent.
+    "auth.ops_events|auth.instances|cascade",
+    "",
+  ].join("\n");
+
+  it("keeps every link a table has, not just the first", () => {
+    // support_abuse_events cascades from auth.users AND set-nulls from
+    // support_conversations. Keeping only one would classify it by whichever
+    // row psql happened to print first.
+    const fks = parseFkRows(RAW, ["support_abuse_events"]);
+    expect(fks.get("support_abuse_events")).toEqual([
+      { parent: "auth.users", onDelete: "cascade" },
+      { parent: "support_conversations", onDelete: "set null" },
+    ]);
+  });
+
+  it("strips `public.` from the child but nothing else", () => {
+    // regclass omits the schema for search_path tables, so both forms arrive.
+    // Stripping every schema instead would let an auth-schema child collide
+    // with a public table of the same name.
+    const fks = parseFkRows(RAW, ["garment_events"]);
+    expect(fks.get("garment_events")).toEqual([
+      { parent: "garments", onDelete: "cascade" },
+    ]);
+
+    // And the half that proves the rule is `public.`-only rather than
+    // any-schema: `auth.ops_events` must NOT answer a question about
+    // `public.ops_events`. Reporting it would say a table is cascade-purged
+    // when it is the SET NULL one — the wrong answer in the reassuring
+    // direction, which is this tool's whole failure mode.
+    expect(parseFkRows(RAW, ["ops_events"]).has("ops_events")).toBe(false);
+  });
+
+  it("ignores tables that were not asked about", () => {
+    const fks = parseFkRows(RAW, ["user_events"]);
+    expect([...fks.keys()]).toEqual(["user_events"]);
+  });
+
+  it("a table with no row at all is absent, not empty", () => {
+    // The caller distinguishes "no foreign key" from "not in the result", and
+    // both read as an empty array if this returns one.
+    const fks = parseFkRows(RAW, ["account_deletion_log"]);
+    expect(fks.has("account_deletion_log")).toBe(false);
+  });
+});

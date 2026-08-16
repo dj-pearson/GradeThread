@@ -27,7 +27,19 @@
 // dynamically-built table name. So `no` is a QUESTION to check by hand, and the
 // output says so rather than presenting itself as a finding.
 
+// ── `--fk`: the third answer, added 2026-08-16 for US-2643 ──────────────────
+// A table with no sweep is not automatically a table that grows forever. Ten of
+// the 23 this tool reported as unswept are purged by ON DELETE CASCADE when the
+// user goes, and six more survive with the user id nulled. Those are three
+// different retention stories and the tool was collapsing them into one, which
+// made its "no delete found" list read as 23 problems when it is 7.
+//
+// This reads pg_constraint rather than parsing the migration corpus, because
+// deriving a foreign-key graph from 609 files of DDL by regex is precisely the
+// guessing this tool exists to stop doing. It needs a database, so it is opt-in
+// and the rest of the tool still runs without one.
 import { readdirSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { join, sep } from "node:path";
 
 const REPO = process.cwd();
@@ -150,6 +162,62 @@ export function sqlDeletedTables(sqlDir = MIGRATIONS, repo = REPO) {
   return out;
 }
 
+/**
+ * table -> [{ parent, onDelete }] read from pg_constraint.
+ *
+ * Uses RETENTION_DB_URL if set, otherwise the local throwaway stack's container.
+ * Returns null — not an empty map — when no database is reachable, so the caller
+ * can say "not checked" instead of printing an absence as an answer.
+ */
+export function foreignKeysFromCatalog(tables) {
+  const sql =
+    "SELECT c.conrelid::regclass::text, c.confrelid::regclass::text, " +
+    "CASE c.confdeltype WHEN 'c' THEN 'cascade' WHEN 'n' THEN 'set null' " +
+    "WHEN 'a' THEN 'no action' WHEN 'r' THEN 'restrict' " +
+    "WHEN 'd' THEN 'set default' END " +
+    "FROM pg_constraint c WHERE c.contype = 'f' ORDER BY 1, 2;";
+
+  const url = process.env.RETENTION_DB_URL;
+  const argv = url
+    ? ["psql", url, "-tAF|", "-c", sql]
+    : ["docker", "exec", "-i", "supabase_db_gradethread", "psql", "-U", "postgres",
+       "-d", "postgres", "-tAF|", "-c", sql];
+
+  let raw;
+  try {
+    raw = execFileSync(argv[0], argv.slice(1), { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  } catch {
+    return null;
+  }
+
+  return parseFkRows(raw, tables);
+}
+
+/**
+ * The psql rows, split by table. Separate from the shell-out so it is testable
+ * without a database — the schema-qualification rule below is the part that can
+ * be silently wrong, and a wrong answer here reads as "no foreign key", which is
+ * the same false-absence this whole tool was written to stop producing.
+ */
+export function parseFkRows(raw, tables) {
+  const out = new Map();
+  const wanted = new Set(tables);
+  for (const line of raw.split("\n")) {
+    const [child, parent, onDelete] = line.trim().split("|");
+    if (!child || !parent || !onDelete) continue;
+    // `conrelid::regclass` omits the schema for anything on the search_path, so
+    // a public table arrives bare (`user_events`) while auth.users arrives
+    // qualified (`auth.users`). Strip only the `public.` form: stripping every
+    // schema would make an `auth`-schema child collide with a public table of
+    // the same name.
+    const bare = child.startsWith("public.") ? child.slice("public.".length) : child;
+    if (!wanted.has(bare)) continue;
+    if (!out.has(bare)) out.set(bare, []);
+    out.get(bare).push({ parent, onDelete });
+  }
+  return out;
+}
+
 function main() {
   const declared = declaredTables();
   const edge = deletedTables();
@@ -181,13 +249,56 @@ function main() {
     console.log(`  ${r.table.padEnd(38)} ${where}`);
   }
 
-  console.log("\n── no delete found (a QUESTION, not a finding) ──");
-  for (const r of unswept) console.log(`  ${r.table}`);
+  if (!process.argv.includes("--fk")) {
+    console.log("\n── no delete found (a QUESTION, not a finding) ──");
+    for (const r of unswept) console.log(`  ${r.table}`);
+    console.log(
+      "\nA `no` here means this tool saw no delete. It cannot see a trigger, a\n" +
+        "database-side scheduled job, or a table name built at runtime. Check by\n" +
+        "hand before concluding a table grows forever — the scan this replaces got\n" +
+        "exactly that wrong about radar_scan_events.\n\n" +
+        "Pass --fk to split that list by foreign key, which answers most of it.",
+    );
+    return;
+  }
+
+  const fks = foreignKeysFromCatalog(unswept.map((r) => r.table));
+  if (!fks) {
+    console.log(
+      "\n── --fk needs a database and could not reach one ──\n" +
+        "  Start the local stack (`npx supabase start`) or set RETENTION_DB_URL.\n" +
+        "  Not printing an unchecked list as though it were checked.",
+    );
+    return;
+  }
+
+  const cascaded = [];
+  const nulled = [];
+  const orphaned = [];
+  for (const r of unswept) {
+    const links = fks.get(r.table) ?? [];
+    const cascade = links.find((l) => l.onDelete === "cascade");
+    if (cascade) cascaded.push({ ...r, via: cascade.parent });
+    else if (links.some((l) => l.onDelete === "set null")) nulled.push(r);
+    else orphaned.push(r);
+  }
+
+  console.log("\n── purged when the PARENT row goes (ON DELETE CASCADE) ──");
   console.log(
-    "\nA `no` here means this tool saw no delete. It cannot see a trigger, a\n" +
-      "database-side scheduled job, or a table name built at runtime. Check by\n" +
-      "hand before concluding a table grows forever — the scan this replaces got\n" +
-      "exactly that wrong about radar_scan_events.",
+    "  ⚠ Only ONE of the two erasure paths deletes a user row. The formal\n" +
+      "  compliance erasure ANONYMIZES and keeps it, so no cascade fires there.\n",
+  );
+  for (const r of cascaded) console.log(`  ${r.table.padEnd(38)} via ${r.via}`);
+
+  console.log("\n── survives deletion, user id nulled (ON DELETE SET NULL) ──");
+  for (const r of nulled) console.log(`  ${r.table}`);
+
+  console.log("\n── no sweep and no owner link: grows without bound ──");
+  for (const r of orphaned) console.log(`  ${r.table}`);
+  console.log(
+    "\nThis last list is the only one that is a finding on its own. The two above\n" +
+      "it are retention stories, just not time-based ones — which is the question\n" +
+      "a privacy page's '90 days' row is actually asking.",
   );
 }
 
