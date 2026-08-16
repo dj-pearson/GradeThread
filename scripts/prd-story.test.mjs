@@ -1,7 +1,18 @@
 // Coverage for the generic prd.json editor (Node env — vitest.scripts.config.mjs).
 // Fixtures are inline prd objects; nothing here touches the real prd.json.
 import { describe, expect, it } from "vitest";
-import { addNote, appendNote, createStory, markDone, parseArgs, parseIdNum } from "./prd-story.mjs";
+import {
+  addCriteria,
+  addNote,
+  appendNote,
+  createStory,
+  markDone,
+  parseArgs,
+  parseIdNum,
+} from "./prd-story.mjs";
+// The operator queue's own matcher, imported rather than copied: if the
+// convention changes there, the `ac` cases here redden instead of drifting.
+import { DECLARED_RE } from "./prd-operator.mjs";
 
 const story = (over = {}) => ({
   id: "US-1",
@@ -120,5 +131,61 @@ describe("parseArgs", () => {
   });
   it("treats a valueless trailing flag as a boolean", () => {
     expect(parseArgs(["show", "--json"]).flags.json).toBe(true);
+  });
+});
+
+// `ac` — append acceptance criteria to an existing story.
+//
+// It exists for the operator queue. prd-operator.mjs reads criteria beginning
+// `OPERATOR:`, so a story whose remaining work needs a person but says so only
+// in prose is invisible to it, and the owner plans against a queue that is
+// short by however many of those there are. Declaring one meant hand-editing a
+// 0.27MB JSON file, which is the friction that kept them undeclared.
+describe("ac: declaring work that needs a person", () => {
+  const base = () => ({
+    nextId: "US-900",
+    userStories: [
+      { id: "US-100", passes: false, title: "t", description: "d", acceptanceCriteria: ["one"] },
+      { id: "US-101", passes: false, title: "t", description: "d" },
+    ],
+  });
+
+  it("appends without touching what is already there", () => {
+    const { prd } = addCriteria(base(), "US-100", ["OPERATOR: run the thing"]);
+    const s = prd.userStories.find((x) => x.id === "US-100");
+    expect(s.acceptanceCriteria).toEqual(["one", "OPERATOR: run the thing"]);
+  });
+
+  it("never rewrites an existing criterion", () => {
+    // A story quietly changing what it promised, after the fact, by script.
+    // That is a deliberate edit; this command only ever adds.
+    const { prd } = addCriteria(base(), "US-100", ["two"]);
+    expect(prd.userStories[0].acceptanceCriteria[0]).toBe("one");
+  });
+
+  it("is idempotent on an exact duplicate", () => {
+    // Re-running a declaration pass must not grow the list every time.
+    const first = addCriteria(base(), "US-100", ["OPERATOR: x"]);
+    const second = addCriteria(first.prd, "US-100", ["OPERATOR: x"]);
+    expect(second.added).toEqual([]);
+    expect(second.prd.userStories[0].acceptanceCriteria).toHaveLength(2);
+  });
+
+  it("handles a story that has no acceptanceCriteria array yet", () => {
+    const { prd } = addCriteria(base(), "US-101", ["OPERATOR: y"]);
+    expect(prd.userStories[1].acceptanceCriteria).toEqual(["OPERATOR: y"]);
+  });
+
+  it("refuses an unknown story and an empty list", () => {
+    expect(() => addCriteria(base(), "US-999", ["x"])).toThrow(/not found/);
+    expect(() => addCriteria(base(), "US-100", [])).toThrow(/at least one/);
+  });
+
+  it("what it appends is what the operator queue recognises", () => {
+    // The point of the command. Asserted against prd-operator's own regex
+    // rather than a copy of it, so a change to the convention reddens here.
+    const { prd } = addCriteria(base(), "US-100", ["OPERATOR: run the thing"]);
+    const declared = prd.userStories[0].acceptanceCriteria.filter((a) => DECLARED_RE.test(a));
+    expect(declared).toHaveLength(1);
   });
 });

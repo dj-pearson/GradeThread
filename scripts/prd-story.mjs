@@ -11,6 +11,7 @@
 //                                   --ac "…" --ac "…" [--priority N] [--depends US-1]
 //   node scripts/prd-story.mjs done US-1234 [US-1235 …] --note "Done 2026-07-27. …"
 //   node scripts/prd-story.mjs note US-1234 --note "Partial: …"
+//   node scripts/prd-story.mjs ac   US-1234 --ac "OPERATOR: run … against prod"
 //   node scripts/prd-story.mjs show US-1234
 //
 // `new` takes the id from prd.json.nextId and bumps it — never max(id)+1, since
@@ -69,6 +70,36 @@ export function addNote(prd, id, note) {
   if (!note) throw new Error("--note is required for `note`");
   story.notes = appendNote(story.notes, note);
   return { prd, touched: [id] };
+}
+
+/**
+ * Append acceptance criteria to an existing story.
+ *
+ * The reason this exists is the operator queue. `prd-operator.mjs` reads
+ * criteria that start with `OPERATOR:`, and a story whose remaining work needs
+ * a person but says so only in prose is INVISIBLE to it — so the owner plans
+ * against a queue that is short by however many of those there are. Declaring
+ * one meant hand-editing a 0.27MB JSON file, which is exactly the friction that
+ * kept them undeclared.
+ *
+ * APPEND ONLY, and refuses an exact duplicate. Rewriting an existing criterion
+ * would let a story quietly change what it promised after the fact; that is a
+ * deliberate edit, not a scripted one.
+ */
+export function addCriteria(prd, id, criteria) {
+  const story = prd.userStories.find((s) => s.id === id);
+  if (!story) throw new Error(`story not found in prd.json: ${id}`);
+  if (!criteria.length) throw new Error("at least one --ac is required for `ac`");
+  story.acceptanceCriteria = story.acceptanceCriteria ?? [];
+  const added = [];
+  for (const c of criteria) {
+    const text = String(c).trim();
+    if (!text) continue;
+    if (story.acceptanceCriteria.some((existing) => existing.trim() === text)) continue;
+    story.acceptanceCriteria.push(text);
+    added.push(text);
+  }
+  return { prd, touched: [id], added };
 }
 
 /**
@@ -150,6 +181,15 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       addNote(prd, ids[0], note);
       writeFileSync(PRD_URL, serialize(prd));
       console.log(`note appended → ${ids[0]}`);
+    } else if (cmd === "ac") {
+      if (ids.length !== 1) throw new Error("usage: prd-story.mjs ac US-#### --ac '…' [--ac '…']");
+      const { added } = addCriteria(prd, ids[0], asArray(flags.ac));
+      writeFileSync(PRD_URL, serialize(prd));
+      console.log(
+        added.length
+          ? `${added.length} criterion(a) appended → ${ids[0]}`
+          : `nothing appended → ${ids[0]} (already present)`,
+      );
     } else if (cmd === "show") {
       const story = prd.userStories.find((s) => s.id === ids[0]);
       if (!story) throw new Error(`story not found in prd.json: ${ids[0]}`);
