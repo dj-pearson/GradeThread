@@ -122,7 +122,21 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   // US-599: Shopify connector. Missing → the Shopify OAuth/list/sync/delist
   // paths return 503; the rest of FlipDesk is unaffected.
   { name: "shopify", vars: ["SHOPIFY_API_KEY", "SHOPIFY_API_SECRET", "SHOPIFY_REDIRECT_URI"] },
-  { name: "smtp", vars: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_ADMIN_EMAIL"] },
+  // Four variables being present is not the same as mail arriving, and the gap
+  // between those two has an owner: US-2597 asks whether SES is out of sandbox,
+  // and the edge-crash-loop note records grade-lifecycle mail failing gracefully
+  // into the outbox retry rather than delivering. So this group's "ok" was
+  // answering a narrower question than anyone reading it would assume.
+  {
+    name: "smtp",
+    vars: ["SMTP_HOST", "SMTP_USER", "SMTP_PASS", "SMTP_ADMIN_EMAIL"],
+    alsoUnverifiable:
+      "the four SMTP variables are set. Nothing here proves mail is DELIVERED — " +
+      "an SES account still in sandbox accepts the connection and drops anything " +
+      "to an unverified recipient, and the outbox retry swallows that gracefully. " +
+      "Check the outbox for stuck rows and confirm SES is out of sandbox " +
+      "(US-2597).",
+  },
   // Falls back to the shared GOOGLE_CLIENT_* when the Photos-specific override
   // isn't set (mirrors flipdesk-google-photos.ts), so it's "ok" either way.
   {

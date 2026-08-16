@@ -69,7 +69,10 @@ Deno.test("feature readiness: a fully-configured feature is 'ok', a gap names th
     EBAY_APP_ID: "1", EBAY_CERT_ID: "2", EBAY_DEV_ID: "3", // EBAY_VERIFICATION_TOKEN missing
   };
   const r = computeFeatureReadiness(envOf(env));
-  assertEquals(r.smtp, "ok");
+  // `startsWith` rather than `===`: smtp is satisfied here, and a satisfied
+  // two-sided group now says which half it verified (US-2597). The assertion
+  // this case is making is "configured reads as ok", which still holds.
+  assert(r.smtp.startsWith("ok"), r.smtp);
   assert(r.ebay.includes("missing"));
   assert(r.ebay.includes("EBAY_VERIFICATION_TOKEN"));
   // A wholly-unconfigured group still reports cleanly (not "ok").
@@ -325,10 +328,38 @@ Deno.test("GT-001: configured → ok, and it says WHICH HALF it verified", () =>
 Deno.test("GT-001: whenMissing never fires for a satisfied group", () => {
   // The append happens on the failure branch only. If it leaked onto "ok" the
   // health page would tell an operator to go fix a working feature.
+  //
+  // The control used to be `smtp`, and smtp stopped qualifying: four variables
+  // being set is not the same as mail arriving, so it now carries an
+  // alsoUnverifiable of its own. Moved to `ebay`, which is genuinely one-sided —
+  // the four credentials being present IS the whole condition for the connector
+  // to work. If that ever stops being true, move the control again rather than
+  // deleting it: this case is what proves a bare "ok" is still reachable.
   const r = computeFeatureReadiness(envOf({
-    SMTP_HOST: "h", SMTP_USER: "u", SMTP_PASS: "p", SMTP_ADMIN_EMAIL: "a@b.c",
+    EBAY_APP_ID: "a",
+    EBAY_CERT_ID: "c",
+    EBAY_DEV_ID: "d",
+    EBAY_VERIFICATION_TOKEN: "t",
   }));
-  assertEquals(r.smtp, "ok");
+  assertEquals(r.ebay, "ok");
+});
+
+Deno.test("US-2597: smtp says the variables are set, not that mail arrives", () => {
+  // The distinction this whole field exists for, on the group where it is
+  // easiest to get wrong: an SES account still in sandbox ACCEPTS the
+  // connection and drops anything to an unverified recipient, and the outbox
+  // retry swallows that gracefully. So every variable can be right, the health
+  // line can read ok, and no customer receives anything.
+  const r = computeFeatureReadiness(envOf({
+    SMTP_HOST: "h",
+    SMTP_USER: "u",
+    SMTP_PASS: "p",
+    SMTP_ADMIN_EMAIL: "a@b.c",
+  }));
+  const line = String(r.smtp ?? "");
+  assert(line.startsWith("ok"), `expected a satisfied line, got: ${line}`);
+  assertStringIncludes(line, "DELIVERED");
+  assertStringIncludes(line, "sandbox");
 });
 
 // ---------------------------------------------------------------------------
