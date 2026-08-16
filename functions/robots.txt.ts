@@ -4,6 +4,7 @@
 
 import { siteUrl, type PagesEnv } from "./_shared/blog-render";
 import { buildRobotsTxt, trainingCrawlersAllowed } from "./_shared/seo-config";
+import { headOf } from "./_shared/head-of";
 
 export const onRequestGet: PagesFunction<PagesEnv> = ({ env }) => {
   const body = buildRobotsTxt({
@@ -18,3 +19,6 @@ export const onRequestGet: PagesFunction<PagesEnv> = ({ env }) => {
     },
   });
 };
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

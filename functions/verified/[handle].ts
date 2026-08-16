@@ -27,6 +27,7 @@ import {
   type PagesEnv,
 } from "../_shared/blog-render";
 import { INTEGRITY_TIER_BASIS, LEVEL_FLAIR_BASIS } from "../_shared/status-basis";
+import { headOf } from "../_shared/head-of";
 
 interface RecentCert {
   id: string;
@@ -418,3 +419,6 @@ async function renderSellerProfile(context: Ctx): Promise<Response> {
     { cacheControl: SSR_CACHE_CONTROL },
   );
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

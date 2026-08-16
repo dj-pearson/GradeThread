@@ -85,6 +85,7 @@ import {
   HELP_CONTENT_GROUP,
   helpArticleSlugForCount,
 } from "../_shared/help-analytics";
+import { headOf } from "../_shared/head-of";
 
 type Ctx = EventContext<PagesEnv, "path", Record<string, unknown>>;
 
@@ -468,3 +469,6 @@ async function renderArticleMarkdown(env: PagesEnv, slug: string): Promise<Respo
   }
   return markdownResponse(buildHelpMarkdown(data.article, data.category, siteUrl(env)));
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

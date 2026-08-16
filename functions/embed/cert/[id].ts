@@ -21,6 +21,7 @@
 // no-op script so nothing renders on the host page.
 
 import { fetchJson, UpstreamUnavailable, upstreamUnavailableResponse, siteUrl, type PagesEnv } from "../../_shared/blog-render";
+import { headOf } from "../../_shared/head-of";
 
 interface PublicCertificate {
   id: string;
@@ -136,3 +137,6 @@ function badgeWidgetJs(id: string, certUrl: string, badgeUrl: string): string {
   } catch (e) {}
 })();`;
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

@@ -18,6 +18,7 @@ import {
   buildSellerOgHtml,
   renderOgImage,
 } from "../../_shared/og-template";
+import { headOf } from "../../_shared/head-of";
 
 interface SellerResponse {
   seller: { display_name: string };
@@ -76,3 +77,6 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 function fallbackImage(env: PagesEnv): Promise<Response> {
   return brandedFallbackResponse(siteUrl(env));
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

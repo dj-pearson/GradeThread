@@ -8,6 +8,7 @@ import {
   withEdgeCache,
 } from "./_shared/blog-render";
 import { gradingUrls, sitemapResponse } from "./_shared/sitemap";
+import { headOf } from "./_shared/head-of";
 
 /**
  * US-2614: served from the worker cache, like every other SSR surface.
@@ -29,3 +30,6 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
   // 200 that tells crawlers these URLs do not exist.
   return sitemapResponse("sitemap-grading.xml", () => gradingUrls(env));
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

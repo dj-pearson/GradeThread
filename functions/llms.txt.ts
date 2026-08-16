@@ -20,6 +20,7 @@ import {
   AI_CRAWLER_POLICY_NOTE,
   type LlmsRoute,
 } from "./_shared/seo-config";
+import { headOf } from "./_shared/head-of";
 
 interface SeoManifest {
   routes: Array<{
@@ -214,3 +215,6 @@ async function renderLlmsTxtResponse(env: PagesEnv): Promise<Response> {
     },
   });
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

@@ -15,6 +15,7 @@ import {
 } from "../_shared/og-template";
 import { siteUrl, type PagesEnv } from "../_shared/blog-render";
 import { qrSvgDataUri } from "../_shared/qr";
+import { headOf } from "../_shared/head-of";
 
 const CARD_WIDTH = 1200;
 const CARD_HEIGHT = 630;
@@ -105,3 +106,6 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context) => {
     return await brandedFallbackResponse(siteUrl(context.env));
   }
 };
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

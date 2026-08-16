@@ -18,6 +18,8 @@
 // simply aren't live yet, which is correct (the app falls back to the custom
 // scheme on that build).
 
+import { headOf } from "../_shared/head-of";
+
 interface AASAEnv {
   APPLE_TEAM_ID?: string;
   IOS_BUNDLE_ID?: string;
@@ -82,3 +84,6 @@ export const onRequestGet: PagesFunction<AASAEnv> = ({ env }) => {
     },
   });
 };
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

@@ -32,6 +32,7 @@ import {
   SITEMAP_MAX_URLS,
   SITEMAP_HEADERS,
 } from "./_shared/sitemap";
+import { headOf } from "./_shared/head-of";
 
 /**
  * US-2614: served from the worker cache, like every other SSR surface.
@@ -165,3 +166,6 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
 
   return new Response(xml, { status: 200, headers: { ...SITEMAP_HEADERS } });
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

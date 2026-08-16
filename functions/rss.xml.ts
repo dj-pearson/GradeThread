@@ -12,6 +12,7 @@ import {
   type PublicPostListItem,
   withEdgeCache,
 } from "./_shared/blog-render";
+import { headOf } from "./_shared/head-of";
 
 interface IndexResponse {
   posts: PublicPostListItem[];
@@ -127,3 +128,6 @@ ${items}
     },
   });
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

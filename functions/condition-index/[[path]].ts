@@ -33,6 +33,7 @@ import {
   renderMethodology,
   renderPerGradeSummary,
 } from "../_shared/condition-index-render";
+import { headOf } from "../_shared/head-of";
 
 interface HubItem {
   slug: string;
@@ -226,3 +227,6 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
   return notFoundResponse(env);
 };
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

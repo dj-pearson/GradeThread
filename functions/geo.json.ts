@@ -16,6 +16,8 @@
 // CDN — the response is per-IP, so a shared cache entry would leak one visitor's
 // country to another. The browser caches it for the session instead.
 
+import { headOf } from "./_shared/head-of";
+
 interface IncomingRequestCfProperties {
   country?: string | null;
   isEUCountry?: string | null;
@@ -58,3 +60,6 @@ export const onRequestGet: PagesFunction = ({ request }) => {
     },
   });
 };
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

@@ -19,6 +19,7 @@
 
 import { siteUrl, type PagesEnv } from "./_shared/blog-render";
 import { buildLlmsFullTxt, type LlmsFullData } from "./_shared/seo-config";
+import { headOf } from "./_shared/head-of";
 
 export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
   const base = siteUrl(env);
@@ -59,3 +60,6 @@ export const onRequestGet: PagesFunction<PagesEnv> = async ({ env }) => {
     },
   });
 };
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

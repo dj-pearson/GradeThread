@@ -22,6 +22,8 @@
 // correct (the app falls back to the custom scheme / unverified links on that
 // build).
 
+import { headOf } from "../_shared/head-of";
+
 interface AssetLinksEnv {
   ANDROID_CERT_SHA256?: string;
   ANDROID_PACKAGE_NAME?: string;
@@ -76,3 +78,6 @@ export const onRequestGet: PagesFunction<AssetLinksEnv> = ({ env }) => {
     },
   });
 };
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

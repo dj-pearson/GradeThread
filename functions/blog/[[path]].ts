@@ -48,6 +48,7 @@ import {
   type PublicPostListItem,
 } from "../_shared/blog-render";
 import { buildPostMarkdown } from "../_shared/html-to-markdown";
+import { headOf } from "../_shared/head-of";
 
 interface IndexResponse {
   posts: PublicPostListItem[];
@@ -679,3 +680,6 @@ function formatDateTime(iso: string): string {
     return iso;
   }
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);

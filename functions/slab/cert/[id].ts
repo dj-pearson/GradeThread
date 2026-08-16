@@ -47,6 +47,12 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
 // Reachability probes (flipdesk-ebay.ts pre-publish check, some marketplaces)
 // HEAD before fetching — a GET always renders a 200 PNG, so HEAD must too.
+// US-2620: deliberately bespoke. The canned 200 is honest HERE and only here:
+// this route's GET can never 404 — every error path returns a fallback image
+// (grep: no 404 in this file), so a HEAD that always says 200 is telling the
+// truth about what a GET would do. Routing it through headOf(onRequestGet)
+// would run the full render on every crawler probe to learn a status that
+// cannot vary. Delete this marker the moment this route can 404.
 export const onRequestHead: PagesFunction<PagesEnv> = () =>
   new Response(null, {
     status: 200,

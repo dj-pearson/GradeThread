@@ -29,6 +29,7 @@ import {
   type PublicAuthor,
   type PublicPostListItem,
 } from "../_shared/blog-render";
+import { headOf } from "../_shared/head-of";
 
 interface AuthorResponse {
   author: PublicAuthor;
@@ -249,3 +250,6 @@ function organizationLd(env: PagesEnv) {
     sameAs: socialProfileUrls(env),
   };
 }
+
+// US-2620: HEAD answers with the GET's status and headers, no body.
+export const onRequestHead = headOf(onRequestGet);
