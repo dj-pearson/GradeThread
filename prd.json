@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2628",
+  "nextId": "US-2630",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2060,6 +2060,36 @@
       "priority": 12,
       "passes": true,
       "notes": "[SHIPPED 2026-08-16] The escalation decision is a pure function (shouldEscalate/detectRungs) because testing it through real images means synthesising multi-megapixel textured photos — the first version of that test asserted a climb on a blank white image the detector had correctly called too blurry. OPEN: the flat-to-circumference doubling for waist/hip/chest is NOT in this story; see the follow-up."
+    },
+    {
+      "id": "US-2628",
+      "title": "Certificate 'About this item' printed raw listing HTML at buyers",
+      "description": "A submission description is usually the LISTING description, and a listing description is HTML: AutoLister writes <div>s into it and the disclosure + verified-seller blocks are appended as markup. Both certificate renderers print that field as escaped text, so cert 9e8793a1 showed '<!--gradethread-seller-credentials--><div style=\"border:1px solid #e5e7eb...' as body copy to every buyer. Rendering the HTML instead is not an option: it is seller-controlled input on an anonymous public page.",
+      "acceptanceCriteria": [
+        "GET /api/content/public/certificates/:id returns `description` as plain text, flattened once at the edge so the SPA page and the Cloudflare SSR page cannot drift.",
+        "Block-level tags become line breaks so paragraphs and bullet lists survive; script/style contents never print as body copy; HTML entities are decoded in a single pass so &lt;script&gt; stays visible text.",
+        "The two GradeThread-generated blocks (seller credentials, disclosure) are dropped whole, marker and element together - the certificate already states the grade and renders the grader standing from seller_integrity. Copy that FOLLOWS the block (the appended grade/cert line) survives.",
+        "A marker whose element was edited away on the marketplace side loses only the marker comment; the seller's surrounding copy is never guessed at.",
+        "Invisible, bidi and exotic-space characters are stripped or normalized before the text reaches a public page.",
+        "The SSR page still escapes the description and only then turns newlines into <br>; a raw interpolation is guarded against by test.",
+        "A description that flattens to nothing returns null, so the About panel omits the paragraph instead of rendering an empty one."
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "US-2629",
+      "passes": true,
+      "title": "tsc -b typechecks nothing in e2e/, playwright.config.ts or vitest.config.ts",
+      "description": "CLAUDE.md says in bold that `npx tsc -b` is the type check and that `--noEmit` is weaker. It builds only the projects the root tsconfig references: app, node (vite.config.ts alone) and functions. Nothing owns e2e/, and nothing owns playwright.config.ts or vitest.config.ts. Measured, not reasoned about: `const x: number = \"a string\"` planted at the top of e2e/smoke.spec.ts left `tsc -b` at exit 0, and so did the same line in playwright.config.ts and in vitest.config.ts. Nine Playwright specs gate the release lane, so a type error in one of them surfaces as a failing browser run after a full build instead of as a compiler error in seconds. This is the same shape as US-2401 (functions/ had a tsconfig nobody referenced) and US-2623 (the UI gate scanned one of two trees): the tool was fine, the scope was not.",
+      "acceptanceCriteria": [
+        "e2e/ and playwright.config.ts are in a tsconfig project referenced from the root, so `tsc -b` typechecks them.",
+        "vitest.config.ts is in a project too.",
+        "A test sweeps the repo and fails if any .ts/.tsx file is claimed by no project and named in no exemption list, so the NEXT uncovered tree fails rather than going quiet.",
+        "Every exemption names the toolchain that does check that tree, and a stale exemption fails."
+      ],
+      "priority": 40,
+      "notes": "Done 2026-08-16. All four AC met. THE GAP WAS MEASURED, NOT INFERRED: a const x: number = \"a string\" planted at the top of e2e/smoke.spec.ts left npx tsc -b at exit 0, and the same line in playwright.config.ts and vitest.config.ts did too. After the fix each one names its own file and line. AC1: NEW tsconfig.e2e.json covers e2e + playwright.config.ts, referenced from tsconfig.json. It carries tsconfig.app.json strictness (noUnusedLocals, noUnusedParameters, noUncheckedIndexedAccess) so a helper moved between src/ and e2e/ answers to the same rules, lib DOM for the page.evaluate callbacks and types:[node] for process.env. It cost nothing to adopt - the suite already typechecked clean, which is the point at which to start enforcing rather than the point at which to shrug. AC2: vitest.config.ts joins vite.config.ts in tsconfig.node.json. AC3+AC4 ARE THE PART WORTH KEEPING. Pinning e2e alone would only stop e2e being missed again, and the actual failure is that a new directory of TypeScript can appear and nothing notices. src/test/tsc-covers-every-tree.test.ts walks the repo and fails on any .ts/.tsx claimed by no project include and named in no exemption. Five exemptions, each naming the toolchain that DOES check it: services/edge-functions (deno check + lint), sdk (own package), remotion (own project), sync-aspect-registry.deno.ts (Deno), backfill-stripe-state.ts (one-shot tsx script importing no app module). A sixth, scripts/lib/ci-env.ts, records its own limit out loud: it is checked TRANSITIVELY because src/test/ci-env-parity.test.ts imports it, so losing that import silently un-checks it. A stale exemption pointing at a deleted tree fails too, because the next directory landing under that prefix would inherit it. ONE BUG IN THE GUARD ITSELF, caught by running it: matching an include by prefix reported every functions/ file as an orphan, because tsconfig.functions.json uses the glob functions/**/*.ts rather than a bare directory. A guard whose first run is wrong in the SAFE direction is the lucky case; it would have been reported as 83 orphans and dismissed. Includes are now matched as directory, file or glob, with a/**/b matching a/b the way tsc does. SABOTAGE-VERIFIED THREE WAYS, each reverted green: a new orphan-probe/thing.ts reddened naming the file; deleting the e2e project reference reddened naming e2e/smoke.spec.ts; renaming the remotion exemption to a missing path reddened as no longer exists. SAME SHAPE AS US-2401 AND US-2623, three times in a row now: the tool was correct and the scope was not. Worth saying because the next one will look like this too - a green lane that is green about less than the reader assumes. VERIFIED: tsc -b clean, eslint clean over the new test + e2e + both configs, 3/3 new cases, playwright still enumerates 19 tests in 8 files (the new project is noEmit and does not change how Playwright resolves anything)."
     }
   ]
 }

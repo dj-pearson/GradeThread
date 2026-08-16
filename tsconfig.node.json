@@ -22,5 +22,8 @@
     "baseUrl": ".",
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["vite.config.ts"]
+  // US-2629: vitest.config.ts was in no project either. It configures the suite
+  // that gates every push, and a type error in it would surface as a confusing
+  // vitest startup failure rather than as a compiler error.
+  "include": ["vite.config.ts", "vitest.config.ts"]
 }

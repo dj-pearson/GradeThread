@@ -1,0 +1,34 @@
+{
+  // US-2629: the Playwright suite and its config were in no project, so
+  // `tsc -b` said nothing about them. Proven rather than assumed: a
+  // `const x: number = "a string"` planted in e2e/smoke.spec.ts and again in
+  // playwright.config.ts both left `tsc -b` at exit 0.
+  //
+  // The suite typechecks clean today, so this costs nothing to adopt and stops
+  // the drift. Same options as tsconfig.app.json where they matter, so a helper
+  // moved between src/ and e2e/ is held to the same standard.
+  //
+  // `types: ["node"]` because the specs read process.env; the DOM lib is there
+  // for the page.evaluate callbacks, which run in the browser.
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.e2e.tsBuildInfo",
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["e2e", "playwright.config.ts"]
+}
