@@ -162,8 +162,16 @@ Deno.test("US-2648: neither path reaches a table the other misses", () => {
   for (const m of src.matchAll(/\.from\("([a-z0-9_]+)"\)/g)) admin.add(m[1]!);
   for (const t of [...BUYER_PII_TABLES, ...SELLER_EXPORT_TABLES]) admin.add(t.table);
 
-  // Storage-manifest joins the admin path makes and the stream does not: it
-  // returns object PATHS where the stream hands back the rows themselves.
+  // ⚠ CORRECTED (US-2650). This exemption used to read "the stream hands back
+  // the rows themselves", and that was simply false — I wrote it without
+  // checking. The self-serve response contained NO reference to the person's
+  // photographs at all: not the rows, not a list. The admin archive has carried
+  // a storage manifest since US-903, so the two answers to one obligation
+  // disagreed about the most personal thing we hold.
+  //
+  // Both paths now build that manifest from collectOwnedStorageObjects, so
+  // these two tables are reached as OBJECTS on both sides rather than as rows on
+  // either. The exemption stands; the reason it gives is now true.
   const MANIFEST_ONLY = new Set(["submission_images", "item_photos"]);
   const missingFromAdmin = [...selfServe].filter((t) => !admin.has(t)).sort();
   const missingFromSelfServe = [...admin]
@@ -179,5 +187,46 @@ Deno.test("US-2648: neither path reaches a table the other misses", () => {
     missingFromSelfServe,
     [],
     "the compliance archive returns these and the self-serve download does not",
+  );
+});
+
+Deno.test("US-2650: both export paths disclose the storage objects we hold", () => {
+  // The self-serve response listed none of the person's photographs. The admin
+  // archive has had a manifest since US-903. Photographs are the most personal
+  // thing here, and one of the two answers to a subject-access request omitted
+  // them entirely.
+  const stream = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+  const archive = Deno.readTextFileSync(new URL("../lib/data-export.ts", import.meta.url));
+
+  assert(
+    /"storage_objects":/.test(stream),
+    "the self-serve export does not disclose any storage object",
+  );
+  assert(
+    /storage_objects/.test(archive),
+    "the compliance archive lost its storage manifest",
+  );
+  // Built from the SAME collector the erasure paths use, so "what we hold for
+  // you" and "what we delete for you" cannot describe different sets.
+  assert(
+    /collectOwnedStorageObjects\(/.test(stream),
+    "the export builds its own object list instead of reusing the erasure collector",
+  );
+});
+
+Deno.test("US-2650: the self-serve manifest ships paths, not signed URLs", () => {
+  // Deliberate and worth pinning. The admin archive signs its manifest because
+  // an operator delivers it; here the person is already authenticated as
+  // themselves. Whether a self-serve export should ALSO ship signed URLs is a
+  // legal question, not a coding one — so the current answer is written down
+  // rather than drifting silently.
+  const stream = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+  const at = stream.indexOf('"storage_objects":');
+  assert(at > -1, "the manifest was renamed");
+  const window = stream.slice(Math.max(0, at - 1200), at + 200);
+  assert(
+    !/createSignedUrl/.test(window),
+    "the self-serve manifest started signing URLs; that was a deliberate no — " +
+      "change the story, not just the code",
   );
 });

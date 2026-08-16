@@ -224,6 +224,17 @@ accountRoutes.get("/export", async (c) => {
 
   const submissionIds = (submissions.data ?? []).map((r) => (r as { id: string }).id);
 
+  // US-2650: the same collector the two ERASURE paths use, so "what we hold for
+  // you" and "what we delete for you" can never describe different sets. If a
+  // new bucket is added, both the export and the erasure learn about it at once.
+  const owned = await collectOwnedStorageObjects(
+    supabaseAdmin as unknown as PurgeDb,
+    userId,
+  );
+  const storageManifest = Object.entries(owned).flatMap(([bucket, objectPaths]) =>
+    objectPaths.map((path) => ({ bucket, path }))
+  );
+
   // US-2417: `select("*")` above now pulls two AES-GCM envelopes. Handing a
   // person "v2:AbC…" where their own address should be is not a GDPR export, it
   // is a receipt for one — the whole obligation is that the subject can READ
@@ -282,7 +293,22 @@ accountRoutes.get("/export", async (c) => {
             `"submissions":${JSON.stringify(submissions.data ?? [])},` +
             `"inventory_items":${JSON.stringify(inventory.data ?? [])},` +
             `"sources":${JSON.stringify(sources.data ?? [])},` +
-            `"passport_identity_nodes":${JSON.stringify(passportNodes.data ?? [])},`,
+            `"passport_identity_nodes":${JSON.stringify(passportNodes.data ?? [])},` +
+            // US-2650: the objects we hold FOR this person, grouped by bucket.
+            //
+            // This response contained no reference to their photographs at all
+            // — not the rows, not a list. The admin compliance archive has
+            // carried a storage manifest since US-903, so the two answers to
+            // one obligation disagreed about the single most personal thing we
+            // store: their pictures.
+            //
+            // Paths, not signed URLs. The admin archive signs its manifest
+            // because it is handed to an operator to deliver; here the person
+            // is already authenticated as themselves and can open any of these
+            // in the app. Whether a self-serve export should ALSO ship signed
+            // URLs is a real question and a legal one, not a coding decision —
+            // it is written up on the story rather than answered here.
+            `"storage_objects":${JSON.stringify(storageManifest)},`,
         );
 
         const streamed: Array<[string, PageFetcher | null]> = [
