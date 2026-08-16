@@ -4,9 +4,9 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-16
 tags: [testing, ci, agent, verification]
-summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the eight shapes it took and the two habits that catch them.
+summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the shapes it took, the two habits that catch them, and why a fixture that works exactly once is indistinguishable from one that works.
 ---
 
 # Guards that cannot fail
@@ -142,6 +142,36 @@ So the full habit is two questions, and the second is cheaper to skip:
 
 1. Does it go red when I break the thing? *(break it and watch)*
 2. Does anything actually run it? *(grep the workflows, not the package scripts)*
+
+> [!warning] A tenth instance, 2026-08-16 — and question 2 has a THIRD form
+> `services/edge-functions/src/tests/ledger-append-only_test.ts` was run by the
+> general `deno test src/tests/` lane, so question 2 answers *yes*. Seven of its
+> eight cases are source scans and pass there. The eighth carries
+> `ignore: !RUN`, and **no workflow supplies the fixture that clears it** — so
+> the one assertion that actually proves 00597 (the credit ledger cannot be
+> rewritten even by `service_role`) had been skipped in every run that ever
+> happened. It passed the instant it was given a database.
+>
+> A file being *in* a suite is not the same as its assertions being *executed*.
+> Where a test is conditional, the question becomes: **does anything run it with
+> the conditions its assertions need?** A skipped case and a passing case are
+> the same colour in the summary line, and the count of ignored tests is the
+> only place the difference shows.
+>
+> Guard: `scripts/integration-lane-coverage.test.mjs` fails when any
+> fixture-gated edge test is named in no workflow.
+>
+> Three more from the same pass, all invisible for the same reason — **CI starts
+> every lane from a fresh `supabase start`, so anything that works exactly once
+> works forever in CI**. The money fixture reset by DELETING ledger rows, which
+> 00597 forbids for every role, so its second run always died. 00597's own risk
+> note records that it was checked against "no migration and no edge module"
+> doing that; a seeder in `scripts/` is neither, and fell through the gap
+> between the two categories checked. `credit-refund_test.ts` hardcoded its
+> Stripe payment-intent ids against a grant that is idempotent on them by
+> design. And the tenant fixture died on a unique constraint the second time,
+> then on the next one along. **If a thing is only ever run against a fresh
+> database, "it works" and "it works once" are indistinguishable.**
 
 ## Corollary: a scoped search is not evidence of absence
 
