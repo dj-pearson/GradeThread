@@ -217,3 +217,64 @@ Deno.test("US-2651: the admin branch purges email-keyed PII while the address st
       "nothing to key on",
   );
 });
+
+// ── US-2652: what the ANONYMIZE path cannot inherit from the cascade ──────────
+//
+// Found by diffing the two handlers operation by operation instead of one leak
+// at a time. Two differences were defects rather than decisions, and both share
+// a cause: the self-serve path gets them free from the FK cascade, and this
+// branch keeps the users row on purpose so the cascade never fires.
+//
+//   owner_nodes — linked_user_id is ON DELETE SET NULL (00256). Deleting the
+//   users row severs the passport linkage; anonymizing it does not. So a hop the
+//   person opted to REVEAL kept resolving to an account after an erasure that
+//   reported success, on a PUBLIC surface.
+//
+//   the Stripe customer — name, email and billing address held at a PROCESSOR.
+//   account.ts deletes it; this branch did not, so it survived an erasure that
+//   said it was done. Stripe keeps charges and invoices against a deleted
+//   customer, so the financial record this branch deliberately retains is
+//   unaffected.
+
+Deno.test("US-2652: the admin branch severs the passport linkage explicitly", async () => {
+  const src = await adminComplianceSource();
+  assert(
+    /\.from\("owner_nodes"\)[\s\S]{0,220}?identity_revealed: false/.test(src),
+    "the admin erasure never clears owner_nodes.identity_revealed. The FK that " +
+      "does it for the self-serve path is ON DELETE SET NULL, and this branch " +
+      "keeps the users row, so nothing fires",
+  );
+  assert(
+    /\.from\("owner_nodes"\)[\s\S]{0,260}?linked_user_id: null/.test(src),
+    "the account linkage itself is never cleared",
+  );
+});
+
+Deno.test("US-2652: the admin branch deletes the Stripe customer", async () => {
+  const src = await adminComplianceSource();
+  assert(
+    /stripe\.customers\.del\(/.test(src),
+    "the admin erasure leaves the Stripe customer — the person's name, email " +
+      "and billing address — at the processor after reporting the erasure done",
+  );
+  // Via the shared factory, not a fourth copy of it. Four hand-rolled Stripe
+  // clients is how one of them ends up on a different API version.
+  assert(
+    /from "\.\.\/lib\/stripe-client\.ts"/.test(src),
+    "admin-compliance builds its own Stripe client instead of using lib/stripe-client.ts",
+  );
+});
+
+Deno.test("US-2652: both teardowns run before the users row is anonymized", async () => {
+  // Ordering is not cosmetic here. Step 3 overwrites users.email and blanks the
+  // profile; the passport teardown keys on linked_user_id (still fine) but the
+  // Stripe id is read from the row, so both belong ahead of it for the same
+  // reason the email purge does.
+  const src = await adminComplianceSource();
+  const passport = src.indexOf('.from("owner_nodes")');
+  const stripe = src.indexOf("stripe.customers.del(");
+  const anonymize = src.indexOf("anonEmail");
+  assert(passport > -1 && stripe > -1 && anonymize > -1, "this guard is stale — anchors moved");
+  assert(passport < anonymize, "the passport teardown must precede the anonymize");
+  assert(stripe < anonymize, "the Stripe delete must precede the anonymize");
+});

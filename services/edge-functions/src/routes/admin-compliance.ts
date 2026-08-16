@@ -7,6 +7,7 @@ import {
 } from "../lib/account-storage-purge.ts";
 import { retainFinancialRecords } from "../lib/financial-retention.ts";
 import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
+import { getStripe } from "../lib/stripe-client.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import {
@@ -580,6 +581,66 @@ async function processDelete(
   // 2. Destroy stored credentials: marketplace OAuth tokens + API keys.
   await supabaseAdmin.from("marketplace_connections").delete().eq("user_id", userId);
   await supabaseAdmin.from("api_keys").delete().eq("user_id", userId);
+
+  // 2a. US-2652: re-pseudonymize this person's Garment Passport hops.
+  //
+  //     THE SELF-SERVE PATH GETS THIS HALF FOR FREE AND THIS ONE CANNOT.
+  //     owner_nodes.linked_user_id is ON DELETE SET NULL (00256), so when
+  //     account.ts deletes the users row the linkage is severed by the FK. This
+  //     branch ANONYMIZES and KEEPS that row on purpose, so the trigger never
+  //     fires and the linkage survives — with identity_revealed still true.
+  //
+  //     The effect is a public surface: a Garment Passport hop that the person
+  //     opted to reveal keeps resolving to an account after an erasure that
+  //     reported success. account.ts clears these columns explicitly as well as
+  //     relying on the FK, and its comment says why — the honouring should be
+  //     explicit and auditable rather than implicit in a rule. Here it is the
+  //     ONLY thing severing the link.
+  //
+  //     Best-effort, matching account.ts: a failure here never blocks erasure.
+  {
+    const { error: revealErr } = await supabaseAdmin
+      .from("owner_nodes")
+      .update({ identity_revealed: false, identity_revealed_at: null, linked_user_id: null })
+      .eq("linked_user_id", userId);
+    if (revealErr) {
+      console.error(
+        `[admin-compliance] passport reveal teardown failed for ${userId}:`,
+        revealErr.message,
+      );
+    }
+  }
+
+  // 2c. US-2652: delete the Stripe customer, as the self-serve path does.
+  //
+  //     Left behind, this is the person's name, email and billing address held
+  //     at a PROCESSOR after we told them their data was erased. Deleting the
+  //     customer also cancels any live subscription, which is the same reason
+  //     account.ts does it.
+  //
+  //     It does NOT destroy the financial record this branch deliberately keeps:
+  //     Stripe retains charges and invoices against a deleted customer, and our
+  //     own ledger rows are untouched by this call. So the retention argument in
+  //     the docblock above is unaffected.
+  //
+  //     Best-effort: a missing or already-deleted customer must not block the
+  //     rest of the erasure.
+  let stripeDeleted = false;
+  if (u.stripe_customer_id) {
+    const stripe = getStripe();
+    if (stripe) {
+      try {
+        await stripe.customers.del(u.stripe_customer_id);
+        stripeDeleted = true;
+      } catch (err) {
+        console.error(
+          `[admin-compliance] Stripe customer delete failed for ${userId}:`,
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+  }
+  void stripeDeleted;
 
   // 2b. US-2651: erase the PII the cascade cannot reach, keyed by EMAIL.
   //
