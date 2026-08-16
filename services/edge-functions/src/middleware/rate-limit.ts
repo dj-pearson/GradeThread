@@ -192,6 +192,31 @@ export function pagesOriginBypass(c: Context): boolean {
   return typeof got === "string" && constantTimeEqual(got, secret);
 }
 
+/**
+ * The same header, used as an AUTH GATE rather than a rate-limit exemption.
+ *
+ * ⚠ DO NOT USE `pagesOriginBypass` FOR THIS (US-2619). It is a bypass: it
+ * returns false when the secret is unset, which is the RIGHT fail direction for
+ * skipping a limiter and exactly the WRONG one for guarding a route. A handler
+ * written as `if (pagesOriginBypass(c)) { … } ` reads identically and behaves
+ * identically while the secret is set — and the moment it is missing or
+ * mismatched, the bypass simply stops applying and whatever the handler does
+ * next is reached by everyone. Production was in precisely that state until
+ * 2026-08-16, so this is not a hypothetical ordering of words.
+ *
+ * This one refuses when the secret is unset. Same constant-time compare; the
+ * difference is entirely which way it fails.
+ */
+export function requirePagesOrigin(c: Context): boolean {
+  const secret = Deno.env.get("CF_PAGES_ORIGIN_SECRET")?.trim();
+  // No secret configured ⇒ nobody is trusted. The route is closed rather than
+  // open, and the operator finds out from a 401 rather than from a stranger.
+  if (!secret) return false;
+  const got = c.req.header("x-pages-origin")?.trim();
+  if (typeof got !== "string" || got.length === 0) return false;
+  return constantTimeEqual(got, secret);
+}
+
 export function rateLimiter(
   maxRequests: number | RateLimitContextResolver<number> = 60,
   windowMs = 60_000,

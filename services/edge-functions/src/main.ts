@@ -208,6 +208,7 @@ import { contentKnowledgeRoutes } from "./routes/content-knowledge.ts";
 import { contentImagesRoutes } from "./routes/content-images.ts";
 import { contentSettingsRoutes } from "./routes/content-settings.ts";
 import { contentPublicRoutes } from "./routes/content-public.ts";
+import { renderCardRoutes } from "./routes/render-card.ts";
 import {
   helpAdminRoutes,
   helpPublicRoutes,
@@ -1704,6 +1705,13 @@ app.route("/api/content/knowledge", contentKnowledgeRoutes);
 app.route("/api/content/images", contentImagesRoutes);
 app.route("/api/content/settings", contentSettingsRoutes);
 app.route("/api/content/public", contentPublicRoutes);
+// US-2619: rasterise markup for the Pages og/* routes. Mounted under
+// /api/content/public because that is the prefix the Pages worker already
+// reaches for its other server-to-server calls — but it is NOT public: the
+// handler gates on requirePagesOrigin and refuses when CF_PAGES_ORIGIN_SECRET
+// is unset, so it is closed today and stays closed until the secret is set on
+// BOTH the edge and the Cloudflare Pages project (US-2612).
+app.route("/api/content/public", renderCardRoutes);
 // Help Center (US-2573). Three mounts because there are three audiences for the
 // same table, and the difference between them is the whole security model:
 //   /api/content/public/help  anonymous  → visibility 'public' only

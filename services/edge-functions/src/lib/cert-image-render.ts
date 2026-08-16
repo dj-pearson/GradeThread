@@ -147,8 +147,17 @@ function engine(): Promise<{ fonts: SatoriFont[] }> {
   return enginePromise;
 }
 
-/** HTML string → PNG bytes at the given canvas size. */
-async function renderPng(markup: string, width: number, height: number): Promise<Uint8Array> {
+/**
+ * HTML string → PNG bytes at the given canvas size.
+ *
+ * Exported for US-2619: the og/* Pages Functions render with workers-og INSIDE
+ * the Cloudflare Worker, and three of them fail there while producing valid SVG
+ * when the same markup is fed to this satori (proven locally with satori-html
+ * and these same fonts). The remedy the cert and badge routes already use is to
+ * render here and stream the bytes back — this is the engine that does it, and
+ * it has always been generic. Nothing about it is cert-specific.
+ */
+export async function renderPng(markup: string, width: number, height: number): Promise<Uint8Array> {
   const { fonts } = await engine();
   const svg = await satori(html(markup) as never, { width, height, fonts });
   return new Resvg(svg).render().asPng();
