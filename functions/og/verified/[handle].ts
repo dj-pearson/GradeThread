@@ -5,7 +5,6 @@
 // twitter:image here so social previews show the seller's grade stats rather
 // than a generic logo. Mirrors functions/og/cert/[id].ts.
 
-import { ImageResponse } from "workers-og";
 import {
   fetchJson,
   siteUrl,
@@ -16,9 +15,9 @@ import {
 import {
   brandedFallbackResponse,
   buildSellerOgHtml,
-  renderOgImage,
 } from "../../_shared/og-template";
 import { headOf } from "../../_shared/head-of";
+import { renderViaEdge } from "../../_shared/render-via-edge";
 
 interface SellerResponse {
   seller: { display_name: string };
@@ -61,10 +60,13 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
     // US-2619: bytes before responding. Same latent fault as the social card,
     // and same reason it looked fine — a handle that does not exist takes the
     // fallback branch, so the real render had never been exercised.
-    return await renderOgImage(
-      () => new ImageResponse(html, { width: 1200, height: 630 }),
-      { "Cache-Control": OG_CACHE_CONTROL },
-    );
+    return await renderViaEdge(env, {
+      markup: html,
+      width: 1200,
+      height: 630,
+      cacheControl: OG_CACHE_CONTROL,
+      label: "og/verified",
+    });
   } catch (err) {
     console.error("[og/verified] render failed:", err);
     return await fallbackImage(env);

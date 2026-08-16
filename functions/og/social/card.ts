@@ -11,18 +11,17 @@
 // carries an image even when no asset was uploaded. Admins can also point a post
 // at one of these URLs (or override with an upload) from the social editor.
 
-import { ImageResponse } from "workers-og";
 import { siteUrl, type PagesEnv } from "../../_shared/blog-render";
 import {
   buildSocialCardHtml,
   brandedFallbackResponse,
   isSocialCardRatio,
-  renderOgImage,
   type SocialCardKind,
   type SocialCardRatio,
   SOCIAL_CARD_SIZES,
 } from "../../_shared/og-template";
 import { headOf } from "../../_shared/head-of";
+import { renderViaEdge } from "../../_shared/render-via-edge";
 
 const CARD_CACHE_CONTROL =
   "public, max-age=86400, s-maxage=86400, stale-while-revalidate=604800";
@@ -63,17 +62,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context) => {
       product,
       eyebrow,
     });
-    // US-2619: rendered to bytes before responding. ImageResponse streams, so
-    // a raster failure used to happen after this function had already returned
-    // 200 — the catch below never fired and the client got an empty PNG.
-    return await renderOgImage(
-      () =>
-        new ImageResponse(html, {
-          width: size.width,
-          height: size.height,
-        }),
-      { "Cache-Control": CARD_CACHE_CONTROL },
-    );
+    // US-2619: rasterised on the Deno edge, not here. workers-og inside this
+    // Pages Function has never rendered this card — the markup is fine (the
+    // same string produces valid SVG in satori), so the failure is downstream
+    // of layout. This is the remedy og/cert, slab/cert and badge/cert already
+    // use. Falls back to the branded card on any failure, which is exactly what
+    // this route serves today, so it cannot regress.
+    return await renderViaEdge(env, {
+      markup: html,
+      width: size.width,
+      height: size.height,
+      cacheControl: CARD_CACHE_CONTROL,
+      label: "og/social/card",
+    });
   } catch (err) {
     console.error("[og/social/card] render failed:", err);
     return await fallbackImage(env);

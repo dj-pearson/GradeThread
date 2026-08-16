@@ -4,7 +4,6 @@
 // the post's title + category + author. The blog SSR
 // (functions/blog/[[path]].ts) points og:image / twitter:image at this URL.
 
-import { ImageResponse } from "workers-og";
 import {
   fetchJson,
   UpstreamUnavailable,
@@ -16,9 +15,9 @@ import {
 import {
   buildBlogOgHtml,
   brandedFallbackResponse,
-  renderOgImage,
 } from "../../_shared/og-template";
 import { headOf } from "../../_shared/head-of";
+import { renderViaEdge } from "../../_shared/render-via-edge";
 
 type Ctx = EventContext<PagesEnv, "slug", Record<string, unknown>>;
 
@@ -70,13 +69,19 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
       heroImageUrl: post.hero_image_url,
     });
 
-    // US-2619: bytes before responding — see renderOgImage. This endpoint was
-    // returning 200 with an empty body for real published posts, so every blog
-    // link preview was blank and the catch below never saw it.
-    return await renderOgImage(
-      () => new ImageResponse(html, { width: 1200, height: 630 }),
-      { "Cache-Control": OG_CACHE_CONTROL },
-    );
+    // US-2619: rasterised on the Deno edge, not here. This endpoint returned
+    // 200 with an empty body for real published posts, so every blog link
+    // preview was blank; buffering made the throw catchable and it has served
+    // the branded fallback ever since. The markup was never the problem — the
+    // same string produces valid SVG in satori — so the raster moves and the
+    // template stays here.
+    return await renderViaEdge(env, {
+      markup: html,
+      width: 1200,
+      height: 630,
+      cacheControl: OG_CACHE_CONTROL,
+      label: "og/blog",
+    });
   } catch (err) {
     console.error("[og/blog] render failed:", err);
     return await fallbackImage(env);
