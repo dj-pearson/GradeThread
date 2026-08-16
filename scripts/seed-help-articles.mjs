@@ -10,7 +10,16 @@
 // IT NEVER OVERWRITES. An existing slug is skipped and reported. Once an
 // article is live, the admin editor owns it; the file is then only history.
 // `--force` exists for the case where you genuinely mean to re-import, and it
-// says so loudly before it does.
+// says so loudly before it does. It UPDATES an existing row keyed on the slug;
+// it does not upsert, because this table cannot be upserted through PostgREST —
+// see the long note at the write site.
+//
+// ⚠ NEITHER PATH HAD EVER BEEN EXECUTED before 2026-08-16, which is how the
+// --force branch shipped in a state that could not work. What HAS now been
+// verified against a real Postgres: all 83 parsed articles insert cleanly into
+// the live schema (every column exists, every category_key resolves, no slug
+// collides). The HTTP half is still unexercised — the local stack in this repo
+// runs Postgres without PostgREST.
 //
 // Usage:
 //   node scripts/seed-help-articles.mjs --dry-run
@@ -226,20 +235,45 @@ async function main() {
       skipped++;
       continue;
     }
-    const res = await fetch(`${url}/rest/v1/help_articles`, {
-      method: "POST",
-      headers: {
-        ...headers,
-        Prefer: force ? "resolution=merge-duplicates" : "return=minimal",
-      },
-      body: JSON.stringify(a),
-    });
+    // ── --force is a PATCH, not an upsert, and that is not a style choice ──
+    //
+    // This used to POST with `Prefer: resolution=merge-duplicates`, which
+    // cannot work here and was never run. Proven against a real Postgres
+    // (2026-08-16) rather than argued:
+    //
+    //   * a plain insert of an existing slug raises 23505 unique_violation, so
+    //     --force failed on EVERY already-live article — the one situation it
+    //     exists for;
+    //   * and `ON CONFLICT (slug)`, which is what `?on_conflict=slug` asks
+    //     PostgREST to emit, raises 42P10 "there is no unique or exclusion
+    //     constraint matching the ON CONFLICT specification".
+    //
+    // Because the uniqueness is `create unique index idx_help_articles_slug on
+    // public.help_articles (lower(slug))` — an EXPRESSION index. Postgres can
+    // only target it with `ON CONFLICT (lower(slug))`, which PostgREST has no
+    // way to express. So there is no upsert available on this table at all,
+    // and an UPDATE keyed on the slug is the honest way to say "overwrite".
+    //
+    // Exact match rather than `ilike`: every slug in content/help/ is already
+    // lowercase (the parser lowercases), and `ilike` would treat a slug's `_`
+    // and `%` as wildcards — the same trap the erasure runbook records.
+    const known = existing.has(a.slug);
+    const res = known
+      ? await fetch(
+          `${url}/rest/v1/help_articles?slug=eq.${encodeURIComponent(a.slug)}`,
+          { method: "PATCH", headers: { ...headers, Prefer: "return=minimal" }, body: JSON.stringify(a) },
+        )
+      : await fetch(`${url}/rest/v1/help_articles`, {
+          method: "POST",
+          headers: { ...headers, Prefer: "return=minimal" },
+          body: JSON.stringify(a),
+        });
     if (!res.ok) {
       console.error(`  FAIL   ${a.slug}: ${res.status} ${await res.text()}`);
       process.exitCode = 1;
       continue;
     }
-    console.log(`  ${force ? "upsert" : "insert"} ${a.slug}`);
+    console.log(`  ${known ? "update" : "insert"} ${a.slug}`);
     inserted++;
   }
   console.log(`[seed-help] ${inserted} written, ${skipped} skipped`);
