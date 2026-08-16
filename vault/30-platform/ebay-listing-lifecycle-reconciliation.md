@@ -280,6 +280,50 @@ completed and was LATER cancelled kept `listing_status = 'sold'` forever while
 the item went back to `listed`: the listing insisting it sold, the item insisting
 it was for sale, and nothing to reconcile them.
 
+## Three answers to "is this listing live" (2026-08-16, US-2657)
+
+The question this whole note is about was being answered in three places, three
+different ways, and none of them said which one it was using:
+
+| asker | rule |
+|---|---|
+| `itemHasActiveListing` (cap accounting) | `is_active = true` |
+| the composer (`isLiveListing`) | `listing_status === "active"` AND an offer id |
+| the item-delete guard | status-based, **plus** a published-DRAFT fallback |
+
+The delete guard's version is the careful one, and its extra clause is the reason
+the three cannot simply be collapsed onto `is_active`: a row still in `draft`
+status that nonetheless reached the marketplace is live while `is_active` is
+false, so `is_active` alone under-reports it.
+
+But three answers meant a page could say DRAFT while the server said LIVE. A
+seller deleting a DUPLICATE item hit exactly that: `"This item has a live
+listing. End the listing first, then delete it."` on an item whose every screen
+said draft. The sentence has no subject — it names no listing, no marketplace and
+no reason — so there was nothing to act on, and the two cases it covers want
+opposite responses (end it, versus realise the row points at the other copy of
+the garment).
+
+Then the trap closed: **End was not reachable either.** The composer renders it
+only for `isLiveListing`, and the Listings page renders it only on the Active
+tab. An item in this state could be neither deleted nor ended.
+
+`isListingLive` / `liveBlockReason` in `lib/listing-lifecycle.ts` are now the
+shared rule, and `liveBlockReason` is the load-bearing half: the 409 returns
+`blocking_listings[]` with each row's platform, status, URL and reason, the
+client offers "Open the listing", and `published_draft` gets its own wording
+because a seller looking at a draft cannot be told they have a live listing. The
+composer's End widens to any row that reached the marketplace — safe only
+because End itself now verifies with eBay before reconciling
+([[#Classify, then VERIFY (US-2641)]]) and refuses to mark anything ended while
+eBay still reports it live.
+
+> [!note] The lesson is the sentence, not the predicate
+> The predicate was right. What made this cost a seller their afternoon is that
+> a refusal stated a conclusion and withheld the evidence, on a screen that
+> visibly contradicted it. A guard that blocks an action owes the caller the row
+> it blocked on.
+
 ## Why the reason rides on a column, not the enum
 
 The `listing_status` enum has `draft | active | ended | sold | relisted` and no

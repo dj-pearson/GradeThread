@@ -1243,6 +1243,11 @@ export function FlipdeskComposerPage({
     (!!listing.platform_offer_id ||
       !!listing.platform_listing_id ||
       !!listing.synced_to_ebay_at);
+  //
+  // Scoped to the End ACTION only. It must not widen anything that pushes TO the
+  // marketplace — `liveListingId` feeds PhotoManager's gallery re-sync, and
+  // handing it a stale published-draft row would sync photos to a listing that
+  // is not live. photo-manager-seams.test.ts pins that separation.
   const canEndListing = isLiveListing || wasPublishedListing;
 
   // One editor, three shapes. The FIELDS are identical at every status — only
@@ -2887,7 +2892,7 @@ export function FlipdeskComposerPage({
 
           <PhotosCard
             item={item}
-            liveListingId={canEndListing ? (listing?.id ?? null) : null}
+            liveListingId={isLiveListing ? (listing?.id ?? null) : null}
             primaryPhoto={primaryPhoto}
             setPrimaryPhotoId={setPrimaryPhotoId}
             photosDirtyRef={photosDirtyRef}
