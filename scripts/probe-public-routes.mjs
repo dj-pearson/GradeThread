@@ -16,6 +16,13 @@
 // US-1927's notes.
 //
 //   node scripts/probe-public-routes.mjs [--origin https://gradethread.com] [--json]
+//
+// `--sitemap [--sample N]` adds a second, different question (US-2095): are the
+// URLs the LIVE sitemap advertises fetchable and indexable? The registry says
+// what we meant to publish; the sitemap says what a crawler is told to fetch.
+// Opt-in and NOT on the schedule — a 404 in the sitemap does not come and go
+// the way an outage does, so it belongs in the hand you run when the indexing
+// question comes up, not in a job that fires twice a day against production.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -192,6 +199,54 @@ async function probeBytes(url) {
   }
 }
 
+/**
+ * Sample the URLs the LIVE sitemap advertises and check each is fetchable and
+ * indexable. A different set from the registered routes above, and a different
+ * question: the registry says what we meant to publish, the sitemap says what a
+ * crawler is actually told to go and get.
+ *
+ * OPT-IN (`--sitemap`), and deliberately NOT part of the twice-daily schedule.
+ * It costs one request per sampled URL against production, and the three things
+ * it can find — a 404 in the sitemap, a stray noindex, a canonical pointing
+ * elsewhere — do not appear and disappear on their own the way an outage does.
+ * Run it when the indexing question comes up.
+ *
+ * Evenly spread rather than random: a random sample is a different set every
+ * run, so two runs cannot be compared, and this exists to be compared.
+ */
+async function sampleSitemap(origin, size) {
+  const res = await fetch(`${origin}/sitemap.xml`);
+  if (!res.ok) return { problems: [`GET /sitemap.xml -> HTTP ${res.status}`], sampled: 0, total: 0 };
+  const xml = await res.text();
+  const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+  if (locs.length === 0) {
+    return { problems: ["/sitemap.xml lists no <loc> entries"], sampled: 0, total: 0 };
+  }
+  const step = Math.max(1, Math.ceil(locs.length / size));
+  const sample = locs.filter((_, i) => i % step === 0);
+
+  const problems = [];
+  for (const url of sample) {
+    const r = await probe(url, { keepBody: true });
+    const p = url.replace(origin, "") || "/";
+    if (r.status !== 200) {
+      problems.push(`${p}: HTTP ${r.status}${r.location ? ` -> ${r.location}` : ""}`);
+      continue;
+    }
+    if (/<meta[^>]+name=["']robots["'][^>]*noindex/i.test(r.body)) {
+      problems.push(`${p}: advertised in the sitemap and marked noindex`);
+      continue;
+    }
+    // A canonical pointing somewhere else tells Google to index the OTHER page,
+    // so the sitemap entry is spending crawl budget on a URL we disown.
+    const trim = (s) => s.replace(/\/$/, "");
+    if (r.canonical && trim(r.canonical) !== trim(url)) {
+      problems.push(`${p}: canonical points at ${r.canonical}`);
+    }
+  }
+  return { problems, sampled: sample.length, total: locs.length };
+}
+
 async function main() {
   const origin = (arg("origin", "https://gradethread.com")).replace(/\/+$/, "");
   const failures = [];
@@ -273,9 +328,17 @@ async function main() {
     note(JUNK, `HTTP ${junk.status}`, "a junk path must 404, not fall through");
   }
 
+  let sitemap = null;
+  if (process.argv.includes("--sitemap")) {
+    sitemap = await sampleSitemap(origin, Number(arg("sample", "30")) || 30);
+    for (const p of sitemap.problems) {
+      note(p.split(":")[0] ?? "sitemap", p, "a URL the sitemap advertises is not indexable");
+    }
+  }
+
   const checked = routes.length + DYNAMIC.length + APP_SHELL.length + OG_TARGETS.length + 1;
   if (process.argv.includes("--json")) {
-    console.log(JSON.stringify({ origin, checked, failures, knownGaps }, null, 2));
+    console.log(JSON.stringify({ origin, checked, failures, knownGaps, sitemap }, null, 2));
   } else {
     console.log(`probed ${checked} URLs against ${origin}`);
     // Printed before the verdict, always. A known gap that only appears in a
@@ -285,8 +348,14 @@ async function main() {
       for (const g of knownGaps) console.log(`   ${g}`);
       console.log("");
     }
+    if (sitemap) {
+      console.log(
+        `sitemap sample: ${sitemap.sampled} of ${sitemap.total} advertised URLs, ` +
+          `${sitemap.problems.length} problem(s)\n`,
+      );
+    }
     if (failures.length === 0) {
-      console.log(`✓ all clear — ${routes.length} registered routes, ${DYNAMIC.length} dynamic surfaces, ${APP_SHELL.length} app routes, 1 junk path`);
+      console.log(`✓ all clear — ${routes.length} registered routes, ${DYNAMIC.length} dynamic surfaces, ${APP_SHELL.length} app routes, 1 junk path${sitemap ? `, ${sitemap.sampled} sitemap URLs` : ""}`);
     } else {
       console.error(`\n✗ ${failures.length} problem(s):\n`);
       for (const f of failures) console.error(`   ${f.route}\n      got: ${f.got}\n      ${f.why}`);
