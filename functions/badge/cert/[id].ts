@@ -5,7 +5,7 @@
 // Worker CPU limit (HTTP 503 "error code: 1102"). Streaming bytes is pure I/O
 // and stays within the Free limit. Sellers drop this — wrapped in a link to
 // /cert/:id (see functions/embed/cert/[id].ts) — into a listing description, so
-// it must stay a plain cacheable <img>. On any upstream error we return the
+// it must stay a plain cacheable img element. On any upstream error we return
 // transparent fallback PNG.
 
 import { edgeApi, type PagesEnv } from "../../_shared/blog-render";

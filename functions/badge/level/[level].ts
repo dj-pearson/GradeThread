@@ -6,7 +6,7 @@
 // Deno edge, because a workers-og render inside a Pages Function exceeds the
 // Free-plan Worker CPU limit. The card describes the RUNG (level number, tier
 // name, tier blurb) and is keyed only by the level — who is standing on it is a
-// separate, non-public read — so it stays a plain, long-cacheable <img>.
+// separate, non-public read — so it stays a plain, long-cacheable img element.
 
 import { edgeApi, type PagesEnv } from "../../_shared/blog-render";
 import { FALLBACK_PNG_BASE64 } from "../../_shared/og-template";

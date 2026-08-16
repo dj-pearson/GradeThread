@@ -5,7 +5,7 @@
 // injects a linked PNG badge (/badge/cert/:id) right where the <script> tag
 // sits; the link drives buyers to the live certificate, carrying ?s=embed for
 // share-source attribution (US-769). This is the script counterpart to the
-// plain <img> snippet (certBadgeEmbedHtml) which survives marketplace HTML
+// plain img-element snippet (certBadgeEmbedHtml) which survives marketplace HTML
 // sanitizers — sellers paste whichever their channel allows.
 //
 // Why a script and not an iframe: the zone ships X-Frame-Options: DENY +
@@ -61,7 +61,7 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
   const base = siteUrl(env);
   // US-1913: the seller picks the plain or the STATUS format of the badge in
   // Badge Studio; the script src carries the choice through to the injected
-  // <img>. `?s=embed` is unchanged (AC5) — `&v=status` is the separate marker
+  // img element. `?s=embed` is unchanged (AC5) — `&v=status` is the separate marker
   // that lets status click-throughs be compared against plain ones.
   const statusRaw = (new URL(request.url).searchParams.get("status") ?? "")
     .trim()
@@ -100,7 +100,7 @@ function noopScript(): Response {
 
 // The injectable widget. Finds its own <script> tag (works even when the seller
 // adds `async`, where document.currentScript is null) and inserts a linked
-// badge <img> right after it. Idempotent via a data-flag so a double-include
+// badge img element right after it. Idempotent via a data-flag so a double-include
 // can't render two badges. All dynamic values are JSON-encoded so they're safe
 // inside the generated JS string literals.
 function badgeWidgetJs(id: string, certUrl: string, badgeUrl: string): string {

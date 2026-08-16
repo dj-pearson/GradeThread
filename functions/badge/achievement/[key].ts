@@ -7,7 +7,7 @@
 // a Pages Function exceeds the Free-plan Worker CPU limit. The card describes
 // the BADGE (name, what earns it, tier medal) and is keyed only by the catalog
 // key — whether a given user earned it is a separate, non-public read — so it
-// stays a plain, long-cacheable <img>.
+// stays a plain, long-cacheable img element.
 
 import { edgeApi, type PagesEnv } from "../../_shared/blog-render";
 import { FALLBACK_PNG_BASE64 } from "../../_shared/og-template";

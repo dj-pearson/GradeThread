@@ -131,7 +131,7 @@ export interface PublicAuthor {
 }
 
 // US-876: per-body-image SEO metadata, keyed by image src. Applied when
-// rewriting in-body <img> tags (stored alt overrides the filename guess; a
+// rewriting in-body img elements (stored alt overrides the filename guess; a
 // caption wraps the image in <figure><figcaption>).
 export interface InlineImageMeta {
   src: string;
@@ -387,7 +387,7 @@ const BASE_STYLES = `
   p { margin: 0 0 16px; }
   ul, ol { margin: 0 0 16px 24px; }
   li { margin: 4px 0; }
-  blockquote { border-left: 3px solid var(--accent); margin: 16px 0; padding: 8px 16px; color: var(--muted); background: #f9fafb; }
+  blockquote { border-left: 2px solid #d1d5db; margin: 16px 0; padding: 8px 16px; color: var(--muted); background: #f9fafb; }
   pre, code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.95em; }
   pre { background: #f3f4f6; padding: 12px; border-radius: 6px; overflow-x: auto; }
   img { max-width: 100%; height: auto; border-radius: 8px; }
@@ -422,7 +422,7 @@ const BASE_STYLES = `
   .pin-button:hover { background: #ad081b; text-decoration: none; }
   .post-meta .author { font-weight: 600; color: var(--fg); }
   .post-meta .updated { color: var(--accent); }
-  .key-takeaways { background: #f9fafb; border: 1px solid #e5e7eb; border-left: 4px solid var(--accent); border-radius: 8px; padding: 16px 20px; margin: 0 0 24px; }
+  .key-takeaways { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px 20px; margin: 0 0 24px; }
   .key-takeaways h2 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); margin: 0 0 8px; }
   .key-takeaways ul { margin: 0 0 0 20px; }
   .key-takeaways li { margin: 6px 0; }
@@ -1297,7 +1297,7 @@ const BLOG_IMG_WIDTHS = [640, 1024, 1600];
 const BLOG_IMG_SIZES = "(max-width: 720px) 100vw, 720px";
 
 /**
- * Hero <img>. Eager + high priority (it's the LCP). A responsive `/cdn-cgi`
+ * Hero img element. Eager + high priority (it's the LCP). A responsive `/cdn-cgi`
  * srcset is only emitted when `resize` is true (Cloudflare Image Resizing
  * confirmed on the zone — see imageResizingEnabled). Off → plain original,
  * which always loads; a 404-ing resize candidate would render broken instead.
@@ -1372,7 +1372,7 @@ export function deriveAltFromSrc(src: string): string {
 }
 
 /**
- * Rewrite in-body content <img> tags for SEO + a11y + CLS (US-306, US-434):
+ * Rewrite in-body content img elements for SEO + a11y + CLS (US-306, US-434):
  *   - lazy `loading`/`decoding` hints (always safe)
  *   - a responsive `/cdn-cgi` srcset/sizes when `resize` is true (gated because
  *     the transform endpoint 404s until Cloudflare Image Resizing is enabled)

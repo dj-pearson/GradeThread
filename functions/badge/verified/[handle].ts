@@ -5,7 +5,7 @@
 // the same reason as the cert badge (functions/badge/cert/[id].ts) — a
 // workers-og render inside a Pages Function exceeds the Free-plan Worker CPU
 // limit. Sellers drop this — wrapped in a link to /verified/:handle — into a
-// listing description or storefront, so it must stay a plain cacheable <img>.
+// listing description or storefront, so it must stay a plain cacheable img element.
 // The ?format= (wide|compact|listing_header) passes through to the edge.
 
 import { edgeApi, type PagesEnv } from "../../_shared/blog-render";

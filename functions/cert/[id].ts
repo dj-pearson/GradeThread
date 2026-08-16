@@ -213,7 +213,7 @@ async function renderCertificate(context: Ctx): Promise<Response> {
   const ogImage = `${base}/og/cert/${encodeURIComponent(cert.id)}`;
 
   // The branded, shareable "graded photo" (rendered on the edge, served via the
-  // /slab/cert Pages proxy). A working <img> — the whole reason for this rewrite.
+  // /slab/cert Pages proxy). A working img element — the whole reason for this rewrite.
   const slabHtml = cert.hero_image_url
     ? `<div class="cert-slab-wrap">
       <img class="cert-slab" src="/slab/cert/${escape(cert.id)}?format=square" width="440" height="440" loading="lazy" alt="Graded photo — ${escape(cert.title)}, condition grade ${score}">

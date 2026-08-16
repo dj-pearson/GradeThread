@@ -92,7 +92,7 @@ export function qrSvg(text: string, opts: QrOptions = {}): string {
   }
 
   // Both viewBox and width/height: Satori reads the intrinsic size from the
-  // attributes while the consuming <img> style scales it to the target pixels.
+  // attributes while the consuming img element's style scales it to the target pixels.
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${dim}" height="${dim}" ` +
     `viewBox="0 0 ${dim} ${dim}" shape-rendering="crispEdges">` +
