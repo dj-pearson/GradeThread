@@ -336,7 +336,14 @@ describe("scoped upload resolution (US-2135 AC1/AC5)", () => {
     // AC5 is explicit: do NOT raise this globally. The iOS cap was LOWERED for
     // upload speed on purpose, and a front/back shot gains nothing from pixels
     // a buyer will never zoom into.
-    for (const t of ["front", "back", "flatlay", "on_model", "measurement"]) {
+    //
+    // `measurement` USED TO BE IN THIS LIST and was removed by US-2632, which
+    // raised it to 3600 — not because it is a macro shot (it is the opposite:
+    // the card sits beside a whole garment) but because the detector needs
+    // ~40px across each 1in fiducial, and a pair of pants filling ~50in of
+    // frame puts them at ~48px before any server-side downscale. The raise
+    // landed without this list being updated, so the case has been red since.
+    for (const t of ["front", "back", "flatlay", "on_model"]) {
       expect(uploadMaxWidthFor(t)).toBe(DEFAULT_UPLOAD_MAX_WIDTH_PX);
     }
     expect(uploadMaxWidthFor(null)).toBe(DEFAULT_UPLOAD_MAX_WIDTH_PX);
