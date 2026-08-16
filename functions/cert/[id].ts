@@ -309,9 +309,19 @@ async function renderCertificate(context: Ctx): Promise<Response> {
         `<tr><td style="color:var(--muted)">${k}</td><td style="font-weight:600">${escape(v as string)}</td></tr>`,
     )
     .join("");
+  // US-2628: the edge flattens the seller's description to plain text before it
+  // reaches either renderer (services/edge-functions/src/lib/cert-description.ts)
+  // — a listing description is HTML, and escaping it here printed the raw tags
+  // as body copy. It still ESCAPES, because that is seller-controlled input on
+  // an anonymous page; the only markup added is the line breaks the flattener's
+  // newlines stand for, which HTML would otherwise swallow. This mirrors the
+  // SPA's `whitespace-pre-wrap` on the same paragraph.
+  const descriptionHtml = cert.description
+    ? `<p>${escape(cert.description).replace(/\n/g, "<br>")}</p>`
+    : "";
   const aboutHtml =
-    aboutRows || cert.description
-      ? `<h2>About this item</h2>${aboutRows ? `<table><tbody>${aboutRows}</tbody></table>` : ""}${cert.description ? `<p>${escape(cert.description)}</p>` : ""}`
+    aboutRows || descriptionHtml
+      ? `<h2>About this item</h2>${aboutRows ? `<table><tbody>${aboutRows}</tbody></table>` : ""}${descriptionHtml}`
       : "";
 
   // US-433: one trail for the visible breadcrumb + the BreadcrumbList JSON-LD.

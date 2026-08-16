@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2630",
+  "nextId": "US-2631",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2090,6 +2090,22 @@
       ],
       "priority": 40,
       "notes": "Done 2026-08-16. All four AC met. THE GAP WAS MEASURED, NOT INFERRED: a const x: number = \"a string\" planted at the top of e2e/smoke.spec.ts left npx tsc -b at exit 0, and the same line in playwright.config.ts and vitest.config.ts did too. After the fix each one names its own file and line. AC1: NEW tsconfig.e2e.json covers e2e + playwright.config.ts, referenced from tsconfig.json. It carries tsconfig.app.json strictness (noUnusedLocals, noUnusedParameters, noUncheckedIndexedAccess) so a helper moved between src/ and e2e/ answers to the same rules, lib DOM for the page.evaluate callbacks and types:[node] for process.env. It cost nothing to adopt - the suite already typechecked clean, which is the point at which to start enforcing rather than the point at which to shrug. AC2: vitest.config.ts joins vite.config.ts in tsconfig.node.json. AC3+AC4 ARE THE PART WORTH KEEPING. Pinning e2e alone would only stop e2e being missed again, and the actual failure is that a new directory of TypeScript can appear and nothing notices. src/test/tsc-covers-every-tree.test.ts walks the repo and fails on any .ts/.tsx claimed by no project include and named in no exemption. Five exemptions, each naming the toolchain that DOES check it: services/edge-functions (deno check + lint), sdk (own package), remotion (own project), sync-aspect-registry.deno.ts (Deno), backfill-stripe-state.ts (one-shot tsx script importing no app module). A sixth, scripts/lib/ci-env.ts, records its own limit out loud: it is checked TRANSITIVELY because src/test/ci-env-parity.test.ts imports it, so losing that import silently un-checks it. A stale exemption pointing at a deleted tree fails too, because the next directory landing under that prefix would inherit it. ONE BUG IN THE GUARD ITSELF, caught by running it: matching an include by prefix reported every functions/ file as an orphan, because tsconfig.functions.json uses the glob functions/**/*.ts rather than a bare directory. A guard whose first run is wrong in the SAFE direction is the lucky case; it would have been reported as 83 orphans and dismissed. Includes are now matched as directory, file or glob, with a/**/b matching a/b the way tsc does. SABOTAGE-VERIFIED THREE WAYS, each reverted green: a new orphan-probe/thing.ts reddened naming the file; deleting the e2e project reference reddened naming e2e/smoke.spec.ts; renaming the remotion exemption to a missing path reddened as no longer exists. SAME SHAPE AS US-2401 AND US-2623, three times in a row now: the tool was correct and the scope was not. Worth saying because the next one will look like this too - a green lane that is green about less than the reader assumes. VERIFIED: tsc -b clean, eslint clean over the new test + e2e + both configs, 3/3 new cases, playwright still enumerates 19 tests in 8 files (the new project is noEmit and does not change how Playwright resolves anything)."
+    },
+    {
+      "id": "US-2630",
+      "title": "[FLIPDESK] Flat across is half the way round — circumference measurements reach eBay doubled",
+      "description": "The MeasureCard measures a garment lying flat, so the tape crosses ONE layer. Stored measurements are therefore flat, and waist fed eBay’s “Waist Size” aspect verbatim: an 11in flat waist published as an 11in waist, so a 32in pair of jeans listed as a 16. That is not a rounding difference — it is the wrong garment in every size filter a buyer uses, on chest, bust, waist, hip and leg opening alike.",
+      "acceptanceCriteria": [
+        "Stored values stay FLAT — that is what was measured, what the editor’s live readout shows while dragging, and what a buyer reproduces with their own tape. The doubling happens where the number is presented as the garment’s size.",
+        "chest, bust, waist, hip and leg_opening double onto eBay measurement aspects (both the fill-only and the force projections).",
+        "inseam, rise, length, sleeve, shoulder and insole are single spans and are never doubled.",
+        "Head circumference is deliberately excluded: a hat’s opening laid flat gives a DIAMETER, and a circle’s circumference is pi x d, not 2 x d.",
+        "The description line carries both numbers — “Waist: 22 in (11 in flat)” — so a buyer can search by the worn size and verify with a tape.",
+        "The web and edge copies of measurements.ts agree on the circumference key set; a test fails if they drift."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "[SHIPPED 2026-08-16] NO MIGRATION — stored data is unchanged, only its projection. Six existing tests encoded the old (wrong) values and were updated deliberately rather than relaxed. Reported by the owner from a real pair of pants: 11in flat waist, 13in flat hip."
     }
   ]
 }

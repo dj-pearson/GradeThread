@@ -165,14 +165,19 @@ const MAX_TAG_SCAN = 500;
  * the element never closes — every "shape I don't recognise" case, because the
  * caller's only safe response to an unrecognised description is to leave it
  * exactly as it is.
+ *
+ * `marker` is a parameter (US-2628) because the disclosure block is generated
+ * the same way, marker comment then one <div>, and cert-description.ts strips
+ * both. The walk is the delicate part; there should be one of it.
  */
 export function findSellerCredentialBlock(
   description: string,
+  marker: string = SELLER_CREDENTIALS_MARKER,
 ): SellerCredentialBlockSpan | null {
-  const markerAt = description.indexOf(SELLER_CREDENTIALS_MARKER);
+  const markerAt = description.indexOf(marker);
   if (markerAt < 0) return null;
 
-  const after = markerAt + SELLER_CREDENTIALS_MARKER.length;
+  const after = markerAt + marker.length;
   // Only whitespace may sit between the marker and its block; anything else
   // means this isn't the generated shape.
   const openMatch = /^\s*<div\b/i.exec(description.slice(after));

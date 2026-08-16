@@ -13,6 +13,7 @@ import {
 } from "../lib/certificate-gallery.ts";
 import { normalizeCertNumber } from "../lib/cert-number.ts";
 import { certDisplayTitle } from "../lib/cert-display-title.ts";
+import { certDescriptionText } from "../lib/cert-description.ts";
 import {
   resolveRevisionChain,
   type RevisionResolution,
@@ -1134,7 +1135,13 @@ contentPublicRoutes.get("/certificates/:id", async (c) => {
       brand: submission?.brand ?? null,
       garment_type: submission?.garment_type ?? null,
       garment_category: submission?.garment_category ?? null,
-      description: submission?.description ?? null,
+      // US-2628: plain text, never markup. A submission description is usually
+      // the LISTING description, which is HTML (eBay renders it) — and both
+      // certificate renderers print this field as escaped text, so the raw tags
+      // showed up as body copy. Flattened once here so the SPA and the SSR page
+      // can't disagree; the generated credential/disclosure blocks are dropped
+      // because the certificate already makes both claims itself.
+      description: certDescriptionText(submission?.description),
       hero_image_url: heroImageUrl,
       // US-1413: full ordered gallery (signed URLs) for the SPA photo grid +
       // defect callouts. The SSR path ignores this and uses hero_image_url only.
