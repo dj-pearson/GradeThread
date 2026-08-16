@@ -45,6 +45,13 @@ interface CardRequest {
   card_version: number;
   requested_at: string;
   shipped_at: string | null;
+  // US-2231: the seller's own parcel. 00561 added the columns, the route has
+  // returned them since, and this interface did not declare them — so the one
+  // person the number is FOR never saw it. The route's own comment says "the
+  // page renders nothing rather than an empty link", which was true in the way
+  // that hides a gap: it rendered nothing for every request, tracked or not.
+  tracking_number: string | null;
+  tracking_carrier: string | null;
 }
 
 const CAPTURE_DOS = [
@@ -291,13 +298,35 @@ export function FlipdeskMeasureCardPage() {
               </span>
             </div>
           ) : request?.status === "shipped" ? (
-            <p className="text-sm text-muted-foreground">
-              Your card (v{request.card_version}) shipped
-              {request.shipped_at
-                ? ` on ${new Date(request.shipped_at).toLocaleDateString()}`
-                : ""}
-              . Need another? Contact support.
-            </p>
+            <div className="space-y-1.5 text-sm text-muted-foreground">
+              <p>
+                Your card (v{request.card_version}) shipped
+                {request.shipped_at
+                  ? ` on ${new Date(request.shipped_at).toLocaleDateString()}`
+                  : ""}
+                . Need another? Contact support.
+              </p>
+              {/* Most cards go as untracked letters, so NULL is the normal case
+                  and this renders nothing at all rather than an empty row.
+
+                  TEXT, NOT A LINK, and that is the decision rather than an
+                  omission. Nothing in this repo maps a carrier to a tracking
+                  URL, so linking means guessing a URL shape per carrier — and
+                  the shape changes without telling us. The migration that added
+                  these columns already made the same call about placeholders:
+                  a wrong tracking link is worse than none, because the seller
+                  clicks it and believes the answer. A number they can select
+                  and paste is honest and cannot rot. */}
+              {request.tracking_number ? (
+                <p>
+                  Tracking:{" "}
+                  <span className="font-medium text-foreground select-all">
+                    {request.tracking_number}
+                  </span>
+                  {request.tracking_carrier ? ` (${request.tracking_carrier})` : ""}
+                </p>
+              ) : null}
+            </div>
           ) : !mailEligible ? (
             <p className="text-sm text-muted-foreground">
               Mailed cards are included with paid plans — the print-at-home PDF
