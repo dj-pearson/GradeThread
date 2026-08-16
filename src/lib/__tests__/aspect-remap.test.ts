@@ -95,7 +95,9 @@ describe("remapAspectsForCategory (US-824)", () => {
     };
     const out = remapAspectsForCategory({}, [freeAspect("Chest Size")], item);
     // Stored inches → formatted onto the free-text "Chest Size" aspect.
-    expect(out.derived["Chest Size"]).toEqual(["21 in"]);
+    // US-2630: stored measurements are FLAT (one layer of a folded garment),
+    // so the aspect carries the worn chest — 21in pit to pit is a 42in chest.
+    expect(out.derived["Chest Size"]).toEqual(["42 in"]);
   });
 
   it("US-1450: measurement fold is fill-only (never clobbers a set value)", () => {

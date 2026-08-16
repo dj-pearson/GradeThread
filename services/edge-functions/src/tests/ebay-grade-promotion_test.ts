@@ -148,8 +148,10 @@ Deno.test("US-1503: measurements map onto free-text category aspects only", () =
     allowed,
     {},
   );
+  // US-2630: a sleeve is a single span and publishes as measured; a chest is
+  // measured pit to pit on a folded garment, so the WORN chest is 42in.
   assertEquals(out["Sleeve Length"], ["25 in"]);
-  assertEquals(out["Chest Size"], ["21 in"]);
+  assertEquals(out["Chest Size"], ["42 in"]);
   assertEquals(out["Inseam"], undefined); // dropdown not force-filled
 });
 

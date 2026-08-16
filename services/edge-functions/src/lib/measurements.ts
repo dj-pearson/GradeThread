@@ -95,6 +95,59 @@ export function formatMeasurementValue(
   return `${trimNum(n)} in`;
 }
 
+// ── US-2630: flat across is HALF the way round ──────────────────────────────
+//
+// The MeasureCard measures a garment lying flat, so the tape crosses ONE layer.
+// For anything that goes around the body the worn number is twice that: an 11in
+// flat waist is a 22in waist, a 13in flat hip is a 26in hip. Stored values stay
+// flat — that is what was measured, it is what the editor's live readout shows,
+// and it is what a buyer reproduces with their own tape — and the doubling
+// happens where the number is presented as the garment's size.
+//
+// This was reaching eBay wrong: `waist` fed the "Waist Size" aspect verbatim, so
+// a 32in pair of jeans published as a 16, which is not a rounding difference —
+// it is the wrong garment in every size filter a buyer uses.
+//
+// The list is exactly the measurements where the fabric is FOLDED, so flat x 2
+// is the circumference. Head circumference is deliberately absent: a hat's
+// opening laid flat gives a DIAMETER, and a circle's circumference is pi x d,
+// not 2 x d. Shoulder, sleeve, length, rise and inseam are single spans and are
+// never doubled.
+export const CIRCUMFERENCE_KEYS = new Set<string>([
+  "chest",
+  "bust",
+  "waist",
+  "hip",
+  "leg_opening",
+]);
+
+export function isCircumferenceMeasurement(key: string): boolean {
+  return CIRCUMFERENCE_KEYS.has(key);
+}
+
+/**
+ * The number a LISTING should carry for this key — the worn circumference for a
+ * folded-flat measurement, the stored value for everything else.
+ */
+export function listingMeasurementValue(
+  key: string,
+  value: unknown,
+): number | null {
+  const n = coerceMeasurement(value);
+  if (n == null) return null;
+  return isCircumferenceMeasurement(key) ? n * 2 : n;
+}
+
+/** formatMeasurementValue, but for a value presented as the garment's size. */
+export function formatListingMeasurement(
+  key: string,
+  value: unknown,
+  unit: LengthUnit = "in",
+): string | null {
+  const n = listingMeasurementValue(key, value);
+  return n == null ? null : formatMeasurementValue(key, n, unit);
+}
+
 /** Human label for a measurement key (falls back to a de-underscored key). */
 export function measurementLabel(key: string): string {
   return MEASUREMENT_SPECS[key]?.label ?? key.replace(/_/g, " ");
@@ -132,7 +185,19 @@ export function buildMeasurementLines(
   ];
   for (const key of ordered) {
     const formatted = formatMeasurementValue(key, measurements[key], unit);
-    if (formatted) lines.push(`- ${measurementLabel(key)}: ${formatted}`);
+    if (!formatted) continue;
+    // US-2630: a folded-flat measurement is half the way round, so the line
+    // shows the worn number a buyer shops by AND the flat number they can
+    // reproduce with their own tape. Publishing only one of the two is what
+    // makes a listing argue with itself.
+    const worn = isCircumferenceMeasurement(key)
+      ? formatListingMeasurement(key, measurements[key], unit)
+      : null;
+    lines.push(
+      worn
+        ? `- ${measurementLabel(key)}: ${worn} (${formatted} flat)`
+        : `- ${measurementLabel(key)}: ${formatted}`,
+    );
   }
   return lines;
 }
@@ -342,7 +407,7 @@ export function forceMeasurementAspects(
     if (current && parseMeasurementAspectValue(key, current) == null) continue;
 
     const hasKey = key in meas;
-    const formatted = hasKey ? formatMeasurementValue(key, meas[key], unit) : null;
+    const formatted = hasKey ? formatListingMeasurement(key, meas[key], unit) : null;
     if (formatted) {
       if (current !== formatted) {
         aspects[canonical] = [formatted];
@@ -390,7 +455,7 @@ export function resolveMeasurementAspects(
 
   for (const [key, spec] of Object.entries(MEASUREMENT_SPECS)) {
     if (!(key in measurements)) continue;
-    const formatted = formatMeasurementValue(key, measurements[key], unit);
+    const formatted = formatListingMeasurement(key, measurements[key], unit);
     if (!formatted) continue;
     for (const candidate of spec.aspects) {
       const lower = candidate.toLowerCase();

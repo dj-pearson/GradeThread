@@ -17,9 +17,6 @@ Deno.env.set(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "test-service-key",
 );
 
-const { MEASURE_CARD_VERSIONS: MEASURE_CARD_VERSIONS_FIXTURE } = await import(
-  "../lib/measure-card.ts"
-);
 const { toGray, rescaleCalibration, MAX_DETECT_DIM } = await import(
   "../routes/flipdesk-measure.ts"
 );

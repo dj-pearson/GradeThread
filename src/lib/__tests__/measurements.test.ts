@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   applyMeasurementsBlock,
@@ -9,6 +10,8 @@ import {
   measurementsNumericallyEqual,
   parseMeasurementAspectValue,
   resolveMeasurementAspects,
+  isCircumferenceMeasurement,
+  listingMeasurementValue,
 } from "@/lib/measurements";
 
 // US-827: web mirror of the edge measurements module. Mirrors the edge test
@@ -39,7 +42,9 @@ describe("resolveMeasurementAspects", () => {
         { chest: 21, inseam: 32, sleeve: 25 },
         { "Chest Size": [], Inseam: [], Brand: [] },
       ),
-    ).toEqual({ "Chest Size": ["21 in"], Inseam: ["32 in"] });
+    // US-2630: chest is measured pit to pit on a folded garment, so the WORN
+    // chest is 42in. An inseam is a single span, published as measured.
+    ).toEqual({ "Chest Size": ["42 in"], Inseam: ["32 in"] });
   });
   it("never fills a SELECTION_ONLY style aspect", () => {
     expect(
@@ -170,7 +175,7 @@ describe("applyMeasurementsBlock (idempotency)", () => {
   it("appends a block", () => {
     const out = applyMeasurementsBlock("Hoodie.", { chest: 21 });
     expect(out).toContain("Hoodie.");
-    expect(out).toContain("- Chest (pit to pit): 21 in");
+    expect(out).toContain("- Chest (pit to pit): 42 in (21 in flat)");
   });
   it("never duplicates on re-apply", () => {
     const once = applyMeasurementsBlock("Hoodie.", { chest: 21 });
@@ -197,9 +202,62 @@ describe("applyMeasurementsBlock (idempotency)", () => {
 
 describe("buildMeasurementLines ordering", () => {
   it("renders in canonical key order", () => {
+    // US-2630: the chest line carries BOTH numbers — the worn chest a buyer
+    // shops by, and the flat number they can check with their own tape. An
+    // inseam is a single span, so there is only one number to give.
     expect(buildMeasurementLines({ inseam: 32, chest: 21 })).toEqual([
-      "- Chest (pit to pit): 21 in",
+      "- Chest (pit to pit): 42 in (21 in flat)",
       "- Inseam: 32 in",
     ]);
+  });
+});
+
+// US-2630: flat across is HALF the way round. The card measures a garment lying
+// flat, so the tape crosses ONE layer — an 11in flat waist is a 22in waist.
+// `waist` fed eBay's "Waist Size" aspect verbatim, so a 32in pair of jeans
+// published as a 16: not a rounding difference, but the wrong garment in every
+// size filter a buyer uses.
+describe("US-2630: circumference vs single span", () => {
+  it("doubles only what the fabric folds around", () => {
+    for (const key of ["chest", "bust", "waist", "hip", "leg_opening"]) {
+      expect(isCircumferenceMeasurement(key), key).toBe(true);
+      expect(listingMeasurementValue(key, 11)).toBe(22);
+    }
+    for (const key of ["inseam", "rise", "length", "sleeve", "shoulder"]) {
+      expect(isCircumferenceMeasurement(key), key).toBe(false);
+      expect(listingMeasurementValue(key, 30)).toBe(30);
+    }
+  });
+
+  it("leaves a hat alone", () => {
+    // A hat's opening laid flat gives a DIAMETER, and a circle's circumference
+    // is pi x d — doubling would be wrong by ~57%.
+    expect(isCircumferenceMeasurement("circumference")).toBe(false);
+  });
+
+  it("the reported case, end to end", () => {
+    expect(
+      resolveMeasurementAspects(
+        { waist: 11, hip: 13, inseam: 30 },
+        { "Waist Size": [], "Hip Size": [], Inseam: [] },
+      ),
+    ).toEqual({
+      "Waist Size": ["22 in"],
+      "Hip Size": ["26 in"],
+      Inseam: ["30 in"],
+    });
+  });
+
+  it("stays in step with the edge copy", () => {
+    // The two files are not byte-identical, but this rule must never differ:
+    // one side doubling and the other not is a listing that argues with itself.
+    const edge = readFileSync(
+      "services/edge-functions/src/lib/measurements.ts",
+      "utf8",
+    );
+    for (const key of ["chest", "bust", "waist", "hip", "leg_opening"]) {
+      expect(edge).toContain(`"${key}",`);
+    }
+    expect(edge).toContain("export const CIRCUMFERENCE_KEYS");
   });
 });

@@ -54,7 +54,9 @@ Deno.test("aspects: fills free-text measurement aspects that exist in the catego
     { chest: 21, inseam: 32, sleeve: 25 },
     { "Chest Size": [], "Inseam": [], "Brand": [] },
   );
-  assertEquals(out, { "Chest Size": ["21 in"], "Inseam": ["32 in"] });
+  // US-2630: chest is measured pit to pit on a folded garment, so the WORN
+  // chest is 42in. The inseam is a single span and is published as measured.
+  assertEquals(out, { "Chest Size": ["42 in"], "Inseam": ["32 in"] });
   // sleeve omitted: no matching aspect name in this category's spec.
 });
 
@@ -82,7 +84,8 @@ Deno.test("aspects: matches candidate names case-insensitively + respects cm uni
     {},
     "cm",
   );
-  assertEquals(out, { "chest size": ["50.8 cm"] });
+  // US-2630: 20in flat = a 40in chest = 101.6cm.
+  assertEquals(out, { "chest size": ["101.6 cm"] });
 });
 
 // A men's hoodie exposes "Sleeve Length" as FREE_TEXT holding "Long Sleeve".
@@ -131,7 +134,13 @@ Deno.test("force: still fills / clears a genuinely measurement-shaped aspect", (
 Deno.test("block: lines render in canonical key order with labels", () => {
   const lines = buildMeasurementLines({ inseam: 32, chest: 21 });
   // chest is defined before inseam in MEASUREMENT_SPECS → comes first.
-  assertEquals(lines, ["- Chest (pit to pit): 21 in", "- Inseam: 32 in"]);
+  // US-2630: the chest line carries BOTH numbers — the worn chest a buyer
+  // shops by, and the flat number they can check with their own tape. The
+  // inseam is a single span, so there is only one number to give.
+  assertEquals(lines, [
+    "- Chest (pit to pit): 42 in (21 in flat)",
+    "- Inseam: 32 in",
+  ]);
 });
 
 Deno.test("block: empty / missing measurements produce no block", () => {
@@ -144,7 +153,7 @@ Deno.test("apply: appends a marker-delimited block to a description", () => {
   const out = applyMeasurementsBlock("Great hoodie.", { chest: 21 });
   assertStringIncludes(out, "Great hoodie.");
   assertStringIncludes(out, MEASUREMENTS_BLOCK_START);
-  assertStringIncludes(out, "- Chest (pit to pit): 21 in");
+  assertStringIncludes(out, "- Chest (pit to pit): 42 in (21 in flat)");
   assertStringIncludes(out, MEASUREMENTS_BLOCK_END);
 });
 
@@ -159,9 +168,11 @@ Deno.test("apply: is IDEMPOTENT — re-applying never duplicates the block", () 
 Deno.test("apply: refreshes the block on re-save with changed measurements", () => {
   const first = applyMeasurementsBlock("Tee.", { chest: 20 });
   const updated = applyMeasurementsBlock(first, { chest: 22, length: 28 });
-  assertStringIncludes(updated, "- Chest (pit to pit): 22 in");
+  assertStringIncludes(updated, "- Chest (pit to pit): 44 in (22 in flat)");
   assertStringIncludes(updated, "- Length: 28 in");
+  // The old 20in flat / 40in worn pair is gone, not merely appended past.
   assertEquals(updated.includes("20 in"), false);
+  assertEquals(updated.includes("40 in"), false);
   assertEquals(updated.split(MEASUREMENTS_BLOCK_START).length - 1, 1);
 });
 
@@ -231,4 +242,54 @@ Deno.test("US-1578: variants + generation + revise all consume the store (source
   );
   // Revise path re-applies with provenance.
   assert(ebay.includes("hasCalibratedMeasurements"));
+});
+
+// ── US-2630: flat across is HALF the way round ──────────────────────
+//
+// The card measures a garment lying flat, so the tape crosses ONE layer. An
+// 11in flat waist is a 22in waist. `waist` fed eBay's "Waist Size" aspect
+// verbatim, so a 32in pair of jeans published as a 16 — not a rounding
+// difference, but the wrong garment in every size filter a buyer uses.
+
+const { CIRCUMFERENCE_KEYS, isCircumferenceMeasurement, listingMeasurementValue } =
+  await import("../lib/measurements.ts");
+
+Deno.test("US-2630: only folded-flat measurements double", () => {
+  // Fabric folded flat: across x 2 is the way round.
+  for (const key of ["chest", "bust", "waist", "hip", "leg_opening"]) {
+    assert(isCircumferenceMeasurement(key), `${key} is a circumference`);
+    assertEquals(listingMeasurementValue(key, 11), 22);
+  }
+  // Single spans. Doubling an inseam invents a garment nobody owns.
+  for (const key of ["inseam", "rise", "length", "sleeve", "shoulder", "insole"]) {
+    assert(!isCircumferenceMeasurement(key), `${key} is a single span`);
+    assertEquals(listingMeasurementValue(key, 30), 30);
+  }
+});
+
+Deno.test("US-2630: a hat is measured round, not folded", () => {
+  // Deliberately absent. A hat's opening laid flat gives a DIAMETER, and a
+  // circle's circumference is pi x d — doubling would be wrong by ~57%. The
+  // headwear template asks for the true circumference instead.
+  assert(!CIRCUMFERENCE_KEYS.has("circumference"));
+  assertEquals(listingMeasurementValue("circumference", 23), 23);
+});
+
+Deno.test("US-2630: the seller's own waist reading reaches eBay doubled", () => {
+  // The reported case, end to end: 11in flat waist, 13in flat hip.
+  const out = resolveMeasurementAspects(
+    { waist: 11, hip: 13, inseam: 30 },
+    { "Waist Size": [], "Hip Size": [], "Inseam": [] },
+  );
+  assertEquals(out, {
+    "Waist Size": ["22 in"],
+    "Hip Size": ["26 in"],
+    "Inseam": ["30 in"],
+  });
+});
+
+Deno.test("US-2630: a blank measurement still yields nothing", () => {
+  assertEquals(listingMeasurementValue("waist", null), null);
+  assertEquals(listingMeasurementValue("waist", 0), null);
+  assertEquals(listingMeasurementValue("waist", "not a number"), null);
 });
