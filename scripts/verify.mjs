@@ -31,6 +31,7 @@
 // own self-hosted process.
 
 import { spawnSync } from "node:child_process";
+import { inertLocalGates } from "./lib/inert-gates.mjs";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -152,6 +153,18 @@ const IOS_GUARDS = [
 const results = [];
 let skipped = [];
 const warnings = [];
+/**
+ * US-2655: local gates that are silently doing nothing because their tool is
+ * absent. Not failures — the CI net still runs them — but a skip nobody sees is
+ * how a gate stops being a gate.
+ *
+ * The pre-commit secret scan is the case that prompted this: it prints three
+ * lines and exits 0 when gitleaks is missing, and those three lines scroll past
+ * inside the commit output. A whole session of commits went out with no local
+ * secret scan and nothing in any summary said so.
+ */
+const degraded = [];
+
 
 function run(name, cmd, opts = {}) {
   process.stdout.write(`\n\x1b[1m▶ ${name}\x1b[0m\n  $ ${cmd}${opts.cwd ? `   (in ${opts.cwd})` : ""}\n`);
@@ -438,6 +451,12 @@ if (on("e2e")) {
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 const failed = results.filter((r) => !r.ok);
+// US-2655: report the local gates that are present-but-inert. These do not
+// fail the run — CI still runs both — but the whole point of a local gate is
+// to be the thing that catches it FIRST, and one that is quietly absent is
+// worth a line in the summary rather than three lines inside a commit.
+degraded.push(...inertLocalGates());
+
 process.stdout.write("\n\x1b[1m──────── verify summary ────────\x1b[0m\n");
 for (const r of results) {
   const mark = r.ok ? "\x1b[32m✓\x1b[0m" : "\x1b[31m✗\x1b[0m";
@@ -445,6 +464,9 @@ for (const r of results) {
 }
 for (const s of skipped) process.stdout.write(`  \x1b[33m⚠ skipped\x1b[0m ${s}\n`);
 for (const w of warnings) process.stdout.write(`  \x1b[33m⚠ advisory FAILED (does not block)\x1b[0m ${w}\n`);
+for (const d of degraded) {
+  process.stdout.write(`  \x1b[33m⚠ local gate inert\x1b[0m ${d}\n`);
+}
 
 // Released explicitly as well as on 'exit': the handler covers a crash, but
 // naming it here is what tells the next reader the lock has an owner.
