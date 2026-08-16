@@ -236,7 +236,7 @@ export const RUNBOOKS: Runbook[] = [
       "## Grading & sync",
       "",
       "- **Stuck-submission recovery** (`*/10 * * * *`) and **Grading regression monitor** (`0 */12 * * *`).",
-      "- **eBay sync reaper** (`*/15 * * * *`), **eBay token refresh** (hourly), **eBay listings/orders sync** (`*/30 * * * *`).",
+      "- **eBay sync reaper** (`*/15 * * * *`), **eBay token refresh** (hourly), **eBay order-sync backstop** (`*/30 * * * *`).",
       "",
       "## Listings, repricing & publish",
       "",
@@ -252,7 +252,7 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "- **Abuse-signal scan** (`0 */6 * * *`), **Search Console sync** (daily), **Condition Index refresh** (daily), **North Star weekly digest** (Mondays).",
       "",
-      "> Schedules are interpreted in **UTC** (Coolify cron runs UTC). Some sync crons are served outside `/api/jobs/*` so their last-run isn't in the ledger — their schedule and next-run still show on Background Jobs. If a job is failing repeatedly, check its detail there and the Dead Letters queue for unprocessed work.",
+      "> Schedules are interpreted in **UTC** (Coolify cron runs UTC). Crons served outside `/api/jobs/*` are in the ledger too — the recorder is mounted by path, so eBay token refresh and the content ticks record like any other. The only jobs with no ledger row are the two one-off backfills, which have no cadence to miss. If a job is failing repeatedly, check its detail on Background Jobs and the Dead Letters queue for unprocessed work.",
     ].join("\n"),
   },
   {
