@@ -122,6 +122,12 @@ import {
   type RemoteOrderLineItem,
   type RemoteTransaction,
 } from "../lib/ebay-client.ts";
+import {
+  absentListingState,
+  type EbayListingState,
+  resolveEbayListingState,
+  resolveOrderOutcome,
+} from "../lib/ebay-listing-state.ts";
 import { runOrderReport, shouldUseFeedForOrders } from "../lib/ebay-feed.ts";
 import { type FailedOrder, planOrdersWatermark } from "../lib/sync-watermark.ts";
 // US-713: the Depop connector shares this token-refresh cron (no separate
@@ -2435,6 +2441,14 @@ async function doListingsPull(
     }
   }
 
+  // US-2656: what eBay said about each matched item's listing THIS run, keyed by
+  // inventory_item_id. Collected during the offer passes and consumed after the
+  // orders pass, because whether a seller needs to be told anything depends on
+  // something the offer loop cannot know yet: an item that stopped being active
+  // because it SOLD needs no explanation, while the same eBay status on an item
+  // with no sale is the thing the seller has been given a hardcoded guess about.
+  const ebayStateByItem = new Map<string, EbayListingState>();
+
   // Catalog-backfill bookkeeping. GetItem (legacy specifics) is gated to items
   // still missing a field and capped per run, so first-sync cost tapers to ~0.
   const MAX_SPECIFICS_FETCH_PER_SYNC = 300;
@@ -2493,7 +2507,22 @@ async function doListingsPull(
   // GradeThread-originated listings (keyed by listing id). Flushed after the
   // loop. Separate from the bulk listing upsert — that upsert never carries
   // platform_fields, so these writes aren't clobbered.
+  // Staged platform_fields edits, keyed by listings.id. The drift marker and the
+  // US-2656 eBay-state record BOTH live in this one JSON column, so they share
+  // one staging map: two writers each doing their own read-modify-write would
+  // let whichever flushed last erase the other's key.
   const driftFieldWrites = new Map<string, Record<string, unknown>>();
+  const stagePlatformFields = (
+    listingId: string,
+    prevPf: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> => {
+    let cur = driftFieldWrites.get(listingId);
+    if (!cur) {
+      cur = { ...(prevPf ?? {}) };
+      driftFieldWrites.set(listingId, cur);
+    }
+    return cur;
+  };
 
   // US-1056: low-stock / stockout events observed this pull, keyed by listing id
   // (last write wins) so a listing touched by both the modern + legacy passes
@@ -2589,18 +2618,14 @@ async function doListingsPull(
     const prevPf = (existing.platform_fields ?? {}) as Record<string, unknown>;
     const hadDrift = !!(prevPf as { sync_drift?: unknown }).sync_drift;
     if (drifted.length > 0) {
-      driftFieldWrites.set(existing.id, {
-        ...prevPf,
-        sync_drift: {
-          fields: drifted,
-          ebay: ebaySnapshot,
-          detected_at: new Date().toISOString(),
-        },
-      });
+      stagePlatformFields(existing.id, prevPf).sync_drift = {
+        fields: drifted,
+        ebay: ebaySnapshot,
+        detected_at: new Date().toISOString(),
+      };
     } else if (hadDrift) {
-      const nextPf = { ...prevPf };
-      delete (nextPf as { sync_drift?: unknown }).sync_drift;
-      driftFieldWrites.set(existing.id, nextPf);
+      delete (stagePlatformFields(existing.id, prevPf) as { sync_drift?: unknown })
+        .sync_drift;
     }
     return origin;
   };
@@ -2627,10 +2652,14 @@ async function doListingsPull(
           (goneExisting.is_active === true ||
             goneExisting.listing_status === "active")
         ) {
+          // US-2656: absence is its own fact, distinct from any status eBay
+          // could have sent, so it carries its own reason onto the row.
+          const gone = absentListingState();
           applyListingPatch(ensurePendingListing(goneItemId), {
-            listing_status: "ended",
-            is_active: false,
+            listing_status: gone.status,
+            is_active: gone.isActive,
           });
+          ebayStateByItem.set(goneItemId, gone);
           endedItemIds.add(goneItemId);
         }
         skipped += 1;
@@ -2639,7 +2668,13 @@ async function doListingsPull(
       const sku = o.sku;
       const itemId = sku ? skuToItemId.get(sku) ?? null : null;
       const priceNum = o.price ? Number(o.price.value) : null;
-      const isActive = (o.listingStatus ?? "").toUpperCase() === "ACTIVE";
+      // US-2656: every non-ACTIVE answer used to become "ended" right here, in a
+      // single ternary, and the reason eBay gave was dropped on the floor. The
+      // resolver keeps eBay's own word and what it means; OUT_OF_STOCK in
+      // particular resolves to ACTIVE, because that listing is still on eBay and
+      // relisting it would mint a duplicate.
+      const ebayState = resolveEbayListingState(o.listingStatus);
+      const isActive = ebayState.isActive;
 
       if (itemId) {
         // US-405: the existing listing comes from the pre-loaded map, not a
@@ -2648,7 +2683,7 @@ async function doListingsPull(
 
         // US-148: capture eBay-vs-FlipDesk disagreements before the overwrite.
         if (existing) {
-          const ebayStatus = isActive ? "active" : "ended";
+          const ebayStatus = ebayState.status;
           if (priceNum != null) {
             ebayObservations.push({
               listingId: existing.id,
@@ -2693,8 +2728,8 @@ async function doListingsPull(
           platform_offer_id: o.offerId,
           listing_url: ebayListingUrl(o.listingId),
           listing_price: priceNum ?? undefined,
-          listing_status: isActive ? "active" : "ended",
-          is_active: isActive,
+          listing_status: ebayState.status,
+          is_active: ebayState.isActive,
           quantity: o.availableQuantity ?? undefined,
         };
         // eBay's own listing start date is authoritative — write it through so
@@ -2742,6 +2777,37 @@ async function doListingsPull(
         // pre-loaded snapshot (or a fresh client-id'd row), then the patch is
         // merged on top.
         applyListingPatch(ensurePendingListing(itemId), patch);
+        ebayStateByItem.set(itemId, ebayState);
+        // US-2656: persist eBay's OWN verdict next to ours, so the reason a
+        // listing is not selling survives the collapse into two local statuses
+        // and the UI can say "eBay marked this inactive" rather than "ended".
+        //
+        // Written only on a CHANGE. A steady-state sync of an ACTIVE listing must
+        // stay free of writes (the drift marker next door is careful about the
+        // same thing), and re-stamping an unchanged verdict every 30 minutes
+        // would also make observed_at meaningless — its value is that it dates
+        // the TRANSITION.
+        if (existing) {
+          const prevPf = (existing.platform_fields ?? {}) as {
+            ebay_state?: { status?: string; reason?: string };
+          };
+          const prev = prevPf.ebay_state;
+          if (
+            prev?.status !== ebayState.status ||
+            prev?.reason !== ebayState.reason
+          ) {
+            stagePlatformFields(
+              existing.id,
+              existing.platform_fields as Record<string, unknown> | null,
+            ).ebay_state = {
+              status: ebayState.status,
+              reason: ebayState.reason,
+              ebay_status: ebayState.ebayStatus,
+              message: ebayState.message,
+              observed_at: new Date().toISOString(),
+            };
+          }
+        }
         // Forward-only status — don't regress sold/shipped items. The flip is
         // batched after the loop; the modern pass notifies on the real
         // transition (notify set), the legacy pass flips silently.
@@ -3171,12 +3237,15 @@ async function doListingsPull(
       // Lifecycle for this order's sale rows. A cancelled order (or a fully
       // refunded one) must NOT count toward revenue/profit/sold totals, so we
       // persist it with a non-'completed' status that every metric excludes.
-      const saleStatus: "completed" | "cancelled" | "refunded" =
-        order.cancelState === "CANCELED"
-          ? "cancelled"
-          : order.orderPaymentStatus === "FULLY_REFUNDED"
-            ? "refunded"
-            : "completed";
+      // US-2656: the same classification now also answers WHERE THE GARMENT IS,
+      // which a reversal alone does not tell you. A cancel before shipping left
+      // it on the shelf; a refund on an order eBay records as FULFILLED means the
+      // buyer had it and sent it back. The sync used to treat both as the first
+      // case and put the item to `listed`, while the in-app return path
+      // (US-1451) wrote `returned` — the same physical event getting two
+      // different answers depending on which code noticed it first.
+      const outcome = resolveOrderOutcome(order);
+      const saleStatus: "completed" | "cancelled" | "refunded" = outcome.saleStatus;
       const cancelledAt =
         saleStatus === "completed"
           ? null
@@ -3236,10 +3305,18 @@ async function doListingsPull(
               ? {}
               : { listing_url: ebayListingUrl(li.legacyItemId) };
             // A completed sale means the listing is no longer live.
+            //
+            // US-2656: a reversal now clears that, and the gap it closes was a
+            // row that contradicted itself. `{}` meant a sale that completed and
+            // was LATER cancelled kept listing_status = 'sold' forever, while the
+            // item went back to 'listed' — the listing insisting it sold, the item
+            // insisting it is for sale, and nothing to reconcile them. `ended` is
+            // the honest word for both reversal kinds: the listing is not live
+            // (the sale took it down) and it did not sell.
             const lifecyclePatch =
               saleStatus === "completed"
                 ? { listing_status: "sold", is_active: false }
-                : {};
+                : { listing_status: "ended", is_active: false };
             if (listingId) {
               await supabaseAdmin
                 .from("listings")
@@ -3408,17 +3485,41 @@ async function doListingsPull(
               .update({ status: "sold" })
               .eq("id", itemId)
               .not("status", "in", "(shipped,completed,returned)");
+          } else if (outcome.reversal === "returned") {
+            // US-2656: the buyer had it and sent it back. `returned` is the
+            // relist loop's entry point and is exactly what the in-app return
+            // path writes, so a return the seller handles in eBay's Seller Hub
+            // now lands in the same place as one they handle here. Before this
+            // it never arrived at all: the in-app path only runs from our own
+            // buttons, so an eBay-side refund left the item sitting as sold.
+            //
+            // Allowed to move a shipped/completed item, unlike the cancel arm
+            // below — a return is precisely the case where real fulfilment is
+            // undone, and refusing to touch those states is what stranded it.
+            await supabaseAdmin
+              .from("inventory_items")
+              .update({ status: "returned" })
+              .eq("id", itemId)
+              .in("status", ["sold", "shipped", "completed"]);
+            salesReversed += 1;
           } else {
-            // Order cancelled/refunded: the item is presumably still the
-            // seller's. If a prior sync already flipped it to 'sold', put it
-            // back to 'listed' so it re-enters active inventory and stops
-            // counting as a completed sale. Don't touch shipped/completed/
-            // returned (those represent real fulfillment we shouldn't undo).
+            // Cancelled before it shipped: the item never left, so it is still
+            // the seller's and nothing about its condition changed. If a prior
+            // sync already flipped it to 'sold', put it back. Don't touch
+            // shipped/completed/returned — those represent real fulfilment, and
+            // a cancel that reaches them is classified as a return above.
             await supabaseAdmin
               .from("inventory_items")
               .update({ status: "listed" })
               .eq("id", itemId)
               .eq("status", "sold");
+            // The eBay listing is almost never live after a sale ended it, so
+            // 'listed' can be a lie. resyncItemListedStatus is the existing
+            // arbiter: it drops the item to 'drafted' unless a live listing
+            // really does exist on some marketplace, so the item lands in Drafts
+            // where it can be relisted instead of hiding in a Listed tab with
+            // nothing behind it.
+            await resyncItemListedStatus(itemId, userId);
             // US-459: report how many cancellations/returns this run handled.
             salesReversed += 1;
           }
@@ -3654,16 +3755,24 @@ async function doListingsPull(
       if (row) {
         endedToDraft += 1;
         // Record a seller-facing reason on the listing so the Drafts surface can
-        // explain WHY it reappeared (it ended, sold out, or was removed by eBay
-        // for a policy issue) and prompt a relist. Stored in publish_error (no
-        // schema change); cleared automatically on the next successful publish.
-        // Scoped to this owner's ebay listing for the item — and we don't stomp
-        // a more specific publish-failure message already on the row.
+        // explain WHY it reappeared and prompt the right next step. Stored in
+        // publish_error (no schema change); cleared automatically on the next
+        // successful publish. Scoped to this owner's ebay listing for the item —
+        // and we don't stomp a more specific publish-failure message already on
+        // the row.
+        //
+        // US-2656: this sentence used to be a constant, and it guessed three
+        // ways in one breath — "it may have ended, sold out, or been removed by
+        // eBay (e.g. a policy issue)". Those need OPPOSITE actions: an ended
+        // listing wants a relist, and one eBay took down wants the seller to
+        // read their Seller Hub messages first, because relisting the same
+        // content gets it taken down again. eBay told us which; now we say so,
+        // and fall back to the old disjunction only when it genuinely didn't.
+        const state = ebayStateByItem.get(itemId) ?? absentListingState();
         await supabaseAdmin
           .from("listings")
           .update({
-            publish_error:
-              "eBay shows this listing is no longer active — it may have ended, sold out, or been removed by eBay (e.g. a policy issue). Review the item and relist when ready.",
+            publish_error: (state.message ?? absentListingState().message)!.slice(0, 1000),
             publish_failed_at: new Date().toISOString(),
           })
           .eq("inventory_item_id", itemId)

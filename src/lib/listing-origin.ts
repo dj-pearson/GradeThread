@@ -57,6 +57,42 @@ export interface DelistUnresolvedMarker {
   detected_at?: string;
 }
 
+// US-2656: eBay's OWN verdict on the listing, recorded by the inbound pull on
+// every change. The local `listing_status` enum has three words for it (active /
+// ended / sold), so a listing eBay took down, one that ran out of stock, and one
+// the seller ended all read the same there. This keeps the distinction that the
+// collapse loses, and it is the difference between "relist it" and "read your
+// eBay messages first, because a relist gets removed again".
+//
+// `reason` mirrors the server's ListingStateReason; `ebay_status` is eBay's raw
+// word, carried verbatim so a value eBay adds shows up as itself in the data
+// rather than being folded into a neighbour.
+export interface EbayStateMarker {
+  status: "active" | "ended";
+  reason:
+    | "active"
+    | "out_of_stock"
+    | "ended"
+    | "inactive"
+    | "completed"
+    | "not_in_feed"
+    | "unknown_status";
+  ebay_status?: string | null;
+  message?: string | null;
+  observed_at?: string;
+}
+
+// The reasons worth interrupting the seller for. `active` needs no explanation,
+// and `ended`/`completed` are already what the status badge says — repeating
+// them as a banner would train the seller to ignore the banner. These three are
+// the ones with no representation anywhere else, and each needs a DIFFERENT
+// action, which is the whole reason the reason is kept.
+export const NOTABLE_EBAY_STATE_REASONS: ReadonlySet<string> = new Set([
+  "out_of_stock",
+  "inactive",
+  "unknown_status",
+]);
+
 // US-1290: stamped on BOTH listings when the same physical garment appears to
 // have sold on more than one channel. We never auto-pick a winner — the seller
 // has to cancel one order.

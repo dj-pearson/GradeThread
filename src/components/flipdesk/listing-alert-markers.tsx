@@ -15,11 +15,13 @@
 //   • oversell_conflict — the same physical garment appears to have sold twice
 //       already. One of those orders has to be cancelled.
 
-import { AlertTriangle, ExternalLink, ShoppingBag } from "lucide-react";
+import { AlertTriangle, ExternalLink, PackageX, ShoppingBag } from "lucide-react";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
-import type {
-  DelistUnresolvedMarker,
-  OversellConflictMarker,
+import {
+  type DelistUnresolvedMarker,
+  type EbayStateMarker,
+  NOTABLE_EBAY_STATE_REASONS,
+  type OversellConflictMarker,
 } from "@/lib/listing-origin";
 
 /** Human marketplace name, falling back to the raw platform for an unmapped one. */
@@ -44,8 +46,20 @@ function formatDetectedAt(iso: string | undefined): string | null {
 const BANNER =
   "space-y-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm";
 
+// US-2656: one step quieter than BANNER. Nothing here is money leaving the
+// building this minute, but each one means the listing is not selling and the
+// seller has not been told why.
+const NOTICE =
+  "space-y-2 rounded-md border border-amber-300/60 bg-amber-50/60 p-3 text-sm dark:border-amber-800/60 dark:bg-amber-950/20";
+
+const EBAY_STATE_HEADING: Record<string, string> = {
+  out_of_stock: "Out of stock on eBay",
+  inactive: "eBay made this listing inactive",
+  unknown_status: "eBay reports an unfamiliar status",
+};
+
 /**
- * Reads both markers off a listing's `platform_fields` and renders whichever are
+ * Reads the markers off a listing's `platform_fields` and renders whichever are
  * present. Returns null when the listing is clean, so callers can drop it in
  * unconditionally.
  *
@@ -69,8 +83,13 @@ export function ListingAlertMarkers({
   const oversell = (pf.oversell_conflict ?? null) as
     | OversellConflictMarker
     | null;
+  const rawState = (pf.ebay_state ?? null) as EbayStateMarker | null;
+  // Only the reasons that need saying. A live listing and an ended one are
+  // already what the status badge shows.
+  const ebayState =
+    rawState && NOTABLE_EBAY_STATE_REASONS.has(rawState.reason) ? rawState : null;
 
-  if (!unresolved && !oversell) return null;
+  if (!unresolved && !oversell && !ebayState) return null;
 
   const unresolvedPlatform = platformLabel(unresolved?.platform || platform);
 
@@ -106,6 +125,36 @@ export function ListingAlertMarkers({
           {formatDetectedAt(unresolved.detected_at) && (
             <p className="text-xs text-muted-foreground">
               Detected {formatDetectedAt(unresolved.detected_at)}
+            </p>
+          )}
+        </div>
+      )}
+
+      {ebayState && (
+        <div className={NOTICE} role="status">
+          <p className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+            <PackageX className="h-4 w-4 flex-shrink-0" />
+            {EBAY_STATE_HEADING[ebayState.reason] ?? "eBay changed this listing"}
+          </p>
+          {ebayState.message && (
+            <p className="text-amber-900/80 dark:text-amber-200/80">
+              {ebayState.message}
+            </p>
+          )}
+          {listingUrl && (
+            <a
+              href={listingUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1 font-medium text-amber-800 underline dark:text-amber-300"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Open it on eBay
+            </a>
+          )}
+          {formatDetectedAt(ebayState.observed_at) && (
+            <p className="text-xs text-amber-900/70 dark:text-amber-200/70">
+              eBay said so {formatDetectedAt(ebayState.observed_at)}
             </p>
           )}
         </div>

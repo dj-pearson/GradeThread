@@ -764,7 +764,7 @@ async function resolveEbayConnectionUserId(
 // account_handle / external_account_id hydrates. Deduped by notificationId; a
 // best-effort insert (a parking failure must never break the webhook ack).
 async function parkUnmatchedEbayEvent(args: {
-  bucket: "payout" | "order" | "return";
+  bucket: "payout" | "order" | "return" | "listing";
   topic: string;
   notificationId: string | null;
   candidates: EbayLinkCandidates;
@@ -794,6 +794,8 @@ async function parkUnmatchedEbayEvent(args: {
 //   • order/sale topics  → targeted incremental sync (sold-state detection)
 //   • return/cancel/refund topics → same targeted sync, which reverses
 //     cancelled/refunded sales and re-activates the item (doListingsPull)
+//   • listing lifecycle (ended / closed / unsold / out of stock) → same sync,
+//     which is what reconciles the local row's status and its reason (US-2656)
 // Everything else is metered (webhook.unhandled_topic) AND logged, so we have a
 // dashboard signal for what's arriving — not just a buried console line.
 async function processEbayWebhookEvent(
@@ -852,7 +854,14 @@ async function processEbayWebhookEvent(
   // sold items to 'sold', and reverses cancelled/refunded line items back to
   // 'listed' (US-459). One code path serves both buckets — the difference is
   // only which line items the sync finds changed.
-  if (bucket === "order" || bucket === "return") {
+  // US-2656: `listing` joins these two rather than getting its own block, and
+  // that is the point. All three are answered by the SAME targeted incremental
+  // pull - doListingsPull reconciles listing state and orders in one run - so a
+  // separate path would be a second way to do the identical thing, free to drift.
+  // What the new bucket buys is not a new action but the ARRIVAL: these topics
+  // used to classify as `unhandled`, which meant they were never subscribed, so
+  // a listing ending on eBay waited for the 30-minute backstop.
+  if (bucket === "order" || bucket === "return" || bucket === "listing") {
     const data = notif?.data ?? {};
     const candidates = extractEbayCandidates(data);
     const userId = await resolveEbayConnectionUserId(
@@ -1055,7 +1064,7 @@ interface PendingDrainResult {
 
 interface PendingEventRow {
   id: string;
-  bucket: "payout" | "order" | "return";
+  bucket: "payout" | "order" | "return" | "listing";
   topic: string;
   ebay_username: string | null;
   ebay_user_id: string | null;

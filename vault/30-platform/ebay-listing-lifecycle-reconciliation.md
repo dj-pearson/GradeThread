@@ -11,9 +11,13 @@ code_refs:
   - services/edge-functions/src/lib/active-listings.ts
   - services/edge-functions/src/lib/marketplace-adapters/ebay.ts
   - services/edge-functions/src/lib/listing-lifecycle.ts
+  - services/edge-functions/src/lib/ebay-listing-state.ts
+  - services/edge-functions/src/lib/ebay-webhook-topics.ts
+  - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
+  - services/edge-functions/src/routes/flipdesk-webhooks.ts
 reviewed: 2026-08-16
 tags: [ebay, listings, sync, gotcha]
-summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error.
+summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
 
 # Reconciling eBay-ended and policy-removed listings
@@ -187,6 +191,94 @@ page. Pinned by `relist-after-ebay-end_test.ts` and
 > This decides whether a *success payload* means "still live". Both are the
 > question "is this listing alive right now?", and neither can be answered from
 > the presence or absence of a field alone.
+
+## Two words for every answer eBay gives (2026-08-16, US-2656)
+
+Everything above is about deciding whether a listing is live. The sync then wrote
+that decision down like this:
+
+```ts
+const isActive = (o.listingStatus ?? "").toUpperCase() === "ACTIVE";
+listing_status: isActive ? "active" : "ended"
+```
+
+Every way a listing can stop being ACTIVE collapsed into one word. A seller who
+ended it, a listing eBay pulled for a policy issue, a garment that sold out, and
+an auction that closed with no bid were indistinguishable afterwards — and the
+only explanation the app could offer was a hardcoded sentence that guessed three
+ways at once ("it may have ended, sold out, or been removed by eBay"). Those need
+OPPOSITE actions: an ended listing wants a relist, and one eBay took down wants
+the seller to read their Seller Hub messages first, because relisting the same
+content gets it removed again.
+
+`lib/ebay-listing-state.ts` is now the single place that reads eBay's vocabulary.
+Two properties are load-bearing:
+
+- **OUT_OF_STOCK resolves to ACTIVE.** It is a live listing under eBay's
+  out-of-stock control — same item id, still holding a slot, restockable. The old
+  ternary called it ended, which invited a relist that would have minted a
+  *second* listing beside the one still sitting there. Same failure family as
+  [[#A listingId is not a pulse]].
+- **An unrecognised status is carried verbatim** (`ebay_status`) with reason
+  `unknown_status`, never folded into a neighbour. eBay has extended this enum
+  before; carrying the raw word is how production tells us the real vocabulary
+  instead of the data quietly agreeing with our guess.
+
+The verdict lands on `listings.platform_fields.ebay_state`, written only on a
+CHANGE — a steady-state sync of an ACTIVE listing stays write-free, and
+`observed_at` keeps meaning "when it transitioned" rather than "when we last
+looked". `ListingAlertMarkers` renders the three reasons the local enum cannot
+express (`out_of_stock`, `inactive`, `unknown_status`) and stays silent for the
+rest, because a banner over every healthy listing is a banner nobody reads.
+
+### The listing bucket, and why adding it turned delivery on
+
+`classifyEbayTopic` had buckets for order, payout, return and account-deletion.
+It had none for LISTINGS, so `ITEM_CLOSED` / `ITEM_UNSOLD` / `ITEM_OUT_OF_STOCK`
+classified as `unhandled` — and that is worse than it sounds, because
+`ebay-notification-subscriptions.ts` derives what to SUBSCRIBE by running eBay's
+own topic catalog through the same router and keeping the required buckets. An
+unhandled topic was therefore never subscribed and never delivered. The only way
+FlipDesk learned a listing had ended was the 30-minute backstop pull noticing it
+was gone.
+
+Adding `listing` to `REQUIRED_BUCKETS` is what turns delivery on; the receiver
+routes it to the same targeted pull as order/return, deliberately, because
+`doListingsPull` already reconciles both in one run and a second path would be
+free to drift.
+
+> [!warning] The ordering inside `classifyEbayTopic` is a correctness property
+> `ITEM_UNSOLD` contains **SOLD**, so the listing tests must precede the order
+> tests or an auction that closed without a buyer routes to the sale bucket.
+> `RELISTED` contains `LISTED` the same way. In the other direction, the listing
+> bucket claims `CLOSED`, which is why `CASE_` was added to the RETURN test — a
+> buyer case resolving would otherwise have read as a listing event.
+
+### A reversed sale does not say where the garment is
+
+The sync classified a reversal by MONEY (`cancelState` / `orderPaymentStatus`)
+and always put the item back to `listed`, while the in-app return path (US-1451)
+wrote `returned`. Same physical event, two answers, decided by which code found
+it first — and a return the seller handled in eBay's Seller Hub never arrived at
+all, because the in-app path only runs from our own buttons.
+
+`resolveOrderOutcome` splits it on FULFILMENT, which is the thing that actually
+tracks the garment:
+
+| eBay says | sale | garment |
+|---|---|---|
+| cancelled, not fulfilled | `cancelled` | never left → back to inventory, then `resyncItemListedStatus` decides `listed` vs `drafted` |
+| refunded, FULFILLED | `refunded` | buyer had it and sent it back → `returned` |
+| cancelled, FULFILLED | `cancelled` | physically a return → `returned` |
+
+The cancel arm calls `resyncItemListedStatus` rather than trusting `listed`,
+because a sale usually ended the eBay listing — so "listed" was often a lie, and
+the item hid in a Listed tab with nothing behind it.
+
+A reversal also now clears the listing row's `sold`. `{}` meant a sale that
+completed and was LATER cancelled kept `listing_status = 'sold'` forever while
+the item went back to `listed`: the listing insisting it sold, the item insisting
+it was for sale, and nothing to reconcile them.
 
 ## Why the reason rides on a column, not the enum
 

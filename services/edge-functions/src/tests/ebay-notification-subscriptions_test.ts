@@ -34,6 +34,10 @@ const TOPICS = [
   { topicId: "ORDER_PAYMENT_COMPLETED", status: "ENABLED", schemaVersion: "1.0" },
   { topicId: "FINANCES_PAYOUT_STATUS_CHANGED", status: "ENABLED", schemaVersion: "1.0" },
   { topicId: "ORDER_RETURN_REQUESTED", status: "ENABLED", schemaVersion: "1.0" },
+  // US-2656: the listing lifecycle. Before that bucket existed this topic
+  // classified as `unhandled`, and an unhandled topic is never subscribed — so
+  // a listing ending on eBay was never delivered at all.
+  { topicId: "ITEM_CLOSED", status: "ENABLED", schemaVersion: "1.0" },
   { topicId: "MARKETPLACE_ACCOUNT_DELETION", status: "ENABLED", schemaVersion: "1.0" },
 ];
 
@@ -49,6 +53,7 @@ const healthySubs = [
   enabledSub("ORDER_PAYMENT_COMPLETED", DEST.general),
   enabledSub("FINANCES_PAYOUT_STATUS_CHANGED", DEST.general),
   enabledSub("ORDER_RETURN_REQUESTED", DEST.general),
+  enabledSub("ITEM_CLOSED", DEST.general),
   enabledSub("MARKETPLACE_ACCOUNT_DELETION", DEST.deletion),
 ];
 
@@ -77,6 +82,7 @@ Deno.test("topics are bucketed by the SAME router the receiver uses", () => {
   assertEquals(byBucket.get("payout")?.map((t) => t.topicId), ["FINANCES_PAYOUT_STATUS_CHANGED"]);
   // ORDER_RETURN_REQUESTED contains "ORDER" but must land in `return`.
   assertEquals(byBucket.get("return")?.map((t) => t.topicId), ["ORDER_RETURN_REQUESTED"]);
+  assertEquals(byBucket.get("listing")?.map((t) => t.topicId), ["ITEM_CLOSED"]);
   assertEquals(
     byBucket.get("account_deletion")?.map((t) => t.topicId),
     ["MARKETPLACE_ACCOUNT_DELETION"],
@@ -87,7 +93,7 @@ Deno.test("topics are bucketed by the SAME router the receiver uses", () => {
 
 Deno.test("account-deletion routes to the compliance endpoint, everything else to the general one", () => {
   assertEquals(destinationKindForBucket("account_deletion"), "deletion");
-  for (const bucket of ["order", "payout", "return"] as const) {
+  for (const bucket of ["order", "payout", "return", "listing"] as const) {
     assertEquals(destinationKindForBucket(bucket), "general");
   }
 });
@@ -114,11 +120,12 @@ Deno.test("AC1: unsubscribed topics are planned for creation against the right d
     subscriptions: [],
     destinationIds: DEST,
   });
-  assertEquals(plan.create.length, 4);
+  assertEquals(plan.create.length, 5);
   const byTopic = new Map(plan.create.map((a) => [a.topicId, a]));
   assertEquals(byTopic.get("ORDER_PAYMENT_COMPLETED")?.destinationId, DEST.general);
   assertEquals(byTopic.get("FINANCES_PAYOUT_STATUS_CHANGED")?.destinationId, DEST.general);
   assertEquals(byTopic.get("ORDER_RETURN_REQUESTED")?.destinationId, DEST.general);
+  assertEquals(byTopic.get("ITEM_CLOSED")?.destinationId, DEST.general);
   // The compliance topic must NEVER be pointed at the general receiver, which
   // would classify it as unhandled and drop it.
   assertEquals(byTopic.get("MARKETPLACE_ACCOUNT_DELETION")?.destinationId, DEST.deletion);
@@ -177,7 +184,7 @@ Deno.test("a missing destination skips its topics rather than creating a broken 
   });
   // Only the account-deletion topic can be created; the rest have no home.
   assertEquals(plan.create.map((a) => a.topicId), ["MARKETPLACE_ACCOUNT_DELETION"]);
-  assertEquals(plan.skipped.length, 3);
+  assertEquals(plan.skipped.length, 4);
 });
 
 Deno.test("onlyBuckets narrows the plan", () => {
@@ -259,7 +266,9 @@ Deno.test("account-deletion subscribed to the GENERAL destination counts as misr
     env: "production",
     topics: TOPICS,
     subscriptions: [
-      ...healthySubs.slice(0, 3),
+      // everything that legitimately lives on the general destination, then the
+      // compliance topic misrouted onto it
+      ...healthySubs.slice(0, 4),
       enabledSub("MARKETPLACE_ACCOUNT_DELETION", DEST.general),
     ],
     destinationIds: DEST,
@@ -275,8 +284,8 @@ Deno.test("a bucket with no destination yet is reported missing, not healthy", (
     destinationIds: { general: null, deletion: DEST.deletion },
   });
   assertEquals(health.ok, false);
-  // order/payout/return all live on the general destination.
-  assertEquals(health.missingBuckets, ["order", "payout", "return"]);
+  // order/payout/return/listing all live on the general destination.
+  assertEquals(health.missingBuckets, ["order", "payout", "return", "listing"]);
 });
 
 Deno.test("a bucket eBay's catalog has no topic for is reported missing", () => {

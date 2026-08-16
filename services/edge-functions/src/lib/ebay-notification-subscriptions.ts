@@ -58,6 +58,11 @@ export const REQUIRED_BUCKETS: readonly RequiredBucket[] = [
   "order",
   "payout",
   "return",
+  // US-2656. Adding it here is what actually subscribes eBay's listing-lifecycle
+  // topics: the reconcile below walks eBay's own catalog and keeps every topic
+  // classifyEbayTopic puts in a required bucket, so a bucket that is not listed
+  // here is a bucket whose topics are never subscribed and never delivered.
+  "listing",
   "account_deletion",
 ];
 

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { NOTABLE_EBAY_STATE_REASONS } from "@/lib/listing-origin";
 
 // US-2519. Four panels on the item page each ran their own `listings` query for
 // the same inventory_item_id — the eBay-native notice, the alert markers, the
@@ -85,13 +86,21 @@ export function ebayListing(rows: ItemListingRow[]): ItemListingRow | null {
 }
 
 /**
- * Listings carrying an unresolved delist or an oversell conflict. Both mean the
- * same garment can still be bought right now, so they are read across every
- * platform, not just eBay.
+ * Listings carrying something the seller has to be told about. The first two
+ * mean the same garment can still be bought right now, so they are read across
+ * every platform, not just eBay.
+ *
+ * US-2656 adds the third: eBay's own verdict, when it is a reason the local
+ * status cannot express. Gated on NOTABLE_EBAY_STATE_REASONS rather than on the
+ * marker's presence, because the marker is recorded for every state including
+ * the healthy ones — flagging those would put an empty alerts section above
+ * every live listing and teach the seller to scroll past it.
  */
 export function flaggedListings(rows: ItemListingRow[]): ItemListingRow[] {
   return rows.filter((r) => {
     const pf = r.platform_fields ?? {};
-    return Boolean(pf.delist_unresolved) || Boolean(pf.oversell_conflict);
+    if (pf.delist_unresolved || pf.oversell_conflict) return true;
+    const reason = (pf.ebay_state as { reason?: string } | null)?.reason;
+    return Boolean(reason && NOTABLE_EBAY_STATE_REASONS.has(reason));
   });
 }
