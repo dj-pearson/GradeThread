@@ -108,6 +108,26 @@ The two server-side controls, in the order they fire:
    `expense-receipts`: `validateReceiptUpload()` does the same, with one
    deliberate exception — see below (US-2228).
 
+> [!warning] `item-photos` has NEITHER control today, and Android proves it
+> The list above is exhaustive on purpose. `item-photos` is the public seller
+> bucket and there is **no edge upload path for it** — clients mint a signed URL
+> and PUT straight to storage. So the only metadata strip on a listing photo is
+> the client-side one, which is exactly the work the paragraph above says is not
+> a security boundary.
+>
+> Traced 2026-08-16 (US-2658): the Android CAMERA path does not do it either.
+> `CaptureScreen.capture()` records the raw CameraX file
+> (`CaptureScreen.kt:175`), `UploadWorker` PUTs those bytes unchanged
+> (`PhotoUpload.kt:124`), and `PhotoProcessor` — which is what re-encodes without
+> EXIF and bakes orientation into the pixels — is reached only from the library
+> picker. iOS compresses every camera shot before storing it
+> (`PhotoIntakeView.swift:1025`), so this is a defect rather than a platform
+> difference.
+>
+> The consequence to hold onto: for a listing photo, "the honest path" and "the
+> only path" are the same thing, so a client that skips the strip ships the
+> metadata. Nothing downstream catches it.
+
 ### The one upload that is legitimately not an image (US-2228)
 
 `expense-receipts` is the only bucket admitting `application/pdf`, because half
