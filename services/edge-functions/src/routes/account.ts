@@ -46,10 +46,18 @@ export const accountRoutes = new Hono<AccountEnv>();
 //   • original_storage_path — the EXIF/GPS-INTACT original retained for
 //     forensics (US-339); omitting it left GPS-bearing PII behind, and
 //   • disputes.evidence_paths — filer-attached evidence, also in this bucket.
+//   • purchase_arrival_captures.storage_path — US-2645. A BUYER's photos of a
+//     garment as it arrived, written to this same bucket at
+//     {userId}/{purchaseId}/arrival_*. Added in 00418, after US-1637 swept the
+//     other three, and never added here — so deleting an account cascaded the
+//     ROW away and left the PHOTOGRAPH in the bucket. Worse than kept: with no
+//     row left pointing at it the object is ORPHANED, and every sweep in this
+//     codebase drives off DB rows, so nothing could ever find it again.
 // De-duplicated so a path present twice isn't removed twice.
 export function collectSubmissionImagePaths(
   subImages: { storage_path: string | null; original_storage_path: string | null }[],
   disputes: { evidence_paths: string[] | null }[],
+  arrivalCaptures: { storage_path: string | null }[] = [],
 ): string[] {
   const imagePaths = subImages
     .flatMap((r) => [r.storage_path, r.original_storage_path])
@@ -57,7 +65,10 @@ export function collectSubmissionImagePaths(
   const evidencePaths = disputes
     .flatMap((r) => r.evidence_paths ?? [])
     .filter((p): p is string => typeof p === "string" && p.length > 0);
-  return [...new Set([...imagePaths, ...evidencePaths])];
+  const arrivalPaths = arrivalCaptures
+    .map((r) => r.storage_path)
+    .filter((p): p is string => !!p);
+  return [...new Set([...imagePaths, ...evidencePaths, ...arrivalPaths])];
 }
 
 // ── MFA recovery codes (US-374) ────────────────────────────────────────────
@@ -672,7 +683,7 @@ accountRoutes.post("/delete", async (c) => {
   const subIds = (subs.data ?? []).map((r) => (r as { id: string }).id);
   const itemIds = (items.data ?? []).map((r) => (r as { id: string }).id);
 
-  const [subImgs, itemPhotos, disputeRows] = await Promise.all([
+  const [subImgs, itemPhotos, disputeRows, arrivalRows] = await Promise.all([
     // US-1637: also sweep original_storage_path — the metadata-INTACT original
     // (EXIF/GPS deliberately preserved for forensics, US-339). Selecting only
     // storage_path left GPS-bearing PII in the bucket after "deletion".
@@ -688,11 +699,18 @@ accountRoutes.post("/delete", async (c) => {
     // US-1637: dispute evidence photos also live in submission-images and were
     // never swept — the account owns them via disputes.user_id.
     supabaseAdmin.from("disputes").select("evidence_paths").eq("user_id", userId),
+    // US-2645: arrival captures, the fourth source in this bucket. Owned
+    // directly via user_id, so no parent lookup is needed.
+    supabaseAdmin
+      .from("purchase_arrival_captures")
+      .select("storage_path")
+      .eq("user_id", userId),
   ]);
 
   const submissionImagePaths = collectSubmissionImagePaths(
     (subImgs.data ?? []) as { storage_path: string | null; original_storage_path: string | null }[],
     (disputeRows.data ?? []) as { evidence_paths: string[] | null }[],
+    (arrivalRows.data ?? []) as { storage_path: string | null }[],
   );
   const itemPhotoPaths = (itemPhotos.data ?? [])
     .map((r) => (r as { storage_path: string | null }).storage_path)
