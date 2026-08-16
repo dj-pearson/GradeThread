@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
-import { edgeEnv } from "../lib/env.ts";
+import { edgeEnv, isProduction } from "../lib/env.ts";
 import { isPlaceholderRelease, RELEASE_ENV_KEYS } from "../lib/release-identity.ts";
 import {
   checkSchemaCompleteness,
@@ -311,8 +311,13 @@ healthRoutes.get("/", (c) => {
 // in prod so it can't be used as a noise/abuse vector). Throws into app.onError,
 // which captures to the tracker with the release SHA + correlation id.
 healthRoutes.get("/_throw", (c) => {
-  if ((Deno.env.get("EDGE_ENV") ?? Deno.env.get("DENO_ENV") ?? "production")
-    .trim().toLowerCase() === "production") {
+  // Through isProduction(), NOT a third copy of the env chain. This carried its
+  // own `EDGE_ENV ?? DENO_ENV ?? "production"`, and `??` never falls through on
+  // an empty string — so a BLANK EDGE_ENV made this endpoint reachable in
+  // production, which is exactly the abuse vector the 404 above exists to close:
+  // an unauthenticated URL that throws on every call. Same defect as lib/env.ts
+  // and lib/release-identity.ts; this was the third copy.
+  if (isProduction()) {
     return c.json({ error: "Not found" }, 404);
   }
   throw new Error("Forced test exception from /health/_throw (US-491 verification)");

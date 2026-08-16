@@ -62,3 +62,38 @@ Deno.test("a blank EDGE_ENV cannot skip the admin-MFA boot assertion", () => {
     get({ EDGE_ENV: "", ADMIN_MFA_ENFORCED: "false", ADMIN_MFA_ENROLLMENT_WINDOW: "true" }),
   );
 });
+
+Deno.test("no module keeps its own copy of the EDGE_ENV chain", async () => {
+  // There were THREE. lib/env.ts had two (edgeEnv and assertAdminMfaConfig) and
+  // routes/health.ts had a third gating /health/_throw — an unauthenticated
+  // endpoint that throws on every call, which a blank EDGE_ENV made reachable
+  // in production. Each copy is another place the blank has to be handled, and
+  // the one that mattered most was the one furthest from the others.
+  //
+  // Scanned rather than remembered: a fourth copy is a new instance of a defect
+  // that has now shipped twice in this repo.
+  const offenders: string[] = [];
+  for await (const entry of walk("./src")) {
+    if (!entry.endsWith(".ts") || entry.includes("_test.")) continue;
+    const src = await Deno.readTextFile(entry);
+    // The shape: a nullish-coalesce reading EDGE_ENV, anywhere but the resolver.
+    if (!/Deno\.env\.get\(\s*"EDGE_ENV"\s*\)\s*\?\?/.test(src)) continue;
+    if (entry.split("\\").join("/").endsWith("src/lib/env.ts")) continue; // the resolver itself
+    offenders.push(entry.split("\\").join("/"));
+  }
+  if (offenders.length > 0) {
+    throw new Error(
+      "These read EDGE_ENV with `??` instead of going through resolveEdgeEnv()/" +
+        "isProduction(). `??` does not fall through on an empty string, so a " +
+        `blank EDGE_ENV defeats them:\n  ${offenders.join("\n  ")}`,
+    );
+  }
+});
+
+async function* walk(dir: string): AsyncGenerator<string> {
+  for await (const e of Deno.readDir(dir)) {
+    const p = `${dir}/${e.name}`;
+    if (e.isDirectory) yield* walk(p);
+    else yield p;
+  }
+}
