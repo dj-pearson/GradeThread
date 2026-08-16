@@ -18,6 +18,17 @@ import {
   upstreamUnavailableResponse,
   type PagesEnv,
 } from "./blog-render";
+// US-2636: the SAME threshold and the SAME predicate the page uses to decide
+// whether to noindex itself. Imported rather than restated — the module's own
+// docblock says the citation-block and the indexing decisions "must not
+// diverge", and the sitemap is the third decision in that set.
+//
+// Safe to reach into src/ here: report-thresholds.ts has zero imports and is
+// pure constants plus pure functions, so nothing browser-shaped comes with it.
+import {
+  isPublishableReport,
+  MIN_DURABILITY_COHORTS,
+} from "../../src/lib/report-thresholds";
 
 // Threshold from the AC. The real spec limit is 50,000 URLs / 50 MB per file;
 // 5,000 keeps each file small and fast to generate at the edge.
@@ -206,6 +217,51 @@ function manifestRouteToUrl(base: string, r: ManifestRoute, generatedAt: string)
   };
 }
 
+/**
+ * US-2636: registry routes whose PAGE decides at render time whether to be
+ * indexed, and the question it asks.
+ *
+ * MEASURED, not theorised. GET https://gradethread.com/state-of-durability
+ * returned 200 with `<meta name="robots" content="noindex, follow">` while
+ * /sitemap.xml advertised it at priority 0.8, changefreq weekly. Both halves are
+ * individually right: the report has `sufficient_cohorts: 0` against a floor of
+ * 8, so the page correctly refuses to be indexed (US-2098 — inviting citation of
+ * a finding we do not have is worse than having no report page). Nothing
+ * reconciled them, so we told Google to crawl it often and then told Google to
+ * drop it.
+ *
+ * FAILURE DIRECTION IS DELIBERATE. A predicate that cannot reach the upstream
+ * returns false and the URL is omitted — which is exactly what the PAGE does,
+ * because it reads the same data through a prerender seed and treats an absent
+ * seed as not-publishable. Matching the page is the whole point; an omitted URL
+ * costs a crawl of a page that is linked anyway, while an advertised noindex
+ * costs the contradiction.
+ */
+const CONDITIONALLY_INDEXED: Record<string, (env: PagesEnv) => Promise<boolean>> = {
+  "/state-of-durability": async (env) => {
+    const report = await fetchEdgeJson<{ sample?: { sufficient_cohorts?: number } }>(
+      env,
+      "/api/grading/public/durability-report",
+    );
+    return isPublishableReport(report?.sample?.sufficient_cohorts, MIN_DURABILITY_COHORTS);
+  },
+};
+
+/** Which conditional routes may be advertised right now. */
+async function indexableConditionalPaths(env: PagesEnv): Promise<Set<string>> {
+  const paths = Object.keys(CONDITIONALLY_INDEXED);
+  const verdicts = await Promise.all(
+    paths.map(async (p) => {
+      try {
+        return await CONDITIONALLY_INDEXED[p]!(env);
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return new Set(paths.filter((_, i) => verdicts[i]));
+}
+
 /** US-1679: partition the manifest routes into marketing vs grading pSEO. */
 async function partitionedStaticUrls(
   env: PagesEnv,
@@ -219,9 +275,11 @@ async function partitionedStaticUrls(
       grading: [],
     };
   }
+  const indexable = await indexableConditionalPaths(env);
   const marketing: SitemapUrl[] = [];
   const grading: SitemapUrl[] = [];
   for (const r of manifest.routes) {
+    if (r.path in CONDITIONALLY_INDEXED && !indexable.has(r.path)) continue;
     const url = manifestRouteToUrl(base, r, manifest.generatedAt);
     (isGradingRoute(r.path) ? grading : marketing).push(url);
   }
