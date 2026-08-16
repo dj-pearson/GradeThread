@@ -52,7 +52,12 @@ Deno.test("retention runs BEFORE any destructive step, not just before the delet
   // The two irreversible things that happen ahead of the cascade. Both are
   // matched on their call text rather than on the numbered comments, which are
   // prose and get renumbered.
-  const storagePurge = src.indexOf('removeAll("submission-images"');
+  // US-2649: the sweep is now a loop over the shared collector's buckets, so
+  // there is no single bucket name to anchor on. This guard said "this guard is
+  // stale" if it could not find its anchor, and that is exactly what it did
+  // when the refactor landed — the right behaviour, and the reason the anchor
+  // moved rather than the assertion being dropped.
+  const storagePurge = src.indexOf("await removeAll(bucket, objectPaths)");
   const stripeDelete = src.indexOf("stripe.customers.del(");
 
   assert(storagePurge !== -1, "storage purge call not found — this guard is stale");

@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  collectOwnedStorageObjects,
+  type PurgeDb,
+} from "../lib/account-storage-purge.ts";
 import { purgeEmailKeyedPii } from "../lib/account-email-purge.ts";
 import { retainFinancialRecords } from "../lib/financial-retention.ts";
 import { captureException } from "../lib/observability.ts";
@@ -38,38 +42,6 @@ type AccountEnv = {
 };
 
 export const accountRoutes = new Hono<AccountEnv>();
-
-// US-1637: collect every submission-images object owned by a deleting account so
-// {deleted:true} means the bytes are actually gone. Pure + exported so the sweep
-// is unit-testable (account-deletion-sweep_test.ts). Includes:
-//   • storage_path — the served (metadata-stripped) image, and
-//   • original_storage_path — the EXIF/GPS-INTACT original retained for
-//     forensics (US-339); omitting it left GPS-bearing PII behind, and
-//   • disputes.evidence_paths — filer-attached evidence, also in this bucket.
-//   • purchase_arrival_captures.storage_path — US-2645. A BUYER's photos of a
-//     garment as it arrived, written to this same bucket at
-//     {userId}/{purchaseId}/arrival_*. Added in 00418, after US-1637 swept the
-//     other three, and never added here — so deleting an account cascaded the
-//     ROW away and left the PHOTOGRAPH in the bucket. Worse than kept: with no
-//     row left pointing at it the object is ORPHANED, and every sweep in this
-//     codebase drives off DB rows, so nothing could ever find it again.
-// De-duplicated so a path present twice isn't removed twice.
-export function collectSubmissionImagePaths(
-  subImages: { storage_path: string | null; original_storage_path: string | null }[],
-  disputes: { evidence_paths: string[] | null }[],
-  arrivalCaptures: { storage_path: string | null }[] = [],
-): string[] {
-  const imagePaths = subImages
-    .flatMap((r) => [r.storage_path, r.original_storage_path])
-    .filter((p): p is string => !!p);
-  const evidencePaths = disputes
-    .flatMap((r) => r.evidence_paths ?? [])
-    .filter((p): p is string => typeof p === "string" && p.length > 0);
-  const arrivalPaths = arrivalCaptures
-    .map((r) => r.storage_path)
-    .filter((p): p is string => !!p);
-  return [...new Set([...imagePaths, ...evidencePaths, ...arrivalPaths])];
-}
 
 // ── MFA recovery codes (US-374) ────────────────────────────────────────────
 //
@@ -209,31 +181,6 @@ function getStripe(): Stripe | null {
   const key = Deno.env.get("STRIPE_SECRET_KEY");
   if (!key) return null;
   return new Stripe(key, { apiVersion: "2024-04-10", timeout: 20_000, maxNetworkRetries: 2 });
-}
-
-/**
- * US-2647: every object under `{userId}/` in a bucket, as full paths.
- *
- * For buckets whose objects no table enumerates. `avatars` is the case: the
- * browser uploads to a timestamped path and only the CURRENT url is stored on
- * the users row, so the folder is the only complete list.
- *
- * Best-effort by design — a listing failure is logged and returns nothing
- * rather than throwing, because it must not be the reason an erasure request
- * fails partway through. The caller's other sweeps have already run.
- */
-async function listUserFolder(bucket: string, userId: string): Promise<string[]> {
-  const { data, error } = await supabaseAdmin.storage
-    .from(bucket)
-    .list(userId, { limit: 1000 });
-  if (error) {
-    console.error(`[account/delete] storage list failed (${bucket}):`, error.message);
-    return [];
-  }
-  return (data ?? [])
-    .map((o) => (o as { name?: string }).name)
-    .filter((n): n is string => !!n)
-    .map((n) => `${userId}/${n}`);
 }
 
 // Supabase storage .remove() takes an array; chunk to stay well under any
@@ -716,107 +663,23 @@ accountRoutes.post("/delete", async (c) => {
     );
   }
 
-  // 1. Remove storage objects (no user_id column on storage; derive paths from
-  //    the owned DB rows before the cascade deletes them).
-  const [subs, items] = await Promise.all([
-    supabaseAdmin.from("submissions").select("id").eq("user_id", userId),
-    supabaseAdmin.from("inventory_items").select("id").eq("user_id", userId),
-  ]);
-  const subIds = (subs.data ?? []).map((r) => (r as { id: string }).id);
-  const itemIds = (items.data ?? []).map((r) => (r as { id: string }).id);
-
-  const [subImgs, itemPhotos, disputeRows, arrivalRows, exportRows, receiptRows] = await Promise.all([
-    // US-1637: also sweep original_storage_path — the metadata-INTACT original
-    // (EXIF/GPS deliberately preserved for forensics, US-339). Selecting only
-    // storage_path left GPS-bearing PII in the bucket after "deletion".
-    subIds.length
-      ? supabaseAdmin
-        .from("submission_images")
-        .select("storage_path, original_storage_path")
-        .in("submission_id", subIds)
-      : Promise.resolve({ data: [] as { storage_path: string; original_storage_path: string | null }[] }),
-    itemIds.length
-      ? supabaseAdmin.from("item_photos").select("storage_path").in("inventory_item_id", itemIds)
-      : Promise.resolve({ data: [] as { storage_path: string }[] }),
-    // US-1637: dispute evidence photos also live in submission-images and were
-    // never swept — the account owns them via disputes.user_id.
-    supabaseAdmin.from("disputes").select("evidence_paths").eq("user_id", userId),
-    // US-2645: arrival captures, the fourth source in this bucket. Owned
-    // directly via user_id, so no parent lookup is needed.
-    supabaseAdmin
-      .from("purchase_arrival_captures")
-      .select("storage_path")
-      .eq("user_id", userId),
-    // US-2646: any COMPLIANCE EXPORT ARCHIVE assembled for this person, in the
-    // separate private `compliance-exports` bucket.
-    //
-    // This is the most complete copy of an account that exists — processExport
-    // assembles submissions, inventory, listings, sales and a storage manifest
-    // into one file — and it exists precisely BECAUSE the person exercised a
-    // data right. Nothing has ever removed an object from that bucket. The
-    // data_requests row cascades on self-serve deletion, so the archive was
-    // left behind with nothing pointing at it.
-    supabaseAdmin
-      .from("data_requests")
-      .select("file_path")
-      .eq("user_id", userId),
-    // US-2647: expense receipts, in their own PRIVATE bucket. 00564's comment
-    // is blunt about what these hold — "a card tail, a billing address,
-    // sometimes a full name". Reading the column is exact here rather than a
-    // folder listing, because flipdesk-expenses.ts already removes the previous
-    // object on both replace and delete, so no superseded receipts accumulate.
-    supabaseAdmin
-      .from("flipdesk_expenses")
-      .select("receipt_path")
-      .eq("user_id", userId),
-  ]);
-
-  const submissionImagePaths = collectSubmissionImagePaths(
-    (subImgs.data ?? []) as { storage_path: string | null; original_storage_path: string | null }[],
-    (disputeRows.data ?? []) as { evidence_paths: string[] | null }[],
-    (arrivalRows.data ?? []) as { storage_path: string | null }[],
+  // 1. Remove storage objects, before the cascade destroys the rows that name
+  //    them.
+  //
+  //    US-2649: one shared collector, used by this route AND by the admin
+  //    compliance ANONYMIZE branch. They were two hand-written lists and they
+  //    had drifted: this one swept five buckets from seven sources, that one
+  //    swept two from two, and the FORMAL path was the weaker of the pair. The
+  //    duplication was the defect, so the list moved rather than being copied
+  //    a third time. lib/account-storage-purge.ts carries the reasoning for
+  //    each source.
+  const owned = await collectOwnedStorageObjects(
+    supabaseAdmin as unknown as PurgeDb,
+    userId,
   );
-  const itemPhotoPaths = (itemPhotos.data ?? [])
-    .map((r) => (r as { storage_path: string | null }).storage_path)
-    .filter((p): p is string => !!p);
-
-  // US-2646: a different bucket, so a separate sweep. Kept beside the others
-  // rather than folded into the collector, whose name and contract are about
-  // submission-images specifically.
-  const complianceExportPaths = [
-    ...new Set(
-      ((exportRows.data ?? []) as { file_path: string | null }[])
-        .map((r) => r.file_path)
-        .filter((p): p is string => !!p),
-    ),
-  ];
-
-  const expenseReceiptPaths = [
-    ...new Set(
-      ((receiptRows.data ?? []) as { receipt_path: string | null }[])
-        .map((r) => r.receipt_path)
-        .filter((p): p is string => !!p),
-    ),
-  ];
-
-  await removeAll("submission-images", submissionImagePaths);
-  await removeAll("item-photos", itemPhotoPaths);
-  await removeAll("compliance-exports", complianceExportPaths);
-  await removeAll("expense-receipts", expenseReceiptPaths);
-  // US-2647: avatars, and this one is the only bucket in the set that is PUBLIC.
-  //
-  // Profile pictures upload straight from the browser to `avatars` at
-  // {userId}/avatar_{timestamp}.{ext}, and the only pointer is `users.avatar_url`
-  // — a public URL, not a path. So the cascade takes the pointer and leaves a
-  // PUBLICLY FETCHABLE photograph of the person who just deleted their account.
-  //
-  // LISTED BY FOLDER RATHER THAN READ FROM A ROW, deliberately, and it is the
-  // only source here that can be: settings.tsx uploads to a TIMESTAMPED path,
-  // so every change writes a new object and `avatar_url` names only the current
-  // one. Reading the column would erase the latest avatar and leave every
-  // superseded one behind — a worse outcome than today's, because it would look
-  // handled.
-  await removeAll("avatars", await listUserFolder("avatars", userId));
+  for (const [bucket, objectPaths] of Object.entries(owned)) {
+    await removeAll(bucket, objectPaths);
+  }
   const storagePurged = true;
 
   // 2. Delete the Stripe customer (this also cancels any active subscriptions).

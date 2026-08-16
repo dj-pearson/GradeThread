@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import {
+  collectOwnedStorageObjects,
+  type PurgeDb,
+} from "../lib/account-storage-purge.ts";
 import { writeAuditLog } from "../lib/audit-log.ts";
 import { requireStepUp } from "../lib/step-up.ts";
 import {
@@ -495,29 +499,27 @@ async function processDelete(
     .eq("id", requestId);
 
   // 1. Purge storage objects (derive paths from owned rows before anonymizing).
-  const [subs, items] = await Promise.all([
-    supabaseAdmin.from("submissions").select("id").eq("user_id", userId),
-    supabaseAdmin.from("inventory_items").select("id").eq("user_id", userId),
-  ]);
-  const subIds = (subs.data ?? []).map((r) => (r as { id: string }).id);
-  const itemIds = (items.data ?? []).map((r) => (r as { id: string }).id);
-
-  const [subImgs, itemPhotos] = await Promise.all([
-    subIds.length
-      ? supabaseAdmin.from("submission_images").select("storage_path").in("submission_id", subIds)
-      : Promise.resolve({ data: [] as { storage_path: string }[] }),
-    itemIds.length
-      ? supabaseAdmin.from("item_photos").select("storage_path").in("inventory_item_id", itemIds)
-      : Promise.resolve({ data: [] as { storage_path: string }[] }),
-  ]);
-  const subImgPaths = (subImgs.data ?? [])
-    .map((r) => (r as { storage_path: string | null }).storage_path)
-    .filter((p): p is string => !!p);
-  const itemPhotoPaths = (itemPhotos.data ?? [])
-    .map((r) => (r as { storage_path: string | null }).storage_path)
-    .filter((p): p is string => !!p);
-  await removeAll("submission-images", subImgPaths);
-  await removeAll("item-photos", itemPhotoPaths);
+  //
+  // US-2649: driven off the SHARED collector, not a second hand-written list.
+  // This branch used to sweep two buckets from two sources while the self-serve
+  // path swept five from seven — so the FORMAL erasure path, the one a written
+  // request goes through, was materially weaker than the button in settings.
+  // It also still selected only storage_path from submission_images, never
+  // original_storage_path, which is the EXIF/GPS-intact original US-1637 added
+  // everywhere else with a note that omitting it left GPS-bearing PII in the
+  // bucket after deletion. The duplication was the defect; one list fixes it
+  // and keeps it fixed.
+  //
+  // Ordering matters here more than in the self-serve path: step 3 below nulls
+  // users.avatar_url, which is the only pointer to the avatar object, so a
+  // sweep placed after it could never find one.
+  const owned = await collectOwnedStorageObjects(
+    supabaseAdmin as unknown as PurgeDb,
+    userId,
+  );
+  for (const [bucket, objectPaths] of Object.entries(owned)) {
+    await removeAll(bucket, objectPaths);
+  }
 
   // 2. Destroy stored credentials: marketplace OAuth tokens + API keys.
   await supabaseAdmin.from("marketplace_connections").delete().eq("user_id", userId);
@@ -571,7 +573,8 @@ async function processDelete(
     targetId: requestId,
     details: {
       user_id: userId,
-      storage_objects_purged: subImgPaths.length + itemPhotoPaths.length,
+      // US-2649: every bucket now, not just the two this branch used to sweep.
+      storage_objects_purged: Object.values(owned).reduce((n, p) => n + p.length, 0),
       mode: "anonymize_retain_financial",
     },
   });

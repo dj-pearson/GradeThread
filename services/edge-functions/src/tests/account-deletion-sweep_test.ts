@@ -1,176 +1,220 @@
+// Account erasure must remove the BYTES, not just the rows.
+//
+// HISTORY, because it is the argument for how this file is now written. Five
+// separate leaks were found here, each the same shape — a new feature writing
+// into a storage bucket, by an author with no reason to open a deletion routine:
+//
+//   US-1637  the EXIF/GPS-INTACT originals, and dispute evidence
+//   US-2645  purchase_arrival_captures, a buyer's photos of an arrival
+//   US-2646  the compliance export archive: a whole account in one file
+//   US-2647  avatars (a PUBLIC bucket) and expense receipts (card tail,
+//            billing address, sometimes a full name)
+//   US-2649  ALL of the above missing from the ADMIN erasure path, which also
+//            still omitted original_storage_path — the very column US-1637 was
+//            written to add
+//
+// US-2649 removed the cause rather than patching the sixth instance: there were
+// TWO hand-written lists, one per erasure path, and the formal path was the
+// weaker. lib/account-storage-purge.ts is now the only list, so these tests
+// assert against IT, and a route is checked only for whether it calls it.
+
 import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
-import { collectSubmissionImagePaths } from "../routes/account.ts";
+import {
+  collectOwnedStorageObjects,
+  type PurgeDb,
+} from "../lib/account-storage-purge.ts";
 
-// US-1637: account deletion must sweep the metadata-INTACT originals and dispute
-// evidence from the submission-images bucket, not just the served storage_path —
-// otherwise GPS-bearing PII survives a "completed" deletion.
+const PURGE_SRC = Deno.readTextFileSync(
+  new URL("../lib/account-storage-purge.ts", import.meta.url),
+);
 
-Deno.test("collectSubmissionImagePaths includes served + original image paths", () => {
-  const paths = collectSubmissionImagePaths(
-    [
-      { storage_path: "u/1/front.jpg", original_storage_path: "u/1/front.orig.jpg" },
-      { storage_path: "u/1/back.jpg", original_storage_path: null },
+/** A tiny supabase stand-in: tables of rows, filtered by eq/in. */
+function fakeDb(
+  dataset: Record<string, Record<string, unknown>[]>,
+  folders: Record<string, string[]> = {},
+): PurgeDb {
+  return {
+    from(table: string) {
+      const rows = dataset[table] ?? [];
+      return {
+        // PROJECTS to the requested columns, which is load-bearing rather than
+        // fussiness. A fake that returns whole rows regardless cannot catch a
+        // select that stops ASKING for a column — and that is precisely the
+        // US-1637 defect (only storage_path, never original_storage_path).
+        // Verified: with projection off, deleting original_storage_path from
+        // the select left this suite green.
+        select(columns: string) {
+          const wanted = columns.split(",").map((c) => c.trim());
+          const project = (r: Record<string, unknown>) =>
+            wanted.includes("*")
+              ? r
+              : Object.fromEntries(wanted.filter((c) => c in r).map((c) => [c, r[c]]));
+          return {
+            eq: (col: string, val: string) =>
+              Promise.resolve({ data: rows.filter((r) => r[col] === val).map(project) }),
+            in: (col: string, vals: string[]) =>
+              Promise.resolve({
+                data: rows.filter((r) => vals.includes(r[col] as string)).map(project),
+              }),
+          };
+        },
+      };
+    },
+    storage: {
+      from(bucket: string) {
+        return {
+          list: () =>
+            Promise.resolve({
+              data: (folders[bucket] ?? []).map((name) => ({ name })),
+              error: null,
+            }),
+        };
+      },
+    },
+  };
+}
+
+const USER = "u1";
+
+function dataset(): Record<string, Record<string, unknown>[]> {
+  return {
+    submissions: [{ id: "s1", user_id: USER }, { id: "s-other", user_id: "u2" }],
+    inventory_items: [{ id: "i1", user_id: USER }],
+    submission_images: [
+      {
+        submission_id: "s1",
+        storage_path: "u1/s1/front.jpg",
+        original_storage_path: "u1/s1/front.orig.jpg",
+      },
+      { submission_id: "s-other", storage_path: "u2/s9/front.jpg", original_storage_path: null },
     ],
-    [],
+    item_photos: [{ inventory_item_id: "i1", storage_path: "u1/i1/photo.jpg" }],
+    disputes: [{ user_id: USER, evidence_paths: ["u1/d1/evidence.jpg", ""] }],
+    purchase_arrival_captures: [{ user_id: USER, storage_path: "u1/p9/arrival_front.jpg" }],
+    data_requests: [
+      { user_id: USER, file_path: "u1/export-2026.json" },
+      { user_id: USER, file_path: null },
+    ],
+    flipdesk_expenses: [{ user_id: USER, receipt_path: "u1/e1/receipt.pdf" }],
+  };
+}
+
+Deno.test("every owned object is collected, grouped by its bucket", async () => {
+  const owned = await collectOwnedStorageObjects(
+    fakeDb(dataset(), { avatars: ["avatar_1.jpg", "avatar_2.jpg"] }),
+    USER,
   );
-  assertEquals(paths.sort(), [
-    "u/1/back.jpg",
-    "u/1/front.jpg",
-    "u/1/front.orig.jpg",
+  assertEquals(owned["submission-images"]!.sort(), [
+    "u1/d1/evidence.jpg",
+    "u1/p9/arrival_front.jpg",
+    "u1/s1/front.jpg",
+    "u1/s1/front.orig.jpg",
   ]);
+  assertEquals(owned["item-photos"], ["u1/i1/photo.jpg"]);
+  assertEquals(owned["compliance-exports"], ["u1/export-2026.json"]);
+  assertEquals(owned["expense-receipts"], ["u1/e1/receipt.pdf"]);
+  assertEquals(owned.avatars!.sort(), ["u1/avatar_1.jpg", "u1/avatar_2.jpg"]);
 });
 
-Deno.test("collectSubmissionImagePaths includes dispute evidence paths", () => {
-  const paths = collectSubmissionImagePaths(
-    [{ storage_path: "u/1/front.jpg", original_storage_path: null }],
-    [
-      { evidence_paths: ["u/1/evidence-a.jpg", "u/1/evidence-b.jpg"] },
-      { evidence_paths: null },
-    ],
-  );
-  assertEquals(paths.sort(), [
-    "u/1/evidence-a.jpg",
-    "u/1/evidence-b.jpg",
-    "u/1/front.jpg",
-  ]);
+Deno.test("US-1637: the EXIF-intact original is collected, not just the served copy", async () => {
+  // Selecting only storage_path left GPS-bearing PII in the bucket after a
+  // "completed" deletion. The admin path was still doing exactly that until
+  // US-2649.
+  const owned = await collectOwnedStorageObjects(fakeDb(dataset()), USER);
+  assert(owned["submission-images"]!.includes("u1/s1/front.orig.jpg"));
 });
 
-Deno.test("collectSubmissionImagePaths drops empties and de-duplicates", () => {
-  const paths = collectSubmissionImagePaths(
-    [
-      { storage_path: "u/1/dup.jpg", original_storage_path: "" },
-      { storage_path: "u/1/dup.jpg", original_storage_path: null },
-    ],
-    [{ evidence_paths: ["u/1/dup.jpg", ""] }],
-  );
-  assertEquals(paths, ["u/1/dup.jpg"]);
+Deno.test("no other tenant's object is ever collected", async () => {
+  const owned = await collectOwnedStorageObjects(fakeDb(dataset()), USER);
+  for (const paths of Object.values(owned)) {
+    for (const p of paths) assert(!p.startsWith("u2/"), `leaked ${p}`);
+  }
 });
 
-Deno.test("collectSubmissionImagePaths returns [] for an account with no images", () => {
-  assertEquals(collectSubmissionImagePaths([], []), []);
+Deno.test("empty and null paths are dropped, not stringified", async () => {
+  // A null removed as the literal "null" would 404 harmlessly and report
+  // success — a sweep that looks like it worked.
+  const owned = await collectOwnedStorageObjects(fakeDb(dataset()), USER);
+  for (const paths of Object.values(owned)) {
+    for (const p of paths) assert(p && p !== "null" && p !== "undefined", `bad path ${p}`);
+  }
+  assertEquals(owned["compliance-exports"]!.length, 1, "the null file_path was kept");
 });
 
-// ── US-2645: arrival captures are the fourth source in submission-images ──────
-//
-// purchase_arrival_captures (00418) writes a BUYER's photos of a garment as it
-// arrived into the same private bucket, at {userId}/{purchaseId}/arrival_*. It
-// landed after US-1637 swept the other three sources and was never added here,
-// so account deletion cascaded the ROW away and left the PHOTOGRAPH behind.
-//
-// That is worse than merely retained. Every sweep in this codebase drives off DB
-// rows, so once the row is gone the object is unreachable by any future job —
-// {deleted:true} was returned over bytes nothing can ever find again.
-//
-// Third instance of one pattern: originals (US-1637), dispute evidence
-// (US-1637), and now arrival captures. Each was a new writer into an existing
-// bucket whose author had no reason to look at a deletion routine.
-
-Deno.test("US-2645: arrival capture paths are collected for erasure", () => {
-  const paths = collectSubmissionImagePaths(
-    [{ storage_path: "u1/s1/front.jpg", original_storage_path: null }],
-    [],
-    [
-      { storage_path: "u1/p9/arrival_front_1.jpg" },
-      { storage_path: "u1/p9/arrival_label_2.jpg" },
-    ],
-  );
-  assert(paths.includes("u1/p9/arrival_front_1.jpg"));
-  assert(paths.includes("u1/p9/arrival_label_2.jpg"));
-  assert(paths.includes("u1/s1/front.jpg"), "the existing sources must still be swept");
+Deno.test("an account with nothing yields empty lists, not undefined", async () => {
+  const owned = await collectOwnedStorageObjects(fakeDb({}), "nobody");
+  for (const [bucket, paths] of Object.entries(owned)) {
+    assertEquals(paths, [], `${bucket} should be empty`);
+  }
 });
 
-Deno.test("US-2645: a null or absent arrival path is skipped, not stringified", () => {
-  // A null path removed as the literal "null" would 404 harmlessly and, worse,
-  // report success — the sweep would look like it worked.
-  const paths = collectSubmissionImagePaths([], [], [{ storage_path: null }]);
-  assertEquals(paths, []);
-});
-
-Deno.test("US-2645: the delete route actually reads the table", () => {
-  // The collector is pure, so it passes on hand-made input whether or not the
-  // route ever queries the table. This is the half that made the original bug
-  // possible: the function was correct and nothing fed it.
-  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+Deno.test("US-2647: avatars are listed by folder, never read from a column", async () => {
+  // settings.tsx uploads to a TIMESTAMPED path, so users.avatar_url names only
+  // the CURRENT object. Reading it would erase the latest avatar and leave every
+  // superseded one behind — worse than doing nothing, because it looks handled.
   assert(
-    /\.from\("purchase_arrival_captures"\)[\s\S]{0,200}?\.eq\("user_id", userId\)/.test(src),
-    "account.ts never selects purchase_arrival_captures for the storage sweep",
+    /avatars: await listUserFolder\(db, "avatars", userId\)/.test(PURGE_SRC),
+    "the avatar source must be a folder listing",
   );
+  // Anchored on the SELECT, not on the bare column name: the module's own
+  // comment explains why avatar_url must not be used, and a plain
+  // `!/avatar_url/` matched that explanation and failed. Third time today a
+  // negative assertion has caught its own reasoning instead of the defect.
   assert(
-    /collectSubmissionImagePaths\([\s\S]{0,400}?arrivalRows/.test(src),
-    "the rows are read but never passed to the collector",
+    !/\.select\([^)]*avatar_url/.test(PURGE_SRC),
+    "the collector is reading avatar_url, which names only the current object",
   );
+  const owned = await collectOwnedStorageObjects(
+    fakeDb(dataset(), { avatars: ["avatar_old.jpg", "avatar_new.jpg"] }),
+    USER,
+  );
+  assertEquals(owned.avatars!.length, 2, "a superseded avatar must be collected too");
 });
 
-// ── US-2646: the compliance export archive is the fifth source, and the worst ──
+// ── US-2649: both erasure paths use this one list ─────────────────────────────
 //
-// processExport assembles a subject's COMPLETE account — submissions, inventory,
-// listings, sales, and a storage manifest — into one file in the private
-// `compliance-exports` bucket. Nothing has ever removed an object from that
-// bucket. The data_requests row cascades on self-serve deletion, so the archive
-// was left with nothing pointing at it.
-//
-// It is the most complete copy of a person that exists here, and it exists
-// BECAUSE they exercised a data right. Leaving it behind when they exercise the
-// other one is the sharpest version of this whole pattern.
-//
-// A DIFFERENT BUCKET, so this is checked separately from the collector: a test
-// that only exercised collectSubmissionImagePaths would say nothing about it.
+// The two routes had drifted: self-serve swept five buckets from seven sources,
+// the admin ANONYMIZE branch swept two from two. The formal path — the one a
+// written erasure request goes through — was the weaker of the pair. Neither
+// route may rebuild its own list.
 
-Deno.test("US-2646: the delete route sweeps the compliance-exports bucket", () => {
-  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
-  // ANCHORED ON `file_path`, NOT on the table name. account.ts also reads
-  // data_requests for the self-serve INTAKE endpoint, scoped to the same
-  // userId — so a table-name assertion matched that instead and passed with the
-  // sweep read deleted outright. Verified: removing the sweep read left this
-  // test green until the anchor moved to the column only the sweep asks for.
-  assert(
-    /\.from\("data_requests"\)[\s\S]{0,120}?\.select\("file_path"\)/.test(src),
-    "account.ts never selects data_requests.file_path for the storage sweep",
-  );
-  assert(
-    /exportRows\.data[\s\S]{0,200}?complianceExportPaths|complianceExportPaths[\s\S]{0,300}?exportRows\.data/
-      .test(src),
-    "the archive paths are read but never reach the remove call",
-  );
-  assert(
-    /removeAll\("compliance-exports"/.test(src),
-    "the export archive paths are read but never removed",
-  );
-  // Order matters: the paths must be gathered BEFORE the cascade destroys the
-  // rows that name them. Same reason the other four are read up front.
-  const gather = src.indexOf('.from("data_requests")');
-  const cascade = src.indexOf("auth.admin.deleteUser");
-  assert(gather > -1, "the data_requests read vanished");
-  assert(
-    cascade === -1 || gather < cascade,
-    "the archive path must be read before the account cascade removes the row",
-  );
+Deno.test("US-2649: both erasure paths call the shared collector", () => {
+  for (const route of ["../routes/account.ts", "../routes/admin-compliance.ts"]) {
+    const src = Deno.readTextFileSync(new URL(route, import.meta.url));
+    assert(
+      /collectOwnedStorageObjects\(/.test(src),
+      `${route} does not use the shared storage collector`,
+    );
+    assert(
+      /for \(const \[bucket, objectPaths\] of Object\.entries\(owned\)\)/.test(src),
+      `${route} calls the collector but does not sweep every bucket it returns`,
+    );
+  }
 });
 
-// ── US-2647: the bucket list is DERIVED, because my hand-written one was blind ──
-//
-// The first version of this test named three buckets by reading what the code
-// already swept, which is precisely the mistake the code made. It passed while
-// `avatars` — a PUBLIC bucket holding profile photographs, uploaded straight
-// from the browser to {userId}/avatar_* — was never swept at all. A guard built
-// from the answer cannot find the answer's omissions.
-//
-// So the list comes from the MIGRATIONS: every bucket the schema creates, minus
-// the ones explicitly argued to hold no user-owned objects. An entry in that
-// exemption list has to say why, and a new bucket lands in neither list, so it
-// fails until someone decides which it is.
-const OPERATOR_BUCKETS: Record<string, string> = {
-  "content-images": "Blog and marketing imagery, written by the content module. No user_id in the path and no user-owned objects.",
-  "content-videos": "Generated social/marketing video, same ownership as content-images.",
-  "authenticity-references": "The operator's brand-tell reference library (00500). Curated by admins, not uploaded by accounts.",
-  "cert-assets": "Rendered certificate imagery keyed to a grade_report, which is deliberately RETAINED after erasure as the non-PII product. Deleting these would break public certificates that must stay verifiable.",
-};
+Deno.test("US-2649: neither route rebuilds a storage list of its own", () => {
+  // The failure mode was two lists, so the guard is that there is only one. A
+  // route selecting a storage-path column directly is how the second list comes
+  // back.
+  for (const route of ["../routes/account.ts", "../routes/admin-compliance.ts"]) {
+    const src = Deno.readTextFileSync(new URL(route, import.meta.url));
+    assert(
+      !/\.select\("storage_path[^"]*"\)/.test(src),
+      `${route} selects storage paths itself instead of using the collector`,
+    );
+    assert(
+      !/\.select\("receipt_path"\)|\.select\("evidence_paths"\)/.test(src),
+      `${route} is rebuilding part of the storage list`,
+    );
+  }
+});
 
-Deno.test("US-2647: every user-writable bucket is swept, and the list is derived", () => {
-  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
+Deno.test("US-2647: the bucket list is DERIVED from the migrations, not hand-written", () => {
+  // My first version of this named three buckets by reading what the code
+  // already swept — the same mistake the code made. It passed while `avatars`
+  // leaked, and the derived form found `expense-receipts` on its first run.
   const migrations = new URL("../../../../supabase/migrations/", import.meta.url);
-
   const buckets = new Set<string>();
   for (const entry of Deno.readDirSync(migrations)) {
     if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
@@ -181,64 +225,30 @@ Deno.test("US-2647: every user-writable bucket is swept, and the list is derived
   }
   assert(buckets.size >= 6, `only ${buckets.size} buckets parsed from the migrations`);
 
-  const unswept: string[] = [];
-  for (const bucket of buckets) {
-    if (bucket in OPERATOR_BUCKETS) continue;
-    if (!src.includes(`removeAll("${bucket}"`)) unswept.push(bucket);
-  }
-  assertEquals(
-    unswept,
-    [],
-    "these buckets exist and account deletion never sweeps them. Either add a " +
-      "removeAll for the bucket, or add it to OPERATOR_BUCKETS with the reason " +
-      "it holds no user-owned objects.",
-  );
-});
+  const OPERATOR_BUCKETS: Record<string, string> = {
+    "content-images":
+      "Blog and marketing imagery, written by the content module. No user_id in the path and no user-owned objects.",
+    "content-videos":
+      "Generated social/marketing video, same ownership as content-images.",
+    "authenticity-references":
+      "The operator's brand-tell reference library (00500). Curated by admins, not uploaded by accounts.",
+    "cert-assets":
+      "Rendered certificate imagery keyed to a grade_report, which is deliberately RETAINED after erasure as the non-PII product. Deleting these would break public certificates that must stay verifiable.",
+  };
 
-Deno.test("US-2647: every operator-bucket exemption still names a real bucket and a reason", () => {
-  const migrations = new URL("../../../../supabase/migrations/", import.meta.url);
-  const buckets = new Set<string>();
-  for (const entry of Deno.readDirSync(migrations)) {
-    if (!entry.isFile || !entry.name.endsWith(".sql")) continue;
-    const sql = Deno.readTextFileSync(new URL(entry.name, migrations));
-    for (const m of sql.matchAll(/INSERT INTO storage\.buckets[\s\S]{0,300}?'([a-z0-9-]{4,})'/g)) {
-      buckets.add(m[1]!);
-    }
-  }
+  const unswept = [...buckets].filter(
+    (b) => !(b in OPERATOR_BUCKETS) && !PURGE_SRC.includes(`"${b}"`),
+  );
+  assertEquals(
+    unswept.sort(),
+    [],
+    "these buckets exist and the collector never returns them. Either collect " +
+      "the bucket, or add it to OPERATOR_BUCKETS with the reason it holds no " +
+      "user-owned objects.",
+  );
+
   for (const [bucket, why] of Object.entries(OPERATOR_BUCKETS)) {
     assert(buckets.has(bucket), `${bucket} is exempted but no migration creates it`);
     assert(why.length > 50, `${bucket} needs a real reason, not a label`);
   }
-});
-
-Deno.test("US-2647: the avatar sweep lists the folder, it does not read the url", () => {
-  // `avatars` is the one source with no table enumerating its objects.
-  // settings.tsx uploads to a TIMESTAMPED path, so every change writes a new
-  // object and users.avatar_url names only the CURRENT one. Reading that column
-  // would erase the latest avatar and leave every superseded one behind — worse
-  // than today, because it would look handled.
-  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
-  assert(
-    /removeAll\("avatars", await listUserFolder\("avatars", userId\)\)/.test(src),
-    "the avatars sweep must list the user's folder, not read users.avatar_url",
-  );
-  assert(
-    !/avatar_url[\s\S]{0,80}?removeAll\("avatars"/.test(src),
-    "the avatar sweep is reading avatar_url, which names only the current object",
-  );
-});
-
-Deno.test("US-2647: expense receipts are swept from their own private bucket", () => {
-  // 00564: "a card tail, a billing address, sometimes a full name". Reading the
-  // column is exact here because flipdesk-expenses.ts removes the previous
-  // object on replace AND on delete, so no superseded receipts accumulate.
-  const src = Deno.readTextFileSync(new URL("../routes/account.ts", import.meta.url));
-  assert(
-    /\.from\("flipdesk_expenses"\)[\s\S]{0,120}?\.select\("receipt_path"\)/.test(src),
-    "account.ts never selects flipdesk_expenses.receipt_path",
-  );
-  assert(
-    src.includes('removeAll("expense-receipts"'),
-    "the receipt paths are read but the bucket is never swept",
-  );
 });
