@@ -55,7 +55,11 @@ export const onRequestGet: PagesFunction<AssetLinksEnv> = ({ env }) => {
     );
   }
 
-  const packageName = (env.ANDROID_PACKAGE_NAME ?? DEFAULT_PACKAGE_NAME).trim();
+  // Blank counts as unset, same as the iOS association file: `??` does not
+  // fall through on an empty string, so `ANDROID_PACKAGE_NAME=` yielded `""`
+  // and this served an assetlinks entry naming no package, with HTTP 200. The
+  // fingerprint check above already fails closed on a blank; this did not.
+  const packageName = (env.ANDROID_PACKAGE_NAME ?? "").trim() || DEFAULT_PACKAGE_NAME;
 
   const body = [
     {

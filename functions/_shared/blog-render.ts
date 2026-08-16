@@ -85,7 +85,8 @@ export function twitterSiteHandle(env: PagesEnv): string {
 export const DEFAULT_GA4_MEASUREMENT_ID = "G-CMDWCFC275";
 
 export function ga4MeasurementId(env: PagesEnv): string | null {
-  const raw = (env.GA4_MEASUREMENT_ID ?? DEFAULT_GA4_MEASUREMENT_ID).trim();
+  // Blank counts as unset — see edgeApi/siteUrl below for the same reason.
+  const raw = (env.GA4_MEASUREMENT_ID ?? "").trim() || DEFAULT_GA4_MEASUREMENT_ID;
   if (!raw || raw.toLowerCase() === "off") return null;
   return raw;
 }
@@ -178,12 +179,23 @@ export interface PublicPost extends PublicPostListItem {
 export const DEFAULT_EDGE_API_URL = "https://functions.gradethread.com";
 export const DEFAULT_PUBLIC_SITE_URL = "https://gradethread.com";
 
+// BLANK COUNTS AS UNSET in both. `??` falls through on undefined and never on
+// an empty string, so a blank field on the Pages project resolved these to ""
+// rather than to the defaults immediately above — and the failure is quiet in
+// different ways. An empty EDGE_API_URL sends every SSR fetch to a relative
+// path, so blog and certificate pages render their error state; an empty
+// PUBLIC_SITE_URL emits empty canonical and og:url tags, which nothing on the
+// page shows and which search engines read.
+//
+// A blank is what a Pages env var looks like when someone clears a field or
+// adds the key before pasting the value, which is why the default has to
+// survive it.
 export function edgeApi(env: PagesEnv): string {
-  return env.EDGE_API_URL ?? DEFAULT_EDGE_API_URL;
+  return (env.EDGE_API_URL ?? "").trim() || DEFAULT_EDGE_API_URL;
 }
 
 export function siteUrl(env: PagesEnv): string {
-  return env.PUBLIC_SITE_URL ?? DEFAULT_PUBLIC_SITE_URL;
+  return (env.PUBLIC_SITE_URL ?? "").trim() || DEFAULT_PUBLIC_SITE_URL;
 }
 
 /** True only when Cloudflare Image Resizing is confirmed enabled on the zone. */

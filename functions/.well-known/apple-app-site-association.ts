@@ -54,7 +54,15 @@ export const onRequestGet: PagesFunction<AASAEnv> = ({ env }) => {
     );
   }
 
-  const bundleId = (env.IOS_BUNDLE_ID ?? DEFAULT_BUNDLE_ID).trim();
+  // BLANK COUNTS AS UNSET. `??` falls through on undefined and never on an
+  // empty string, so `IOS_BUNDLE_ID=` — a blank field on the Pages project —
+  // produced `appId = "<TEAMID>."` and served it with HTTP 200. Apple fetches
+  // this file, reads a malformed appID, and Universal Links stop opening the
+  // app; nothing 404s and nothing errors.
+  //
+  // The team-id check above already fails CLOSED on a blank. This line did not,
+  // which is the asymmetry rather than the concept being unknown here.
+  const bundleId = (env.IOS_BUNDLE_ID ?? "").trim() || DEFAULT_BUNDLE_ID;
   const appId = `${teamId}.${bundleId}`;
 
   const body = {
