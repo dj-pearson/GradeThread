@@ -29,7 +29,6 @@ import { relative, resolve } from "node:path";
 import { CREDIT_PACKS } from "@/lib/constants";
 
 const REPO_ROOT = resolve(__dirname, "../..");
-const SRC = resolve(REPO_ROOT, "src");
 
 /** What a purchased credit pack actually does, per the code that sells it. */
 const PURCHASED_CREDITS_EXPIRE = false;
@@ -53,23 +52,66 @@ const KNOWN_CONTRADICTIONS = [
   },
 ] as const;
 
-function walk(dir: string, out: string[] = []): string[] {
+function walk(dir: string, out: string[] = [], ext = /\.tsx?$/): string[] {
   for (const entry of readdirSync(dir)) {
     const full = resolve(dir, entry);
     if (statSync(full).isDirectory()) {
       if (entry === "node_modules" || entry === "__snapshots__") continue;
-      walk(full, out);
-    } else if (/\.tsx?$/.test(entry) && !/\.test\.tsx?$/.test(entry)) {
+      walk(full, out, ext);
+    } else if (ext.test(entry) && !/\.test\.tsx?$/.test(entry)) {
       out.push(full);
     }
   }
   return out;
 }
 
-const FILES = walk(SRC).map((f) => ({
-  path: relative(REPO_ROOT, f).replace(/\\/g, "/"),
-  src: readFileSync(f, "utf8"),
-}));
+/**
+ * The OTHER two clients. Added 2026-08-15 (US-2127): this scan walked `src/`
+ * only, so it read as coverage of "what we tell a customer about credits" while
+ * never executing over two of the three surfaces that say it.
+ *
+ * Android's paywall carries the never-expire claim at
+ * `res/values/strings.xml` and iOS carries it in `Billing/IAPProduct.swift`.
+ * Neither could have been flagged, whichever way this story resolves — and if
+ * it resolves the other way (credits DO expire), the copy has to change on
+ * three clients, not one.
+ *
+ * Same class of hole as US-1996: a guard that reads as coverage while never
+ * running over the surface that drifted.
+ */
+const CLIENT_ROOTS: Array<{ dir: string; ext: RegExp; label: string }> = [
+  { dir: "src", ext: /\.tsx?$/, label: "web" },
+  { dir: "android/app/src/main/res", ext: /\.xml$/, label: "android" },
+  { dir: "ios/GradeThread", ext: /\.(swift|xcstrings)$/, label: "ios" },
+];
+
+function collectFiles(): Array<{ path: string; src: string; label: string }> {
+  const out: Array<{ path: string; src: string; label: string }> = [];
+  for (const root of CLIENT_ROOTS) {
+    const abs = resolve(REPO_ROOT, root.dir);
+    let files: string[];
+    try {
+      files = walk(abs, [], root.ext);
+    } catch {
+      // A client directory that is absent is a real change, not something to
+      // shrug at: it would silently narrow this scan back to where it started.
+      throw new Error(
+        `${root.dir} is missing — this guard covers three clients on purpose ` +
+          "(US-2127). If a client was removed, delete its CLIENT_ROOTS entry.",
+      );
+    }
+    for (const f of files) {
+      out.push({
+        path: relative(REPO_ROOT, f).replace(/\\/g, "/"),
+        src: readFileSync(f, "utf8"),
+        label: root.label,
+      });
+    }
+  }
+  return out;
+}
+
+const FILES = collectFiles();
 
 /** Wording that tells a customer a credit stops being usable. */
 const EXPIRY_CLAIM = /credits?[^.]{0,60}(do not roll over|don't roll over|expire after|will expire)/i;
@@ -88,6 +130,35 @@ describe("US-2127: what we say about credit expiry", () => {
     // should notice, and one that contradicts it is caught below.
     const saying = FILES.filter((f) => /credits? never expire|never expire/i.test(f.src));
     expect(saying.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("the scan actually reaches all three clients", () => {
+    // Guarding the guard, and it is the whole point of the 2026-08-15 change.
+    // Before it, FILES walked `src/` alone: every assertion below passed while
+    // two of the three surfaces that make this claim were invisible. A scan
+    // that silently narrows is indistinguishable from one that finds nothing,
+    // so assert the coverage rather than the result.
+    for (const label of ["web", "android", "ios"]) {
+      const seen = FILES.filter((f) => f.label === label);
+      expect(seen.length, `${label} contributed no files — the scan narrowed`)
+        .toBeGreaterThan(0);
+    }
+  });
+
+  it("every client that sells credits makes the claim", () => {
+    // Android's paywall and iOS's IAP list both say it today. If a client ships
+    // a credit paywall without it, that is a customer told less than they get —
+    // and, if this story resolves the other way, a client left saying something
+    // false. Either way it should be visible here rather than in a store review.
+    for (const label of ["web", "android", "ios"]) {
+      const saying = FILES.filter(
+        (f) => f.label === label && /never expire/i.test(f.src),
+      );
+      expect(
+        saying.length,
+        `${label} sells credit packs and no file says they never expire`,
+      ).toBeGreaterThan(0);
+    }
   });
 
   it("every contradicting statement is a tracked, annotated exception", () => {
