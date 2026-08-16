@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2659",
+  "nextId": "US-2660",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2013,6 +2013,21 @@
         "Decide and record whether Android should upload through the edge instead of a signed URL. Both metadata defences (client PhotoProcessor, server stripImageMetadata) are bypassed on the same path today, so the signed-URL choice is load-bearing and is currently undocumented.",
         "Check what CameraX actually writes into the JPEG on the target devices - orientation and timestamps are certain, make/model likely, GPS only if a location provider is attached (nothing here attaches one). The answer decides whether existing uploaded photos need a sweep.",
         "OPERATOR: sample a few item-photos objects uploaded from Android and read their EXIF. That is the only way to know whether photos already in the bucket carry metadata, and it decides whether this is forward-looking only or needs a backfill."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-2659",
+      "passes": false,
+      "title": "The storage mirror has no restore path, and its key lives on the host it protects against losing",
+      "description": "Found 2026-08-16 while running the Postgres restore drill, which passes. The storage half has no equivalent and nothing has ever read the photo mirror back.  TWO HALVES, AND THE SECOND IS THE SERIOUS ONE.  (1) NO RESTORE PATH AT ALL. scripts/ops/ carries backup-postgres.sh, restore-postgres.sh AND restore-drill.sh. For storage it carries backup-storage.sh and nothing else - no restore-storage.sh, no drill, and no procedure in vault/10-ops/backups.md, whose 'Restore procedure (VERIFIED 2026-06-12)' section and whose entire drill log are Postgres-only. The nearest thing to a read-back instruction anywhere is one clause in key-rotation.md's re-seed advice: 'verify a sample decrypts'. That mirror is every listing photo, every grading photo including LABEL shots, and every certificate asset.  (2) THE DECRYPTION SECRET LIVES ON THE MACHINE THE BACKUP EXISTS TO SURVIVE. vault/10-ops/key-rotation.md:48 records the rclone crypt password + salt as held in 'DB host rclone config'. backup-storage.sh reads it from there (rclone config show, line 56) and refuses a non-crypt remote, which is correct. But if the Contabo host is lost - the disaster an offsite mirror is FOR - the crypt config goes with it and every object in R2 is unreadable ciphertext. The R2 credential alone yields nothing, which is the point of the crypt remote and is also the trap.  THIS IS THE EXACT MISTAKE THE AGE KEY PROCEDURE WAS WRITTEN TO AVOID, made on the other artifact. US-2416 AC7 says of the Postgres identity: 'put the identity somewhere off the DB host (never on it - the host holds...)', and backups.md:121 requires 'a second copy somewhere offline and durable that does not depend on Infisical or the Contabo host'. The storage secret has no such instruction, no Infisical entry, and no offline copy named anywhere.  NOT COVERED BY AN EXISTING STORY, checked rather than assumed: US-2002 is the Postgres cron and a Postgres restore against a real offsite dump; US-2416 is encryption, and its AC3 asks only whether backup-storage.sh encrypts, which it now does. Neither asks whether the photos can be recovered.",
+      "acceptanceCriteria": [
+        "A scripts/ops/restore-storage.sh counterpart to restore-postgres.sh: point it at the crypt remote and a target directory, pull objects back, and verify a sample against a checksum rather than reporting rclone's exit code as success.",
+        "A storage restore DRILL, the way restore-drill.sh does it for Postgres: sync a known set of files to a scratch crypt remote, pull them back into a fresh directory, and compare counts and content hashes. It must run without touching the production remote.",
+        "The rclone crypt password and salt get the same treatment as the age identity: stored off the DB host, with a second offline copy, and the LOCATION recorded in vault/10-ops/key-rotation.md - never the value. Losing the host must not lose the photos.",
+        "vault/10-ops/backups.md gains a storage restore procedure next to the Postgres one, and the drill log gains a storage row. Today both are Postgres-only and read as though the whole system is covered.",
+        "Decide and record what a PARTIAL restore looks like: a single deleted object recovered from a dated storage-deleted/ prefix is a different operation from a full-volume rebuild, and only the second is a disaster-recovery drill. Both should be written down; today neither is.",
+        "OPERATOR: move the rclone crypt password and salt off the DB host and take a second offline copy, then record where (never the value) in vault/10-ops/key-rotation.md. Nothing in this repository can do it, and until it is done the offsite photo mirror does not survive the loss of the host it is backing up."
       ],
       "priority": 5
     }

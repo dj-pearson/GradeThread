@@ -7,7 +7,7 @@ source_of_truth: vault
 code_refs: []
 reviewed: 2026-08-02
 tags: [ops, backup, disaster-recovery]
-summary: What is backed up, how often, and the restore drill that proves it works.
+summary: What is backed up, how often, and the restore drill that proves it works — for POSTGRES. The storage mirror has no restore path and no drill (US-2659).
 ---
 # Backups & Restore (US-494)
 
@@ -237,6 +237,24 @@ bash scripts/ops/restore-drill.sh        # PASS/FAIL + timings
 > [!danger] **LAUNCH GATE:** the local drill proves the *procedure*; §5 of
 > `vault/10-ops/launch-checklist.md` still requires one drill against a real prod offsite
 > dump before launch. A backup that has never been restored is not a backup.
+
+> [!danger] **THIS TABLE IS POSTGRES ONLY, and so is everything above it (US-2659)**
+> `scripts/ops/` holds `backup-postgres.sh`, `restore-postgres.sh` and
+> `restore-drill.sh`. For storage it holds `backup-storage.sh` and nothing else:
+> no restore script, no drill, no procedure in this note. **Nothing has ever read
+> the photo mirror back** — every listing photo, every grading label shot, every
+> certificate asset.
+>
+> And the key problem is the sharp half. [[key-rotation]] records the rclone
+> crypt password + salt as living in the *DB host rclone config*. If that host is
+> lost — the disaster an offsite mirror exists for — the config goes with it and
+> every object in R2 is unreadable ciphertext. That is the exact mistake the age
+> procedure above was written to avoid: the Postgres identity is required to be
+> off-host with a second offline copy, and the storage secret has no such
+> instruction anywhere.
+>
+> Read the Postgres rows below as evidence about Postgres. They say nothing about
+> whether a photo can be recovered.
 
 > [!tip] Running it on Windows no longer needs a flag
 > `restore-drill.sh` used to default to `age`, which is not packaged for Windows,
