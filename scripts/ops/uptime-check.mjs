@@ -99,6 +99,38 @@ const TARGETS = [
     },
   },
   {
+    // US-2618 AC4: a Help Center that serves 200 with nothing on it.
+    //
+    // `renderCategoryGrid` returns "" when every category is empty, so the hub
+    // renders its heading, its description and its search box, and then simply
+    // stops. Nothing 404s, nothing errors, and the page looks finished. That is
+    // the live state right now: 83 articles are written and none are in the
+    // database, and no check anywhere noticed.
+    //
+    // A NOTE, NOT A FAILURE, and deliberately so — the same reasoning recorded
+    // above for hostWatchdog. It is empty TODAY, so failing would open an
+    // incident issue immediately and keep the monitor red until someone runs
+    // the seed. A monitor that is red for a known reason gets ignored, and the
+    // next real outage arrives into a channel nobody reads. The note appears in
+    // every run log and in the body of any incident issue, which is where
+    // "and by the way the help centre is empty" is worth having.
+    //
+    // The status check is still real: a 200 with the SPA/SSR shell. What the
+    // note adds is the difference between "the page loads" and "the page has
+    // anything on it".
+    id: "help_hub",
+    name: "Help Center hub",
+    url: `${SITE_URL}/help`,
+    ok: (status) => status === 200,
+    bodyNote: (bodyText) => {
+      // The shelf is the only part of the hub that depends on there being
+      // content. Its absence is the signal; its presence says nothing about
+      // how MANY articles, which is fine — zero is the failure worth naming.
+      if (/class="related-grid"/i.test(bodyText)) return null;
+      return "help hub renders NO category shelf — the Help Center is empty (US-2618: run npm run help:seed)";
+    },
+  },
+  {
     // Kong fronts GoTrue and requires an apikey for /auth/v1/health. With the
     // anon key we demand a real 200 from GoTrue; without it (secret unset) a
     // 401 from Kong still proves Supabase's gateway is up, so accept any

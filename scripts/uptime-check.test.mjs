@@ -75,3 +75,48 @@ describe("US-2447 AC5: the uptime probe stays watchdog-independent", () => {
     expect(note).toMatch(/cannot validate a ~60s cap/);
   });
 });
+
+// US-2618 AC4: "a page that serves 200 with no content is the failure mode
+// nothing currently notices". The Help Center hub is that page today — 83
+// articles written, none in the database, and `renderCategoryGrid` returns ""
+// when every category is empty, so the hub renders its heading and search box
+// and stops. It looks finished.
+describe("US-2618 AC4: an empty Help Center is noticed", () => {
+  const target = () => {
+    const at = PROBE.indexOf('id: "help_hub"');
+    if (at === -1) return "";
+    return PROBE.slice(at, PROBE.indexOf("\n  },", at));
+  };
+
+  it("the hub is probed at all", () => {
+    expect(target(), "no help_hub target in the uptime probe").not.toBe("");
+    expect(target()).toMatch(/\$\{SITE_URL\}\/help/);
+  });
+
+  it("it asserts on the BODY, not only the status", () => {
+    // The whole point: /help returns 200 whether or not it has any content.
+    // A status-only target would report the outage as healthy.
+    expect(target()).toMatch(/bodyNote:/);
+    expect(target()).toMatch(/related-grid/);
+  });
+
+  it("an empty hub produces a note rather than a silent pass", () => {
+    // Exercise the predicate itself rather than trusting the regex above —
+    // an assertion that the string `related-grid` appears would also pass on
+    // a function that ignores its argument.
+    const src = target().match(/bodyNote:\s*(\(bodyText\)\s*=>\s*\{[\s\S]*?\n {4}\})/);
+    expect(src, "could not extract the bodyNote predicate").not.toBeNull();
+    const fn = new Function(`return ${src[1]}`)();
+    expect(fn('<main><h1>Help</h1><form></form></main>')).toMatch(/empty/i);
+    expect(fn('<main><div class="related-grid"><a>x</a></div></main>')).toBeNull();
+  });
+
+  it("it is a NOTE, so a known-empty hub cannot mute the monitor", () => {
+    // It is empty right now. Failing would open an incident issue immediately
+    // and keep the monitor red until someone runs the seed — and a monitor
+    // that is red for a known reason is one nobody reads during a real
+    // outage. Same call, and the same reasoning, as hostWatchdog above.
+    expect(target()).not.toMatch(/bodyOk:/);
+    expect(PROBE).toMatch(/A note never contributes to `up`/);
+  });
+});
