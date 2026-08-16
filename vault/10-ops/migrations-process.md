@@ -167,9 +167,18 @@ psql session against prod.
 
 ```bash
 curl -fsS https://functions.gradethread.com/health/ready | jq .schema
-# { "expected": "00606", "applied": "00606", "status": "match",
+# { "expected": "00606", "applied": "00606", "status": "incomplete",
 #   "missing": ["00605"] }        <- versions in this build, absent from the DB
 ```
+
+`status` was `"match"` in that shape until US-2620, because both versions are
+maxima and the max comparison genuinely was satisfied. Publishing it that way
+was still wrong: [[launch-checklist]]'s "All migrations applied" row sends an
+operator to `status`, and it said the schema was fine while the same object
+named a migration missing from it. **A hole under the maximum now outranks the
+version relation** and reports `incomplete`. Only `match` is overridden —
+relabelling `behind` or `unknown` would hide a worse finding behind a milder
+word, which is this same bug inverted.
 
 - **`missing`** — never applied. Apply those files, in order.
 - **`unexpected`** — recorded with no such file in this build (a rollback, or a

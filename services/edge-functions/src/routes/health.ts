@@ -79,7 +79,22 @@ export interface ReadinessSummary {
 export interface SchemaSummary {
   expected: string;
   applied: string | null;
-  status: "match" | "ahead" | "behind" | "unknown";
+  /**
+   * The version relation, EXCEPT that a hole beneath the maximum outranks it.
+   *
+   * US-2620: `match` was computed purely from expected-vs-applied, and both are
+   * maxima. So production reported `{"applied":"00606","status":"match",
+   * "missing":["00594"]}` — a migration that never ran, next to a field saying
+   * the schema matched. vault/10-ops/launch-checklist.md's "All migrations
+   * applied" row tells an operator to look for `status:"match"` and then
+   * caveats the maximum in prose, which is not where anyone looks mid-incident.
+   *
+   * `incomplete` exists so the field named "status" cannot say the schema is
+   * fine while naming a migration that is missing from it. It is deliberately
+   * ranked above `match` and below nothing else: `behind` is already fatal at
+   * boot, and `ahead` is the normal migrate-then-deploy window.
+   */
+  status: "match" | "ahead" | "behind" | "unknown" | "incomplete";
   /**
    * US-2603: versions in this build's manifest that the database has NOT
    * recorded — i.e. migrations that never ran, sitting UNDER the maximum.
@@ -143,9 +158,17 @@ export function summarizeSchema(
   };
   if (!completeness) return base;
   if (!completeness.checked) return { ...base, complete: false };
+  const missing = completeness.missing;
   return {
     ...base,
-    ...(completeness.missing.length > 0 ? { missing: completeness.missing } : {}),
+    // A gap under the maximum outranks the version relation. Only `match` is
+    // overridden: `behind` and `unknown` are already worse, and quietly
+    // relabelling either would hide a more severe finding behind a less severe
+    // word — the exact failure this line exists to fix, inverted.
+    ...(missing.length > 0 && base.status === "match"
+      ? { status: "incomplete" as const }
+      : {}),
+    ...(missing.length > 0 ? { missing } : {}),
     ...(completeness.unexpected.length > 0 ? { unexpected: completeness.unexpected } : {}),
   };
 }

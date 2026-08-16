@@ -116,6 +116,54 @@ Deno.test("summarizeSchema: classifies the four drift states", () => {
   assertEquals(summarizeSchema("00475", null).status, "unknown");
 });
 
+Deno.test("US-2620: a hole under the maximum outranks 'match'", () => {
+  // Production reported {"expected":"00606","applied":"00606","status":"match",
+  // "missing":["00594"]} — a migration that never ran, sitting next to a field
+  // saying the schema matched. Both versions are MAXIMA, and a max cannot see a
+  // hole beneath it. launch-checklist's "All migrations applied" row tells an
+  // operator to look for status:"match" and caveats the maximum in prose, which
+  // is not where anyone looks mid-incident.
+  const gap = summarizeSchema("00606", "00606", {
+    missing: ["00594"],
+    unexpected: [],
+    checked: true,
+  });
+  assertEquals(gap.status, "incomplete");
+  assertEquals(gap.missing, ["00594"]);
+
+  // Complete set → the version relation stands.
+  const clean = summarizeSchema("00606", "00606", {
+    missing: [],
+    unexpected: [],
+    checked: true,
+  });
+  assertEquals(clean.status, "match");
+
+  // ONLY "match" is overridden. Relabelling a worse state would hide a more
+  // severe finding behind a less severe word — this fix, inverted.
+  const behind = summarizeSchema("00606", "00600", {
+    missing: ["00594"],
+    unexpected: [],
+    checked: true,
+  });
+  assertEquals(behind.status, "behind");
+  const unknown = summarizeSchema("00606", null, {
+    missing: ["00594"],
+    unexpected: [],
+    checked: true,
+  });
+  assertEquals(unknown.status, "unknown");
+
+  // An unread set is not a clean one, and must not be dressed as either.
+  const unread = summarizeSchema("00606", "00606", {
+    missing: [],
+    unexpected: [],
+    checked: false,
+  });
+  assertEquals(unread.status, "match");
+  assertEquals(unread.complete, false);
+});
+
 Deno.test("summarizeSchema: reports both sides so drift is diagnosable", () => {
   const s = summarizeSchema("00475", "00470");
   assertEquals(s.expected, "00475");
@@ -263,14 +311,23 @@ Deno.test("US-2447: a missing watchdog NEVER flips the service to not_ready", ()
 // whatever was skipped. checkSchemaCompleteness has computed the right answer
 // since US-2009; it only ever wrote it to a container log.
 
-Deno.test("US-2603: a gap under the watermark shows even while status says match", () => {
+Deno.test("US-2603: a gap under the watermark is named, and now outranks the max", () => {
   const s = summarizeSchema("00606", "00606", {
     missing: ["00605"],
     unexpected: [],
     checked: true,
   });
-  assertEquals(s.status, "match", "the max comparison is genuinely satisfied");
-  assertEquals(s.missing, ["00605"], "and the endpoint still names the hole");
+  assertEquals(s.missing, ["00605"], "the endpoint names the hole");
+  // THIS ASSERTION USED TO READ `status === "match"`, with the note "the max
+  // comparison is genuinely satisfied". That was true and it was the wrong
+  // thing to publish (US-2620). Adding `missing` fixed half the problem: the
+  // hole became visible to anyone who read the whole object. But
+  // vault/10-ops/launch-checklist.md's "All migrations applied" row tells an
+  // operator to look for `status:"match"` and caveats the maximum in prose,
+  // which is not where anyone looks mid-incident — so the field they were sent
+  // to read still said the schema was fine while the object named a migration
+  // missing from it.
+  assertEquals(s.status, "incomplete");
 });
 
 Deno.test("US-2603: a complete set adds no noise", () => {

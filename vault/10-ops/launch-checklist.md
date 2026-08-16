@@ -230,7 +230,7 @@ dropped out of the environment).
 
 | Item | Verify | By / Date |
 |---|---|---|
-| All migrations applied | `curl -fsS https://functions.gradethread.com/health/ready \| jq .schema` → `status:"match"` (US-1566 reports `expected` vs `applied` from the DB itself). **Do not hardcode a version here** — this row previously read `latest = 00132` while prod was at 00476, so an operator verifying against it would have CONFIRMED a catastrophically stale DB. Ask the system, don't assert. Caveat: `applied` is the recorded MAX, so it proves the head landed, not that every intermediate version did. | ☐ |
+| All migrations applied | `curl -fsS https://functions.gradethread.com/health/ready \| jq .schema` → `status:"match"` **and no `missing` key** (US-1566 reports `expected` vs `applied` from the DB itself; US-2603 adds `missing`). **Do not hardcode a version here** — this row previously read `latest = 00132` while prod was at 00476, so an operator verifying against it would have CONFIRMED a catastrophically stale DB. Ask the system, don't assert. **This row used to say `status:"match"` and then caveat in prose that `applied` is the recorded MAX** — which is not where anyone looks mid-incident, and on 2026-08-15 prod really did report `applied:"00606", status:"match", missing:["00594"]`. A hole under the maximum now reports `status:"incomplete"` (US-2620), so the field this row sends you to can no longer say the schema is fine while naming a migration missing from it. | ☐ |
 | Edge boots clean against prod schema (US-778) | edge logs show `[schema-version] OK` (not `STALE`) | ☐ |
 | RLS enabled on every multi-tenant table | spot-check `select relrowsecurity from pg_class where relname='submissions';` → t | ☐ |
 
