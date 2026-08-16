@@ -3,6 +3,7 @@ import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/a
 import {
   assertRequiredEnv,
   computeFeatureReadiness,
+  FEATURE_GROUPS,
   isIapEnabled,
   isRealReleaseSha,
   missingRequiredEnv,
@@ -342,6 +343,48 @@ Deno.test("GT-001: whenMissing never fires for a satisfied group", () => {
     EBAY_VERIFICATION_TOKEN: "t",
   }));
   assertEquals(r.ebay, "ok");
+});
+
+Deno.test("US-2003: alerting says a channel is configured, not that anyone is paged", () => {
+  // The group's own comment says a deploy with no channel must not report a
+  // healthy monitoring posture it does not have. A bare "ok" did exactly that
+  // from the other side: a webhook URL pointing at a dead endpoint reads as
+  // configured forever, and SMTP_ADMIN_EMAIL alone satisfies this group while
+  // depending on the same mail path whose delivery is unproven.
+  const prevEnv = Deno.env.get("EDGE_ENV");
+  const prevHook = Deno.env.get("MONITOR_ALERT_WEBHOOK");
+  Deno.env.set("EDGE_ENV", "production");
+  Deno.env.set("MONITOR_ALERT_WEBHOOK", "https://example.invalid/hook");
+  try {
+    const line = String(computeFeatureReadiness().alerting ?? "");
+    assert(line.startsWith("ok"), `expected a satisfied line, got: ${line}`);
+    assertStringIncludes(line, "ARRIVES");
+    assertStringIncludes(line, "dead endpoint");
+  } finally {
+    if (prevEnv === undefined) Deno.env.delete("EDGE_ENV");
+    else Deno.env.set("EDGE_ENV", prevEnv);
+    if (prevHook === undefined) Deno.env.delete("MONITOR_ALERT_WEBHOOK");
+    else Deno.env.set("MONITOR_ALERT_WEBHOOK", prevHook);
+  }
+});
+
+Deno.test("the unverifiable caveat is rationed, not sprayed on every group", () => {
+  // Every group is technically unverifiable if you push hard enough, and a
+  // health page where every line carries a paragraph is a page nobody reads.
+  // The rule at the field's definition is: the second half must live somewhere
+  // this service cannot read, AND failing it must be SILENT. A wrong eBay
+  // credential fails loudly on the first API call and needs no caveat.
+  //
+  // Pinned as a NUMBER so adding a fifth is a deliberate act with a diff, not
+  // something that happens one convenient paragraph at a time.
+  const withCaveat = FEATURE_GROUPS.filter((g) => g.alsoUnverifiable).map((g) => g.name);
+  assertEquals(
+    withCaveat.sort(),
+    ["alerting", "auth_email_hook", "pages_origin_bypass", "smtp"],
+    "adding one is fine — argue it against the two-part rule at the field's " +
+      "definition and update this list. Growing it silently is how the page " +
+      "becomes unreadable.",
+  );
 });
 
 Deno.test("US-2597: smtp says the variables are set, not that mail arrives", () => {

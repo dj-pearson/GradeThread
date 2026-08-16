@@ -72,7 +72,18 @@ export interface FeatureGroup {
    *  see whether GoTrue is actually pointed at the hook.
    *
    *  A readiness line that overstates is worse than one that admits an edge: the
-   *  operator stops looking. Use this wherever "ok" is only half the answer. */
+   *  operator stops looking.
+   *
+   *  WHEN IT IS WARRANTED, because every group is technically unverifiable if
+   *  you push hard enough and a health page where every line carries a
+   *  paragraph is a health page nobody reads. Use it only when BOTH hold:
+   *    1. the second half lives somewhere this service cannot read — another
+   *       container, another vendor's console, a different Cloudflare project;
+   *       AND
+   *    2. failing that half is SILENT. A wrong eBay credential fails loudly on
+   *       the first API call and needs no caveat here; an SES account in
+   *       sandbox accepts the connection and drops the mail, which needs one.
+   *  A gap that announces itself does not belong on this line. */
   alsoUnverifiable?: string;
 }
 
@@ -183,6 +194,19 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
       has(get, "MONITOR_ALERT_WEBHOOK") ||
       has(get, "MONITOR_ALERT_EMAIL") ||
       has(get, "SMTP_ADMIN_EMAIL"),
+    // This group's own comment above says a deploy with no channel should not
+    // "report a healthy monitoring posture it does not have" — and a bare "ok"
+    // was doing exactly that from the other side. Two ways it can be true and
+    // useless: a webhook URL pointing at a dead endpoint reads as configured
+    // forever, and SMTP_ADMIN_EMAIL alone satisfies it while routing through
+    // the mailer whose delivery is itself unproven (see smtp above). So the
+    // one thing "ok" cannot mean here is that anybody would be paged.
+    alsoUnverifiable:
+      "at least one channel is CONFIGURED. Nothing here proves a message " +
+      "ARRIVES — a webhook pointing at a dead endpoint reads as ok forever, and " +
+      "SMTP_ADMIN_EMAIL alone satisfies this while depending on the same " +
+      "unproven mail path. Fire one test alert and confirm a human receives it " +
+      "(US-2003 AC1).",
   },
   // GT-001: the branded auth-email hook, and the reason it belongs on a health
   // surface rather than in a runbook.
