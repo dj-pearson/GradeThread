@@ -204,6 +204,44 @@ export function auditCandidates(stories) {
   return out;
 }
 
+/**
+ * How many OTHER open stories name this one.
+ *
+ * WHY THIS MATTERS MORE THAN PRIORITY HERE. The queue has been 70-odd items for
+ * a while, and a flat list sorted by priority does not answer the question a
+ * person actually has in front of it: which one of these, done first, stops
+ * blocking the most other work. A story named by six others is usually a
+ * measurement or a credential that six pieces of analysis are waiting on.
+ *
+ * Counted from the TEXT — description, notes and acceptance criteria — because
+ * this backlog records dependencies in prose ("blocked on US-2001", "gated on
+ * US-2403") rather than in a field. That is imprecise on purpose: a mention is
+ * evidence of a relationship, not proof of one, so the output calls it
+ * "named by" rather than "blocks".
+ *
+ * Self-references and mentions of CLOSED stories are ignored — the first is
+ * noise and the second is history.
+ */
+export function namedByCount(stories) {
+  const open = stories.filter((s) => !s.passes);
+  const openIds = new Set(open.map((s) => s.id));
+  const by = new Map();
+  for (const s of open) {
+    const text = [
+      s.description ?? "",
+      s.notes ?? "",
+      ...(s.acceptanceCriteria ?? []),
+    ].join(" ");
+    for (const m of text.matchAll(/US-(\d{3,4})/g)) {
+      const id = `US-${m[1]}`;
+      if (id === s.id || !openIds.has(id)) continue;
+      if (!by.has(id)) by.set(id, new Set());
+      by.get(id).add(s.id);
+    }
+  }
+  return by;
+}
+
 export function collect(stories) {
   const open = stories.filter((s) => !s.passes);
   const declared = [];
@@ -259,6 +297,30 @@ function main() {
   console.log(
     `\nOperator queue: ${total} of ${openCount} open stories wait on a person.\n`,
   );
+
+  // The whole queue sorted by priority is a list; this is the shortest path
+  // through it. Only DECLARED rows are ranked — an undeclared one is a guess at
+  // what a person is needed for, and guessing twice does not make it a plan.
+  const namedBy = namedByCount(prd.userStories ?? []);
+  const ranked = declared
+    .map((s) => ({ ...s, blocks: namedBy.get(s.id)?.size ?? 0 }))
+    .filter((s) => s.blocks > 0)
+    .sort((a, b) => b.blocks - a.blocks || comparePriority(a, b));
+
+  if (ranked.length > 0) {
+    console.log("START HERE — operator work that other open stories are waiting on\n");
+    for (const s of ranked.slice(0, 8)) {
+      const who = [...(namedBy.get(s.id) ?? [])].sort().join(", ");
+      console.log(`  ${String(s.blocks).padStart(2)}x  ${rank(s)} ${s.id}  ${s.title}`);
+      console.log(`        named by: ${who}`);
+      console.log(`        ${s.items[0].replace(DECLARED_RE, "").slice(0, 150)}`);
+      console.log("");
+    }
+    console.log(
+      "  A mention is evidence of a relationship, not proof of one — this counts\n" +
+        "  stories that NAME each other, because dependencies here live in prose.\n",
+    );
+  }
 
   console.log(`DECLARED (${declared.length}) — an OPERATOR: acceptance criterion, quoted exactly`);
   if (declared.length === 0) console.log("  (none)");

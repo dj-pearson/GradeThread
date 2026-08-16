@@ -12,6 +12,8 @@ export interface OperatorStory {
   passes?: boolean;
   title: string;
   priority?: number;
+  /** Read by namedByCount along with notes and the acceptance criteria. */
+  description?: string;
   notes?: string;
   acceptanceCriteria?: string[];
 }
@@ -46,3 +48,14 @@ export function collect(stories: readonly OperatorStory[]): {
 
 /** Reading list, not findings — see the note in prd-operator.mjs. */
 export function auditCandidates(stories: readonly OperatorStory[]): AuditCandidate[];
+
+/**
+ * How many OTHER open stories name each open story, keyed by the named id.
+ *
+ * Counted from description + notes + acceptance criteria, because this backlog
+ * records dependencies in prose rather than in a field. Self-references and
+ * mentions of closed or non-existent ids are excluded.
+ */
+export function namedByCount(
+  stories: readonly OperatorStory[],
+): Map<string, Set<string>>;

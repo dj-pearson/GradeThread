@@ -17,6 +17,7 @@ import {
   collect,
   DECLARED_RE,
   extractSentence,
+  namedByCount,
   UNDECLARED_PATTERNS,
 } from "../../scripts/prd-operator.mjs";
 
@@ -25,6 +26,7 @@ type Story = {
   passes: boolean;
   title: string;
   priority?: number;
+  description?: string;
   notes?: string;
   acceptanceCriteria?: string[];
 };
@@ -219,5 +221,72 @@ describe("evidence extraction", () => {
     const notes = `${"x".repeat(50)}. AC5 is an operator action ${"y".repeat(900)}`;
     const out = extractSentence(notes, notes.indexOf("AC5"));
     expect(out.length).toBeLessThanOrEqual(260);
+  });
+});
+
+// ── US-2654: the START HERE ranking ──────────────────────────────────────────
+//
+// The queue has sat around 74 items for a long time, and a flat priority sort
+// does not answer the question a person actually has in front of it: which one,
+// done first, stops blocking the most other work.
+//
+// `namedByCount` answers it from the TEXT, because dependencies here live in
+// prose ("blocked on US-2001", "gated on US-2403") and not in a field. That is
+// imprecise ON PURPOSE, and the output says so — a mention is evidence of a
+// relationship, not proof of one. These cases pin the exclusions, which are
+// what stop the count being flattering: history and noise both inflate it.
+
+describe("US-2654: namedByCount ranks by what other open stories wait on", () => {
+  const stories: Story[] = [
+    { id: "US-2001", title: "US-2001", passes: false, description: "blocked on US-2003", acceptanceCriteria: [] },
+    { id: "US-2002", title: "US-2002", passes: false, notes: "gated on US-2003 and US-2004", acceptanceCriteria: [] },
+    { id: "US-2003", title: "US-2003", passes: false, description: "the measurement", acceptanceCriteria: [] },
+    { id: "US-2004", title: "US-2004", passes: false, description: "another", acceptanceCriteria: [] },
+    { id: "US-2005", title: "US-2005", passes: true, description: "closed, mentions US-2003", acceptanceCriteria: [] },
+  ];
+
+  it("counts the distinct open stories that name each one", () => {
+    const by = namedByCount(stories);
+    expect([...(by.get("US-2003") ?? [])].sort()).toEqual(["US-2001", "US-2002"]);
+    expect([...(by.get("US-2004") ?? [])]).toEqual(["US-2002"]);
+  });
+
+  it("ignores a mention from a CLOSED story", () => {
+    // History, not a dependency. Counting it would make finished work look like
+    // a live blocker, which is exactly the wrong thing to put at the top.
+    expect(namedByCount(stories).get("US-2003")?.has("US-2005")).toBeFalsy();
+  });
+
+  it("ignores a self-reference", () => {
+    const by = namedByCount([
+      { id: "US-2009", title: "US-2009", passes: false, notes: "US-2009 is this story", acceptanceCriteria: [] },
+    ]);
+    expect(by.get("US-2009")).toBeUndefined();
+  });
+
+  it("ignores a mention of an id that is not an open story", () => {
+    // Notes cite archived and phantom ids freely — 00479 has a whole paragraph
+    // about being a phantom. Neither is a live dependency.
+    const by = namedByCount([
+      { id: "US-2009", title: "US-2009", passes: false, notes: "see US-0001 and US-9999", acceptanceCriteria: [] },
+    ]);
+    expect(by.size).toBe(0);
+  });
+
+  it("counts a story once however many times one story names it", () => {
+    // Otherwise a note that repeats an id in four sentences outranks four
+    // separate stories that each name it once, which inverts the whole point.
+    const by = namedByCount([
+      {
+        id: "US-2001",
+        title: "US-2001",
+        passes: false,
+        description: "US-2003",
+        notes: "US-2003 US-2003 US-2003",
+        acceptanceCriteria: ["US-2003 again"],
+      },
+      { id: "US-2003", title: "US-2003", passes: false, acceptanceCriteria: [] },
+    ]);
+    expect(by.get("US-2003")?.size).toBe(1);
   });
 });
