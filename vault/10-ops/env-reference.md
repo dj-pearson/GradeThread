@@ -181,7 +181,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `LIGHTWEIGHT_AI_MODEL` | ⬜ Coolify edge | Cheap text model for enrichment/copy (default `claude-haiku-4-5-…`). |
 | `DEFAULT_IMAGE_MODEL` | ⬜ Coolify edge | Model used for image-bearing extract calls. |
 | `GRADING_COMPOSITE_MODEL` | ⬜ Coolify edge | Model for the composite multi-photo grading pass. |
-| `AI_TEMPERATURE` / `GRADING_AI_TEMPERATURE` | ⬜ Coolify edge | Sampling temperature (global / grading-specific). |
+| `AI_TEMPERATURE` / `GRADING_AI_TEMPERATURE` | ⬜ Coolify edge | Sampling temperature (global / grading-specific). ⚠ The grading one is **inert on the default model**: effort-based models reject sampling parameters, so grading sends `output_config.effort` and no temperature (US-2035). Setting it does nothing unless you have also pinned an older Sonnet 4.x / Haiku. |
 | `GRADING_AI_EFFORT` | ⬜ Coolify edge | Reasoning-effort tier for grading calls. |
 | `GRADING_REVIEW_CONFIDENCE_THRESHOLD` | ⬜ Coolify edge | Confidence below which a grade routes to human review (default 0.75). |
 | `GRADING_LEASE_SECONDS` / `GRADING_MAX_ATTEMPTS` | ⬜ Coolify edge | Job-lease duration and retry cap for the grading worker. |
