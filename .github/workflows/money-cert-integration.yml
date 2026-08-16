@@ -151,6 +151,7 @@ jobs:
           deno test --allow-net --allow-env --allow-read \
             src/tests/credit-refund_test.ts \
             src/tests/ledger-consistency_test.ts \
+            src/tests/ledger-append-only_test.ts \
             src/tests/ai-quota-concurrency_test.ts \
             src/tests/public-certificate_test.ts \
             src/tests/passport-claim_test.ts

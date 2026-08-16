@@ -30,6 +30,31 @@ const RUN = requireIntegrationFixtures(
   CONFIGURED,
 );
 
+/**
+ * A fresh Stripe payment-intent id per RUN, not per file.
+ *
+ * These were hardcoded (`pi_test_refund`, `pi_test_spent`) and that made the
+ * suite single-use per database. `grant_grade_credits` is idempotent on
+ * `stripe_payment_intent_id` for `pack_purchase` (US-390), correctly — so on a
+ * second run the grant is a no-op, the balance does not move, and the failure
+ * reads as "grant should add 10", which looks like a broken grant rather than a
+ * test that has already spent its key.
+ *
+ * It never showed up because CI starts every lane from a fresh `supabase
+ * start`, and because the money fixture used to DELETE the user's ledger rows —
+ * which cleared the keys as a side effect. 00597 made that delete impossible
+ * (append-only, service_role included), so the seeder now zeroes the balance
+ * with a compensating row and the historical rows stay, keys and all. That is
+ * the correct behaviour for a ledger and it is what surfaces this.
+ *
+ * Suffixing the id is the fix, not weakening the idempotency it is colliding
+ * with: the dedupe is a real money control and the test should exercise it
+ * with its own key.
+ */
+const RUN_ID = crypto.randomUUID().slice(0, 8);
+const PI_REFUND = `pi_test_refund_${RUN_ID}`;
+const PI_SPENT = `pi_test_spent_${RUN_ID}`;
+
 function admin() {
   return createClient(URL!, KEY!, { auth: { persistSession: false } });
 }
@@ -65,7 +90,7 @@ Deno.test({
       p_user_id: USER_ID,
       p_credits: 10,
       p_reason: "pack_purchase",
-      p_stripe_payment_intent: "pi_test_refund",
+      p_stripe_payment_intent: PI_REFUND,
       p_notes: "test pack",
     });
     assertEquals(await balanceOf(db), start + 10, "grant should add 10");
@@ -73,7 +98,7 @@ Deno.test({
     const { data } = await db.rpc("revoke_grade_credits", {
       p_user_id: USER_ID,
       p_credits: 10,
-      p_stripe_payment_intent: "pi_test_refund",
+      p_stripe_payment_intent: PI_REFUND,
       p_notes: "test refund",
     });
     const result = data as { revoked: number; shortfall: number; balance_after: number };
@@ -102,7 +127,7 @@ Deno.test({
       p_user_id: USER_ID,
       p_credits: 5,
       p_reason: "pack_purchase",
-      p_stripe_payment_intent: "pi_test_spent",
+      p_stripe_payment_intent: PI_SPENT,
       p_notes: "test pack spent",
     });
     await db.rpc("debit_grade_credits", {
@@ -116,7 +141,7 @@ Deno.test({
     const { data } = await db.rpc("revoke_grade_credits", {
       p_user_id: USER_ID,
       p_credits: 5,
-      p_stripe_payment_intent: "pi_test_spent",
+      p_stripe_payment_intent: PI_SPENT,
       p_notes: "refund of spent pack",
     });
     const result = data as { revoked: number; shortfall: number; balance_after: number };

@@ -119,17 +119,59 @@ async function ensureUser(email: string): Promise<string> {
  * Re-runs matter more here than in the tenant fixture: these suites LEAVE the
  * row mutated by design (a zeroed wallet, a counter parked on the cap), so a
  * second run against a reused stack would start from the previous run's wreckage
- * rather than from zero. Resetting the ledger rows too keeps
+ * rather than from zero. Zeroing the ledger too keeps
  * credit_ledger_reconciliation() honest — it compares SUM(delta) against the
- * balance, so clearing one without the other would manufacture the exact drift
+ * balance, so moving one without the other would manufacture the exact drift
  * ledger-consistency_test.ts exists to detect.
  */
 async function resetWallet(userId: string): Promise<void> {
-  const { error: delErr } = await admin
+  // ── IT COMPENSATES, IT DOES NOT DELETE (fixed 2026-08-16) ───────────
+  //
+  // This used to `.delete()` the user's ledger rows, and since 00597 that is
+  // impossible: the append-only trigger refuses UPDATE and DELETE for EVERY
+  // role, service_role included, which is the entire point of it. So the
+  // second run of this seeder against any stack died with
+  //
+  //   [seed-money] FATAL: clear ledger for … failed: grade_credit_transactions
+  //   is append-only: DELETE is not permitted on row …
+  //
+  // and only the FIRST run on a fresh database ever worked. CI never noticed
+  // because every lane run starts from `supabase start`. 00597's own risk note
+  // says it was checked against "no migration and no edge module" performing
+  // an UPDATE or DELETE here — true, and this file is neither, so it fell
+  // through the gap between the two categories that were checked.
+  //
+  // The trigger's error message names the remedy and it is also the right one:
+  // reverse by INSERTING a compensating row. That keeps
+  // credit_ledger_reconciliation() honest for the same reason the delete did —
+  // SUM(delta) and the balance both land on zero — without asking the database
+  // to forget that anything happened.
+  //
+  // `correction` rather than `refund` or `admin_grant`: both of those assert a
+  // commercial event that did not occur. A fixture reset is a correction.
+  const { data: rows, error: readErr } = await admin
     .from("grade_credit_transactions")
-    .delete()
+    .select("delta")
     .eq("user_id", userId);
-  if (delErr) die(`clear ledger for ${userId} failed: ${delErr.message}`);
+  if (readErr) die(`read ledger for ${userId} failed: ${readErr.message}`);
+
+  const sum = (rows ?? []).reduce(
+    (acc: number, r: { delta: number }) => acc + Number(r.delta ?? 0),
+    0,
+  );
+  if (sum !== 0) {
+    const { error: insErr } = await admin
+      .from("grade_credit_transactions")
+      .insert({
+        user_id: userId,
+        delta: -sum,
+        reason: "correction",
+        // The table CHECKs balance_after >= 0, and zero is where this lands.
+        balance_after: 0,
+        notes: "fixture reset (seed-money-cert-fixture)",
+      });
+    if (insErr) die(`compensate ledger for ${userId} failed: ${insErr.message}`);
+  }
 
   const { error: updErr } = await admin
     .from("users")
