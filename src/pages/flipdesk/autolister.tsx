@@ -4,13 +4,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Loader2,
   Sparkles,
-  Trash2,
-  Plus,
   Star,
   X,
   ImageIcon,
-  Combine,
-  Wand2,
   Tags,
   WandSparkles,
   Eraser,
@@ -18,11 +14,6 @@ import {
   Pencil,
   Camera,
   Ungroup,
-  ChevronsDownUp,
-  ChevronsUpDown,
-  FolderInput,
-  ArrowUpDown,
-  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 import { edgeFetch } from "@/lib/edge-fetch";
@@ -30,13 +21,6 @@ import { itemPhotoThumb } from "@/lib/images";
 import { PhotoEditorDialog } from "@/components/flipdesk/photo-editor-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/lib/supabase";
@@ -67,13 +51,6 @@ import {
   ungroupedGridColumns,
 } from "@/lib/autolister-virtual-grid";
 import { useWindowVirtualAnchor } from "@/hooks/use-window-virtual-anchor";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   movePhotosToGroup,
   reorderWithinGroup,
@@ -166,6 +143,12 @@ import {
   StagedThumb,
   UngroupedDropZone,
 } from "./autolister/photo-drag-tiles";
+import {
+  GroupSelectionBar,
+  GroupsToolbar,
+  PhotoSelectionBar,
+  UngroupedToolbar,
+} from "./autolister/workbench-toolbars";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/ui/page-header";
 
@@ -298,6 +281,10 @@ const UNGROUPED_SORT_LABELS: Record<UngroupedSortMode, string> = {
   date: "Date taken",
   upload: "Upload order",
 };
+/** The same labels as the toolbar's <Select> wants them (US-2621). */
+const UNGROUPED_SORT_OPTIONS = (
+  Object.keys(UNGROUPED_SORT_LABELS) as UngroupedSortMode[]
+).map((value) => ({ value, label: UNGROUPED_SORT_LABELS[value] }));
 
 // US-1906: true virtualization for the two unbounded sections. US-1541 windowed
 // them behind IntersectionObserver "load more" chunks, which fixed first paint
@@ -398,7 +385,7 @@ export function FlipdeskAutolisterPage() {
   const navigate = useNavigate();
   // US-2520: set when this session was opened from a running batch (the shared
   // batch nav carries it). A fresh Generate session has none.
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const liveBatchId = searchParams.get("batch");
   const qc = useQueryClient();
   const startBatch = useStartAutolisterBatch();
@@ -604,6 +591,8 @@ export function FlipdeskAutolisterPage() {
   // US-1546: pre-generate checkpoint — Generate opens this confirm dialog;
   // when photos would be left ungrouped, an explicit acknowledgment gates it.
   const [confirmGenerateOpen, setConfirmGenerateOpen] = useState(false);
+  /** US-2621: which groups the pending Generate covers. null = all of them. */
+  const [generateTarget, setGenerateTarget] = useState<string[] | null>(null);
   const [ackUngrouped, setAckUngrouped] = useState(false);
   // US-535: studio background. Mode for the one-tap clean, photos currently
   // being segmented, a batch-busy flag, and one-time model-download progress.
@@ -2006,6 +1995,12 @@ export function FlipdeskAutolisterPage() {
   /** Groups that will actually generate (non-empty). */
   const listableCount = groups.filter((g) => g.photoIds.length > 0).length;
 
+  /** US-2621: the structural slice the selection bar's menu needs. */
+  const toolbarGroups = useMemo(
+    () => groups.map((g) => ({ id: g.id, name: g.name, photoCount: g.photoIds.length })),
+    [groups],
+  );
+
   /** US-1546 AC2: suspicious groups, each linkable/scrollable. */
   interface GroupWarning {
     key: string;
@@ -2070,11 +2065,32 @@ export function FlipdeskAutolisterPage() {
 
   /** Generate button → checkpoint dialog (the button's own disabled state
    * already enforces the busy / no-groups / uploads-in-flight / entitlement
-   * gates, so opening never bypasses them). */
-  function openGenerateConfirm() {
+   * gates, so opening never bypasses them). US-2621: `only` scopes the run —
+   * and the dialog with it — to those groups. */
+  function openGenerateConfirm(only?: string[]) {
+    setGenerateTarget(only && only.length > 0 ? only : null);
     setAckUngrouped(false);
     setConfirmGenerateOpen(true);
   }
+
+  /**
+   * US-2621: what the checkpoint dialog is about to spend, scoped to whatever
+   * this Generate covers. The metered-spend rule (never spend an AI action
+   * without first saying how many) is only kept if the count and the warnings
+   * describe the SAME groups the button will send.
+   */
+  const generateScope = useMemo(() => {
+    const wanted = generateTarget ? new Set(generateTarget) : null;
+    const list = wanted ? groups.filter((g) => wanted.has(g.id)) : groups;
+    const ids = new Set(list.map((g) => g.id));
+    return {
+      partial: wanted != null && list.length < groups.length,
+      listableCount: list.filter((g) => g.photoIds.length > 0).length,
+      photoCount: list.reduce((n, g) => n + g.photoIds.length, 0),
+      warnings: groupWarnings.filter((w) => ids.has(w.groupId)),
+      remainingGroups: groups.length - list.length,
+    };
+  }, [generateTarget, groups, groupWarnings]);
 
   /** Apply one suggestion via the US-1543 undoable mutations. */
   function applySuggestion(s: GroupSuggestionRow) {
@@ -2465,7 +2481,7 @@ export function FlipdeskAutolisterPage() {
   }
 
   /**
-   * US-2595: dissolve ONE group. Nothing is deleted — the photos land back in
+   * US-2621: dissolve ONE group. Nothing is deleted — the photos land back in
    * Ungrouped, where they can be re-grouped. This used to be labelled "Delete"
    * with a red trash icon, which read as "destroys my photos", so sellers with
    * a bad group had no action they were willing to click.
@@ -2477,6 +2493,21 @@ export function FlipdeskAutolisterPage() {
       (prev) => prev.filter((g) => g.id !== groupId),
       "move",
     );
+  }
+
+  /** US-2621: the same dissolve over a checkbox selection. */
+  function ungroupSelectedGroups() {
+    const ids = new Set(selectedGroups);
+    if (ids.size === 0) return;
+    const count = groups
+      .filter((g) => ids.has(g.id))
+      .reduce((n, g) => n + g.photoIds.length, 0);
+    applyGroupEdit(
+      `${ids.size} group${ids.size === 1 ? "" : "s"} dissolved — ${count} photo${count === 1 ? "" : "s"} back in Ungrouped.`,
+      (prev) => prev.filter((g) => !ids.has(g.id)),
+      "move",
+    );
+    setSelectedGroups(new Set());
   }
 
   // US-317: merge two or more groups. Keeps the first group's name and cover,
@@ -2522,30 +2553,49 @@ export function FlipdeskAutolisterPage() {
     }
   }
 
-  async function generate() {
+  /**
+   * Generate listings. With no argument that means the whole session, which is
+   * what the page-header button does. US-2621: pass group ids to send only
+   * those — the per-item "Generate" and the selection bar's "Generate N". A
+   * partial run leaves everything it didn't take exactly where it was and
+   * keeps the seller on this page, so finishing one item early no longer means
+   * either sending the whole batch or waiting for it.
+   */
+  async function generate(only?: string[] | null) {
     if (!ownerId) return;
     if (groups.length === 0) {
       toast.error("Create at least one group first.");
       return;
     }
+    const targetIds = only && only.length > 0 ? new Set(only) : null;
+    const targets = targetIds ? groups.filter((g) => targetIds.has(g.id)) : groups;
+    if (targets.length === 0) {
+      toast.error("Those items are no longer in this session.");
+      return;
+    }
+    const partial = targets.length < groups.length;
     // US-1908: session-end grouping outcome — how much the seller corrected the
-    // auto-grouper — captured BEFORE generation mutates anything.
-    const finalAssigned: Record<string, string> = {};
-    for (const g of groups) for (const pid of g.photoIds) finalAssigned[pid] = g.id;
-    const correction = groupingCorrectionScore(autoAssignedRef.current, finalAssigned);
-    trackGroupingOutcome({
-      photo_count: staged.length,
-      corrected_count: correction.corrected,
-      correction_pct: Math.round(correction.pct * 100) / 100,
-      manual_groups_created: manualGroupsCreated(
-        autoGroupIdsRef.current,
-        groups.map((g) => g.id),
-      ),
-    });
+    // auto-grouper — captured BEFORE generation mutates anything. A partial run
+    // is not the end of the session, and scoring the corrections against a
+    // fraction of the groups would report a number that means nothing.
+    if (!partial) {
+      const finalAssigned: Record<string, string> = {};
+      for (const g of groups) for (const pid of g.photoIds) finalAssigned[pid] = g.id;
+      const correction = groupingCorrectionScore(autoAssignedRef.current, finalAssigned);
+      trackGroupingOutcome({
+        photo_count: staged.length,
+        corrected_count: correction.corrected,
+        correction_pct: Math.round(correction.pct * 100) / 100,
+        manual_groups_created: manualGroupsCreated(
+          autoGroupIdsRef.current,
+          groups.map((g) => g.id),
+        ),
+      });
+    }
     setBusy(true);
     try {
       const itemIds: string[] = [];
-      for (const g of groups) {
+      for (const g of targets) {
         const photos = g.photoIds
           .map((pid) => stagedById.get(pid))
           .filter((p): p is StagedPhoto => !!p);
@@ -2655,6 +2705,52 @@ export function FlipdeskAutolisterPage() {
         item_ids: itemIds,
         auto_publish_green: autoPublishGreen,
       });
+      if (partial) {
+        // The generated groups and their photos now belong to real items, so
+        // they leave the staging session; everything else is untouched and the
+        // seller stays on this page to keep working. The batch id goes into the
+        // URL so BatchNav appears and the run is one click away.
+        const takenPhotoIds = new Set(targets.flatMap((g) => g.photoIds));
+        const remainingGroups = groups.filter((g) => !targets.includes(g));
+        const remainingStaged = staged.filter((p) => !takenPhotoIds.has(p.id));
+        // The undo snapshot describes groups that no longer exist here.
+        undoGroupsRef.current = null;
+        setGroups(remainingGroups);
+        setStaged(remainingStaged);
+        setSelectedGroups(new Set());
+        setSelected(new Set());
+        // Persist NOW rather than leaving it to the save effect: the URL change
+        // below re-renders, and a session that exists only in React state is one
+        // reload away from gone.
+        if (idbAvailable()) {
+          void saveSession(sessionId.current, {
+            staged: remainingStaged,
+            groups: remainingGroups,
+            undo: null,
+            sort: { ungroupedSort, groupEvery },
+            updatedAt: Date.now(),
+          });
+        }
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("batch", res.batch_id);
+            return next;
+          },
+          { replace: true },
+        );
+        toast.success(
+          `Generating ${itemIds.length} listing${itemIds.length === 1 ? "" : "s"} — the rest of your session is still here.`,
+          {
+            action: {
+              label: "Open queue",
+              onClick: () =>
+                navigate(`/dashboard/flipdesk/autolister/queue?batch=${res.batch_id}`),
+            },
+          },
+        );
+        return;
+      }
       // Clear the persisted session — the batch is now durable on the server,
       // and re-showing the staged photos on the next visit would be confusing.
       clearStoredSession();
@@ -2736,7 +2832,10 @@ export function FlipdeskAutolisterPage() {
         actions={
           <div className="flex flex-col items-end gap-2">
           <Button
-            onClick={openGenerateConfirm}
+            // US-2621: wrapped, not passed by reference — openGenerateConfirm's
+            // first parameter is the group subset, and a bare handler would hand
+            // it the click event as one.
+            onClick={() => openGenerateConfirm()}
             disabled={busy || groups.length === 0 || uploading > 0 || !entitled}
             size="lg"
           >
@@ -2916,152 +3015,38 @@ export function FlipdeskAutolisterPage() {
           <h2 className="text-base font-semibold text-foreground">
             Ungrouped photos {ungrouped.length > 0 && `(${ungrouped.length})`}
           </h2>
-          <div className="flex flex-wrap items-center gap-2">
-            {/* US-1550: user-selectable grid order. */}
-            <div className="flex items-center gap-1" title="Order the grid — grouping tools follow this order">
-              <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-              <Select
-                value={ungroupedSort}
-                onValueChange={(v) => setUngroupedSort(v as UngroupedSortMode)}
-              >
-                <SelectTrigger size="sm" className="h-8 w-[140px]" aria-label="Sort photos by">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(Object.keys(UNGROUPED_SORT_LABELS) as UngroupedSortMode[]).map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {UNGROUPED_SORT_LABELS[m]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {lastAutoGroupIds && lastAutoGroupIds.length > 0 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => undoAutoGroup()}
-                title="Dissolve the groups the last Auto-group run created — those photos return here"
-              >
-                <Undo2 className="mr-1 h-4 w-4" />
-                Undo auto-group
-              </Button>
-            )}
-            <Button
-              size="sm"
-              onClick={autoGroup}
-              disabled={ungrouped.length === 0}
-              title="Group photos into items automatically by capture time + visual similarity"
-            >
-              <Wand2 className="mr-1 h-4 w-4" />
-              Auto-group ({ungrouped.length})
-            </Button>
-            {/* US-1904: AI group remaining — a vision pass proposes item
-                boundaries for a timeless dump auto-group can't split. Appears
-                once there are ≥2 ungrouped photos left. */}
-            {entitled && ungrouped.length >= 2 && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={proposeGroups}
-                disabled={proposing}
-                title="AI looks at the remaining photos in shooting order and proposes where each item begins (uses AI actions — you'll see the count first)"
-              >
-                {proposing ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-1 h-4 w-4" />
-                )}
-                AI group remaining
-              </Button>
-            )}
-            {proposeProgress && (
-              <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                Proposed {proposeProgress.done}/{proposeProgress.total} photos…
-                <button
-                  type="button"
-                  className="underline underline-offset-2 hover:text-foreground"
-                  onClick={() => {
-                    proposeCancelRef.current = true;
-                  }}
-                >
-                  Stop
-                </button>
-              </span>
-            )}
-            {/* US-1550: fixed-size chunking in the displayed order — the rescue
-                tool when photos carry no capture times for Auto-group to use. */}
-            <div
-              className="flex items-center gap-1"
-              title="Cut the grid into items of exactly this many photos, in the order shown"
-            >
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={groupEveryN}
-                disabled={ungrouped.length === 0}
-              >
-                <Layers className="mr-1 h-4 w-4" />
-                Group every
-              </Button>
-              <Input
-                type="number"
-                min={1}
-                max={24}
-                value={Number.isFinite(groupEvery) ? groupEvery : ""}
-                onChange={(e) => setGroupEvery(e.target.valueAsNumber)}
-                aria-label="Photos per item"
-                className="h-8 w-16"
-              />
-            </div>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={createGroupFromSelection}
-              disabled={selected.size === 0}
-            >
-              <Plus className="mr-1 h-4 w-4" />
-              New group from selected ({selected.size})
-            </Button>
-            {/* US-2595: the strays left over after auto-grouping usually belong
-                to a group that already exists. Selecting them and picking the
-                group is the no-drag path to that; drag still works per tile. */}
-            {selected.size > 0 && groups.length > 0 && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="sm" variant="secondary">
-                    <FolderInput className="mr-1 h-4 w-4" />
-                    Add selected to item ({selected.size})
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="max-h-72 w-64 overflow-y-auto">
-                  <DropdownMenuLabel>Add to which item</DropdownMenuLabel>
-                  {groups.map((g, i) => (
-                    <DropdownMenuItem
-                      key={g.id}
-                      onClick={() => movePhotos(Array.from(selected), g.id)}
-                    >
-                      <span className="truncate">{g.name || `Item ${i + 1}`}</span>
-                      <span className="ml-auto pl-2 text-xs text-muted-foreground">
-                        {g.photoIds.length}
-                      </span>
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-            {selected.size > 0 && (
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={() => removePhotos(Array.from(selected))}
-              >
-                <Trash2 className="mr-1 h-4 w-4" />
-                Delete selected ({selected.size})
-              </Button>
-            )}
-          </div>
+          <UngroupedToolbar
+            ungroupedCount={ungrouped.length}
+            entitled={entitled}
+            sort={ungroupedSort}
+            sortOptions={UNGROUPED_SORT_OPTIONS}
+            onSortChange={(v) => setUngroupedSort(v as UngroupedSortMode)}
+            canUndoAutoGroup={!!lastAutoGroupIds && lastAutoGroupIds.length > 0}
+            onUndoAutoGroup={() => undoAutoGroup()}
+            onAutoGroup={autoGroup}
+            proposing={proposing}
+            onPropose={proposeGroups}
+            proposeProgress={proposeProgress}
+            onStopPropose={() => {
+              proposeCancelRef.current = true;
+            }}
+            groupEvery={groupEvery}
+            onGroupEveryChange={setGroupEvery}
+            onGroupEveryN={groupEveryN}
+          />
         </div>
+        {/* US-2621: what you do with a selection used to sit in the middle of
+            the row above, between the automatic grouping tools — so the button
+            you actually wanted after picking photos was the hardest one to
+            find. It is its own bar now, and it sticks. */}
+        <PhotoSelectionBar
+          count={selected.size}
+          groups={toolbarGroups}
+          onNewGroup={createGroupFromSelection}
+          onAddToGroup={(groupId) => movePhotos(Array.from(selected), groupId)}
+          onDelete={() => removePhotos(Array.from(selected))}
+          onClear={() => setSelected(new Set())}
+        />
         {/* US-1904: uncertain propose boundaries — created only on the seller's
             confirmation, never silently applied. */}
         {proposalReviews.length > 0 && (
@@ -3223,7 +3208,7 @@ export function FlipdeskAutolisterPage() {
                     <Pencil className="h-3 w-3" />
                   </button>
                   {/* US-1543: non-pointer fallback for adding to a group.
-                      US-2595: always visible on a stray — see the prop. */}
+                      US-2621: always visible on a stray — see the prop. */}
                   <MovePhotoMenu
                     photoId={p.id}
                     currentGroupId={null}
@@ -3255,96 +3240,35 @@ export function FlipdeskAutolisterPage() {
             <h2 className="text-base font-semibold text-foreground">
               Listings to generate ({groups.length})
             </h2>
-            <div className="flex items-center gap-2">
-              {selectedGroups.size >= 2 && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    mergeGroups(Array.from(selectedGroups));
-                    setSelectedGroups(new Set());
-                  }}
-                >
-                  <Combine className="mr-1 h-4 w-4" />
-                  Merge {selectedGroups.size} groups
-                </Button>
-              )}
-              {/* US-1544/US-1903: on-demand AI grouping sanity check. Large
-                  sessions are checked across sequential windows (1 AI action
-                  each); progress shows below and the pass can be stopped. */}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void verifyGroups(false)}
-                disabled={verifyingGroups || groups.length < 2}
-                title="AI compares your groups: flags likely merges, splits, and misplaced photos — suggestions only, nothing is changed automatically. Large sessions are checked in batches (1 AI action each)."
-              >
-                {verifyingGroups ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Sparkles className="mr-1 h-4 w-4" />
-                )}
-                Verify groups
-              </Button>
-              {verifyProgress && (
-                <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-                  Checked {verifyProgress.done}/{verifyProgress.total} groups…
-                  <button
-                    type="button"
-                    className="underline underline-offset-2 hover:text-foreground"
-                    onClick={() => {
-                      verifyCancelRef.current = true;
-                    }}
-                  >
-                    Stop
-                  </button>
-                </span>
-              )}
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={autoTagAllGroups}
-                disabled={taggingAll || taggingGroups.size > 0}
-                title="Pick the best cover and tag each photo's role with AI"
-              >
-                {taggingAll ? (
-                  <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-                ) : (
-                  <Tags className="mr-1 h-4 w-4" />
-                )}
-                Auto-tag all
-              </Button>
-              {/* US-1907: collapse every group to a header-only overview. */}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setGroupsCollapsed((c) => !c)}
-                aria-pressed={groupsCollapsed}
-                title={
-                  groupsCollapsed
-                    ? "Expand every group to show its photos"
-                    : "Collapse every group to a header-only overview"
-                }
-              >
-                {groupsCollapsed ? (
-                  <ChevronsUpDown className="mr-1 h-4 w-4" />
-                ) : (
-                  <ChevronsDownUp className="mr-1 h-4 w-4" />
-                )}
-                {groupsCollapsed ? "Expand all" : "Collapse all"}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={ungroupAll}
-                disabled={busy}
-                title="Dissolve every group — all photos return to Ungrouped (nothing is deleted)"
-              >
-                <Ungroup className="mr-1 h-4 w-4" />
-                Ungroup all
-              </Button>
-            </div>
+            <GroupsToolbar
+              groupCount={groups.length}
+              busy={busy}
+              verifying={verifyingGroups}
+              onVerify={() => void verifyGroups(false)}
+              verifyProgress={verifyProgress}
+              onStopVerify={() => {
+                verifyCancelRef.current = true;
+              }}
+              tagging={taggingAll || taggingGroups.size > 0}
+              onAutoTagAll={autoTagAllGroups}
+              collapsed={groupsCollapsed}
+              onToggleCollapsed={() => setGroupsCollapsed((c) => !c)}
+              onUngroupAll={ungroupAll}
+            />
           </div>
+          {/* US-2621: everything a selection of items can do, in one bar next
+              to the checkboxes that made it. */}
+          <GroupSelectionBar
+            count={selectedGroups.size}
+            canGenerate={!busy && uploading === 0 && entitled}
+            onGenerate={() => openGenerateConfirm(Array.from(selectedGroups))}
+            onMerge={() => {
+              mergeGroups(Array.from(selectedGroups));
+              setSelectedGroups(new Set());
+            }}
+            onUngroup={ungroupSelectedGroups}
+            onClear={() => setSelectedGroups(new Set())}
+          />
           {/* US-1907: triage strip — session health + jump-to / filter for
               large sessions. Appears at ≥12 groups. */}
           {groups.length >= 12 && (
@@ -3510,6 +3434,21 @@ export function FlipdeskAutolisterPage() {
                   );
                 })()}
                 <div className="ml-auto flex items-center gap-1">
+                  {/* US-2621: generate THIS item without touching the rest of
+                      the session. The only way to run one used to be the page
+                      header's Generate, which takes the whole batch — so a
+                      seller who finished one item early had to scroll to the
+                      top and send everything, or wait. */}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => openGenerateConfirm([g.id])}
+                    disabled={busy || uploading > 0 || !entitled || g.photoIds.length === 0}
+                    title="Send just this item to the AI now. The rest of your session stays here."
+                  >
+                    <Sparkles className="mr-1 h-4 w-4" />
+                    Generate
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -3685,17 +3624,29 @@ export function FlipdeskAutolisterPage() {
       <GenerateConfirmDialog
         open={confirmGenerateOpen}
         onOpenChange={setConfirmGenerateOpen}
-        listableCount={listableCount}
-        stagedCount={staged.length}
-        ungroupedCount={ungrouped.length}
+        listableCount={generateScope.listableCount}
+        stagedCount={generateScope.partial ? generateScope.photoCount : staged.length}
+        // The "these photos will NOT be listed" acknowledgement is about
+        // finishing the session. A partial run finishes nothing — the ungrouped
+        // photos are still sitting there when it returns — so it gets the
+        // neutral `partial` note below instead of a blocking checkbox.
+        ungroupedCount={generateScope.partial ? 0 : ungrouped.length}
         aiActionsRemaining={aiActionsRemaining}
-        groupWarnings={groupWarnings}
+        groupWarnings={generateScope.warnings}
         onWarningClick={scrollToGroup}
         ackUngrouped={ackUngrouped}
         onAckUngroupedChange={setAckUngrouped}
+        partial={
+          generateScope.partial
+            ? {
+              remainingGroups: generateScope.remainingGroups,
+              remainingPhotos: ungrouped.length,
+            }
+            : null
+        }
         onGenerate={() => {
           setConfirmGenerateOpen(false);
-          void generate();
+          void generate(generateTarget);
         }}
       />
 

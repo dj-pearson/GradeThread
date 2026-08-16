@@ -14,8 +14,10 @@ const CEILINGS: Record<string, number> = {
   // Lowered from 3910 when the grouping-workbench tiles moved into
   // autolister/photo-drag-tiles.tsx. The ratchet had gone red at 3955 first,
   // which is the mechanism working: the file grew, and the answer was to take
-  // something out rather than to make room.
-  "src/pages/flipdesk/autolister.tsx": 3747,
+  // something out rather than to make room. Lowered again from 3747 when
+  // US-2621's selection bars pushed it to 3938 and the four toolbars moved into
+  // autolister/workbench-toolbars.tsx — same mechanism, same answer.
+  "src/pages/flipdesk/autolister.tsx": 3698,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   "src/pages/flipdesk/autolister-queue.tsx": 1120,
 };

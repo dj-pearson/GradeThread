@@ -87,7 +87,7 @@ export function PhotoDragTile({
         title={groupId == null ? "Drag onto a group to add this photo" : "Drag to move"}
         className={cn(
           "absolute left-1 top-7 z-10 cursor-grab rounded bg-black/55 p-1 text-white focus-visible:opacity-100 active:cursor-grabbing group-hover:opacity-100",
-          // US-2595: inside a group the tiles are dense and every photo already
+          // US-2621: inside a group the tiles are dense and every photo already
           // has a home, so the handle stays hover-only. An UNGROUPED tile is a
           // stray the seller still has to place — its handle is the whole way
           // in, so it is always on (hover never fires on a touch screen).
@@ -116,7 +116,7 @@ export function MovePhotoMenu({
   onMove: (photoId: string, targetGroupId: string | null) => void;
   onNewGroup: (photoId: string) => void;
   className?: string;
-  /** US-2595: on an ungrouped stray this is the pointer-free way into a group,
+  /** US-2621: on an ungrouped stray this is the pointer-free way into a group,
    *  so it is shown at all times rather than only on hover. */
   alwaysVisible?: boolean;
 }) {

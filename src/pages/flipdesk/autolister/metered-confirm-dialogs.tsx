@@ -51,6 +51,7 @@ export function GenerateConfirmDialog({
   onWarningClick,
   ackUngrouped,
   onAckUngroupedChange,
+  partial = null,
   onGenerate,
 }: {
   open: boolean;
@@ -63,6 +64,12 @@ export function GenerateConfirmDialog({
   onWarningClick: (groupId: string) => void;
   ackUngrouped: boolean;
   onAckUngroupedChange: (next: boolean) => void;
+  /**
+   * US-2621: set when this Generate covers only some of the session's items,
+   * and says what is being left behind. Non-null also means the run does not
+   * end the session, so the counts above describe the chosen items alone.
+   */
+  partial?: { remainingGroups: number; remainingPhotos: number } | null;
   onGenerate: () => void;
 }) {
   const plural = listableCount === 1 ? "" : "s";
@@ -100,6 +107,28 @@ export function GenerateConfirmDialog({
               </button>
             ))}
           </div>
+        )}
+
+        {partial && (
+          <p className="rounded-md border bg-muted/40 p-2 text-sm text-muted-foreground">
+            Only the item{plural} you picked go now.{" "}
+            {partial.remainingGroups > 0 && (
+              <>
+                {partial.remainingGroups} other item
+                {partial.remainingGroups === 1 ? "" : "s"}
+              </>
+            )}
+            {partial.remainingGroups > 0 && partial.remainingPhotos > 0 && " and "}
+            {partial.remainingPhotos > 0 && (
+              <>
+                {partial.remainingPhotos} ungrouped photo
+                {partial.remainingPhotos === 1 ? "" : "s"}
+              </>
+            )}
+            {partial.remainingGroups > 0 || partial.remainingPhotos > 0
+              ? " stay here, ready when you are."
+              : ""}
+          </p>
         )}
 
         {ungroupedCount > 0 && (
