@@ -1,5 +1,5 @@
-// The shipped `cron-jobs` runbook names jobs and schedules by hand, and nothing
-// checked them.
+// The shipped operator runbooks name jobs, schedules and flag keys by hand, and
+// nothing checked any of it against the machine source those names come from.
 //
 // HOW IT WENT WRONG. On 2026-08-15 US-2617 deleted the `ebay-orders-sync`
 // registry entry (ebay-order-backstop was already the same half-hourly sweep,
@@ -124,6 +124,66 @@ describe("US-2617: the cron-jobs runbook describes jobs that exist", () => {
       unmapped,
       "these are stated with a schedule in the runbook and are not mapped to a " +
         "registry name. Add them to CLAIMS so they are checked.",
+    ).toEqual([]);
+  });
+});
+
+// ── kill-switches: the runbook you read when something is on fire ──────────
+//
+// It tells an operator to "find the key (e.g. grading, autolister, …)". Those
+// keys come from the FeatureKey union in the edge, and a renamed flag would
+// leave this runbook naming a key that does not exist — at the exact moment
+// speed matters most. All eight were correct when this guard was written; the
+// point is that nothing would have said so if they were not.
+const FLAGS = join(
+  process.cwd(),
+  "services/edge-functions/src/lib/feature-flags.ts",
+);
+
+function featureKeys(): string[] {
+  // Split on CRLF **or** LF before stripping comments. That file is CRLF, and
+  // `.` does not match a carriage return — so a `/^\s*\/\/.*$/` strip applied
+  // after splitting on "\n" alone matches nothing, silently. The union is
+  // interleaved with prose containing semicolons ("gate; fail-open"), so the
+  // slice-to-first-semicolon below then truncated it from 15 keys to 5 and the
+  // check invented four missing flags. Third extraction bug of this shape in
+  // one session; the fix is always to normalise line endings first.
+  const src = readFileSync(FLAGS, "utf8")
+    .split(/\r?\n/)
+    .map((l) => l.replace(/^\s*\/\/.*$/, ""))
+    .join("\n");
+  const start = src.indexOf("export type FeatureKey =");
+  const union = src.slice(start, src.indexOf(";", start));
+  return [...union.matchAll(/\|\s*"([a-z0-9_]+)"/g)].map((m) => m[1]!);
+}
+
+describe("US-2617: the kill-switches runbook names flags that exist", () => {
+  it("the union parses to the real key set, not a truncated one", () => {
+    // Guarding the guard. If the extraction silently returns a short list, the
+    // case below passes for the wrong reason and the runbook goes unchecked.
+    const keys = featureKeys();
+    expect(keys.length).toBeGreaterThan(10);
+    expect(keys).toContain("grading");
+    expect(keys).toContain("rewards_quests"); // last in the union
+  });
+
+  it("every flag key the runbook offers as an example is a real FeatureKey", () => {
+    const src = readFileSync(RUNBOOKS, "utf8");
+    const start = src.indexOf('slug: "kill-switches"');
+    expect(start, "the kill-switches runbook was renamed or removed").toBeGreaterThan(-1);
+    const body = src.slice(start, src.indexOf("slug:", start + 10));
+    const listed = /find the key \(e\.g\. ([^)]+)\)/.exec(body);
+    expect(listed, "the 'find the key (e.g. …)' line was reworded — update this guard")
+      .not.toBeNull();
+
+    const claimed = listed![1]!.split(",").map((s) => s.trim());
+    const keys = new Set(featureKeys());
+    const unknown = claimed.filter((k) => !keys.has(k));
+    expect(
+      unknown,
+      "the incident runbook tells an operator to look for these flag keys and " +
+        "FeatureKey does not have them. A renamed flag is found here or during " +
+        "the incident.",
     ).toEqual([]);
   });
 });
