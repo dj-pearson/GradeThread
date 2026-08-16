@@ -9,13 +9,20 @@
 // unreadable, and the same stories kept getting re-opened, re-read and
 // re-deferred.
 //
-// THE FLOOR CAVEAT AT THE BOTTOM OF THIS FILE IS NOT DECORATION. It was checked
-// (2026-08-15) by scanning the same notes with a wider signal set: the queue
-// reported 37 and the honest number was 49, with three of the eight misses at
-// priority 25. The patterns had been tuned on stories that used the word
-// "operator", so stories saying "a PROD query this host cannot run" or "not
-// agent work" were invisible. Those phrasings are matched now. Re-measure
-// rather than trusting the total — that is what the caveat is asking for.
+// THE FLOOR CAVEAT AT THE BOTTOM OF THIS FILE IS NOT DECORATION, and the way it
+// was checked on 2026-08-15 is worth more than the numbers. Scanning the same
+// notes with a wider signal set took the queue from 37 to 49, then to 52. After
+// the second round a scan reported ZERO remaining and I said so.
+//
+// That was wrong. US-2444 was sitting there saying "STILL OPEN AND ALL OWNER
+// WORK" — a phrasing no candidate in that round happened to include. The
+// mistake was the method, not the list: a hand-picked phrase list can only find
+// phrasings someone already thought of, so reporting zero from one is a
+// statement about the list rather than about the backlog.
+//
+// Hence `--audit`, which stops guessing and returns a READING LIST instead. It
+// is over-wide by design and mostly false positives. Trust the DECLARED section;
+// treat the total as a floor no matter how many rounds of tuning it has had.
 //
 // TWO SECTIONS, AND THE SPLIT IS THE POINT.
 //
@@ -109,6 +116,56 @@ export function extractSentence(text, idx, max = 260) {
   return raw.length > max ? `${raw.slice(0, max - 1)}…` : raw;
 }
 
+/**
+ * Words that, in a story's LAST note segment, mean it is worth READING to see
+ * whether a person is needed. Deliberately dumb and over-wide.
+ *
+ * This exists because guessing phrases kept under-reporting, twice. The
+ * patterns above were extended to match "a PROD query this host cannot run" and
+ * "BLOCKED ON A HUMAN", the scan then reported zero remaining — and US-2444 was
+ * sitting there saying "STILL OPEN AND ALL OWNER WORK", which no candidate
+ * phrase in that round happened to include. The lesson is about the METHOD: a
+ * hand-picked phrase list can only find phrasings someone already thought of,
+ * and reporting zero from one is a statement about the list.
+ *
+ * So {@link auditCandidates} does not classify. It returns stories to read, and
+ * the count is expected to be large and mostly false positives. That is the
+ * correct shape: one line of reading versus a story nobody ever does.
+ */
+const AUDIT_WIDE =
+  /\b(owner|operator|human|prod|production|paste|dashboard|console|manual|by hand)\b/i;
+
+/**
+ * Open, non-queued stories whose last note segment mentions anything that could
+ * mean a person. NOT a finding — a reading list. Behind `--audit` so the default
+ * report keeps its precision.
+ */
+export function auditCandidates(stories) {
+  const { declared, undeclared } = collect(stories);
+  const queued = new Set([...declared, ...undeclared].map((s) => s.id));
+  const out = [];
+  for (const s of stories) {
+    if (s.passes || queued.has(s.id)) continue;
+    const notes = String(s.notes ?? "");
+    if (!notes) continue;
+    const segments = notes.split(" | ");
+    const last = segments[segments.length - 1] ?? "";
+    if (!AUDIT_WIDE.test(last)) continue;
+    const sentences = last.split(/(?<=[.!?])\s+/);
+    const marker = sentences.find((t) =>
+      /\b(remain|still open|STILL|OPEN AC|left|outstanding|not done|blocked)\b/i.test(t)
+    );
+    out.push({
+      id: s.id,
+      priority: s.priority,
+      title: s.title,
+      quote: (marker ?? sentences.at(-1) ?? "").trim(),
+    });
+  }
+  out.sort(comparePriority);
+  return out;
+}
+
 export function collect(stories) {
   const open = stories.filter((s) => !s.passes);
   const declared = [];
@@ -187,6 +244,19 @@ function main() {
   }
   if (shown.length < undeclared.length) {
     console.log(`\n  … ${undeclared.length - shown.length} more. Pass --all to see them.`);
+  }
+
+  if (argv.includes("--audit")) {
+    const candidates = auditCandidates(prd.userStories ?? []);
+    console.log(
+      `\n\nAUDIT (${candidates.length}) — NOT findings. Open stories, not in either list`,
+    );
+    console.log("above, whose last note mentions anything that could mean a person.");
+    console.log("Most are false positives. Read them; declare the real ones.\n");
+    for (const s of candidates) {
+      console.log(`  ${rank(s)} ${s.id}  ${s.title.slice(0, 74)}`);
+      if (s.quote) console.log(`        > ${s.quote.slice(0, 190)}`);
+    }
   }
 
   console.log(

@@ -31,8 +31,18 @@ export interface UndeclaredEntry {
   evidence: string[];
 }
 
+export interface AuditCandidate {
+  id: string;
+  priority?: number;
+  title: string;
+  quote: string;
+}
+
 export function collect(stories: readonly OperatorStory[]): {
   declared: DeclaredEntry[];
   undeclared: UndeclaredEntry[];
   openCount: number;
 };
+
+/** Reading list, not findings — see the note in prd-operator.mjs. */
+export function auditCandidates(stories: readonly OperatorStory[]): AuditCandidate[];

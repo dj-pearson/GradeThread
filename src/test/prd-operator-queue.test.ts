@@ -12,7 +12,13 @@
 // So these cases pin the two directions separately: real remaining-work
 // phrasings are caught, and prose ABOUT operators is not.
 import { describe, expect, it } from "vitest";
-import { collect, DECLARED_RE, extractSentence, UNDECLARED_PATTERNS } from "../../scripts/prd-operator.mjs";
+import {
+  auditCandidates,
+  collect,
+  DECLARED_RE,
+  extractSentence,
+  UNDECLARED_PATTERNS,
+} from "../../scripts/prd-operator.mjs";
 
 type Story = {
   id: string;
@@ -129,6 +135,35 @@ describe("undeclared detection", () => {
     ]);
     expect(declared).toHaveLength(0);
     expect(undeclared).toHaveLength(0);
+  });
+
+  it("the audit is a reading list, not a finding: over-wide and never in the default report", () => {
+    // It exists because three rounds of phrase-guessing each ended in a
+    // confident zero and the third one was wrong (US-2444, "ALL OWNER WORK").
+    // So it must catch a story the PATTERNS do not — that is its whole job.
+    const missedByPatterns = story({
+      id: "US-1",
+      notes: "STILL OPEN AND ALL OWNER WORK: read the objects out of prod.",
+    });
+    const { undeclared } = collect([missedByPatterns]);
+    expect(undeclared, "the patterns should NOT match this — that is the point").toHaveLength(0);
+    expect(auditCandidates([missedByPatterns]).map((s) => s.id)).toEqual(["US-1"]);
+
+    // A story already in either list is not repeated as a candidate.
+    const alreadyDeclared = story({
+      id: "US-2",
+      acceptanceCriteria: ["OPERATOR: run the census against prod"],
+      notes: "the owner runs this in prod",
+    });
+    expect(auditCandidates([alreadyDeclared])).toHaveLength(0);
+
+    // Only the LAST segment is read: notes are append-only, so an early segment
+    // describing work already finished is not evidence of what is left.
+    const resolved = story({
+      id: "US-3",
+      notes: "the owner had to run this in prod | DONE, ran and recorded.",
+    });
+    expect(auditCandidates([resolved])).toHaveLength(0);
   });
 
   it("every pattern is anchored to a predicate, never a bare mention", () => {

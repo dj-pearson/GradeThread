@@ -73,14 +73,23 @@ local stack" must not match). And the caveat is an instruction rather than a
 disclaimer: **re-measure the floor periodically**, because writing "this is a
 floor" costs nothing and finding out by how much is the only part that helps.
 
-**Measured twice more the same day, and it converges.** A second scan found two
-stories still invisible, both using `BLOCKED ON A HUMAN`; eleven other candidate
-phrasings ("only you can", "cannot be automated", "waiting on the owner") matched
-nothing at all. A third scan found zero. So the queue is now close to a census
-rather than a floor — which is worth knowing precisely because it stops being
-true the moment somebody writes the next note. The method is the durable part:
-scan the notes with a deliberately over-wide pattern set, read every quote it
-pulls, keep the ones anchored to a predicate, and pin the near-misses.
+**Then I claimed it had converged, and that was wrong.** A second scan found two
+more (`BLOCKED ON A HUMAN`), a third found zero, and I wrote here that the queue
+was "close to a census". Within the hour US-2444 turned up saying **"STILL OPEN
+AND ALL OWNER WORK"** — a phrasing none of the eleven candidates in that round
+happened to include.
+
+The error was the method, not the list. **A hand-picked phrase list can only
+find phrasings someone already thought of, so reporting zero from one is a
+statement about the list rather than about the backlog.** Three rounds of tuning
+produced three rounds of increasing confidence and no bound at all.
+
+So `npm run prd:operator -- --audit` stops guessing. It returns a **reading
+list**: every open, non-queued story whose last note segment mentions any of
+`owner operator human prod production paste dashboard console manual "by hand"`.
+It reports about 39 against 120 open stories, most of them false positives, and
+it says so. One line of reading beats a story nobody ever does. Trust the
+DECLARED section; treat the total as a floor however many rounds it has had.
 
 **Declaring is better than detecting.** Every story the scans surfaced got an
 `OPERATOR:` criterion written from its own evidence, which moves it into the
