@@ -58,8 +58,12 @@ export const CALIBRATE_REMEDIATION: Record<CalibrateFailure, string> = {
     "We couldn't find the MeasureCard. Lay it flat beside the garment with all four squares visible and reshoot.",
   card_not_fully_visible:
     "Part of the MeasureCard is cut off or covered. Keep all four squares fully in frame and unobstructed.",
+  // US-2632: the old wording was "move the camera closer", which is advice a
+  // seller measuring a pair of pants CANNOT take — moving closer crops the
+  // garment the card is there to measure. On a big garment the constraint is
+  // the photo's resolution, not the photographer's distance.
   markers_too_small:
-    "The MeasureCard is too small in this photo. Move the camera closer so the card's squares are clearly visible.",
+    "The MeasureCard's squares are too few pixels to read. On a large garment, shoot at your camera's full resolution rather than moving closer — moving closer crops the garment. Re-uploading the photo at full size usually fixes it.",
   photo_too_blurry:
     "This photo is too blurry to measure from. Hold steady (or prop the phone) and reshoot.",
   card_bent_or_angled:

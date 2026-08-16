@@ -13,6 +13,10 @@ import {
 } from "@/lib/photo-roles";
 import { applyMeasurementsBlock } from "@/lib/measurements";
 import { COMPOSER_FOCUS_ANCHORS } from "@/lib/publish-blockers";
+import {
+  DEFAULT_UPLOAD_MAX_WIDTH_PX,
+  uploadMaxWidthFor,
+} from "@/lib/macro-photo-quality";
 
 const PICKER = "src/components/flipdesk/photo-tag-select.tsx";
 
@@ -85,5 +89,41 @@ describe("US-2626: a corrected measurement reaches the listing", () => {
     expect(src).toContain("applyMeasurementsBlock(prev, next, measurementUnit)");
     expect(src).not.toContain("setMeasurements={setMeasurements}");
     expect(src.match(/setMeasurements=\{applyMeasurements\}/g)).toHaveLength(2);
+  });
+});
+
+// US-2632: the MeasureCard photo is the one shot whose whole job is metrology,
+// and it had the LOWEST pixel cap of any slot.
+describe("US-2632: the card frame keeps its pixels", () => {
+  it("uploads at the authenticity tier, not the 2400 default", () => {
+    // The card's fiducials are 1in squares needing ~40px each. A pair of pants
+    // fills ~50in of frame, so at 2400 the squares land ~48px before any
+    // server-side downscale — over the edge for anything larger. That is what
+    // produced "move the camera closer" on a photo that could not be shot any
+    // closer without cropping the garment being measured.
+    expect(uploadMaxWidthFor("measurement", null)).toBe(3600);
+    expect(uploadMaxWidthFor("measurement", "chest")).toBe(3600);
+    // Unrelated slots keep the cap that upload speed on mobile data paid for.
+    expect(uploadMaxWidthFor("front", null)).toBe(DEFAULT_UPLOAD_MAX_WIDTH_PX);
+    expect(uploadMaxWidthFor("flatlay", null)).toBe(DEFAULT_UPLOAD_MAX_WIDTH_PX);
+  });
+
+  it("stops telling sellers to do the one thing they cannot", () => {
+    const edge = readFileSync(
+      "services/edge-functions/src/lib/measure-detect.ts",
+      "utf8",
+    );
+    // Moving closer crops the garment the card is there to measure.
+    expect(edge).not.toContain("Move the camera closer");
+    expect(edge).toMatch(/full resolution/i);
+  });
+
+  it("reports the measured pixels so the next report is not a guess", () => {
+    const edge = readFileSync(
+      "services/edge-functions/src/lib/measure-autofill.ts",
+      "utf8",
+    );
+    expect(edge).toContain("minMarkerSidePx");
+    expect(edge).toContain("they need 40px");
   });
 });

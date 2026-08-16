@@ -249,7 +249,17 @@ async function findCardPhoto(
       // a failure — only carry a message forward when the card WAS seen and
       // something else went wrong (blur, partial card), because that is the one
       // a seller can act on.
-      if (detected.reason !== "card_not_found") lastMessage = detected.message;
+      if (detected.reason !== "card_not_found") {
+        lastMessage = detected.message;
+        // US-2632: carry the NUMBERS. Three rounds went by on "the card is
+        // too small" with no way to tell a badly-shot photo from one the
+        // uploader had already downscaled past readability.
+        if (detected.reason === "markers_too_small") {
+          lastMessage +=
+            ` (squares measured ${Math.round(detected.quality.minMarkerSidePx)}px` +
+            ` in a ${decoded.width}x${decoded.height} photo; they need 40px)`;
+        }
+      }
       continue;
     }
     const rescaled = rescaleCalibration(detected, scale);

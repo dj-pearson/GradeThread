@@ -203,6 +203,20 @@ export const MACRO_UPLOAD_MAX_WIDTH_PX: Readonly<Record<string, number>> = {
   // Tag and close-up slots: legibility of printed text and weave. Real gain
   // over 2400 without the byte cost of the authenticity tier on the slots
   // sellers shoot most often.
+  // US-2632: the MeasureCard frame. It is not a macro shot — the card sits
+  // BESIDE a whole garment — and it had the lowest cap of any slot, which is
+  // backwards for the one photo whose entire job is metrology.
+  //
+  // The card's fiducials are 1in squares and the detector needs ~40px across
+  // each one. A pair of pants laid flat fills ~50in of frame, so at the 2400px
+  // default the squares land at ~48px BEFORE any server-side downscale — right
+  // on the edge, and over it for anything larger or shot with more margin.
+  // That is what produced "move the camera closer" on a photo that could not be
+  // shot any closer without cropping the garment being measured.
+  //
+  // 3600 is the authenticity tier, chosen for the same reason it was chosen
+  // there: it lands around 1-3MB at q0.85, comfortably inside the 10MB ceiling.
+  measurement: 3600,
   tag: 3000,
   label: 3000,
   detail: 3000,
