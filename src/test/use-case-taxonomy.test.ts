@@ -130,16 +130,72 @@ describe("the collapse is honest, and reversible (US-2535)", () => {
   });
 });
 
-describe("what this slice does NOT claim (US-2535)", () => {
-  it("iOS is not asserted to persist the answer yet", () => {
-    // AC3's write is Swift. When it lands it imports nothing from here — it
-    // writes the canonical string this map produces, which is why the guard
-    // reads the Swift enum rather than trusting a copy of it.
-    const swift = read(SWIFT_STATE);
+// AC3 landed 2026-08-16. The block this replaces asserted iOS did NOT write
+// use_case and said to extend the guard when it did — and it read
+// OnboardingState.swift, while the write went into a NEW file. So it would have
+// stayed green with the feature shipped: an inverted guard pinned to a file the
+// change did not touch. Worth naming, because "assert the absence, revisit
+// later" reads like diligence and expires silently.
+describe("iOS persists the answer (US-2535 AC3)", () => {
+  const SWIFT_SYNC = "ios/GradeThread/Onboarding/UseCaseSync.swift";
+
+  it("writes the users.use_case column", () => {
+    const swift = read(SWIFT_SYNC);
+    expect(swift).toMatch(/\.from\("users"\)/);
+    expect(swift).toMatch(/update\(Update\(use_case: value\)\)/);
+    expect(swift).toMatch(/\.eq\("id", value: userId\)/);
+  });
+
+  it("writes the CANONICAL value, never the iOS raw answer", () => {
+    // The whole failure this guards: sending `reseller` would be rejected by
+    // the 00022 CHECK after onboarding has already told the user it worked.
+    const swift = read(SWIFT_SYNC);
+    for (const answer of IOS_ONBOARDING_ANSWERS) {
+      expect(
+        new RegExp(`use_case:\\s*"${answer}"`).test(swift),
+        `UseCaseSync writes the raw iOS answer "${answer}"; it must write ` +
+          `"${IOS_USE_CASE_MAP[answer]}" — the value the DB CHECK allows.`,
+      ).toBe(false);
+    }
+    // And the value it does write is the one this module maps to.
+    const mapped = [...new Set(Object.values(IOS_USE_CASE_MAP))];
+    expect(mapped).toHaveLength(1);
+    expect(swift).toContain(`return "${mapped[0]}"`);
+  });
+
+  it("the Swift switch is exhaustive over the same three answers", () => {
+    // A dictionary with a default would let a fourth iOS option write nothing
+    // and leave the column NULL — this story's own bug. An exhaustive switch
+    // makes it a compile error instead.
+    const swift = read(SWIFT_SYNC);
+    const caseLine = swift.match(/case ([^:]+): return "seller"/);
+    expect(caseLine, "the canonical mapping switch was restructured").not.toBeNull();
+    const answers = (caseLine?.[1] ?? "")
+      .split(",")
+      .map((s) => s.trim().replace(/^\./, ""))
+      .sort();
+    expect(answers).toEqual([...IOS_ONBOARDING_ANSWERS].sort());
+    expect(swift).not.toMatch(/default:\s*return "seller"/);
+  });
+
+  it("is attempted on sign-in as well as at completion", () => {
+    // Onboarding can finish BEFORE the user signs in — that is why
+    // pendingFirstAction exists — and in that order there is no session to
+    // write against. One call site is not enough.
+    const content = read("ios/GradeThread/ContentView.swift");
+    const calls = content.match(/UseCaseSync\.pushIfNeeded\(\)/g) ?? [];
     expect(
-      /use_case/.test(swift),
-      "iOS now writes use_case — extend this guard to assert it writes the " +
-        "value IOS_USE_CASE_MAP produces",
-    ).toBe(false);
+      calls.length,
+      "expected the push at BOTH onboarding completion and the signedIn " +
+        "transition; found " + calls.length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+
+  it("a failed write is retried, not marked done", () => {
+    // Marking synced in the catch would lose the answer permanently on one
+    // flaky request, which is a quieter version of the bug being fixed.
+    const swift = read(SWIFT_SYNC);
+    const catchBlock = swift.slice(swift.indexOf("} catch {"));
+    expect(catchBlock).not.toContain("syncedKey");
   });
 });

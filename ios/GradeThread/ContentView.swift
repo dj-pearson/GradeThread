@@ -123,6 +123,11 @@ struct ContentView: View {
                     Task { await photoProfileStore?.loadIfNeeded() }
                     // US-1156: replay a deep link that arrived during sign-in.
                     if let queued = pendingDeepLink.take() { handleDeepLink(queued) }
+                    // US-2535: onboarding can finish BEFORE sign-in, and in that
+                    // order there is no session to write the answer against. So
+                    // the push is attempted here too, not only at completion.
+                    // It no-ops once written and after a skip.
+                    Task { await UseCaseSync.pushIfNeeded() }
                 case .signedOut:
                     // US-1493: drop the active workspace scope so the NEXT account
                     // on this device never inherits the previous user's
@@ -302,6 +307,11 @@ struct ContentView: View {
                 OnboardingView { useCase in
                     OnboardingState().complete(useCase: useCase)
                     showingOnboarding = false
+                    // US-2535: write the answer to users.use_case, which is what
+                    // the web dashboard and the activation checklist read. Until
+                    // this, iOS captured the answer, reported it to telemetry and
+                    // left the column NULL for ever.
+                    Task { await UseCaseSync.pushIfNeeded() }
                     // US-1262: ask for push permission right after onboarding wraps
                     // — a reliable, in-context moment that doesn't depend on the
                     // user ever opening the Money tab. One-shot + OS-idempotent.
