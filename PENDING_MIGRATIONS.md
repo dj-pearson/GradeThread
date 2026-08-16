@@ -1,26 +1,37 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## ⚠ NOTHING IS HELD, BUT ONE MIGRATION NEVER RAN: 00594 (measured 2026-08-15)
-
-Nothing here is *waiting on a push* — the owner applied the outstanding
-migrations and pushed, and `git log origin/main..main` is empty. But "pushed" and
-"applied" are different claims, and the edge redeploy proved it within minutes:
+## ✅ NOTHING IS HELD AND NOTHING IS MISSING (re-measured 2026-08-15, 23:30)
 
 ```json
-{"expected":"00606","applied":"00606","status":"match","missing":["00594"],"unexpected":["00479"]}
+{"expected":"00606","applied":"00606","status":"match"}
 ```
 
-- **`missing: ["00594"]` is a real gap.** `public.flipdesk_overview_metrics` does
-  not exist in production and the FlipDesk Overview page fails for every seller.
-  Apply `supabase/migrations/00594_flipdesk_overview_metrics.sql`. Tracked as
-  **US-2606**; the section for it below is corrected and carries what has already
-  been ruled out.
+No `missing` key and no `complete: false` — the applied SET was read and it is
+complete. **00594 has been applied**, closing the gap this section spent the day
+describing.
+
+The measurement that makes that trustworthy is the *absence* of a key that was
+present hours earlier on the same endpoint: at 01:22 it returned
+`"missing":["00594"]`, and `missing` is omitted only when the set is complete.
+A bare `"status":"match"` would not have been evidence of anything, for the
+reason this file has warned about all along.
+
 - **`unexpected: ["00479"]` is a KNOWN phantom** — never authored, which is why
   `00480+` were numbered around it (`scripts/prod-diagnostics.sql` §2,
-  `scripts/migrations-lint.mjs` `KNOWN_GAPS`). No action.
+  `scripts/migrations-lint.mjs` `KNOWN_GAPS`). No action. It has since stopped
+  being reported, which is also fine: the phantom allowlist absorbs it.
+- **US-2606 stays open on one thing that is not a migration**: the FlipDesk
+  Overview page being confirmed to LOAD for a real signed-in seller. The RPC
+  existing and the page working are different claims, and this file can only
+  speak to the first.
 
-Every section below that said HELD now says APPLIED, with 00594 the one
-exception.
+> [!note] What changed in the endpoint since this was written
+> US-2620: a hole under the maximum now reports `"status":"incomplete"` rather
+> than `"match"`. The advice below — that a bare `match` proves nothing — was
+> written when `status` could not see a gap. It still holds for any build older
+> than that change, which is why it is kept rather than deleted.
+
+Every section below that said HELD now says APPLIED.
 
 **How to check this yourself rather than take the line above on trust:**
 
@@ -35,7 +46,8 @@ see a gap beneath it, which is exactly the state this file spent 2026-08-15
 warning about. If `complete: false` comes back, the applied set could not be read;
 that is "we do not know", not "clean".
 
-**Everything below is history, kept on purpose** — with 00594 the one live item.
+**Everything below is history, kept on purpose.** 00594 was the last live item
+and it is applied.
 Each section records the risk, the apply order and the dependencies for a
 migration. Read one when something misbehaves in a table it created. Do not read
 this file as a queue.
