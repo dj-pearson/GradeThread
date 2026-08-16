@@ -65,12 +65,13 @@ export async function recordCronRun(run: CronRunInsert): Promise<void> {
 // which secret validates it — so a mount was all most of them needed.
 //
 // What genuinely still cannot be recorded, and why:
-//   • photo-archive, reconciliation-sweep — behind authMiddleware with no
-//     requireJobSecret branch, so they 401 before the handler runs (US-2310,
-//     KNOWN_UNREACHABLE_CRONS). They cannot run, so there is nothing to record.
-//     ebay-orders-sync was in this set until US-2617, which deleted the entry:
-//     ebay-order-backstop was already the working version of the same sweep.
-//     Check for an existing job before writing a second one.
+//   • reconciliation-sweep — behind authMiddleware with no requireJobSecret
+//     branch, so it 401s before the handler runs (US-2310,
+//     KNOWN_UNREACHABLE_CRONS). It cannot run, so there is nothing to record.
+//     Two others left this set in US-2617, by different routes: ebay-orders-sync
+//     was DELETED (ebay-order-backstop was already the working version of the
+//     same sweep — check for an existing job before writing a second one), and
+//     photo-archive got the /jobs/ route + fleet loop it actually needed.
 //   • oneOff backfills — no cadence to miss.
 
 export interface CronDef {
@@ -274,13 +275,22 @@ export const CRON_REGISTRY: CronDef[] = [
   // so a missed/failed 5-min sheet sync signals in the cron_runs ledger + ops stream.
   { name: "google-sheet-sync", label: "Google Sheet sync", schedule: "*/5 * * * *", category: "sync", endpoint: "/api/flipdesk/google/sync/push", recorded: true },
   // Nightly photo archive sweep (cold-storage old originals).
+  // ⚠️ THE ENDPOINT CHANGED (US-2617). This pointed at
+  // /api/flipdesk/images/archive, a SELLER route behind authMiddleware, so the
+  // Coolify task 401'd every night and left no ledger row (US-2310). Unlike
+  // ebay-orders-sync there was no working equivalent to defer to, so it got the
+  // /jobs/ route + fleet loop: routes/jobs-photo-archive.ts walks owners with
+  // archivable photos and re-enters the per-owner archival for each.
+  // The Coolify task URL must be updated or the job stays broken;
+  // /api/flipdesk/images/archive is still the seller's own "Archive now".
+  { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/jobs/photo-archive", recorded: true, healthy: "200 {owners,eligible_owners,archived,freed_bytes,...}; skipped:true with reason r2_not_configured is healthy, and archived 0 is normal once the backlog drains" },
+  // Payout reconciliation sweep (auto-link payout rows to sales).
   // ⚠️ US-2310: unreachable with only the job secret — behind authMiddleware
   // with no requireJobSecret branch, so it 401s before the handler runs and
-  // leaves no ledger row. Needs a /jobs/ route plus a tenant loop, which is the
-  // shape US-2617 used to fix ebay-orders-sync above.
-  { name: "photo-archive", label: "Photo archive sweep", schedule: "0 4 * * *", category: "maintenance", endpoint: "/api/flipdesk/images/archive", recorded: false },
-  // Payout reconciliation sweep (auto-link payout rows to sales).
-  // ⚠️ US-2310: unreachable with only the job secret — see photo-archive above.
+  // leaves no ledger row. The last one. Fix it the way photo-archive above was
+  // fixed: a /jobs/ route that walks owners, not a secret branch on the seller
+  // route. Check first whether some other job already reconciles payouts —
+  // ebay-orders-sync turned out to be a duplicate of one that already worked.
   { name: "reconciliation-sweep", label: "Payout reconciliation sweep", schedule: "0 5 * * *", category: "flipdesk", endpoint: "/api/flipdesk/reconciliation/run", recorded: false },
   // US-1047: auto leave-feedback (no-op unless system setting feedback.auto_leave).
   { name: "ebay-leave-feedback", label: "eBay auto leave-feedback", schedule: "0 10 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/jobs/leave-feedback", recorded: true, healthy: "200; no-op unless system setting feedback.auto_leave=true" },

@@ -58,7 +58,7 @@ makes a manifest sufficient — without it, a never-installed task would be
 indistinguishable from a job with nothing to do.
 
 > [!warning] The monitor reports what it can see, and says what it cannot
-> Four registry entries are outside the ledger (US-2616/US-2617): two cannot be
+> Three registry entries are outside the ledger (US-2616/US-2617): one cannot be
 > invoked with the job secret at all, and two are one-off backfills with no
 > cadence to miss. The fleet report names them under `unmonitored` rather than
 > quietly reporting all-clear on a subset. Read that list before trusting a green
@@ -72,12 +72,14 @@ indistinguishable from a job with nothing to do.
   `ebay-orders-sync` entry because `ebay-order-backstop` was already the same
   half-hourly sweep, working — so the Coolify task by that name is now an extra
   one, hitting a seller route that answers 401, and only a person can remove it.
-- **A broken entry can look like a missing feature.** `ebay-orders-sync` pointed
-  at `/api/flipdesk/ebay/listings/pull`, which reads the caller's JWT, so the
-  job had never once succeeded. The obvious repair is to build it a `/jobs/`
-  route with a tenant loop — which would have shipped a second fleet sweep
-  firing the same detached pulls into the same eBay rate-limit bucket on the
-  same cadence. Before writing the loop, look for the job that already does it.
+- **A broken entry can look like a missing feature, and the check is cheap.**
+  Two entries pointed at seller routes that read the caller's JWT, so both jobs
+  had never once succeeded, and they needed opposite fixes. `ebay-orders-sync`
+  was a duplicate: `ebay-order-backstop` was already the same half-hourly sweep,
+  so building the `/jobs/` route it seemed to want would have put two fleet
+  sweeps on one eBay rate-limit bucket. `photo-archive` had no equivalent and
+  got the route for real. **Look for the existing job first, then write the
+  loop** — the search costs a grep and the wrong answer costs a duplicate.
 - **The alert destination.** `ops_alert_webhook_url` and `ops_alert_email` both
   default to an empty string, and an empty destination means the whole path ends
   in an admin screen nobody is watching. Both rows exist in production; whether

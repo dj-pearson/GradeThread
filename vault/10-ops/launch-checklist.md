@@ -197,7 +197,7 @@ A healthy run returns `{"ok":true,...}`. Reference: `services/edge-functions/COO
 | operator-brief | `0 13 * * *` | `/api/jobs/operator-brief` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | passport-backfill | `*/15 * * * *` | `/api/jobs/passport-backfill` | `$FLIPDESK_INTERNAL_JOB_SECRET` | ONE-OFF at launch (idempotent; disable once drained) |
 | passport-integrity-scan | `0 */6 * * *` | `/api/jobs/passport-integrity-scan` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
-| photo-archive | `0 4 * * *` | `/api/flipdesk/images/archive` | `$FLIPDESK_INTERNAL_JOB_SECRET` | not in the cron_runs ledger |
+| photo-archive | `0 4 * * *` | `/api/jobs/photo-archive` | `$FLIPDESK_INTERNAL_JOB_SECRET` | 200 {owners,eligible_owners,archived,freed_bytes,...}; skipped:true with reason r2_not_configured is healthy, and archived 0 is normal once the backlog drains |
 | portfolio-alerts | `0 7 * * *` | `/api/jobs/portfolio-alerts` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | publish-batch-reclaim | `*/5 * * * *` | `/api/jobs/publish-batch-reclaim` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |
 | push-token-prune | `0 3 * * *` | `/api/jobs/push-token-prune` | `$FLIPDESK_INTERNAL_JOB_SECRET` |  |

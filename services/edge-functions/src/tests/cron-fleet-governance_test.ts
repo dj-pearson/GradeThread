@@ -302,8 +302,7 @@ Deno.test("US-2616: the REAL registry's blind spot is enumerated, and it is not 
     [
       "cert-integrity-backfill", // oneOff — a backfill has no cadence to miss
       "passport-backfill", // oneOff
-      "photo-archive", // US-2310: unreachable with the job secret at all
-      "reconciliation-sweep", // US-2310: unreachable
+      "reconciliation-sweep", // US-2310: unreachable with the job secret at all
     ],
     "the fleet monitor's blind spot changed — shrink it by fixing a job, and " +
       "delete its name here; do not add one back to make this pass",

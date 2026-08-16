@@ -313,12 +313,13 @@ async function handlerAcceptsJobSecret(endpoint: string): Promise<boolean | null
  * a per-user handler, so it needs a job-secret branch AND a server-side tenant
  * loop, which is the open half of US-2310.
  *
- * ebay-orders-sync came off it in US-2617 by being DELETED, not fixed:
+ * Two came off it in US-2617, by different routes, and the ORDER of those two
+ * checks is the lesson. ebay-orders-sync was DELETED, not fixed:
  * ebay-order-backstop (US-1965) was already the same half-hourly fleet sweep
- * through triggerEbaySyncForUser, with a freshness window on top. It was
- * a second copy of a job that already worked. Before writing the tenant loop
- * for either name below, check whether one already exists somewhere else —
- * that is the cheaper half of this list.
+ * through triggerEbaySyncForUser, so building it the loop it seemed to want
+ * would have shipped a second copy of a working job. photo-archive had no such
+ * equivalent and got the loop for real (routes/jobs-photo-archive.ts). So for
+ * the name below: look for an existing job FIRST, then write the loop.
  *
  * It may only ever SHRINK. The test below pins its exact contents, so fixing an
  * entry without removing it from here fails just as loudly as adding a new
@@ -326,7 +327,6 @@ async function handlerAcceptsJobSecret(endpoint: string): Promise<boolean | null
  * permanent.
  */
 const KNOWN_UNREACHABLE_CRONS = [
-  "photo-archive → /api/flipdesk/images/archive",
   "reconciliation-sweep → /api/flipdesk/reconciliation/run",
 ] as const;
 
@@ -359,6 +359,89 @@ Deno.test("US-2310: every registered cron endpoint is reachable with only the jo
   );
 });
 
+// US-2617: the assumption the guard above rests on, asserted instead of stated.
+//
+// `handlerAcceptsJobSecret` skips /api/jobs/* with the comment "mounted outside
+// authMiddleware by construction and every handler there gates on the secret".
+// The first half is checked (the mounts are visible in main.ts); the second half
+// was nobody's job. It is the more dangerous half: a cron behind authMiddleware
+// with no secret branch merely 401s forever, while an /api/jobs/* route with no
+// secret branch is callable by ANYONE on the internet, and several of them
+// sweep every tenant.
+Deno.test("US-2617: every /api/jobs/* handler gates on the job secret", async () => {
+  const main = await Deno.readTextFile(MAIN_TS);
+  // Read every jobs route with enough following text to cover an inline handler
+  // or a one-line delegation to a named one.
+  const decls = [...main.matchAll(/app\.post\("(\/api\/jobs\/[^"]+)"\s*,/g)].map((m) => {
+    // Window ends at the NEXT top-level app.* declaration, not at a fixed
+    // length. A fixed 700 characters spilled into the following routes, so a
+    // NEIGHBOUR's handler name satisfied this route's check — sabotaging the
+    // photo-archive gate left the guard green, which is how the window was
+    // found. An over-wide window is the failure mode that makes a guard look
+    // like it is working.
+    const rest = main.slice(m.index + m[0].length);
+    const next = rest.search(/\napp\.(post|get|put|patch|delete|use|all)\(/);
+    return {
+      endpoint: m[1]!,
+      tail: rest.slice(0, next === -1 ? Math.min(rest.length, 700) : next),
+    };
+  });
+  assert(decls.length > 20, `expected the whole jobs family, found ${decls.length}`);
+
+  // Handler bodies live inline in main.ts, in routes/, or in lib/ — and lib/
+  // NESTS: the App Store and Play expiry sweeps are in lib/appstore/ and
+  // lib/google-play/. Every narrowing of this scan produced false positives on
+  // its first run (routes-only reported seven safe handlers, non-recursive
+  // reported two more), and a guard that names a safe route is worse than no
+  // guard, because the person who checks the first name deletes the rest.
+  const handlerSrc: string[] = [];
+  async function loadDir(rel: string) {
+    for await (const entry of Deno.readDir(new URL(rel, import.meta.url))) {
+      if (entry.isDirectory) {
+        await loadDir(`${rel}${entry.name}/`);
+      } else if (entry.name.endsWith(".ts")) {
+        handlerSrc.push(await Deno.readTextFile(new URL(`${rel}${entry.name}`, import.meta.url)));
+      }
+    }
+  }
+  await loadDir("../routes/");
+  await loadDir("../lib/");
+
+  const ungated: string[] = [];
+  for (const { endpoint, tail } of decls) {
+    if (tail.includes("requireJobSecret") || tail.includes("verifySignedJobRequest")) continue;
+    // Delegated: find the named handler and read ITS body. NOT anchored to a
+    // "handle" prefix — watchdogHeartbeatHandler puts the word at the other
+    // end, and anchoring on a naming convention nobody enforces is how that one
+    // read as ungated. Any identifier called with (c) is a candidate.
+    const named = [...tail.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*c\s*[,)]/g)].map((m) =>
+      m[1]!
+    );
+    let gated = false;
+    for (const fn of named) {
+      for (const src of handlerSrc) {
+        const idx = src.search(new RegExp(`(export\\s+)?(async\\s+)?function\\s+${fn}\\b`));
+        if (idx === -1) continue;
+        // Generous window: these handlers gate in their first statement, and a
+        // window too small would report a false positive, which is worse here
+        // than a miss — it sends someone to "fix" a route that is already safe.
+        if (/requireJobSecret|verifySignedJobRequest/.test(src.slice(idx, idx + 2500))) {
+          gated = true;
+        }
+      }
+    }
+    if (!gated) ungated.push(endpoint);
+  }
+
+  assertEquals(
+    ungated,
+    [],
+    "these /api/jobs/* routes have no visible job-secret check, so they are " +
+      "callable by anyone. If one is deliberately public, say so here by name " +
+      "rather than deleting the assertion.",
+  );
+});
+
 Deno.test("US-2617: ebay-orders-sync stays deleted, because backstop is the real one", () => {
   // A guard against RE-ADDING, which is the failure mode a shrink-only list
   // cannot cover. The entry looked like a missing feature — a half-hourly
@@ -384,12 +467,12 @@ Deno.test("US-2617: ebay-orders-sync stays deleted, because backstop is the real
 });
 
 Deno.test("US-2310: the known-broken list is not silently growing", () => {
-  // Stated as its own case so the NUMBER is visible in the test output. Two
-  // scheduled tasks have most likely never run in production; that is a fact
-  // worth seeing on every CI run until it is zero. It was three until US-2617.
+  // Stated as its own case so the NUMBER is visible in the test output. One
+  // scheduled task has most likely never run in production; that is a fact
+  // worth seeing on every CI run until it is zero. It was three before US-2617.
   assertEquals(
     KNOWN_UNREACHABLE_CRONS.length,
-    2,
+    1,
     "US-2310's remaining work is to take this to 0 — it must never go up",
   );
 });

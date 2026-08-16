@@ -260,58 +260,82 @@ interface PhotoToArchive {
   bytes: number | null;
 }
 
-flipdeskImageRoutes.post("/archive", async (c) => {
-  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+export interface PhotoArchiveResult {
+  archived: number;
+  freed_bytes: number;
+  errors: Array<{ photo_id: string; message: string }>;
+  remaining: number | "unknown";
+}
 
-  if (!isR2Configured()) {
-    return c.json({ error: "R2 is not configured on this server." }, 503);
-  }
+type EligiblePhotoRow = PhotoToArchive & {
+  inventory_items: { user_id: string; status: string; updated_at: string };
+};
 
+/**
+ * THE ONE PLACE the archival eligibility predicate is written (US-2617).
+ *
+ * Two callers need it and they must never drift: the seller's own /archive
+ * route, and the fleet cron that walks every owner. Writing it twice is how the
+ * cron ends up archiving a photo the route would have refused — and the refusal
+ * that matters here is the PII one below, not a performance filter.
+ *
+ * `ownerId === null` is the FLEET read and is reachable only from the job-secret
+ * cron, which then re-enters {@link archiveOwnerPhotos} per owner — so every
+ * write is still tenant-scoped. It is not exported; the cron goes through
+ * {@link listOwnersWithArchivablePhotos}, which cannot be mistaken for a
+ * seller-facing read at a call site.
+ */
+async function loadArchivablePhotos(ownerId: string | null, limit: number) {
   const cutoffIso = new Date(
     Date.now() - ARCHIVE_MIN_AGE_DAYS * 24 * 60 * 60 * 1000,
   ).toISOString();
 
-  // Eligible: photo's item belongs to user, item is in a terminal status,
-  // item.updated_at is older than the cutoff, and photo is not yet archived.
-  // We require storage_path so we know what to delete on the Supabase side.
-  //
-  // 🔒 SENSITIVE TYPES ARE EXCLUDED. A tag / tag_2 / certificate close-up lives
-  // in the PRIVATE submission-images bucket (US-979), and downloadItemPhoto
-  // below deliberately resolves across BOTH buckets — so without this filter
-  // archival would fetch the private original and rewrite photo_url to
-  // r2PublicUrl(), an UNAUTHENTICATED public URL. That publishes exactly the
-  // PII (serials, receipts, certificate numbers) the rest of the codebase is
-  // careful to keep private: bg-remove refuses these types (US-1638, above),
-  // the eBay push filters them (flipdesk-ebay.ts), and so does the thumbnail
-  // backfill. Archival was the one path that didn't.
-  const { data: rows, error } = await supabaseAdmin
+  let q = supabaseAdmin
     .from("item_photos")
     .select(
       "id, inventory_item_id, photo_type, photo_url, storage_path, bytes, inventory_items!inner(user_id, status, updated_at)",
     )
-    .eq("archived_to_r2", false)
-    .eq("inventory_items.user_id", userId)
+    .eq("archived_to_r2", false);
+  if (ownerId !== null) q = q.eq("inventory_items.user_id", ownerId);
+  const { data, error } = await q
     .in("inventory_items.status", ARCHIVAL_STATUSES)
     .lt("inventory_items.updated_at", cutoffIso)
     .not("storage_path", "is", null)
-    .not(
-      "photo_type",
-      "in",
-      `(${[...SENSITIVE_ITEM_PHOTO_TYPES].join(",")})`,
-    )
-    .limit(ARCHIVE_BATCH);
+    .not("photo_type", "in", `(${[...SENSITIVE_ITEM_PHOTO_TYPES].join(",")})`)
+    .limit(limit);
 
-  if (error) {
-    return failSafe(c, 500, "Failed to load eligible photos", error, "flipdesk-images.archive.list");
+  return { rows: (data ?? []) as unknown as EligiblePhotoRow[], error };
+}
+
+/**
+ * Owners with at least one archivable photo, oldest-eligible first by virtue of
+ * the shared predicate. Used only by the photo-archive cron.
+ */
+export async function listOwnersWithArchivablePhotos(
+  scanLimit: number,
+): Promise<{ owners: string[]; error: unknown }> {
+  const { rows, error } = await loadArchivablePhotos(null, scanLimit);
+  if (error) return { owners: [], error };
+  const seen = new Set<string>();
+  for (const r of rows) {
+    const owner = r.inventory_items?.user_id;
+    if (owner) seen.add(owner);
   }
-  const eligible = (rows ?? []) as unknown as Array<
-    PhotoToArchive & {
-      inventory_items: { user_id: string; status: string; updated_at: string };
-    }
-  >;
+  return { owners: [...seen], error: null };
+}
 
+/**
+ * Archive one owner's eligible photos to R2. Tenant-scoped by construction:
+ * every read goes through {@link loadArchivablePhotos} with the owner id, and
+ * every write is keyed on a photo row that read returned.
+ */
+export async function archiveOwnerPhotos(
+  ownerId: string,
+): Promise<{ ok: true; result: PhotoArchiveResult } | { ok: false; error: unknown }> {
+  const { rows: eligible, error } = await loadArchivablePhotos(ownerId, ARCHIVE_BATCH);
+  if (error) return { ok: false, error };
   if (eligible.length === 0) {
-    return c.json({ archived: 0, freed_bytes: 0, errors: [], remaining: 0 });
+    return { ok: true, result: { archived: 0, freed_bytes: 0, errors: [], remaining: 0 } };
   }
 
   const errors: Array<{ photo_id: string; message: string }> = [];
@@ -389,10 +413,28 @@ flipdeskImageRoutes.post("/archive", async (c) => {
     }
   }
 
-  return c.json({
-    archived,
-    freed_bytes: freedBytes,
-    errors,
-    remaining: eligible.length === ARCHIVE_BATCH ? "unknown" : 0,
-  });
+  return {
+    ok: true,
+    result: {
+      archived,
+      freed_bytes: freedBytes,
+      errors,
+      remaining: eligible.length === ARCHIVE_BATCH ? "unknown" : 0,
+    },
+  };
+}
+
+flipdeskImageRoutes.post("/archive", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+
+  if (!isR2Configured()) {
+    return c.json({ error: "R2 is not configured on this server." }, 503);
+  }
+
+  const out = await archiveOwnerPhotos(userId);
+  if (!out.ok) {
+    return failSafe(c, 500, "Failed to load eligible photos", out.error, "flipdesk-images.archive.list");
+  }
+  return c.json(out.result);
 });
+

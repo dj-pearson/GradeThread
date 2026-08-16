@@ -1476,6 +1476,48 @@ Deno.test({
   },
 });
 
+// US-2617: the photo-archive cron walks EVERY owner with archivable photos and
+// rewrites photo_url to an UNAUTHENTICATED public R2 URL. It resolves each owner
+// from the photo row rather than from the request, so a caller who reached it
+// would be publishing other tenants' images — which makes the job secret the
+// only thing standing between a signed-in user and a fleet-wide publish.
+Deno.test({
+  name: "photo-archive job rejects a user JWT (must use job secret)",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/photo-archive`, {
+      method: "POST",
+      headers: authHeaders(A_JWT!),
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/photo-archive with a user JWT should 401 (no job secret), got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "photo-archive job rejects a bogus X-Internal-Job-Secret",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/jobs/photo-archive`, {
+      method: "POST",
+      headers: {
+        "X-Internal-Job-Secret": "wrong-secret-value",
+        "Content-Type": "application/json",
+      },
+    });
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `POST /jobs/photo-archive with a bogus job secret should 401, got ${status}`,
+    );
+  },
+});
+
 // US-2272: the credential-refresh cron sweeps EVERY verified seller's live eBay
 // listings and revises their descriptions. It resolves the tenant from each row
 // (users → that seller's own listings, scoped by user_id) and takes no ids from
