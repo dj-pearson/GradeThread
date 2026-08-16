@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2644",
+  "nextId": "US-2645",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2293,6 +2293,20 @@
         "OPERATOR: confirm the retention actually configured on the infrastructure logs the row may be about - Sentry, Cloudflare and the Coolify host. Nothing in this repo can read those, and if the row is only about them then there is no code change to make."
       ],
       "priority": 35
+    },
+    {
+      "id": "US-2644",
+      "passes": true,
+      "title": "Build the table-retention inventory US-2643 asked for, after two scans got it wrong",
+      "description": "US-2643 needed to know which application tables nothing ever deletes from, and I filed it with a warning that my throwaway scan was unreliable. This builds the reliable one. TWO PRIOR ATTEMPTS WERE WRONG IN THE SAME DIRECTION - both reported a table as never purged when it is - and that is the dangerous direction: a false \"nothing purges this\" invites building a sweep that already exists, and on a PII table it becomes a privacy finding that is not real. The first read a fixed 300-character window with a lookahead that cut the chain short, so radar_scan_events (deleted inside a helper) read as unswept. The second required EMPTY parens, so .delete({ count: \"exact\" }) in purgeExpiredGradingPii was invisible and submission_images - the grading-photo PII table the Privacy Policy names explicitly - read as unswept. Both were caught only by checking the tool against deletes already read by hand, which is now the tool own acceptance test.",
+      "acceptanceCriteria": [
+        "A reusable script reports, per table, whether anything deletes from it and where, reading a supabase chain to its terminating semicolon rather than a guessed window.",
+        "It is validated against deletes already read by hand, including the two the previous scans got wrong.",
+        "Its output states plainly that a \"no\" is a question rather than a finding, since it cannot see triggers, database-side jobs or runtime table names.",
+        "Tests pin the parser in both failure directions - too short (misses a real delete) and too long (attributes a neighbour's)."
+      ],
+      "priority": 40,
+      "notes": "Done 2026-08-16. All four AC met, and the story is mostly about being wrong twice before being right. THE TOOL: scripts/audit-table-retention.mjs reads every .from(\"table\") in the edge tree and takes the statement it belongs to by scanning to the next semicolon at depth zero, skipping strings, template literals and comments. That is the whole correctness - a supabase call is one expression terminated by a semicolon, and both earlier attempts failed by GUESSING where it ended. Migrations are read too, for DELETE FROM in functions and backfills. TWO FALSE NEGATIVES, SAME DIRECTION, AND THAT IS THE DANGEROUS ONE. A false \"nothing purges this\" invites building a sweep that already exists; on a PII table it becomes a privacy finding that is not real, which is precisely what US-2643 was at risk of becoming. (1) A fixed 300-character window with a lookahead cut the chain short, so radar_scan_events read as unswept when radar-aggregate-engine.ts deletes them in a helper. (2) The replacement required EMPTY parens, /.delete(s*)/, so .delete({ count: \"exact\" }) in purgeExpiredGradingPii was invisible - and that is submission_images, the grading-photo PII table the Privacy Policy names by hand. I only caught the second because I validated against five deletes I had already read. That validation is now a test case rather than a habit. THE OUTPUT REFUSES TO OVERSTATE ITSELF. A yes carries file and line and is evidence. A no is printed under the heading \"a QUESTION, not a finding\" with the reasons it can be wrong - a trigger, a database-side scheduled job, a runtime table name - and names radar_scan_events as the case that fooled its predecessor. Current picture: 287 tables, 74 with a delete this tool can see. Of the 26 log/audit/event-shaped tables, 3 have one. That is the input US-2643 needs, not its answer. A FIFTH TEST I HAD TO WEAKEN, deliberately. I wrote a case claiming to cover semicolons inside STRINGS; sabotaging string-skipping left it green, because inside a supabase chain every string sits within an argument list and is already protected by the depth counter. The branch stays (cheap, correct), the test now claims only what it proves, and the comment says why. A decorative assertion is worse than no assertion - it reads as coverage. SABOTAGE-VERIFIED FOUR WAYS, each reverted green: restoring the empty-parens regex reddened naming submission_images; truncating the window reddened; letting the window run past the semicolon reddened on the neighbour case; and removing comment-skipping reddened. VERIFIED: test:scripts 421 passed across 25 files, eslint clean."
     }
   ]
 }
