@@ -133,13 +133,51 @@ export function extractSentence(text, idx, max = 260) {
  * correct shape: one line of reading versus a story nobody ever does.
  */
 const AUDIT_WIDE =
-  /\b(owner|operator|human|prod|production|paste|dashboard|console|manual|by hand)\b/i;
+  /\b(owner|operator|human|prod|production|paste|dashboard|console|manual|by hand|autonomous|autonomously|live-site|counsel|sourcing)\b/i;
 
 /**
  * Open, non-queued stories whose last note segment mentions anything that could
  * mean a person. NOT a finding — a reading list. Behind `--audit` so the default
  * report keeps its precision.
  */
+/**
+ * A segment that says outright what is still not done. Uppercase-anchored the
+ * way this backlog actually writes them.
+ */
+const OPEN_CLAIM =
+  /\b(STILL BLOCKS|STILL OPEN|NOT DONE|REMAINS?\b|REMAINING|OUTSTANDING|BLOCKS passes|cannot be done autonomously)\b/;
+
+/**
+ * Segments worth reading for "is a person needed": the LAST one, plus any
+ * earlier one that made an explicit open-work claim.
+ *
+ * READING ONLY THE LAST SEGMENT WAS WRONG, and US-1880 is why. Its remaining
+ * work — live-site QA of five marketplace adapters, which no agent can do — is
+ * stated in a segment from 2026-07-18. Three LATER segments are all corrections
+ * about a migration's held status, so the last segment is about something else
+ * entirely and the story read as unblocked.
+ *
+ * Notes are append-only, so position is meaningful, but "latest" is not the same
+ * as "current": a correction appended about one topic does not supersede an open
+ * claim about another. So an earlier claim counts unless a later segment closes
+ * it — the same segment-order resolution prd-lint's findUnresolvedDeferrals and
+ * its held-migration check already use, and for the same reason.
+ */
+function segmentsWorthReading(notes) {
+  const segments = notes.split(" | ");
+  const last = segments.length - 1;
+  const picked = new Set([last]);
+  for (let i = 0; i < last; i++) {
+    if (!OPEN_CLAIM.test(segments[i])) continue;
+    // Closed by anything after it that reads as a completion for this story.
+    const closedLater = segments
+      .slice(i + 1)
+      .some((seg) => /\b(DONE|SHIPPED|RESOLVED|VERIFIED|CLOSED)\b/.test(seg));
+    if (!closedLater) picked.add(i);
+  }
+  return [...picked].sort((a, b) => a - b).map((i) => segments[i]);
+}
+
 export function auditCandidates(stories) {
   const { declared, undeclared } = collect(stories);
   const queued = new Set([...declared, ...undeclared].map((s) => s.id));
@@ -148,10 +186,10 @@ export function auditCandidates(stories) {
     if (s.passes || queued.has(s.id)) continue;
     const notes = String(s.notes ?? "");
     if (!notes) continue;
-    const segments = notes.split(" | ");
-    const last = segments[segments.length - 1] ?? "";
-    if (!AUDIT_WIDE.test(last)) continue;
-    const sentences = last.split(/(?<=[.!?])\s+/);
+    const relevant = segmentsWorthReading(notes);
+    const hit = relevant.find((seg) => AUDIT_WIDE.test(seg));
+    if (!hit) continue;
+    const sentences = hit.split(/(?<=[.!?])\s+/);
     const marker = sentences.find((t) =>
       /\b(remain|still open|STILL|OPEN AC|left|outstanding|not done|blocked)\b/i.test(t)
     );

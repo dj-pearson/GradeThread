@@ -140,7 +140,8 @@
         "Manifest + adapter hosts cover the agreed international footprint (at minimum: eBay fr/it/es/ie/nl/at/ch/pl/befr-benl, all active Vinted TLDs incl. apex domains, *.poshmark.ca) — one list, generated or guard-tested against the adapter hosts so manifest and config can't drift",
         "An anonymous, opt-in-gated selector-failure ping (adapter key + which selector list came up empty + config version, NO listing URL/user data) posts to a lightweight edge endpoint so broken adapters are discovered from telemetry as the README claims — consent + toggle shared with US-1757's telemetry story",
         "srcset parsing picks the max-width candidate instead of assuming last-is-largest",
-        "Unknown/failed adapters keep degrading to the honest 'couldn't read the photos' state"
+        "Unknown/failed adapters keep degrading to the honest 'couldn't read the photos' state",
+        "OPERATOR: open a real listing on each of Poshmark, Grailed, Mercari, Depop and Vinted while logged in, confirm the gallery, title and brand selectors read it and that the URL-upgrade rule yields a FULL-RES image rather than a thumbnail, then set verified:true and lastVerified in BOTH config files (AC1, the only thing still open). Everything else shipped: the dead Poshmark regex is fixed, the international hosts are in with a drift guard, srcset picks the widest candidate, and the anonymous selector-failure ping is live end to end. The five verified flags are the last false things in the file."
       ],
       "priority": 1880,
       "passes": false,

@@ -157,13 +157,35 @@ describe("undeclared detection", () => {
     });
     expect(auditCandidates([alreadyDeclared])).toHaveLength(0);
 
-    // Only the LAST segment is read: notes are append-only, so an early segment
-    // describing work already finished is not evidence of what is left.
+    // An early segment whose work a LATER segment closed is not evidence of
+    // what is left. Notes are append-only, so position is meaningful.
     const resolved = story({
       id: "US-3",
-      notes: "the owner had to run this in prod | DONE, ran and recorded.",
+      notes: "REMAINING: the owner had to run this in prod | DONE, ran and recorded.",
     });
     expect(auditCandidates([resolved])).toHaveLength(0);
+  });
+
+  it("an open claim in an earlier segment still counts — US-1880's exact shape", () => {
+    // Reading ONLY the last segment was the first rule and it was wrong.
+    // US-1880's remaining work (live-site QA of five marketplace adapters) is
+    // stated in a 2026-07-18 segment; three LATER segments are corrections
+    // about a migration's held status, so the last segment is about a
+    // different topic and the story read as unblocked.
+    //
+    // "Latest" is not "current": a correction appended about one topic does not
+    // supersede an open claim about another.
+    const s = story({
+      id: "US-1880",
+      notes:
+        "STILL BLOCKS passes: AC1 needs live-site QA of each marketplace — cannot " +
+        "be done autonomously. | STATUS CORRECTION: the HELD-migration claim is " +
+        "stale; 00475 is on origin/main. | MEASURED CORRECTION: 00475 and 00476 " +
+        "ARE APPLIED in prod, one HTTP GET away the whole time.",
+    });
+    const found = auditCandidates([s]);
+    expect(found).toHaveLength(1);
+    expect(found[0]!.quote).toContain("live-site QA");
   });
 
   it("every pattern is anchored to a predicate, never a bare mention", () => {

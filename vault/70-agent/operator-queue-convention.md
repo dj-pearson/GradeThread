@@ -85,11 +85,26 @@ statement about the list rather than about the backlog.** Three rounds of tuning
 produced three rounds of increasing confidence and no bound at all.
 
 So `npm run prd:operator -- --audit` stops guessing. It returns a **reading
-list**: every open, non-queued story whose last note segment mentions any of
-`owner operator human prod production paste dashboard console manual "by hand"`.
-It reports about 39 against 120 open stories, most of them false positives, and
-it says so. One line of reading beats a story nobody ever does. Trust the
-DECLARED section; treat the total as a floor however many rounds it has had.
+list**: every open, non-queued story whose relevant note segments mention
+anything that could mean a person. It reports around 29 against 121 open
+stories, most of them false positives, and it says so. One line of reading beats
+a story nobody ever does. Trust the DECLARED section; treat the total as a floor
+however many rounds it has had.
+
+**"Relevant segments" is not "the last segment", and US-1880 is why.** The first
+version read only the newest note, on the reasoning that notes are append-only
+so the latest one is current. US-1880's remaining work — live-site QA of five
+marketplace adapters, which no agent can do — is stated in a July segment, and
+the three segments after it are all corrections about a migration's held status.
+The last note was about a different topic entirely, so the story read as
+unblocked.
+
+**Latest is not the same as current.** A correction appended about one topic
+does not supersede an open claim about another. The audit now also reads any
+earlier segment carrying an explicit open-work claim (`STILL BLOCKS`,
+`NOT DONE`, `REMAINING`, `cannot be done autonomously`) that no later segment
+closes — the same segment-order resolution `prd-lint`'s `findUnresolvedDeferrals`
+and its held-migration check already use, for the same reason.
 
 **Declaring is better than detecting.** Every story the scans surfaced got an
 `OPERATOR:` criterion written from its own evidence, which moves it into the
