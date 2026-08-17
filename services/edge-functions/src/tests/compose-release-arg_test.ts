@@ -141,3 +141,51 @@ Deno.test("the Dockerfile still consumes GIT_SHA into RELEASE_SHA", async () => 
     "Dockerfile must set ENV RELEASE_SHA from GIT_SHA — observability.ts reads RELEASE_SHA",
   );
 });
+
+Deno.test("the Dockerfile DECLARES SOURCE_COMMIT, or Docker discards it", async () => {
+  // THE BUG THIS PINS, measured 2026-08-17. Coolify passes the commit as a build
+  // argument named SOURCE_COMMIT — but Docker only exposes a build arg the
+  // Dockerfile has DECLARED with ARG. An undeclared one is dropped with a
+  // warning nobody reads. This file declared only GIT_SHA, so the commit Coolify
+  // was already sending never reached the image, and /health/ready reported
+  // release "unknown" while the operator had correctly set nothing.
+  //
+  // Every compose file passes `GIT_SHA: ${SOURCE_COMMIT:-dev}` and has for a
+  // while. That did not help, because US-2665 established the compose file is
+  // not what deploys this service. The Dockerfile is, so the fallback has to
+  // live here to be reached at all.
+  const dockerfile = await Deno.readTextFile(new URL("Dockerfile", COMPOSE_DIR));
+  assert(
+    /^ARG SOURCE_COMMIT=/m.test(dockerfile),
+    "Dockerfile must declare `ARG SOURCE_COMMIT` — an undeclared build arg is " +
+      "silently discarded, which is exactly how the commit went missing (US-2001)",
+  );
+  // ARG order matters: a default may only reference an ARG declared BEFORE it.
+  const src = dockerfile.search(/^ARG SOURCE_COMMIT=/m);
+  const git = dockerfile.search(/^ARG GIT_SHA=/m);
+  assert(
+    src < git,
+    "ARG SOURCE_COMMIT must be declared BEFORE ARG GIT_SHA — a default can only " +
+      "reference an arg already in scope, and reversing them silently yields empty",
+  );
+});
+
+Deno.test("GIT_SHA falls back to SOURCE_COMMIT, not to a placeholder literal", async () => {
+  // `ARG GIT_SHA=dev` was itself the failure US-2001 recorded: the default
+  // survived the build and read as an identity. Defaulting to SOURCE_COMMIT
+  // means the commit flows with NO operator configuration; defaulting to a
+  // literal means somebody has to wire it and nothing notices when they do not.
+  //
+  // Empty is the correct no-op default: "" is in RELEASE_PLACEHOLDERS, so
+  // resolveRelease falls through to the next key rather than reporting it.
+  const dockerfile = await Deno.readTextFile(new URL("Dockerfile", COMPOSE_DIR));
+  const m = /^ARG GIT_SHA=(.*)$/m.exec(dockerfile);
+  assert(m, "Dockerfile must declare ARG GIT_SHA");
+  const dflt = m[1].trim().replace(/^"|"$/g, "");
+  assert(
+    dflt === "${SOURCE_COMMIT}",
+    `ARG GIT_SHA must default to \${SOURCE_COMMIT} so Coolify's commit flows ` +
+      `without configuration; found ${JSON.stringify(dflt)}. A literal default ` +
+      `is what shipped release:"dev" to production for weeks.`,
+  );
+});

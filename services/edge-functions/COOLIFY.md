@@ -26,11 +26,36 @@ both the `coolify.*` labels and explicit `traefik.*` fallbacks.
 
 ## Build args: the release SHA (US-2001)
 
-**The image must be built with `GIT_SHA` set to the deployed commit**, or
-`RELEASE_SHA` falls back to the Dockerfile's `dev` default and every edge error,
-metric and `/health` response becomes unattributable to a build. Prod was
-measured serving `release:"dev"` for exactly this reason — you cannot answer
-"did the fix ship?" without it.
+> [!important] 2026-08-17: you should not have to set anything for this any more
+>
+> The Dockerfile now declares `ARG SOURCE_COMMIT` and defaults
+> `ARG GIT_SHA=${SOURCE_COMMIT}`, so **Coolify's own commit flows into the image
+> with no configuration at all**.
+>
+> Why it did not before: Coolify was already passing the commit as a build
+> argument named `SOURCE_COMMIT`, but **Docker only exposes a build arg the
+> Dockerfile has DECLARED** — an undeclared one is dropped with a warning nobody
+> reads. This file declared only `GIT_SHA`. So the value was being sent and
+> thrown away, and `/health/ready` reported `release: "unknown"` while the
+> operator had, correctly, set nothing.
+>
+> The compose files have passed `GIT_SHA: ${SOURCE_COMMIT:-dev}` for weeks and it
+> never helped, because **the compose file is not what deploys this service**
+> (US-2665). The fallback had to be in the Dockerfile to be reached.
+>
+> ⚠️ **If you created a Coolify variable named `SOURCE_COMMIT`, delete it.** A
+> hand-made one shadows Coolify's built-in, and a blank value resolves the whole
+> chain to empty — the release stays `unknown` no matter what else you set. All
+> four cases were verified against a real `docker build`: Coolify's value alone
+> resolves; an explicit `GIT_SHA` still wins; neither set yields empty (which
+> falls through safely, because `""` is a placeholder); and a blank
+> `SOURCE_COMMIT` yields empty, which is the case that was live.
+
+**The image must be built with the deployed commit reaching `GIT_SHA`**, or
+`RELEASE_SHA` is empty and every edge error, metric and `/health` response
+becomes unattributable to a build. Prod was measured serving `release:"dev"`, and
+later `release:"unknown"`, for exactly this reason — you cannot answer "did the
+fix ship?" without it.
 
 **All three building compose files now declare it** — `docker-compose.yml`,
 `docker-compose.coolify.yml` and `docker-compose.staging.yml` — so it does not

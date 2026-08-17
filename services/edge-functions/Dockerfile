@@ -4,12 +4,34 @@
 # (glibc) variant: more compatible than alpine for esm.sh deps.
 FROM denoland/deno:debian-2.9.3
 
-# US-513: stamp the build with the commit SHA so a specific prior image can be
-# redeployed deterministically and the running version is observable. Coolify
-# passes the commit via a build arg (set GIT_SHA=$SOURCE_COMMIT in the build
-# args, or CF/CI equivalent). RELEASE_SHA is what lib/observability.ts reads to
-# tag errors/metrics + report on /health.
-ARG GIT_SHA=dev
+# US-513/US-2001: stamp the build with the commit SHA so a specific prior image
+# can be redeployed deterministically and the running version is observable.
+# RELEASE_SHA is what lib/observability.ts reads to tag errors and report on
+# /health.
+#
+# ⚠ SOURCE_COMMIT MUST BE DECLARED HERE OR DOCKER THROWS IT AWAY. Coolify passes
+# the commit as a build argument named SOURCE_COMMIT, but Docker only exposes a
+# build arg the Dockerfile has DECLARED with ARG — an undeclared one is silently
+# ignored with a warning nobody reads. This file declared only GIT_SHA, so the
+# commit Coolify was already sending never reached the image, and /health/ready
+# reported release "unknown" while the operator had, correctly, set nothing.
+#
+# GIT_SHA now DEFAULTS to SOURCE_COMMIT rather than to "dev". An ARG may use a
+# previously-declared ARG as its default, so the chain is: an explicitly-set
+# GIT_SHA wins; otherwise Coolify's SOURCE_COMMIT flows through on its own; and
+# with neither, RELEASE_SHA is EMPTY.
+#
+# Empty is deliberate and is not a regression. "" is in RELEASE_PLACEHOLDERS
+# (lib/release-identity.ts) exactly like "dev" was, so resolveRelease falls
+# through to the next key instead of treating it as a real build — while the old
+# literal `dev` default was itself the failure US-2001 recorded: an ARG default
+# surviving the build and reading as an identity.
+#
+# ⚠ A HAND-CREATED COOLIFY VARIABLE NAMED SOURCE_COMMIT SHADOWS THE BUILT-IN ONE.
+# If one exists with a blank value, this chain resolves to empty and the release
+# stays unknown no matter what else is set. Delete it and let Coolify supply it.
+ARG SOURCE_COMMIT=""
+ARG GIT_SHA=${SOURCE_COMMIT}
 ENV RELEASE_SHA=${GIT_SHA}
 LABEL org.opencontainers.image.revision=${GIT_SHA}
 LABEL org.opencontainers.image.source="https://github.com/dj-pearson/GradeThread"
