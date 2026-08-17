@@ -56,9 +56,20 @@ enum UseCaseSync {
         // local database. Here the only consequence of nil is that we return
         // without writing and without marking synced, so the next sign-in
         // retries. Nothing downstream treats the absence as an answer.
-        guard let userId = try? await SupabaseShared.client
-            .auth.session.user.id.uuidString.lowercased()
+        //
+        // ⚠ KEEP THIS ON ONE LINE. Written as a wrapped chain —
+        // `try? await SupabaseShared.client` then `.auth.session…` on the next
+        // line — the `await` binds to `SupabaseShared.client` alone, which is
+        // synchronous, and the async `.session` access ends up outside it. That
+        // compiles nowhere and fails with "Expression is 'async' but is not
+        // marked with 'await'", naming this file and nothing about the cause.
+        // Every other call site in the app writes it flat for the same reason
+        // (ContentView.swift, ConsignorService.swift, PublishDialog.swift).
+        guard let sessionUserId = try? await SupabaseShared.client.auth.session.user.id.uuidString
         else { return }
+        // Lowercased AFTER the await rather than chained onto it, so the
+        // one-line rule above stays easy to see and hard to undo.
+        let userId = sessionUserId.lowercased()
 
         struct Update: Encodable { let use_case: String }
         do {
