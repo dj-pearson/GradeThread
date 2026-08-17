@@ -48,12 +48,29 @@ import { headOf } from "./_shared/head-of";
  * minute is 33 calls against that shared bucket, and eight is 88, which is how
  * a probe drove this endpoint to 503 four times running.
  *
- * The bypass that is meant to exempt this hop is currently OFF
- * (features.pages_origin_bypass on /health/ready reports the secret missing,
- * US-2612), so the cap is live. This does not fix that and is not a substitute
- * for it — the secret still has to be set on both sides. It removes the
- * multiplier, which is worth having either way: a crawler re-fetching the
- * sitemap should not cost eleven database reads each time.
+ * ⚠ CORRECTED 2026-08-17. This paragraph used to say the bypass meant to exempt
+ * this hop was OFF, because features.pages_origin_bypass reported the secret
+ * missing. It is ON, and both halves are armed:
+ *
+ *   • EDGE — /health/ready answers features.pages_origin_bypass "ok", not
+ *     missing. Part of the earlier reading was probably never about the secret
+ *     at all: the group is production-gated, and lib/env.ts records that a blank
+ *     EDGE_ENV "turned off the pages_origin_bypass reporting US-2612 is waiting
+ *     on". EDGE_ENV was set by hand on 2026-08-16 (US-2660). Treat that as the
+ *     likely explanation rather than a proven one — what is proven is the
+ *     current reading.
+ *   • PAGES — measured, not inferred. render-via-edge.ts returns the branded
+ *     fallback WITHOUT calling the edge when CF_PAGES_ORIGIN_SECRET is unset on
+ *     this side, and that fallback is a fixed 133,915 bytes (/og-image.png).
+ *     Production answers /og/social/card at 145,545 bytes for ratio=landscape
+ *     and 182,268 for ratio=pin. A fixed fallback cannot vary by ratio, so the
+ *     edge renderer was called with a matching header.
+ *
+ * So the 60/min cap is NOT live for this hop today. The caching below is still
+ * worth having and is not made redundant by that: a crawler re-fetching the
+ * sitemap should not cost eleven database reads each time, bypass or no bypass.
+ * And the bypass is a runtime condition that can lapse — an env change on either
+ * side turns it off silently — while the cache is a property of this file.
  *
  * Correctness is unchanged. withEdgeCache only stores 200s that are publicly
  * cacheable, so the 503 the UpstreamUnavailable branch returns is never cached
