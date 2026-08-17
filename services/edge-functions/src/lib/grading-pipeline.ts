@@ -34,6 +34,12 @@ import {
   type PeerNormConfig,
 } from "./peer-norm.ts";
 import { reconcileNeedsReview } from "./ai-config.ts";
+import {
+  evaluateSecondOpinion,
+  resolveSecondOpinionConfig,
+  type SecondOpinionConfig,
+  shouldSeekSecondOpinion,
+} from "./second-opinion.ts";
 import { gradingUsageFeature } from "./video-grading-cost.ts";
 import { getSetting } from "./system-settings.ts";
 import {
@@ -2390,6 +2396,75 @@ export async function processSubmission(submissionId: string) {
     } catch (err) {
       console.error(
         `[Pipeline] peer-norm check failed for ${submissionId} (skipped):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    // US-2279: selective second opinion — re-run the COMPOSITE stage under a
+    // second allowlisted model on borderline (or high-value) grades and route
+    // real disagreement to a human.
+    //
+    // Placed after peer-norm on purpose: peer-norm may already have routed this
+    // grade, and shouldSeekSecondOpinion skips anything already going to a
+    // person. Running first would pay for a second model call to reach a
+    // conclusion the next block reaches for free.
+    //
+    // OFF unless a settings row says otherwise, and byte-identical when off —
+    // no extra call, no note, no confidence change. Best-effort in the same
+    // shape as peer-norm: any failure skips the check, never the grade.
+    try {
+      const { config: soCfg, refusal } = resolveSecondOpinionConfig(
+        await getSetting<Partial<SecondOpinionConfig>>("grading_second_opinion", {}),
+      );
+      if (refusal) {
+        // Loud, because a refusal means an operator turned this on and it is not
+        // running — the silent-misconfiguration shape this repo keeps getting bitten by.
+        console.warn(`[Pipeline] second opinion refused: ${refusal}`);
+      }
+      const decision = shouldSeekSecondOpinion(
+        {
+          confidence: compositeResult.confidence_score,
+          // No value column exists on submissions today, so this is null in
+          // practice and the band is the only live trigger. Passed explicitly
+          // rather than omitted so the day a value source is wired, the change
+          // is one expression here and not a redesign.
+          itemValue: null,
+          alreadyNeedsReview: compositeResult.needs_human_review,
+        },
+        soCfg,
+      );
+      if (decision.trigger) {
+        console.log(
+          `[Pipeline] second opinion for ${submissionId} (${soCfg.model}): ${decision.reason}`,
+        );
+        const second = await compositeGrade(
+          perImageResults,
+          garmentInfo,
+          undefined,
+          soCfg.model,
+          submissionId,
+        );
+        const verdict = evaluateSecondOpinion(
+          compositeResult.overall_score,
+          second.overall_score,
+          soCfg,
+        );
+        detailedNotes["second_opinion"] = verdict.note;
+        if (verdict.disagree) {
+          compositeResult.confidence_score = composeConfidenceCap(
+            compositeResult.confidence_score,
+            verdict.confidenceCap,
+          );
+          // US-2299: BOTH halves. Lowering the value without lowering the
+          // ceiling would let the next provenance boost lift the stored number
+          // back over a cap applied because two models disagreed.
+          confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
+          compositeResult.needs_human_review = true;
+        }
+      }
+    } catch (err) {
+      console.error(
+        `[Pipeline] second opinion failed for ${submissionId} (skipped):`,
         err instanceof Error ? err.message : String(err),
       );
     }
