@@ -1215,3 +1215,57 @@ ORDER BY 2 DESC;
 \echo '-- incomplete uploads, and the fix is upload-time guidance, not a grading'
 \echo '-- change. Empty means nobody is stuck today — which does NOT mean it'
 \echo '-- never happened, for the reason in the warning above.'
+
+\echo ''
+\echo '════════════════════════════════════════════════════════════════════'
+\echo '§28 US-2662 — HAS AN IMPERSONATION EVER BEEN STOPPED?'
+\echo '════════════════════════════════════════════════════════════════════'
+\echo ''
+\echo '-- WHY THIS IS HERE. /stop calls a GoTrue route that does not exist on'
+\echo '-- v2.195.0 (POST /admin/users/:id/logout answers 404 while'
+\echo '-- GET /admin/users/:id answers 200 with the same credentials). Prod runs'
+\echo '-- v2.174.0, which is OLDER, so it is very unlikely to have a route the'
+\echo '-- newer one lacks. If so, every stop left the target refresh token live.'
+\echo '--'
+\echo '-- This does not prove the route is missing — only Sentry (search'
+\echo '-- "GoTrue logout returned" under route impersonation.revoke) or a'
+\echo '-- service-role call can. What it answers is the OTHER half: whether the'
+\echo '-- defect has ever been reachable, i.e. whether anyone has actually'
+\echo '-- impersonated and stopped. Zero rows means the security gap has never'
+\echo '-- been exercised, and a Sentry search returning nothing means nothing.'
+
+\echo ''
+\echo '-- (a) Sessions by how they ended. end_reason stopped = someone pressed'
+\echo '-- Exit and expected a revocation.'
+SELECT
+  COALESCE(end_reason, '(still open)') AS end_reason,
+  count(*)                             AS sessions,
+  min(started_at)                      AS first_seen,
+  max(started_at)                      AS last_seen
+FROM public.admin_impersonation_sessions
+GROUP BY 1
+ORDER BY 2 DESC;
+
+\echo ''
+\echo '-- (b) Distinct targets whose session was never revoked, if the route is'
+\echo '-- indeed absent. These are the accounts whose refresh token stayed live'
+\echo '-- in an admin browser until it expired on its own.'
+SELECT count(DISTINCT target_id) AS distinct_targets_affected
+FROM public.admin_impersonation_sessions
+WHERE end_reason = 'stopped';
+
+\echo ''
+\echo '-- (c) Anything still open past its cap. Reads should already refuse'
+\echo '-- these (expiry is decided on read, not by a sweep), so a non-zero here'
+\echo '-- is rows never closed rather than sessions still honoured.'
+SELECT count(*) AS open_past_expiry
+FROM public.admin_impersonation_sessions
+WHERE ended_at IS NULL AND expires_at < now();
+
+\echo ''
+\echo '-- READING THIS: zero sessions overall means nobody has used'
+\echo '-- impersonation and US-2662 is a latent defect rather than a live one —'
+\echo '-- fix it before the feature is used, not as an incident. A non-zero'
+\echo '-- stopped count with the route absent means that many customer sessions'
+\echo '-- were left live, and the remedy is a password reset / forced sign-out'
+\echo '-- for the targets in (b) rather than only a code fix.'
