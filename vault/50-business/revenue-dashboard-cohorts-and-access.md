@@ -9,7 +9,7 @@ code_refs:
   - supabase/migrations/00215_revenue_dashboard.sql
   - supabase/migrations/00608_exclude_sandbox_from_revenue.sql
   - scripts/check-rpc-column-refs.mjs
-reviewed: 2026-08-16
+reviewed: 2026-08-17
 tags: [revenue, metrics, security, postgres]
 summary: The trial cohort keys on created_at, not on a derived start date, and the function authorises by allowlist rather than by grant. Both because it shipped broken in 00215 and the break was the only thing hiding a leak.
 ---
