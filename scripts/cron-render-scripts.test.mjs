@@ -16,7 +16,8 @@
 // module-load time, which no source scan can see.
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
-import { resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const EDGE = resolve(import.meta.dirname, "..", "services/edge-functions");
 
@@ -66,5 +67,52 @@ describe("the cron doc generators run from a bare checkout", () => {
       },
     );
     expect(withEnv).toBe(bare);
+  });
+});
+
+// measure-eval.ts had the identical failure and is the reason the placeholder
+// moved into a shared module: it uses STATIC imports, and ES imports are
+// HOISTED — every import runs before any top-level statement, so a
+// `Deno.env.set` written above them executes after them and changes nothing.
+// That first attempt looked correct and did nothing. Imports run in ORDER,
+// though, so a side-effecting module placed first is the one arrangement that
+// works without rewriting every import as dynamic.
+describe("measure-eval runs from a bare checkout too", () => {
+  it("prints its usage instead of a database error", () => {
+    const env = { ...process.env };
+    delete env.SUPABASE_URL;
+    delete env.SUPABASE_SERVICE_ROLE_KEY;
+    delete env.SUPABASE_SERVICE_KEY;
+    delete env.ANTHROPIC_API_KEY;
+    let out = "";
+    try {
+      out = execFileSync(
+        "deno",
+        ["run", "--allow-read", "--allow-env", "--allow-net", "scripts/measure-eval.ts"],
+        { cwd: EDGE, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], shell: true },
+      );
+    } catch (e) {
+      // No golden-dir argument, so a non-zero exit is CORRECT. What matters is
+      // which message it exits with.
+      out = String(e.stdout ?? "") + String(e.stderr ?? "");
+    }
+    expect(out).toMatch(/usage: .*measure-eval\.ts <golden-dir>/);
+    expect(out).not.toMatch(/SUPABASE_URL is not set/);
+  });
+
+  it("all three scripts import the shared placeholder module first", () => {
+    // The ORDER is the property. Anywhere but first and the hoisted imports of
+    // the modules below it have already thrown.
+    for (const rel of [
+      "scripts/render-cron-docs.ts",
+      "scripts/render-cron-setup.ts",
+      "scripts/measure-eval.ts",
+    ]) {
+      const src = readFileSync(join(EDGE, rel), "utf8");
+      const imports = [...src.matchAll(/^import .*$/gm)].map((m) => m[0]);
+      expect(imports.length, `${rel} has no imports`).toBeGreaterThan(0);
+      expect(imports[0], `${rel} must import _placeholder-db-env FIRST`)
+        .toMatch(/_placeholder-db-env/);
+    }
   });
 });

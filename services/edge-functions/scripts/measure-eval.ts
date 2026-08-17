@@ -13,6 +13,8 @@
 // Until the gate passes, every UI surface keeps the "estimated from photo"
 // wording — flipping that copy is a recorded human decision, not automatic.
 
+// Must come FIRST — see the module for why (imports are hoisted).
+import "./_placeholder-db-env.ts";
 import { Image } from "imagescript";
 import { calibrateMeasurePhoto } from "../src/lib/measure-detect.ts";
 import { extractMeasurements } from "../src/lib/measure-extract.ts";

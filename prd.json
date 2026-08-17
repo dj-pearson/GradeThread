@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2661",
+  "nextId": "US-2662",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2047,6 +2047,21 @@
         "AC4 RESTATED (the original lost its patterns to shell backtick expansion): a guard that the null-coalescing chain cannot come back anywhere it matters. Search the edge for the two shapes — a nullish-coalesce directly onto Deno.env.get, and a nullish-coalesce onto a string default like 'production' — and decide, per site, whether an EMPTY value is a legitimate answer there. Where it is not, the value must be trimmed and treated as absent, which is what resolveEdgeEnv now does."
       ],
       "priority": 5
+    },
+    {
+      "id": "US-2661",
+      "passes": false,
+      "title": "src/lib/supabase.ts throws at import, so scripts that never query still need a database credential",
+      "description": "Found 2026-08-16 by running operator scripts that had never been run. Three of them died with 'SUPABASE_URL is not set' before printing so much as their own usage line, and none of the three touches the database.  src/lib/supabase.ts does all of its work at MODULE LOAD: it reads the env, throws if either variable is absent, and constructs the client. So anything whose import graph reaches it needs a database credential to START, whether or not it ever issues a query.  WHO IT BROKE, and each failure is worse than it sounds because it lands on the operator: scripts/render-cron-docs.ts prints a table from a constant array; scripts/render-cron-setup.ts prints the 67-task Coolify setup guide that US-2313 is entirely about installing; scripts/measure-eval.ts is the accuracy gate US-1582 asks an operator to run. Verified that none of the three, nor the libraries they import, references supabaseAdmin at all - the requirement is purely transitive.  SHIPPED AS A STOPGAP in the same session: scripts/_placeholder-db-env.ts, a side-effecting module imported FIRST by all three, which sets a localhost placeholder when nothing real is present. It works and it is guarded, but it is a workaround. Every future script that imports anything from src/lib inherits the same trap, and the failure gives no hint about the cause.  THE FIX IS TO BUILD THE CLIENT LAZILY - supabaseAdmin constructed on first USE rather than on import - so a module that never queries never needs a credential.  THE BOOT-LOUDNESS ARGUMENT IS ALREADY SATISFIED, which is what makes this safe and is the thing to check before starting. main.ts:1812 calls assertRequiredEnv() BEFORE Deno.serve at :1895, and SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are both in CORE_REQUIRED. That assertion is strictly better than the import-time throw: it names EVERY missing variable at once, where the throw names only the first one its import chain happens to reach. So removing the eager throw does not weaken the deploy check.",
+      "acceptanceCriteria": [
+        "supabaseAdmin is constructed on first use rather than at module load, so importing src/lib/supabase.ts without a database credential does not throw.",
+        "The three scripts drop scripts/_placeholder-db-env.ts and still run from a bare checkout, and the module is deleted rather than left as a second way to do it.",
+        "Boot behaviour is unchanged and PROVEN unchanged: starting the edge with SUPABASE_URL unset still exits before serving, via assertRequiredEnv(), and the message still names every missing variable.",
+        "A query attempted with no credential still fails loudly and says which variable is missing - a lazy client must not degrade into a silent no-op or a confusing network error.",
+        "Verified against the full edge suite AND both integration lanes, because supabaseAdmin is the most-imported object in the service: deno test src/tests/ plus the tenant-isolation and money/cert lanes against a live stack. CLAUDE.md records how to run both locally.",
+        "The guard in scripts/cron-render-scripts.test.mjs survives the refactor: it executes the scripts with the database env removed, which is the property that matters whichever way it is achieved."
+      ],
+      "priority": 25
     }
   ]
 }
