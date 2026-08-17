@@ -9,15 +9,23 @@
 --   ERROR: 42601: syntax error at or near "\"
 --
 -- ⚠️ HOW TO RUN THIS IN A CONSOLE. Most SQL editors show only the LAST result
--- set when you execute a whole file. Run it ONE SECTION AT A TIME — the
--- sections are marked `§1` … `§13` — or use psql with the original file,
+-- set when you execute a whole file. Run it ONE SECTION AT A TIME — there are
+-- 27, marked `§1` … `§27` — or use psql with the original file,
 -- which prints every result with its banner.
+--
+-- The count above is DERIVED from the source's own index at generation time.
+-- It was hardcoded until 2026-08-17 and had been wrong by fourteen sections,
+-- which is how an operator runs half the diagnostics and believes they ran all.
 --
 -- Still strictly read-only: no INSERT, UPDATE, DELETE, CREATE, ALTER or DROP.
 -- ══════════════════════════════════════════════════════════════════
 
--- READ-ONLY production diagnostics. Answers the prod-data questions that nineteen
--- open stories are each individually blocked on, in ONE session.
+-- READ-ONLY production diagnostics. Answers, in ONE session, the prod-data
+-- questions that open stories are each individually blocked on — the index below
+-- names which story each section is for, and that index is the count. It said
+-- "nineteen" while carrying 27 sections for 23 stories, which is the same way
+-- the generated console copy came to advertise §1–§13 of 27: a number written
+-- once and then outgrown. Read the index, not a total.
 --
 --   SUPABASE_DB_URL="postgres://…@host:5432/postgres" \
 --     psql "$SUPABASE_DB_URL" -f scripts/prod-diagnostics.sql

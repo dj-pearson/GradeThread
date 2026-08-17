@@ -1,5 +1,9 @@
--- READ-ONLY production diagnostics. Answers the prod-data questions that nineteen
--- open stories are each individually blocked on, in ONE session.
+-- READ-ONLY production diagnostics. Answers, in ONE session, the prod-data
+-- questions that open stories are each individually blocked on — the index below
+-- names which story each section is for, and that index is the count. It said
+-- "nineteen" while carrying 27 sections for 23 stories, which is the same way
+-- the generated console copy came to advertise §1–§13 of 27: a number written
+-- once and then outgrown. Read the index, not a total.
 --
 --   SUPABASE_DB_URL="postgres://…@host:5432/postgres" \
 --     psql "$SUPABASE_DB_URL" -f scripts/prod-diagnostics.sql
