@@ -100,3 +100,59 @@ Deno.test("a successful rpc still returns its data unchanged", async () => {
   };
   assertEquals(await helper("ai_spend"), { rows: [] });
 });
+
+// US-2664 first slice: the reads whose EMPTY result is affirmatively
+// reassuring. A failed count that returns 0 does not say "I could not look", it
+// says "there are no open sync conflicts" — to an agent, which says it to a
+// human. Same for a dead-letter queue: empty is the single most comforting
+// thing this agent can report.
+//
+// Scoped deliberately. 32 helpers in this file still drop the error binding and
+// most are genuinely lower-stakes; sweeping all of them in one pass, each
+// needing a judgement about whether empty is legitimate, is how a sweep
+// introduces the bug it removes. These six were done because their failure mode
+// is a confident wrong answer rather than a missing one.
+Deno.test("the open-problem counters cannot report zero on a failed read", () => {
+  for (
+    const name of [
+      "countOpenSyncConflicts",
+      "countOrphanSales",
+      "countOpenModerationFlags",
+      "countOpenPassportIntegritySignals",
+    ]
+  ) {
+    const at = SRC.indexOf(`    ${name}: async () => {`);
+    assert(at > -1, `${name} was renamed — update this guard`);
+    const body = SRC.slice(at, SRC.indexOf("\n    },", at));
+    assert(
+      /const \{ count, error \} = await supabaseAdmin/.test(body),
+      `${name} must bind error — returning "count ?? 0" on failure reports no open problems`,
+    );
+    assert(
+      // Plain substring checks rather than a built regex: a regex assembled in
+      // a template literal here had its escapes eaten on the way into the file,
+      // turning the parens into capture groups and the assertion into nonsense.
+      body.includes("if (error) throw new Error(") && body.includes(`${name} failed:`),
+      `${name} must throw and name itself; four counters share this shape`,
+    );
+  }
+});
+
+Deno.test("the dead-letter queues cannot report empty on a failed read", () => {
+  for (const name of ["fetchWebhookDeadLetters", "fetchEmailDeadLetters"]) {
+    const at = SRC.indexOf(`    ${name}: async (limit) => {`);
+    assert(at > -1, `${name} was renamed — update this guard`);
+    const body = SRC.slice(at, SRC.indexOf("\n    },", at));
+    assert(
+      /const \{ data, error \} = await supabaseAdmin/.test(body),
+      `${name} must bind error — "(data ?? [])" on failure reports nothing stuck`,
+    );
+    assert(
+      // Plain substring checks rather than a built regex: a regex assembled in
+      // a template literal here had its escapes eaten on the way into the file,
+      // turning the parens into capture groups and the assertion into nonsense.
+      body.includes("if (error) throw new Error(") && body.includes(`${name} failed:`),
+      `${name} must throw and name itself`,
+    );
+  }
+});

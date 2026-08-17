@@ -381,21 +381,31 @@ export function prodToolIO(): ToolIO {
       return (data ?? []) as OpsEventRow[];
     },
     fetchWebhookDeadLetters: async (limit) => {
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("webhook_dead_letters")
         .select("id, provider, last_error, attempt_count, created_at")
         .eq("status", "unresolved")
         .order("created_at", { ascending: true })
         .limit(limit);
+      // An empty dead-letter queue means NOTHING IS STUCK, which is the single
+      // most reassuring thing this agent can report. A failed read must not be
+      // able to say it. Throwing surfaces a tool_error instead; the dispatcher
+      // wraps every handler, so this cannot crash the run.
+      if (error) throw new Error(`fetchWebhookDeadLetters failed: ${error.message}`);
       return (data ?? []) as DeadLetterRow[];
     },
     fetchEmailDeadLetters: async (limit) => {
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("email_deliveries")
         .select("id, last_error, attempt_count, created_at")
         .eq("status", "dead_letter")
         .order("created_at", { ascending: true })
         .limit(limit);
+      // An empty dead-letter queue means NOTHING IS STUCK, which is the single
+      // most reassuring thing this agent can report. A failed read must not be
+      // able to say it. Throwing surfaces a tool_error instead; the dispatcher
+      // wraps every handler, so this cannot crash the run.
+      if (error) throw new Error(`fetchEmailDeadLetters failed: ${error.message}`);
       return ((data ?? []) as Array<Omit<DeadLetterRow, "provider">>).map((r) => ({
         provider: "email",
         ...r,
@@ -535,16 +545,26 @@ export function prodToolIO(): ToolIO {
       return { generation: (gen ?? []) as BatchRow[], publish: (pub ?? []) as BatchRow[] };
     },
     countOpenSyncConflicts: async () => {
-      const { count } = await supabaseAdmin
+      const { count, error } = await supabaseAdmin
         .from("flipdesk_sync_conflicts")
         .select("id", { count: "exact", head: true })
         .is("resolved_at", null);
+      // A failed read must not read as zero. This counts OPEN problems, so
+      // returning 0 on an error tells the agent — and then a human — that
+      // there are none. Throwing surfaces it as a tool_error instead; the
+      // dispatcher wraps every handler, so this cannot crash the run.
+      if (error) throw new Error(`countOpenSyncConflicts failed: ${error.message}`);
       return count ?? 0;
     },
     countOrphanSales: async () => {
-      const { count } = await supabaseAdmin
+      const { count, error } = await supabaseAdmin
         .from("flipdesk_ebay_orphan_sales")
         .select("id", { count: "exact", head: true });
+      // A failed read must not read as zero. This counts OPEN problems, so
+      // returning 0 on an error tells the agent — and then a human — that
+      // there are none. Throwing surfaces it as a tool_error instead; the
+      // dispatcher wraps every handler, so this cannot crash the run.
+      if (error) throw new Error(`countOrphanSales failed: ${error.message}`);
       return count ?? 0;
     },
     fetchMarketplaceOpsBacklog: async () => {
@@ -579,16 +599,26 @@ export function prodToolIO(): ToolIO {
       return (data ?? []) as AbuseSignal[];
     },
     countOpenModerationFlags: async () => {
-      const { count } = await supabaseAdmin
+      const { count, error } = await supabaseAdmin
         .from("content_moderation_flags")
         .select("id", { count: "exact", head: true })
         .eq("status", "open");
+      // A failed read must not read as zero. This counts OPEN problems, so
+      // returning 0 on an error tells the agent — and then a human — that
+      // there are none. Throwing surfaces it as a tool_error instead; the
+      // dispatcher wraps every handler, so this cannot crash the run.
+      if (error) throw new Error(`countOpenModerationFlags failed: ${error.message}`);
       return count ?? 0;
     },
     countOpenPassportIntegritySignals: async () => {
-      const { count } = await supabaseAdmin
+      const { count, error } = await supabaseAdmin
         .from("passport_integrity_signals")
         .select("id", { count: "exact", head: true });
+      // A failed read must not read as zero. This counts OPEN problems, so
+      // returning 0 on an error tells the agent — and then a human — that
+      // there are none. Throwing surfaces it as a tool_error instead; the
+      // dispatcher wraps every handler, so this cannot crash the run.
+      if (error) throw new Error(`countOpenPassportIntegritySignals failed: ${error.message}`);
       return count ?? 0;
     },
     fetchCeoBriefData: async (nowMs) => {
