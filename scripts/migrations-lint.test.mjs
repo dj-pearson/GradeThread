@@ -11,12 +11,14 @@
 // end-to-end run in verify/CI.
 
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   duplicateVersions,
   gapReport,
   ignoreRulesNamingMigrations,
+  ineffectiveRevokes,
+  INEFFECTIVE_REVOKE_GRANDFATHERED,
   KNOWN_GAPS,
   shapeFailures,
   SIX_DIGIT_BY_DESIGN,
@@ -128,6 +130,83 @@ describe("every annotated gap says why", () => {
     for (const [version, reason] of KNOWN_GAPS) {
       expect(reason.length, `KNOWN_GAPS[${version}] needs a reason`).toBeGreaterThan(20);
     }
+  });
+});
+
+describe("a revoke that revokes nothing (US-2666)", () => {
+  // The rule exists because this failure is invisible everywhere else: the SQL
+  // is valid, the REVOKE succeeds, psql prints REVOKE, and the migration
+  // applies green while the function stays callable by the public anon key.
+  const dir = (files) => ({
+    names: Object.keys(files),
+    read: (f) => files[f],
+  });
+
+  it("flags a revoke naming only anon", () => {
+    const d = dir({
+      "00900_x.sql": "revoke all on function public.f(uuid) from anon;",
+    });
+    expect(ineffectiveRevokes(d.names, d.read).map((h) => h.key)).toEqual(["00900_x.sql:f"]);
+  });
+
+  it("accepts PUBLIC in the same statement — the working form", () => {
+    // 00216_credit_ledger_admin.sql:143 is the model this points people at.
+    const d = dir({
+      "00900_x.sql": "REVOKE ALL ON FUNCTION public.f(uuid, integer)\n  FROM PUBLIC, anon, authenticated;",
+    });
+    expect(ineffectiveRevokes(d.names, d.read)).toEqual([]);
+  });
+
+  it("accepts PUBLIC in a SEPARATE statement for the same function", () => {
+    // The grouping case, and the reason the first version of this rule reported
+    // 14 where there are 6. Splitting the roles across statements is correct.
+    const d = dir({
+      "00900_x.sql": [
+        "revoke all on function public.f(uuid) from public;",
+        "revoke all on function public.f(uuid) from anon;",
+        "revoke all on function public.f(uuid) from authenticated;",
+      ].join("\n"),
+    });
+    expect(ineffectiveRevokes(d.names, d.read)).toEqual([]);
+  });
+
+  it("does not let one function's PUBLIC revoke excuse another's", () => {
+    const d = dir({
+      "00900_x.sql": [
+        "revoke all on function public.safe(uuid) from public, anon;",
+        "revoke all on function public.leaky(uuid) from anon;",
+      ].join("\n"),
+    });
+    expect(ineffectiveRevokes(d.names, d.read).map((h) => h.key)).toEqual(["00900_x.sql:leaky"]);
+  });
+
+  it("grandfathers only the six that already shipped, by file AND function", () => {
+    // Applied migrations are immutable, so these cannot be edited — they are
+    // fixed forward. Keying on file+function means a NEW no-op added to one of
+    // those same files still fails.
+    expect(INEFFECTIVE_REVOKE_GRANDFATHERED.size).toBe(6);
+    for (const key of INEFFECTIVE_REVOKE_GRANDFATHERED.keys()) {
+      expect(key, `${key} must be file.sql:function`).toMatch(/^\d{5}_[a-z0-9_]+\.sql:[a-z0-9_]+$/);
+    }
+    expect(INEFFECTIVE_REVOKE_GRANDFATHERED.has("00099_snap_quota.sql:reserve_snap")).toBe(true);
+  });
+
+  it("every grandfathered entry says what it leaves reachable", () => {
+    for (const [key, why] of INEFFECTIVE_REVOKE_GRANDFATHERED) {
+      expect(why.length, `${key} needs a reason`).toBeGreaterThan(10);
+    }
+  });
+
+  it("the real directory is clean apart from those six", () => {
+    // Deliberately an end-to-end assertion over the ACTUAL migrations, unlike
+    // the synthetic cases above. It is what turns the list into a ratchet: a
+    // seventh no-op fails here even if nobody runs the lint by hand.
+    const names = readdirSync(resolve(process.cwd(), "supabase/migrations"))
+      .filter((f) => f.endsWith(".sql"));
+    const hits = ineffectiveRevokes(names, (f) => read(`supabase/migrations/${f}`));
+    expect(hits.map((h) => h.key).sort()).toEqual(
+      [...INEFFECTIVE_REVOKE_GRANDFATHERED.keys()].sort(),
+    );
   });
 });
 

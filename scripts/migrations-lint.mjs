@@ -173,6 +173,77 @@ export function gapReport(sqlFiles) {
   };
 }
 
+// ── 5. A revoke that revokes nothing (US-2666) ───────────────────────────────
+//
+// `CREATE FUNCTION` grants EXECUTE to PUBLIC, and every role is implicitly a
+// member of PUBLIC. So `REVOKE ALL ON FUNCTION f() FROM anon` removes a grant
+// anon never held on its own and leaves the one it actually executes through.
+// The function stays callable by anyone holding the public anon key.
+//
+// PROVEN, not reasoned: three probe functions in a rolled-back transaction —
+// untouched, revoked-from-anon, and revoked-from-anon-and-public — answered
+// has_function_privilege('anon', …) TRUE, TRUE, FALSE. And production returns
+// HTTP 200 to an anon POST on flipdesk_overview_metrics, whose migration has
+// revoked it from anon since the day it was written.
+//
+// It has to be caught at authoring time because there is no other moment it can
+// be caught: the REVOKE is valid SQL, it succeeds, psql prints REVOKE, and the
+// migration applies green. 13 files reached for this pattern and 6 of them
+// secured nothing for up to three years.
+//
+// The working form is in 00216_credit_ledger_admin.sql:143 — `FROM PUBLIC,
+// anon, authenticated`.
+export const REVOKE_ON_FUNCTION =
+  /revoke\s+[a-z\s]*\bon\s+function\s+(?:public\.)?([a-z0-9_]+)\s*\([^)]*\)\s*from\s+([a-z_,\s]+)/gi;
+
+/**
+ * The no-ops that already shipped. Applied migrations are IMMUTABLE, so these
+ * cannot be edited — they are fixed forward by a new migration under US-2666.
+ * Grandfathered by exact file+function so a NEW one in the same file still
+ * fails, and listed with what each leaves reachable.
+ */
+export const INEFFECTIVE_REVOKE_GRANDFATHERED = new Map([
+  ["00097_integrity_constraints.sql:data_integrity_scan", "admin integrity scan"],
+  ["00099_snap_quota.sql:reserve_snap", "MUTATES a user's Snap quota"],
+  ["00099_snap_quota.sql:refund_snap", "MUTATES a user's Snap quota"],
+  ["00170_north_star_gamification.sql:north_star_weekly_counts", "aggregate counters"],
+  ["00170_north_star_gamification.sql:north_star_lifetime_counts", "aggregate counters"],
+  ["00594_flipdesk_overview_metrics.sql:flipdesk_overview_metrics", "a seller's whole P&L"],
+]);
+
+/**
+ * Functions whose revokes, taken TOGETHER within one file, never name PUBLIC.
+ *
+ * Grouped rather than per-statement, and that is not a detail: several files
+ * write the roles as separate statements — `from public;` then `from anon;` —
+ * which is correct and which a per-statement check flags twice. The first
+ * version of this rule did exactly that and reported 14 where there are 6.
+ *
+ * The unit is the FILE because a migration should be self-contained; a genuine
+ * fix-forward lands in a later file and names PUBLIC, so it clears itself.
+ *
+ * Returns `{ key, file, fn, roles }`, key being the grandfather key.
+ */
+export function ineffectiveRevokes(sqlFiles, read) {
+  const hits = [];
+  for (const file of sqlFiles) {
+    const sql = read(file);
+    const byFn = new Map();
+    for (const m of sql.matchAll(REVOKE_ON_FUNCTION)) {
+      const [, fn, rolesRaw] = m;
+      const roles = rolesRaw.split(",").map((r) => r.trim().toLowerCase()).filter(Boolean);
+      const seen = byFn.get(fn) ?? new Set();
+      for (const r of roles) seen.add(r);
+      byFn.set(fn, seen);
+    }
+    for (const [fn, roles] of byFn) {
+      if (roles.has("public")) continue;
+      hits.push({ key: `${file}:${fn}`, file, fn, roles: [...roles] });
+    }
+  }
+  return hits;
+}
+
 // ── Runner ───────────────────────────────────────────────────────────────────
 export function lint() {
   const failures = [];
@@ -271,6 +342,34 @@ export function lint() {
         `${filled.join(", ")}\n` +
         `  Good — remove them from scripts/migrations-lint.mjs. The list may only ` +
         `shrink, so a stale entry fails as loudly as a new gap.`,
+    );
+  }
+
+  const revokes = ineffectiveRevokes(sqlFiles, (f) => readFileSync(join(MIG_DIR, f), "utf8"));
+  const newNoOps = revokes.filter((r) => !INEFFECTIVE_REVOKE_GRANDFATHERED.has(r.key));
+  for (const r of newNoOps) {
+    fail(
+      `${MIG_PREFIX}/${r.file}: \`revoke … on function ${r.fn}(…) from ` +
+        `${r.roles.join(", ")}\` does not deny ${r.roles.join(" or ")}.\n` +
+        `  CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to ` +
+        `PUBLIC, so revoking a role by name leaves the grant it actually uses. ` +
+        `The function stays callable by anyone holding the public anon key, the ` +
+        `SQL succeeds, and the migration applies green — which is why this has ` +
+        `to fail here rather than anywhere later.\n` +
+        `  Write \`FROM PUBLIC, ${r.roles.join(", ")}\` instead ` +
+        `(00216_credit_ledger_admin.sql:143 is the model).`,
+    );
+  }
+  const fixedNoOps = [...INEFFECTIVE_REVOKE_GRANDFATHERED.keys()].filter(
+    (k) => !revokes.some((r) => r.key === k),
+  );
+  if (fixedNoOps.length > 0) {
+    fail(
+      `${fixedNoOps.length} INEFFECTIVE_REVOKE_GRANDFATHERED entr(y/ies) no longer ` +
+        `match: ${fixedNoOps.join(", ")}\n` +
+        `  The list may only shrink, so remove them. But check WHY they stopped ` +
+        `matching first: an applied migration is immutable, so the honest reason ` +
+        `is that a later migration fixed the grant — not that this file changed.`,
     );
   }
 
