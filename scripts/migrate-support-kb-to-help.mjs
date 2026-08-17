@@ -128,13 +128,69 @@ export function demoteTopHeadings(md) {
   return String(md ?? "").replace(/^# (?!#)/gm, "## ");
 }
 
+/**
+ * A summary for a row that has none.
+ *
+ * `support_kb_articles` has no summary column and `help_articles.summary` is
+ * NOT NULL, so the first version of this script wrote `""`. That degrades
+ * correctly rather than breaking — the SSR uses `article.summary ||
+ * HELP_HUB_DESCRIPTION` and the article list omits the paragraph on a falsy
+ * value, so there is no empty description tag and no stray empty `<p>`. What it
+ * does produce is EIGHT public pages sharing one generic meta description,
+ * which is a duplicate-description signal to a crawler and a blank row in the
+ * category listing next to hand-written neighbours that have one.
+ *
+ * So it derives one from the first real paragraph. Sized against the corpus
+ * rather than guessed: the 83 hand-written summaries run 93–200 characters,
+ * averaging 133, so the cap is 200 and the target is a whole sentence.
+ *
+ * It is deliberately CONSERVATIVE about what counts as prose — headings, code
+ * fences, list items and blockquotes are skipped, because a summary reading
+ * "```bash" or "- Step one" is worse than the empty string it replaces.
+ */
+export function deriveSummary(md, max = 200) {
+  const lines = String(md ?? "").split(/\r?\n/);
+  const paragraph = [];
+  let inFence = false;
+  for (const line of lines) {
+    const t = line.trim();
+    if (t.startsWith("```")) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    if (!t) { if (paragraph.length) break; continue; }
+    // Not prose: headings, list items, blockquotes, tables, images.
+    if (/^(#{1,6}\s|[-*+]\s|\d+\.\s|>|\||!\[)/.test(t)) {
+      if (paragraph.length) break;
+      continue;
+    }
+    paragraph.push(t);
+  }
+  // Strip the markup a summary should never carry through.
+  const text = paragraph
+    .join(" ")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1") // links/images → their text
+    .replace(/[*_`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return "";
+  if (text.length <= max) return text;
+
+  // Prefer a whole sentence, fall back to a word boundary. Never mid-word.
+  const window = text.slice(0, max + 1);
+  const lastSentence = Math.max(
+    window.lastIndexOf(". "), window.lastIndexOf("? "), window.lastIndexOf("! "),
+  );
+  if (lastSentence >= 60) return text.slice(0, lastSentence + 1);
+  const lastSpace = window.lastIndexOf(" ");
+  return text.slice(0, lastSpace > 0 ? lastSpace : max).trimEnd() + "…";
+}
+
 /** One source row → the help_articles insert payload. Pure. */
 export function toHelpArticle(row, renderer = markdownToHtml) {
   const bodyMd = demoteTopHeadings(row.body_md ?? "");
   return {
     slug: String(row.slug ?? "").trim(),
     title: String(row.title ?? "").trim(),
-    summary: "",
+    summary: deriveSummary(bodyMd),
     body_markdown: bodyMd,
     body_html: renderer(bodyMd),
     category_key: mapCategory(row.category),
