@@ -219,6 +219,72 @@ Deno.test("every query in a write helper is guarded, not just one of them", () =
   }
 });
 
+/**
+ * US-2664 AC5: the ratchet. No NEW io helper may drop the error binding.
+ *
+ * Every helper that runs a supabaseAdmin query must either surface the failure
+ * or appear below with a reason. The list may only shrink: an entry that stops
+ * matching fails too, so a helper that gets fixed cannot leave a stale excuse
+ * behind (the KNOWN_GAPS idiom from migrations-lint).
+ *
+ * This is the case that makes the other five durable. The count went 2 → 8 → 15
+ * → 42 over three passes, and without a ratchet the next helper someone adds
+ * starts it drifting back.
+ */
+const TOLERATED_SWALLOW = new Map([
+  [
+    "persistTicketTriage",
+    "Triages MANY tickets in a loop and counts only the ones that changed, so a " +
+      "failed row is already excluded from the answer rather than hidden in it. " +
+      "Throwing would abandon every ticket after the one that failed.",
+  ],
+]);
+
+Deno.test("no io helper swallows a database error without a recorded reason", () => {
+  const helpers = [...SRC.matchAll(/^    ([a-zA-Z][a-zA-Z0-9_]*): async \(/gm)]
+    .filter((m) => m[1] !== "handler");
+  assert(helpers.length > 30, `expected the io helper block; found ${helpers.length}`);
+
+  const offenders: string[] = [];
+  const seen = new Set<string>();
+  for (const m of helpers) {
+    const name = m[1]!;
+    const body = SRC.slice(m.index!, SRC.indexOf("\n    },", m.index!));
+    if (!body.includes("await supabaseAdmin")) continue; // no query to guard
+    if (TOLERATED_SWALLOW.has(name)) {
+      seen.add(name);
+      continue;
+    }
+    // Surfacing means: binds the error AND throws on it. Either alone is not
+    // enough — binding and then only logging was one of the sabotages.
+    const binds = /\berror(?::\s*[a-zA-Z0-9_]+)?\s*[,}]/.test(body);
+    if (!binds || !body.includes("throw new Error(")) offenders.push(name);
+  }
+
+  assertEquals(
+    offenders,
+    [],
+    `these io helpers swallow a database error:\n  ${offenders.join("\n  ")}\n` +
+      `Bind it and throw, naming the helper — the dispatcher turns a throw into ` +
+      `a visible tool_error. If an empty result is genuinely legitimate there, ` +
+      `add it to TOLERATED_SWALLOW with the reason.`,
+  );
+
+  const stale = [...TOLERATED_SWALLOW.keys()].filter((n) => !seen.has(n));
+  assertEquals(
+    stale,
+    [],
+    `TOLERATED_SWALLOW names helper(s) that no longer match: ${stale.join(", ")}. ` +
+      `Remove them — the list may only shrink.`,
+  );
+});
+
+Deno.test("every tolerated swallow carries a real reason", () => {
+  for (const [name, why] of TOLERATED_SWALLOW) {
+    assert(why.length > 40, `${name} needs a reason, not a label`);
+  }
+});
+
 Deno.test("the dead-letter queues cannot report empty on a failed read", () => {
   for (const name of ["fetchWebhookDeadLetters", "fetchEmailDeadLetters"]) {
     const at = SRC.indexOf(`    ${name}: async (limit) => {`);

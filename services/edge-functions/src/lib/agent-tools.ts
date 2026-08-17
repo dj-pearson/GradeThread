@@ -360,11 +360,12 @@ export interface ToolIO {
 export function prodToolIO(): ToolIO {
   return {
     fetchCronRuns: async (limit) => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("cron_runs")
         .select("job_name, status, http_status, duration_ms, rows_processed, triggered_by, created_at")
         .order("created_at", { ascending: false })
         .limit(limit);
+      if (e0) throw new Error(`fetchCronRuns failed: ${e0.message}`);
       return (data ?? []) as RawRun[];
     },
     fetchOpsEvents: async (opts) => {
@@ -412,10 +413,11 @@ export function prodToolIO(): ToolIO {
       }));
     },
     countSupportTickets: async (status) => {
-      const { count } = await supabaseAdmin
+      const { count, error: e0 } = await supabaseAdmin
         .from("support_tickets")
         .select("id", { count: "exact", head: true })
         .eq("status", status);
+      if (e0) throw new Error(`countSupportTickets failed: ${e0.message}`);
       return count ?? 0;
     },
     // US-2387: paged, not capped. get_marketplace_health reports AGGREGATE
@@ -473,21 +475,23 @@ export function prodToolIO(): ToolIO {
     audit: (input) => writeSystemAuditLog(input),
     now: () => Date.now(),
     fetchKeyRotationState: async () => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("system_settings")
         .select("value")
         .eq("key", "security.key_rotation_state")
         .maybeSingle();
+      if (e0) throw new Error(`fetchKeyRotationState failed: ${e0.message}`);
       const v = (data as { value?: unknown } | null)?.value;
       return v && typeof v === "object" && !Array.isArray(v) ? v as RotationState : {};
     },
     fetchReconciliationFlags: async (limit) => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("billing_reconciliation_flags")
         .select("subject_user_id, kind, db_status, expected_status, db_plan, expected_plan, detected_at")
         .eq("status", "open")
         .order("detected_at", { ascending: true })
         .limit(limit);
+      if (e0) throw new Error(`fetchReconciliationFlags failed: ${e0.message}`);
       return (data ?? []) as ReconFlag[];
     },
     fetchRecentPayouts: async (sinceIso) => {
@@ -512,27 +516,30 @@ export function prodToolIO(): ToolIO {
       };
     },
     fetchRepricingSuggestions: async (sinceIso) => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("repricing_suggestions")
         .select("listing_id, user_id, reason_code, status, suggested_price_cents, applied_at, created_at")
         .gte("created_at", sinceIso)
         .limit(5000);
+      if (e0) throw new Error(`fetchRepricingSuggestions failed: ${e0.message}`);
       return (data ?? []) as SuggestionRow[];
     },
     fetchAutomationActions: async (sinceIso) => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("flipdesk_automation_actions")
         .select("rule_id, user_id, listing_id, action_type, created_at")
         .gte("created_at", sinceIso)
         .limit(5000);
+      if (e0) throw new Error(`fetchAutomationActions failed: ${e0.message}`);
       return (data ?? []) as ActionRow[];
     },
     fetchCurveFreshness: async () => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("condition_price_curves")
         .select("category_id, refreshed_at")
         .order("refreshed_at", { ascending: true })
         .limit(2000);
+      if (e0) throw new Error(`fetchCurveFreshness failed: ${e0.message}`);
       return (data ?? []) as CurveRow[];
     },
     fetchListingBatches: async () => {
@@ -568,11 +575,12 @@ export function prodToolIO(): ToolIO {
       return count ?? 0;
     },
     fetchMarketplaceOpsBacklog: async () => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("system_settings")
         .select("value")
         .eq("key", "marketplace_ops.backlog_snapshot")
         .maybeSingle();
+      if (e0) throw new Error(`fetchMarketplaceOpsBacklog failed: ${e0.message}`);
       const v = (data as { value?: { total?: unknown } } | null)?.value?.total;
       return typeof v === "number" && Number.isFinite(v) ? v : null;
     },
@@ -595,12 +603,13 @@ export function prodToolIO(): ToolIO {
       if (error) throw new Error(`persistMarketplaceOpsBacklog failed: ${error.message}`);
     },
     fetchAbuseSignals: async (limit) => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("abuse_signals")
         .select("id, signal_type, severity, subject_user_id, evidence, first_seen_at")
         .eq("status", "open")
         .order("first_seen_at", { ascending: true })
         .limit(limit);
+      if (e0) throw new Error(`fetchAbuseSignals failed: ${e0.message}`);
       return (data ?? []) as AbuseSignal[];
     },
     countOpenModerationFlags: async () => {
@@ -633,11 +642,12 @@ export function prodToolIO(): ToolIO {
       const nowIso = new Date(nowMs).toISOString();
       // A cross-tenant count in [start, end) — operator KPI, never a row.
       const countWindow = async (table: string, startIso: string, endIso: string): Promise<number> => {
-        const { count } = await supabaseAdmin
+        const { count, error: e0 } = await supabaseAdmin
           .from(table)
           .select("id", { count: "exact", head: true })
           .gte("created_at", startIso)
           .lt("created_at", endIso);
+        if (e0) throw new Error(`fetchCeoBriefData failed: ${e0.message}`);
         return count ?? 0;
       };
       const metricSpecs: Array<{ name: string; table: string }> = [
@@ -684,11 +694,12 @@ export function prodToolIO(): ToolIO {
     },
     fetchReferralCounts: async (curStartIso, curEndIso, priorStartIso) => {
       const countWindow = async (startIso: string, endIso: string): Promise<number> => {
-        const { count } = await supabaseAdmin
+        const { count, error: e0 } = await supabaseAdmin
           .from("referral_events")
           .select("id", { count: "exact", head: true })
           .gte("created_at", startIso)
           .lt("created_at", endIso);
+        if (e0) throw new Error(`fetchReferralCounts failed: ${e0.message}`);
         return count ?? 0;
       };
       const [current, prior] = await Promise.all([
@@ -698,7 +709,7 @@ export function prodToolIO(): ToolIO {
       return { current, prior };
     },
     fetchAgentPriorOutcome: async (agentId) => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("agent_runs")
         .select("outcome")
         .eq("agent_id", agentId)
@@ -706,6 +717,7 @@ export function prodToolIO(): ToolIO {
         .order("finished_at", { ascending: false })
         .limit(1)
         .maybeSingle();
+      if (e0) throw new Error(`fetchAgentPriorOutcome failed: ${e0.message}`);
       return (data as { outcome?: unknown } | null)?.outcome ?? null;
     },
     // US-2001: resolve across every release env key and treat a placeholder as
@@ -722,8 +734,9 @@ export function prodToolIO(): ToolIO {
       return isPlaceholderRelease(r) ? null : r;
     },
     fetchReleaseState: async () => {
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("system_settings").select("value").eq("key", "release.verify_state").maybeSingle();
+      if (e0) throw new Error(`fetchReleaseState failed: ${e0.message}`);
       const v = (data as { value?: unknown } | null)?.value;
       return v && typeof v === "object" && !Array.isArray(v) ? v as ReleaseState : null;
     },
@@ -757,11 +770,12 @@ export function prodToolIO(): ToolIO {
     },
     fetchNewsletterAbTests: async () => {
       // Only LIVE tests (ab_phase='testing'); the adapter filters again defensively.
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("newsletter_issues")
         .select("id, ab_phase, ab_metric, subject_variants, ab_test_started_at, ab_measurement_hours, ab_winner_variant")
         .eq("ab_phase", "testing")
         .limit(100);
+      if (e0) throw new Error(`fetchNewsletterAbTests failed: ${e0.message}`);
       return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
         id: String(r.id),
         ab_phase: String(r.ab_phase ?? "none"),
@@ -774,11 +788,12 @@ export function prodToolIO(): ToolIO {
     },
     fetchPromptRollouts: async () => {
       // Live grading-prompt canaries (US-896): is_canary with a 0<pct<100 slice.
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("ai_prompt_versions")
         .select("version_name, stage, garment_scope, is_canary, rollout_percentage, rollout_started_at")
         .eq("is_canary", true)
         .limit(100);
+      if (e0) throw new Error(`fetchPromptRollouts failed: ${e0.message}`);
       return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
         version_name: String(r.version_name ?? ""),
         stage: String(r.stage ?? ""),
@@ -791,12 +806,13 @@ export function prodToolIO(): ToolIO {
     fetchDripVariants: async (sinceIso) => {
       // Aggregate enrollments in the window by (campaign, variant): sends = the
       // enrolled cohort, conversions = those that converted. A/B arms only.
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("drip_enrollments")
         .select("campaign, variant, enrolled_at, converted_at")
         .gte("enrolled_at", sinceIso)
         .not("variant", "is", null)
         .limit(20000);
+      if (e0) throw new Error(`fetchDripVariants failed: ${e0.message}`);
       const rows = (data ?? []) as Array<{ campaign: string; variant: string | null; enrolled_at: string | null; converted_at: string | null }>;
       const agg = new Map<string, DripVariantRow>();
       for (const r of rows) {
@@ -812,7 +828,7 @@ export function prodToolIO(): ToolIO {
     },
     fetchUntriagedTickets: async (limit) => {
       // New/unassigned open tickets that haven't been triaged yet.
-      const { data } = await supabaseAdmin
+      const { data, error: e1 } = await supabaseAdmin
         .from("support_tickets")
         .select("id, subject, priority, status, created_at")
         .in("status", ["open", "pending"])
@@ -820,16 +836,18 @@ export function prodToolIO(): ToolIO {
         .is("triaged_at", null)
         .order("created_at", { ascending: true })
         .limit(limit);
+      if (e1) throw new Error(`fetchUntriagedTickets failed: ${e1.message}`);
       const tickets = (data ?? []) as Array<{ id: string; subject: string; priority: string; status: string; created_at: string }>;
       if (tickets.length === 0) return [];
       // First user message per ticket for the excerpt (one query, then bucket).
       const ids = tickets.map((t) => t.id);
-      const { data: msgs } = await supabaseAdmin
+      const { data: msgs, error: e0 } = await supabaseAdmin
         .from("support_ticket_messages")
         .select("ticket_id, body, created_at, is_internal_note")
         .in("ticket_id", ids)
         .eq("is_internal_note", false)
         .order("created_at", { ascending: true });
+      if (e0) throw new Error(`fetchUntriagedTickets failed: ${e0.message}`);
       const firstBody = new Map<string, string>();
       for (const m of (msgs ?? []) as Array<{ ticket_id: string; body: string }>) {
         if (!firstBody.has(m.ticket_id)) firstBody.set(m.ticket_id, m.body ?? "");
@@ -852,7 +870,12 @@ export function prodToolIO(): ToolIO {
       // assistant can answer from, and the widest audience it answers is the
       // anonymous one; listing `members` titles here would advertise articles
       // most askers cannot be shown.
-      const { data } = unifiedHelpCorpusEnabled()
+      // US-2664: an empty catalog says "the assistant has nothing to answer
+      // from", which is a real and alarming answer — and was also what a failed
+      // read produced. The corpus is EMPTY in production today (US-2618), so
+      // the two states look identical from the outside, which is exactly when
+      // the distinction is worth having.
+      const { data, error } = unifiedHelpCorpusEnabled()
         ? await supabaseAdmin
           .from("help_articles")
           .select("slug, title")
@@ -866,6 +889,7 @@ export function prodToolIO(): ToolIO {
           .eq("is_published", true)
           .order("title", { ascending: true })
           .limit(limit);
+      if (error) throw new Error(`fetchKbCatalog failed: ${error.message}`);
       return ((data ?? []) as Array<{ slug: string; title: string }>).map((r) => ({ slug: String(r.slug), title: String(r.title) }));
     },
     persistTicketTriage: async (items, nowIso) => {
@@ -883,16 +907,23 @@ export function prodToolIO(): ToolIO {
             triaged_at: nowIso,
           } as never, { count: "exact" })
           .eq("id", it.ticket_id);
+        // US-2664 AC3: DELIBERATELY does not throw, and this line is why. The
+        // loop triages many tickets; `updated` is a count of the ones that
+        // actually changed, so a row that failed is already excluded from the
+        // answer rather than hidden inside it. Throwing would abandon the
+        // tickets after it for the sake of the one that failed, and the caller
+        // can already see updated < requested.
         if (!error && (count ?? 0) > 0) updated++;
       }
       return { updated };
     },
     sendSupportReply: async ({ ticketId, body, adminId }) => {
-      const { data: ticket } = await supabaseAdmin
+      const { data: ticket, error: e0 } = await supabaseAdmin
         .from("support_tickets")
         .select("id, user_id, subject, status")
         .eq("id", ticketId)
         .maybeSingle();
+      if (e0) throw new Error(`sendSupportReply failed: ${e0.message}`);
       if (!ticket) return { ok: false, error: "ticket_not_found" };
       const t = ticket as { user_id: string; subject: string; status: string };
       const { error: insErr } = await supabaseAdmin
@@ -903,6 +934,10 @@ export function prodToolIO(): ToolIO {
       // and assign to the approving admin — mirrors the /reply route (00223).
       const updates: Record<string, unknown> = { assigned_admin_id: adminId, last_message_at: new Date().toISOString() };
       if (t.status === "open" || t.status === "pending") updates.status = "pending";
+      // US-2664 AC3/AC4: unguarded ON PURPOSE. The reply is already saved and
+      // the customer will receive it; this is a status bump. Failing the whole
+      // tool here would tell the operator the reply was not sent when it was,
+      // which is a worse lie than a ticket left in the wrong column.
       await supabaseAdmin.from("support_tickets").update(updates as never).eq("id", ticketId);
       // Notify the user (best-effort; a failed notify never fails the saved reply).
       await notifyUser(t.user_id, {
@@ -922,11 +957,12 @@ export function prodToolIO(): ToolIO {
         src === "weekly_newsletter" ? "newsletter" : (src === "trial_drip" || src === "win_back" || src === "journey") ? "drip" : null;
 
       // ── Coordination + collision from marketing_send_log (last 2 weeks) ──
-      const { data: sendLog } = await supabaseAdmin
+      const { data: sendLog, error: e5 } = await supabaseAdmin
         .from("marketing_send_log")
         .select("recipient, source, sent_at")
         .gte("sent_at", twoWeeks)
         .limit(10000);
+      if (e5) throw new Error(`fetchMarketingPortfolio failed: ${e5.message}`);
       const logRows = (sendLog ?? []) as Array<{ recipient: string; source: string; sent_at: string }>;
       // max sends any single recipient got in a day (the cap is per-recipient/day).
       const perRecipientDay = new Map<string, number>();
@@ -959,35 +995,38 @@ export function prodToolIO(): ToolIO {
       const sendDays: SendDay[] = [...dayChannels.entries()].map(([date, chs]) => ({ date, channels: [...chs] }));
 
       // ── Drip channel week (enrollments this vs prior week + conversions) ──
-      const { data: drip } = await supabaseAdmin
+      const { data: drip, error: e4 } = await supabaseAdmin
         .from("drip_enrollments")
         .select("enrolled_at, converted_at")
         .gte("enrolled_at", twoWeeks)
         .limit(20000);
+      if (e4) throw new Error(`fetchMarketingPortfolio failed: ${e4.message}`);
       let dThis = 0, dPrior = 0, dConv = 0;
       for (const r of (drip ?? []) as Array<{ enrolled_at: string; converted_at: string | null }>) {
         if (Date.parse(r.enrolled_at) >= Date.parse(weekAgo)) { dThis++; if (r.converted_at) dConv++; } else dPrior++;
       }
 
       // ── Newsletter channel week (issues sent this vs prior week) ──
-      const { data: issues } = await supabaseAdmin
+      const { data: issues, error: e3 } = await supabaseAdmin
         .from("newsletter_issues")
         .select("sent_at")
         .gte("sent_at", twoWeeks)
         .not("sent_at", "is", null)
         .limit(500);
+      if (e3) throw new Error(`fetchMarketingPortfolio failed: ${e3.message}`);
       let nThis = 0, nPrior = 0;
       for (const r of (issues ?? []) as Array<{ sent_at: string }>) {
         if (Date.parse(r.sent_at) >= Date.parse(weekAgo)) nThis++; else nPrior++;
       }
 
       // ── Content channel week (topics consumed this vs prior week) ──
-      const { data: posts } = await supabaseAdmin
+      const { data: posts, error: e2 } = await supabaseAdmin
         .from("content_topics")
         .select("used_at")
         .eq("status", "used")
         .gte("used_at", twoWeeks)
         .limit(1000);
+      if (e2) throw new Error(`fetchMarketingPortfolio failed: ${e2.message}`);
       let cThis = 0, cPrior = 0;
       for (const r of (posts ?? []) as Array<{ used_at: string | null }>) {
         if (r.used_at && Date.parse(r.used_at) >= Date.parse(weekAgo)) cThis++; else if (r.used_at) cPrior++;
@@ -1000,17 +1039,19 @@ export function prodToolIO(): ToolIO {
       ];
 
       // ── Cannibalization inputs: recent blog topics vs recent email angles ──
-      const { data: cTopics } = await supabaseAdmin
+      const { data: cTopics, error: e1 } = await supabaseAdmin
         .from("content_topics")
         .select("title, primary_keyword, secondary_keywords")
         .gte("created_at", twoWeeks)
         .limit(50);
-      const { data: eTopics } = await supabaseAdmin
+      if (e1) throw new Error(`fetchMarketingPortfolio failed: ${e1.message}`);
+      const { data: eTopics, error: e0 } = await supabaseAdmin
         .from("email_topic_bank")
         .select("label, pillar, angle")
         .eq("status", "active")
         .order("last_used_at", { ascending: false, nullsFirst: false })
         .limit(50);
+      if (e0) throw new Error(`fetchMarketingPortfolio failed: ${e0.message}`);
       const topics: TopicItem[] = [
         ...((cTopics ?? []) as Array<{ title: string; primary_keyword: string; secondary_keywords: string[] }>).map((t) => ({
           channel: "content" as const,
@@ -1099,7 +1140,8 @@ export function prodToolIO(): ToolIO {
       // (cohort counts only — the RPC returns aggregate step counts).
       let funnel: FunnelStep[] = [];
       try {
-        const { data } = await supabaseAdmin.rpc("funnel_metrics", { p_start: back30dIso, p_end: nowIso });
+        const { data, error: e1 } = await supabaseAdmin.rpc("funnel_metrics", { p_start: back30dIso, p_end: nowIso });
+        if (e1) throw new Error(`fetchUserLifecycle failed: ${e1.message}`);
         const steps = (data as { steps?: unknown } | null)?.steps;
         if (Array.isArray(steps)) {
           funnel = steps
@@ -1113,11 +1155,12 @@ export function prodToolIO(): ToolIO {
       } catch { /* no funnel data → empty */ }
 
       // Drip cohort weeks (this vs prior) — aggregate counts, no user rows leave.
-      const { data: enr } = await supabaseAdmin
+      const { data: enr, error: e0 } = await supabaseAdmin
         .from("drip_enrollments")
         .select("enrolled_at, converted_at, exited_at, exit_reason")
         .gte("enrolled_at", twoWeeksIso)
         .limit(50000);
+      if (e0) throw new Error(`fetchUserLifecycle failed: ${e0.message}`);
       const mk = (): CohortWeek => ({ week: "", enrolled: 0, converted: 0, churned: 0 });
       const current = mk(), prior = mk();
       current.week = weekAgoIso.slice(0, 10);
@@ -1208,11 +1251,12 @@ export function prodToolIO(): ToolIO {
     fetchMaintenanceIntervals: async (sinceIso) => {
       // Windows active now OR that ended within the lookback still suppress ticks
       // that fell inside their past interval.
-      const { data } = await supabaseAdmin
+      const { data, error: e0 } = await supabaseAdmin
         .from("maintenance_windows")
         .select("starts_at, ends_at, is_active")
         .or(`ends_at.is.null,ends_at.gte.${sinceIso}`)
         .limit(200);
+      if (e0) throw new Error(`fetchMaintenanceIntervals failed: ${e0.message}`);
       return ((data ?? []) as Array<{ starts_at: string | null; ends_at: string | null; is_active: boolean }>)
         .filter((w) => w.is_active || w.ends_at !== null)
         .map((w) => ({
@@ -1270,17 +1314,19 @@ export function prodToolIO(): ToolIO {
     },
     resolveAgentTaskProject: async () => {
       const TITLE = "Agent Proposals";
-      const { data: found } = await supabaseAdmin
+      const { data: found, error: e1 } = await supabaseAdmin
         .from("admin_task_projects")
         .select("id")
         .eq("title", TITLE)
         .maybeSingle();
+      if (e1) throw new Error(`resolveAgentTaskProject failed: ${e1.message}`);
       if (found) return (found as { id: string }).id;
-      const { data: created } = await supabaseAdmin
+      const { data: created, error: e0 } = await supabaseAdmin
         .from("admin_task_projects")
         .insert({ title: TITLE } as never)
         .select("id")
         .single();
+      if (e0) throw new Error(`resolveAgentTaskProject failed: ${e0.message}`);
       return (created as { id: string } | null)?.id ?? null;
     },
     insertAdminTask: async (row) => {
