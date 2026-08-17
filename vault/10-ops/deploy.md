@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [ops, deploy, release]
 summary: "Ship to prod in the load-bearing order: migrations, then edge, then frontend."
 ---
@@ -111,6 +111,20 @@ done
   [[capacity]] sized it at 6 to hold peak base64 residency near 600 MB under a
   2 GiB limit. Ten pipelines is ~1 GB of peak residency against a limit nothing
   is checking.
+- **⚠ EVERY push to `main` redeploys this, including doc-only ones** (US-2609).
+  There is no path filter, so a commit touching only `prd.json`, a markdown file
+  or `src/` rebuilds the image and rolls the container. Each roll is a short
+  window with no healthy backend behind Traefik, and the public API answers the
+  bare string `no available server` — which is **the documented signature of an
+  edge event-loop hang** ([[edge-hang-vs-crash-loop]]). Observed 2026-08-15: two
+  `/health` probes returned 503 and the third 200, with `/health/ready` clean on
+  five reads straight after. Nothing was wrong; that was the rollover.
+  <br>The cost is not the seconds of downtime, it is that a routine doc push
+  produces the same string as a real incident and teaches whoever sees it to
+  shrug. **The fix is a Coolify setting, not a repo change:** on the edge
+  resource, set **Watch Paths** to `services/edge-functions/**`. Nothing in this
+  repository can set it and nothing here can verify it — the check is to push a
+  doc-only commit and watch whether the container rolls.
 - **Scheduled tasks survive a redeploy:** Coolify Scheduled Tasks are configured
   on the *service*, not baked into the image, so they persist across redeploys.
   After a deploy, spot-check one with **Run Now** (see `vault/10-ops/launch-checklist.md` §3).
@@ -133,6 +147,19 @@ done
   push to `main`** (confirmed in `.github/workflows/indexnow.yml`). No GitHub
   Actions deploy workflow is used or needed for the SPA — **do not** add one
   (it would double-deploy and risk leaking secrets into a workflow file).
+- **This one also rebuilds on every push, and it is the cheaper half** (US-2609
+  AC4). A Pages rebuild costs build minutes and nothing else: Pages serves the
+  previous deployment until the new one is ready and swaps atomically, so unlike
+  the edge there is no window with no backend and no 503. That asymmetry is why
+  the edge's Watch Paths setting is the one worth doing first.
+  <br>If you want it anyway, Pages calls the setting **Build watch paths**
+  (project → Settings → Builds & deployments), and the include set for this repo
+  is everything the SPA build reads: `src/**`, `public/**`, `functions/**`,
+  `index.html`, `package.json`, `package-lock.json`, `vite.config.ts`, the
+  `tsconfig*.json` files and `scripts/prerender.mjs`. **Get that list wrong in
+  the tightening direction and a real change silently does not deploy**, which is
+  a worse failure than a wasted build — so this half is optional and the edge
+  half is not.
 - **Build command:** `npm run build` (TypeScript check → Vite build → prerender
   of public routes). Output dir: `dist`. Map the release stamp in the Pages build
   command: `VITE_RELEASE_SHA=$CF_PAGES_COMMIT_SHA npm run build`. Note the Pages
