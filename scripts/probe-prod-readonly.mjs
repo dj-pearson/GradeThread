@@ -71,6 +71,31 @@ async function get(url, headers = {}) {
   }
 }
 
+/**
+ * Byte length of a binary response.
+ *
+ * US-2665/US-2619: the image probes below compare SIZES, and `get()` returns
+ * `res.text()` — a PNG decoded as UTF-8, which is lossy. The equality test still
+ * works (both sides are mangled identically), but the NUMBER it prints is not
+ * the byte count, and an operator checking it with `curl -w %{size_download}`
+ * gets a different figure and reasonably concludes one of the two is broken.
+ * Reading the arrayBuffer costs nothing here and makes the printed number the
+ * one a second tool will agree with.
+ */
+async function byteLength(url) {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    if (!res.ok) return null;
+    return (await res.arrayBuffer()).byteLength;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /** Functions that take NO arguments — the only ones safe to probe. See the header. */
 const NO_ARG_GUARDED = [
   "ai_spend",
@@ -213,16 +238,86 @@ async function main() {
   // proof the secret is armed — which /health/ready cannot see, because it
   // reports the edge's own view.
   const [land, pin] = await Promise.all([
-    get(`${SITE}/og/social/card?ratio=landscape`),
-    get(`${SITE}/og/social/card?ratio=pin`),
+    byteLength(`${SITE}/og/social/card?ratio=landscape`),
+    byteLength(`${SITE}/og/social/card?ratio=pin`),
   ]);
-  if (land.body && pin.body) {
-    const a = land.body.length, b = pin.body.length;
+  if (land !== null && pin !== null) {
+    const a = land, b = pin;
     record("US-2612", "is CF_PAGES_ORIGIN_SECRET set on the Cloudflare Pages side too",
       `landscape ${a}B, pin ${b}B`,
       a !== b
         ? "ANSWERED — sizes differ by ratio, so these are real renders and the Pages half IS armed"
         : "LOOK — identical sizes suggest the branded fallback, i.e. the Pages half is missing");
+  }
+
+  // ── /health/metrics: the settings a compose file DECLARES vs what booted ──
+  //
+  // US-2665. Added 2026-08-17 after these two were measured by hand and turned
+  // out to say something no config file could: the edge is running with settings
+  // that DISAGREE with every compose file in the repo. A hand probe answers that
+  // once; this makes it a line in a report that runs before anyone decides the
+  // question needs a session.
+  const metrics = await get(`${EDGE}/health/metrics`);
+  if (metrics.ok) {
+    let m = null;
+    try { m = JSON.parse(metrics.body); } catch { /* not json */ }
+    // limit_mb is read straight from EDGE_MEMORY_LIMIT_MB. null means the var is
+    // absent, which also means headroom_pct and pressure are null — so the
+    // load-test gate is comparing against nothing.
+    if (m?.memory) {
+      const lim = m.memory.limit_mb;
+      record(
+        "US-2665",
+        "is EDGE_MEMORY_LIMIT_MB actually set on the running container",
+        lim === null || lim === undefined
+          ? `unset — rss ${m.memory.rss_mb}MB, headroom unknowable`
+          : `${lim}MB — rss ${m.memory.rss_mb}MB, headroom ${m.memory.headroom_pct}%`,
+        lim === null || lim === undefined
+          ? "ANSWERED — unset, so docker-compose.coolify.yml (which declares 2048) is NOT the deployed config"
+          : "ANSWERED — set, and /health/metrics can compute real headroom",
+      );
+    }
+    // The compose file says 6 and the code default is 6, so any other value came
+    // from somewhere outside this repo. capacity.md sized 6 against a 2 GiB
+    // limit; a higher number with the limit above unset is the compounding case.
+    if (typeof m?.grading?.buffer_pipeline_cap === "number") {
+      const cap = m.grading.buffer_pipeline_cap;
+      record(
+        "US-2665",
+        "does the live grading pipeline cap match the repo's sizing",
+        `buffer_pipeline_cap ${cap} (repo default and compose both say 6)`,
+        cap === 6
+          ? "ANSWERED — matches"
+          : "LOOK — set outside the repo; vault/10-ops/capacity.md sized 6 for ~600MB peak base64 residency",
+      );
+    }
+  }
+
+  // ── US-2619 AC5: the two OG routes whose render path is still unexercised ──
+  //
+  // Both answered exactly the branded fallback's byte count when last checked,
+  // which was CORRECT (no such handle, and help_articles is empty per US-2618)
+  // and means neither renderer has ever actually run in production. AC5 is "re-
+  // check once real content exists", and this is what re-checking looks like:
+  // compare against the fallback rather than against a remembered number.
+  const [fallback, ogHelp, ogVerified] = await Promise.all([
+    byteLength(`${SITE}/og-image.png`),
+    byteLength(`${SITE}/og/help/getting-started`),
+    byteLength(`${SITE}/og/verified/gradethread`),
+  ]);
+  if (fallback !== null) {
+    const fb = fallback;
+    for (const [label, n] of [["help", ogHelp], ["verified", ogVerified]]) {
+      if (n === null) continue;
+      record(
+        "US-2619",
+        `has the /og/${label} render path ever produced a real image`,
+        `${n}B vs branded fallback ${fb}B`,
+        n === fb
+          ? "ANSWERED — byte-identical to the fallback, so this renderer is still unexercised (seed content first)"
+          : "ANSWERED — a real render, so this path now works end to end",
+      );
+    }
   }
 
   // ── Report ──
