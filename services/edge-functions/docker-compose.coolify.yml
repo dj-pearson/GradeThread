@@ -1,7 +1,37 @@
-# Coolify-ready compose for the consolidated edge service.
+# ⚠ THIS FILE IS NOT WHAT DEPLOYS PRODUCTION. US-2665, measured 2026-08-17.
+#
+# It describes the intended shape of the edge container. The live container does
+# not have it. Proof, from the public /health/metrics on
+# functions.gradethread.com, which needs no credentials to repeat:
+#
+#   "memory": { "limit_mb": null, "headroom_pct": null, "pressure": "unknown" }
+#
+# limit_mb is read straight from EDGE_MEMORY_LIMIT_MB, which the environment
+# block below sets to 2048. A null there means this file's environment block is
+# not the one the container booted with. The same probe reported
+# buffer_pipeline_cap 10 while this file declares
+# GRADING_MAX_CONCURRENT_PIPELINES 6 — so production is configured somewhere
+# else, and that somewhere DISAGREES with this file rather than merely omitting
+# it. (10 also exceeds the sizing in vault/10-ops/capacity.md, which chose 6 to
+# hold peak base64 residency near 600 MB under a 2 GiB limit.)
+#
+# WHAT THAT MEANS FOR ANYTHING DECLARED BELOW: treat it as intent. The log
+# rotation, the memory limit, the trace sample rate, the pipeline cap and the
+# healthcheck are the settings this file is the ONLY declaration of, so absent
+# other evidence none of them is in effect. Several stories were closed on the
+# strength of a value being present here; a test that pins this file pins the
+# repo's intent, never production's state.
+#
+# The open half is which mechanism DOES deploy it — the Coolify resource may be
+# a Dockerfile build pack, or a compose build pack pointed at the sibling
+# docker-compose.yml (whose own first line calls itself "Production compose used
+# by Coolify"). Settling that is US-2665 AC1/AC2 and needs the Coolify UI. Until
+# it is settled and recorded in vault/10-ops/deploy.md, do not add a setting
+# here and consider it shipped.
+#
 # Hosts GradeThread + FlipDesk endpoints behind one container.
 #
-# In Coolify:
+# To make this file the deployed one:
 #   1. New Resource → Docker Compose → point at this repo + this file.
 #   2. Set environment variables (see .env.example).
 #   3. Coolify reads the `coolify.fqdn` label and provisions a Traefik route

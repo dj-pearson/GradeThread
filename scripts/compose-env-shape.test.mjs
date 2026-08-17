@@ -35,6 +35,17 @@
 // EMPTY STRING when unset and clobber the release SHA baked in at build time
 // (US-2001). The null form is asserted below so a well-meaning cleanup cannot
 // "fix" it into a default.
+//
+// ⚠ WHICH FILE COOLIFY READS IS NOT SETTLED (US-2665), and this test does not
+// establish it. The outage above proves Coolify parsed and re-serialised A
+// compose file with an `edge-functions` service — that much is real, it is why
+// every deploy died — but the fix touched all three files at once, so it never
+// discriminated between them. What IS measured, from the public
+// /health/metrics on 2026-08-17: EDGE_MEMORY_LIMIT_MB is unset in production
+// while docker-compose.coolify.yml declares 2048, so that file at least is not
+// the deployed one. This guard's value is unchanged either way — it keeps every
+// candidate file in a shape that survives the round-trip — but do not read a
+// green run as a statement about the running container.
 
 import { describe, expect, it } from "vitest";
 import { readFileSync, existsSync } from "node:fs";

@@ -16,6 +16,21 @@
 // Scope note: an override file with no `build:` section (docker-compose.dev.yml)
 // is deliberately exempt — it inherits the base file's build, so requiring the
 // arg there would demand a duplicate of a value it already has.
+//
+// ⚠ WHAT THIS TEST PINS IS THE REPO'S INTENT, NOT PRODUCTION'S STATE (US-2665).
+//
+// It reads files out of the working tree. It cannot tell whether Coolify
+// deploys any of them, and green here has never meant the running container has
+// the arg. It did not on 2026-08-17: /health still answered release:"unknown"
+// with every compose file declaring GIT_SHA and this test passing. Read it as
+// "no compose file in the repo has drifted", and nothing more.
+//
+// The endpoints that DO report the deployed state, and are public:
+//   GET /health         → release
+//   GET /health/ready   → features.release, in plain language
+//   GET /health/metrics → memory.limit_mb, grading.buffer_pipeline_cap
+// If you need to know what production has, curl one of those. If you need to
+// know what the repo declares, this test is the right tool.
 
 import { assert } from "@std/assert";
 

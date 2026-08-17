@@ -84,9 +84,33 @@ done
 - **Trigger:** Coolify is wired to the GitHub repo and **auto-deploys on push to
   `main`** via its deploy webhook. (Confirm under Coolify → service → Source.) A
   manual **Redeploy** in the Coolify UI does the same build from the latest commit.
-- **Build:** Docker image from `services/edge-functions/Dockerfile`; compose is
-  `docker-compose.coolify.yml` (Traefik labels, healthcheck `/health`, restart
-  policy). Coolify injects the service Environment Variables at run.
+- **Build:** Docker image from `services/edge-functions/Dockerfile`. Coolify
+  injects the service Environment Variables at run.
+- **⚠ `docker-compose.coolify.yml` is NOT the deployed configuration** (US-2665,
+  measured 2026-08-17). This line used to name it as *the* compose file, and
+  several stories were closed on the strength of a setting being declared there.
+  It is not in effect. `GET /health/metrics` — public, no credentials — answers
+  `memory.limit_mb: null` while that file sets `EDGE_MEMORY_LIMIT_MB: 2048`, and
+  `grading.buffer_pipeline_cap: 10` while it declares `6`. So production is
+  configured somewhere that file is not, and where the two differ, production
+  wins and disagrees. Everything the file alone declares — json-file log
+  rotation, the memory limit, `EDGE_TRACE_SAMPLE_RATE`, the pipeline cap, the
+  healthcheck block — should be assumed absent until measured.
+- **What deploys it is still open.** Either a Dockerfile build pack, or a compose
+  build pack pointed at the sibling `docker-compose.yml` (whose own first line
+  claims to be the production compose). Evidence for compose-of-some-kind: the
+  2026-08-10 outage where every deploy died at the build step on
+  `non-string key in services.edge-functions.environment: 0`, which only happens
+  if Coolify parsed and re-serialised a compose file of ours. Evidence against
+  either compose file driving the *build*: both declare the `GIT_SHA` build arg
+  and `/health` still answers `release: "unknown"`. Settle it in the Coolify UI
+  (US-2665 AC1/AC2) and replace this bullet with the answer.
+- **Two live values disagree with the repo right now.** `EDGE_MEMORY_LIMIT_MB` is
+  unset, so `/health/metrics` cannot compute headroom and the load-test gate is
+  measuring against nothing. And the grading pipeline cap is **10**, while
+  [[capacity]] sized it at 6 to hold peak base64 residency near 600 MB under a
+  2 GiB limit. Ten pipelines is ~1 GB of peak residency against a limit nothing
+  is checking.
 - **Scheduled tasks survive a redeploy:** Coolify Scheduled Tasks are configured
   on the *service*, not baked into the image, so they persist across redeploys.
   After a deploy, spot-check one with **Run Now** (see `vault/10-ops/launch-checklist.md` §3).
