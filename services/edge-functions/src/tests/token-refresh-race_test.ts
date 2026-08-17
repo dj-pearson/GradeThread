@@ -1,12 +1,20 @@
 // US-2322: a seller must not be disconnected because two of our own callers
 // refreshed their token at the same moment.
 //
-// Etsy, Whatnot and Depop all rotate the refresh token and invalidate the old
-// one on first use. The token path was read-expiry → refresh → persist with no
+// Etsy, Whatnot and Depop all rotate the refresh token — each refresh returns a
+// new one. The token path was read-expiry → refresh → persist with no
 // coordination, so a page load next to a cron tick sent two POSTs carrying the
-// same refresh token. The provider honoured the first and answered the second
-// with invalid_grant, which every connector classified as PERMANENT — is_active
-// false, reconnect message, seller locked out by our own concurrency.
+// same refresh token. Where the provider invalidates the old one it honoured the
+// first and answered the second with invalid_grant, which every connector
+// classified as PERMANENT — is_active false, reconnect message, seller locked out
+// by our own concurrency.
+//
+// ⚠ ONLY WHATNOT DOCUMENTS THE INVALIDATION (US-2322 AC4, checked 2026-08-17).
+// These three headers all used to state it of all three providers as fact.
+// Whatnot's docs say "The used refresh token will be invalidated"; Etsy's and
+// Depop's say nothing either way. Severity, not correctness — the defences below
+// make the race survivable regardless, and they stay for all three. See
+// vault/30-platform/marketplace-connector-contract.md §4a.
 //
 // eBay is deliberately absent from all of this: it does not rotate its refresh
 // token, so it was never exposed.

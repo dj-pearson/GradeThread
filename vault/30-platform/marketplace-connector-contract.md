@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/lib/crypto-aes.ts
   - services/edge-functions/src/lib/token-refresh-race.ts
   - services/edge-functions/src/lib/rewards-engine.ts
-reviewed: 2026-08-09
+reviewed: 2026-08-17
 tags: [marketplaces, oauth, contract, security]
 summary: Every marketplace connector shares one kill-switch, PKCE, token-encryption and refresh shape; new connectors copy it rather than inventing one.
 ---
@@ -50,11 +50,42 @@ its own horizon. A new connector that copies the sweep must copy that too, or it
 inherits a cron that looks like a safety net and is not one.
 
 **4a. The refresh is single-flighted, and a lost race is not a lost grant.**
-Etsy, Whatnot and Depop all ROTATE the refresh token and invalidate the old one
-on first use. Two of our own callers refreshing at once therefore produced an
-`invalid_grant` for the loser, which every connector classified as PERMANENT —
-`is_active: false` and a reconnect message, i.e. the seller disconnected by our
-own concurrency with nothing wrong with their account.
+Etsy, Whatnot and Depop all ROTATE the refresh token — each refresh returns a new
+one and every connector persists it. Two of our own callers refreshing at once
+therefore produced an `invalid_grant` for the loser, which every connector
+classified as PERMANENT — `is_active: false` and a reconnect message, i.e. the
+seller disconnected by our own concurrency with nothing wrong with their account.
+
+> [!warning] Only Whatnot documents that the OLD token dies (US-2322 AC4, checked 2026-08-17)
+> This section, `token-refresh-race.ts` and its test all used to state as fact
+> that all three invalidate the previous refresh token on first use. One of the
+> three says so; the other two do not say either way, and nobody had asked.
+>
+> - **Whatnot — CONFIRMED, from the vendor's own docs.** developers.whatnot.com
+>   → Getting Started → Authentication: *"The used refresh token will be
+>   invalidated, and you should store the newly returned Refresh Token."*
+>   Refresh tokens expire in 1 year. So the race is real on Whatnot.
+> - **Etsy — UNDOCUMENTED.** The authentication page describes a 90-day refresh
+>   token and a new one on each refresh, and says nothing about the old one's
+>   fate. The closest thing to an answer is Etsy staff in open-api discussion
+>   #1351 (*"Each time you use your access_token, the API provides a new refresh
+>   token"* and *"You should not have issues with your refresh_token after 24
+>   hours of non-use"*) — neither of which states whether the previous token is
+>   revoked. Community reports of `invalid_grant` / *"refresh_token is revoked"*
+>   exist but do not separate rotation from expiry or genuine revocation.
+> - **Depop — UNDOCUMENTED.** The partner API authentication page names a
+>   "long-lived Refresh Token" and has no rotation, reuse or single-use section
+>   at all.
+>
+> **This changes severity, not correctness.** `siblingRefreshWon` makes the race
+> survivable whichever way the two unknowns fall, which is exactly why the fix
+> did not wait for this answer. What it means practically: on Whatnot the defence
+> is load-bearing, and on Etsy/Depop it may be belt-and-braces. Do not delete it
+> on either of them on the strength of a doc that is silent — silence is not a
+> guarantee, and a provider can start rotating strictly without telling anyone.
+>
+> Settling the other two needs a partner answer or a deliberate two-refresh
+> experiment on a real connection, neither of which is available from the repo.
 
 Two defences, in `lib/token-refresh-race.ts`:
 

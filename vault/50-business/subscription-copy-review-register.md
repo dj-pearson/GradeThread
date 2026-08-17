@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/email.ts
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-17
 tags: [legal, billing, subscriptions, compliance, counsel]
 summary: Every place GradeThread tells a customer about a recurring charge or its ending, who drafted the wording, and whether counsel has seen it.
 ---
