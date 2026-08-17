@@ -14,12 +14,17 @@ ENV RELEASE_SHA=${GIT_SHA}
 LABEL org.opencontainers.image.revision=${GIT_SHA}
 LABEL org.opencontainers.image.source="https://github.com/dj-pearson/GradeThread"
 
-# Patch known base-image OS CVEs before the app layers (stable, rarely-changing
-# layer). The Trivy gate (security.yml, --severity HIGH,CRITICAL --ignore-unfixed
-# --exit-code 1) fails the build on a fixed-but-unpatched CVE — e.g. CVE-2026-45447
-# in libssl shipped by denoland/deno:debian-2.8.0. A targeted --only-upgrade keeps
-# the image small and avoids a full dist-upgrade. Re-run this when Trivy flags a
-# new fixed OS CVE, or bump the base image once denoland ships a patched tag.
+# Patch base-image OS CVEs before the app layers (stable, rarely-changing layer).
+# The Trivy gate (security.yml, --severity HIGH,CRITICAL --ignore-unfixed
+# --exit-code 1) fails the build on a fixed-but-unpatched CVE — first
+# CVE-2026-45447 in libssl, then CVE-2026-53615 in util-linux.
+#
+# This used to say "a targeted --only-upgrade keeps the image small and avoids a
+# full dist-upgrade. Re-run this when Trivy flags a new fixed OS CVE." That
+# instruction is what left the Security lane red: it makes the gate depend on
+# somebody editing a package list between the advisory landing and the next
+# person looking. The apt step below now upgrades the base wholesale; the
+# reasoning is there.
 #
 # `curl` is installed here because EVERY Coolify Scheduled Task (COOLIFY.md) is a
 # `curl -fsS -X POST …` into a localhost job endpoint. The denoland/deno:debian
@@ -36,10 +41,27 @@ LABEL org.opencontainers.image.source="https://github.com/dj-pearson/GradeThread
 # build and the Trivy gate's --ignore-unfixed stays satisfiable. If it is ever
 # removed, video grading does NOT crash: ffmpegAvailable() probes once and every
 # video submission falls back to needs_photos, uncharged.
+# PATCH THE WHOLE BASE, not a named list. This was
+# `apt-get install --only-upgrade -y libssl3t64 openssl-provider-legacy openssl`,
+# added when Trivy failed on an OpenSSL advisory. It worked, and it is the wrong
+# shape: the next advisory landed on util-linux (CVE-2026-53615, an integer
+# overflow in libblkid) and took the Security lane red across NINE binaries from
+# that one source package — bsdutils, libblkid1, liblastlog2-2 and the rest.
+# Editing the list per CVE means the gate is red between the advisory and the
+# person who notices.
+#
+# WHY `upgrade` REACHES THE FIX: the patched util-linux is 2.41.5-0+deb13u1, and
+# it exists only in **trixie-security** — plain trixie still carries the
+# vulnerable 2.41-5. The official Debian base has that suite in its sources, so
+# `apt-get update && apt-get upgrade` picks it up. That is also why the openssl
+# line above ever worked; it was never about naming the package.
+#
+# The cost, stated: a blanket upgrade makes the image less byte-reproducible
+# between builds. That is the right trade here — the image is rebuilt on every
+# deploy anyway, and the gate exists to demand current patches.
 USER root
 RUN apt-get update \
-    && apt-get install --only-upgrade -y \
-        libssl3t64 openssl-provider-legacy openssl \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends curl ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
