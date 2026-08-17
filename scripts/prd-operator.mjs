@@ -42,7 +42,11 @@
 // to fail a build: a backlog that has not adopted a convention yet is not a
 // regression.
 //
-//   node scripts/prd-operator.mjs [--declared] [--json] [--all]
+//   node scripts/prd-operator.mjs [--declared] [--json] [--all] [--sessions]
+//
+// --sessions groups the queue by the KIND of access each item needs, because
+// "what can I clear in one sitting" is a different question from "what is most
+// worth doing", and it is the one that governs throughput.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -306,6 +310,107 @@ export function collect(stories) {
   return { declared, undeclared, openCount: open.length, satisfied };
 }
 
+/**
+ * What KIND of access an operator item needs.
+ *
+ * WHY GROUPING BEATS RANKING HERE. The queue already ranks by how many other
+ * stories name each item, which answers "what is most worth doing". It does not
+ * answer "what can I do in one sitting", and that is the question that actually
+ * governs throughput: 82 items across 124 stories are not 82 separate errands.
+ * They are a handful of SESSIONS — one read-only psql session answers a dozen,
+ * one Coolify config pass answers another dozen, and one deploy window answers
+ * the rest. Several notes say so in prose ("worth pairing with the other
+ * deploy-blocked items when you next rebuild"), where nothing can act on it.
+ *
+ * ORDER IS PART OF THE ANSWER, not decoration. The deploy session must come
+ * after the config session, because the settings only take effect on a rebuild;
+ * and the verification session must come after the deploy, because a drill run
+ * before it produces evidence tagged to a build nobody can identify.
+ *
+ * Classified by what the text SAYS it needs. An item matching nothing lands in
+ * "unclassified" and is printed rather than dropped — a queue that silently
+ * loses items is worse than one that admits it does not know.
+ */
+export const SESSION_KINDS = [
+  {
+    key: "sql",
+    title: "1. One read-only SQL session against production",
+    hint:
+      "scripts/prod-diagnostics-console.sql pastes into the Supabase SQL editor, " +
+      "one section at a time. Nothing in it writes.",
+    match:
+      /\b(prod-diagnostics|SELECT\s|psql|query|queries|pg_proc|pg_constraint|count\(\*\)|§\d+|section \d+|read-only)\b/i,
+  },
+  {
+    key: "config",
+    title: "2. One configuration pass (Coolify, Cloudflare, Supabase settings)",
+    hint:
+      "Values and toggles only. These take effect on the NEXT deploy, which is " +
+      "why this session comes before the deploy one.",
+    match:
+      /\b(coolify|cloudflare|env var|environment variable|set [A-Z_]{4,}|GIT_SHA|SOURCE_COMMIT|build arg|dashboard|console|scale the edge|replica)\b/i,
+  },
+  {
+    key: "deploy",
+    title: "3. One deploy window, then verify during it",
+    hint:
+      "Everything that can only be observed on a rebuild. Time it: at least one " +
+      "item wants an ACTIVE grading batch at the moment the deploy lands.",
+    match:
+      /\b(after the next (edge )?deploy|redeploy|rebuild|deployment window|during (a|an active)|drill|health\/ready)\b/i,
+  },
+  {
+    key: "thirdparty",
+    title: "4. Third-party consoles and partner conversations",
+    hint:
+      "App Store Connect, Play Console, Stripe, Sentry, eBay/Etsy/Depop support. " +
+      "Each is someone else's system and several have their own lead time.",
+    match:
+      /\b(app store connect|play console|stripe (dashboard|console)|sentry|apple|google play|partner|support ticket|ask (etsy|depop|whatnot)|web store|purchase history|restricted scope|apply to|approval|keystring|rotate the .* key)\b/i,
+  },
+  {
+    key: "command",
+    title: "5. One command run, with production credentials in the environment",
+    hint:
+      "Scripts that already exist and just need to be pointed at prod. Each is " +
+      "one line and several close a story outright.",
+    match:
+      /\b(npm run [a-z:]+|node scripts\/|deno run|RETENTION_DB_URL|scripts\/[a-z-]+\.(mjs|sh|ts))\b/i,
+  },
+  {
+    key: "device",
+    title: "6. Hands on a device or a real listing",
+    hint:
+      "A screen reader, a phone, a live marketplace listing. Nothing here can be " +
+      "simulated from a checkout.",
+    match:
+      /\b(screen reader|NVDA|VoiceOver|real (multi-variation|listing|device)|sandbox store|logged in|by hand|physically)\b/i,
+  },
+];
+
+/**
+ * Bucket every queue item into the FIRST session kind whose pattern it matches.
+ *
+ * First-match rather than all-matches on purpose: an item that appears in three
+ * sessions gets done three times or zero times. One home each, and the order of
+ * SESSION_KINDS is the tie-break — which is why the cheapest, most-unblocking
+ * session (read-only SQL) is first.
+ */
+export function groupBySession(declared, undeclared) {
+  const rows = [
+    ...declared.map((d) => ({ id: d.id, priority: d.priority, title: d.title, text: d.items.join(" ") })),
+    ...undeclared.map((u) => ({ id: u.id, priority: u.priority, title: u.title, text: u.evidence.join(" ") })),
+  ];
+  const out = new Map(SESSION_KINDS.map((k) => [k.key, []]));
+  out.set("unclassified", []);
+  for (const r of rows) {
+    const kind = SESSION_KINDS.find((k) => k.match.test(r.text));
+    out.get(kind ? kind.key : "unclassified").push(r);
+  }
+  for (const list of out.values()) list.sort(comparePriority);
+  return out;
+}
+
 function rank(s) {
   return s.priority === undefined || s.priority === null ? "  -" : String(s.priority).padStart(3);
 }
@@ -314,6 +419,36 @@ function main() {
   const argv = process.argv.slice(2);
   const prd = JSON.parse(fs.readFileSync(path.join(ROOT, "prd.json"), "utf8"));
   const { declared, undeclared, openCount, satisfied } = collect(prd.userStories ?? []);
+
+  if (argv.includes("--sessions")) {
+    const groups = groupBySession(declared, undeclared);
+    const total = declared.length + undeclared.length;
+    console.log(
+      `\nOperator work, grouped into sittings: ${total} items across ${openCount} open stories.\n` +
+        `Sessions are ordered so each one's results are still true when you reach the next.\n`,
+    );
+    for (const kind of SESSION_KINDS) {
+      const rows = groups.get(kind.key);
+      if (!rows.length) continue;
+      console.log(`${kind.title}  —  ${rows.length} item(s)`);
+      console.log(`   ${kind.hint}\n`);
+      for (const r of rows) {
+        console.log(`   ${rank(r)} ${r.id.padEnd(9)} ${String(r.title).slice(0, 76)}`);
+      }
+      console.log("");
+    }
+    const rest = groups.get("unclassified");
+    if (rest.length) {
+      console.log(`Unclassified  —  ${rest.length} item(s)`);
+      console.log("   These matched no session pattern. Printed rather than dropped:");
+      console.log("   a queue that silently loses items is worse than one that admits it.\n");
+      for (const r of rest) {
+        console.log(`   ${rank(r)} ${r.id.padEnd(9)} ${String(r.title).slice(0, 76)}`);
+      }
+      console.log("");
+    }
+    return;
+  }
 
   if (argv.includes("--json")) {
     console.log(JSON.stringify({ declared, undeclared, openCount, satisfied }, null, 2));

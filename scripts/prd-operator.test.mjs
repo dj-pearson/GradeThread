@@ -15,7 +15,13 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { collect, DECLARED_RE, SATISFIED_RE } from "./prd-operator.mjs";
+import {
+  collect,
+  DECLARED_RE,
+  groupBySession,
+  SATISFIED_RE,
+  SESSION_KINDS,
+} from "./prd-operator.mjs";
 
 const story = (id, acs) => ({
   id,
@@ -86,5 +92,69 @@ describe("the marker is documented where it is used", () => {
     expect(src).toContain("SATISFIED_RE");
     // The count must be reported, not just computed.
     expect(src).toMatch(/marked SATISFIED with a date/);
+  });
+});
+
+// ── --sessions: grouping the queue into sittings ──────────────────────
+//
+// The queue already RANKS by how many stories name each item, which answers
+// "what is most worth doing". It does not answer "what can I do in one sitting",
+// and that is what governs throughput: 82 items are not 82 errands, they are a
+// handful of sessions. The invariant below is the one that matters — a grouping
+// that silently loses an item is worse than no grouping, because the queue's
+// whole purpose is that nothing gets forgotten again.
+describe("groupBySession", () => {
+  const decl = (id, text) => ({ id, priority: 5, title: id, items: [text] });
+  const undecl = (id, text) => ({ id, priority: 5, title: id, evidence: [text] });
+
+  const total = (groups) => [...groups.values()].reduce((n, rows) => n + rows.length, 0);
+
+  it("keeps every item, including ones it cannot classify", () => {
+    const declared = [
+      decl("US-1", "run section 12 of prod-diagnostics against prod"),
+      decl("US-2", "set GIT_SHA in Coolify"),
+      decl("US-3", "xyzzy, a phrase matching nothing at all"),
+    ];
+    const undeclared = [undecl("US-4", "drive it with a screen reader")];
+    const groups = groupBySession(declared, undeclared);
+    expect(total(groups)).toBe(4);
+    const ids = [...groups.values()].flat().map((r) => r.id).sort();
+    expect(ids).toEqual(["US-1", "US-2", "US-3", "US-4"]);
+  });
+
+  it("puts an unmatched item in unclassified rather than dropping it", () => {
+    const groups = groupBySession([decl("US-9", "xyzzy plugh")], []);
+    expect(groups.get("unclassified").map((r) => r.id)).toEqual(["US-9"]);
+  });
+
+  it("gives each item exactly one home", () => {
+    // This text matches BOTH the sql and the config patterns. An item in two
+    // sessions gets done twice or zero times, so first-match-wins is the rule
+    // and SESSION_KINDS order is the tie-break.
+    const groups = groupBySession(
+      [decl("US-5", "run a SELECT in the Coolify console against prod")],
+      [],
+    );
+    const homes = [...groups.entries()].filter(([, rows]) => rows.some((r) => r.id === "US-5"));
+    expect(homes).toHaveLength(1);
+    expect(homes[0][0]).toBe("sql");
+  });
+
+  it("orders the sessions so each one's result survives the next", () => {
+    // Config before deploy: the settings only take effect on a rebuild. Deploy
+    // before the device/verification work: a drill run against an unidentifiable
+    // build answers nothing. The order is the advice, so it is pinned.
+    const keys = SESSION_KINDS.map((k) => k.key);
+    expect(keys.indexOf("config")).toBeLessThan(keys.indexOf("deploy"));
+    expect(keys.indexOf("sql")).toBeLessThan(keys.indexOf("config"));
+    expect(keys.indexOf("deploy")).toBeLessThan(keys.indexOf("device"));
+  });
+
+  it("every session states what it is and how to start it", () => {
+    for (const k of SESSION_KINDS) {
+      expect(k.title.length, `${k.key}: needs a title`).toBeGreaterThan(10);
+      expect(k.hint.length, `${k.key}: a session without a hint is just a label`)
+        .toBeGreaterThan(40);
+    }
   });
 });
