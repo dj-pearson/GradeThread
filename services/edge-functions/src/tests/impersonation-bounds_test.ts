@@ -69,6 +69,12 @@ Deno.test("US-2351 AC1: a start that cannot be recorded does not happen", () => 
   );
 });
 
+// ⚠ THIS TEST WAS GREEN FOR THE WHOLE TIME REVOCATION DID NOT WORK, and it is
+// kept as a wiring check rather than promoted to evidence. It asserts the CALL;
+// GoTrue's admin logout answers 404 on v2.195.0, so the call was made and
+// nothing happened (US-2662). The OUTCOME is pinned in
+// impersonation-revoke_test.ts, which is the file to read if you are asking
+// whether a stop actually signs the target out.
 Deno.test("US-2351 AC2: stopping revokes the target's sessions", () => {
   assert(
     ROUTE.includes("await revokeUserSessions(session.target_id)"),

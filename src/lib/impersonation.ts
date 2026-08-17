@@ -140,15 +140,39 @@ export async function stopImpersonation(): Promise<void> {
 
   // Now running as the admin again — write the stop audit row. Best-effort:
   // the session restore is the important part; never block the exit on it.
+  //
+  // US-2662 AC4: the response carries `revoked`, and it used to be discarded
+  // here. A false means the target's own sessions are STILL LIVE — the admin's
+  // copy of their refresh token outlives the stop — which the person who just
+  // clicked Exit is the only one placed to act on. Stashed rather than toasted
+  // because the caller hard-reloads immediately; the admin page picks it up.
   try {
-    await edgeFetch("/api/admin/impersonation/stop", {
+    const res = await edgeFetch("/api/admin/impersonation/stop", {
       method: "POST",
       silentGate: true,
       json: { target_id: record.target.id },
     });
+    const body = await res.json().catch(() => null);
+    if (body && body.revoked === false) {
+      sessionStorage.setItem(REVOKE_WARNING_KEY, record.target.email);
+    }
   } catch {
     // ignore — the start was already audited; stop is a convenience record.
   }
 
   useImpersonationStore.getState().clear();
+}
+
+/**
+ * One-shot handoff for "the stop did not revoke", set by [stopImpersonation] and
+ * read once by the admin page it reloads into. sessionStorage rather than state
+ * because the exit is a full page load, which is also why it must be cleared on
+ * read: a warning that reappears on every later visit stops being read.
+ */
+export const REVOKE_WARNING_KEY = "gt.impersonation.revokeFailed";
+
+export function takeRevokeWarning(): string | null {
+  const email = sessionStorage.getItem(REVOKE_WARNING_KEY);
+  if (email) sessionStorage.removeItem(REVOKE_WARNING_KEY);
+  return email;
 }

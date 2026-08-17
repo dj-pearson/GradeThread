@@ -4,6 +4,72 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
+## 🟠 PUSHED, NOT YET APPLIED: 00612 — a revocation mechanism that exists (US-2662)
+
+**Risk: LOW to apply. Apply AFTER 00611. Ships with edge code that CALLS it.**
+
+`NOTIFY pgrst, 'reload schema';` **REQUIRED.** This adds a new RPC, and
+PostgREST will answer 404 for `admin_revoke_user_sessions` until its schema
+cache is reloaded.
+
+### What it does
+
+Adds `public.admin_revoke_user_sessions(p_user_id uuid) returns int` — deletes
+the user's rows from `auth.refresh_tokens` and `auth.sessions`, returning the
+session count. `SECURITY DEFINER`, service-role only, and the check is in the
+BODY (no `REVOKE`: US-2666 and US-2403).
+
+### Why it exists
+
+Stopping impersonation called GoTrue's `POST /admin/users/{id}/logout`. That
+route **does not exist** on GoTrue v2.195.0 — 404, with `GET /admin/users/{id}`
+answering 200 as the control, so auth, routing and the id were all fine. Every
+stop returned `sessions_revoked: false` and the admin's copy of the target's
+refresh token stayed live for its full lifetime. US-2351 AC2 read as done and
+was not true.
+
+Deleting `auth.sessions` does revoke: refresh tokens hang off sessions, and a
+refresh answered 200 before the delete and 400 `refresh_token_not_found` after.
+It needs a function because PostgREST only exposes the schemas in its config
+(`supabase/config.toml:5` lists `public` and `storage`), so a client call into
+`auth` answers 406.
+
+### ⚠ Order matters here, unlike 00610 and 00611
+
+The edge in this commit calls the RPC as a fallback. If the frontend and edge
+deploy before the SQL applies, a stop where GoTrue 404s will find no RPC either
+and report `revoked: false` — which is exactly the current behaviour, so it
+degrades to the status quo rather than breaking. But the fix is not live until
+the migration is applied AND `NOTIFY pgrst` has run.
+
+### Apply order
+
+1. 00610, 00611, then 00612. All idempotent, safe to re-run.
+2. `NOTIFY pgrst, 'reload schema';` — required for 00612.
+3. Redeploy the edge (boot guard now expects `00612`).
+
+### Verify after applying
+
+```sql
+-- service_role gets a count; anon and authenticated get 42501.
+select public.admin_revoke_user_sessions('00000000-0000-0000-0000-000000000000'::uuid);
+```
+
+Then read the GoTrue version, because it decides whether the fallback is doing
+all the work or none of it:
+
+```bash
+curl -fsS https://api.gradethread.com/auth/v1/health   # unauthenticated
+```
+
+### Verified locally
+
+Applied to the local stack and probed in rolled-back transactions: anon and
+authenticated both get `42501 admin_revoke_user_sessions: service role
+required`; service_role gets a count; a NULL id returns 0. End-to-end on real
+rows — a user with 2 sessions and 1 refresh token went to 0 and 0, return value
+2.
+
 ## 🟠 PUSHED, NOT YET APPLIED: 00611 — the six anon-callable functions get a guard in the body (US-2666)
 
 **Risk: LOW to apply. Apply AFTER 00610.**

@@ -152,18 +152,80 @@ export async function endImpersonation(
  *
  * supabase-js has no "sign this user out by id" — `auth.admin.signOut` wants a
  * JWT, which is the one thing we do not have here (the token lives in the
- * admin's browser). GoTrue's own admin API does: POST /admin/users/:id/logout
- * revokes all refresh tokens for that user. Called directly rather than
- * approximated, because the whole point is that a COPIED refresh token must stop
- * working — ending our own row would not touch it.
+ * admin's browser). The whole point is that a COPIED refresh token must stop
+ * working; ending our own row would not touch it.
  *
- * Returns false when the revocation did not land, so the caller can say so
- * instead of reporting a clean stop.
+ * TWO MECHANISMS, in that order, because neither is available everywhere
+ * (US-2662):
+ *
+ *   1. GoTrue's admin logout. It is the upstream-supported route and it is
+ *      ABSENT below some version — measured at 404 on v2.195.0, with GET
+ *      /admin/users/{id} answering 200 as the control, so auth, routing and the
+ *      id were all fine and the route simply was not there. Kept first because
+ *      it is the right call wherever it exists.
+ *   2. Deleting the rows ourselves. Refresh tokens hang off sessions, so
+ *      removing them invalidates the tokens (measured: refresh answered 200
+ *      before, 400 refresh_token_not_found after). It goes through an RPC
+ *      because PostgREST only exposes the schemas in its config, and `auth` is
+ *      not one of them — `supabaseAdmin.schema("auth")` type-checks, lints
+ *      clean and answers 406.
+ *
+ * Returns false only when BOTH failed, so the caller can say so instead of
+ * reporting a clean stop.
+ *
+ * `deps` exists ONLY so a test can assert the outcome instead of the call, and
+ * production passes nothing. It is a seam rather than a preference: neither half
+ * can be stubbed from outside. `supabaseAdmin` is a Proxy whose `get` trap always
+ * resolves to the real client (supabase.ts:76), so assigning `.rpc` on it does
+ * nothing, and the client captures `fetch` when it is constructed, so stubbing
+ * `globalThis.fetch` does not reach it either. Both were tried. Asserting the
+ * outcome is the entire point of US-2662: the old test asserted that GoTrue's
+ * logout was CALLED, which stayed green for the whole time that route was
+ * answering 404 and nothing was being revoked.
  */
-export async function revokeUserSessions(userId: string): Promise<boolean> {
+export interface RevokeDeps {
+  logout?: (userId: string) => Promise<{ ok: boolean; detail: string }>;
+  deleteRows?: (userId: string) => Promise<{ error: { message: string } | null }>;
+}
+
+export async function revokeUserSessions(
+  userId: string,
+  deps: RevokeDeps = {},
+): Promise<boolean> {
+  const viaGoTrue = await (deps.logout ?? revokeViaGoTrue)(userId);
+  if (viaGoTrue.ok) return true;
+
+  const { error } = await (deps.deleteRows ?? revokeViaDatabase)(userId);
+  if (!error) return true;
+
+  // Only now is this an incident: the supported route was unavailable AND the
+  // mechanism we own failed too, so the target's tokens are still live.
+  captureException(
+    new Error(
+      `impersonation revoke failed both ways (GoTrue: ${viaGoTrue.detail}; ` +
+        `rpc: ${error.message})`,
+    ),
+    { route: "impersonation.revoke", tags: { target: userId } },
+  );
+  return false;
+}
+
+/** The mechanism we own. Reaches `auth`, which a client call cannot. */
+async function revokeViaDatabase(
+  userId: string,
+): Promise<{ error: { message: string } | null }> {
+  const { error } = await supabaseAdmin.rpc(
+    "admin_revoke_user_sessions",
+    { p_user_id: userId } as never,
+  );
+  return { error: error ? { message: error.message } : null };
+}
+
+/** The upstream route. `detail` is carried so a double failure can name why. */
+async function revokeViaGoTrue(userId: string): Promise<{ ok: boolean; detail: string }> {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !key) return false;
+  if (!url || !key) return { ok: false, detail: "SUPABASE_URL/SERVICE_ROLE_KEY unset" };
   try {
     // US-2321: a deadline. This runs while an admin waits on /stop, and a hung
     // GoTrue would leave them staring at a spinner while the target's tokens
@@ -183,16 +245,8 @@ export async function revokeUserSessions(userId: string): Promise<boolean> {
       },
       8_000,
     );
-    if (!res.ok) {
-      captureException(
-        new Error(`GoTrue logout returned ${res.status}`),
-        { route: "impersonation.revoke", tags: { target: userId } },
-      );
-      return false;
-    }
-    return true;
+    return res.ok ? { ok: true, detail: String(res.status) } : { ok: false, detail: `${res.status}` };
   } catch (err) {
-    captureException(err, { route: "impersonation.revoke", tags: { target: userId } });
-    return false;
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
 }
