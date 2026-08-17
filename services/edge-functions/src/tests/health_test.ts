@@ -420,3 +420,48 @@ Deno.test("US-2603: the completeness read is cached, and failures are not", asyn
   assertEquals(fails, 2, "a failed read is retried, not cached");
   resetSchemaCompletenessCache();
 });
+
+// ── The SHAPE is a contract with the external uptime monitor (US-2447) ──
+//
+// scripts/ops/uptime-check.mjs reads `features.hostWatchdog` out of this body to
+// report, in the text of an incident issue, whether the edge-hang watchdog was
+// alive. It spent its whole life reading `checks.features.hostWatchdog` — a path
+// that does not exist here — and returned undefined on every run, silently,
+// because an optional chain over a wrong path is indistinguishable from a
+// healthy field.
+//
+// The monitor now has its own test against a captured response. This is the
+// OTHER half: the producer must not move the field out from under it. Two
+// components, one contract, and until now neither side pinned it.
+Deno.test("US-2447: `features` is a TOP-LEVEL key, beside `checks` and not inside it", () => {
+  const s = summarizeReadiness(true, [], { hostWatchdog: "unconfigured: nobody home" });
+  const body = s.body as Record<string, unknown>;
+
+  assert("features" in body, "the uptime monitor reads body.features — it must stay top-level");
+  const checks = body.checks as Record<string, unknown>;
+  assert(
+    !("features" in checks),
+    "features must NOT be nested under checks: that is the exact path the monitor " +
+      "wrongly read for months, and putting it there would make the broken read " +
+      "start working while the correct one silently stops",
+  );
+  assertEquals(
+    (body.features as Record<string, string>).hostWatchdog,
+    "unconfigured: nobody home",
+    "hostWatchdog must survive to body.features.hostWatchdog verbatim",
+  );
+});
+
+Deno.test("US-2447: readiness stays a decision about DB and env, not about features", () => {
+  // The monitor treats a non-ok feature as a NOTE, never a failure, on the
+  // grounds that hostWatchdog reads unconfigured on any host that has not
+  // installed the script — paging on it would mean an alert every ten minutes
+  // forever. That reasoning only holds while a bad feature cannot flip the
+  // status, so pin it here rather than trusting the two files to agree.
+  const withBadFeature = summarizeReadiness(true, [], {
+    hostWatchdog: "unconfigured: nobody home",
+    release: 'unattributable: release="unknown"',
+  });
+  assertEquals(withBadFeature.httpStatus, 200);
+  assertEquals((withBadFeature.body as Record<string, unknown>).status, "ready");
+});
