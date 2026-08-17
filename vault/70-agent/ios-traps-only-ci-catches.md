@@ -5,9 +5,9 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-01
+reviewed: 2026-08-17
 tags: [ios, swift, ci, agent]
-summary: Swift cannot be compiled on the Windows dev host, so four specific mistakes cost a full CI cycle each — and one of them bricks app launch rather than failing the build.
+summary: Swift cannot be compiled on the Windows dev host, so six specific mistakes cost a full CI cycle each — two of them actor-isolation shapes, and one bricks app launch rather than failing the build.
 ---
 
 # iOS traps that only CI can catch
@@ -69,6 +69,53 @@ A `struct` referencing a static on a `@MainActor` class is *"main
 actor-isolated … cannot be referenced from a nonisolated autoclosure"* — an
 **error** under Swift 6, not a warning. It looks like a plain constant read, so
 it passes review easily.
+
+### 3a. …and a nonisolated `async` function cannot CALL one either
+
+Same isolation rule, different shape, and the one that actually shipped
+(2026-08-17, `Onboarding/UseCaseSync.swift`):
+
+```
+error: main actor-isolated static method 'breadcrumb(_:category:)'
+       cannot be called from outside of the actor
+```
+
+`Telemetry` is `@MainActor` (Telemetry.swift:40), so `Telemetry.breadcrumb` is
+reachable only from the main actor. **`Telemetry.backgroundBreadcrumb` is the
+nonisolated twin and exists for exactly this** — its own doc comment names the
+sync actor and the offline mutation queue as the callers it was written for, and
+it logs at `.warning`, which a failure path wants anyway.
+
+Before calling any `@MainActor` helper from an `async` function that is not
+itself main-actor, check for a `nonisolated` twin. There were 43 call sites of
+the isolated one and 26 of the nonisolated one when this was written, so the
+pattern is established and easy to match against.
+
+> [!note] Not worth a grep guard, and that is a considered answer
+> Deciding whether a given call site is main-actor-isolated needs real Swift
+> scoping — a regex over 43 legitimate call sites and 225 `@MainActor`
+> annotations would fire on correct code. A guard that cries wolf on a lane that
+> already cannot compile locally gets ignored, which is worse than none.
+
+### 3b. A wrapped `await` binds to the wrong expression
+
+Also from that file, also invisible on Windows:
+
+```swift
+// WRONG — `await` covers `SupabaseShared.client` (synchronous); the async
+// `.session` access ends up outside it.
+guard let id = try? await SupabaseShared.client
+    .auth.session.user.id.uuidString
+
+// RIGHT — one line, as every other call site in the app writes it.
+guard let id = try? await SupabaseShared.client.auth.session.user.id.uuidString
+```
+
+The compiler says *"Expression is 'async' but is not marked with 'await'"*,
+naming the file and nothing about the cause. Five call sites (ContentView,
+ConsignorService, PublishDialog, AutoListerGenerator, ReconciliationService) all
+write it flat; matching one of them verbatim is the strongest check available
+without a Mac.
 
 ## 4. Duplicate schema checksums brick launch, they do not fail the build
 
