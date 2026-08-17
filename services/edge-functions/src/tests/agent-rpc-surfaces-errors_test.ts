@@ -241,7 +241,10 @@ const TOLERATED_SWALLOW = new Map([
 ]);
 
 Deno.test("no io helper swallows a database error without a recorded reason", () => {
-  const helpers = [...SRC.matchAll(/^    ([a-zA-Z][a-zA-Z0-9_]*): async \(/gm)]
+  // ` {4}` rather than four literal spaces: deno's no-regex-spaces rejects
+  // consecutive spaces in a pattern, and the run-length form says the intent
+  // (the io helpers' indentation) instead of relying on someone counting.
+  const helpers = [...SRC.matchAll(/^ {4}([a-zA-Z][a-zA-Z0-9_]*): async \(/gm)]
     .filter((m) => m[1] !== "handler");
   assert(helpers.length > 30, `expected the io helper block; found ${helpers.length}`);
 
