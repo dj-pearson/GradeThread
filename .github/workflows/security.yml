@@ -157,10 +157,22 @@ jobs:
       security-events: write
       actions: read
     steps:
+      # v4 since 2026-08-17. GitHub announced v3's deprecation for December 2026
+      # and every run had been printing the warning; moving now means the change
+      # happens on a quiet day rather than on the day the action stops working.
+      #
+      # ⚠ THIS JOB FAILS FOR REASONS THAT ARE NOT THIS REPOSITORY, and the log
+      # says so plainly when it happens. Run 32052475752 died in `init` with
+      # "Encountered an error while trying to determine feature enablement:
+      # HttpError: No server is currently available to service your request" —
+      # a GitHub-side outage during the action's own feature-flag lookup. Nothing
+      # was wrong with the code and the next run was clean. Re-run before
+      # investigating a red CodeQL, and check whether the error mentions a
+      # request to GitHub rather than a finding.
       - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@v4
         with:
           category: "/language:javascript-typescript"
