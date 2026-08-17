@@ -22,29 +22,70 @@ import { join } from "node:path";
 const read = (p: string) => readFileSync(join(process.cwd(), p), "utf8");
 
 describe("US-2125: one reviewed cancellation path", () => {
-  it("the Free tile routes to the reviewed dialog, not the Stripe portal", () => {
+  // ⚠ THIS CASE USED TO PIN A WEAKER SHAPE, and the difference is the point.
+  // It asserted that an `isCancelToFree` branch sat inside `onOpenPortal` and
+  // returned before `portal.mutate()`. That was true and still left one handler
+  // meaning two things — which is exactly how the bug survived: the routing was
+  // corrected while a comment two hundred lines away still said "goes through
+  // the portal until US-216's cancel flow ships", and the button it described
+  // was wired to the portal handler. Nothing could disagree with it. The two
+  // paths are now separate props, so they cannot be confused by a future edit,
+  // and this case pins THAT rather than the ordering inside a shared branch.
+  it("the Free tile calls onCancel, and onCancel never reaches the portal", () => {
     const src = read("src/components/billing/flipdesk-plan-picker-dialog.tsx");
 
-    // The cancel branch must short-circuit BEFORE portal.mutate().
-    const handler = src.slice(
-      src.indexOf("onOpenPortal:"),
-      src.indexOf("onOpenPortal:") + 900,
+    const cancelHandler = src.slice(
+      src.indexOf("onCancel: () => {"),
+      src.indexOf("onCancel: () => {") + 500,
     );
-    const cancelGuard = handler.indexOf("isCancelToFree");
-    const portalCall = handler.indexOf("portal.mutate()");
+    expect(
+      src.indexOf("onCancel: () => {"),
+      "the cancel path must be its own prop, not a branch inside onOpenPortal",
+    ).toBeGreaterThan(-1);
+    expect(
+      cancelHandler.includes("portal.mutate()"),
+      "onCancel must not open the Stripe portal — that is the whole defect",
+    ).toBe(false);
+    expect(
+      cancelHandler,
+      "onCancel must hand the intent to the reviewed dialog",
+    ).toMatch(/onRequestCancel\?\.\(\)/);
 
-    expect(cancelGuard, "the Free tile must be special-cased").toBeGreaterThan(-1);
-    expect(portalCall, "portal.mutate should still exist for non-cancel uses")
-      .toBeGreaterThan(-1);
+    // And the button the seller actually clicks has to be wired to it. Without
+    // this, onCancel could be correct and unreferenced while the Cancel button
+    // still called onOpenPortal — which is the state this file just caught.
+    const cancelBtn = src.slice(
+      src.indexOf("if (isCancelToFree) {"),
+      src.indexOf("if (isCancelToFree) {") + 700,
+    );
     expect(
-      cancelGuard,
-      "the isCancelToFree branch must come BEFORE portal.mutate() and return — " +
-        "otherwise a cancellation still reaches the portal",
-    ).toBeLessThan(portalCall);
+      cancelBtn,
+      "the Cancel subscription button must call onCancel",
+    ).toMatch(/onClick=\{onCancel\}/);
     expect(
-      handler.slice(cancelGuard, portalCall),
-      "the cancel branch must RETURN, not fall through to the portal",
-    ).toMatch(/return;/);
+      cancelBtn.includes("onClick={onOpenPortal}"),
+      "the Cancel subscription button is still wired to the portal handler",
+    ).toBe(false);
+
+    // The portal itself stays — it is how the interval switch works.
+    expect(
+      src.includes("portal.mutate()"),
+      "portal.mutate should still exist for the interval switch",
+    ).toBe(true);
+  });
+
+  it("no stale comment claims cancellation goes through the portal", () => {
+    // The routing was fixed before this comment was, and the comment is what a
+    // reader trusts. It named a story (US-216) that had already shipped.
+    const src = read("src/components/billing/flipdesk-plan-picker-dialog.tsx");
+    expect(
+      /until US-216/.test(src),
+      "the stale 'until US-216 ships' comment is back",
+    ).toBe(false);
+    expect(
+      /Cancelling to Free goes through the portal/.test(src),
+      "a comment still says cancellation goes through the portal",
+    ).toBe(false);
   });
 
   it("the picker reports cancel intent upward instead of rendering the dialog", () => {
