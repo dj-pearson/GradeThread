@@ -43,6 +43,19 @@ const OPS_EVENT_TYPE = "cron.fleet_stalled";
  * usually a fix rather than a page.
  */
 const FAILING_EVENT_TYPE = "cron.fleet_failing";
+/**
+ * US-2668: failing on 100% of its runs is its own incident, at CRITICAL.
+ *
+ * trial-expiry, ads-sync, content-refresh and keyword-research failed every
+ * single run for nine days. Each was inside `cron.fleet_failing` the whole time,
+ * at warning, alongside jobs that fail occasionally — and the counts reached the
+ * operator as "7 failures in 7 days, about once a day", which reads as flaky
+ * infrastructure. They are daily crons: 7 in 7 days is every run. A job that has
+ * never once succeeded is broken code, not bad luck, and it gets its own event
+ * type so it has its own suppression memory and cannot be muted by the general
+ * failing alert.
+ */
+const BROKEN_EVENT_TYPE = "cron.fleet_always_failing";
 /** Analysis window. 24h covers every schedule in the registry except the rarest. */
 const LOOKBACK_MS = 24 * 3600_000;
 /**
@@ -129,6 +142,9 @@ export async function handleCronFleetHealthCron(c: Context): Promise<Response> {
         // US-2312: the outcome fields the failing/idle verdicts read.
         status: r.status,
         rows_processed: r.rows_processed,
+        // US-2668: separates "the run failed" from "the run reported failed
+        // units", which `status` merges.
+        http_status: r.http_status,
       });
     }
 
@@ -144,6 +160,8 @@ export async function handleCronFleetHealthCron(c: Context): Promise<Response> {
     recordMetric("cron_fleet.slow", report.slow.length, {});
     // US-2312: ran-but-failed and ran-but-did-nothing, as first-class counts.
     recordMetric("cron_fleet.failing", report.failing.length, {});
+    // US-2668: jobs that have not succeeded once in the window.
+    recordMetric("cron_fleet.always_failing", report.always_failing.length, {});
     recordMetric(
       "cron_fleet.idle",
       report.scorecards.filter((s) => s.all_idle).length,
@@ -220,19 +238,60 @@ export async function handleCronFleetHealthCron(c: Context): Promise<Response> {
       });
     }
 
+    // US-2668: the 100%-failure signal, at critical, with its own memory.
+    const brokenNames = report.always_failing.map((s) => s.name);
+    const lastBrokenAlert = await loadLastAlert(
+      new Date(nowMs - SUPPRESS_MS * 2).toISOString(),
+      BROKEN_EVENT_TYPE,
+    );
+    const brokenAlert = shouldAlert({
+      stalledNames: brokenNames,
+      lastAlert: lastBrokenAlert,
+      nowMs,
+    });
+    if (brokenAlert) {
+      const worst = report.always_failing[0];
+      await emitOpsEvent(BROKEN_EVENT_TYPE, "critical", {
+        title:
+          `${report.always_failing.length} cron job(s) failed on EVERY run: ` +
+          `${brokenNames.slice(0, 5).join(", ")}` +
+          (brokenNames.length > 5 ? `, +${brokenNames.length - 5} more` : "") +
+          (worst ? ` (worst: ${worst.name}, ${worst.hard_failed_runs}/${worst.runs})` : ""),
+        source: "cron-fleet-health",
+        data: {
+          // Same key + shape as the other two events — loadLastAlert reads it back.
+          jobs: brokenNames,
+          always_failing_count: report.always_failing.length,
+          jobs_total: report.jobs_total,
+          // The RATE is in the payload, not just the count. A reader seeing
+          // `runs: 7, hard_failed_runs: 7` cannot reconstruct it as "about one
+          // failure a day", which is what happened for nine days.
+          detail: report.always_failing.slice(0, 10).map((s) => ({
+            name: s.name,
+            schedule: s.schedule,
+            runs: s.runs,
+            hard_failed_runs: s.hard_failed_runs,
+            hard_failure_rate: s.hard_failure_rate,
+          })),
+        },
+      });
+    }
+
     return c.json({
       ok: true,
       summary: report.summary,
       jobs_total: report.jobs_total,
       stalled: stalledNames,
       failing: failingNames,
+      // US-2668: the subset of `failing` that has not succeeded once.
+      always_failing: brokenNames,
       // Ticking, not erroring, and processing nothing every single run — usually
       // a disabled feature flag or a drained backlog, occasionally a job whose
       // query silently stopped matching.
       idle: report.scorecards.filter((s) => s.all_idle).map((s) => s.name),
       slow: report.slow.map((s) => s.name),
       all_clear: report.all_clear,
-      alerted: alert || failingAlert,
+      alerted: alert || failingAlert || brokenAlert,
     });
   } catch (err) {
     captureException(err, { route: "jobs.cron-fleet-health" });

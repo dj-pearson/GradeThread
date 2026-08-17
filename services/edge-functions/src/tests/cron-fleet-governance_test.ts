@@ -209,6 +209,134 @@ Deno.test("US-2312 REGRESSION: runs with no outcome columns stay healthy", () =>
   assertEquals(card.all_idle, false);
 });
 
+// ── US-2668: failure RATE, not failure count ────────────────────────────────
+//
+// trial-expiry, ads-sync, content-refresh and keyword-research failed on 100% of
+// their runs for nine days. Every one was inside `failing` the whole time, and
+// nobody escalated, because the evidence arrived as a COUNT: "7 failures in 7
+// days, about once a day" reads as flaky infrastructure. They are daily crons,
+// so 7 in 7 days is every run — deterministic app bugs (trial-expiry's was a
+// PostgREST limit-without-order on a mutation, proven against a real schema).
+
+/** Six on-schedule hourly runs with a per-run http_status. */
+function runsWithStatuses(statuses: readonly number[]) {
+  return statuses.map((http, i) => {
+    const b = new Date(NOW - (statuses.length - i) * HOUR);
+    b.setUTCMinutes(5, 0, 0);
+    return {
+      created_at: new Date(b.getTime()).toISOString(),
+      duration_ms: 100,
+      status: http >= 400 ? "error" : "success",
+      http_status: http,
+      rows_processed: 3,
+    };
+  });
+}
+
+function reportForStatuses(statuses: readonly number[]) {
+  return assembleCronFleetReport({
+    registry: HOURLY_REGISTRY,
+    runsByJob: { payouts: runsWithStatuses(statuses) },
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 5 * HOUR,
+  });
+}
+
+Deno.test("US-2668: a job that failed EVERY run is separated from one that failed some", () => {
+  const every = reportForStatuses([500, 500, 500, 500, 500, 500]);
+  assertEquals(every.always_failing.map((s) => s.name), ["payouts"]);
+  const card = every.scorecards[0];
+  assertEquals(card.runs, 6);
+  assertEquals(card.hard_failed_runs, 6);
+  assertEquals(card.hard_failure_rate, 1);
+  assertEquals(card.always_failing, true);
+
+  // One bad run in six is the same COUNT reading that hid this, and a different
+  // incident: it must not reach the 100% bucket.
+  const some = reportForStatuses([200, 200, 500, 200, 200, 200]);
+  assertEquals(some.always_failing, []);
+  assertEquals(some.scorecards[0].hard_failed_runs, 1);
+  assertEquals(some.scorecards[0].hard_failure_rate, 0.1667);
+  assertEquals(some.scorecards[0].always_failing, false);
+});
+
+Deno.test("US-2668: always_failing stays a SUBSET of failing, so nothing loses its existing alert", () => {
+  const report = reportForStatuses([502, 502, 502, 502, 502, 502]);
+  assertEquals(report.failing.map((s) => s.name), ["payouts"]);
+  assertEquals(report.scorecards[0].verdict, "failing", "not a new verdict — a reading of the same one");
+  assert(
+    report.failing.some((s) => s.name === report.always_failing[0].name),
+    "every always_failing job must also be in failing",
+  );
+});
+
+Deno.test("US-2668: a sweep that reports failed UNITS on every run is not 'always failing'", () => {
+  // The false alarm this signal has to avoid. affiliate-payouts answers 200 with
+  // `{failed: 1}` while one Connect account stays broken; cronRunStatusFor makes
+  // that an `error` row on every run, forever. It is a real problem and it is
+  // already covered at warning — waking someone at critical every six hours for
+  // it is how an alert channel dies.
+  const report = reportForStatuses([200, 200, 200, 200, 200, 200]);
+  const withBodyFailures = assembleCronFleetReport({
+    registry: HOURLY_REGISTRY,
+    runsByJob: {
+      payouts: runsWithStatuses([200, 200, 200, 200, 200, 200]).map((r) => ({ ...r, status: "error" })),
+    },
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 5 * HOUR,
+  });
+  assertEquals(report.always_failing, []);
+  assertEquals(withBodyFailures.failing.map((s) => s.name), ["payouts"]);
+  assertEquals(withBodyFailures.always_failing, [], "2xx-with-failed-units is failing, not always_failing");
+  assertEquals(withBodyFailures.scorecards[0].failure_rate, 1);
+  assertEquals(withBodyFailures.scorecards[0].hard_failure_rate, 0);
+});
+
+Deno.test("US-2668 REGRESSION: runs with no http_status cannot trip the critical signal", () => {
+  // Rows that never recorded a status cannot prove 100%, and this signal pages
+  // someone. It fails toward silence; the warning-level `failing` still covers
+  // them.
+  const report = reportFor(onScheduleRuns({ status: "error", rows_processed: 4 }));
+  assertEquals(report.failing.map((s) => s.name), ["payouts"]);
+  assertEquals(report.always_failing, []);
+  assertEquals(report.scorecards[0].hard_failed_runs, 0);
+  assertEquals(report.scorecards[0].always_failing, false);
+});
+
+Deno.test("US-2668: a job with no runs has no rate at all", () => {
+  // A stalled job's failure rate is undefined, not 0% and not 100%. Reporting
+  // either would be a claim the data does not support.
+  const report = assembleCronFleetReport({
+    registry: HOURLY_REGISTRY,
+    runsByJob: {},
+    maintenance: [],
+    nowMs: NOW,
+    lookbackMs: 5 * HOUR,
+  });
+  const card = report.scorecards[0];
+  assertEquals(card.verdict, "stalled");
+  assertEquals(card.failure_rate, null);
+  assertEquals(card.hard_failure_rate, null);
+  assertEquals(card.always_failing, false);
+  assertEquals(report.always_failing, []);
+});
+
+Deno.test("US-2668: the summary states the RATE, so it cannot be re-read as a count", () => {
+  const report = reportForStatuses([500, 500, 500, 500, 500, 500]);
+  assert(
+    report.summary.includes("failing on EVERY run"),
+    `the summary must name the rate, got: ${report.summary}`,
+  );
+  assert(
+    report.summary.includes("payouts (6/6)"),
+    `and show the sample it is a rate over, got: ${report.summary}`,
+  );
+  // A healthy fleet says nothing extra.
+  assert(!reportForStatuses([200, 200, 200, 200, 200, 200]).summary.includes("EVERY run"));
+});
+
 // ---------------------------------------------------------------------------
 // US-2616: the report must say what it could not see.
 //

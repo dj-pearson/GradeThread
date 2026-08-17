@@ -1848,6 +1848,10 @@ const TOOL_LIST: AgentToolDef[] = [
           duration_ms: r.duration_ms,
           status: r.status,
           rows_processed: r.rows_processed,
+          // US-2668: the same reason — without http_status the read-tool's
+          // report would compute always_failing:false for every job while the
+          // alert computed it correctly.
+          http_status: r.http_status,
         });
       }
       const report = assembleCronFleetReport({

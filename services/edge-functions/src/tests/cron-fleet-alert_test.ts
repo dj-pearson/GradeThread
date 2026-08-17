@@ -210,3 +210,56 @@ Deno.test("US-2004: a dead fleet's report drives shouldAlert to true", () => {
     "a dead fleet with no prior alert must alert",
   );
 });
+
+// ── US-2668: the seam the 100%-failure signal depends on ────────────────────
+//
+// always_failing is computed from JobRun.http_status. Both places that build
+// runsByJob must carry it, and neither is covered by a behavioural test: they
+// need cron_runs rows. Dropping the field from either one does not fail to
+// compile, does not lint, and does not turn any assertion red — the signal just
+// silently reports false for every job, which is the exact invisibility this
+// story is about. So it is pinned at the source.
+//
+// Comments are stripped first: a header describing a field that is no longer
+// passed must not satisfy this.
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "");
+}
+
+Deno.test("US-2668: every runsByJob builder carries http_status through", async () => {
+  for (
+    const path of [
+      "src/routes/jobs-cron-fleet.ts",
+      "src/lib/agent-tools.ts",
+    ]
+  ) {
+    const src = stripComments(await Deno.readTextFile(path));
+    assert(
+      /http_status:\s*r\.http_status/.test(src),
+      `${path} builds a JobRun for assembleCronFleetReport without http_status — ` +
+        `always_failing would report false for every job. See US-2668.`,
+    );
+  }
+});
+
+Deno.test("US-2668: the 100%-failure alert has its OWN event type and severity", async () => {
+  // Folding it into cron.fleet_failing would put it under that type's six-hour
+  // suppression memory: one job failing intermittently would mute the job that
+  // has never once succeeded. Same reasoning as US-2312 splitting failing off
+  // from stalled.
+  const src = stripComments(
+    await Deno.readTextFile("src/routes/jobs-cron-fleet.ts"),
+  );
+  assert(
+    /BROKEN_EVENT_TYPE\s*=\s*"cron\.fleet_always_failing"/.test(src),
+    "the always-failing alert must have its own ops-event type",
+  );
+  assert(
+    /emitOpsEvent\(BROKEN_EVENT_TYPE,\s*"critical"/.test(src),
+    "a job that has never succeeded is critical, not a warning",
+  );
+  assert(
+    /loadLastAlert\([\s\S]{0,120}?BROKEN_EVENT_TYPE,?\s*\)/.test(src),
+    "it must read its own suppression memory, not another type's",
+  );
+});

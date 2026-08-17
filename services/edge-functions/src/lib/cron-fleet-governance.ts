@@ -158,6 +158,12 @@ export interface JobRun {
   // failed every unit of work inside it read as healthy.
   status?: string | null;
   rows_processed?: number | null;
+  // US-2668: the HTTP status the handler answered with. `status === "error"`
+  // deliberately merges two different incidents (see cronRunStatusFor): a 5xx,
+  // where the whole run failed, and a 2xx that reported failed units in its own
+  // body. The 100%-failure signal below needs to tell them apart, so it reads
+  // this rather than `status`.
+  http_status?: number | null;
 }
 
 export interface JobScorecard {
@@ -179,6 +185,27 @@ export interface JobScorecard {
   idle_runs: number;
   /** True when every run in the window processed zero rows (and there was at least one). */
   all_idle: boolean;
+  // ── US-2668: failure RATE, not failure count ───────────────────────────────
+  //
+  // Four jobs failed on 100% of their runs for nine days and were read as an
+  // intermittent container problem, because the numbers reached the operator as
+  // counts: "7 failures in 7 days, about once a day". They are daily crons, so
+  // 7 in 7 days is EVERY run — a deterministic app bug, and a different class of
+  // incident from a sweep that fails one transfer in five hundred.
+  /** Runs whose handler answered >= 400 — the whole run failed, not units inside it. */
+  hard_failed_runs: number;
+  /** failed_runs / runs, including body-reported failures. null when runs === 0. */
+  failure_rate: number | null;
+  /** hard_failed_runs / runs. null when runs === 0. */
+  hard_failure_rate: number | null;
+  /**
+   * Every run in the window answered >= 400. Read off http_status rather than
+   * `status` on purpose: a payout sweep with one permanently-failing transfer
+   * records `status: "error"` on every run forever and is NOT this. A run with
+   * no recorded http_status (rows predating the column being populated) cannot
+   * satisfy it, so the signal fails toward silence rather than toward a page.
+   */
+  always_failing: boolean;
 }
 
 export interface CronFleetReport {
@@ -187,6 +214,14 @@ export interface CronFleetReport {
   stalled: JobScorecard[];
   /** US-2312: ticking on schedule, but erroring — including body-reported failures. */
   failing: JobScorecard[];
+  /**
+   * US-2668: the SUBSET of `failing` that failed on every single run. Deliberately
+   * a subset rather than a fifth verdict — a job here is still `failing`, so the
+   * existing warning keeps covering it and nothing that reads `failing` loses a
+   * job it used to see. What this adds is the reading: 100% is a bug in the job,
+   * not a run of bad luck, and it is worth waking someone for.
+   */
+  always_failing: JobScorecard[];
   slow: JobScorecard[];
   scorecards: JobScorecard[];
   all_clear: boolean;
@@ -229,6 +264,12 @@ export function assembleCronFleetReport(params: {
     // payout sweep that transferred nothing stops reading as a healthy tick.
     const failedRuns = runs.filter((r) => r.status === "error").length;
     const idleRuns = runs.filter((r) => r.rows_processed === 0).length;
+    // US-2668. A run counts as HARD-failed only when it recorded an HTTP status
+    // of its own and that status was >= 400.
+    const hardFailedRuns = runs.filter(
+      (r) => typeof r.http_status === "number" && r.http_status >= 400,
+    ).length;
+    const rate = (n: number) => (runs.length === 0 ? null : Number((n / runs.length).toFixed(4)));
     // Stalled outranks failing: a job that is not running at all is the more
     // urgent fact, and reporting it twice would split one incident in two.
     const verdict: JobScorecard["verdict"] = missed.missed > 0
@@ -253,11 +294,18 @@ export function assembleCronFleetReport(params: {
       failed_runs: failedRuns,
       idle_runs: idleRuns,
       all_idle: runs.length > 0 && idleRuns === runs.length,
+      hard_failed_runs: hardFailedRuns,
+      failure_rate: rate(failedRuns),
+      hard_failure_rate: rate(hardFailedRuns),
+      always_failing: runs.length > 0 && hardFailedRuns === runs.length,
     });
   }
 
   const stalled = scorecards.filter((s) => s.verdict === "stalled").sort((a, b) => b.consecutive_missed - a.consecutive_missed);
   const failing = scorecards.filter((s) => s.verdict === "failing").sort((a, b) => b.failed_runs - a.failed_runs);
+  // US-2668: sorted by how many runs back the evidence goes, so the job with the
+  // longest unbroken run of failures is named first.
+  const alwaysFailing = failing.filter((s) => s.always_failing).sort((a, b) => b.runs - a.runs);
   const slow = scorecards.filter((s) => s.verdict === "slow").sort((a, b) => (b.duration.creep_pct ?? 0) - (a.duration.creep_pct ?? 0));
   const allClear = stalled.length === 0 && failing.length === 0 && slow.length === 0;
 
@@ -285,9 +333,20 @@ export function assembleCronFleetReport(params: {
   const coverage = unmonitored.length > 0
     ? ` ${unmonitored.length} not monitored: ${unmonitored.join(", ")}.`
     : "";
+  // US-2668: the summary states the RATE for anything failing on every run.
+  // "content-refresh failed 7 of 7 runs" cannot be misread as "7 failures over
+  // the week, roughly one a day", which is how four deterministic bugs were read
+  // as a container restart pattern for nine days.
+  const alwaysClause = alwaysFailing.length > 0
+    ? ` ${alwaysFailing.length} failing on EVERY run: ` +
+      alwaysFailing.slice(0, 5).map((s) => `${s.name} (${s.hard_failed_runs}/${s.runs})`).join(", ") +
+      (alwaysFailing.length > 5 ? `, +${alwaysFailing.length - 5} more` : "") + "."
+    : "";
+
   const summary = (allClear
     ? `Cron fleet healthy: ${scorecards.length} recorded jobs, all ticking on schedule.`
     : `${stalled.length} stalled, ${failing.length} failing, ${slow.length} slow of ${scorecards.length} recorded jobs.`) +
+    alwaysClause +
     coverage;
 
   return {
@@ -295,6 +354,7 @@ export function assembleCronFleetReport(params: {
     jobs_total: scorecards.length,
     stalled,
     failing,
+    always_failing: alwaysFailing,
     slow,
     scorecards,
     all_clear: allClear,
