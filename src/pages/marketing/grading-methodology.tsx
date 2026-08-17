@@ -11,13 +11,19 @@ import {
 } from "@/pages/marketing/marketing-jsonld";
 
 // US-1677 (E-E-A-T): the methodology page — trust collateral for buyers,
-// journalists, and LLMs. How the model is trained + evaluated, what the grade
-// claims, error handling, and the human-review loop.
+// journalists, and LLMs. What actually does the grading, how a rubric version is
+// evaluated, what the grade claims, error handling, and the human-review loop.
+//
+// US-2107 AC3: this page used to say the model was "trained" on corrected
+// examples. It is not — nothing here fine-tunes anything, and on a page built to
+// be checked, a wrong description of the method is worse than none.
+// eval-gate-claims.test.ts pins the replacement, including that the named
+// provider is the one the grading config actually calls.
 export function GradingMethodologyPage() {
   return (
     <MarketingLayout
       title="How GradeThread Grades: Methodology"
-      description="How the GradeThread condition-grading model is trained and evaluated, what a grade does and doesn't claim, how errors are handled, and where human review fits."
+      description="What produces a GradeThread condition grade, how each rubric version is evaluated before it can serve, what a grade claims, and where human review fits."
       canonicalPath="/grading/methodology"
       jsonLd={methodologyJsonLd()}
     >
@@ -28,25 +34,23 @@ export function GradingMethodologyPage() {
           </h1>
           <p className="mt-6 text-lg text-foreground">
             A condition grade is only trustworthy if the method behind it is open
-            to inspection. This page documents how the GradeThread model is
-            trained and evaluated, exactly what a grade does and doesn't claim,
-            how we handle errors, and where human judgment sits in the loop — the
-            same standard we'd want from anyone grading our own items.
+            to inspection. This page documents what actually produces a
+            GradeThread grade, how each rubric version is evaluated before it can
+            serve, exactly what a grade does and doesn't claim, how we handle
+            errors, and where human judgment sits in the loop — the same standard
+            we'd want from anyone grading our own items.
           </p>
         </div>
       </section>
 
       <section className="border-t bg-card px-6 py-16">
         <div className="mx-auto max-w-3xl">
-          <h2 className="text-3xl font-bold">How the model is trained</h2>
+          <h2 className="text-3xl font-bold">What does the grading</h2>
           <p className="mt-4 text-muted-foreground">
             Every garment is scored against one fixed rubric — five weighted
             factors (Fabric Condition 30%, Structural Integrity 25%, Cosmetic
             Appearance 20%, Functional Elements 15%, Odor &amp; Cleanliness 10%)
-            combined into a single 1.0–10.0 grade. The model learns from graded
-            examples with expert human reviewers correcting its output, and those
-            corrections — plus real post-sale outcomes — feed a continuous
-            accuracy loop. See the full rubric on the{" "}
+            combined into a single 1.0–10.0 grade. See the full rubric on the{" "}
             <Link
               to="/grading-standard"
               className="font-medium text-brand-navy hover:underline dark:text-foreground"
@@ -54,6 +58,39 @@ export function GradingMethodologyPage() {
               grading standard
             </Link>
             .
+          </p>
+          <p className="mt-4 text-muted-foreground">
+            We do not train a model of our own, and we think saying so plainly is
+            worth more than the alternative. Your photos are read by a
+            general-purpose vision model built by Anthropic — the Claude family —
+            which we direct with our own versioned rubric and scoring
+            instructions. Nothing about your garment adjusts that model's weights.
+            The judgment being applied is the rubric; the model is what reads the
+            photographs.
+          </p>
+          <p className="mt-4 text-muted-foreground">
+            Expert reviewer corrections and real post-sale outcomes do feed a
+            continuous accuracy loop — as scored reference examples and as cases
+            in the golden set used to test each new rubric version, not as
+            training data. That distinction is why the exact model behind a grade
+            is recorded alongside it, and why a rubric version that passed its
+            evaluation on one model is refused if a different one would serve it.
+            An evaluation result does not transfer across models, so we do not let
+            it.
+          </p>
+          <p className="mt-4 text-muted-foreground">
+            The one thing we do not publish is the wording of the scoring
+            instructions themselves. Everything they are measured against is
+            public: the rubric and its tolerances, the confidence threshold below,
+            the error and agreement bars a new version has to beat, and the{" "}
+            <Link
+              to="/transparency"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              accuracy we actually achieve
+            </Link>
+            . You can check the output against the standard without reading the
+            prompt, which is the part that matters.
           </p>
         </div>
       </section>

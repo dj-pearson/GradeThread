@@ -1131,16 +1131,24 @@ export function fitCheckerJsonLd(): JsonLd[] {
 }
 
 // ── /grading/methodology (US-1677, E-E-A-T) ─────────────────────────
-// First-hand-experience trust collateral: how the model was trained, what the
-// grade does and doesn't claim, error handling, and the human-review loop.
+// First-hand-experience trust collateral: what actually produces a grade, what
+// the grade does and doesn't claim, error handling, and the human-review loop.
 // Article + FAQPage (fixed dates so prerender == SPA).
+//
+// US-2107 AC3: this block carried BOTH claims the page copy was corrected for —
+// that the model is "trained" on our corpus, and the absolute "every new model
+// version must clear a fixed eval gate ... before it can grade live" that
+// US-2500 banned from the two .tsx pages. The ban never reached here, and this
+// is the file crawlers and LLM answer engines actually ingest, so the wrong
+// sentence outlived its own guard in the place it travelled furthest.
+// eval-gate-claims.test.ts now scans this file too.
 const METHODOLOGY_PUBLISHED = "2026-07-06";
 const METHODOLOGY_MODIFIED = "2026-07-06";
 
 export const METHODOLOGY_FAQS = [
   {
-    q: "How is GradeThread's grading model trained?",
-    a: "The model learns from a corpus of pre-owned garments graded against one fixed rubric — five weighted factors (fabric, structure, cosmetics, function, odor) combined into a 1.0–10.0 score — with expert human reviewers correcting the AI's grades. Those corrections, plus post-sale outcomes, feed a continuous accuracy loop, and every new model version must clear a fixed eval gate against a golden set of expert-graded items before it can grade live.",
+    q: "Does GradeThread train its own grading model?",
+    a: "No, and the distinction is worth stating. Photos are read by a general-purpose vision model built by Anthropic, directed by GradeThread's own versioned rubric — five weighted factors (fabric, structure, cosmetics, function, odor) combined into a 1.0–10.0 score. Nothing about a graded garment adjusts that model's weights. Expert reviewer corrections and post-sale outcomes feed a continuous accuracy loop as scored reference examples and as cases in the golden set that tests each new rubric version. A version promoted through our admin flow cannot serve live traffic unless its most recent run against that golden set cleared fixed error and agreement thresholds, measured on the same model that will run it. The rubric shipped inside the service is the fallback when no promoted version is active; it follows the same shadow, eval and canary sequence as policy rather than as an automatic refusal.",
   },
   {
     q: "What does a GradeThread grade claim — and not claim?",
@@ -1152,7 +1160,7 @@ export const METHODOLOGY_FAQS = [
   },
   {
     q: "Are humans involved in grading?",
-    a: "Yes. Human reviewers correct low-confidence grades before they finalize, adjudicate disputes, and maintain the golden set that gates every model release. The AI does the volume; humans hold the standard.",
+    a: "Yes. Human reviewers correct low-confidence grades before they finalize, adjudicate disputes, and maintain the golden set that gates every promoted rubric version. The AI does the volume; humans hold the standard.",
   },
 ];
 
@@ -1161,7 +1169,7 @@ export function methodologyJsonLd(): JsonLd[] {
     articleLd({
       headline: "How GradeThread Grades: Methodology",
       description:
-        "How the GradeThread condition-grading model is trained and evaluated, what a grade does and doesn't claim, how errors are handled, and where human review fits.",
+        "What produces a GradeThread condition grade, how each rubric version is evaluated before it can serve, what a grade claims, and where human review fits.",
       url: absoluteUrl("/grading/methodology"),
       datePublished: METHODOLOGY_PUBLISHED,
       dateModified: METHODOLOGY_MODIFIED,

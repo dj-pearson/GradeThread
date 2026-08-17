@@ -304,7 +304,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     path: "/grading/methodology",
     title: "How GradeThread Grades: Methodology",
     description:
-      "How the GradeThread condition-grading model is trained and evaluated, what a grade does and doesn't claim, how errors are handled, and where human review fits.",
+      "What produces a GradeThread condition grade, how each rubric version is evaluated before it can serve, what a grade claims, and where human review fits.",
     changefreq: "monthly",
     priority: 0.7,
     jsonLdType: "Article",

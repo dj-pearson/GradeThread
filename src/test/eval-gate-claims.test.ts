@@ -29,6 +29,7 @@ const read = (p: string) => readFileSync(join(root, p), "utf8");
 
 const METHODOLOGY = "src/pages/marketing/grading-methodology.tsx";
 const TRANSPARENCY = "src/pages/marketing/transparency.tsx";
+const MARKETING_JSONLD = "src/pages/marketing/marketing-jsonld.ts";
 const GRADING_EVAL = "services/edge-functions/src/lib/grading-eval.ts";
 const AI_GRADING = "services/edge-functions/src/lib/ai-grading.ts";
 
@@ -91,7 +92,12 @@ describe("neither page reasserts the absolute claim", () => {
     /proven against the golden set before it went\s+live/i,
   ];
 
-  for (const page of [METHODOLOGY, TRANSPARENCY]) {
+  // US-2107: marketing-jsonld.ts was NOT in this list, and it carried the banned
+  // sentence verbatim in the methodology FAQ for months after the two .tsx pages
+  // were corrected. It is the file crawlers and LLM answer engines ingest, so the
+  // wrong claim outlived its own guard in the place it travelled furthest. Scan
+  // the structured data, not only the rendered prose.
+  for (const page of [METHODOLOGY, TRANSPARENCY, MARKETING_JSONLD]) {
     it(`${page} states the gate as promotion-scoped`, () => {
       const src = read(page);
       for (const re of BANNED) {
@@ -115,6 +121,69 @@ describe("neither page reasserts the absolute claim", () => {
     const src = read(TRANSPARENCY);
     expect(src).toMatch(/cannot be promoted to serve live traffic/);
     expect(src).toMatch(/fallback when no promoted version is active/);
+  });
+});
+
+// US-2107 AC3: what the methodology page says about the MODEL.
+//
+// The page used to be headed "How the model is trained" and to say "The model
+// learns from graded examples". Neither is true and neither ever was: nothing
+// here fine-tunes anything. Reviewer corrections become few-shot reference
+// examples and golden-set cases — prompt inputs and test data, not weights. On a
+// page whose entire job is being checkable, a false description of the method is
+// worse than no description, so the claim is now specific and pinned here.
+const AI_CONFIG = "services/edge-functions/src/lib/ai-config.ts";
+
+describe("US-2107: the model claim on the methodology page is true", () => {
+  const src = read(METHODOLOGY);
+
+  it("names the provider the code actually calls", () => {
+    // If grading ever moves off Anthropic, this fails and the page has to be
+    // rewritten in the same change rather than quietly misattributing a grade.
+    expect(src).toMatch(/built by Anthropic/);
+    const cfg = read(AI_CONFIG);
+    expect(
+      cfg,
+      "the methodology page names Anthropic as the vision provider; the grading " +
+        "config no longer imports their SDK, so the page is now wrong",
+    ).toMatch(/from\s+"@anthropic-ai\/sdk"/);
+  });
+
+  it("does not claim we train, fine-tune or learn weights", () => {
+    const BANNED_TRAINING = [
+      /how the model is trained/i,
+      /\bthe model learns\b/i,
+      /grading model trained/i,
+      /\bwe (?:train|fine-?tune)(?:ed)?\s+(?:our|the|a)\s+model/i,
+      /\btrained on your (?:photos|garments|images)\b/i,
+    ];
+    // The prose AND the structured data — the FAQ answer in marketing-jsonld.ts
+    // said "The model learns from a corpus" while the page beside it did not.
+    for (const file of [METHODOLOGY, MARKETING_JSONLD]) {
+      const text = read(file);
+      for (const re of BANNED_TRAINING) {
+        expect(
+          re.test(text),
+          `${file} claims training (${re}). Nothing in this repo fine-tunes a ` +
+            "model — corrections become few-shot exemplars and golden-set " +
+            "cases. Say that instead.",
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("states the model-qualification rule the gate enforces", () => {
+    // The page's justification for recording the model per grade. The rule is
+    // asserted above in `checkPromptServingEligibility`; this pins that the page
+    // and the code describe the same thing.
+    expect(src).toMatch(/does not transfer across models/);
+  });
+
+  it("says outright which single thing is withheld", () => {
+    // AC3 is "state what can be said WITHOUT leaking prompt IP". Naming the one
+    // withheld item beats silence: a reader who cannot see the boundary assumes
+    // it is larger than it is.
+    expect(src).toMatch(/do not publish is the wording of the scoring\s+instructions/);
   });
 });
 
