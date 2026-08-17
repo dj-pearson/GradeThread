@@ -4,6 +4,66 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
+## 🟠 PUSHED, NOT YET APPLIED: 00613 — record the delivered pixel dimensions (US-2135 AC3)
+
+**Risk: VERY LOW. Two nullable columns, no backfill, no constraint.**
+
+`NOTIFY pgrst, 'reload schema';` **required** — it adds columns to a table the
+API exposes, so PostgREST will not return `width`/`height` until the cache
+reloads. Nothing breaks meanwhile; the columns simply do not appear.
+
+### What it does
+
+Adds `width int` and `height int` to `public.submission_images`, both nullable.
+
+`validateImageUpload()` has always parsed width and height out of the
+JPEG/PNG/WebP header — it needs them for the decompression-bomb ceiling and the
+US-529 minimum-long-edge floor — and `grade.ts` was discarding them. This is the
+column to keep them in. **Nothing new is measured.**
+
+### Why it is server-observed, unlike the column beside it
+
+`quality_score` is measured client-side on the compressed bytes and sent in the
+form, so an older client or a canvas that cannot decode sends nothing. Width and
+height are parsed from the bytes the server is about to store, so they need no
+client cooperation to start working and cannot be overstated by one.
+
+### NULL means unknown, and must never be read as 0
+
+Two ways a row has no dimensions: it predates this migration, or its format's
+header is one the parser does not read (it returns null rather than guessing).
+`Number(null)` is `0` and finite, so a naive reader turns "unknown" into "worst
+possible" — the same coercion trap that produced a fake `-9` factor delta in
+US-2443.
+
+### Apply order
+
+1. After 00612. Idempotent (`ADD COLUMN IF NOT EXISTS`), safe to re-run.
+2. `NOTIFY pgrst, 'reload schema';`
+3. Redeploy the edge (boot guard now expects `00613`).
+
+Old rows stay NULL on purpose. A backfill would have to re-download every stored
+image to read its header, and the value of a historical dimension is low enough
+that it is not worth the egress.
+
+### Verify after applying
+
+```sql
+select count(*) filter (where width is not null) as measured,
+       count(*)                                  as total
+from public.submission_images;
+-- measured climbs from 0 as new submissions land; total is unchanged.
+```
+
+### Verified locally
+
+Applied to the local stack; both columns present and nullable. 5 new cases in
+`src/tests/submission-image-dimensions_test.ts`, one of which parses a real 1x1
+PNG through `validateImageUpload` rather than mocking it, so "the validator
+returns dimensions" is asserted rather than assumed. Sabotage-verified by
+dropping the video-frame loop's two lines, which reddened 2 cases naming that
+loop; restored.
+
 ## 🟠 PUSHED, NOT YET APPLIED: 00612 — a revocation mechanism that exists (US-2662)
 
 **Risk: LOW to apply. Apply AFTER 00611. Ships with edge code that CALLS it.**
