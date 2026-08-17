@@ -1,10 +1,45 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+> [!important] 00610–00617 ARE APPLIED. Measured 2026-08-17, not assumed.
+>
+> `GET https://functions.gradethread.com/health/ready` reports
+> `schema { expected: "00617", applied: "00617", status: "match" }`, and the
+> deployed edge expects 00617 — so the migrations landed AND the edge that needs
+> them is running.
+>
+> **The guards were checked from OUTSIDE, which is the part that matters.** A
+> recorded version proves a file ran, not that it worked — that is the whole
+> 00611 lesson. So the public anon key (the one in the browser bundle) was used
+> to POST each argument-less guarded function:
+>
+> | function | before | now |
+> |---|---|---|
+> | `ai_spend` | 200 + data | **401** |
+> | `reconciliation_candidates` | 200 + **customer emails** | **401** |
+> | `ai_profitability` | 200 + data | **401** |
+> | `retention_cohorts` | 200 + data | **401** |
+> | `ai_budget_status` | 200 + data | **401** |
+> | `drip_analytics` | 200 + data | **401** |
+> | `newsletter_analytics` | 200 + data | **401** |
+> | `data_integrity_scan` | 200 + data | **401** |
+>
+> `admin_revoke_user_sessions` is present in the schema cache, so impersonation
+> stop has a working mechanism in production.
+>
+> ⚠️ **The nine credit functions in 00615 are NOT verified this way, deliberately.**
+> They all take arguments, so an argument-less POST answers 404 on signature
+> alone and proves nothing. Verifying them from outside means making a
+> WRITE-SHAPED call to production — and the entire premise is that they might
+> not be guarded, so that call could mint credits. Their guards were proven on
+> the local stack (anon refused 42501 on all nine, including a demonstrated
+> `0 → 999` exploit); confirming prod needs a service-role session, not a probe.
+
+---
 During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
-## 🟠 PUSHED, NOT YET APPLIED: 00616 — two SQL functions a plain guard could not reach (US-2282)
+## ✅ APPLIED (measured 2026-08-17): 00616 — two SQL functions a plain guard could not reach (US-2282)
 
 **Risk: LOW, and equivalence is measured rather than argued. Apply third of these three.**
 
@@ -31,7 +66,7 @@ result** instead of an error. Worse than the leak.
 
 ---
 
-## 🟠 PUSHED, NOT YET APPLIED: 00615 — nine credit functions had no authorization check at all (US-2282)
+## ✅ APPLIED (measured 2026-08-17): 00615 — nine credit functions had no authorization check at all (US-2282)
 
 **Risk: LOW. Guard inserted after each function's own `BEGIN`; bodies untouched.**
 
@@ -52,7 +87,7 @@ guard) and anon got 42501 (so the wrapper is not a bypass).
 
 ---
 
-## 🟠 PUSHED, NOT YET APPLIED: 00614 — six analytics functions answer an anonymous caller (US-2282)
+## ✅ APPLIED (measured 2026-08-17): 00614 — six analytics functions answer an anonymous caller (US-2282)
 
 **Risk: LOW. The guard line only; every body is the live definition.**
 
@@ -81,7 +116,7 @@ footer records the version, so a run that does not take hold cannot record itsel
 as applied — use `psql -v ON_ERROR_STOP=1`.
 
 ---
-## 🟠 PUSHED, NOT YET APPLIED: 00613 — record the delivered pixel dimensions (US-2135 AC3)
+## ✅ APPLIED (measured 2026-08-17): 00613 — record the delivered pixel dimensions (US-2135 AC3)
 
 **Risk: VERY LOW. Two nullable columns, no backfill, no constraint.**
 
@@ -141,7 +176,7 @@ returns dimensions" is asserted rather than assumed. Sabotage-verified by
 dropping the video-frame loop's two lines, which reddened 2 cases naming that
 loop; restored.
 
-## 🟠 PUSHED, NOT YET APPLIED: 00612 — a revocation mechanism that exists (US-2662)
+## ✅ APPLIED (measured 2026-08-17): 00612 — a revocation mechanism that exists (US-2662)
 
 **Risk: LOW to apply. Apply AFTER 00611. Ships with edge code that CALLS it.**
 
@@ -217,7 +252,7 @@ required`; service_role gets a count; a NULL id returns 0. End-to-end on real
 rows — a user with 2 sessions and 1 refresh token went to 0 and 0, return value
 2.
 
-## 🟠 PUSHED, NOT YET APPLIED: 00611 — the six anon-callable functions get a guard in the body (US-2666)
+## ✅ APPLIED (measured 2026-08-17): 00611 — the six anon-callable functions get a guard in the body (US-2666)
 
 **Risk: LOW to apply. Apply AFTER 00610.**
 
@@ -300,7 +335,7 @@ written, so `verify:db` did not run. The SQL is a mechanical edit of the four
 originals plus a guard; it still needs one `supabase db reset` before it is
 trusted.
 
-## 🟠 PUSHED, NOT YET APPLIED: 00610 — revenue_dashboard has never worked, and the break was hiding a leak (US-2663)
+## ✅ APPLIED (measured 2026-08-17): 00610 — revenue_dashboard has never worked, and the break was hiding a leak (US-2663)
 
 **Risk: LOW to apply. Do NOT skip it and push, though — see the ordering note.**
 
