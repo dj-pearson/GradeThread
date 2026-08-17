@@ -77,11 +77,12 @@ describe("operator scripts start without a database credential", () => {
       const out = runWithoutCredentials(file);
       expect(
         out.includes(MODULE_LOAD_THROW),
-        `${file} died inside src/lib/supabase.ts before running. It imports ` +
-          "something that reaches that module, which throws at load. If the " +
-          "script genuinely needs a database, it should say so ITSELF; if it " +
-          'does not, import "./_placeholder-db-env.ts" FIRST (imports are ' +
-          "hoisted, so anywhere else is too late). Root fix: US-2661.\n\n" +
+        `${file} died inside src/lib/supabase.ts before running. That module ` +
+          "builds its client on first USE now (US-2661), so reaching it can no " +
+          "longer break a script that never queries — if you are seeing this, " +
+          "either the eager env check came back at module scope, or the script " +
+          "really does query and should say which variable it needs ITSELF, in " +
+          "its own usage line, rather than dying on a transitive import.\n\n" +
           out.slice(-600),
       ).toBe(false);
     });

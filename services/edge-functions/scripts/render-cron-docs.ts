@@ -2,6 +2,5 @@
 // cron-registry markers in COOLIFY.md + vault/10-ops/launch-checklist.md).
 //   deno run --allow-env --allow-net --allow-read scripts/render-cron-docs.ts
 // Must come FIRST — see the module for why (imports are hoisted).
-import "./_placeholder-db-env.ts";
 import { renderCronDocs } from "../src/lib/cron-runs.ts";
 console.log(renderCronDocs());

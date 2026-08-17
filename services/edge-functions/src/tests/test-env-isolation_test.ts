@@ -1,12 +1,23 @@
 import "./_env.ts";
 // US-2379: no test file may depend on another test file having run first.
 //
-// lib/supabase.ts throws at IMPORT time when SUPABASE_URL is missing — correct
-// for a container, fatal for a test file that only wanted a pure function out of
-// a route. 42 files were reaching it through their static import graph without
-// setting the env, so they loaded fine in a full run (something earlier had set
-// it) and threw "SUPABASE_URL is not set" when run alone. The suite passed in
-// exactly one order, which also ruled out sharding and --shuffle.
+// lib/supabase.ts USED TO THROW at IMPORT time when SUPABASE_URL was missing —
+// tolerable for a container, fatal for a test file that only wanted a pure
+// function out of a route. 42 files were reaching it through their static
+// import graph without setting the env, so they loaded fine in a full run
+// (something earlier had set it) and threw "SUPABASE_URL is not set" when run
+// alone. The suite passed in exactly one order, which also ruled out sharding
+// and --shuffle.
+//
+// ⚠ THAT THROW IS GONE (US-2661) — the client is built on first USE now, so
+// nothing in this list currently throws at import and the rule below is
+// belt-and-braces rather than load-bearing. It is KEPT rather than deleted for
+// one reason: the failure it prevents is order-dependence, which is invisible
+// in a full run and only shows up when someone runs one file. The next module
+// that reads env at load would recreate it silently, and adding that module to
+// ENV_AT_IMPORT is a one-line fix only while the machinery still exists. The
+// cost of keeping it is that new test files put "./_env.ts" first for no
+// present reason, which is cheap and harmless.
 //
 // The rule this pins: if a test file's STATIC import graph can reach a module
 // that reads env at load, "./_env.ts" must be its FIRST import. Files that
@@ -18,6 +29,7 @@ import "./_env.ts";
 // answer, and it takes milliseconds.
 
 import { assert, assertEquals } from "@std/assert";
+import { assertRequiredEnv, missingRequiredEnv } from "../lib/env-validation.ts";
 
 const TESTS = new URL("./", import.meta.url);
 
@@ -144,13 +156,83 @@ Deno.test("US-2379: _env.ts sets defaults and never overrides a real value", asy
   );
 });
 
-Deno.test("US-2379: lib/supabase.ts still fails fast on a genuinely missing URL", async () => {
-  // The fix must not have been 'make the assertion lazy'. A container without
-  // credentials has to die at boot rather than serve 500s on first request.
+Deno.test("US-2661: lib/supabase.ts builds its client lazily, not at import", async () => {
+  // ⚠ THIS CASE USED TO ASSERT THE OPPOSITE, and its reasoning was right while
+  // its mechanism was wrong. It read:
+  //
+  //   "The fix must not have been 'make the assertion lazy'. A container
+  //    without credentials has to die at boot rather than serve 500s on first
+  //    request."
+  //
+  // The requirement stands. The module-scope throw was never what delivered it,
+  // though — main.ts calls assertRequiredEnv() before Deno.serve, and that is
+  // what refuses the boot. Meanwhile the eager throw was breaking three
+  // operator scripts that never query at all (US-2661): they died on
+  // "SUPABASE_URL is not set" before printing their own usage line, purely
+  // because something in their import graph reached this module.
+  //
+  // So the boot guarantee moves to the case below, where it is EXECUTED rather
+  // than inferred from the shape of an if-statement.
   const src = await read(new URL("../lib/supabase.ts", TESTS));
   assert(
-    /^if \(!supabaseUrl\) \{$/m.test(src),
-    "lib/supabase.ts must still throw at module scope when SUPABASE_URL is unset",
+    !/^if \(!supabaseUrl\) \{$/m.test(src),
+    "the module-scope env check is back — that breaks every script whose " +
+      "import graph reaches this module without needing a database",
   );
-  assert(src.includes('throw new Error("SUPABASE_URL is not set")'));
+  assert(
+    src.includes("function realClient()"),
+    "the client must be constructed inside a function, on first use",
+  );
+  // The binding is load-bearing and would fail SILENTLY: `supabase.from()` is
+  // `this.rest.from(relation)`, so a proxy that hands back an unbound function
+  // renders as an empty result rather than an error
+  // (vault/70-agent/states-that-look-normal.md, shape 1 — where exactly this
+  // showed up as a seller with no inventory and green unit tests).
+  assert(
+    src.includes("value.bind(c)"),
+    "proxied functions must be bound to the real client, or `this` is lost",
+  );
+  // The error must still NAME the variable. A lazy client that degrades into a
+  // confusing network error would be worse than the eager throw it replaced.
+  assert(
+    src.includes('throw new Error("SUPABASE_URL is not set")'),
+    "the missing-variable error must survive, by name",
+  );
+});
+
+Deno.test("US-2661: a credential-less boot still refuses, and names EVERY missing var", () => {
+  // The guarantee the case above used to make by inspecting an if-statement,
+  // made here by calling the thing that actually enforces it. assertRequiredEnv
+  // takes an injectable getter, so this needs no subprocess and no --allow-run.
+  //
+  // Verified out-of-process too, once, by hand: `deno run src/main.ts` with the
+  // three SUPABASE_* variables unset exits 1 from env-validation.ts:311 with
+  // "[BOOT] Missing required env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+  // ANTHROPIC_API_KEY, ... — refusing to start." before Deno.serve is reached.
+  const empty = (_k: string) => undefined;
+  let thrown: Error | null = null;
+  try {
+    assertRequiredEnv(empty, "production");
+  } catch (e) {
+    thrown = e as Error;
+  }
+  assert(thrown !== null, "a production boot with no env must throw, not warn");
+  assert(
+    thrown.message.includes("refusing to start"),
+    `boot must refuse, got: ${thrown.message}`,
+  );
+  // Strictly better than the old import-time throw, which named only the first
+  // variable its import chain happened to reach.
+  for (const key of ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"]) {
+    assert(
+      thrown.message.includes(key),
+      `the boot error must name ${key} — it names every missing variable at ` +
+        `once, which the import-time throw never did`,
+    );
+  }
+  assert(
+    missingRequiredEnv(empty, "production").length > 2,
+    "more than the two supabase vars are required in production; if this " +
+      "shrank, the boot check got weaker",
+  );
 });

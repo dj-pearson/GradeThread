@@ -7,7 +7,7 @@ source_of_truth: vault
 code_refs: []
 reviewed: 2026-08-02
 tags: [ops, backup, disaster-recovery]
-summary: What is backed up, how often, and the restore drill that proves it works — for POSTGRES. The storage mirror has no restore path and no drill (US-2659).
+summary: What is backed up, how often, and the restore drills that prove it works — Postgres AND the storage mirror. The storage half gained a restore script and drill in US-2659; its crypt password still lives on the host it protects against losing.
 ---
 # Backups & Restore (US-494)
 
@@ -211,9 +211,15 @@ and was executed end-to-end on 2026-06-12 (see drill log).
    pre-existing Supabase scaffolding (extension comments, event triggers) is
    expected; the sanity counts are the success criterion.
 4. For PITR instead (bad migration, not lost volume): wal-g path above.
-5. Restore storage: `rclone sync r2:gradethread-backups/storage/ /var/lib/supabase/storage/`
-   (check `storage-deleted/<ts>/` prefixes if recovering files deleted after
-   the incident started).
+5. Restore storage: `RCLONE_REMOTE=r2crypt:gradethread-backups bash scripts/ops/restore-storage.sh /var/lib/supabase/storage`
+   — see [Storage restore](#storage-restore-procedure-us-2659) below.
+   ⚠ This step used to read `rclone sync r2:gradethread-backups/storage/
+   /var/lib/supabase/storage/`, which was wrong three ways and is kept here so
+   nobody reinstates it: `sync` (rather than `copy`) DELETES local files absent
+   from the backup, so running it against a partly-recovered volume destroys
+   what you just salvaged; it names the plaintext remote rather than the crypt
+   one `backup-storage.sh` actually writes to; and it treats rclone's exit code
+   as success, which is 0 for a copy that produced zero files.
 6. Point the Supabase services / edge service at the restored DB; smoke test:
    `/health/ready` returns 200, edge logs show `[schema-version] OK`, a known
    certificate page loads, a test grade submits.
@@ -225,6 +231,68 @@ supabase db start && supabase db reset   # local stack with current schema
 bash scripts/ops/restore-drill.sh        # PASS/FAIL + timings
 ```
 
+## Storage restore procedure (US-2659)
+
+The photo mirror is every listing photo, every grading photo **including label
+shots**, and every certificate asset. Until 2026-08-16 there was a backup script
+and nothing else — no restore script, no drill, and no procedure here. It had
+never been read back.
+
+```bash
+# FULL REBUILD — the volume is gone, the target is empty.
+RCLONE_REMOTE=r2crypt:gradethread-backups \
+  bash scripts/ops/restore-storage.sh /var/lib/supabase/storage
+```
+
+`restore-storage.sh` does three things `rclone copy` alone does not, each
+because of a way this can look like it worked when it did not:
+
+- **refuses a zero-file restore.** rclone exits 0 on a copy that produced
+  nothing, so a wrong prefix or an empty bucket reads as success.
+- **re-checks a sample byte-for-byte** with `rclone check --download`. A crypt
+  remote with the wrong password does not error on *listing* — it yields names
+  that decrypt to garbage. Only comparing content catches that.
+- **refuses a non-empty target** unless you set `RESTORE_ALLOW_NONEMPTY=1`, so
+  you cannot mix two generations of the mirror by accident.
+
+### Partial vs full — different operations (US-2659 AC5)
+
+|  | Full rebuild | Single-object recovery |
+|---|---|---|
+| When | Volume lost; disaster recovery | Someone deleted or overwrote one photo and the nightly sync propagated it |
+| Prefix | `storage` (default) | `storage-deleted/<ts>` |
+| Target | the real `STORAGE_DIR`, empty | a **scratch** directory |
+| Then | point services at it | copy the one path across by hand |
+
+```bash
+# SINGLE OBJECT — find the dated prefix, restore it somewhere harmless.
+rclone lsf r2crypt:gradethread-backups/storage-deleted --dirs-only
+RCLONE_REMOTE=r2crypt:gradethread-backups RESTORE_PREFIX=storage-deleted/<ts> \
+  bash scripts/ops/restore-storage.sh /tmp/recovered
+cp /tmp/recovered/<bucket>/<user>/<file> /var/lib/supabase/storage/<...>
+```
+
+Never point the full-rebuild form at the live `STORAGE_DIR` to recover one file:
+it pulls the whole prefix, so it would drag every other object back to its
+backed-up state as well.
+
+### Rehearsing the storage drill locally
+
+Needs `rclone` (`scoop install rclone`) and nothing else — no Docker, no
+network, no R2 credential. It defines an ephemeral crypt remote over a local
+directory in a throwaway config, so the real config is never read or written.
+
+```bash
+bash scripts/ops/restore-storage-drill.sh   # PASS/FAIL
+```
+
+> [!warning] **What the drill cannot prove.** It uses an ephemeral password, so
+> it proves the *round trip* works. It says nothing about whether the REAL crypt
+> password and salt exist anywhere other than the DB host — and that host is the
+> exact thing an offsite mirror exists to survive losing. See
+> [[key-rotation]]. Until that is answered, a total host loss still means every
+> object in R2 is unreadable ciphertext.
+
 ## Restore drill log
 
 | Date | What was restored | Result | Timing | Operator |
@@ -232,6 +300,7 @@ bash scripts/ops/restore-drill.sh        # PASS/FAIL + timings
 | 2026-06-12 | Full pg dump (schema at migration 00151 + seeded auth user/submission/grade_report/inventory_item/storage.object rows) → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container via `restore-drill.sh` | PASS — latest migration, all row counts, and all 270 RLS policies matched source | dump 1s, restore 11s | Ralph (US-494) |
 | 2026-08-08 | **Encrypted** artifact: local stack at migration 00559 (5 auth users → 5 `public.users`, 20 submissions, 375 RLS policies) → `age` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. Also run separately through the real `backup-postgres.sh` + `restore-postgres.sh` pair, restoring from a **different directory** than the backup wrote, which is what an offsite fetch actually does. | PASS — migration, all row counts and all 375 policies matched source | dump 1s, restore 5s | US-2416 |
 | 2026-08-16 | **Encrypted** artifact: local stack at migration **00609** → `rage` encrypt → sha256 → verify → decrypt → fresh `public.ecr.aws/supabase/postgres:17.6.1.106` scratch container. **388 RLS policies**, up from 375 in August. ⚠ All row counts were **0** — the stack was the throwaway one `supabase db reset` builds, so this run proves the schema, policy and encryption path and says nothing about restoring DATA. The 2026-08-08 row above is the one that covers that. | PASS — migration 00609 and all 388 policies matched source | dump 1s, restore 8s | US-2618 loop |
+| 2026-08-16 | **STORAGE**, first time ever: 8-file volume (submission-images incl. label shots + item-photos) → `backup-storage.sh` → ephemeral rclone **crypt** remote → `restore-storage.sh` → fresh dir. Verified no plaintext on the remote, file count, and every file SHA-256. Then deleted one object, re-synced, and recovered the original bytes from `storage-deleted/<ts>/`. | PASS — 8/8 byte-identical, deleted object recovered intact | <10s | US-2659 |
 | _before launch_ | A real **prod** offsite dump → scratch host (LAUNCH_CHECKLIST §5) | | | |
 
 > [!danger] **LAUNCH GATE:** the local drill proves the *procedure*; §5 of
