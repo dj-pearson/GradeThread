@@ -10,11 +10,7 @@ import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, sep } from "node:path";
 import {
-  buildBlogOgHtml,
-  buildCertBadgeHtml,
-  buildCertOgHtml,
-  buildCertSlabHtml,
-  buildGradeResultCardHtml,
+  buildBlogOgHtml,  buildGradeResultCardHtml,
   buildSellerOgHtml,
   buildSocialCardHtml,
   isSocialCardRatio,
@@ -100,29 +96,17 @@ describe("buildSocialCardHtml", () => {
 });
 
 // The card endpoint shares functions/_shared/og-template.ts with the other
-// dynamic share-image surfaces (cert OG/slab/badge, blog OG, seller). Exercising
+// dynamic share-image surfaces (blog OG, help, seller, grade result). Exercising
 // both arms of their optional-field branches keeps the shared template honest.
+//
+// THE CERT OG / SLAB / BADGE CASES USED TO BE HERE AND WERE WORSE THAN NOTHING
+// (US-2619 AC9). Those three routes proxy to the Deno edge, which owns their
+// layout in lib/cert-og-template.ts — the Pages copies had zero importers and
+// had already DIVERGED from the live ones. So the tests passed on markup nobody
+// rendered, and anyone changing the certificate card here would have seen green
+// and shipped nothing. The Pages copies are deleted; the edge copies are covered
+// by the edge suite, which is where the bytes actually come from.
 describe("sibling share-image templates", () => {
-  it("buildCertOgHtml renders the score + tier, with and without a brand", () => {
-    const withBrand = buildCertOgHtml({
-      title: "Vintage Levi's 501",
-      brand: "Levi's",
-      score: 9.5,
-      gradeTier: "Excellent",
-      heroImageUrl: "https://cdn.example.com/a.jpg",
-    });
-    expect(withBrand).toContain("9.5");
-    expect(withBrand).toContain("Excellent");
-    expect(withBrand).toContain("Levi&#39;s");
-    const noBrand = buildCertOgHtml({
-      title: "Mystery jacket",
-      brand: null,
-      score: 7,
-      gradeTier: "Very Good",
-    });
-    expect(noBrand).toContain("Pre-owned garment");
-  });
-
   it("buildBlogOgHtml renders the title and joins available meta", () => {
     const full = buildBlogOgHtml({
       title: "How to grade denim",
@@ -156,13 +140,6 @@ describe("sibling share-image templates", () => {
       averageGrade: 0,
     });
     expect(empty).toContain("—"); // no average yet
-  });
-
-  it("buildCertBadgeHtml renders the compact trust badge", () => {
-    const html = buildCertBadgeHtml({ score: 6.5, gradeTier: "Good" });
-    expect(html).toContain("6.5");
-    expect(html).toContain("Good");
-    expect(html).toContain("width:700px");
   });
 
   it("buildGradeResultCardHtml renders the grade, value range and subject, escaping input", () => {
@@ -213,34 +190,6 @@ describe("sibling share-image templates", () => {
     expect(xss).toContain("&lt;script&gt;");
   });
 
-  it("buildCertSlabHtml renders both the photo and label-only variants", () => {
-    const photo = buildCertSlabHtml({
-      width: 1080,
-      height: 1080,
-      title: "Carhartt Jacket",
-      brand: "Carhartt",
-      score: 8,
-      gradeTier: "Excellent",
-      heroImageUrl: "https://cdn.example.com/jacket.jpg",
-      qrDataUri: "data:image/svg+xml;base64,AAAA",
-      certId: "abcdef0123456789",
-    });
-    expect(photo).toContain("jacket.jpg");
-    expect(photo).toContain("Scan to verify");
-    const labelOnly = buildCertSlabHtml({
-      width: 1080,
-      height: 1080,
-      title: "No-photo card",
-      brand: null,
-      score: 9,
-      gradeTier: "NWOT",
-      heroImageUrl: null,
-      qrDataUri: "data:image/svg+xml;base64,AAAA",
-      certId: "abcdef0123456789",
-    });
-    expect(labelOnly).toContain("out of 10");
-    expect(labelOnly).toContain("Pre-owned garment");
-  });
 });
 
 describe("US-2619: every in-Function OG endpoint buffers before responding", () => {

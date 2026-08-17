@@ -1,12 +1,14 @@
 // US-2619: an og-template builder that nothing renders is invisible today.
 //
-// THE TRAP THIS CLOSES. og/cert, slab/cert and badge/cert became thin proxies to
-// the Deno edge (the workers-og render inside a Pages Function exceeded the
-// free-plan Worker CPU limit — six files carry that paragraph). Their layouts
-// were RE-AUTHORED on the edge, which left buildCertOgHtml, buildCertSlabHtml
-// and buildCertBadgeHtml with zero importers in functions/ outside their own
-// tests. Editing one of them to change the certificate card would do nothing at
-// all: production renders the edge copy.
+// THE TRAP THIS CLOSED, and it is worth keeping the story now that the register
+// is empty. og/cert, slab/cert and badge/cert became thin proxies to the Deno
+// edge (the workers-og render inside a Pages Function exceeded the free-plan
+// Worker CPU limit — six files carry that paragraph). Their layouts were
+// RE-AUTHORED on the edge, which left buildCertOgHtml, buildCertSlabHtml and
+// buildCertBadgeHtml with zero importers in functions/ outside their own tests.
+// Editing one of them to change the certificate card would have done nothing at
+// all: production renders the edge copy. They are now deleted (AC9) — see the
+// register below for why that, and not a conversion, was the answer.
 //
 // WHY THE EXISTING GUARD CANNOT SEE IT, checked rather than assumed.
 // scripts/check-unwired-modules.mjs flags whole EDGE modules that nothing
@@ -32,22 +34,23 @@ const TEMPLATE = join(FUNCTIONS, "_shared", "og-template.ts");
  * so a migration that brings a card back has to delete its line rather than
  * leave the register describing something that is no longer true.
  */
-const KNOWN_DEAD: Record<string, string> = {
-  buildCertOgHtml:
-    "og/cert/[id].ts became a thin proxy to the Deno edge because the " +
-    "in-Function render exceeded the free-plan Worker CPU limit (HTTP 503, " +
-    "error 1102). The layout now lives in the edge's cert-image-render.ts. " +
-    "Kept because US-2619 may adopt a shape where the Pages Function builds the " +
-    "markup and the edge only rasterises it — under which this becomes live " +
-    "again. Delete it if that shape is rejected.",
-  buildCertSlabHtml:
-    "Same migration as buildCertOgHtml: slab/cert/[id].ts proxies to the edge, " +
-    "which owns the slab layout. Kept for the same reason and on the same " +
-    "condition.",
-  buildCertBadgeHtml:
-    "Same migration as buildCertOgHtml: badge/cert/[id].ts proxies to the edge. " +
-    "Kept for the same reason and on the same condition.",
-};
+// EMPTY, AND IT GOT THERE BY DELETION RATHER THAN BY BEING WRITTEN OFF
+// (US-2619 AC9, 2026-08-17). It held buildCertOgHtml, buildCertSlabHtml and
+// buildCertBadgeHtml, each on the condition "kept in case US-2619 adopts a shape
+// where the Pages Function builds the markup and the edge only rasterises it".
+//
+// That shape DID arrive — `renderViaEdge` is exactly it, and og/social/card,
+// og/blog, og/help and og/verified all use it. It still does not fit the three
+// certificate routes, and the reason is structural rather than incidental: those
+// routes are handed an id, and the certificate row is fetched ON THE EDGE. The
+// Pages Function has no data to build markup from without a second round trip
+// for every crawler hit on the most-shared card we have.
+//
+// So the condition resolved against them and they were deleted. They had also
+// already DIVERGED from the live edge copies in lib/cert-og-template.ts — by
+// 22, 286 and 225 characters — which is the register working: three functions
+// that looked like the certificate card, tested green, and rendered nothing.
+const KNOWN_DEAD: Record<string, string> = {};
 
 function functionModules(dir: string): string[] {
   const out: string[] = [];
@@ -80,8 +83,12 @@ describe("US-2619: every og-template builder is rendered by something", () => {
   it("finds the builders, so a rename cannot empty this guard", () => {
     // Guarding the guard: if the export shape changes and the scan returns
     // nothing, every assertion below passes for the wrong reason.
+    // Was 8 until the three dead certificate builders were deleted (AC9). The
+    // floor tracks what the file actually holds — a floor left above the real
+    // count is a guard that fails for a reason unrelated to what it guards, and
+    // a floor left far below it stops catching the empty scan it exists for.
     const builders = exportedBuilders();
-    expect(builders.length).toBeGreaterThanOrEqual(8);
+    expect(builders.length).toBeGreaterThanOrEqual(5);
     expect(builders).toContain("buildSocialCardHtml");
   });
 
