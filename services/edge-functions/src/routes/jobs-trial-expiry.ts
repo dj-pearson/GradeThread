@@ -185,6 +185,18 @@ export async function handleTrialExpiryCron(c: Context): Promise<Response> {
     .lt("trial_ends_at", nowIso)
     .is("flipdesk_subscription_id", null)
     .select("id")
+    // ⚠ THE `.order()` IS LOAD-BEARING, NOT TIDINESS. PostgREST refuses a
+    // `limit` on a MUTATION unless an explicit order accompanies it:
+    // PGRST109, "A 'limit' was applied without an explicit 'order'", HTTP 400.
+    // Without it this UPDATE returned an error on every single run since it
+    // shipped, the handler answered 500, and no expired trial was ever
+    // downgraded. Proven against PostgREST 12 on the real schema: this exact
+    // PATCH 400s, the same PATCH without `limit` succeeds, and the same PATCH
+    // with `limit` plus `order` succeeds.
+    //
+    // Same family as the `.or()`-on-mutation gotcha in CLAUDE.md: a qualifier
+    // that reads fine, type-checks, and is refused only by the server.
+    .order("id")
     .limit(BATCH_LIMIT);
 
   if (error) {
