@@ -41,7 +41,7 @@ const CONFIRM_DELAY_MS = Number(process.env.UPTIME_CONFIRM_DELAY_MS ?? 30_000);
 const SPA_SHELL_MARKER = /<div id="root">/i;
 const NOT_FOUND_MARKER = /Page Not Found/i;
 
-const TARGETS = [
+export const TARGETS = [
   {
     id: "spa",
     name: "Web app (SPA)",
@@ -88,10 +88,19 @@ const TARGETS = [
     // firing every ten minutes forever, and a muted monitor is worse than none.
     // It surfaces in the run log always, and in the incident issue body — which
     // is the moment "was the watchdog even running?" is the first question.
+    // ⚠ `features` IS A SIBLING OF `checks`, NOT A CHILD. This read
+    // `?.checks?.features?.hostWatchdog` from the day it shipped, which is
+    // always undefined, so the note NEVER FIRED — silently, because an optional
+    // chain over a wrong path returns undefined and the `typeof !== "string"`
+    // arm treats that identically to "the field is fine". The whole point was to
+    // answer "was the watchdog even running?" during an incident, and it would
+    // have been blank in exactly that moment. Verified against the live
+    // response 2026-08-17: top-level keys are status, checks, features, schema,
+    // timestamp, and `checks` holds only database and env.
     bodyNote: (bodyText) => {
       try {
-        const state = JSON.parse(bodyText)?.checks?.features?.hostWatchdog;
-        if (typeof state !== "string" || state === "ok") return null;
+        const state = JSON.parse(bodyText)?.features?.hostWatchdog;
+        if (typeof state !== "string" || state.startsWith("ok")) return null;
         return `hostWatchdog: ${state}`;
       } catch {
         return null;
@@ -314,28 +323,37 @@ function runUrl() {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── Main ────────────────────────────────────────────────────────────────────
+//
+// ⚠ GUARDED, because the test imports TARGETS from this file. Everything below
+// is top-level await against the REAL production hostnames — importing this
+// module unguarded would fire a full uptime probe (and, with a token in the
+// environment, open a GitHub issue) as a side effect of a unit test. Same trap
+// that made gen-console-diagnostics regenerate the file it was asked to check.
+if (process.argv[1]?.endsWith("uptime-check.mjs")) {
 
-const round1 = await Promise.all(TARGETS.map(probe));
-for (const r of round1) console.log(describe(r));
+  const round1 = await Promise.all(TARGETS.map(probe));
+  for (const r of round1) console.log(describe(r));
 
-let results = round1;
-const firstFailures = round1.filter((r) => !r.up);
-if (firstFailures.length > 0) {
-  console.log(`\n${firstFailures.length} failure(s) — confirming in ${CONFIRM_DELAY_MS / 1000}s…`);
-  await sleep(CONFIRM_DELAY_MS);
-  const recheck = await Promise.all(
-    firstFailures.map((f) => probe(TARGETS.find((t) => t.id === f.id))),
-  );
-  for (const r of recheck) console.log(describe(r));
-  results = round1.map((r) => recheck.find((c) => c.id === r.id) ?? r);
+  let results = round1;
+  const firstFailures = round1.filter((r) => !r.up);
+  if (firstFailures.length > 0) {
+    console.log(`\n${firstFailures.length} failure(s) — confirming in ${CONFIRM_DELAY_MS / 1000}s…`);
+    await sleep(CONFIRM_DELAY_MS);
+    const recheck = await Promise.all(
+      firstFailures.map((f) => probe(TARGETS.find((t) => t.id === f.id))),
+    );
+    for (const r of recheck) console.log(describe(r));
+    results = round1.map((r) => recheck.find((c) => c.id === r.id) ?? r);
+  }
+
+  const confirmed = results.filter((r) => !r.up);
+  if (confirmed.length > 0) {
+    console.error(`\nCONFIRMED DOWN: ${confirmed.map((f) => f.name).join(", ")}`);
+    await reportFailure(confirmed, results);
+    process.exit(1);
+  }
+
+  console.log("\nAll targets healthy.");
+  await reportRecovery();
+
 }
-
-const confirmed = results.filter((r) => !r.up);
-if (confirmed.length > 0) {
-  console.error(`\nCONFIRMED DOWN: ${confirmed.map((f) => f.name).join(", ")}`);
-  await reportFailure(confirmed, results);
-  process.exit(1);
-}
-
-console.log("\nAll targets healthy.");
-await reportRecovery();
