@@ -59,7 +59,7 @@
     "setup:stripe": "node scripts/setup-stripe-pricing.mjs",
     "ralph": "node scripts/ralph/run-sdk.mjs",
     "ralph:sh": "node scripts/ralph/run.mjs --tool claude",
-    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
+    "prepare": "node scripts/setup-git-hooks.mjs",
     "vault:review": "node scripts/vault-lint.mjs --report"
   },
   "repository": {

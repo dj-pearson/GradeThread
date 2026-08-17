@@ -55,6 +55,16 @@ the migration is applied AND `NOTIFY pgrst` has run.
 select public.admin_revoke_user_sessions('00000000-0000-0000-0000-000000000000'::uuid);
 ```
 
+To confirm the `NOTIFY pgrst` actually landed — without calling a function that
+deletes sessions — read PostgREST's own OpenAPI document. It reports the
+signature **as the schema cache currently holds it**, so the RPC appearing there
+IS the cache being current. Pure read; nothing is executed:
+
+```bash
+curl -fsS https://api.gradethread.com/ -H "apikey: $ANON_KEY"   | jq '.paths["/rpc/admin_revoke_user_sessions"] != null'
+# expect true. false means the NOTIFY has not been seen yet.
+```
+
 Then read the GoTrue version, because it decides whether the fallback is doing
 all the work or none of it:
 
@@ -936,7 +946,17 @@ unaffected either way.
 4. THEN push.
 
 
-## ❌ NOT APPLIED: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account) — US-2606
+## ✅ RESOLVED 2026-08-16: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account) — US-2606
+
+> [!note] **00594 IS APPLIED.** Confirmed 2026-08-16 by the measurement recorded
+> near the top of this file: `/health/ready` stopped returning
+> `"missing":["00594"]`, and `missing` is omitted only when the applied set is
+> complete. The header on this section read `❌ NOT APPLIED` until 2026-08-17,
+> which contradicted that newer section 500 lines above it — and a red header is
+> what an operator scrolling for their next action stops at. **Everything below
+> this line is history and is kept deliberately** (US-2606 AC4): the retraction
+> and the reasoning it retracts are the lesson, and deleting them would leave the
+> file looking like it had never been wrong.
 
 > [!danger] **This section said APPLIED for a day and it was wrong.** Corrected
 > 2026-08-15 by measurement. `GET /health/ready` now returns

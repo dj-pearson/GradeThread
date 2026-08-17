@@ -66,4 +66,15 @@ COMMENT ON FUNCTION public.admin_revoke_user_sessions(uuid) IS
   'Service-role only, checked in the body. Replaces GoTrue POST /admin/users/{id}/logout, '
   'which does not exist in v2.195.0.';
 
+-- AN EXPLICIT GRANT, AND DELIBERATELY NOT A REVOKE. The two are not symmetric
+-- here. A REVOKE arms the US-2403 segfault on a denied call; a GRANT denies
+-- nobody and cannot. What it buys is the thing US-2666 found missing on five of
+-- the six functions it fixed: they hold EXECUTE only THROUGH the PUBLIC default,
+-- with no grant to service_role anywhere, so any later `REVOKE ... FROM PUBLIC`
+-- would silently strip the edge's own access. This line means that cannot happen
+-- to this function. It also answers US-2282 AC4's guard, which asks every
+-- SECURITY DEFINER function to say who may execute it -- the restriction itself
+-- is the check in the body above.
+GRANT EXECUTE ON FUNCTION public.admin_revoke_user_sessions(uuid) TO service_role;
+
 insert into public.applied_migrations (version) values ('00612') on conflict do nothing;
