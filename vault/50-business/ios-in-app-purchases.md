@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/routes/appstore.ts
   - services/edge-functions/src/lib/appstore/precedence.ts
   - services/edge-functions/src/lib/appstore/products.ts
-reviewed: 2026-08-10
+reviewed: 2026-08-17
 tags: [ios, billing, app-store, monetization]
 summary: StoreKit purchases reconcile into the same user columns as Stripe, and the one App Review rejection was about discoverability rather than configuration.
 ---
@@ -82,6 +82,20 @@ resolution.
 > The buyer product was the hole: every guard read the seller columns, so a
 > buyer with a live App Store or Play subscription could start a Stripe one on
 > top. Apple's half of that double charge is not refundable from here.
+
+## Every grant records which store paid for it
+
+`appstore_processed_transactions.environment` is `NULL | production | sandbox`,
+written through the seventh parameter of `grant_appstore_credits`
+(`p_environment text DEFAULT NULL`, added in 00609). The user row and the Play
+purchase table got the same stamp in 00559; this table was left out at the time
+because it is written only through that SECURITY DEFINER RPC, so stamping it
+needed a signature change rather than a column.
+
+It exists so sandbox purchases are separable from real revenue **after** the
+fact. Without it, a tester's consumable and a paying customer's are the same row
+shape, and no report can tell them apart retroactively. `NULL` is allowed and
+means "granted before the column existed" — not "production".
 
 ## Related
 

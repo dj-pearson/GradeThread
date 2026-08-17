@@ -5,7 +5,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [ops, database, migrations]
 summary: How migrations are authored, verified and applied to self-hosted prod.
 ---
@@ -101,6 +101,40 @@ A CI guard (`services/edge-functions/src/tests/schema-version_test.ts`, in
 `verify:edge`) fails the build if a migration after `00254` omits it. The footer
 writes ONLY to `public.applied_migrations` (never the CLI's table), so it can't
 collide with `supabase db reset` in the local `verify:db` lane.
+
+> [!danger] A RECORDED VERSION IS NOT EVIDENCE THE MIGRATION TOOK EFFECT
+> This is the belief the footer invites, it has been written down as a proof more
+> than once, and on **2026-08-17 it was false in production**: `00611` was in
+> `applied_migrations` while all six functions it rewrites still answered an
+> anonymous caller — measured, with `revenue_dashboard` refusing on the same
+> database in the same minute as a control.
+>
+> The reasoning was "the footer is the LAST statement, so a failure aborts before
+> anything is recorded". That holds **only under `ON_ERROR_STOP=1`**. Without it
+> psql prints the error, carries on, and reaches the footer anyway — so the
+> version records and nothing else did. A Studio paste has the same property.
+>
+> There is a second route to the same state, and it needs no failure at all:
+> `CREATE OR REPLACE FUNCTION` only replaces a function with the **same argument
+> list**. A different signature creates a second **overload**, leaves the
+> original live, and every statement succeeds. (00609's own header records this
+> trap in the other direction — it used `DROP` + `CREATE` precisely to avoid it.)
+>
+> **So the footer proves the file was RUN, never that it WORKED.** Two habits
+> follow, and both are cheap:
+>
+> 1. **Always `-v ON_ERROR_STOP=1`.** It is what makes the recorded version mean
+>    anything at all.
+> 2. **Make the migration assert its own effect before the footer.** 00611-00613
+>    each end with a `DO` block that raises if the change is not present, naming
+>    the offending signature. Under `ON_ERROR_STOP` the raise aborts and the
+>    version is never recorded; without it the operator still gets a loud error.
+>    A migration that *can* be recorded without having landed is worse than one
+>    that fails, because the record is what everyone trusts afterwards.
+>
+> And prefer a check that reads the **effect** over one that reads the version:
+> for a permission change, an unauthenticated request to the endpoint answers the
+> question from outside with no console at all.
 
 ## CI validation (drift + clean-apply)
 

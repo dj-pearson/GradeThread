@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/active-listings.ts
   - services/edge-functions/src/tests/plan-gate-coverage_test.ts
   - src/lib/constants.ts
-reviewed: 2026-08-11
+reviewed: 2026-08-17
 tags: [flipdesk, plans, billing, contract]
 summary: Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
 ---
@@ -86,6 +86,32 @@ going forward instead. If the residual undercount ever needs closing, it is a
 one-off backfill (`inventory_items.status = 'listed'` where an active non-eBay
 `listings` row exists) and it WILL push some existing accounts over their cap on
 the next publish, which is a pricing/comms decision before it is a migration.
+
+## A trial does not carry its plan's AI allowance
+
+`aiCapFor(planLimit, userLimit, subscriptionStatus)` composes three inputs
+**min-of-caps**, the same shape the grading confidence policy uses: each can only
+lower the answer, so a fourth added later cannot accidentally raise one. When
+`subscription_status = 'trialing'` the result is capped at
+`TRIAL_AI_ACTION_CAP` = **100** — including on an unlimited (`-1`) plan, or the
+top tier would be the cheapest thing to farm.
+
+The exposure this closes is the **plan entitlement**, not credits: a fresh trial
+account has a `grade_credit_balance` of 0, but Pro carries 750 AI actions a month
+against Free's 25, so one signup-delete-resignup cycle was worth thirty times the
+free allowance. 100 sits deliberately above 25 (a real evaluator still gets a
+real trial) and well below 750 (a farmed one is worth about an eighth of what it
+was).
+
+**Owner's choice among three options, 2026-08-17.** The alternatives were a
+hashed-email record of prior trials and requiring a card on file. This one was
+picked because it adds no signup friction, retains no personal data past account
+deletion, and reverses by changing one number. It does not *prevent* a second
+trial — it makes each one too cheap to be worth taking.
+
+`subscription_status` is REQUIRED on `UserSlice` rather than optional, so a call
+site that forgets it fails to compile instead of silently granting the full plan
+cap.
 
 ## The response protocol
 
