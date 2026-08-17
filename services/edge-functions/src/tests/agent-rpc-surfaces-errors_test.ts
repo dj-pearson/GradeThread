@@ -138,6 +138,87 @@ Deno.test("the open-problem counters cannot report zero on a failed read", () =>
   }
 });
 
+// US-2664 AC4: the WRITE helpers, decided explicitly rather than swept.
+//
+// A failed write is worse than a failed read, and in a specific way: the agent
+// does not merely lack an answer, it reports an ACTION it did not take. Two of
+// these are on paths that touch customers.
+//
+// The value each one returns is the reason it needed fixing, not a detail:
+//   persistReleaseState / persistMarketplaceOpsBacklog  return NOTHING, so the
+//     only evidence of success was that nothing threw — and nothing could.
+//   setMarketingFrequencyCap  returns the new cap unconditionally, so a failed
+//     write reported the cap as applied while sends kept the old one.
+//   insertAdminTask  .single() always yields a row on success, so null was only
+//     ever failure, inferred from an absence.
+//   requeueEmailDeadLetter / addMarketingTopic  have a LEGITIMATE false — "not
+//     in dead_letter", "duplicate ignored" — which is exactly why it must not
+//     double as the error signal.
+//   enrollCohort  is the sharpest: a failed cohort read says "nobody's trial is
+//     expiring", and a failed DEDUPE read re-enrolls people who are already
+//     enrolled. That one is a duplicate marketing send, not a missing number.
+Deno.test("the write helpers cannot report success on a failed write", () => {
+  for (
+    const name of [
+      "persistReleaseState",
+      "persistMarketplaceOpsBacklog",
+      "setMarketingFrequencyCap",
+      "insertAdminTask",
+      "requeueEmailDeadLetter",
+      "addMarketingTopic",
+      "enrollCohort",
+    ]
+  ) {
+    const at = SRC.indexOf(`    ${name}: async `);
+    assert(at > -1, `${name} was renamed — update this guard`);
+    const body = SRC.slice(at, SRC.indexOf("\n    },", at));
+    assert(
+      /const \{[^}]*\berror\b[^}]*\} = await supabaseAdmin/.test(body) ||
+        /const \{[^}]*\bError:[^}]*\} = await supabaseAdmin/.test(body),
+      `${name} must bind the error from at least one supabaseAdmin call`,
+    );
+    assert(
+      body.includes("throw new Error(") && body.includes(`${name} failed:`),
+      `${name} must throw and name itself — several helpers share this shape ` +
+        `and a bare message would not say which write was lost`,
+    );
+  }
+});
+
+Deno.test("every query in a write helper is guarded, not just one of them", () => {
+  // ⚠ THIS CASE EXISTS BECAUSE THE FIRST VERSION OF THE ONE ABOVE MISSED A
+  // SABOTAGE. Deleting the UPDATE guard from requeueEmailDeadLetter left the
+  // suite green, because the helper still contained a throw — from its READ
+  // guard, three lines earlier. "Throws somewhere" is not the property; "no
+  // unchecked query" is.
+  //
+  // It matters most exactly where it is least visible: a SELECT sitting in the
+  // middle of a write path. enrollCohort's dedupe read is the case in point —
+  // unguarded, it comes back empty and everyone already enrolled is enrolled
+  // AGAIN, which is a duplicate marketing send rather than a missing number.
+  for (
+    const name of [
+      "requeueEmailDeadLetter",
+      "addMarketingTopic",
+      "enrollCohort",
+    ]
+  ) {
+    const at = SRC.indexOf(`    ${name}: async `);
+    assert(at > -1, `${name} was renamed — update this guard`);
+    const body = SRC.slice(at, SRC.indexOf("\n    },", at));
+    const queries = (body.match(/await supabaseAdmin/g) ?? []).length;
+    const throws = (body.match(new RegExp(`throw new Error\\(\`${name} failed:`, "g")) ?? [])
+      .length;
+    assert(queries > 1, `${name} should have several queries; got ${queries}`);
+    assertEquals(
+      throws,
+      queries,
+      `${name} makes ${queries} queries but guards only ${throws}. An unguarded ` +
+        `one is the whole defect: its empty result flows on as if it were real.`,
+    );
+  }
+});
+
 Deno.test("the dead-letter queues cannot report empty on a failed read", () => {
   for (const name of ["fetchWebhookDeadLetters", "fetchEmailDeadLetters"]) {
     const at = SRC.indexOf(`    ${name}: async (limit) => {`);

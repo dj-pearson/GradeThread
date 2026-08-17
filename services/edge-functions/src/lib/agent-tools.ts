@@ -577,7 +577,11 @@ export function prodToolIO(): ToolIO {
       return typeof v === "number" && Number.isFinite(v) ? v : null;
     },
     persistMarketplaceOpsBacklog: async (total) => {
-      await supabaseAdmin.from("system_settings").upsert(
+      // US-2664 AC4: silent on failure, and the damage lands a day later. This
+      // is the watermark the vs-yesterday trend is computed against, so a lost
+      // write does not show up as a missing number — it shows up as a WRONG
+      // delta tomorrow, which nobody reads as a bug.
+      const { error } = await supabaseAdmin.from("system_settings").upsert(
         {
           key: "marketplace_ops.backlog_snapshot",
           value: { total, at: new Date().toISOString() },
@@ -588,6 +592,7 @@ export function prodToolIO(): ToolIO {
         },
         { onConflict: "key" },
       );
+      if (error) throw new Error(`persistMarketplaceOpsBacklog failed: ${error.message}`);
     },
     fetchAbuseSignals: async (limit) => {
       const { data } = await supabaseAdmin
@@ -723,7 +728,12 @@ export function prodToolIO(): ToolIO {
       return v && typeof v === "object" && !Array.isArray(v) ? v as ReleaseState : null;
     },
     persistReleaseState: async (state) => {
-      await supabaseAdmin.from("system_settings").upsert(
+      // US-2664 AC4: a WRITE that fails silently is worse than a read that
+      // does. This one has no return value at all, so the caller's only
+      // evidence that the state was recorded is that nothing threw — and
+      // without the binding, nothing ever throws. The next release check would
+      // then compare against a baseline that was never stored.
+      const { error } = await supabaseAdmin.from("system_settings").upsert(
         {
           key: "release.verify_state",
           value: state,
@@ -734,6 +744,7 @@ export function prodToolIO(): ToolIO {
         },
         { onConflict: "key" },
       );
+      if (error) throw new Error(`persistReleaseState failed: ${error.message}`);
     },
     runSmoke: async () => {
       const base = `http://localhost:${Deno.env.get("PORT") || "8787"}`;
@@ -1018,7 +1029,13 @@ export function prodToolIO(): ToolIO {
     addMarketingTopic: async (input) => {
       if (input.bank === "email") {
         // Evergreen newsletter bank; unique (pillar, angle) makes this idempotent.
-        const { data } = await supabaseAdmin
+        //
+        // US-2664 AC1/AC4: `inserted: false` is a LEGITIMATE answer here —
+        // ignoreDuplicates means an existing (pillar, angle) returns no row —
+        // which is exactly why it must not double as the failure signal. Same
+        // value, two meanings, and the agent reports "already in the bank"
+        // either way.
+        const { data, error } = await supabaseAdmin
           .from("email_topic_bank")
           .upsert(
             { pillar: input.pillar, angle: input.angle, label: input.label, summary: input.summary, source: "manual", status: "active" } as never,
@@ -1026,10 +1043,11 @@ export function prodToolIO(): ToolIO {
           )
           .select("id")
           .maybeSingle();
+        if (error) throw new Error(`addMarketingTopic failed: ${error.message}`);
         return { inserted: !!data, id: (data as { id: string } | null)?.id ?? null };
       }
       // Blog topic queue (content_topics). generated_by=human, source=research.
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("content_topics")
         .insert({
           surface: input.surface,
@@ -1042,10 +1060,18 @@ export function prodToolIO(): ToolIO {
         } as never)
         .select("id")
         .single();
+      // Unlike the upsert above, a plain insert with .single() has no
+      // legitimate empty result, so inserted:false here was ALWAYS a failure
+      // being reported as a no-op.
+      if (error) throw new Error(`addMarketingTopic failed: ${error.message}`);
       return { inserted: !!data, id: (data as { id: string } | null)?.id ?? null };
     },
     setMarketingFrequencyCap: async (capPerDay) => {
-      await supabaseAdmin.from("system_settings").upsert(
+      // US-2664 AC4: this returns { cap_per_day } unconditionally, so on a
+      // failed write the agent reports the NEW cap as if it had been applied
+      // while every send still runs under the old one. Worse than a missing
+      // answer: a confident wrong one about how often people are emailed.
+      const { error } = await supabaseAdmin.from("system_settings").upsert(
         {
           key: MARKETING_FREQ_CAP_SETTING,
           value: capPerDay,
@@ -1056,6 +1082,7 @@ export function prodToolIO(): ToolIO {
         } as never,
         { onConflict: "key" },
       );
+      if (error) throw new Error(`setMarketingFrequencyCap failed: ${error.message}`);
       bustSettingCache(MARKETING_FREQ_CAP_SETTING);
       return { cap_per_day: capPerDay };
     },
@@ -1130,7 +1157,18 @@ export function prodToolIO(): ToolIO {
       if (campaign !== "trial_conversion") return { enrolled: 0, cohort, campaign, error: "unknown_campaign" };
       if (cohort !== "trial_expiring_7d") return { enrolled: 0, cohort, campaign, error: "unknown_cohort" };
       const in7dIso = new Date(Date.parse(nowIso) + 7 * 86400_000).toISOString();
-      const { data: trialists } = await supabaseAdmin
+      // US-2664: BOTH reads below throw, and this helper is the sharpest case
+      // in the file because its two failure modes point in opposite directions.
+      //
+      // A failed COHORT read returned `{ enrolled: 0 }` with no error, which
+      // the agent reports as "nobody's trial is expiring this week" — a
+      // confident wrong answer about people we were about to email.
+      //
+      // A failed DEDUPE read is worse than a wrong number: `already` would come
+      // back empty, so everyone already enrolled would be enrolled AGAIN. That
+      // is not a missing action, it is a duplicate marketing send to real
+      // customers, caused by a query nobody checked.
+      const { data: trialists, error: cohortErr } = await supabaseAdmin
         .from("users")
         .select("id, created_at, trial_ends_at, notification_preferences")
         .eq("subscription_status", "trialing")
@@ -1138,12 +1176,14 @@ export function prodToolIO(): ToolIO {
         .lt("trial_ends_at", in7dIso)
         .order("trial_ends_at", { ascending: true })
         .limit(ENROLL_CAP);
+      if (cohortErr) throw new Error(`enrollCohort failed: ${cohortErr.message}`);
       const candidates = ((trialists ?? []) as Array<{ id: string; created_at: string | null; trial_ends_at: string | null; notification_preferences: Record<string, unknown> | null }>)
         .filter((t) => !marketingOptedOutEmail(t.notification_preferences));
       if (candidates.length === 0) return { enrolled: 0, cohort, campaign };
       const ids = candidates.map((t) => t.id);
-      const { data: existing } = await supabaseAdmin
+      const { data: existing, error: dedupeErr } = await supabaseAdmin
         .from("drip_enrollments").select("user_id").eq("campaign", campaign).in("user_id", ids);
+      if (dedupeErr) throw new Error(`enrollCohort failed: ${dedupeErr.message}`);
       const already = new Set((existing ?? []).map((r) => (r as { user_id: string }).user_id));
       const rows = candidates.filter((t) => !already.has(t.id)).map((t) => ({
         user_id: t.id,
@@ -1155,10 +1195,14 @@ export function prodToolIO(): ToolIO {
         next_evaluation_at: nowIso,
       }));
       if (rows.length === 0) return { enrolled: 0, cohort, campaign };
-      const { data: inserted } = await supabaseAdmin
+      const { data: inserted, error: enrollErr } = await supabaseAdmin
         .from("drip_enrollments")
         .upsert(rows as never, { onConflict: "user_id,campaign", ignoreDuplicates: true })
         .select("id");
+      // The write itself: `enrolled: 0` on a failed upsert reads as "everyone
+      // was already enrolled", which is the one answer that stops anyone
+      // looking into it.
+      if (enrollErr) throw new Error(`enrollCohort failed: ${enrollErr.message}`);
       return { enrolled: (inserted ?? []).length, cohort, campaign };
     },
     fetchMaintenanceIntervals: async (sinceIso) => {
@@ -1196,15 +1240,20 @@ export function prodToolIO(): ToolIO {
       }
     },
     requeueEmailDeadLetter: async (id) => {
-      const { data: row } = await supabaseAdmin
+      // US-2664 AC1/AC4: `false` legitimately means "that id is not sitting in
+      // dead_letter" — a real and common answer. It ALSO meant "the query
+      // failed", and the caller could not tell which. Throwing separates them,
+      // so a false from here now means exactly one thing.
+      const { data: row, error: readErr } = await supabaseAdmin
         .from("email_deliveries")
         .select("attempts")
         .eq("id", id)
         .eq("status", "dead_letter")
         .maybeSingle();
+      if (readErr) throw new Error(`requeueEmailDeadLetter failed: ${readErr.message}`);
       if (!row) return false;
       const attempts = (row as { attempts?: number }).attempts ?? 0;
-      const { data } = await supabaseAdmin
+      const { data, error } = await supabaseAdmin
         .from("email_deliveries")
         .update({
           status: "pending",
@@ -1216,6 +1265,7 @@ export function prodToolIO(): ToolIO {
         .eq("status", "dead_letter")
         .select("id")
         .maybeSingle();
+      if (error) throw new Error(`requeueEmailDeadLetter failed: ${error.message}`);
       return !!data;
     },
     resolveAgentTaskProject: async () => {
@@ -1234,7 +1284,12 @@ export function prodToolIO(): ToolIO {
       return (created as { id: string } | null)?.id ?? null;
     },
     insertAdminTask: async (row) => {
-      const { data } = await supabaseAdmin
+      // US-2664 AC4: a successful insert with .single() ALWAYS returns a row,
+      // so null could only ever mean failure — and the caller had to infer
+      // that from an absence. Throwing makes null unreachable and names the
+      // reason instead. The agent files these as follow-up work; a swallowed
+      // failure means it reports a task it did not create.
+      const { data, error } = await supabaseAdmin
         .from("admin_tasks")
         .insert({
           project_id: row.project_id,
@@ -1245,6 +1300,7 @@ export function prodToolIO(): ToolIO {
         } as never)
         .select("id")
         .single();
+      if (error) throw new Error(`insertAdminTask failed: ${error.message}`);
       return (data as { id: string } | null) ?? null;
     },
     reorderReviewQueue: (opts) =>
