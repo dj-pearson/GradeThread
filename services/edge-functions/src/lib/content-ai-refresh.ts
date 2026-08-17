@@ -3,6 +3,7 @@ import {
   getAnthropicClient,
   getContentModel,
 } from "./ai-config.ts";
+import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { loadKnowledge } from "./content-ai-blog.ts";
 import {
@@ -128,20 +129,17 @@ export async function refreshBlogArticle(
   });
   const latencyMs = Date.now() - startTime;
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("AI refresh response contained no text block");
-  }
+  const rawText = extractTextBlock(response, "content-ai-refresh");
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripCodeFence(textBlock.text));
+    parsed = JSON.parse(stripCodeFence(rawText));
   } catch {
     console.error(
       "[content-ai-refresh] JSON parse failed:",
-      textBlock.text.slice(0, 300),
+      rawText.slice(0, 300),
     );
-    throw new Error("AI returned invalid JSON for blog refresh");
+    throw jsonParseError(response, "content-ai-refresh", rawText);
   }
   const refreshed = validateAndNormalize(parsed, input.refresh);
 

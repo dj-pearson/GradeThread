@@ -12,6 +12,7 @@ import {
   getAnthropicClient,
   getDefaultModel,
 } from "./ai-config.ts";
+import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import {
@@ -161,24 +162,25 @@ export async function generateAdCopy(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 2048,
+    // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
+    // number was sized on sonnet-4-6, where omitting `thinking` meant no
+    // thinking at all — see lib/ai-response-text.ts for the outage that
+    // caused. Size it for the worst-case output PLUS reasoning headroom.
+    max_tokens: 4096,
     ...(temperature !== undefined ? { temperature } : {}),
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
   const latencyMs = Date.now() - startTime;
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("AI response contained no text block");
-  }
+  const rawText = extractTextBlock(response, "ad-copy-ai");
 
   let parsed: Record<string, unknown>;
   try {
-    parsed = JSON.parse(stripCodeFence(textBlock.text));
+    parsed = JSON.parse(stripCodeFence(rawText));
   } catch {
-    console.error("[ad-copy-ai] JSON parse failed:", textBlock.text.slice(0, 300));
-    throw new Error("AI returned invalid JSON for ad copy");
+    console.error("[ad-copy-ai] JSON parse failed:", rawText.slice(0, 300));
+    throw jsonParseError(response, "ad-copy-ai", rawText);
   }
 
   const sourceKeywords = [

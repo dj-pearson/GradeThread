@@ -3,6 +3,7 @@ import {
   getAnthropicClient,
   getContentModel,
 } from "./ai-config.ts";
+import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
@@ -194,17 +195,14 @@ export async function generateBlogArticle(
   });
   const latencyMs = Date.now() - startTime;
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("AI response contained no text block");
-  }
+  const rawText = extractTextBlock(response, "content-ai-blog");
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripCodeFence(textBlock.text));
+    parsed = JSON.parse(stripCodeFence(rawText));
   } catch {
-    console.error("[content-ai-blog] JSON parse failed:", textBlock.text.slice(0, 300));
-    throw new Error("AI returned invalid JSON for blog article");
+    console.error("[content-ai-blog] JSON parse failed:", rawText.slice(0, 300));
+    throw jsonParseError(response, "content-ai-blog", rawText);
   }
   const article = validateAndNormalize(parsed);
 

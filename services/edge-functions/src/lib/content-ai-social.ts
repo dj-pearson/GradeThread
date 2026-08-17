@@ -3,6 +3,7 @@ import {
   getAnthropicClient,
   getContentModel,
 } from "./ai-config.ts";
+import { extractTextBlock, jsonParseError } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
@@ -257,28 +258,31 @@ export async function generateSocialPost(
 
   const response = await client.messages.create({
     model,
-    // Bumped from 1024 — six platform variants add materially to the output.
-    max_tokens: 3072,
+    // SEVEN platform variants plus a long and a short body. tiktok joined
+    // SOCIAL_PLATFORMS in 4bc9ab30 and this number did not move; the comment
+    // here still said six.
+    // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
+    // number was sized on sonnet-4-6, where omitting `thinking` meant no
+    // thinking at all — see lib/ai-response-text.ts for the outage that
+    // caused. Size it for the worst-case output PLUS reasoning headroom.
+    max_tokens: 8192,
     ...(temperature !== undefined ? { temperature } : {}),
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
   const latencyMs = Date.now() - startTime;
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("AI response contained no text block");
-  }
+  const rawText = extractTextBlock(response, "content-ai-social");
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripCodeFence(textBlock.text));
+    parsed = JSON.parse(stripCodeFence(rawText));
   } catch {
     console.error(
       "[content-ai-social] JSON parse failed:",
-      textBlock.text.slice(0, 300),
+      rawText.slice(0, 300),
     );
-    throw new Error("AI returned invalid JSON for social post");
+    throw jsonParseError(response, "content-ai-social", rawText);
   }
   const post = validate(parsed, platforms);
 

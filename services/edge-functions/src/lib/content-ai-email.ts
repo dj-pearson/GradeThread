@@ -21,6 +21,7 @@
 // (built by ANY send path) don't repeat it.
 
 import { getAiTemperature, getAnthropicClient, getContentModel } from "./ai-config.ts";
+import { extractTextBlock } from "./ai-response-text.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { buildHistoryContext, type ContentProduct } from "./content-history.ts";
@@ -128,19 +129,20 @@ export async function generateEmailIssue(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 4096,
+    // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
+    // number was sized on sonnet-4-6, where omitting `thinking` meant no
+    // thinking at all — see lib/ai-response-text.ts for the outage that
+    // caused. Size it for the worst-case output PLUS reasoning headroom.
+    max_tokens: 8192,
     ...(temperature !== undefined ? { temperature } : {}),
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
   const latencyMs = Date.now() - startTime;
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("AI response contained no text block");
-  }
+  const rawText = extractTextBlock(response, "content-ai-email");
 
-  const issue = parseEmailIssue(textBlock.text, {
+  const issue = parseEmailIssue(rawText, {
     changelogLines: input.changelogLines,
     maxSections,
   });
