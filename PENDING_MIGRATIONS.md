@@ -1,5 +1,45 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00614 — a session revocation that exists (US-2662)
+
+**Risk: LOW. Additive: one new function, nothing altered. Apply fourth, last.**
+
+`NOTIFY pgrst, 'reload schema';` **IS required** — this adds a NEW RPC and the
+edge calls it by name. Without the reload PostgREST does not know it exists and
+every stop reports a failed revocation, which is the state we are leaving.
+
+### What it fixes
+
+Stopping an impersonation posted to GoTrue's `admin/users/{id}/logout`. That
+route does not exist on the version this project runs — 404 on v2.195.0 locally,
+and production is v2.174.0, older. So no impersonation has ever been stopped in
+the sense that matters: `/stop` returned `sessions_revoked: false` and the
+target's refresh token stayed live in the admin's browser for its full lifetime.
+
+`public.revoke_user_sessions(uuid)` deletes the user's `auth.sessions` rows; their
+refresh tokens cascade. Service-role only, per the allowlist contract.
+
+### Order and code coupling
+
+`00611`, `00612`, `00613`, then `00614`, then `NOTIFY pgrst`, then push.
+
+⚠ **The frontend reads the new response fields the moment it deploys.** `/stop`
+now returns `revoked` / `sessions_revoked` / `revoke_error`, and the admin banner
+warns when `revoked` is false. If the edge deploys before this migration applies,
+the RPC 404s, `revoked` comes back false, and every exit from an impersonation
+shows the warning — accurately, but noisily.
+
+### Verified
+
+Applied to the throwaway local stack and proven behaviourally, not by reading:
+anon refused 42501; two seeded sessions and the cascaded refresh token gone;
+return value equal to the session count; a second call returning 0. Then
+sabotaged twice — a body that returns 0 without deleting, and a body with the
+guard removed — and `scripts/check-session-revocation.mjs` went red for both.
+
+---
+
+
 ## 🔴 HELD: 00613 — six SQL functions a plain guard could not reach (US-2282)
 
 **Risk: LOW, and equivalence is measured rather than argued. Apply third.**

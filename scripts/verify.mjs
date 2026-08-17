@@ -296,6 +296,12 @@ if (on("db")) {
     // green. This one executes each RPC the edge invokes, inside a transaction
     // that is always rolled back.
     run("db: RPC bodies resolve (US-2663)", "node scripts/check-rpc-column-refs.mjs");
+    // US-2662: the same lesson one level up. Stopping an impersonation called a
+    // GoTrue route that does not exist on this version, so nothing was ever
+    // revoked — and the test guarding it asserted the route's SOURCE contained
+    // the call, which was true the entire time the feature did nothing. This one
+    // seeds a session, revokes it, and fails if the rows are still there.
+    run("db: session revocation revokes (US-2662)", "node scripts/check-session-revocation.mjs");
     // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
     // restarts the whole database. ADVISORY, not a gate, and deliberately so:
     // the stock image is vulnerable today, so gating here would be red on every

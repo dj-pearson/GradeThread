@@ -14,7 +14,6 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
-import { fetchWithTimeout } from "./circuit-breaker.ts";
 
 /**
  * The hard cap (AC1). Thirty minutes is long enough to reproduce a support
@@ -147,52 +146,61 @@ export async function endImpersonation(
   }
 }
 
+/** The outcome of a revocation, reported rather than reduced to a boolean. */
+export interface SessionRevocation {
+  /** True only when the delete ran. `sessions: 0` with this true means the
+   *  target held none — which is revoked, not failed. */
+  revoked: boolean;
+  /** Session rows removed. Their refresh tokens go with them by cascade. */
+  sessions: number;
+  /** Present only on failure, for the operator-facing message. */
+  error?: string;
+}
+
 /**
- * Revoke every session the target holds (AC2).
+ * Revoke every session the target holds (US-2351 AC2, fixed in US-2662).
  *
- * supabase-js has no "sign this user out by id" — `auth.admin.signOut` wants a
- * JWT, which is the one thing we do not have here (the token lives in the
- * admin's browser). GoTrue's own admin API does: POST /admin/users/:id/logout
- * revokes all refresh tokens for that user. Called directly rather than
- * approximated, because the whole point is that a COPIED refresh token must stop
- * working — ending our own row would not touch it.
+ * THIS USED TO CALL A ROUTE THAT DOES NOT EXIST. supabase-js has no "sign this
+ * user out by id" — `auth.admin.signOut` wants a JWT, which is the one thing we
+ * do not have here — so this posted to GoTrue's `admin/users/:id/logout`
+ * instead. That endpoint is absent on the GoTrue this project runs: it 404s
+ * while `GET admin/users/:id` returns 200 on the same container with the same
+ * key, and `auth.sessions` stayed put across the attempt. Production is v2.174.0,
+ * older still. So for as long as impersonation has shipped, every stop reported
+ * `sessions_revoked: false` and the target's refresh token stayed live.
  *
- * Returns false when the revocation did not land, so the caller can say so
- * instead of reporting a clean stop.
+ * `revoke_user_sessions` (00614) is the replacement, and it is a mechanism we
+ * own rather than a bet on an upstream route. Deleting the user's `auth.sessions`
+ * rows cascades to their refresh tokens, which is what makes a token already
+ * copied out of the browser stop working.
+ *
+ * NO FALLBACK TO THE OLD CALL, deliberately. It is proven dead; leaving it in
+ * would add a second thing that looks handled and does nothing, which is the
+ * defect this replaces rather than a hedge against it.
+ *
+ * ⚠ THE ACCESS TOKEN IS NOT KILLED BY THIS, and cannot be. A Supabase access
+ * token is a JWT verified by signature with nothing to look up, so one already
+ * issued stays valid until it expires — up to `jwt_expiry`, an hour. Revocation
+ * stops the holder REFRESHING, and the 30-minute impersonation cap plus the
+ * server-side marker are what bound the window in between. The old GoTrue route
+ * would have had exactly the same limit.
  */
-export async function revokeUserSessions(userId: string): Promise<boolean> {
-  const url = Deno.env.get("SUPABASE_URL");
-  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!url || !key) return false;
+export async function revokeUserSessions(userId: string): Promise<SessionRevocation> {
   try {
-    // US-2321: a deadline. This runs while an admin waits on /stop, and a hung
-    // GoTrue would leave them staring at a spinner while the target's tokens
-    // stay live — the exact window this revocation exists to close.
-    const res = await fetchWithTimeout(
-      `${url}/auth/v1/admin/users/${userId}/logout`,
-      {
-        method: "POST",
-        headers: {
-          apikey: key,
-          Authorization: `Bearer ${key}`,
-          "Content-Type": "application/json",
-        },
-        // `global` revokes every refresh token the user holds, which is the
-        // only scope that reaches a token already copied out of the browser.
-        body: JSON.stringify({ scope: "global" }),
-      },
-      8_000,
-    );
-    if (!res.ok) {
+    const { data, error } = await supabaseAdmin.rpc("revoke_user_sessions", {
+      p_user_id: userId,
+    });
+    if (error) {
       captureException(
-        new Error(`GoTrue logout returned ${res.status}`),
+        new Error(`revoke_user_sessions failed: ${error.message}`),
         { route: "impersonation.revoke", tags: { target: userId } },
       );
-      return false;
+      return { revoked: false, sessions: 0, error: error.message };
     }
-    return true;
+    return { revoked: true, sessions: typeof data === "number" ? data : 0 };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     captureException(err, { route: "impersonation.revoke", tags: { target: userId } });
-    return false;
+    return { revoked: false, sessions: 0, error: message };
   }
 }

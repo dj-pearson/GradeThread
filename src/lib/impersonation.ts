@@ -141,14 +141,72 @@ export async function stopImpersonation(): Promise<void> {
   // Now running as the admin again — write the stop audit row. Best-effort:
   // the session restore is the important part; never block the exit on it.
   try {
-    await edgeFetch("/api/admin/impersonation/stop", {
+    const res = await edgeFetch("/api/admin/impersonation/stop", {
       method: "POST",
       silentGate: true,
       json: { target_id: record.target.id },
     });
+    const body = await res.json().catch(() => null) as
+      | { revoked?: boolean; revoke_error?: string | null }
+      | null;
+    // US-2662 AC4. `revoked: false` means the target's refresh token is still
+    // live in this browser's history and will keep working until it expires.
+    // That used to reach nobody: the route returned it, the banner discarded it,
+    // and the only other record was a Sentry event.
+    if (body && body.revoked === false) {
+      stashRevocationFailure(record.target.email, body.revoke_error ?? null);
+    }
   } catch {
     // ignore — the start was already audited; stop is a convenience record.
   }
 
   useImpersonationStore.getState().clear();
+}
+
+// ── Failed-revocation notice ──────────────────────────────────────────
+//
+// The exit hard-reloads the page (the banner's handler navigates), so a toast
+// raised at the moment of failure would be destroyed before it rendered. Park it
+// and let the next boot show it, the same shape flushPendingAffiliateClick uses.
+// sessionStorage rather than localStorage: this is about the tab the token was
+// used in, and it should not outlive it.
+const REVOKE_NOTICE_KEY = "gt_impersonation_revoke_failed";
+
+function stashRevocationFailure(email: string | null, error: string | null): void {
+  try {
+    sessionStorage.setItem(REVOKE_NOTICE_KEY, JSON.stringify({ email, error }));
+  } catch {
+    // Private mode / quota. The Sentry event still fires server-side.
+  }
+}
+
+/**
+ * Show and clear a parked failed-revocation notice. Called once from RootLayout.
+ *
+ * Deliberately worded as an instruction, not a status: there IS something the
+ * admin can do (force a password reset ends the sessions), and "revocation
+ * failed" on its own reads as noise to be dismissed.
+ */
+export function flushImpersonationRevocationNotice(
+  notify: (message: string) => void,
+): void {
+  let raw: string | null = null;
+  try {
+    raw = sessionStorage.getItem(REVOKE_NOTICE_KEY);
+    if (raw) sessionStorage.removeItem(REVOKE_NOTICE_KEY);
+  } catch {
+    return;
+  }
+  if (!raw) return;
+  let parsed: { email?: string | null } | null = null;
+  try {
+    parsed = JSON.parse(raw) as { email?: string | null };
+  } catch {
+    parsed = null;
+  }
+  const who = parsed?.email ?? "the user";
+  notify(
+    `Impersonation stopped, but ${who}'s existing sign-ins could not be ended. ` +
+      `Their session stays valid until it expires. Reset their password to end it now.`,
+  );
 }

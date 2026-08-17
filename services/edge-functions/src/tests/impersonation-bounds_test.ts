@@ -69,25 +69,45 @@ Deno.test("US-2351 AC1: a start that cannot be recorded does not happen", () => 
   );
 });
 
-Deno.test("US-2351 AC2: stopping revokes the target's sessions", () => {
+// ⚠ THESE ARE WIRING ASSERTIONS AND THAT IS ALL THEY CAN BE (US-2662).
+//
+// This test used to assert only that the route's source contained
+// `await revokeUserSessions(...)`, and it passed for the entire life of the
+// feature while the feature did nothing: the call went to GoTrue's
+// `admin/users/:id/logout`, which does not exist on the version this project
+// runs, so every stop 404'd and the target's refresh token stayed live. Reading
+// the source cannot catch that, because the source was never the wrong part.
+//
+// THE ASSERTION THAT ACTUALLY GUARDS THIS NOW IS `scripts/check-session-
+// revocation.mjs`, which seeds a session, revokes it, and fails if the rows are
+// still there. It runs in the db lane and in db-migrations.yml. What is left
+// here is the wiring — that the route still calls it and still reports the
+// answer — which is worth pinning and must not be mistaken for proof again.
+Deno.test("US-2351 AC2: stopping revokes the target's sessions (wiring only)", () => {
   assert(
     ROUTE.includes("await revokeUserSessions(session.target_id)"),
     "stop no longer signs the target out — a copied refresh token outlives it",
   );
-  // supabase-js cannot do this: `auth.admin.signOut` wants a JWT, which lives in
-  // the admin's browser. GoTrue's admin logout is the only thing that reaches a
-  // token already copied out.
+  // The mechanism is now ours: a SECURITY DEFINER function that deletes the
+  // user's auth.sessions rows, whose refresh tokens go with them by cascade.
+  // PostgREST exposes only public and storage, so the edge cannot delete from
+  // auth directly — .schema("auth").from("sessions").delete() type-checks, lints
+  // clean, and answers 406.
   assert(
-    LIB.includes("/auth/v1/admin/users/") && LIB.includes("/logout"),
-    "the revocation no longer calls GoTrue's admin logout",
+    LIB.includes('.rpc("revoke_user_sessions"'),
+    "the revocation no longer calls revoke_user_sessions (00614)",
   );
   assert(
-    LIB.includes('scope: "global"'),
-    "a non-global scope leaves other refresh tokens for that user alive",
+    !LIB.includes("/auth/v1/admin/users/"),
+    "the dead GoTrue admin route is back — it 404s on every version this runs on",
   );
   // The result is reported, not swallowed: an un-revoked stop means the target's
   // tokens are still live and the operator needs to know now.
   assert(ROUTE.includes("revoked"), "the stop response hides whether it worked");
+  assert(
+    ROUTE.includes("revoke_error"),
+    "the stop response no longer carries why revocation failed",
+  );
 });
 
 Deno.test("US-2351 AC6: the stop record comes from the START, not the body", () => {

@@ -18,6 +18,7 @@ on:
       # week — which is exactly what happened to the InitPlan check.
       - "scripts/db-rls-initplan-check.mjs"
       - "scripts/check-rpc-column-refs.mjs"
+      - "scripts/check-session-revocation.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
   push:
     branches: [main]
@@ -30,6 +31,7 @@ on:
       # week — which is exactly what happened to the InitPlan check.
       - "scripts/db-rls-initplan-check.mjs"
       - "scripts/check-rpc-column-refs.mjs"
+      - "scripts/check-session-revocation.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
 
 concurrency:
@@ -78,6 +80,13 @@ jobs:
       # each inside a transaction that is always rolled back.
       - name: RPC bodies resolve against the schema (US-2663)
         run: node scripts/check-rpc-column-refs.mjs
+      # US-2662: same lesson, one level up. Stopping an impersonation posted to
+      # a GoTrue admin route that does not exist on this version, so nothing was
+      # ever revoked — and the guard asserted the route SOURCE contained the
+      # call, which stayed true the whole time the feature did nothing. This
+      # seeds a session, revokes it, and fails if the rows survive.
+      - name: Session revocation actually revokes (US-2662)
+        run: node scripts/check-session-revocation.mjs
       # US-2403: a permission-denied FUNCTION call SEGFAULTs the Supabase
       # Postgres image and takes the whole database down with it — reachable by
       # anyone holding the public anon key. continue-on-error because the stock
