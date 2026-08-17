@@ -1,251 +1,306 @@
-# PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
+# PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔴 HELD: 00614 — a session revocation that exists (US-2662)
+During the pre-production sprint, migration commits go to `origin/main` AND get
+an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
+entry is on origin and NOT yet in the production database.
 
-**Risk: LOW. Additive: one new function, nothing altered. Apply fourth, last.**
+## 🟠 PUSHED, NOT YET APPLIED: 00616 — two SQL functions a plain guard could not reach (US-2282)
 
-`NOTIFY pgrst, 'reload schema';` **IS required** — this adds a NEW RPC and the
-edge calls it by name. Without the reload PostgREST does not know it exists and
-every stop reports a failed revocation, which is the state we are leaving.
-
-### What it fixes
-
-Stopping an impersonation posted to GoTrue's `admin/users/{id}/logout`. That
-route does not exist on the version this project runs — 404 on v2.195.0 locally,
-and production is v2.174.0, older. So no impersonation has ever been stopped in
-the sense that matters: `/stop` returned `sessions_revoked: false` and the
-target's refresh token stayed live in the admin's browser for its full lifetime.
-
-`public.revoke_user_sessions(uuid)` deletes the user's `auth.sessions` rows; their
-refresh tokens cascade. Service-role only, per the allowlist contract.
-
-### Order and code coupling
-
-`00611`, `00612`, `00613`, then `00614`, then `NOTIFY pgrst`, then push.
-
-⚠ **The frontend reads the new response fields the moment it deploys.** `/stop`
-now returns `revoked` / `sessions_revoked` / `revoke_error`, and the admin banner
-warns when `revoked` is false. If the edge deploys before this migration applies,
-the RPC 404s, `revoked` comes back false, and every exit from an impersonation
-shows the warning — accurately, but noisily.
-
-### Verified
-
-Applied to the throwaway local stack and proven behaviourally, not by reading:
-anon refused 42501; two seeded sessions and the cascaded refresh token gone;
-return value equal to the session count; a second call returning 0. Then
-sabotaged twice — a body that returns 0 without deleting, and a body with the
-guard removed — and `scripts/check-session-revocation.mjs` went red for both.
-
----
-
-
-## 🔴 HELD: 00613 — six SQL functions a plain guard could not reach (US-2282)
-
-**Risk: LOW, and equivalence is measured rather than argued. Apply third.**
+**Risk: LOW, and equivalence is measured rather than argued. Apply third of these three.**
 
 `NOTIFY pgrst` **NOT required** — `CREATE OR REPLACE`, signatures unchanged.
 
-### Apply order
+`drip_analytics` and `newsletter_analytics` are `LANGUAGE sql`, so there is no
+`BEGIN` block to insert a guard into and no `RAISE` available. Each is converted
+to `plpgsql` with the **same query inside** — signature, volatility,
+`SECURITY DEFINER` and `search_path` all carried through. Output hashed with
+fixed arguments before and after: same digests.
 
-`00611`, then `00612`, then `00613`, then push. The edge boot guard expects the
-highest version.
+⚠ **This file used to carry four more functions and no longer does.**
+`data_integrity_scan`, `north_star_weekly_counts`, `north_star_lifetime_counts`
+and `refund_snap` are converted by **00611** above, which landed on `main`
+first. Two migrations `CREATE OR REPLACE`-ing one function is worse than an
+error: whichever applies last silently wins, so the file you read is not
+necessarily the body that runs. 00611 owns those four; this file owns two.
 
-### What is exposed
-
-Three confirmed answering an anonymous caller in production with the public key:
-`drip_analytics`, `newsletter_analytics`, `data_integrity_scan` — all HTTP 200
-with real content. Three more are the same shape with no working revoke:
-`north_star_weekly_counts`, `north_star_lifetime_counts`, and `refund_snap`,
-which **mutates** a user's Snap quota.
-
-### Why these needed a different fix
-
-All six are `LANGUAGE sql`. There is no `BEGIN` block to insert a guard into and
-no `RAISE` available, so the one-line insertion that closed the other fifteen
-does not apply. Each is converted to `plpgsql` with the **same query inside** —
-signature, volatility, `SECURITY DEFINER` and `search_path` all carried through;
-only the language word changes and a guard is added.
-
-### The shortcut that was rejected
-
-Leaving them as SQL and bolting the check on as a predicate
-(`WHERE assert_service_role(...) AND …`) fails on evaluation order: if the
-planner satisfies the other predicates first and the result is empty, the assert
-never runs and an unauthorised caller gets a **silent empty result** instead of
-an error. That is worse than the leak.
-
-### Equivalence, measured
-
-Each function's output was hashed before and after, **with fixed arguments** —
-the two whose defaults are `now()` embed a moving window and differ run-to-run,
-which showed up as a false mismatch on the first pass. With the window pinned,
-every digest is identical (`drip_analytics` `58da9ea7…`, `newsletter_analytics`
-`954b6b8f…`, and the three table-returning ones unchanged throughout).
-
-Then, on the converted functions: **anon refused with 42501 on 6/6, service role
-still works 6/6.**
-
-### Deliberately untouched
-
-`peek_workspace_invitation` is in the same unguarded set and must stay open —
-`src/pages/accept-invite.tsx` calls it from the browser before the user has an
-account, gated by a capability token rather than identity. A guard test pins that
-it is absent from both migrations.
-
-### Apply
-
-```bash
-psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/00613_sql_functions_service_role_only.sql
-```
+**The shortcut that was rejected:** leaving them as SQL and bolting the check on
+as a predicate (`WHERE assert_service_role(...) AND …`) fails on evaluation
+order — if the planner satisfies the other predicates first and the result is
+empty, the assert never runs and an unauthorised caller gets a **silent empty
+result** instead of an error. Worse than the leak.
 
 ---
 
-## 🔴 HELD: 00612 — nine credit functions have NO authorization check (US-2282)
+## 🟠 PUSHED, NOT YET APPLIED: 00615 — nine credit functions had no authorization check at all (US-2282)
 
-**Risk: LOW to apply. This is the story headline — mint yourself unlimited credits.**
+**Risk: LOW. Guard inserted after each function's own `BEGIN`; bodies untouched.**
 
 `NOTIFY pgrst` **NOT required** — `CREATE OR REPLACE`, signatures unchanged.
-
-### Apply AFTER 00611
-
-Both are independent, but the edge boot guard expects the highest version, so
-apply in order: 00611, then 00612, then push.
-
-### What is exposed
-
-Demonstrated, not theorised — an anonymous caller holding only the public anon
-key moved a real grade-credit balance **0 → 999**, then debited it to 998.
-
-Nine functions mint, spend or refund money-like balances with **no**
-authorization check in the body at all. They rely on the grant, and the grant is
-the `CREATE FUNCTION` default to PUBLIC, which every role belongs to:
 
 `grant_grade_credits`, `debit_grade_credits`, `grant_api_credits`,
 `debit_api_credits`, `grant_appstore_credits`, `grant_buyer_reward_credit`,
-`issue_buyer_reward_credit`, `redeem_buyer_reward_credit`,
-`refund_buyer_reward_credit`.
+`issue_buyer_reward_credit`, `redeem_buyer_reward_credit` and
+`refund_buyer_reward_credit` had **no guard of any kind** — not a weak one, none.
 
-Different defect from 00611: those six had a guard that was **wrong**. These have
-**none**, so there was never any protection to be wrong.
+Verified against the local stack: anon refused 42501 on all nine, including a
+demonstrated exploit moving a balance `0 → 999`; the service role still mints and
+debits normally (balance 5, then 3 after a debit).
 
-### Verified on a local stack at 00611, both directions
-
-- anon refused with `42501` on **9 of 9**, including the exact demonstrated
-  exploit.
-- service role still mints and debits normally — balance 5, then 3.
-- Every caller is the edge's service-role client, and **nothing in the browser
-  bundle calls any credit function**, so the allowed caller set is checked rather
-  than guessed.
-
-### Apply
-
-```bash
-psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/00612_credit_functions_service_role_only.sql
-```
-
-Then confirm — this should raise `42501`, and did mint 999 credits before:
-
-```sql
--- as anon, in a transaction you roll back
-select public.grant_grade_credits('<any-user-id>'::uuid, 999, 'pack_purchase');
-```
+`refund_grade` calls `refund_buyer_reward_credit`, and that path was run rather
+than reasoned about: the service role reached a 23503 FK error (so it passed the
+guard) and anon got 42501 (so the wrapper is not a bypass).
 
 ---
 
-## 🔴 HELD: 00611 — six functions answer an ANONYMOUS caller (US-2282)
+## 🟠 PUSHED, NOT YET APPLIED: 00614 — six analytics functions answer an anonymous caller (US-2282)
 
-**Risk: LOW to apply. Apply it soon — the exposure is live.**
+**Risk: LOW. The guard line only; every body is the live definition.**
 
-`NOTIFY pgrst, 'reload schema';` **NOT required.** `CREATE OR REPLACE`, every
-signature unchanged.
+`NOTIFY pgrst` **NOT required** — `CREATE OR REPLACE`, signatures unchanged.
 
-### What is exposed right now
-
-Measured against production on 2026-08-17 with nothing but the anon key that
-ships in the browser bundle. All six answered **HTTP 200 with real data**:
-
-| Function | What it returns |
-|---|---|
-| `ai_spend` | per-feature AI spend in USD |
-| `ai_profitability` | totals and monthly projection |
-| `funnel_metrics` | signup funnel counts |
-| `retention_cohorts` | cohort sizes and retention |
-| `ai_budget_status` | budget rows and spend percentages |
-| `reconciliation_candidates` | **user email addresses** alongside subject user ids |
-
-The last one is personal data, not a metric.
-
-### The bug is the guard, not a missing one
-
-All six already had an authorization check, which is why this survived review:
+`ai_spend`, `ai_profitability`, `funnel_metrics`, `retention_cohorts`,
+`ai_budget_status` and `reconciliation_candidates` shipped the guard shape that
+reads as a check and is not one:
 
 ```sql
-if auth.uid() is not null and not public.is_admin() then
-  raise exception '…: admin role required' using errcode = '42501';
-end if;
+if auth.uid() is not null and not public.is_admin() then raise ... end if;
 ```
 
-An anonymous caller has no `auth.uid()`. The condition is false, no exception
-fires, the document is returned. It only ever constrained users who were signed
-**in** — the population least likely to be the attacker.
+An anonymous caller has no `auth.uid()`, so the condition is false and the
+document is returned. It only ever constrained users who were signed **in**.
+`reconciliation_candidates` returns **customer email addresses**.
 
-Identical to the defect 00610 fixed in `revenue_dashboard`. There an unrelated
-error was masking it; here nothing was.
+Replaced with the positive allowlist already proven on `admin_revenue_metrics`
+and `revenue_dashboard`. See
+[`vault/20-domain/security-definer-caller-allowlist.md`](vault/20-domain/security-definer-caller-allowlist.md).
 
-### The fix, already proven in production
+### Apply order for these three
+
+`00614`, then `00615`, then `00616`. All three assert their own effect before the
+footer records the version, so a run that does not take hold cannot record itself
+as applied — use `psql -v ON_ERROR_STOP=1`.
+
+---
+## 🟠 PUSHED, NOT YET APPLIED: 00613 — record the delivered pixel dimensions (US-2135 AC3)
+
+**Risk: VERY LOW. Two nullable columns, no backfill, no constraint.**
+
+`NOTIFY pgrst, 'reload schema';` **required** — it adds columns to a table the
+API exposes, so PostgREST will not return `width`/`height` until the cache
+reloads. Nothing breaks meanwhile; the columns simply do not appear.
+
+### What it does
+
+Adds `width int` and `height int` to `public.submission_images`, both nullable.
+
+`validateImageUpload()` has always parsed width and height out of the
+JPEG/PNG/WebP header — it needs them for the decompression-bomb ceiling and the
+US-529 minimum-long-edge floor — and `grade.ts` was discarding them. This is the
+column to keep them in. **Nothing new is measured.**
+
+### Why it is server-observed, unlike the column beside it
+
+`quality_score` is measured client-side on the compressed bytes and sent in the
+form, so an older client or a canvas that cannot decode sends nothing. Width and
+height are parsed from the bytes the server is about to store, so they need no
+client cooperation to start working and cannot be overstated by one.
+
+### NULL means unknown, and must never be read as 0
+
+Two ways a row has no dimensions: it predates this migration, or its format's
+header is one the parser does not read (it returns null rather than guessing).
+`Number(null)` is `0` and finite, so a naive reader turns "unknown" into "worst
+possible" — the same coercion trap that produced a fake `-9` factor delta in
+US-2443.
+
+### Apply order
+
+1. After 00612. Idempotent (`ADD COLUMN IF NOT EXISTS`), safe to re-run.
+2. `NOTIFY pgrst, 'reload schema';`
+3. Redeploy the edge (boot guard now expects `00613`).
+
+Old rows stay NULL on purpose. A backfill would have to re-download every stored
+image to read its header, and the value of a historical dimension is low enough
+that it is not worth the egress.
+
+### Verify after applying
 
 ```sql
-if not (auth.role() = 'service_role' or public.is_admin()) then
+select count(*) filter (where width is not null) as measured,
+       count(*)                                  as total
+from public.submission_images;
+-- measured climbs from 0 as new submissions land; total is unchanged.
 ```
 
-A positive allowlist. `admin_revenue_metrics` has used it since it was written
-and `revenue_dashboard` since 00610 — on prod today that one answers **401 /
-42501** to the same anon call these six answer with data. Same database, minutes
-apart.
+### Verified locally
 
-**Every real caller is the service role and keeps working** (verified 6/6 on a
-local stack at 00610, both directions).
+Applied to the local stack; both columns present and nullable. 5 new cases in
+`src/tests/submission-image-dimensions_test.ts`, one of which parses a real 1x1
+PNG through `validateImageUpload` rather than mocking it, so "the validator
+returns dimensions" is asserted rather than assumed. Sabotage-verified by
+dropping the video-frame loop's two lines, which reddened 2 cases naming that
+loop; restored.
 
-### Six, not four
+## 🟠 PUSHED, NOT YET APPLIED: 00612 — a revocation mechanism that exists (US-2662)
 
-US-2282 named four. Querying every live SECURITY DEFINER function for the guard's
-exact shape found two more nobody had listed — including the one returning email
-addresses. Matching on the defect beat working from a hand-written list.
+**Risk: LOW to apply. Apply AFTER 00611. Ships with edge code that CALLS it.**
 
-### No REVOKE, deliberately
+`NOTIFY pgrst, 'reload schema';` **REQUIRED.** This adds a new RPC, and
+PostgREST will answer 404 for `admin_revoke_user_sessions` until its schema
+cache is reloaded.
 
-A denied call from anon or authenticated **segfaults** this Postgres image
-(US-2403), which is why 00527 is a permanent DO NOT APPLY. A body check raises an
-ordinary error, so it arms nothing. Per US-2666 a `REVOKE … FROM anon` would be a
-no-op anyway.
+### What it does
 
-### Apply
+Adds `public.admin_revoke_user_sessions(p_user_id uuid) returns int` — deletes
+the user's rows from `auth.refresh_tokens` and `auth.sessions`, returning the
+session count. `SECURITY DEFINER`, service-role only, and the check is in the
+BODY (no `REVOKE`: US-2666 and US-2403).
 
-```bash
-psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/00611_analytics_rpc_allowlist.sql
+### Why it exists
+
+Stopping impersonation called GoTrue's `POST /admin/users/{id}/logout`. That
+route **does not exist** on GoTrue v2.195.0 — 404, with `GET /admin/users/{id}`
+answering 200 as the control, so auth, routing and the id were all fine. Every
+stop returned `sessions_revoked: false` and the admin's copy of the target's
+refresh token stayed live for its full lifetime. US-2351 AC2 read as done and
+was not true.
+
+Deleting `auth.sessions` does revoke: refresh tokens hang off sessions, and a
+refresh answered 200 before the delete and 400 `refresh_token_not_found` after.
+It needs a function because PostgREST only exposes the schemas in its config
+(`supabase/config.toml:5` lists `public` and `storage`), so a client call into
+`auth` answers 406.
+
+### ⚠ Order matters here, unlike 00610 and 00611
+
+The edge in this commit calls the RPC as a fallback. If the frontend and edge
+deploy before the SQL applies, a stop where GoTrue 404s will find no RPC either
+and report `revoked: false` — which is exactly the current behaviour, so it
+degrades to the status quo rather than breaking. But the fix is not live until
+the migration is applied AND `NOTIFY pgrst` has run.
+
+### Apply order
+
+1. 00610, 00611, then 00612. All idempotent, safe to re-run.
+2. `NOTIFY pgrst, 'reload schema';` — required for 00612.
+3. Redeploy the edge (boot guard now expects `00612`).
+
+### Verify after applying
+
+```sql
+-- service_role gets a count; anon and authenticated get 42501.
+select public.admin_revoke_user_sessions('00000000-0000-0000-0000-000000000000'::uuid);
 ```
 
-Then confirm the exposure is closed — this should now be **401**, not 200:
+To confirm the `NOTIFY pgrst` actually landed — without calling a function that
+deletes sessions — read PostgREST's own OpenAPI document. It reports the
+signature **as the schema cache currently holds it**, so the RPC appearing there
+IS the cache being current. Pure read; nothing is executed:
 
 ```bash
-curl -s -o /dev/null -w '%{http_code}\n' -X POST \
-  "https://api.gradethread.com/rest/v1/rpc/ai_spend" \
-  -H "apikey: $ANON" -H "Authorization: Bearer $ANON" \
+curl -fsS https://api.gradethread.com/ -H "apikey: $ANON_KEY"   | jq '.paths["/rpc/admin_revoke_user_sessions"] != null'
+# expect true. false means the NOTIFY has not been seen yet.
+```
+
+Then read the GoTrue version, because it decides whether the fallback is doing
+all the work or none of it:
+
+```bash
+curl -fsS https://api.gradethread.com/auth/v1/health   # unauthenticated
+```
+
+### Verified locally
+
+Applied to the local stack and probed in rolled-back transactions: anon and
+authenticated both get `42501 admin_revoke_user_sessions: service role
+required`; service_role gets a count; a NULL id returns 0. End-to-end on real
+rows — a user with 2 sessions and 1 refresh token went to 0 and 0, return value
+2.
+
+## 🟠 PUSHED, NOT YET APPLIED: 00611 — the six anon-callable functions get a guard in the body (US-2666)
+
+**Risk: LOW to apply. Apply AFTER 00610.**
+
+`NOTIFY pgrst, 'reload schema';` **NOT required.** Every signature is unchanged
+(`CREATE OR REPLACE`, same arguments, same return types), so PostgREST's cache
+stays valid. No table, column or new RPC.
+
+### What it does
+
+Six functions carry a `REVOKE ... FROM anon` that never denied anon: the
+`CREATE FUNCTION` grant to PUBLIC survives it and every role belongs to PUBLIC.
+They have been callable with the public anon key the whole time. This migration
+adds an authorization check inside each function BODY, which is the remedy this
+repo settled on (`admin_revenue_metrics`, 00514, is the model: anon-EXECUTABLE
+and still safe).
+
+| Function | Origin | Guard |
+|---|---|---|
+| `reserve_snap(uuid,int)` | 00099 | service_role |
+| `refund_snap(uuid)` | 00099 | service_role |
+| `data_integrity_scan()` | 00097 | service_role |
+| `north_star_weekly_counts(timestamptz,timestamptz)` | 00170 | service_role |
+| `north_star_lifetime_counts(uuid[])` | 00170 | service_role |
+| `flipdesk_overview_metrics(...)` | 00594 | service_role or authenticated |
+
+Every caller was traced first: five are edge-only through `supabaseAdmin`, and
+the sixth is called from the browser by a signed-in seller
+(`src/hooks/use-flipdesk-overview.ts:121`). No caller is anon, so denying anon
+breaks nothing.
+
+### ⚠ Why this is NOT a REVOKE
+
+Two traps, both real:
+
+1. A denied call from anon or authenticated segfaults Postgres on this image
+   (US-2403), and 00527 is a standing DO NOT APPLY. A revoke would arm that
+   crash on `flipdesk_overview_metrics`, which anyone can reach today.
+2. On five of the six, `service_role` holds EXECUTE **only through the PUBLIC
+   grant** — there is no explicit grant to it anywhere. `REVOKE ... FROM PUBLIC`
+   would have stripped the edge's own access and taken out the paid Snap
+   grading and refund paths.
+
+A body check revokes nothing and raises an ordinary 42501, so it arms neither.
+
+### Behaviour change to expect
+
+Four functions change from `language sql` to `language plpgsql` because SQL
+cannot raise. Same signatures, same results, same volatility markers. The
+bodies are the originals with only the guard added.
+
+`flipdesk_overview_metrics` stays SECURITY INVOKER, so RLS still scopes every
+figure to the caller. An anon POST that used to return 200 with zeros now
+returns 42501.
+
+### Apply order
+
+1. 00610 (US-2663), then 00611. Both are idempotent and safe to re-run.
+2. No `NOTIFY pgrst` needed for either.
+3. Redeploy the edge (boot guard now expects `00611`).
+
+### Verify after applying
+
+```sql
+-- all six should now be plpgsql or carry the guard; spot-check one:
+select prosecdef, prolang::regtype is not null
+from pg_proc where proname = 'reserve_snap';
+```
+
+```bash
+# anon must now be refused rather than answered
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -X POST https://api.gradethread.com/rest/v1/rpc/flipdesk_overview_metrics \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" \
   -H 'Content-Type: application/json' -d '{}'
+# expect 4xx (42501), not 200
 ```
 
-### Ordering
+**Not run against a database yet.** Docker was down on the dev box when this was
+written, so `verify:db` did not run. The SQL is a mechanical edit of the four
+originals plus a guard; it still needs one `supabase db reset` before it is
+trusted.
 
-Apply, then push. The edge's boot guard now expects `00611`, so a push without
-the apply would make the next edge deploy refuse to start.
-
----
-
-## ✅ APPLIED 2026-08-17: 00610 — revenue_dashboard (US-2663). Prod reports expected 00610 / applied 00610 / match.
+## 🟠 PUSHED, NOT YET APPLIED: 00610 — revenue_dashboard has never worked, and the break was hiding a leak (US-2663)
 
 **Risk: LOW to apply. Do NOT skip it and push, though — see the ordering note.**
 
@@ -1028,7 +1083,17 @@ unaffected either way.
 4. THEN push.
 
 
-## ❌ NOT APPLIED: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account) — US-2606
+## ✅ RESOLVED 2026-08-16: 00594_flipdesk_overview_metrics.sql (US-2547 — the Overview stops reading the whole account) — US-2606
+
+> [!note] **00594 IS APPLIED.** Confirmed 2026-08-16 by the measurement recorded
+> near the top of this file: `/health/ready` stopped returning
+> `"missing":["00594"]`, and `missing` is omitted only when the applied set is
+> complete. The header on this section read `❌ NOT APPLIED` until 2026-08-17,
+> which contradicted that newer section 500 lines above it — and a red header is
+> what an operator scrolling for their next action stops at. **Everything below
+> this line is history and is kept deliberately** (US-2606 AC4): the retraction
+> and the reasoning it retracts are the lesson, and deleting them would leave the
+> file looking like it had never been wrong.
 
 > [!danger] **This section said APPLIED for a day and it was wrong.** Corrected
 > 2026-08-15 by measurement. `GET /health/ready` now returns

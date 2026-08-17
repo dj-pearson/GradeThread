@@ -525,7 +525,7 @@ $function$;
 -- This block asserts the effect BEFORE the footer records the version. Under
 -- ON_ERROR_STOP=1 the raise aborts the run and nothing is recorded; without it,
 -- the operator still gets a loud error naming the exact signature at fault.
-do $verify_00612$
+do $verify_00615$
 declare
   unguarded text;
 begin
@@ -539,11 +539,11 @@ begin
 
   if unguarded is not null then
     raise exception
-      '00612 did NOT take effect for: %. CREATE OR REPLACE only replaces a matching signature; a different one creates an OVERLOAD and leaves the original live. Compare these against the CREATE statements above.',
+      '00615 did NOT take effect for: %. CREATE OR REPLACE only replaces a matching signature; a different one creates an OVERLOAD and leaves the original live. Compare these against the CREATE statements above.',
       unguarded
       using errcode = 'check_violation';
   end if;
 end
-$verify_00612$;
+$verify_00615$;
 
-insert into public.applied_migrations (version) values ('00612') on conflict do nothing;
+insert into public.applied_migrations (version) values ('00615') on conflict do nothing;

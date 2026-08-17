@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
@@ -69,7 +69,7 @@ import {
   MessageSquare,
   Send,
 } from "lucide-react";
-import { startImpersonation } from "@/lib/impersonation";
+import { startImpersonation, takeRevokeWarning } from "@/lib/impersonation";
 import { toast } from "sonner";
 import { BillingActionsCard } from "@/components/admin/billing-actions-card";
 import { CreditLedgerCard } from "@/components/admin/credit-ledger-card";
@@ -131,6 +131,24 @@ export function AdminUserDetailPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { profile: adminProfile } = useAuth();
+
+  // US-2662 AC4: exiting an impersonation reloads into this page, and the stop
+  // response says whether the target's own sessions were actually revoked. A
+  // false means their tokens are still live for the rest of their lifetime,
+  // which only the admin who just exited can act on. It was reported in the
+  // response and in Sentry and nowhere a person would see it.
+  useEffect(() => {
+    const email = takeRevokeWarning();
+    if (!email) return;
+    toast.warning("Their sessions were not signed out", {
+      description:
+        `${email} is still signed in on any device that was already logged in, ` +
+        `and any copy of their session stays valid until it expires on its own. ` +
+        `Ask them to sign out everywhere, or suspend the account if this was a ` +
+        `security exit.`,
+      duration: 15000,
+    });
+  }, []);
 
   const [planDialogOpen, setPlanDialogOpen] = useState(false);
   const [pendingPlan, setPendingPlan] = useState<FlipdeskPlanKey | null>(null);

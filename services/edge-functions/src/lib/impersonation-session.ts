@@ -14,6 +14,7 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { captureException } from "./observability.ts";
+import { fetchWithTimeout } from "./circuit-breaker.ts";
 
 /**
  * The hard cap (AC1). Thirty minutes is long enough to reproduce a support
@@ -146,61 +147,106 @@ export async function endImpersonation(
   }
 }
 
-/** The outcome of a revocation, reported rather than reduced to a boolean. */
-export interface SessionRevocation {
-  /** True only when the delete ran. `sessions: 0` with this true means the
-   *  target held none — which is revoked, not failed. */
-  revoked: boolean;
-  /** Session rows removed. Their refresh tokens go with them by cascade. */
-  sessions: number;
-  /** Present only on failure, for the operator-facing message. */
-  error?: string;
+/**
+ * Revoke every session the target holds (AC2).
+ *
+ * supabase-js has no "sign this user out by id" — `auth.admin.signOut` wants a
+ * JWT, which is the one thing we do not have here (the token lives in the
+ * admin's browser). The whole point is that a COPIED refresh token must stop
+ * working; ending our own row would not touch it.
+ *
+ * TWO MECHANISMS, in that order, because neither is available everywhere
+ * (US-2662):
+ *
+ *   1. GoTrue's admin logout. It is the upstream-supported route and it is
+ *      ABSENT below some version — measured at 404 on v2.195.0, with GET
+ *      /admin/users/{id} answering 200 as the control, so auth, routing and the
+ *      id were all fine and the route simply was not there. Kept first because
+ *      it is the right call wherever it exists.
+ *   2. Deleting the rows ourselves. Refresh tokens hang off sessions, so
+ *      removing them invalidates the tokens (measured: refresh answered 200
+ *      before, 400 refresh_token_not_found after). It goes through an RPC
+ *      because PostgREST only exposes the schemas in its config, and `auth` is
+ *      not one of them — `supabaseAdmin.schema("auth")` type-checks, lints
+ *      clean and answers 406.
+ *
+ * Returns false only when BOTH failed, so the caller can say so instead of
+ * reporting a clean stop.
+ *
+ * `deps` exists ONLY so a test can assert the outcome instead of the call, and
+ * production passes nothing. It is a seam rather than a preference: neither half
+ * can be stubbed from outside. `supabaseAdmin` is a Proxy whose `get` trap always
+ * resolves to the real client (supabase.ts:76), so assigning `.rpc` on it does
+ * nothing, and the client captures `fetch` when it is constructed, so stubbing
+ * `globalThis.fetch` does not reach it either. Both were tried. Asserting the
+ * outcome is the entire point of US-2662: the old test asserted that GoTrue's
+ * logout was CALLED, which stayed green for the whole time that route was
+ * answering 404 and nothing was being revoked.
+ */
+export interface RevokeDeps {
+  logout?: (userId: string) => Promise<{ ok: boolean; detail: string }>;
+  deleteRows?: (userId: string) => Promise<{ error: { message: string } | null }>;
 }
 
-/**
- * Revoke every session the target holds (US-2351 AC2, fixed in US-2662).
- *
- * THIS USED TO CALL A ROUTE THAT DOES NOT EXIST. supabase-js has no "sign this
- * user out by id" — `auth.admin.signOut` wants a JWT, which is the one thing we
- * do not have here — so this posted to GoTrue's `admin/users/:id/logout`
- * instead. That endpoint is absent on the GoTrue this project runs: it 404s
- * while `GET admin/users/:id` returns 200 on the same container with the same
- * key, and `auth.sessions` stayed put across the attempt. Production is v2.174.0,
- * older still. So for as long as impersonation has shipped, every stop reported
- * `sessions_revoked: false` and the target's refresh token stayed live.
- *
- * `revoke_user_sessions` (00614) is the replacement, and it is a mechanism we
- * own rather than a bet on an upstream route. Deleting the user's `auth.sessions`
- * rows cascades to their refresh tokens, which is what makes a token already
- * copied out of the browser stop working.
- *
- * NO FALLBACK TO THE OLD CALL, deliberately. It is proven dead; leaving it in
- * would add a second thing that looks handled and does nothing, which is the
- * defect this replaces rather than a hedge against it.
- *
- * ⚠ THE ACCESS TOKEN IS NOT KILLED BY THIS, and cannot be. A Supabase access
- * token is a JWT verified by signature with nothing to look up, so one already
- * issued stays valid until it expires — up to `jwt_expiry`, an hour. Revocation
- * stops the holder REFRESHING, and the 30-minute impersonation cap plus the
- * server-side marker are what bound the window in between. The old GoTrue route
- * would have had exactly the same limit.
- */
-export async function revokeUserSessions(userId: string): Promise<SessionRevocation> {
+export async function revokeUserSessions(
+  userId: string,
+  deps: RevokeDeps = {},
+): Promise<boolean> {
+  const viaGoTrue = await (deps.logout ?? revokeViaGoTrue)(userId);
+  if (viaGoTrue.ok) return true;
+
+  const { error } = await (deps.deleteRows ?? revokeViaDatabase)(userId);
+  if (!error) return true;
+
+  // Only now is this an incident: the supported route was unavailable AND the
+  // mechanism we own failed too, so the target's tokens are still live.
+  captureException(
+    new Error(
+      `impersonation revoke failed both ways (GoTrue: ${viaGoTrue.detail}; ` +
+        `rpc: ${error.message})`,
+    ),
+    { route: "impersonation.revoke", tags: { target: userId } },
+  );
+  return false;
+}
+
+/** The mechanism we own. Reaches `auth`, which a client call cannot. */
+async function revokeViaDatabase(
+  userId: string,
+): Promise<{ error: { message: string } | null }> {
+  const { error } = await supabaseAdmin.rpc(
+    "admin_revoke_user_sessions",
+    { p_user_id: userId } as never,
+  );
+  return { error: error ? { message: error.message } : null };
+}
+
+/** The upstream route. `detail` is carried so a double failure can name why. */
+async function revokeViaGoTrue(userId: string): Promise<{ ok: boolean; detail: string }> {
+  const url = Deno.env.get("SUPABASE_URL");
+  const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (!url || !key) return { ok: false, detail: "SUPABASE_URL/SERVICE_ROLE_KEY unset" };
   try {
-    const { data, error } = await supabaseAdmin.rpc("revoke_user_sessions", {
-      p_user_id: userId,
-    });
-    if (error) {
-      captureException(
-        new Error(`revoke_user_sessions failed: ${error.message}`),
-        { route: "impersonation.revoke", tags: { target: userId } },
-      );
-      return { revoked: false, sessions: 0, error: error.message };
-    }
-    return { revoked: true, sessions: typeof data === "number" ? data : 0 };
+    // US-2321: a deadline. This runs while an admin waits on /stop, and a hung
+    // GoTrue would leave them staring at a spinner while the target's tokens
+    // stay live — the exact window this revocation exists to close.
+    const res = await fetchWithTimeout(
+      `${url}/auth/v1/admin/users/${userId}/logout`,
+      {
+        method: "POST",
+        headers: {
+          apikey: key,
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        // `global` revokes every refresh token the user holds, which is the
+        // only scope that reaches a token already copied out of the browser.
+        body: JSON.stringify({ scope: "global" }),
+      },
+      8_000,
+    );
+    return res.ok ? { ok: true, detail: String(res.status) } : { ok: false, detail: `${res.status}` };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    captureException(err, { route: "impersonation.revoke", tags: { target: userId } });
-    return { revoked: false, sessions: 0, error: message };
+    return { ok: false, detail: err instanceof Error ? err.message : String(err) };
   }
 }

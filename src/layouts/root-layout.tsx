@@ -1,11 +1,9 @@
 import { useEffect } from "react";
 import { Outlet } from "react-router";
-import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import { RouteErrorBoundary } from "@/components/error-boundary";
 import { CookieConsent } from "@/components/cookie-consent";
 import { captureAffiliateRef, flushPendingAffiliateClick } from "@/lib/affiliate";
-import { flushImpersonationRevocationNotice } from "@/lib/impersonation";
 
 // The billing dialogs (UpgradeRequiredDialog / GlobalPlanPicker) used to live
 // here but were moved into the authenticated layouts (see AppBillingDialogs) so
@@ -20,11 +18,6 @@ export function RootLayout() {
     // passport) parked its click ping there — those pages don't mount the SPA
     // and can't reach the edge API. This is the first page that can, so send it.
     flushPendingAffiliateClick();
-    // US-2662 AC4: the exit from impersonation hard-reloads, so a failed
-    // session revocation is parked and shown here instead of vanishing.
-    flushImpersonationRevocationNotice((message) =>
-      toast.warning(message, { duration: 15_000 })
-    );
   }, []);
 
   return (

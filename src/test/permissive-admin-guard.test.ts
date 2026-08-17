@@ -79,8 +79,8 @@ describe("US-2282: no NEW migration may ship the permissive admin guard", () => 
     ).toEqual([]);
   });
 
-  it("00611 replaced it with the allowlist in every function it touches", () => {
-    const sql = readFileSync(join(DIR, "00611_analytics_rpc_allowlist.sql"), "utf8");
+  it("00614 replaced it with the allowlist in every function it touches", () => {
+    const sql = readFileSync(join(DIR, "00614_analytics_rpc_allowlist.sql"), "utf8");
     const code = sql.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
     expect(PERMISSIVE.test(code)).toBe(false);
     // Six functions, six allowlists. A count, not a presence check: one correct
@@ -91,13 +91,13 @@ describe("US-2282: no NEW migration may ship the permissive admin guard", () => 
     expect(/^\s*revoke\b/im.test(code)).toBe(false);
   });
 
-  it("00612 guards all nine credit functions, which had NO check at all", () => {
+  it("00615 guards all nine credit functions, which had NO check at all", () => {
     // A DIFFERENT defect from 00611's six. Those had a guard that was wrong;
     // these had none and relied entirely on the CREATE FUNCTION grant to
     // PUBLIC. The exploit was demonstrated, not theorised: an anonymous caller
     // moved a real grade-credit balance 0 → 999.
     const sql = readFileSync(
-      join(DIR, "00612_credit_functions_service_role_only.sql"),
+      join(DIR, "00615_credit_functions_service_role_only.sql"),
       "utf8",
     );
     const code = sql.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
@@ -110,33 +110,37 @@ describe("US-2282: no NEW migration may ship the permissive admin guard", () => 
     expect((code.match(/: service role required/g) ?? []).length).toBe(9);
   });
 
-  it("00613 converts six SQL functions to plpgsql so they CAN be guarded", () => {
-    // The third defect shape. These six were LANGUAGE sql: no block to raise
-    // from, so the one-line insertion that closed the other fifteen does not
-    // apply. Each is converted with the same query inside, proven byte-identical
-    // by hashing output before and after with FIXED arguments (the two whose
-    // defaults are now() differ run-to-run and would otherwise read as changed).
+  it("00616 converts two SQL functions to plpgsql so they CAN be guarded", () => {
+    // The third defect shape. These were LANGUAGE sql: no block to raise from,
+    // so the one-line insertion that closed the other fifteen does not apply.
+    //
+    // IT WAS SIX UNTIL 2026-08-17. origin/main's 00611 landed first doing the
+    // same conversion to data_integrity_scan, north_star_weekly_counts,
+    // north_star_lifetime_counts and refund_snap. Two migrations CREATE OR
+    // REPLACE-ing one function is worse than an error — whichever applies last
+    // silently wins — so those four were removed here and 00611 owns them.
+    // drip_analytics and newsletter_analytics are the two 00611 does not touch.
     const sql = readFileSync(
-      join(DIR, "00613_sql_functions_service_role_only.sql"),
+      join(DIR, "00616_sql_functions_service_role_only.sql"),
       "utf8",
     );
     const code = sql.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
-    expect((code.match(/auth\.role\(\) = 'service_role'/g) ?? []).length).toBe(6);
-    expect((code.match(/LANGUAGE plpgsql/g) ?? []).length).toBe(6);
+    expect((code.match(/auth\.role\(\) = 'service_role'/g) ?? []).length).toBe(2);
+    expect((code.match(/LANGUAGE plpgsql/g) ?? []).length).toBe(2);
     // The conversion is the point: a leftover LANGUAGE sql cannot hold a guard.
     expect(/LANGUAGE sql\b/.test(code)).toBe(false);
     expect(/^\s*revoke\b/im.test(code)).toBe(false);
     // SECURITY DEFINER and search_path must survive the language change, or the
     // function starts running as the caller and the guard becomes moot.
-    expect((code.match(/SECURITY DEFINER/g) ?? []).length).toBe(6);
-    expect((code.match(/SET search_path/g) ?? []).length).toBe(6);
+    expect((code.match(/SECURITY DEFINER/g) ?? []).length).toBe(2);
+    expect((code.match(/SET search_path/g) ?? []).length).toBe(2);
   });
 
   it("peek_workspace_invitation is never guarded — the browser calls it", () => {
     // It is in the same unguarded set and must STAY that way: accept-invite.tsx
     // calls it before the user has an account, gated by a capability token
     // rather than by identity. A role check would break invitation acceptance.
-    for (const f of ["00612_credit_functions_service_role_only.sql", "00613_sql_functions_service_role_only.sql"]) {
+    for (const f of ["00615_credit_functions_service_role_only.sql", "00616_sql_functions_service_role_only.sql"]) {
       const sql = readFileSync(join(DIR, f), "utf8");
       const code = sql.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
       expect(code, `${f} must not guard peek_workspace_invitation`)

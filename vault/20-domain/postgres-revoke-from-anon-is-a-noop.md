@@ -8,7 +8,8 @@ code_refs:
   - scripts/migrations-lint.mjs
   - supabase/migrations/00216_credit_ledger_admin.sql
   - supabase/migrations/00099_snap_quota.sql
-reviewed: 2026-08-16
+  - supabase/migrations/00611_body_checks_for_ineffective_revokes.sql
+reviewed: 2026-08-17
 tags: [postgres, security, migrations, grants]
 summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
 ---
@@ -82,6 +83,33 @@ The settled remedy is an authorization check in the function **body**, the way
 and that function is anon-*executable* and still safe, which is the proof it
 works. See [[revenue-dashboard-cohorts-and-access]] for the first application of
 it, where the missing guard was being masked by an unrelated bug.
+
+## What the six got
+
+`00611_body_checks_for_ineffective_revokes.sql` applies that remedy to all six,
+with no `REVOKE` anywhere in the file. Every caller was traced to a call site
+first, and none is anon:
+
+| Function | Caller | Guard |
+|---|---|---|
+| `reserve_snap` | `routes/grade.ts:1570` (supabaseAdmin) | service_role |
+| `refund_snap` | `lib/grade-refund.ts:204` (supabaseAdmin) | service_role |
+| `data_integrity_scan` | `lib/integrity-scan.ts:19` (supabaseAdmin) | service_role |
+| `north_star_weekly_counts` | `routes/jobs-north-star.ts:74` (cron) | service_role |
+| `north_star_lifetime_counts` | `routes/jobs-north-star.ts:140` (cron) | service_role |
+| `flipdesk_overview_metrics` | `src/hooks/use-flipdesk-overview.ts:121` (browser) | service_role or authenticated |
+
+Two details that will bite the next person writing one of these:
+
+- **SQL cannot raise**, so four of the six had to move from `language sql` to
+  `language plpgsql`. Add `#variable_conflict use_column` when the function is
+  `RETURNS TABLE`, or its output names (`user_id`, `count`, `total`) start
+  resolving as OUT variables inside the query.
+- **A NULL `auth.role()` is passed through on purpose.** That is an in-database
+  caller (psql, pg_cron), never a PostgREST request: the anon key and a signed-in
+  session both carry a role claim. Denying NULL would lock operators and any
+  future `pg_cron` job out of their own diagnostics.
+
 
 ## Related
 

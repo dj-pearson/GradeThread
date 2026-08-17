@@ -32,7 +32,7 @@
 // Run: node scripts/check-rpc-column-refs.mjs
 //   (needs Docker + the local Supabase stack; skips cleanly without them)
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -45,10 +45,12 @@ const CONTAINER = process.env.SUPABASE_DB_CONTAINER ?? "supabase_db_gradethread"
 export function calledRpcNames(dir = SRC) {
   const names = new Set();
   const walk = (d) => {
-    for (const e of readdirSync(d)) {
-      const p = join(d, e);
-      if (statSync(p).isDirectory()) {
-        if (e !== "tests") walk(p);
+    // withFileTypes, not a statSync per entry: readdir already knows the kind,
+    // and that extra syscall per file is most of what this walk costs.
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "tests") walk(p);
       } else if (p.endsWith(".ts")) {
         for (const m of readFileSync(p, "utf8").matchAll(/\.rpc\(\s*"([a-z0-9_]+)"/g)) {
           names.add(m[1]);

@@ -70,7 +70,7 @@ begin
   --    be a silent no-op, which is the failure mode this whole story is about.
   perform set_config('request.jwt.claims', '{"role":"anon"}', true);
   begin
-    perform public.revoke_user_sessions('${PROBE_ID}'::uuid);
+    perform public.admin_revoke_user_sessions('${PROBE_ID}'::uuid);
   exception when insufficient_privilege then
     refused := true;
   end;
@@ -93,7 +93,7 @@ begin
   end if;
 
   -- 2. the actual claim.
-  returned := public.revoke_user_sessions('${PROBE_ID}'::uuid);
+  returned := public.admin_revoke_user_sessions('${PROBE_ID}'::uuid);
   select count(*) into sessions_after from auth.sessions where user_id = '${PROBE_ID}';
   select count(*) into tokens_after from auth.refresh_tokens where token = 'probe-token';
 
@@ -108,7 +108,7 @@ begin
   end if;
 
   -- 3. no sessions is not an error.
-  none := public.revoke_user_sessions('${PROBE_ID}'::uuid);
+  none := public.admin_revoke_user_sessions('${PROBE_ID}'::uuid);
   if none <> 0 then
     raise notice 'REVOKE_FAIL|second call returned %, expected 0', none;
   end if;
@@ -128,9 +128,9 @@ export function run() {
 
   const exists = psql(["-At", "-c",
     "select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace " +
-    "where n.nspname = 'public' and p.proname = 'revoke_user_sessions';"]);
+    "where n.nspname = 'public' and p.proname = 'admin_revoke_user_sessions';"]);
   if (exists.stdout.trim() === "0") {
-    return { failures: ["public.revoke_user_sessions does not exist — 00614 did not apply"] };
+    return { failures: ["public.admin_revoke_user_sessions does not exist — 00612 did not apply"] };
   }
 
   const res = psql(["-v", "ON_ERROR_STOP=1"], SQL);

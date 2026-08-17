@@ -5,9 +5,9 @@ type: contract
 status: current
 source_of_truth: code
 code_refs:
-  - supabase/migrations/00611_analytics_rpc_allowlist.sql
-  - supabase/migrations/00612_credit_functions_service_role_only.sql
-  - supabase/migrations/00613_sql_functions_service_role_only.sql
+  - supabase/migrations/00614_analytics_rpc_allowlist.sql
+  - supabase/migrations/00615_credit_functions_service_role_only.sql
+  - supabase/migrations/00616_sql_functions_service_role_only.sql
   - supabase/migrations/00610_revenue_dashboard_trial_cohort.sql
   - src/test/permissive-admin-guard.test.ts
 reviewed: 2026-08-17
@@ -44,9 +44,9 @@ reads as a real check, which is why it passed review six times.
 
 | Shape | Count | Fixed by |
 |---|---|---|
-| Guard present but negative (above) | 6 | `00611` |
-| No guard at all — relied on the grant | 9 | `00612` |
-| `LANGUAGE sql`, so no block to raise from | 6 | `00613` |
+| Guard present but negative (above) | 6 | `00614` |
+| No guard at all — relied on the grant | 9 | `00615` |
+| `LANGUAGE sql`, so no block to raise from | 2 here, 4 in `00611` | `00616` |
 
 All were measured against production with the anon key that ships in the browser
 bundle, not inferred: real AI spend, retention cohorts, budget rows, **customer
@@ -85,7 +85,7 @@ A body check raises an ordinary error, so it arms neither problem.
    the browser *before* the user has an account, gated by a capability token
    rather than identity. A role check would break invitation acceptance.
 
-`src/test/permissive-admin-guard.test.ts` fails any migration at or after `00611`
+`src/test/permissive-admin-guard.test.ts` fails any migration at or after `00614`
 that uses the negative form, and pins the guard counts per migration.
 
 ## What this does NOT cover

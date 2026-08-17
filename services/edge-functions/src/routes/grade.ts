@@ -848,6 +848,8 @@ gradeRoutes.post("/submit", async (c) => {
     original_storage_path: string | null;
     capture_source: string | null;
     quality_score: number | null;
+    width: number | null;
+    height: number | null;
   }> = [];
 
   for (let i = 0; i < imageFiles.length; i++) {
@@ -936,6 +938,17 @@ gradeRoutes.post("/submit", async (c) => {
       original_storage_path: originalStoragePath,
       capture_source: imageCaptureSource[i] ?? null,
       quality_score: imageQualityScore[i] ?? null,
+      // US-2135 AC3: the delivered pixel dimensions, which validateImageUpload
+      // already parsed out of the header above to enforce the bomb ceiling and
+      // the US-529 floor, and which were being discarded. For a dedicated macro
+      // slot the whole photo IS the region, so these ARE that region's density.
+      //
+      // Server-observed, unlike quality_score beside it: parsed from the bytes
+      // we are about to store rather than reported by the client, so it needs
+      // no client change to start working and cannot be overstated by one.
+      // null when the parser does not read that format's header — never 0.
+      width: verdict.width,
+      height: verdict.height,
     });
   }
 
@@ -1078,6 +1091,13 @@ gradeRoutes.post("/submit", async (c) => {
         // confidence cap. Writing 0 here would claim we measured it and found
         // it unreadable, which would silently cap every video-graded item.
         quality_score: null,
+        // US-2135 AC3: dimensions ARE known here, and the asymmetry with
+        // quality_score above is the point. Nobody measured this frame's
+        // sharpness, so that stays null; the validator just parsed this frame's
+        // width and height out of its own header, so those are as known as they
+        // are for an uploaded photo. Null would understate what we have.
+        width: verdict.width,
+        height: verdict.height,
       });
     }
 

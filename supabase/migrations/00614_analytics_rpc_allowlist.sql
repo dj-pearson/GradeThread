@@ -735,7 +735,7 @@ end;
 $function$;
 
 
--- ── Prove it actually took effect (added after 00611 did not) ───────────────
+-- ── Prove it actually took effect (added after 00614 did not) ───────────────
 --
 -- CREATE OR REPLACE only replaces a function with the SAME argument list. A
 -- different signature creates a SECOND OVERLOAD and leaves the original live —
@@ -746,7 +746,7 @@ $function$;
 -- This block asserts the effect BEFORE the footer records the version. Under
 -- ON_ERROR_STOP=1 the raise aborts the run and nothing is recorded; without it,
 -- the operator still gets a loud error naming the exact signature at fault.
-do $verify_00611$
+do $verify_00614$
 declare
   unguarded text;
 begin
@@ -760,11 +760,11 @@ begin
 
   if unguarded is not null then
     raise exception
-      '00611 did NOT take effect for: %. CREATE OR REPLACE only replaces a matching signature; a different one creates an OVERLOAD and leaves the original live. Compare these against the CREATE statements above.',
+      '00614 did NOT take effect for: %. CREATE OR REPLACE only replaces a matching signature; a different one creates an OVERLOAD and leaves the original live. Compare these against the CREATE statements above.',
       unguarded
       using errcode = 'check_violation';
   end if;
 end
-$verify_00611$;
+$verify_00614$;
 
-insert into public.applied_migrations (version) values ('00611') on conflict do nothing;
+insert into public.applied_migrations (version) values ('00614') on conflict do nothing;

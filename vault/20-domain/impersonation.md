@@ -54,7 +54,7 @@ doing it. The admin's trail said only "impersonation started".
    The row is the marker, the clock and the revocation handle; a session without
    one is the old unbounded session exactly.
 3. **Stop revokes the target's sessions.** By deleting their `auth.sessions`
-   rows through `revoke_user_sessions` (00614); their refresh tokens cascade.
+   rows through `admin_revoke_user_sessions` (00612), after trying GoTrue first.
    The result is **reported**, and now surfaced to the admin rather than only to
    Sentry: an un-revoked stop means the target's tokens are still live.
 

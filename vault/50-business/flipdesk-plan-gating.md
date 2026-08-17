@@ -59,6 +59,29 @@ the cap came from a compiled table rather than the operator-editable matrix, so
 admin edits silently did nothing. Both fixed in US-2179; both are the kind of bug
 a second copy of plan resolution will keep producing.
 
+## The AI cap is a min of three, not one
+
+`getLimit(plan, 'aiActions', user)` does not return the plan number. It returns
+`aiCapFor(planLimit, user.ai_action_limit, user.subscription_status)`, which is a
+**min-of-caps**: the plan allowance, the seller's own `ai_action_limit` self-cap,
+and `TRIAL_AI_ACTION_CAP` (100) while `subscription_status = 'trialing'`. Each
+input can only lower the answer, so a fourth added later cannot accidentally
+raise one. `-1` means unlimited and is handled inside `effectiveAiCap`; a trial
+never produces `-1`, which is the point (US-2288 — a 14-day Pro trial is
+resettable by deleting the account and re-registering, so the top tier would
+otherwise be the cheapest thing to farm).
+
+Three properties that look like details and are the contract:
+
+- It keys on the subscription **state**, not the plan. A converted customer on
+  Pro gets the full 750; only `trialing` is throttled.
+- It composes on the **enforcement** path only. `requiredPlanForCapacity` asks a
+  plan-shopping question ("which tier covers N?"), and answering it with a
+  trial-throttled number would recommend an upgrade the trial itself caused.
+- `subscription_status` is **required** on the internal `UserSlice`, not
+  optional. A caller that forgot it would silently take the uncapped path.
+
+
 ## What the caps count
 
 `activeListings` counts **items** — `inventory_items.status = 'listed'` — not

@@ -34,17 +34,13 @@
 -- ── EQUIVALENCE IS MEASURED, NOT ASSERTED ───────────────────────────────────
 --
 -- Each function's output was hashed as the owner BEFORE this migration and
--- again after. Same digests, all five that return a value (refund_snap returns
--- void and is checked by its effect on snaps_used_this_month instead). That is
--- what makes "the same query inside" a claim rather than a description.
+-- again after. Same digests for both. That is what makes "the same query
+-- inside" a claim rather than a description.
 --
 -- Every caller is the edge's service-role client:
 --   drip_analytics              routes/admin-drip.ts:111
 --   newsletter_analytics        routes/admin-newsletter.ts:130
---   data_integrity_scan         lib/integrity-scan.ts:19
---   north_star_weekly_counts    routes/jobs-north-star.ts:74
---   north_star_lifetime_counts  routes/jobs-north-star.ts:140
---   refund_snap                 lib/grade-refund.ts:204
+--   (the other four moved to 00611 — see the note further down)
 --
 -- NOT INCLUDED: peek_workspace_invitation, which is in the same unguarded set
 -- and must STAY open. src/pages/accept-invite.tsx calls it from the browser
@@ -440,122 +436,20 @@ BEGIN
 END;
 $function$;
 
--- ── data_integrity_scan (LANGUAGE sql → plpgsql, same query) ──────────────
-CREATE OR REPLACE FUNCTION public.data_integrity_scan()
- RETURNS TABLE(anomaly text, count bigint)
- LANGUAGE plpgsql
- STABLE SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-BEGIN
-  -- US-2282: server-only. Confirmed answering an ANONYMOUS caller in
-  -- production before this migration. Allowlist rather than a revoke: a
-  -- denied call segfaults this Postgres image (US-2403).
-  IF NOT (auth.role() = 'service_role' OR public.is_admin()) THEN
-    RAISE EXCEPTION 'data_integrity_scan: service role required' USING ERRCODE = '42501';
-  END IF;
-  RETURN QUERY
-  -- repricing_suggestions whose denormalized user_id drifted from the item's
-    -- real owner (the CHECK constraints already prevent invalid status/reason).
-    SELECT 'repricing_user_id_drift'::text, count(*)::bigint
-    FROM public.repricing_suggestions rs
-    JOIN public.inventory_items ii ON ii.id = rs.inventory_item_id
-    WHERE rs.user_id <> ii.user_id
-    UNION ALL
-    -- email outbox stuck pending far past its last scheduled attempt (the retry
-    -- cron should have moved it to sent/dead_letter).
-    SELECT 'email_deliveries_stuck_pending'::text, count(*)::bigint
-    FROM public.email_deliveries
-    WHERE status = 'pending' AND next_attempt_at < now() - interval '6 hours'
-    UNION ALL
-    -- submissions stranded in 'processing' beyond the stuck-recovery window
-    -- (the US-495 sweep should have failed+refunded them).
-    SELECT 'submissions_stuck_processing'::text, count(*)::bigint
-    FROM public.submissions
-    WHERE status = 'processing' AND updated_at < now() - interval '1 hour';
-END;
-$function$;
-
--- ── north_star_weekly_counts (LANGUAGE sql → plpgsql, same query) ──────────────
-CREATE OR REPLACE FUNCTION public.north_star_weekly_counts(p_start timestamp with time zone, p_end timestamp with time zone)
- RETURNS TABLE(user_id uuid, items_listed bigint)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-BEGIN
-  -- US-2282: server-only. Confirmed answering an ANONYMOUS caller in
-  -- production before this migration. Allowlist rather than a revoke: a
-  -- denied call segfaults this Postgres image (US-2403).
-  IF NOT (auth.role() = 'service_role' OR public.is_admin()) THEN
-    RAISE EXCEPTION 'north_star_weekly_counts: service role required' USING ERRCODE = '42501';
-  END IF;
-  RETURN QUERY
-  SELECT ii.user_id, COUNT(*)::bigint AS items_listed
-    FROM public.listings l
-    JOIN public.inventory_items ii ON ii.id = l.inventory_item_id
-    WHERE l.listed_at >= p_start
-      AND l.listed_at <  p_end
-    GROUP BY ii.user_id;
-END;
-$function$;
-
--- ── north_star_lifetime_counts (LANGUAGE sql → plpgsql, same query) ──────────────
-CREATE OR REPLACE FUNCTION public.north_star_lifetime_counts(p_user_ids uuid[])
- RETURNS TABLE(user_id uuid, total bigint)
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-BEGIN
-  -- US-2282: server-only. Confirmed answering an ANONYMOUS caller in
-  -- production before this migration. Allowlist rather than a revoke: a
-  -- denied call segfaults this Postgres image (US-2403).
-  IF NOT (auth.role() = 'service_role' OR public.is_admin()) THEN
-    RAISE EXCEPTION 'north_star_lifetime_counts: service role required' USING ERRCODE = '42501';
-  END IF;
-  RETURN QUERY
-  SELECT ii.user_id, COUNT(*)::bigint AS total
-    FROM public.listings l
-    JOIN public.inventory_items ii ON ii.id = l.inventory_item_id
-    WHERE ii.user_id = ANY(p_user_ids)
-    GROUP BY ii.user_id;
-END;
-$function$;
-
--- ── refund_snap (LANGUAGE sql → plpgsql, same query) ──────────────
-CREATE OR REPLACE FUNCTION public.refund_snap(p_user_id uuid)
- RETURNS void
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public'
-AS $function$
-BEGIN
-  -- US-2282: server-only. Confirmed answering an ANONYMOUS caller in
-  -- production before this migration. Allowlist rather than a revoke: a
-  -- denied call segfaults this Postgres image (US-2403).
-  IF NOT (auth.role() = 'service_role' OR public.is_admin()) THEN
-    RAISE EXCEPTION 'refund_snap: service role required' USING ERRCODE = '42501';
-  END IF;
-  UPDATE public.users
-      SET snaps_used_this_month = greatest(0, snaps_used_this_month - 1)
-      WHERE id = p_user_id;
-END;
-$function$;
-
-
--- ── Prove it actually took effect (added after 00611 did not) ───────────────
+-- ── FOUR FUNCTIONS WERE REMOVED FROM THIS FILE, and their absence is the point.
 --
--- CREATE OR REPLACE only replaces a function with the SAME argument list. A
--- different signature creates a SECOND OVERLOAD and leaves the original live —
--- and the original is what PostgREST keeps routing to. That produces a
--- migration recorded as applied whose behaviour never changed, which is worse
--- than a failure because the record is what everyone trusts afterwards.
+-- data_integrity_scan, north_star_weekly_counts, north_star_lifetime_counts and
+-- refund_snap were converted here too, until 00611_body_checks_for_ineffective_
+-- revokes.sql landed on main doing exactly the same conversion to the same four.
+-- Two migrations CREATE OR REPLACE-ing one function is not an error, it is worse:
+-- whichever applies last silently wins, so the file you read is not necessarily
+-- the body that is running.
 --
--- This block asserts the effect BEFORE the footer records the version. Under
--- ON_ERROR_STOP=1 the raise aborts the run and nothing is recorded; without it,
--- the operator still gets a loud error naming the exact signature at fault.
-do $verify_00613$
+-- 00611 owns those four. This file owns drip_analytics and newsletter_analytics,
+-- which 00611 does not touch. The verify block below was trimmed to match, so it
+-- asserts only what this file is responsible for.
+
+do $verify_00616$
 declare
   unguarded text;
 begin
@@ -564,16 +458,16 @@ begin
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public'
-    and p.proname in ('drip_analytics', 'newsletter_analytics', 'data_integrity_scan', 'north_star_weekly_counts', 'north_star_lifetime_counts', 'refund_snap')
+    and p.proname in ('drip_analytics', 'newsletter_analytics')
     and p.prosrc not like '%auth.role()%';
 
   if unguarded is not null then
     raise exception
-      '00613 did NOT take effect for: %. CREATE OR REPLACE only replaces a matching signature; a different one creates an OVERLOAD and leaves the original live. Compare these against the CREATE statements above.',
+      '00616 did NOT take effect for: %. CREATE OR REPLACE only replaces a matching signature; a different one creates an OVERLOAD and leaves the original live. Compare these against the CREATE statements above.',
       unguarded
       using errcode = 'check_violation';
   end if;
 end
-$verify_00613$;
+$verify_00616$;
 
-insert into public.applied_migrations (version) values ('00613') on conflict do nothing;
+insert into public.applied_migrations (version) values ('00616') on conflict do nothing;

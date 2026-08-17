@@ -361,16 +361,23 @@ export function FlipdeskPlanPickerDialog({
                         to: planKey,
                         interval,
                       });
-                      // US-2125: the Free tile is a CANCELLATION. Route it to the
-                      // reviewed dialog instead of the Stripe portal, which
-                      // skipped the period-end statement, the acknowledgement
-                      // checkbox, the reason capture and the undo banner.
-                      if (isCancelToFree) {
-                        onOpenChange(false);
-                        onRequestCancel?.();
-                        return;
-                      }
                       portal.mutate();
+                    },
+                    // US-2125: the Free tile is a CANCELLATION, and it gets its
+                    // own prop rather than a branch inside onOpenPortal. One
+                    // handler meaning two things is how the portal path survived
+                    // here in the first place: the routing was corrected while a
+                    // comment two hundred lines away still described the old
+                    // behaviour, and nothing could disagree with it. Separate
+                    // props cannot drift like that.
+                    onCancel: () => {
+                      track("plan_picker.cta_clicked", {
+                        from: currentPlan,
+                        to: planKey,
+                        interval,
+                      });
+                      onOpenChange(false);
+                      onRequestCancel?.();
                     },
                   })}
                   {/* US-2115: directly under the CTA, in the card the user is
@@ -420,8 +427,9 @@ function renderCta(args: {
   onSubscribe: () => void;
   onDowngrade: () => void;
   onOpenPortal: () => void;
+  onCancel: () => void;
 }) {
-  const { isCurrent, sameTierDiffInterval, isUpgrade, isDowngrade, isCancelToFree, isLoading, planKey, onSubscribe, onDowngrade, onOpenPortal } = args;
+  const { isCurrent, sameTierDiffInterval, isUpgrade, isDowngrade, isCancelToFree, isLoading, planKey, onSubscribe, onDowngrade, onOpenPortal, onCancel } = args;
 
   if (isCurrent) {
     return (
@@ -469,12 +477,15 @@ function renderCta(args: {
   }
 
   if (isCancelToFree) {
-    // Cancelling to Free goes through the portal until US-216's cancel flow ships.
+    // US-2125: goes through the reviewed cancellation dialog, NOT the Stripe
+    // portal. The portal skipped the period-end statement, the acknowledgement
+    // checkbox, the reason capture and the undo banner, and showed
+    // portal-native copy nobody here had reviewed.
     return (
       <Button
         variant="outline"
         className="w-full"
-        onClick={onOpenPortal}
+        onClick={onCancel}
         disabled={isLoading}
       >
         {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}

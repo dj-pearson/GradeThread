@@ -213,10 +213,9 @@ adminImpersonationRoutes.post("/stop", async (c: Context<AdminEnv>) => {
   // AC2: end the target's sessions, not just our record of them. Stopping used
   // to redeem the admin's resume token and nothing else, so a refresh token
   // copied out of the browser mid-impersonation outlived the "stop" entirely.
-  const revocation = session.target_id
+  const revoked = session.target_id
     ? await revokeUserSessions(session.target_id)
-    : { revoked: false, sessions: 0, error: "no target on the start record" };
-  const revoked = revocation.revoked;
+    : false;
 
   await endImpersonation(session.id, "stopped", now);
 
@@ -228,20 +227,11 @@ adminImpersonationRoutes.post("/stop", async (c: Context<AdminEnv>) => {
       session_id: session.id,
       target_email: session.target_email,
       sessions_revoked: revoked,
-      sessions_deleted: revocation.sessions,
-      revoke_error: revocation.error ?? null,
       started_at: session.started_at,
     },
   });
 
   // Reported rather than swallowed: an un-revoked stop means the target's
-  // tokens are still live, and the operator needs to know that now. US-2662 AC4
-  // — the banner surfaces this, because until then the only place a failed
-  // revocation appeared was Sentry, and it went unread for every stop ever made.
-  return c.json({
-    ok: true,
-    revoked,
-    sessions_revoked: revocation.sessions,
-    revoke_error: revocation.error ?? null,
-  });
+  // tokens are still live, and the operator needs to know that now.
+  return c.json({ ok: true, revoked });
 });
