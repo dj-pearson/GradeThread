@@ -1,6 +1,93 @@
-# PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
+# PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🔴 HELD: 00610 — revenue_dashboard has never worked, and the break was hiding a leak (US-2663)
+During the pre-production sprint, migration commits go to `origin/main` AND get
+an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
+entry is on origin and NOT yet in the production database.
+
+## 🟠 PUSHED, NOT YET APPLIED: 00611 — the six anon-callable functions get a guard in the body (US-2666)
+
+**Risk: LOW to apply. Apply AFTER 00610.**
+
+`NOTIFY pgrst, 'reload schema';` **NOT required.** Every signature is unchanged
+(`CREATE OR REPLACE`, same arguments, same return types), so PostgREST's cache
+stays valid. No table, column or new RPC.
+
+### What it does
+
+Six functions carry a `REVOKE ... FROM anon` that never denied anon: the
+`CREATE FUNCTION` grant to PUBLIC survives it and every role belongs to PUBLIC.
+They have been callable with the public anon key the whole time. This migration
+adds an authorization check inside each function BODY, which is the remedy this
+repo settled on (`admin_revenue_metrics`, 00514, is the model: anon-EXECUTABLE
+and still safe).
+
+| Function | Origin | Guard |
+|---|---|---|
+| `reserve_snap(uuid,int)` | 00099 | service_role |
+| `refund_snap(uuid)` | 00099 | service_role |
+| `data_integrity_scan()` | 00097 | service_role |
+| `north_star_weekly_counts(timestamptz,timestamptz)` | 00170 | service_role |
+| `north_star_lifetime_counts(uuid[])` | 00170 | service_role |
+| `flipdesk_overview_metrics(...)` | 00594 | service_role or authenticated |
+
+Every caller was traced first: five are edge-only through `supabaseAdmin`, and
+the sixth is called from the browser by a signed-in seller
+(`src/hooks/use-flipdesk-overview.ts:121`). No caller is anon, so denying anon
+breaks nothing.
+
+### ⚠ Why this is NOT a REVOKE
+
+Two traps, both real:
+
+1. A denied call from anon or authenticated segfaults Postgres on this image
+   (US-2403), and 00527 is a standing DO NOT APPLY. A revoke would arm that
+   crash on `flipdesk_overview_metrics`, which anyone can reach today.
+2. On five of the six, `service_role` holds EXECUTE **only through the PUBLIC
+   grant** — there is no explicit grant to it anywhere. `REVOKE ... FROM PUBLIC`
+   would have stripped the edge's own access and taken out the paid Snap
+   grading and refund paths.
+
+A body check revokes nothing and raises an ordinary 42501, so it arms neither.
+
+### Behaviour change to expect
+
+Four functions change from `language sql` to `language plpgsql` because SQL
+cannot raise. Same signatures, same results, same volatility markers. The
+bodies are the originals with only the guard added.
+
+`flipdesk_overview_metrics` stays SECURITY INVOKER, so RLS still scopes every
+figure to the caller. An anon POST that used to return 200 with zeros now
+returns 42501.
+
+### Apply order
+
+1. 00610 (US-2663), then 00611. Both are idempotent and safe to re-run.
+2. No `NOTIFY pgrst` needed for either.
+3. Redeploy the edge (boot guard now expects `00611`).
+
+### Verify after applying
+
+```sql
+-- all six should now be plpgsql or carry the guard; spot-check one:
+select prosecdef, prolang::regtype is not null
+from pg_proc where proname = 'reserve_snap';
+```
+
+```bash
+# anon must now be refused rather than answered
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -X POST https://api.gradethread.com/rest/v1/rpc/flipdesk_overview_metrics \
+  -H "apikey: $ANON_KEY" -H "Authorization: Bearer $ANON_KEY" \
+  -H 'Content-Type: application/json' -d '{}'
+# expect 4xx (42501), not 200
+```
+
+**Not run against a database yet.** Docker was down on the dev box when this was
+written, so `verify:db` did not run. The SQL is a mechanical edit of the four
+originals plus a guard; it still needs one `supabase db reset` before it is
+trusted.
+
+## 🟠 PUSHED, NOT YET APPLIED: 00610 — revenue_dashboard has never worked, and the break was hiding a leak (US-2663)
 
 **Risk: LOW to apply. Do NOT skip it and push, though — see the ordering note.**
 
