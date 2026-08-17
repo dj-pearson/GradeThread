@@ -223,7 +223,7 @@ Deno.test("US-2279 WIRING: the second composite runs ONLY under decision.trigger
   // Without the guard the pass runs on every grade and doubles composite spend
   // silently — nothing would fail, the bill would just grow.
   const block = PIPELINE_CODE.match(
-    /const decision = shouldSeekSecondOpinion\([\s\S]*?\n    \} catch/,
+    /const decision = shouldSeekSecondOpinion\([\s\S]*?\n\s+\} catch/,
   )?.[0];
   assert(block, "the second-opinion block was not found in grading-pipeline.ts");
   assertStringIncludes(block, "if (decision.trigger)");
