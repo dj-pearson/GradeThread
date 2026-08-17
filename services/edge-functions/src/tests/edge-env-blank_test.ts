@@ -22,8 +22,14 @@
 // Same defect as the release identity had (lib/release-identity.ts states the
 // rule: fall through on a placeholder VALUE, not merely on an unset key). That
 // fix never reached this module, and the two are three files apart.
-import { assertEquals, assertThrows } from "@std/assert";
-import { assertAdminMfaConfig, resolveEdgeEnv } from "../lib/env.ts";
+import { assert, assertEquals, assertThrows } from "@std/assert";
+import {
+  assertAdminMfaConfig,
+  isKnownEdgeEnv,
+  isProductionEnv,
+  KNOWN_EDGE_ENVS,
+  resolveEdgeEnv,
+} from "../lib/env.ts";
 
 const get = (env: Record<string, string>) => (k: string) => env[k];
 
@@ -63,6 +69,82 @@ Deno.test("a blank EDGE_ENV cannot skip the admin-MFA boot assertion", () => {
   );
 });
 
+// ── US-2660 AC3: the same hole one step along ────────────────────────
+//
+// The blank fix left a sibling: any NON-empty string was taken as-is, so
+// `EDGE_ENV=prod` — a plausible typo in a field that is edited by hand — was
+// not "production" and disabled every production-only control exactly as the
+// blank did. An unrecognised name now gets production's behaviour.
+
+Deno.test("US-2660 AC3: an unrecognised EDGE_ENV is treated as production", () => {
+  // The typos this is for.
+  for (const typo of ["prod", "produciton", "Production ", "live", "prd"]) {
+    const env = resolveEdgeEnv(get({ EDGE_ENV: typo }));
+    assert(
+      isProductionEnv(env),
+      `EDGE_ENV=${typo} resolved to "${env}" and is NOT being treated as production`,
+    );
+  }
+});
+
+Deno.test("US-2660 AC3: the recognised non-production names still are not production", () => {
+  // The other half, and the reason a REFUSING whitelist was rejected: staging,
+  // development and test must keep behaving as themselves.
+  for (const name of ["staging", "development", "test"]) {
+    const env = resolveEdgeEnv(get({ EDGE_ENV: name }));
+    assertEquals(env, name);
+    assert(isKnownEdgeEnv(env), `${name} is missing from KNOWN_EDGE_ENVS`);
+    assert(!isProductionEnv(env), `${name} is being treated as production`);
+  }
+  assert(isProductionEnv("production"));
+  assert(isKnownEdgeEnv("production"));
+});
+
+Deno.test("US-2660 AC3: an unrecognised EDGE_ENV cannot skip the admin-MFA boot assertion", () => {
+  // The concrete cost of the old behaviour: `EDGE_ENV=prod` with admin MFA off
+  // booted happily and served admin routes without the AAL2 gate.
+  assertThrows(
+    () => assertAdminMfaConfig(get({ EDGE_ENV: "prod", ADMIN_MFA_ENFORCED: "false" })),
+    Error,
+    "Refusing to start",
+  );
+});
+
+Deno.test("US-2660 AC3: KNOWN_EDGE_ENVS covers every name the deploy files use", async () => {
+  // Read off the deploy files rather than trusted to memory. A new environment
+  // added to a compose file without being registered here would be silently
+  // treated as production, which is safe but confusing — this makes it loud at
+  // the point the compose file changes instead.
+  const files = [
+    "./docker-compose.coolify.yml",
+    "./docker-compose.staging.yml",
+    "./docker-compose.dev.yml",
+    "./.env.example",
+    "./.env.staging.example",
+  ];
+  const declared = new Set<string>();
+  for (const f of files) {
+    let src: string;
+    try {
+      src = await Deno.readTextFile(f);
+    } catch {
+      continue; // a compose file may legitimately not exist in every checkout
+    }
+    for (const m of src.matchAll(/EDGE_ENV\s*[:=]\s*"?([A-Za-z_]+)"?/g)) {
+      declared.add(m[1].toLowerCase());
+    }
+  }
+  assert(declared.size > 0, "no EDGE_ENV value found in any deploy file — the scan is broken");
+  const unregistered = [...declared].filter((d) => !isKnownEdgeEnv(d));
+  assertEquals(
+    unregistered,
+    [],
+    `a deploy file declares EDGE_ENV values that are not in KNOWN_EDGE_ENVS ` +
+      `(${KNOWN_EDGE_ENVS.join(", ")}), so they would be treated as production: ` +
+      unregistered.join(", "),
+  );
+});
+
 Deno.test("no module keeps its own copy of the EDGE_ENV chain", async () => {
   // There were THREE. lib/env.ts had two (edgeEnv and assertAdminMfaConfig) and
   // routes/health.ts had a third gating /health/_throw — an unauthenticated
@@ -88,6 +170,41 @@ Deno.test("no module keeps its own copy of the EDGE_ENV chain", async () => {
         `blank EDGE_ENV defeats them:\n  ${offenders.join("\n  ")}`,
     );
   }
+});
+
+Deno.test("no module compares the edge env to \"production\" by hand", async () => {
+  // AC4, one level up from the `??` scan below. Routing every site through
+  // resolveEdgeEnv() fixed the BLANK; it did nothing for the TYPO, because each
+  // site still asked `=== "production"` and `prod` is not that string. The
+  // decision belongs in one predicate (isProductionEnv) so there is one place to
+  // change when a rule like this one lands.
+  //
+  // Scoped to the EDGE env deliberately. Other modules legitimately compare a
+  // DIFFERENT variable to "production" — the eBay sandbox switch, the App Store
+  // billing environment, APNs host selection — and none of them is EDGE_ENV.
+  // Matching those would make this scan noise, and a noisy guard gets deleted.
+  const offenders: string[] = [];
+  for await (const entry of walk("./src")) {
+    if (!entry.endsWith(".ts") || entry.includes("_test.")) continue;
+    const path = entry.split("\\").join("/");
+    if (path.endsWith("src/lib/env.ts")) continue; // where the decision lives
+    const src = await Deno.readTextFile(entry);
+    for (const line of src.split("\n")) {
+      if (line.trimStart().startsWith("//")) continue; // a comment about the rule is not the rule
+      // The shape: something env-ish compared straight to the literal.
+      if (/\b(edgeEnv\(\)|\benv\b|d\.env|EDGE_ENV)\s*[!=]==\s*"production"/.test(line)) {
+        offenders.push(`${path}: ${line.trim()}`);
+      }
+    }
+  }
+  assertEquals(
+    offenders,
+    [],
+    "These compare the edge environment to \"production\" by hand instead of " +
+      "calling isProduction() / isProductionEnv(). A bare comparison treats an " +
+      "unrecognised value (EDGE_ENV=prod) as NON-production and switches off " +
+      `every control that site guards:\n  ${offenders.join("\n  ")}`,
+  );
 });
 
 async function* walk(dir: string): AsyncGenerator<string> {

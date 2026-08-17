@@ -33,7 +33,7 @@
 // A CI sync-check (schema-version_test.ts) fails the build if they drift.
 
 import { supabaseAdmin } from "./supabase.ts";
-import { edgeEnv } from "./env.ts";
+import { edgeEnv, isProductionEnv } from "./env.ts";
 import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
@@ -139,7 +139,7 @@ export async function assertSchemaVersion(
   // deploy/migrate race — the migration lands seconds after the edge boots. Give
   // it a chance to land before crash-looping the whole service. Outside
   // production, or for any non-"behind" result, this loop never runs.
-  if (cmp === "behind" && d.env === "production" && d.graceAttempts > 0) {
+  if (cmp === "behind" && isProductionEnv(d.env) && d.graceAttempts > 0) {
     for (let attempt = 1; attempt <= d.graceAttempts; attempt++) {
       console.warn(
         `[schema-version] DB behind (applied=${latest}, expected ${EXPECTED_SCHEMA_VERSION}); ` +
@@ -183,7 +183,7 @@ export async function assertSchemaVersion(
       const message =
         `[schema-version] DB is STALE: applied=${latest}, this build expects ${EXPECTED_SCHEMA_VERSION}. ` +
         `Apply pending migrations before deploying this edge build.`;
-      if (d.env === "production") {
+      if (isProductionEnv(d.env)) {
         d.onFatal(`${message} Refusing to start (after grace window).`);
       } else {
         console.warn(`${message} (non-production: proceeding)`);

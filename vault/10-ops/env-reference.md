@@ -8,7 +8,7 @@ code_refs:
   - .env.example
   - services/edge-functions/.env.example
   - services/edge-functions/src/lib/env-validation.ts
-reviewed: 2026-08-16
+reviewed: 2026-08-17
 tags: [ops, env, deploy, contract]
 summary: Every env var the codebase reads, which of the eight deployment surfaces it belongs to, and which six are boot-fatal in production.
 ---
@@ -87,6 +87,32 @@ summary: Every env var the codebase reads, which of the eight deployment surface
 >
 > **When auditing a deployment, look for variables that EXIST and are empty.**
 > That is the shape; a missing key is the safe case.
+
+> [!danger] An `EDGE_ENV` value nothing RECOGNISES is treated as production
+> (2026-08-17)
+>
+> The blank fix left the sibling case open, and it is the more likely one: any
+> non-empty string was accepted as-is, so `EDGE_ENV=prod` — a plausible typo in a
+> field that is edited by hand — was not `"production"` and switched off exactly
+> the same controls the blank did. Required-secret checks, the admin-MFA boot
+> refusal, HTTPS in the SSRF guard, live-mode Stripe filtering, rate limiting,
+> the CORS localhost exclusion.
+>
+> `isProduction()` now returns true for `production` **or for any name not in
+> `KNOWN_EDGE_ENVS`** (`production`, `staging`, `development`, `test` — read off
+> the compose files, not invented). Every site goes through it or through
+> `isProductionEnv(env)`; a bare `=== "production"` is a test failure.
+>
+> **This is not the refusing whitelist that was rejected.** An unrecognised name
+> still boots, still keeps its own name in `edgeEnv()`, logs and Sentry tags, and
+> `assertKnownEdgeEnv()` says so loudly at the top of the boot log. A new
+> environment gets a service that is too strict and announces it; the old
+> behaviour gave one that was too permissive and said nothing. A wrong guess
+> toward production is a false alarm, a wrong guess away from it is a silent hole.
+>
+> Adding an environment means adding it to `KNOWN_EDGE_ENVS`. A compose file that
+> declares one without registering it fails
+> `services/edge-functions/src/tests/edge-env-blank_test.ts`.
 
 ## Where things run (the "destinations")
 

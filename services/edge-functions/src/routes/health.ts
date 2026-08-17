@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
-import { edgeEnv, isProduction } from "../lib/env.ts";
+import { edgeEnv, isProduction, isProductionEnv } from "../lib/env.ts";
 import { isPlaceholderRelease, RELEASE_ENV_KEYS } from "../lib/release-identity.ts";
 import {
   checkSchemaCompleteness,
@@ -212,7 +212,7 @@ export function releaseReadiness(release: string, env: string): string {
     `tied to a build. Either the image was built without a GIT_SHA build arg ` +
     `or none of those vars is set at runtime (see COOLIFY.md, US-2001)`;
   // Outside production an untagged local/dev build is expected, not a defect.
-  return env === "production" ? detail : `${detail} [non-production]`;
+  return isProductionEnv(env) ? detail : `${detail} [non-production]`;
 }
 
 // US-2447: how long a watchdog heartbeat stays credible. The script runs every

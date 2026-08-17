@@ -11,7 +11,7 @@
 //
 // Pure + injectable (env getter + env name) so every branch is unit-testable.
 
-import { edgeEnv } from "./env.ts";
+import { edgeEnv, isProduction, isProductionEnv } from "./env.ts";
 import { deliverabilityWarnings } from "./email-transport.ts";
 import { isPlaceholderRelease, resolveRelease } from "./release-identity.ts";
 
@@ -187,7 +187,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   {
     name: "alerting",
     vars: ["MONITOR_ALERT_WEBHOOK", "MONITOR_ALERT_EMAIL", "SMTP_ADMIN_EMAIL"],
-    enabledWhen: () => edgeEnv() === "production",
+    enabledWhen: () => isProduction(),
     // ANY channel counts — email or webhook. The failure this catches is
     // "none of them", not "not the one I expected".
     satisfiedWhen: (get) =>
@@ -228,7 +228,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   {
     name: "auth_email_hook",
     vars: ["AUTH_EMAIL_HOOK_SECRET"],
-    enabledWhen: () => edgeEnv() === "production",
+    enabledWhen: () => isProduction(),
     alsoUnverifiable:
       "this only proves AUTH_EMAIL_HOOK_SECRET is set HERE. Whether GoTrue is " +
       "actually calling the hook depends on GOTRUE_HOOK_SEND_EMAIL_ENABLED / " +
@@ -265,7 +265,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
   {
     name: "pages_origin_bypass",
     vars: ["CF_PAGES_ORIGIN_SECRET"],
-    enabledWhen: () => edgeEnv() === "production",
+    enabledWhen: () => isProduction(),
     alsoUnverifiable:
       "set HERE, which is one of the two halves. The SAME value must be on the " +
       "Cloudflare Pages project, and a Pages env change only takes effect on the " +
@@ -296,7 +296,7 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
 export function missingRequiredEnv(get: EnvGetter = realEnv, env: string = edgeEnv()): string[] {
   const missing: string[] = CORE_REQUIRED.filter((k) => !has(get, k));
   if (!hasAnthropic(get)) missing.push("ANTHROPIC_API_KEY");
-  if (env === "production") {
+  if (isProductionEnv(env)) {
     for (const k of PROD_REQUIRED) if (!has(get, k)) missing.push(k);
   }
   return missing;
@@ -307,7 +307,7 @@ export function assertRequiredEnv(get: EnvGetter = realEnv, env: string = edgeEn
   const missing = missingRequiredEnv(get, env);
   if (missing.length === 0) return;
   const msg = `[BOOT] Missing required env: ${missing.join(", ")}`;
-  if (env === "production") {
+  if (isProductionEnv(env)) {
     throw new Error(`${msg} — refusing to start.`);
   }
   console.warn(`${msg} (non-production: starting anyway).`);

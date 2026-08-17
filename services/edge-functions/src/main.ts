@@ -255,7 +255,12 @@ import { apiUsageMiddleware } from "./lib/api-usage-log.ts";
 import { blockViewerWrites, workspaceMiddleware } from "./middleware/workspace.ts";
 import { securityHeaders } from "./middleware/security-headers.ts";
 import { bodyLimit, BodyTooLargeError } from "./middleware/body-limit.ts";
-import { assertAdminMfaConfig, assertNoProdDebugFlags, isProduction } from "./lib/env.ts";
+import {
+  assertAdminMfaConfig,
+  assertKnownEdgeEnv,
+  assertNoProdDebugFlags,
+  isProduction,
+} from "./lib/env.ts";
 import { assertRequiredEnv, warnDeliverability, warnMissingFeatureGroups } from "./lib/env-validation.ts";
 import { assertSchemaVersion, checkSchemaCompleteness } from "./lib/schema-version.ts";
 import { redactError } from "./lib/log-redact.ts";
@@ -1796,6 +1801,11 @@ app.onError((err, c) => {
   console.error("Unhandled error:", redactError(err));
   return c.json({ error: "Internal server error" }, 500);
 });
+
+// US-2660 AC3: an EDGE_ENV nothing recognises is TREATED as production so no
+// control is silently disabled, and said so here rather than left to be
+// inferred from behaviour. First, because it explains everything that follows.
+assertKnownEdgeEnv();
 
 // Fail-closed safety net: warn loudly if a security-weakening debug flag is
 // set in production (the flag is already ignored by isDebugAllowed). (US-266)

@@ -9,7 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/destructive-guard.ts
   - supabase/migrations/00521_impersonation_sessions.sql
   - services/edge-functions/src/tests/impersonation-bounds_test.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-17
 tags: [admin, security, impersonation, audit]
 summary: Impersonation is capped at 30 minutes, recorded server-side, revoked on stop, and refused by every destructive route while it is live.
 ---
@@ -53,12 +53,17 @@ doing it. The admin's trail said only "impersonation started".
    before the token leaves the handler, and a failed insert **refuses the start**.
    The row is the marker, the clock and the revocation handle; a session without
    one is the old unbounded session exactly.
-3. **Stop revokes the target's sessions.** Via GoTrue's admin logout with
-   `scope: "global"`, because that is the only thing that reaches a refresh token
-   already copied out of the browser. supabase-js cannot do it —
-   `auth.admin.signOut` wants a JWT, which is the one thing the server does not
-   have. The result is **reported**: an un-revoked stop means the target's tokens
-   are still live.
+3. **Stop revokes the target's sessions.** By deleting their `auth.sessions`
+   rows through `revoke_user_sessions` (00614); their refresh tokens cascade.
+   The result is **reported**, and now surfaced to the admin rather than only to
+   Sentry: an un-revoked stop means the target's tokens are still live.
+
+   ⚠ **This rule was FALSE from the day it was written until 2026-08-17.** It
+   said "via GoTrue's admin logout with `scope: global`", and that route does not
+   exist on the GoTrue this project runs — every stop 404'd and revoked nothing.
+   It also cannot kill an access token already issued, which no version of this
+   rule ever could. Both are in
+   [[impersonation-session-revocation]], which owns the mechanism.
 4. **Destructive routes refuse while it is live.** Account delete, subscription
    cancel, billing portal, and every marketplace disconnect.
 
@@ -146,5 +151,6 @@ TTL bounds how long the minted link is redeemable. Both should be known.
 
 ## Related
 
+- [[impersonation-session-revocation]] — what stopping actually revokes, and what it cannot.
 - [[audit-log-access-control]] — who can read the trail this writes to.
 - [[service-role-tables]] — the deny-all posture this table shares.

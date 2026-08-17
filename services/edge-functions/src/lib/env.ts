@@ -46,8 +46,71 @@ export function edgeEnv(): string {
   return resolveEdgeEnv();
 }
 
+/**
+ * Every environment name this repository actually uses, read off the deploy
+ * files rather than invented: `production` (docker-compose.coolify.yml),
+ * `staging` (docker-compose.staging.yml, .env.staging.example), `development`
+ * (docker-compose.dev.yml) and `test` (the tenant-isolation and money-cert
+ * workflows).
+ */
+export const KNOWN_EDGE_ENVS = [
+  "production",
+  "staging",
+  "development",
+  "test",
+] as const;
+
+export function isKnownEdgeEnv(env: string = edgeEnv()): boolean {
+  return (KNOWN_EDGE_ENVS as readonly string[]).includes(env);
+}
+
+/**
+ * ⚠ AN UNRECOGNISED VALUE COUNTS AS PRODUCTION (US-2660 AC3).
+ *
+ * The blank-value bug this sits on top of had a sibling nobody had decided
+ * about: any non-empty string was accepted as-is, so `EDGE_ENV=prod` — an
+ * entirely plausible typo in a hand-edited Coolify field, and the field IS
+ * hand-edited (US-2665) — was not "production" and therefore switched off the
+ * required-secret checks, admin-MFA boot enforcement, HTTPS in the SSRF guard,
+ * live-mode Stripe filtering, rate limiting and the CORS localhost exclusion.
+ * Exactly what the blank did, by exactly the same route.
+ *
+ * WHY THIS IS NOT THE WHITELIST THAT WAS REJECTED. The objection recorded
+ * against a whitelist was that it "breaks staging and any future environment
+ * name", and it would — if an unrecognised name were REFUSED. This one is not
+ * refused: it boots, it keeps its name in `edgeEnv()` and in every log and
+ * Sentry tag, and it gets production's caution. A future environment gets a
+ * service that is too strict and says so at the top of its logs, which someone
+ * fixes in a minute. The alternative is a service that is too permissive and
+ * says nothing, which is what this cost.
+ *
+ * The asymmetry is the whole argument: a wrong guess toward production is a
+ * false alarm, a wrong guess away from it is a silent hole.
+ */
+export function isProductionEnv(env: string): boolean {
+  return env === "production" || !isKnownEdgeEnv(env);
+}
+
 export function isProduction(): boolean {
-  return edgeEnv() === "production";
+  return isProductionEnv(edgeEnv());
+}
+
+/**
+ * Loud, non-fatal boot warning for an environment name nothing recognises.
+ *
+ * Non-fatal on purpose. Refusing to boot on an unknown name would make adding a
+ * new environment a production-shaped outage, and `isProduction()` above has
+ * already made the value safe. This exists so the operator learns about the
+ * typo from the first ten lines of the log rather than from behaviour.
+ */
+export function assertKnownEdgeEnv(env: string = edgeEnv()): void {
+  if (isKnownEdgeEnv(env)) return;
+  console.error(
+    `[SECURITY] EDGE_ENV="${env}" is not one of ${KNOWN_EDGE_ENVS.join(", ")}. ` +
+      `Treating it as PRODUCTION so no security control is silently disabled — ` +
+      `every production-only check is active. If this is a real new environment, ` +
+      `add it to KNOWN_EDGE_ENVS; if it is a typo (prod, PRODUCTION, produciton), fix it.`,
+  );
 }
 
 // US-270: whether admin endpoints require AAL2 (MFA) and destructive actions
@@ -69,12 +132,13 @@ export function isAdminMfaEnforced(): boolean {
 export function assertAdminMfaConfig(
   getEnv: (k: string) => string | undefined = (k) => Deno.env.get(k),
 ): void {
-  // Through the shared resolver, so a blank EDGE_ENV cannot skip this check.
-  // It carried its own copy of the `??` chain, which meant `EDGE_ENV=` returned
-  // here early and the boot-time refusal to start with admin MFA disabled
-  // simply did not run.
+  // Through the shared resolver AND the shared predicate, so neither a blank
+  // EDGE_ENV nor an unrecognised one can skip this check. It carried its own
+  // copy of the `??` chain, which meant `EDGE_ENV=` returned here early and the
+  // boot-time refusal to start with admin MFA disabled simply did not run; the
+  // bare `!== "production"` had the same effect for `EDGE_ENV=prod`.
   const env = resolveEdgeEnv(getEnv);
-  if (env !== "production") return;
+  if (!isProductionEnv(env)) return;
 
   const enforced =
     (getEnv("ADMIN_MFA_ENFORCED") ?? "true").trim().toLowerCase() !== "false";
