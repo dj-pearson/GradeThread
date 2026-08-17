@@ -9,12 +9,18 @@ code_refs:
   - src/hooks/use-items-full.ts
   - services/edge-functions/src/routes/admin-dashboard.ts
   - services/edge-functions/src/tests/admin-dashboard-kpi-provenance_test.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-17
 tags: [postgrest, supabase, perf, correctness, flipdesk, admin]
 summary: There is NO row cap in prod (db-max-rows is unset, read from pg_roles) — the bound that actually bites is an 8s statement_timeout, 3s for anonymous; every read must still page until empty, count without rows, or aggregate in SQL.
 ---
 
 # PostgREST row cap (db-max-rows)
+
+> **Re-reviewed 2026-08-17.** Drift flagged `use-items-full.ts` for `b0c2eda3`,
+> which added a `DeleteBlockingListing` type so a refused delete can name the
+> listings that blocked it (US-2657). It adds a shape, not a query: no new
+> unpaged read, no `select('*')` over an unbounded set, no count-without-rows.
+> The statement-timeout bound and the paging rule here are untouched.
 
 ## The fact this exists for
 

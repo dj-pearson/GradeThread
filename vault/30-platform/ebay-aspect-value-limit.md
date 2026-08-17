@@ -6,12 +6,18 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-08-08
+reviewed: 2026-08-17
 tags: [ebay, publishing, gotcha]
 summary: eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 ---
 
 # eBay 65-character aspect-value limit
+
+> **Re-reviewed 2026-08-17.** Drift flagged `ebay-client.ts` for `b25e7650`,
+> which made the relist workflow verify eBay actually acted instead of inferring
+> it. That is the lifecycle verbs, not aspect validation: the 65-character
+> publish-time limit and the misleading "already exists" error it surfaces as
+> are unchanged.
 
 eBay hard-rejects any item-specific (aspect) **value** longer than 65 characters.
 Enforced in `ebay-client.ts` via `EBAY_ASPECT_VALUE_MAX_LEN = 65` and

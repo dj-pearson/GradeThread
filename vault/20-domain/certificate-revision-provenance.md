@@ -8,12 +8,19 @@ code_refs:
   - services/edge-functions/src/lib/grade-adjustment.ts
   - services/edge-functions/src/routes/content-public.ts
   - services/edge-functions/src/tests/certificate-revision-stamp_test.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [grading, certificates, provenance, seo]
 summary: A certificate records when its certified content was last rewritten in place; NULL means never revised, and a regrade must never set it.
 ---
 
 # Certificate revision provenance
+
+> **Re-reviewed 2026-08-17.** Drift flagged `content-public.ts` for `b324cb03`,
+> which flattens a submission description from HTML to plain text before the
+> certificate prints it (US-2628). That is a rendering fix on a field this note
+> does not govern. `content_revised_at` semantics — NULL means never revised, a
+> regrade must never set it — are unchanged, and nothing in that commit writes
+> the column.
 
 > [!note] Re-reviewed 2026-08-15 — the drift was a neighbouring field
 > `content-public.ts` changed, so the guard fired. The change adds

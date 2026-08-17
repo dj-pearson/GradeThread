@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
@@ -20,7 +20,14 @@ contract note.
 | Host | System | Serves |
 |---|---|---|
 | `api.gradethread.com` | Supabase (self-hosted), fronted by Kong | **Only** Supabase routes — REST, auth, storage, realtime |
-| `functions.gradethread.com` | Deno/Hono edge service on Coolify | **All** Hono routes: `/api/grade/*`, `/api/payments/*`, `/api/webhooks/*`, `/api/flipdesk/*`, `/api/jobs/*` (the crons) |
+| `functions.gradethread.com` | Deno/Hono edge service on Coolify | **Every** `/api/*` route, without exception — 147 mounts across 34 prefixes as of 2026-08-17 |
+
+The rule is the whole prefix, not a list. This row used to name five prefixes
+(`grade`, `payments`, `webhooks`, `flipdesk`, `jobs`), which read as exhaustive
+and was not: `/api/content/public` was added on 2026-08-16 and a reader checking
+this table would have concluded content routes did not live on the edge. If you
+need the current set, `grep -oE 'app\.route\("/api/[a-z/-]+"' services/edge-functions/src/main.ts`
+answers it in a second and cannot go stale the way a copied list does.
 
 > [!note] One `/api/jobs/*` endpoint is not called over the public host at all
 > `/api/jobs/watchdog-heartbeat` (US-2447) is called by the host watchdog script

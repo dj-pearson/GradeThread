@@ -11,12 +11,18 @@ code_refs:
   - services/edge-functions/src/lib/aspect-provenance.ts
   - src/lib/aspect-provenance.ts
   - src/test/fixtures/required-aspects-cases.json
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [ebay, publishing, aspects, gotcha]
 summary: Publish fills required item specifics the stored override lacks; revise did not, so listings published fine and then failed every later revise.
 ---
 
 # eBay required-aspect completeness on publish and revise
+
+> **Re-reviewed 2026-08-17.** Drift flagged `flipdesk-ebay.ts` for `edd76704`
+> (keep what eBay actually said about a listing) and `b25e7650` (relist
+> verifies instead of infers). Both are about reading eBay's RESPONSE; neither
+> changes which aspects are sent. The gap-fill rule — publish fills required
+> specifics the stored override lacks, and revise must do the same — stands.
 
 **Any path that sends aspects to eBay must complete them the same way.** Publish
 and revise are two paths, and for a while only one of them did.

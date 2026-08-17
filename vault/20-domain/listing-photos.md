@@ -17,7 +17,7 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-17
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -55,6 +55,20 @@ legal enum values and always will be. 00587 rewrites existing rows onto
 `RETIRED_PHOTO_TYPES` in `photo-roles.ts` is the map, and it is shared by the
 migration and the UI so the two cannot disagree about what `measurement_chest`
 meant.
+
+> [!note] "Not listable" and "not listable ON EBAY" are two different sets (US-2625)
+> `NON_LISTABLE_PHOTO_TYPES` means *never publish anywhere* — the MeasureCard
+> frame, a branded foreign object. `EBAY_INELIGIBLE_PHOTO_TYPES`
+> (`src/lib/photo-roles.ts`, added 2026-08-16) is narrower and per-marketplace:
+> eBay's picture policy bans added text, graphics and borders, and
+> `measurement_overlay` is nothing but added graphics — measurement lines and
+> inch labels burned into the pixels. Sellers were finding out as a publish
+> rejection, which is the worst place to find out.
+>
+> It is deliberately NOT folded into the broader set: a measurements graphic is
+> welcome on Poshmark, Depop and Mercari, where it is close to expected. So the
+> render stays listable everywhere else, and the exclusion is a property of the
+> destination rather than of the photo.
 
 > [!warning] `measurement` + NULL role is not the same photo as `measurement` + a role
 > `measurement` is on `NON_LISTABLE_PHOTO_TYPES` because it means the MeasureCard

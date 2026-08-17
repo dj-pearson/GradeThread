@@ -10,12 +10,19 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
 
 # The draft snapshot shadows the item
+
+> **Re-reviewed 2026-08-17.** Drift flagged `composer.tsx` and `flipdesk-ebay.ts`
+> for `0ea04f6f` (a duplicate item that could be neither deleted nor ended) and
+> `b25e7650` (relist reported success while eBay was never touched). Both are
+> about the DELETE and RELIST verbs; neither writes a title, description or
+> price on either side. The precedence rule — publish prefers the listings-row
+> snapshot over the item — is untouched.
 
 ## The precedence
 

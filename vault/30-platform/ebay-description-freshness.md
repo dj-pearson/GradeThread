@@ -8,12 +8,18 @@ code_refs:
   - services/edge-functions/src/lib/seller-credentials.ts
   - services/edge-functions/src/routes/jobs-credentials-refresh.ts
   - services/edge-functions/src/lib/ai-listing.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [ebay, publishing, listings, gotcha]
 summary: An eBay description is frozen text — eBay bans active content and off-eBay links — so anything time-varying in it goes stale until a scheduled revise re-renders it.
 ---
 
 # eBay descriptions cannot self-update — refresh by revise
+
+> **Re-reviewed 2026-08-17.** Drift flagged `seller-credentials.ts` for
+> `b324cb03`, a certificate rendering fix that happened to touch the same
+> commit. The freshness rule — an eBay description is frozen text, so anything
+> time-varying belongs outside it — is unaffected, and nothing there changes
+> what goes into a description.
 
 Two eBay policies, together, mean **a published description is a snapshot**:
 

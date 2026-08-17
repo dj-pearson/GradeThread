@@ -11,12 +11,18 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
 
 # How a grade appears on a listing — text only
+
+> **Re-reviewed 2026-08-17.** Drift flagged `flipdesk-ebay.ts` for the same two
+> commits as the note above, both about reading eBay's response. The rule here
+> is about what a grade may become on a listing — text and a structured
+> specific, never burned into a photo, never a QR code — and nothing in either
+> commit writes an image or an aspect.
 
 **Decision, 2026-06-25: a grade never touches a listing photo.** No badge burned
 into the hero image, no QR "digital slab" image attached to the listing.

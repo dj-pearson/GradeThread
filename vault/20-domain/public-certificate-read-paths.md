@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/routes/content-public.ts
   - src/pages/certificate.tsx
   - src/test/public-grade-report-view-parity.test.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [certificates, public, schema, gotcha]
 summary: A public certificate is served by two independent projections — an edge column allowlist and a Postgres view — and adding a column to one has twice shipped as "done" while the other stayed silent.
 ---
@@ -29,7 +29,23 @@ projections**, each with its own column list. Neither knows about the other.
 same commit.** Extending one and calling the story done is the default failure,
 not an unusual one.
 
-## One field is deliberately on the edge path only
+## Two fields are deliberately on the edge path only
+
+`description` (US-2628, 2026-08-16) is the second, and it is a TRANSFORM rather
+than a derived field. A submission description is usually the LISTING
+description, which is HTML because eBay renders it — and both certificate
+renderers print the field as escaped text, so the raw tags appeared as body
+copy. `certDescriptionText()` flattens it once, in the handler.
+
+**Re-checked when that landed, because "the edge changed what it emits" is
+exactly the asymmetry this note exists to catch.** It is not one: the SPA reads
+`submission.description` from the edge endpoint's response
+(`certificate.tsx` fetches `/api/content/public/certificates/:id`), not from
+`public_grade_reports` — and it could not come from that view in any case, since
+`description` lives on `submissions` rather than `grade_reports`. So both
+renderers receive the flattened text and the paths agree. The rule to carry
+forward is that a transform applied in the handler covers every reader of the
+handler, which is a different question from a column added to one projection.
 
 `display_title` (US-2613) is the seller title with condition claims stripped,
 so the certificate does not publish "…NWT — Grade 9.2 (NWOT)" in its own

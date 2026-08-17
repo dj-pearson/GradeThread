@@ -6,10 +6,21 @@ source_of_truth: code
 code_refs:
   - src/lib/measurements.ts
   - services/edge-functions/src/lib/measurements.ts
-reviewed: 2026-08-01
+reviewed: 2026-08-17
 tags: [measurement, contract]
 summary: Tolerances the measurement pipeline must hold and how accuracy is validated.
 ---
+
+> **Re-reviewed 2026-08-17.** Drift flagged both `measurements.ts` copies again,
+> for `96835f80` — flat-vs-worn doubling (US-2630). A garment measured flat gives
+> ONE layer, so anything that goes around the body is twice the flat number, and
+> an 11in flat waist was reaching eBay's "Waist Size" aspect verbatim as an 11.
+> **STORED VALUES STAY FLAT**, which is why this note is unaffected: the
+> tolerances, the delta methodology and the percentile validation here are all
+> defined over the flat measurement, and the doubling happens only where a number
+> is *presented* as the garment's size. If stored values ever became worn, every
+> tolerance on this page would need re-deriving — so that is the change to watch
+> for, not this one.
 
 > **Re-reviewed 2026-08-01.** Drift flagged both `measurements.ts` copies. The
 > change tightened which aspects the Measurements → item-specifics projection

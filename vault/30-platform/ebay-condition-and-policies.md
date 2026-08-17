@@ -8,12 +8,17 @@ code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
   - services/edge-functions/src/lib/ai-listing.ts
   - services/edge-functions/src/lib/publish-preflight.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [ebay, publishing, conditions, gotcha]
 summary: Condition validation lives on the Sell Metadata API, not Taxonomy, and apparel rejects LIKE_NEW — both failures are silent until publish.
 ---
 
 # eBay condition mapping and the policy endpoint
+
+> **Re-reviewed 2026-08-17.** Drift flagged `ebay-client.ts` for `b25e7650`
+> (relist now checks eBay's answer rather than assuming it). Condition
+> validation still lives on the Sell Metadata API rather than Taxonomy, and
+> apparel still rejects LIKE_NEW; that commit touches neither lookup.
 
 Two failures that both surface only at publish, long after the mistake.
 
