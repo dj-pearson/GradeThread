@@ -1,5 +1,67 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00613 — six SQL functions a plain guard could not reach (US-2282)
+
+**Risk: LOW, and equivalence is measured rather than argued. Apply third.**
+
+`NOTIFY pgrst` **NOT required** — `CREATE OR REPLACE`, signatures unchanged.
+
+### Apply order
+
+`00611`, then `00612`, then `00613`, then push. The edge boot guard expects the
+highest version.
+
+### What is exposed
+
+Three confirmed answering an anonymous caller in production with the public key:
+`drip_analytics`, `newsletter_analytics`, `data_integrity_scan` — all HTTP 200
+with real content. Three more are the same shape with no working revoke:
+`north_star_weekly_counts`, `north_star_lifetime_counts`, and `refund_snap`,
+which **mutates** a user's Snap quota.
+
+### Why these needed a different fix
+
+All six are `LANGUAGE sql`. There is no `BEGIN` block to insert a guard into and
+no `RAISE` available, so the one-line insertion that closed the other fifteen
+does not apply. Each is converted to `plpgsql` with the **same query inside** —
+signature, volatility, `SECURITY DEFINER` and `search_path` all carried through;
+only the language word changes and a guard is added.
+
+### The shortcut that was rejected
+
+Leaving them as SQL and bolting the check on as a predicate
+(`WHERE assert_service_role(...) AND …`) fails on evaluation order: if the
+planner satisfies the other predicates first and the result is empty, the assert
+never runs and an unauthorised caller gets a **silent empty result** instead of
+an error. That is worse than the leak.
+
+### Equivalence, measured
+
+Each function's output was hashed before and after, **with fixed arguments** —
+the two whose defaults are `now()` embed a moving window and differ run-to-run,
+which showed up as a false mismatch on the first pass. With the window pinned,
+every digest is identical (`drip_analytics` `58da9ea7…`, `newsletter_analytics`
+`954b6b8f…`, and the three table-returning ones unchanged throughout).
+
+Then, on the converted functions: **anon refused with 42501 on 6/6, service role
+still works 6/6.**
+
+### Deliberately untouched
+
+`peek_workspace_invitation` is in the same unguarded set and must stay open —
+`src/pages/accept-invite.tsx` calls it from the browser before the user has an
+account, gated by a capability token rather than identity. A guard test pins that
+it is absent from both migrations.
+
+### Apply
+
+```bash
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/00613_sql_functions_service_role_only.sql
+```
+
+---
+
 ## 🔴 HELD: 00612 — nine credit functions have NO authorization check (US-2282)
 
 **Risk: LOW to apply. This is the story headline — mint yourself unlimited credits.**

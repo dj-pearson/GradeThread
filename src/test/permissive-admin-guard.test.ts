@@ -109,4 +109,38 @@ describe("US-2282: no NEW migration may ship the permissive admin guard", () => 
     // "service role required" without saying which call was refused.
     expect((code.match(/: service role required/g) ?? []).length).toBe(9);
   });
+
+  it("00613 converts six SQL functions to plpgsql so they CAN be guarded", () => {
+    // The third defect shape. These six were LANGUAGE sql: no block to raise
+    // from, so the one-line insertion that closed the other fifteen does not
+    // apply. Each is converted with the same query inside, proven byte-identical
+    // by hashing output before and after with FIXED arguments (the two whose
+    // defaults are now() differ run-to-run and would otherwise read as changed).
+    const sql = readFileSync(
+      join(DIR, "00613_sql_functions_service_role_only.sql"),
+      "utf8",
+    );
+    const code = sql.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+    expect((code.match(/auth\.role\(\) = 'service_role'/g) ?? []).length).toBe(6);
+    expect((code.match(/LANGUAGE plpgsql/g) ?? []).length).toBe(6);
+    // The conversion is the point: a leftover LANGUAGE sql cannot hold a guard.
+    expect(/LANGUAGE sql\b/.test(code)).toBe(false);
+    expect(/^\s*revoke\b/im.test(code)).toBe(false);
+    // SECURITY DEFINER and search_path must survive the language change, or the
+    // function starts running as the caller and the guard becomes moot.
+    expect((code.match(/SECURITY DEFINER/g) ?? []).length).toBe(6);
+    expect((code.match(/SET search_path/g) ?? []).length).toBe(6);
+  });
+
+  it("peek_workspace_invitation is never guarded — the browser calls it", () => {
+    // It is in the same unguarded set and must STAY that way: accept-invite.tsx
+    // calls it before the user has an account, gated by a capability token
+    // rather than by identity. A role check would break invitation acceptance.
+    for (const f of ["00612_credit_functions_service_role_only.sql", "00613_sql_functions_service_role_only.sql"]) {
+      const sql = readFileSync(join(DIR, f), "utf8");
+      const code = sql.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+      expect(code, `${f} must not guard peek_workspace_invitation`)
+        .not.toContain("FUNCTION public.peek_workspace_invitation");
+    }
+  });
 });
