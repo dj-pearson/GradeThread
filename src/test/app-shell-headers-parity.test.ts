@@ -78,7 +78,7 @@ describe("US-2330: the app shell ships the same policy the static surface does",
     // Not left as a literal '__HASH__' source: that would be a dead allowance
     // that reads like a working one.
     const headers = appShellSecurityHeaders(await inlineBootstrapHash("<html></html>"));
-    const csp = headers["Content-Security-Policy-Report-Only"] ?? "";
+    const csp = headers["Content-Security-Policy"] ?? "";
     expect(csp).not.toContain("__HASH__");
     expect(csp).toContain("script-src 'self' 'wasm-unsafe-eval' https://js.stripe.com");
   });
@@ -119,16 +119,29 @@ describe("US-2330: the app shell ships the same policy the static surface does",
     }
   });
 
-  it("the CSP ships report-only until it has been verified live", () => {
-    // AC2. The static surface has enforced this policy for a long time, but
-    // never against the Function-served authenticated routes, so an origin only
-    // the signed-in app uses would break at the worst moment. Flipping to
-    // enforced is deliberately one line, and this case is what makes the flip
-    // show up in a diff rather than happening by accident.
+  it("the CSP is ENFORCED on the authenticated shell", () => {
+    // AC2, flipped 2026-08-17 on the owner's call. This case used to assert the
+    // opposite, and its comment said it existed so the flip would show up in a
+    // diff rather than happening by accident. It did exactly that — the flip
+    // reddened this test, and inverting it is the deliberate half of the change.
+    //
+    // What settled the flip: the enforced policy on `/` and the report-only
+    // policy on `/login` and `/dashboard` were fetched from production and are
+    // BYTE-IDENTICAL, 1674 bytes and the same digest. A CSP belongs to the
+    // document that loaded it, and this is a SPA — so anyone entering through
+    // `/`, a static enforced response, was already navigating the whole
+    // signed-in app under this policy enforced.
+    //
+    // Now it guards the other direction: a silent revert to report-only fails
+    // here, so backing this out has to be a decision someone writes down.
     const h = appShellSecurityHeaders("sha256-x");
-    expect(h["Content-Security-Policy-Report-Only"]).toBeTruthy();
-    expect(h["Content-Security-Policy"]).toBeUndefined();
-    expect(h["Content-Security-Policy-Report-Only"]).toContain("report-uri /csp-report");
+    expect(h["Content-Security-Policy"]).toBeTruthy();
+    expect(h["Content-Security-Policy-Report-Only"]).toBeUndefined();
+    expect(h["Content-Security-Policy"]).toContain("report-uri /csp-report");
+    // The reporting endpoint stays wired after the flip. A violation now BLOCKS
+    // as well as reports, which makes the report more useful, not less — losing
+    // it here would trade the only signal we get for nothing.
+    expect(h["Reporting-Endpoints"]).toContain("/csp-report");
   });
 
   it("the shell actually applies them", () => {

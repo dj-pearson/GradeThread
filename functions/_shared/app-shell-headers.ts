@@ -68,25 +68,34 @@ export const APP_SHELL_CSP_DIRECTIVES: readonly string[] = [
 ];
 
 /**
- * Report-only until AC4 is done.
+ * ENFORCED since 2026-08-17 (US-2330 AC2, owner's call).
  *
- * The static surface has enforced this CSP for a long time — but only for
- * STATIC responses. The Function-served routes are the authenticated app, and
- * they have never had a CSP enforced against them at runtime, so an origin the
- * signed-in surface uses and the marketing pages do not would break silently at
- * the worst moment. Report-only sends violations to /csp-report (the Pages
- * Function already wired by `report-uri`) without blocking anything.
+ * It was report-only while the question was open: the static surface had
+ * enforced this CSP for a long time but only for STATIC responses, and the
+ * Function-served routes are the authenticated app, so an origin the signed-in
+ * surface uses and the marketing pages do not would have broken silently at the
+ * worst moment. Report-only sent violations to /csp-report without blocking.
  *
- * Every OTHER header here is enforced immediately: none of them can break a
- * page that works today, and they are the ones the authenticated surface was
- * most exposed by.
+ * WHAT SETTLED IT was a measurement rather than a reading of the logs. The
+ * enforced policy on `/` and the report-only policy on `/login` and `/dashboard`
+ * were fetched from production and are BYTE-IDENTICAL — 1674 bytes, same
+ * digest, only the header NAME differing. That matters because a CSP belongs to
+ * the DOCUMENT that loaded, and this is a SPA: anyone entering through `/` (a
+ * static, enforced response) already navigates the entire signed-in app under
+ * this exact policy enforced, and has for a long time. So flipping cannot
+ * introduce a new class of breakage. It changes behaviour only for someone who
+ * deep-links straight to an authed URL, and gives them the policy everyone else
+ * already had.
  *
- * TO ENFORCE: deploy, exercise sign-in, Stripe Checkout, the eBay/Google OAuth
- * popups, a grading photo capture and the barcode scanner, read /csp-report,
- * then flip this to `true`. That is US-2330 AC2's second half, and it is one
- * line on purpose.
+ * THE ONE THING THAT COMPARISON CANNOT SEE, stated because it is the residual
+ * risk and not zero: a subresource fetched from a URL assembled at RUNTIME is
+ * invisible to a policy-to-policy diff. The report-only window was the
+ * instrument for that, and reading /csp-report remains the way to check it.
+ *
+ * TO REVERT: flip this to `false`. It needs a deploy, which is the cost the
+ * owner accepted; there is no runtime switch.
  */
-export const APP_SHELL_CSP_ENFORCED = false;
+export const APP_SHELL_CSP_ENFORCED = true;
 
 const encoder = new TextEncoder();
 
