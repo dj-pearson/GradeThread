@@ -10,12 +10,23 @@ code_refs:
   - services/edge-functions/src/tests/step-up-tiers_test.ts
   - services/edge-functions/src/lib/comped-spend.ts
   - services/edge-functions/src/lib/grade-billing.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-16
 tags: [admin, security, mfa, scopes, policy]
 summary: Three tiers of admin authority — scope only, scope plus a day-window step-up, scope plus a five-minute step-up — and the rule for deciding which an action belongs to.
 ---
 
 # Admin authority tiers
+
+> [!note] Re-reviewed 2026-08-16 against `lib/env.ts`, which changed
+> A blank `EDGE_ENV` no longer defeats `assertAdminMfaConfig`. It carried its
+> own `EDGE_ENV ?? DENO_ENV ?? "production"` chain, and `??` never falls through
+> on an empty string — so `EDGE_ENV=` returned early and the boot refusal to
+> start with admin MFA disabled simply did not run.
+>
+> **Nothing in this note moved.** `STEP_UP_MAX_AGE_SEC` is still 24h and
+> `STEP_UP_FRESH_SEC` still 5 minutes, both confirmed in the source. The change
+> makes the enforcement described below harder to switch off by accident, not
+> different. See [[env-reference]] for the seven sites that shared the defect.
 
 ## The rule, in one line
 

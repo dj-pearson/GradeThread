@@ -52,6 +52,42 @@ summary: Every env var the codebase reads, which of the eight deployment surface
 > one produces a `[BOOT] feature 'X' is not fully configured` warning and a
 > degraded line on `/health/ready`, never a refusal to start.
 
+> [!danger] A BLANK value is not a missing value, and the difference has bitten
+> seven times (2026-08-16)
+> `??` in TS, `?:` in Kotlin and `??` in Swift all fall through on null and
+> **never on an empty string**. So `FOO=` — a field cleared in a UI, or a key
+> added before the value was pasted — resolves to `""` rather than to the
+> default written on the same line. It looks correct in every dashboard.
+>
+> What it cost here, all found in one sweep:
+>
+> | Surface | Blank value did this |
+> |---|---|
+> | `EDGE_ENV` (edge) | `edgeEnv()` returned `""`, so `missingRequiredEnv()` skipped **all six** prod-required secrets and `/health/ready` reported READY without them; `isProduction()` false everywhere, including `isDebugAllowed()` |
+> | `EDGE_ENV` (admin MFA) | `assertAdminMfaConfig` returned early — the boot refusal to start with admin MFA off did not run |
+> | `EDGE_ENV` (`/health/_throw`) | the forced-exception endpoint stopped 404ing, i.e. became a public URL that throws on every call |
+> | `EDGE_API_URL` (Pages) | every SSR fetch to a relative path; blog and cert pages render their error state |
+> | `PUBLIC_SITE_URL` (Pages) | empty `canonical` / `og:url` — invisible on the page, read by crawlers |
+> | `IOS_BUNDLE_ID` (Pages) | `appIDs: ["<TEAMID>."]` served with **200**; Apple reads a malformed appID and Universal Links stop opening the app |
+> | `ANDROID_PACKAGE_NAME` (Pages) | the same for App Links |
+>
+> **The rule: trim, then treat empty as absent.** `(get("X") ?? "").trim() || DEFAULT`.
+>
+> Three surfaces already did this and are the precedent, not the exception:
+> Android has a named helper, `ConfigValidation.blankToNull`; iOS trims and
+> returns nil on empty in `AppConfig.swift`; and the web Supabase bootstrap uses
+> a falsy check, so a blank throws. It was the two SERVER surfaces that lacked
+> it. Both app-association files even fail closed on a blank `APPLE_TEAM_ID` /
+> `ANDROID_CERT_SHA256` one line above the identifier that did not — the concept
+> was understood in the same function.
+>
+> Guards: `services/edge-functions/src/tests/edge-env-blank_test.ts` (which also
+> scans for a fourth copy of the `EDGE_ENV` chain) and
+> `src/test/pages-env-blank-defaults.test.ts`.
+>
+> **When auditing a deployment, look for variables that EXIST and are empty.**
+> That is the shape; a missing key is the safe case.
+
 ## Where things run (the "destinations")
 
 | Destination | What runs there | How vars are set |
