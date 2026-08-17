@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/tests/step-up-tiers_test.ts
   - services/edge-functions/src/lib/comped-spend.ts
   - services/edge-functions/src/lib/grade-billing.ts
-reviewed: 2026-08-16
+reviewed: 2026-08-17
 tags: [admin, security, mfa, scopes, policy]
 summary: Three tiers of admin authority — scope only, scope plus a day-window step-up, scope plus a five-minute step-up — and the rule for deciding which an action belongs to.
 ---
@@ -27,6 +27,12 @@ summary: Three tiers of admin authority — scope only, scope plus a day-window 
 > `STEP_UP_FRESH_SEC` still 5 minutes, both confirmed in the source. The change
 > makes the enforcement described below harder to switch off by accident, not
 > different. See [[env-reference]] for the seven sites that shared the defect.
+>
+> **2026-08-17, the same again one step along.** `assertAdminMfaConfig` also
+> asked `env !== "production"`, so `EDGE_ENV=prod` skipped the boot refusal
+> exactly as the blank had. It now goes through `isProductionEnv()`, where an
+> unrecognised name counts as production. Still nothing in this note moved; the
+> gate is just harder to turn off by typing.
 
 ## The rule, in one line
 
