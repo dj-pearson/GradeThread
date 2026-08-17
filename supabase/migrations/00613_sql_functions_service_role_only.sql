@@ -543,4 +543,37 @@ BEGIN
 END;
 $function$;
 
+
+-- ── Prove it actually took effect (added after 00611 did not) ───────────────
+--
+-- CREATE OR REPLACE only replaces a function with the SAME argument list. A
+-- different signature creates a SECOND OVERLOAD and leaves the original live —
+-- and the original is what PostgREST keeps routing to. That produces a
+-- migration recorded as applied whose behaviour never changed, which is worse
+-- than a failure because the record is what everyone trusts afterwards.
+--
+-- This block asserts the effect BEFORE the footer records the version. Under
+-- ON_ERROR_STOP=1 the raise aborts the run and nothing is recorded; without it,
+-- the operator still gets a loud error naming the exact signature at fault.
+do $verify_00613$
+declare
+  unguarded text;
+begin
+  select string_agg(p.oid::regprocedure::text, ', ' order by p.oid::regprocedure::text)
+    into unguarded
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname in ('drip_analytics', 'newsletter_analytics', 'data_integrity_scan', 'north_star_weekly_counts', 'north_star_lifetime_counts', 'refund_snap')
+    and p.prosrc not like '%auth.role()%';
+
+  if unguarded is not null then
+    raise exception
+      '00613 did NOT take effect for: %. CREATE OR REPLACE only replaces a matching signature; a different one creates an OVERLOAD and leaves the original live. Compare these against the CREATE statements above.',
+      unguarded
+      using errcode = 'check_violation';
+  end if;
+end
+$verify_00613$;
+
 insert into public.applied_migrations (version) values ('00613') on conflict do nothing;
