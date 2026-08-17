@@ -35,7 +35,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 20-domain — grading, measurement, contracts
 
-50 notes — see [[moc-domain]].
+51 notes — see [[moc-domain]].
 
 ## 30-platform — marketplace integration
 
@@ -47,17 +47,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 50-business — pricing and economics
 
-- [[ai-profitability]] — reference — Per-surface model choice, unit cost and margin, with the keep/downgrade call for each.
-- [[billing-environment-marker]] — contract — Sandbox and test purchases are accepted on purpose and must not be counted as money; this is the three-state marker that separates them and the SQL spelling that keeps historical revenue intact.
-- [[deliverability]] — runbook — SES/SMTP configuration, warmup, DMARC alignment and what to check when mail stops landing.
-- [[flipdesk-plan-gating]] — contract — Every FlipDesk endpoint touching a gated capacity or feature calls requireFlipdesk; the 80%-warning and 402 responses are a protocol two frontends depend on.
-- [[google-ads-setup]] — runbook — Account structure, conversion wiring and the gclid path for the Ads Command Center.
-- [[ios-in-app-purchases]] — reference — StoreKit purchases reconcile into the same user columns as Stripe, and the one App Review rejection was about discoverability rather than configuration.
-- [[newsletter-tuning]] — runbook — Cadence, segmentation and the levers that move open and click rates.
-- [[passport-forecast]] — reference — Volume and revenue projection for the passport surface.
-- [[pricing]] — contract — The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
-- [[subscription-copy-review-register]] — contract — Every place GradeThread tells a customer about a recurring charge or its ending, who drafted the wording, and whether counsel has seen it.
-- [[subscription-unit-economics]] — reference — Cost per tier at realistic and worst-case utilization, and why the AI-action caps sit where they do.
+12 notes — see [[moc-business]].
 
 ## 60-decisions — ADRs
 

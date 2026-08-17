@@ -17,6 +17,7 @@ on:
       # re-running the job is how a broken probe sits green-adjacent for a
       # week — which is exactly what happened to the InitPlan check.
       - "scripts/db-rls-initplan-check.mjs"
+      - "scripts/check-rpc-column-refs.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
   push:
     branches: [main]
@@ -28,6 +29,7 @@ on:
       # re-running the job is how a broken probe sits green-adjacent for a
       # week — which is exactly what happened to the InitPlan check.
       - "scripts/db-rls-initplan-check.mjs"
+      - "scripts/check-rpc-column-refs.mjs"
       - "scripts/db-denied-rpc-crash-check.mjs"
 
 concurrency:
@@ -68,6 +70,14 @@ jobs:
       # policy TEXT; only EXPLAIN can pin the plan. Gates, because it passes.
       - name: RLS auth.uid() InitPlan check (US-1927)
         run: node scripts/db-rls-initplan-check.mjs
+      # US-2663: this job APPLIES every migration and never CALLS anything they
+      # create. CREATE FUNCTION does not validate a plpgsql body, so
+      # revenue_dashboard installed cleanly while selecting a column that has
+      # never existed on public.users, and raised 42703 on every call for months
+      # with this lane green throughout. Executes each RPC the edge invokes,
+      # each inside a transaction that is always rolled back.
+      - name: RPC bodies resolve against the schema (US-2663)
+        run: node scripts/check-rpc-column-refs.mjs
       # US-2403: a permission-denied FUNCTION call SEGFAULTs the Supabase
       # Postgres image and takes the whole database down with it — reachable by
       # anyone holding the public anon key. continue-on-error because the stock

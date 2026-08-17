@@ -1,6 +1,86 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🟢 NOTHING IS WAITING ON SQL (re-measured 2026-08-16)
+## 🔴 HELD: 00610 — revenue_dashboard has never worked, and the break was hiding a leak (US-2663)
+
+**Risk: LOW to apply. Do NOT skip it and push, though — see the ordering note.**
+
+`NOTIFY pgrst, 'reload schema';` **NOT required.** The signature is unchanged
+(`CREATE OR REPLACE`, same three arguments), so PostgREST's cache stays valid.
+
+### What it does
+
+Two changes to `public.revenue_dashboard`, which must ship together. Everything
+else in the file is the live 00608 definition carried through byte-for-byte —
+the sandbox exclusion, the granularity handling and every other key are
+untouched.
+
+1. **The trial cohort keyed on a column that does not exist.** It selected
+   `public.users.trial_started_at`, which has never existed on that table. So
+   the function has raised `42703` on *every* call since 00215 shipped, with no
+   parameter combination that avoids it. It now keys on `created_at`, filtered
+   to users who were actually given a trial. The alternative — deriving a start
+   from `trial_ends_at` — was rejected because that column MOVES after signup
+   (the Stripe webhook and an admin route both write it), so extending someone's
+   trial would silently relocate them into a different historical cohort.
+
+2. **The authorization guard let anonymous callers through.** It read
+   `if auth.uid() is not null and not public.is_admin()`, with a comment
+   asserting "anon can't reach this — execute is not granted to it". Both halves
+   are false together: anon *does* have EXECUTE (the `CREATE FUNCTION` grant to
+   PUBLIC survives the `REVOKE … FROM anon` pattern — US-2666), and anon's
+   `auth.uid()` *is* null, so the guard waved it straight through. Replaced with
+   the allowlist form `admin_revenue_metrics` already uses.
+
+### ⚠ Why the two halves cannot be separated
+
+Fixing (1) alone converts a function that always errored into one that returns
+MRR, ARR, ARPU, plan mix and churn **to anyone holding the public anon key**.
+The `42703` was the only thing standing there. If you apply this migration
+partially, apply neither half.
+
+### Ordering
+
+Apply the SQL, then OK the push. There is no code in the same commit that reads
+anything new, so the frontend auto-deploy is not a factor — but the edge's boot
+guard now expects `00610`, so a push without the apply would make the next edge
+deploy refuse to start.
+
+### Verified before it was written down
+
+Applied to the local stack (609 migrations) and then **called over real
+PostgREST**, which is the check the story asked for:
+
+| Caller | Before | After |
+|---|---|---|
+| service role (the edge) | `42703 column "trial_started_at" does not exist` | HTTP 200, full document |
+| anon (public key) | `42703` — errored, which is what hid the leak | **HTTP 401, `42501 admin role required`** |
+
+The control is `admin_revenue_metrics`, which refuses the identical anon call
+with the identical code.
+
+### No REVOKE in this file, deliberately
+
+Tightening the grant is the obvious-looking fix and is not available: a DENIED
+call from anon or authenticated SEGFAULTS this Postgres image (US-2403), which
+is why 00527 is a DO NOT APPLY. A body check raises an ordinary error instead,
+so it arms nothing. This is US-2282's remedy applied to one function.
+
+### Apply
+
+```bash
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/00610_revenue_dashboard_trial_cohort.sql
+```
+
+Then confirm, read-only:
+
+```sql
+select public.revenue_dashboard(now() - interval '30 days', now(), 'day') is not null;
+```
+
+---
+
+## ✅ WAS ALL CLEAR through 00609 (re-measured 2026-08-16) — superseded by 00610 above
 
 ```json
 {"expected":"00608","applied":"00609","status":"ahead","unexpected":["00609"]}

@@ -1,0 +1,89 @@
+---
+title: REVOKE FROM anon is a no-op — the PUBLIC grant survives it
+aliases: [revoke from anon, function grants]
+type: contract
+status: current
+source_of_truth: code
+code_refs:
+  - scripts/migrations-lint.mjs
+  - supabase/migrations/00216_credit_ledger_admin.sql
+  - supabase/migrations/00099_snap_quota.sql
+reviewed: 2026-08-16
+tags: [postgres, security, migrations, grants]
+summary: CREATE FUNCTION grants EXECUTE to PUBLIC and every role belongs to PUBLIC, so revoking a role by name removes a grant it never held alone. Thirteen migrations used that pattern; six secured nothing, for up to three years.
+---
+# `REVOKE … FROM anon` does not deny anon
+
+`CREATE FUNCTION` grants `EXECUTE` to **PUBLIC**, and every role is implicitly a
+member of PUBLIC. So `REVOKE ALL ON FUNCTION f() FROM anon` removes a grant anon
+never held individually and leaves the one it actually executes through. The
+function stays callable by anyone holding the public anon key.
+
+Proven in a rolled-back transaction rather than argued — three probe functions,
+`has_function_privilege('anon', …)`:
+
+| Probe | Result |
+|---|---|
+| untouched | **true** — the CREATE default |
+| `REVOKE … FROM anon` | **true** ← the pattern this repo used |
+| `REVOKE … FROM anon, public` | false |
+
+And confirmed against production: an anon POST to
+`/rest/v1/rpc/flipdesk_overview_metrics` returns HTTP 200, while
+`00594_flipdesk_overview_metrics.sql:214` has revoked that exact signature from
+anon since the day it was written.
+
+## Why it is invisible
+
+The SQL is valid. The `REVOKE` succeeds. `psql` prints `REVOKE`. The migration
+applies green. There is no error at any point, at any later stage, ever — which
+is why the guard has to live at authoring time.
+
+`scripts/migrations-lint.mjs` fails any migration whose revokes, taken together
+within one file, never name PUBLIC. Six that already shipped are grandfathered
+by `file:function` in `INEFFECTIVE_REVOKE_GRANDFATHERED` (applied migrations are
+immutable, so they can only be fixed forward); keying on file **and** function
+means a new no-op in one of those same files still fails, and the list may only
+shrink.
+
+## The working form
+
+`00216_credit_ledger_admin.sql:143` is the model:
+
+```sql
+REVOKE ALL ON FUNCTION public.admin_adjust_credits(uuid, integer, text, uuid, text, text)
+  FROM PUBLIC, anon, authenticated;
+```
+
+Of the 13 functions carrying a revoke-from-anon, the 7 that are genuinely denied
+all name PUBLIC. The 6 that do not are: `data_integrity_scan` (00097),
+`reserve_snap` and `refund_snap` (00099 — both **mutate** a user's Snap quota),
+`north_star_weekly_counts` and `north_star_lifetime_counts` (00170), and
+`flipdesk_overview_metrics` (00594).
+
+## ⚠ Two reasons not to reach for a revoke anyway
+
+> [!danger] Revoking is the road not taken here
+> **It can take production down.** A DENIED call from `anon` or `authenticated`
+> segfaults this Postgres image and restarts the database (US-2403). Revoking
+> anything reachable with the public anon key therefore hands out a restart
+> button. This is why `00527_revoke_public_function_execute.sql` is a permanent
+> DO NOT APPLY — an owner decision, not a hold.
+>
+> **It strips `service_role` too.** Most functions here hold EXECUTE *only*
+> through the PUBLIC default — `pg_proc.proacl` reads `=X/postgres` and nothing
+> else — so `REVOKE … FROM PUBLIC` removes the edge's access along with the
+> attacker's. Proven on `reserve_snap`, which runs the Snap grading path:
+> `service_role` goes true → false → true across revoke-then-grant. A revoke
+> that is not paired with an explicit `GRANT … TO service_role` is an outage.
+
+The settled remedy is an authorization check in the function **body**, the way
+`admin_revenue_metrics` does it. It revokes nothing, so it arms neither problem —
+and that function is anon-*executable* and still safe, which is the proof it
+works. See [[revenue-dashboard-cohorts-and-access]] for the first application of
+it, where the missing guard was being masked by an unrelated bug.
+
+## Related
+
+- [[revenue-dashboard-cohorts-and-access]] — a guard that assumed this grant.
+- [[service-role-tables]] — the table-side rule for deny-all operator tables.

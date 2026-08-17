@@ -289,6 +289,13 @@ if (on("db")) {
     // the two are different assertions and only this one answers the story.
     // Green today, so it gates.
     run("db: RLS auth.uid() InitPlan (US-1927)", "node scripts/db-rls-initplan-check.mjs");
+    // US-2663: the lane above APPLIES every migration and never CALLS anything
+    // it creates. `CREATE FUNCTION` does not validate a plpgsql body, so
+    // revenue_dashboard installed cleanly while selecting a column that has
+    // never existed — and raised on every call for months with every gate
+    // green. This one executes each RPC the edge invokes, inside a transaction
+    // that is always rolled back.
+    run("db: RPC bodies resolve (US-2663)", "node scripts/check-rpc-column-refs.mjs");
     // US-2403: a denied function call SEGFAULTs the Supabase Postgres image and
     // restarts the whole database. ADVISORY, not a gate, and deliberately so:
     // the stock image is vulnerable today, so gating here would be red on every
