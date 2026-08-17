@@ -45,11 +45,22 @@ describe("US-2637: requireDist tells a half-built dist from a built one", () => 
 
   it("an index.html still carrying the prerender marker is not", () => {
     const p = withIndex(RAW_TEMPLATE);
+    // ⚠ THIS CASE MUST PIN DIST_TESTS_REQUIRED OFF, and not doing so is why it
+    // passed locally and failed in CI for a day. `requireDist` returns false
+    // only when dist is NOT required; when it is — which is exactly what CI
+    // sets — the same input THROWS instead, and that is the case below. So the
+    // assertion was reading the ambient environment rather than the behaviour
+    // it names, and the two lanes disagreed for a reason that had nothing to do
+    // with the code under test.
+    const prior = process.env.DIST_TESTS_REQUIRED;
+    process.env.DIST_TESTS_REQUIRED = "0";
     try {
       // Locally: skip, exactly as an absent dist/ does. The dev has no build
       // output worth asserting against either way.
       expect(requireDist(p, "probe")).toBe(false);
     } finally {
+      if (prior === undefined) delete process.env.DIST_TESTS_REQUIRED;
+      else process.env.DIST_TESTS_REQUIRED = prior;
       rmSync(join(p, ".."), { recursive: true, force: true });
     }
   });
