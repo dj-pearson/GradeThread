@@ -243,4 +243,61 @@ class PhotoIntakeStoreTest {
         assertEquals(PhotoSlotType.BACK, store.state.value.active)
         assertTrue(CaptureSlot(PhotoSlotType.FLATLAY) in store.visibleSlots)
     }
+    // ── US-2639: predicting where imported photos will land ──
+
+    /**
+     * [PhotoIntakeStore.plannedDestinations] must agree with [recordCapture].
+     *
+     * The import path picks a RESOLUTION CAP before it processes, and the cap
+     * is per-slot - but the slot is only decided by the auto-advance, which
+     * runs after. So the destinations are predicted, and a prediction that
+     * drifts from the real rule would silently compress a serial shot at the
+     * default cap: no crash, no wrong dimension, just half the pixels on the
+     * photo whose whole job is fine detail.
+     *
+     * Recording is the oracle. This does not restate the rule, it runs it.
+     */
+    @Test
+    fun plannedDestinations_matchWhereRecordingActuallyLands() {
+        val store = PhotoIntakeStore()
+        val predicted = store.plannedDestinations(4)
+
+        val landed = mutableListOf<CaptureSlot>()
+        repeat(4) { i ->
+            val before = store.state.value.activeSlot
+            store.recordCapture("/p/$i.jpg")
+            landed += CaptureSlot.fromStorageKey(before)!!
+        }
+        assertEquals(predicted, landed)
+    }
+
+    @Test
+    fun plannedDestinations_respectsAManualSlotSwitchAndTheRescanAfterIt() {
+        // The case that makes this non-obvious: auto-advance scans from the
+        // START of the strip, so after a manual jump to slot[2] the next photo
+        // goes back to FRONT rather than onward to slot[3]. A prediction that
+        // assumed forward order would be wrong from the second photo on.
+        val store = PhotoIntakeStore()
+        store.setActiveSlot(store.visibleSlots[2])
+        val predicted = store.plannedDestinations(3)
+
+        val landed = mutableListOf<CaptureSlot>()
+        repeat(3) { i ->
+            val before = store.state.value.activeSlot
+            store.recordCapture("/p/m$i.jpg")
+            landed += CaptureSlot.fromStorageKey(before)!!
+        }
+        assertEquals(predicted, landed)
+        assertEquals(store.visibleSlots[2], predicted[0])
+        assertEquals(CaptureSlot(PhotoSlotType.FRONT), predicted[1])
+    }
+
+    @Test
+    fun plannedDestinations_stopsWhenTheStripIsFull() {
+        val store = PhotoIntakeStore()
+        store.visibleSlots.forEach { store.setPhoto(it, "/p/${it.storageKey}.jpg") }
+        // Nowhere left to advance to: the active slot is the only answer, and
+        // asking for more must not invent slots that do not exist.
+        assertTrue(store.plannedDestinations(5).size <= 1)
+    }
 }

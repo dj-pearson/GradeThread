@@ -1,6 +1,5 @@
 package com.gradethread.app.intake
 
-import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -127,11 +126,20 @@ class ShareTargetActivity : ComponentActivity() {
                     staged.outputStream().use { input.copyTo(it) }
                 } ?: error("unreadable share uri")
 
-                val processed = PhotoProcessor.process(staged, dir)
+                // US-2639: this path is the easy one — the slot is ASSIGNED by
+                // the share sheet before anything is processed, so the cap is
+                // just a lookup. (The capture and import paths both had to
+                // arrange for the slot to be known first.)
+                val slot = assignments.getOrElse(index) { PhotoSlotType.DETAIL }
+                val processed = PhotoProcessor.process(
+                    staged,
+                    dir,
+                    PhotoProcessor.uploadCapFor(slot.serverPhotoType),
+                )
                 staged.delete()
                 IntakeInbox.PhotoEntry(
                     path = processed.file.absolutePath,
-                    slot = assignments.getOrElse(index) { PhotoSlotType.DETAIL }.wire,
+                    slot = slot.wire,
                     bytes = processed.file.length(),
                 )
             }.getOrNull()
@@ -140,11 +148,7 @@ class ShareTargetActivity : ComponentActivity() {
 }
 
 @Composable
-private fun ShareScreen(
-    uris: List<Uri>,
-    onCancel: () -> Unit,
-    onSave: (List<PhotoSlotType>) -> Unit,
-) {
+private fun ShareScreen(uris: List<Uri>, onCancel: () -> Unit, onSave: (List<PhotoSlotType>) -> Unit) {
     val capped = remember(uris) { uris.take(IntakeInbox.MAX_PHOTOS) }
     var assignments by remember(capped) {
         mutableStateOf(IntakeInbox.defaultSlots(capped.size))

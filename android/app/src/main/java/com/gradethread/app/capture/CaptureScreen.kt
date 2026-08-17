@@ -105,7 +105,15 @@ fun CaptureScreen(
         if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
             val outputDir = File(context.filesDir, "captures")
-            PhotoImport.importPicked(context, uris, outputDir).forEach { result ->
+            // US-2639: an imported serial shot gets the same cap a captured one
+            // does. The slot is only decided by recordCapture's auto-advance
+            // below, which runs AFTER processing — so the destinations are
+            // predicted here, and PhotoIntakeStoreTest pins the prediction
+            // against the real function.
+            val caps = store?.plannedDestinations(uris.size)
+                ?.map { PhotoProcessor.uploadCapFor(it.serverPhotoType) }
+                ?: emptyList()
+            PhotoImport.importPicked(context, uris, outputDir, slotCaps = caps).forEach { result ->
                 result.getOrNull()?.let { imported ->
                     store?.recordCapture(imported.processed.file.absolutePath)
                 }
@@ -192,7 +200,16 @@ fun CaptureScreen(
                     // eBay ignores the EXIF tag, so a shot kept upright only by
                     // that tag lists sideways.
                     scope.launch {
-                        val processed = runCatching { PhotoProcessor.process(raw, dir) }
+                        // US-2639: the SLOT's cap, not a global one — and this
+                        // is why US-2658 had to pin `slot` before the shutter.
+                        // Resolving it here from a live activeSlot would apply
+                        // whichever chip the seller happened to be on when the
+                        // callback fired, so a serial shot could land at the
+                        // default while a front shot got the macro cap.
+                        val cap = PhotoProcessor.uploadCapFor(
+                            CaptureSlot.fromStorageKey(slot)?.serverPhotoType ?: slot,
+                        )
+                        val processed = runCatching { PhotoProcessor.process(raw, dir, cap) }
                         // The raw file goes either way. On success it is
                         // superseded; on failure it must not linger where a
                         // later change could pick it up, which is the whole

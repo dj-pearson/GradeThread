@@ -154,6 +154,37 @@ class PhotoIntakeStore(initial: State = State(), initialProfile: PhotoProfile = 
     // ── Mutations ────────────────────────────────────────────────────────────
 
     /**
+     * Where the next [count] photos will land, without recording them.
+     *
+     * US-2639: the library-import path has to choose a RESOLUTION CAP before it
+     * processes, and the cap is per-slot — but the slot is only decided by
+     * [recordCapture]'s auto-advance, which runs after. So the destinations have
+     * to be predicted.
+     *
+     * This mirrors [recordCapture] exactly: the first photo goes to the CURRENT
+     * active slot (not the next empty one — that difference is the whole trap),
+     * and each subsequent photo to the next slot still without a photo.
+     * `PhotoIntakeStoreTest` records N photos through the real function and
+     * asserts they land in exactly these slots, so the mirroring is pinned
+     * rather than assumed — a prediction that drifts would silently compress a
+     * serial shot at the default cap.
+     */
+    fun plannedDestinations(count: Int): List<CaptureSlot> {
+        val snapshot = stateFlow.value
+        val filled = snapshot.photos.keys.toMutableSet()
+        val out = mutableListOf<CaptureSlot>()
+        var next: CaptureSlot? = CaptureSlot.fromStorageKey(snapshot.activeSlot)
+        repeat(count) {
+            val slot = next ?: visibleSlotsOf(snapshot).firstOrNull { it.storageKey !in filled }
+            if (slot == null) return out
+            out += slot
+            filled += slot.storageKey
+            next = visibleSlotsOf(snapshot).firstOrNull { it.storageKey !in filled }
+        }
+        return out
+    }
+
+    /**
      * Store a capture in the active slot, then auto-advance to next empty.
      *
      * US-2658: [intoSlot] lets a caller PIN the destination before an async

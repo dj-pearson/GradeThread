@@ -70,6 +70,16 @@ object PhotoImport {
          * garments, which is a different job from filling one item's slots.
          */
         limit: Int = MAX_PICK,
+        /**
+         * US-2639: the per-slot resolution cap for each pick, in order.
+         *
+         * Empty (the default) means the global cap for everything, which is
+         * what the AutoLister batch wants — those are hundreds of photos of
+         * DIFFERENT garments with no slot assignment at all. The capture screen
+         * passes `PhotoIntakeStore.plannedDestinations`, so an imported serial
+         * shot gets the same 3600 a captured one does.
+         */
+        slotCaps: List<Int> = emptyList(),
     ): List<Result<Imported>> = withContext(Dispatchers.IO) {
         val staging = File(context.cacheDir, "import-staging").apply { mkdirs() }
         val results = uris.take(limit).mapIndexed { index, uri ->
@@ -87,7 +97,11 @@ object PhotoImport {
                     )
                 }.getOrNull()
 
-                val processed = PhotoProcessor.process(staged, outputDir)
+                val processed = PhotoProcessor.process(
+                    staged,
+                    outputDir,
+                    slotCaps.getOrElse(index) { PhotoProcessor.MAX_LONG_EDGE },
+                )
                 staged.delete()
                 Imported(processed, exif ?: now(), exif)
             }
