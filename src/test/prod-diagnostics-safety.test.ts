@@ -408,13 +408,15 @@ describe("prod-diagnostics.sql is safe to paste into prod", () => {
     //
     //   docker exec -i supabase_db_gradethread psql -U postgres -d postgres \
     //     -v ON_ERROR_STOP=1 -f - < scripts/prod-diagnostics.sql
-    // 28 since 2026-08-16: §28 (US-2662) asks whether an impersonation has ever
+    // 29 since 2026-08-16. §28 (US-2662) asks whether an impersonation has ever
     // been stopped, which is the half of that question Sentry cannot answer.
-    // The whole file was re-run against a full-corpus stack when it was added —
-    // exit 0, every section executed — which is the point of pinning the count.
+    // §29 (US-2282) asks whether anon can mint credits — a hole demonstrated on
+    // a clean stack the same day, and the one section worth running first.
+    // The whole file was re-run against a full-corpus stack for each — exit 0,
+    // every section executed — which is the point of pinning the count.
     const sections = new Set(
       [...SQL.matchAll(/^\\echo '(§\d+)/gm)].map((m) => m[1]),
     );
-    expect(sections.size).toBe(28);
+    expect(sections.size).toBe(29);
   });
 });

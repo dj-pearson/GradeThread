@@ -1191,3 +1191,67 @@ WHERE ended_at IS NULL AND expires_at < now();
 -- -- stopped count with the route absent means that many customer sessions
 -- -- were left live, and the remedy is a password reset / forced sign-out
 -- -- for the targets in (b) rather than only a code fix.
+
+-- ════════════════════════════════════════════════════════════════════
+-- §29 US-2282 — CAN AN ANONYMOUS CALLER MINT CREDITS? (run this first)
+-- ════════════════════════════════════════════════════════════════════
+
+-- -- ⚠ THIS IS THE ONE TO READ FIRST. On a clean stack built from all 609
+-- -- migrations, POST /rest/v1/rpc/grant_grade_credits with ONLY the anon
+-- -- key returned 200 and moved a real balance 0 -> 999. debit_grade_credits
+-- -- moved it back down. No sign-in, no session — the anon key ships in the
+-- -- browser bundle. Each credit is real vision spend.
+-- --
+-- -- DO NOT CONFIRM BY CALLING THE FUNCTION. That grants real credits to a
+-- -- real account. These queries read pg_proc and change nothing.
+
+-- -- (a) The specific money functions, and whether anon may run them.
+-- -- anon_can_run = t on any row here means the exploit is live.
+SELECT p.proname,
+       p.prosecdef                                      AS security_definer,
+       has_function_privilege('anon', p.oid, 'EXECUTE') AS anon_can_run,
+       has_function_privilege('authenticated', p.oid, 'EXECUTE') AS authed_can_run
+FROM pg_proc p
+WHERE p.pronamespace = 'public'::regnamespace
+  AND p.prokind = 'f'
+  AND p.proname IN (
+    'grant_grade_credits', 'debit_grade_credits', 'revoke_grade_credits',
+    'grant_appstore_credits', 'grant_buyer_reward_credit',
+    'issue_buyer_reward_credit', 'redeem_buyer_reward_credit',
+    'reserve_ai_action', 'refund_ai_action', 'admin_adjust_credits'
+  )
+ORDER BY anon_can_run DESC, p.proname;
+
+-- -- (b) The whole surface, for comparison against the local baseline
+-- -- measured 2026-08-16: 175 functions, 86 SECURITY DEFINER, 63 of those
+-- -- anon-executable, 65 authenticated. A materially different shape here
+-- -- means prod diverged from the migrations and is worth understanding
+-- -- before anything is revoked.
+SELECT count(*)                                                                    AS public_functions,
+       count(*) FILTER (WHERE p.prosecdef)                                         AS security_definer,
+       count(*) FILTER (WHERE p.prosecdef AND has_function_privilege('anon', p.oid, 'EXECUTE'))          AS definer_anon_can_run,
+       count(*) FILTER (WHERE p.prosecdef AND has_function_privilege('authenticated', p.oid, 'EXECUTE')) AS definer_authed_can_run
+FROM pg_proc p
+WHERE p.pronamespace = 'public'::regnamespace AND p.prokind = 'f';
+
+-- -- (c) Which SECURITY DEFINER functions anon may run, named. This is the
+-- -- list 00527 would revoke, and the list to eyeball for anything worse
+-- -- than credits.
+SELECT p.proname
+FROM pg_proc p
+WHERE p.pronamespace = 'public'::regnamespace
+  AND p.prokind = 'f' AND p.prosecdef
+  AND has_function_privilege('anon', p.oid, 'EXECUTE')
+ORDER BY p.proname;
+
+-- -- READING THIS: not every definer function is a hole — admin_revenue_metrics
+-- -- is anon-executable AND refuses with "admin role required" because it
+-- -- checks internally. The credit functions do not check. So (c) is a list to
+-- -- triage, not a count of vulnerabilities; (a) is the one that is already
+-- -- triaged.
+-- --
+-- -- THE FIX IS DEADLOCKED and the order matters: 00527 revokes exactly these
+-- -- grants and is parked because revoking is what arms the US-2403 segfault.
+-- -- Clear supautils.hint_roles on the host FIRST, then apply 00527. The
+-- -- smaller interim fix is an internal authorization check inside the credit
+-- -- functions, the way admin_revenue_metrics already has one.
