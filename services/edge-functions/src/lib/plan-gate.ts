@@ -311,13 +311,18 @@ export async function featureAllowedForUser(
 function getLimit(
   plan: PlanConfig,
   kind: CapacityKind,
-  user?: Pick<UserSlice, "ai_action_limit">,
+  user?: Pick<UserSlice, "ai_action_limit" | "subscription_status">,
 ): number {
   switch (kind) {
     case "activeListings": return plan.activeListingCap;
     case "aiActions":
+      // US-2288: the trial cap composes HERE, on the enforcement path only, for
+      // the same reason the self-cap does — `requiredPlanForCapacity` asks a
+      // plan-shopping question, and answering "which tier covers N?" with a
+      // trial-throttled number would recommend an upgrade the trial itself
+      // caused.
       return user
-        ? effectiveAiCap(plan.aiActionsPerMonth, user.ai_action_limit ?? null)
+        ? aiCapFor(plan.aiActionsPerMonth, user.ai_action_limit ?? null, user.subscription_status)
         : plan.aiActionsPerMonth;
     case "marketplaces": return plan.marketplacesCap;
     case "includedGrades": return plan.includedStandardGradesPerMonth;
@@ -327,6 +332,9 @@ function getLimit(
 
 interface UserSlice {
   flipdesk_plan: FlipdeskPlan;
+  // US-2288: the trial AI cap composes off this in getLimit. It was already
+  // loaded and already read by effectivePlanFor; this slice just did not name it.
+  subscription_status: string;
   ai_actions_used_this_month: number;
   // US-2179: the lazy monthly rollover boundary for AI actions.
   ai_actions_reset_at: string | null;
@@ -443,6 +451,50 @@ export function effectiveAiCap(planLimit: number, userLimit: number | null): num
   if (planLimit === -1) return userLimit ?? -1;
   if (userLimit == null) return planLimit;
   return Math.min(planLimit, userLimit);
+}
+
+// ── Trial AI cap (US-2288) ───────────────────────────────────────
+//
+// A signup gets a 14-day Pro trial with no card, no prior-trial lookup and
+// nothing keyed to the address. PROVEN by execution against a local stack
+// through the real GoTrue admin API: create a user, delete it, re-create the
+// SAME email — flipdesk_plan=pro and a fresh 14 days, every time. Nothing that
+// outlives the row stands in the way.
+//
+// THE OWNER'S DECISION (2026-08-17) is to cap the trial's VOLUME rather than to
+// block repeat signups. It is the only one of the three options with no signup
+// friction and no personal data retained past deletion, and it is reversible by
+// changing one number. It does not stop somebody taking a second trial; it
+// makes each one cheap enough that doing so stops being worth the effort.
+//
+// WHY THIS NUMBER BITES AND CREDITS WOULD NOT: a trial grants NO grade credits
+// (grade_credit_balance is 0 on a fresh account, also measured). The exposure is
+// the PLAN entitlement — Pro carries 750 AI actions a month against 25 on free,
+// so one reset is worth thirty times the free allowance. 100 is deliberately
+// well above the 25 a free account gets, so a genuine evaluator still gets a
+// real trial, and well below 750, so a farmed one is worth about an eighth of
+// what it was.
+export const TRIAL_AI_ACTION_CAP = 100;
+
+/**
+ * The AI-actions cap for a caller, composing plan, trial and self-cap.
+ *
+ * MIN-OF-CAPS, in the same shape the grading confidence policy uses: each input
+ * can only lower the answer, so adding a fourth later cannot accidentally raise
+ * one. `-1` means unlimited and is handled by [effectiveAiCap]; a trial never
+ * produces `-1`, which is the point.
+ */
+export function aiCapFor(
+  planLimit: number,
+  userLimit: number | null,
+  subscriptionStatus: string | null | undefined,
+): number {
+  const base = effectiveAiCap(planLimit, userLimit);
+  if (subscriptionStatus !== "trialing") return base;
+  // An unlimited plan on trial still gets the trial cap — otherwise the
+  // highest tier would be the cheapest thing to farm.
+  if (base === -1) return TRIAL_AI_ACTION_CAP;
+  return Math.min(base, TRIAL_AI_ACTION_CAP);
 }
 
 // ── Exports for tests / introspection ────────────────────────────

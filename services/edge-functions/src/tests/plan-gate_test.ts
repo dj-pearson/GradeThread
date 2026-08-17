@@ -9,10 +9,12 @@ import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import type { Context } from "hono";
 import {
+  aiCapFor,
   featureAllowedForUser,
   type PlanGateDeps,
   type PlanGateUser,
   requireFlipdesk,
+  TRIAL_AI_ACTION_CAP,
   __testing,
 } from "../lib/plan-gate.ts";
 
@@ -524,14 +526,14 @@ Deno.test("getLimit: aiActions honors the seller's self-cap (min of plan and sel
   const pro = __testing.PLAN_MATRIX.pro;
   // No self-cap → the plan's cap.
   assertEquals(
-    __testing.getLimit(pro, "aiActions", { ai_action_limit: null }),
+    __testing.getLimit(pro, "aiActions", { ai_action_limit: null, subscription_status: "active" }),
     pro.aiActionsPerMonth,
   );
   // A self-cap BELOW the plan wins.
-  assertEquals(__testing.getLimit(pro, "aiActions", { ai_action_limit: 50 }), 50);
+  assertEquals(__testing.getLimit(pro, "aiActions", { ai_action_limit: 50, subscription_status: "active" }), 50);
   // A self-cap ABOVE the plan cannot buy extra allowance.
   assertEquals(
-    __testing.getLimit(pro, "aiActions", { ai_action_limit: 99_999 }),
+    __testing.getLimit(pro, "aiActions", { ai_action_limit: 99_999, subscription_status: "active" }),
     pro.aiActionsPerMonth,
   );
   // Plan-shopping call (no user) must ignore self-caps entirely, or we'd
@@ -542,7 +544,7 @@ Deno.test("getLimit: aiActions honors the seller's self-cap (min of plan and sel
 Deno.test("getLimit: aiActions self-cap does not apply to other capacities", () => {
   const pro = __testing.PLAN_MATRIX.pro;
   assertEquals(
-    __testing.getLimit(pro, "activeListings", { ai_action_limit: 1 }),
+    __testing.getLimit(pro, "activeListings", { ai_action_limit: 1, subscription_status: "active" }),
     pro.activeListingCap,
   );
 });
@@ -568,6 +570,7 @@ Deno.test("readCurrentUsage: aiActions rolls over a counter from a prior month",
   const priorMonth = new Date(Date.UTC(2000, 0, 15)).toISOString();
   const used = await __testing.readCurrentUsage("u1", "aiActions", {
     flipdesk_plan: "pro",
+    subscription_status: "active",
     ai_actions_used_this_month: 750,
     ai_actions_reset_at: priorMonth,
     ai_action_limit: null,
@@ -581,6 +584,7 @@ Deno.test("readCurrentUsage: aiActions rolls over a counter from a prior month",
 Deno.test("readCurrentUsage: aiActions keeps an in-month counter", async () => {
   const used = await __testing.readCurrentUsage("u1", "aiActions", {
     flipdesk_plan: "pro",
+    subscription_status: "active",
     ai_actions_used_this_month: 42,
     ai_actions_reset_at: new Date().toISOString(),
     ai_action_limit: null,
@@ -595,6 +599,7 @@ Deno.test("readCurrentUsage: aiActions with a null reset boundary keeps the coun
   // out a fresh allowance every request.
   const used = await __testing.readCurrentUsage("u1", "aiActions", {
     flipdesk_plan: "pro",
+    subscription_status: "active",
     ai_actions_used_this_month: 7,
     ai_actions_reset_at: null,
     ai_action_limit: null,
@@ -602,4 +607,93 @@ Deno.test("readCurrentUsage: aiActions with a null reset boundary keeps the coun
     grade_reset_at: new Date(Date.now() + 86_400_000).toISOString(),
   });
   assertEquals(used, 7);
+});
+
+// ── US-2288: the trial AI cap ────────────────────────────────────
+//
+// A signup gets a 14-day Pro trial with no card and no prior-trial lookup, and
+// deleting the account and re-registering the SAME address resets it — measured
+// through the real GoTrue admin API, not inferred from the migration. The
+// owner's decision (2026-08-17) is to cap the trial's VOLUME rather than block
+// repeat signups: no signup friction, no personal data kept past deletion, and
+// one number to change if it is wrong.
+//
+// What makes the number bite is that a trial grants NO grade credits — the
+// exposure is the PLAN entitlement, 750 AI actions against 25 on free.
+
+Deno.test("US-2288: a trialing Pro account is capped well below its plan", () => {
+  const pro = __testing.PLAN_MATRIX.pro;
+  assertEquals(pro.aiActionsPerMonth, 750);
+  assertEquals(
+    __testing.getLimit(pro, "aiActions", {
+      ai_action_limit: null,
+      subscription_status: "trialing",
+    }),
+    TRIAL_AI_ACTION_CAP,
+  );
+});
+
+Deno.test("US-2288: the same account off-trial keeps the full plan cap", () => {
+  // The cap must key on the SUBSCRIPTION STATE, not on the plan. A converted
+  // customer on Pro is exactly who should get 750, and reading this off the
+  // plan alone would punish the conversion this trial exists to produce.
+  const pro = __testing.PLAN_MATRIX.pro;
+  for (const status of ["active", "past_due", "canceled", ""]) {
+    assertEquals(
+      __testing.getLimit(pro, "aiActions", {
+        ai_action_limit: null,
+        subscription_status: status,
+      }),
+      750,
+      `status ${status} must not be trial-capped`,
+    );
+  }
+});
+
+Deno.test("US-2288: the trial cap is a FLOOR-ward composition, never a raise", () => {
+  // Min-of-caps, the same shape the grading confidence policy uses. A seller who
+  // set a self-cap of 10 keeps 10 — the trial cap may only lower.
+  const pro = __testing.PLAN_MATRIX.pro;
+  assertEquals(
+    __testing.getLimit(pro, "aiActions", {
+      ai_action_limit: 10,
+      subscription_status: "trialing",
+    }),
+    10,
+  );
+  // And a self-cap ABOVE the trial cap does not lift it.
+  assertEquals(
+    __testing.getLimit(pro, "aiActions", {
+      ai_action_limit: 99_999,
+      subscription_status: "trialing",
+    }),
+    TRIAL_AI_ACTION_CAP,
+  );
+});
+
+Deno.test("US-2288: an unlimited plan on trial is still capped", () => {
+  // -1 means unlimited. Without this branch the highest tier would be the
+  // cheapest thing to farm, which inverts the whole point.
+  assertEquals(aiCapFor(-1, null, "trialing"), TRIAL_AI_ACTION_CAP);
+  assertEquals(aiCapFor(-1, null, "active"), -1);
+});
+
+Deno.test("US-2288: the cap sits between the free allowance and Pro's", () => {
+  // Not a magic number: above free so a genuine evaluator gets a real trial,
+  // well below Pro so a farmed account is worth a fraction of what it was. If
+  // either end of that stops holding, the number needs re-deciding rather than
+  // nudging.
+  const free = __testing.PLAN_MATRIX.free.aiActionsPerMonth;
+  const pro = __testing.PLAN_MATRIX.pro.aiActionsPerMonth;
+  assertEquals(free, 25);
+  assert(TRIAL_AI_ACTION_CAP > free, "a trial must beat the free allowance");
+  assert(TRIAL_AI_ACTION_CAP < pro, "a trial must not equal the paid plan");
+});
+
+Deno.test("US-2288: plan shopping is NOT trial-capped", () => {
+  // requiredPlanForCapacity asks "which tier would cover N?". Answering that
+  // with a trial-throttled number recommends an upgrade the trial itself
+  // caused — the same reason the self-cap is excluded from this path.
+  const pro = __testing.PLAN_MATRIX.pro;
+  assertEquals(__testing.getLimit(pro, "aiActions"), 750);
 });
