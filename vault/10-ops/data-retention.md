@@ -10,7 +10,7 @@ code_refs:
   - services/edge-functions/src/routes/admin-compliance.ts
   - services/edge-functions/src/lib/account-email-purge.ts
   - services/edge-functions/src/lib/financial-retention.ts
-reviewed: 2026-08-16
+reviewed: 2026-08-17
 tags: [ops, privacy, gdpr, retention]
 summary: The retention schedule and purge job, plus the export and erasure paths that satisfy portability and right-to-be-forgotten.
 ---
@@ -19,7 +19,7 @@ summary: The retention schedule and purge job, plus the export and erasure paths
 GradeThread enforces storage-limitation/data-minimization through documented
 retention windows and an automated purge job. This file is the operational
 source of truth; the customer-facing summary lives in the Privacy Policy
-(`src/pages/legal/privacy.tsx`, §7) and the subprocessor list.
+(`src/pages/legal/privacy.tsx`, §9 Data retention) and the subprocessor list.
 
 ## Retention schedule
 
@@ -30,7 +30,8 @@ source of truth; the customer-facing summary lives in the Privacy Policy
 | Account profile & auth | `users`, Supabase Auth | Deleted/de-identified ≤ 90 days after account closure | Account-deletion flow (US-275) + manual closure |
 | Billing & transactions | `flipdesk_subscription_events`, Stripe | Up to 7 years | Tax/accounting obligation; Stripe is system of record |
 | Support & dispute records | `disputes` | Up to 3 years after resolution | Manual |
-| Server & security logs | log aggregator | ≤ 90 days | Aggregator retention policy |
+| Infrastructure logs (hosting, CDN, error reporting) | provider-side | ≤ 90 days | The providers own the schedule; nothing here enforces it |
+| Security audit trail | `admin_audit_log` and the event tables | Life of the account, then de-identified | **No sweep, deliberately** — append-only; see the US-2643 note below |
 
 ## The purge job
 
@@ -306,10 +307,37 @@ Link this from the public privacy policy when the deletion UI ships.
 
 **No application audit or event table has a time-based sweep. Not one.** The
 privacy page's retention row — "Server & security logs: up to 90 days, then
-purged or aggregated" — is not true of anything in `public`. If that row is
-meant to cover Coolify, Cloudflare and Sentry only, it is fine and needs a
-wording change to say so; if it is meant to cover these tables, they are the
-work.
+purged or aggregated" — was not true of anything in `public`.
+
+> [!note] RESOLVED 2026-08-17 — the page was corrected, no sweep was built
+> Owner's decision, given the measurement below: **rewrite the claim rather than
+> build a purge.** The row is now two rows. Infrastructure logs (hosting, CDN,
+> error reporting) keep the up-to-90-days claim and are aged out on those
+> providers' schedules. The security audit trail is stated as kept for the life
+> of the account and then de-identified, with the append-only design given as the
+> reason — a log that can be erased cannot show who did what.
+>
+> The alternative was a scheduled purge carving out `admin_audit_log`. It was
+> rejected because it would destroy operational history for a promise nobody had
+> checked, and because "we keep the record of who touched your account" is a
+> claim worth making rather than one to work around.
+>
+> **The audit trail's own contents were checked before being described.** The
+> page says it holds the action, the time, the affected account and the staff
+> member's email and IP — because `admin_audit_log` has `actor_email`, `ip` and
+> `user_agent` columns and `details` carries a target email on some routes. The
+> first draft said "not your content" and that was too strong: an
+> admin-authored moderation notice IS stored in `details`, so the page says so.
+>
+> ⚠ **Still operator:** confirm the retention actually configured on Sentry,
+> Cloudflare and the Coolify host. Nothing here can read those, and the
+> up-to-90-days row is now the only claim resting on them.
+>
+> ⚠ **A new `legal_documents` version was NOT published.** The disclosed
+> retention changed, which normally warrants one, but nothing about anyone's data
+> changed — the page was describing a purge that never happened. Publishing a
+> version and deciding `requires_reacceptance` is an operator action on that
+> table, not a code change. Left to the owner deliberately.
 
 Measured two ways, not read: `node scripts/audit-table-retention.mjs --logs`
 for direct deletes, and `pg_constraint` on a stack built from the whole

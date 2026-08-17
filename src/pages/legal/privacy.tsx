@@ -710,9 +710,35 @@ export function PrivacyPage() {
               account.
             </td>
           </tr>
+          {/* US-2643: this row used to read "Server & security logs — Up to 90
+              days, then purged or aggregated", and no part of that was true of
+              anything we store. Measured, not assumed: not one application audit
+              or event table has a time-based sweep, and admin_audit_log is
+              append-only ON PURPOSE — a test fails if any RLS policy on it ever
+              grants UPDATE or DELETE, because a log that can be deleted is not
+              evidence. The old row promised a purge we do not do, of a record we
+              deliberately keep. Split in two so each half says what happens. */}
           <tr>
-            <td>Server &amp; security logs</td>
-            <td>Up to 90 days, then purged or aggregated.</td>
+            <td>Infrastructure logs (hosting, CDN, error reporting)</td>
+            <td>
+              Up to 90 days. These are operational records held by our hosting,
+              network and error-reporting providers, and they are aged out on
+              those providers&rsquo; schedules rather than ours.
+            </td>
+          </tr>
+          <tr>
+            <td>Security audit trail (admin actions, access records)</td>
+            <td>
+              Kept for the life of the account, then de-identified rather than
+              deleted. This record is append-only by design: it exists to show
+              who did what to an account, including us, and a log that can be
+              erased cannot do that. Each entry records the action, when it
+              happened, which account it affected, and the staff member who
+              performed it (their email address and network address). It does not
+              contain your uploaded photos or the text of your listings. Where a
+              staff member sends you a notice, the notice they wrote is recorded
+              with it.
+            </td>
           </tr>
         </tbody>
       </table>
