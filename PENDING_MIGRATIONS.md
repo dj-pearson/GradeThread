@@ -1,5 +1,58 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
+## 🔴 HELD: 00612 — nine credit functions have NO authorization check (US-2282)
+
+**Risk: LOW to apply. This is the story headline — mint yourself unlimited credits.**
+
+`NOTIFY pgrst` **NOT required** — `CREATE OR REPLACE`, signatures unchanged.
+
+### Apply AFTER 00611
+
+Both are independent, but the edge boot guard expects the highest version, so
+apply in order: 00611, then 00612, then push.
+
+### What is exposed
+
+Demonstrated, not theorised — an anonymous caller holding only the public anon
+key moved a real grade-credit balance **0 → 999**, then debited it to 998.
+
+Nine functions mint, spend or refund money-like balances with **no**
+authorization check in the body at all. They rely on the grant, and the grant is
+the `CREATE FUNCTION` default to PUBLIC, which every role belongs to:
+
+`grant_grade_credits`, `debit_grade_credits`, `grant_api_credits`,
+`debit_api_credits`, `grant_appstore_credits`, `grant_buyer_reward_credit`,
+`issue_buyer_reward_credit`, `redeem_buyer_reward_credit`,
+`refund_buyer_reward_credit`.
+
+Different defect from 00611: those six had a guard that was **wrong**. These have
+**none**, so there was never any protection to be wrong.
+
+### Verified on a local stack at 00611, both directions
+
+- anon refused with `42501` on **9 of 9**, including the exact demonstrated
+  exploit.
+- service role still mints and debits normally — balance 5, then 3.
+- Every caller is the edge's service-role client, and **nothing in the browser
+  bundle calls any credit function**, so the allowed caller set is checked rather
+  than guessed.
+
+### Apply
+
+```bash
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/00612_credit_functions_service_role_only.sql
+```
+
+Then confirm — this should raise `42501`, and did mint 999 credits before:
+
+```sql
+-- as anon, in a transaction you roll back
+select public.grant_grade_credits('<any-user-id>'::uuid, 999, 'pack_purchase');
+```
+
+---
+
 ## 🔴 HELD: 00611 — six functions answer an ANONYMOUS caller (US-2282)
 
 **Risk: LOW to apply. Apply it soon — the exposure is live.**

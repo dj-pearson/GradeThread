@@ -90,4 +90,23 @@ describe("US-2282: no NEW migration may ship the permissive admin guard", () => 
     // Postgres image (US-2403), which is why 00527 is a permanent do-not-apply.
     expect(/^\s*revoke\b/im.test(code)).toBe(false);
   });
+
+  it("00612 guards all nine credit functions, which had NO check at all", () => {
+    // A DIFFERENT defect from 00611's six. Those had a guard that was wrong;
+    // these had none and relied entirely on the CREATE FUNCTION grant to
+    // PUBLIC. The exploit was demonstrated, not theorised: an anonymous caller
+    // moved a real grade-credit balance 0 → 999.
+    const sql = readFileSync(
+      join(DIR, "00612_credit_functions_service_role_only.sql"),
+      "utf8",
+    );
+    const code = sql.split("\n").filter((l) => !l.trimStart().startsWith("--")).join("\n");
+    // Counted, not merely present: one correct guard in a nine-function
+    // migration would satisfy a contains-check while eight stayed open.
+    expect((code.match(/auth\.role\(\) = 'service_role'/g) ?? []).length).toBe(9);
+    expect(/^\s*revoke\b/im.test(code)).toBe(false);
+    // Every guard must name its own function, or a failure in production says
+    // "service role required" without saying which call was refused.
+    expect((code.match(/: service role required/g) ?? []).length).toBe(9);
+  });
 });
