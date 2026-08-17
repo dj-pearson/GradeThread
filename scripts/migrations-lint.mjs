@@ -356,8 +356,20 @@ export function lint() {
         `The function stays callable by anyone holding the public anon key, the ` +
         `SQL succeeds, and the migration applies green — which is why this has ` +
         `to fail here rather than anywhere later.\n` +
-        `  Write \`FROM PUBLIC, ${r.roles.join(", ")}\` instead ` +
-        `(00216_credit_ledger_admin.sql:143 is the model).`,
+        `  \`FROM PUBLIC, ${r.roles.join(", ")}\` is the form that works ` +
+        `(00216_credit_ledger_admin.sql:143). But before writing it, read the ` +
+        `two things that make a revoke here more expensive than it looks:\n` +
+        `    • A DENIED call from anon or authenticated SEGFAULTS this Postgres ` +
+        `image (US-2403), so a revoke on anything reachable with the public anon ` +
+        `key hands out a restart button. That is why 00527 is a DO NOT APPLY.\n` +
+        `    • Revoking from PUBLIC also strips service_role unless you grant it ` +
+        `back explicitly — most functions here hold EXECUTE only through the ` +
+        `PUBLIC default, so the revoke takes out the edge along with the attacker ` +
+        `(proven on reserve_snap: service_role goes t → f → t across ` +
+        `revoke-then-grant).\n` +
+        `  The remedy this repo has settled on is an authorization check in the ` +
+        `function BODY, the way admin_revenue_metrics does it — it revokes ` +
+        `nothing, so it never arms either problem.`,
     );
   }
   const fixedNoOps = [...INEFFECTIVE_REVOKE_GRANDFATHERED.keys()].filter(
