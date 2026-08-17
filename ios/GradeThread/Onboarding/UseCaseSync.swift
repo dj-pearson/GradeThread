@@ -85,7 +85,14 @@ enum UseCaseSync {
             // now — the personalisation it unlocks is on the web dashboard — so
             // an alert here would interrupt a first run to report something the
             // user cannot act on and did not ask for.
-            Telemetry.breadcrumb(
+            // `backgroundBreadcrumb`, not `breadcrumb`: this function is
+            // nonisolated async, and `Telemetry.breadcrumb` is @MainActor —
+            // calling it from here is "main actor-isolated static method cannot
+            // be called from outside of the actor", which only the macOS build
+            // reports. The nonisolated entry point exists for exactly this
+            // shape (the sync actor and the offline mutation queue use it), and
+            // it logs at .warning, which a failure path should anyway.
+            Telemetry.backgroundBreadcrumb(
                 "use_case sync failed: \(FriendlyErrorCopy.rawDetail(for: error))",
                 category: "onboarding"
             )
