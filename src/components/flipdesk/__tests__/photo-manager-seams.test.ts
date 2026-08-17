@@ -9,6 +9,7 @@ import {
   persistDelete,
   type PhotoMutationClient,
 } from "@/lib/photo-mutations";
+import { hideTag, showTag } from "@/lib/photo-visibility";
 
 interface Call {
   kind: string;
@@ -171,5 +172,41 @@ describe("composer embeds the shared photo toolkit (US-1567)", () => {
   // the composer feeds the builder a timestamp at all.
   it("stamps reviewed_at on save (US-1568: the draft leaves the AI queue)", () => {
     expect(composerSrc).toContain("reviewedAt: new Date().toISOString()");
+  });
+});
+
+// US-2669: the eye toggle is persistRetag with a computed tag, so the seam that
+// matters is that the write reaching item_photos is the 'internal' tag every
+// marketplace filter drops — and that the reverse write puts the old one back.
+describe("hide-from-listing toggle round-trips through the retag seam (US-2669)", () => {
+  it("hides by writing photo_type 'internal' and remembering the old tag", async () => {
+    const { client, calls } = mockClient();
+    const next = hideTag("detail", "fabric");
+    await persistRetag(client, { id: "p1" }, next.type, next.role);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.table).toBe("item_photos");
+    expect(calls[0]?.id).toBe("p1");
+    expect(calls[0]?.patch).toEqual({
+      photo_type: "internal",
+      photo_role: "was:detail/fabric",
+    });
+  });
+
+  it("shows by writing the remembered tag back", async () => {
+    const { client, calls } = mockClient();
+    const back = showTag("was:detail/fabric");
+    await persistRetag(client, { id: "p1" }, back.type, back.role);
+    expect(calls[0]?.patch).toEqual({
+      photo_type: "detail",
+      photo_role: "fabric",
+    });
+  });
+
+  it("surfaces a failed toggle instead of swallowing it", async () => {
+    const { client } = mockClient({ updateError: new Error("nope") });
+    const next = hideTag("front", null);
+    await expect(
+      persistRetag(client, { id: "p1" }, next.type, next.role),
+    ).rejects.toThrow();
   });
 });

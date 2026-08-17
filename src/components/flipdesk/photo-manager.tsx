@@ -29,6 +29,8 @@ import {
   Loader2,
   Star,
   SunMedium,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -37,6 +39,11 @@ import {
   isNonListablePhotoType,
   isSensitivePhotoType,
 } from "@/lib/constants";
+import {
+  hideTag,
+  isHiddenFromListing,
+  showTag,
+} from "@/lib/photo-visibility";
 import {
   PhotoTagSelect,
   photoTagLabel,
@@ -102,7 +109,8 @@ interface PhotoManagerProps {
    *  are provided each tile shows a star button; the highlighted star marks
    *  the current primary. Omit for surfaces where position 0 is the cover. */
   primaryPhotoId?: string | null;
-  onPickPrimary?: (photoId: string) => void;
+  /** null clears the pick — used when the starred photo is hidden (US-2669). */
+  onPickPrimary?: (photoId: string | null) => void;
 }
 
 export function PhotoManager({
@@ -268,8 +276,11 @@ export function PhotoManager({
   // LISTABLE photos — internal/measurement shots never reach eBay) is a
   // tag/detail/defect shot rather than a full front/flat-lay view. Client mirror
   // of the edge picture-standards preflight; publish re-checks server-side.
+  // The role argument matters: a 'measurement' WITH a role is a tape close-up
+  // that lists, and dropping it here made the hero nudge reason about a photo
+  // set the listing does not have (US-2462).
   const listableOrder = order.filter(
-    (p) => !isNonListablePhotoType(p.photo_type),
+    (p) => !isNonListablePhotoType(p.photo_type, p.photo_role),
   );
   const heroNudge = firstPhotoNudge(listableOrder);
 
@@ -363,6 +374,46 @@ export function PhotoManager({
     }
   }
 
+  // US-2669: the eye. Hiding writes the tag every marketplace filter already
+  // drops ('internal') and remembers the old one in photo_role; showing puts the
+  // remembered tag back. Deliberately NOT routed through retag() above — that
+  // one warns about phone-captured photos not reaching eBay, which is noise when
+  // the seller is the one saying "keep this out of the listing".
+  async function toggleListed(photo: ItemPhotoRow) {
+    const hidden = isHiddenFromListing(photo.photo_type);
+    const next = hidden
+      ? showTag(photo.photo_role)
+      : hideTag(photo.photo_type, photo.photo_role);
+    photosDirtyRef.current = true;
+    try {
+      await persistRetag(supabase, photo, next.type, next.role);
+      // Hiding the STARRED photo would leave listings.primary_photo_id pointing
+      // at a photo no marketplace receives. The storefront and cross-push both
+      // resolve the primary against their listable set and fall through, so the
+      // saved value is not dangerous — it is just a star sitting on a greyed-out
+      // tile with no effect, which is worse to look at than to fix. Hand the
+      // star to the next photo that will actually be sent.
+      if (!hidden && onPickPrimary && primaryPhotoId === photo.id) {
+        const nextPrimary = order.find(
+          (p) =>
+            p.id !== photo.id &&
+            !isNonListablePhotoType(p.photo_type, p.photo_role),
+        );
+        onPickPrimary(nextPrimary?.id ?? null);
+      }
+      await invalidatePhotos();
+      toast.success(
+        hidden
+          ? "Photo is back in the listing."
+          : "Photo hidden — it stays on the item but won't be sent to any marketplace.",
+      );
+    } catch {
+      toast.error(
+        hidden ? "Failed to show the photo." : "Failed to hide the photo.",
+      );
+    }
+  }
+
   async function remove(photo: ItemPhotoRow) {
     photosDirtyRef.current = true;
     try {
@@ -396,6 +447,15 @@ export function PhotoManager({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-muted-foreground">
           Drag to reorder. The first photo is the listing's main image.
+          {listableOrder.length < order.length && (
+            <>
+              {" "}
+              <span className="font-medium text-foreground">
+                {listableOrder.length} of {order.length}
+              </span>{" "}
+              will be sent to marketplaces.
+            </>
+          )}
         </p>
         {toneMatchable.length >= 2 && (
           <button
@@ -442,6 +502,7 @@ export function PhotoManager({
                 profile={profile}
                 onRetag={retag}
                 onRemove={remove}
+                onToggleListed={toggleListed}
                 onEdit={setEditingPhoto}
                 onRemoveBg={doRemoveBg}
                 removingBg={removingBgId === photo.id}
@@ -539,6 +600,7 @@ function SortablePhoto({
   profile,
   onRetag,
   onRemove,
+  onToggleListed,
   onEdit,
   onRemoveBg,
   removingBg,
@@ -553,13 +615,14 @@ function SortablePhoto({
   profile?: PhotoProfile;
   onRetag: (photo: ItemPhotoRow, t: FlipdeskPhotoType, role: string | null) => void;
   onRemove: (photo: ItemPhotoRow) => void;
+  onToggleListed: (photo: ItemPhotoRow) => void;
   onEdit: (photo: ItemPhotoRow) => void;
   onRemoveBg: (photo: ItemPhotoRow) => void;
   removingBg: boolean;
   removeBgEnabled: boolean;
   onView: (photo: ItemPhotoRow) => void;
   isPrimary?: boolean;
-  onPickPrimary?: (photoId: string) => void;
+  onPickPrimary?: (photoId: string | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: photo.id });
@@ -582,6 +645,24 @@ function SortablePhoto({
     photo.storage_path == null
       ? "This photo is still uploading, or its file is missing, so there's nothing to edit yet."
       : null;
+
+  // US-2669: the eye. Three states, because "will this photo be listed" has
+  // three answers and only one of them is the seller's to change here.
+  //   hidden     — the seller pressed the eye. Reversible right here.
+  //   locked     — the MeasureCard frame. It never lists (the fiducial card is a
+  //                branded foreign object) and no toggle should imply otherwise,
+  //                so the eye shows the state and refuses the click.
+  //   listed     — everything else.
+  const hiddenFromListing = isHiddenFromListing(photo.photo_type);
+  const listingLocked =
+    !hiddenFromListing &&
+    isNonListablePhotoType(photo.photo_type, photo.photo_role);
+  const notListed = hiddenFromListing || listingLocked;
+  const visibilityTitle = listingLocked
+    ? "MeasureCard photo — never sent to a marketplace. Retag it to list it."
+    : hiddenFromListing
+      ? "Hidden from listings — click to put it back"
+      : "Listed. Click to hide it from every marketplace (it stays on the item)";
 
   // US-2501: the shoot guidance used to hang off the uploader's slot tiles, and
   // the composer no longer renders those. It belongs on the photo either way —
@@ -624,9 +705,19 @@ function SortablePhoto({
             alt={photoTagLabel(photo.photo_type, photo.photo_role, garment)}
             loading="lazy"
             decoding="async"
-            className="h-full w-full object-cover"
+            className={cn(
+              "h-full w-full object-cover",
+              // Desaturated rather than faded: a hidden photo still has to be
+              // recognisable enough to pick the right one to put back.
+              notListed && "opacity-60 grayscale",
+            )}
           />
         </button>
+        {notListed && (
+          <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-background/85 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+            Not listed
+          </span>
+        )}
         <button
           type="button"
           {...attributes}
@@ -656,6 +747,28 @@ function SortablePhoto({
               />
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => !listingLocked && onToggleListed(photo)}
+            disabled={listingLocked}
+            className={cn(
+              "rounded bg-background/80 p-1",
+              listingLocked
+                ? "cursor-not-allowed text-muted-foreground/40"
+                : hiddenFromListing
+                  ? "text-amber-600 hover:text-amber-700 dark:text-amber-500 dark:hover:text-amber-400"
+                  : "text-muted-foreground hover:text-foreground",
+            )}
+            title={visibilityTitle}
+            aria-label={visibilityTitle}
+            aria-pressed={hiddenFromListing}
+          >
+            {notListed ? (
+              <EyeOff className="h-3.5 w-3.5" />
+            ) : (
+              <Eye className="h-3.5 w-3.5" />
+            )}
+          </button>
           {/* Same rule as editing: remove-bg writes a NEW public object, so it
               is the private original that must not go through it. */}
           {photo.photo_type !== "flatlay" && removeBgEnabled && !privateOriginal && (

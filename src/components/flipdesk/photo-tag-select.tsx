@@ -36,6 +36,7 @@ import {
   roleLabel,
   rolesForType,
 } from "@/lib/photo-roles";
+import { isTagMemo } from "@/lib/photo-visibility";
 import type { PhotoProfile } from "@/lib/photo-profiles";
 import type { FlipdeskPhotoType } from "@/types/database";
 
@@ -161,7 +162,12 @@ export function PhotoTagSelect({
     .filter((o) => !seen.has(o.slot))
     .sort((a, b) => a.label.localeCompare(b.label));
 
-  const current = slotKey(photoType, photoRole);
+  // US-2669: a photo hidden by the composer's eye keeps its OLD tag in
+  // photo_role as a memo so the eye can put it back. That memo is not a
+  // qualifier and matches no option, so without this the picker would render a
+  // hidden photo as an orphan marked "(old tag)". 'internal' takes no role
+  // anyway, so collapsing to the bare slot is the honest current value.
+  const current = slotKey(photoType, isTagMemo(photoRole) ? null : photoRole);
   // A photo on a retired type has no matching option, so the Select would
   // render an empty trigger. Give it one, marked, so the seller can see what it
   // is and choose something current.
