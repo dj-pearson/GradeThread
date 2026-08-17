@@ -1897,7 +1897,7 @@
       "acceptanceCriteria": [
         "/health/ready reports whether the bypass is armed on the edge side, production only, and the readiness line states the CONSEQUENCE rather than only the variable name.",
         "The line says outright that setting it on the edge alone changes nothing, because the same value has to be on the Cloudflare Pages project - the specific mistake this bypass invites.",
-        "OPERATOR: read features.pages_origin_bypass on /health/ready after the next edge deploy. If it says missing, set CF_PAGES_ORIGIN_SECRET to the same value on BOTH the Coolify edge service and the Cloudflare Pages project, then re-read it.",
+        "OPERATOR: read features.pages_origin_bypass on /health/ready after the next edge deploy. If it says missing, set CF_PAGES_ORIGIN_SECRET to the same value on BOTH the Coolify edge service and the Cloudflare Pages project, then re-read it. — SATISFIED 2026-08-17: the Pages half IS set. Proven without opening the Cloudflare console: render-via-edge.ts skips the round trip and serves the branded fallback when CF_PAGES_ORIGIN_SECRET is absent on the Pages side, and /og/social/card renders 145,545 (landscape) / 182,268 (pin) bytes against a fixed 133,915-byte fallback, differing per ratio — which a fallback cannot do. The /health/ready line still reads \"one of the two halves\" because it reports the EDGE env and cannot see Pages; blind, not wrong, and it will read that way permanently.",
         "OPERATOR: with it armed, re-run a burst against /sitemap.xml and confirm it no longer 503s. That is the only end-to-end proof both halves match, since a mismatched secret looks exactly like an unset one from outside."
       ],
       "priority": 5,

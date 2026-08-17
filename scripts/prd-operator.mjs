@@ -242,13 +242,34 @@ export function namedByCount(stories) {
   return by;
 }
 
+/**
+ * An operator criterion that has been DONE, marked in the criterion itself.
+ *
+ * The queue is a list of things a person still has to do, and a list with
+ * finished items on it stops being read — the same failure that let a red CI
+ * lane sit for three weeks. Notes already record satisfaction, but the queue
+ * reads CRITERIA, so a done step kept reappearing at the top under "START HERE"
+ * with other stories named as waiting on it.
+ *
+ * Requires a DATE, so the marker carries evidence of when rather than just a
+ * claim. Satisfied items are counted and reported, never silently dropped: an
+ * item that vanishes is indistinguishable from one nobody ever wrote down.
+ */
+export const SATISFIED_RE = /\bSATISFIED\s+\d{4}-\d{2}-\d{2}\b/i;
+
 export function collect(stories) {
   const open = stories.filter((s) => !s.passes);
   const declared = [];
   const undeclared = [];
+  let satisfied = 0;
 
   for (const s of open) {
-    const acs = (s.acceptanceCriteria ?? []).filter((a) => DECLARED_RE.test(a));
+    const allDeclared = (s.acceptanceCriteria ?? []).filter((a) => DECLARED_RE.test(a));
+    const acs = allDeclared.filter((a) => {
+      if (!SATISFIED_RE.test(a)) return true;
+      satisfied++;
+      return false;
+    });
     if (acs.length > 0) {
       declared.push({ id: s.id, priority: s.priority, title: s.title, items: acs });
       // A story that declares its operator work is NOT also listed as
@@ -256,6 +277,12 @@ export function collect(stories) {
       // in the queue, at the highest fidelity that story offers.
       continue;
     }
+    // ⚠ A story whose declared work is ALL satisfied must not fall through to
+    // the prose scanner. It would come straight back as an UNDECLARED row,
+    // quoted from a note sentence — the same item under a weaker heading, which
+    // is worse than leaving it declared: it loses the marker AND the evidence.
+    // Caught by its own test case, which was written expecting this.
+    if (allDeclared.length > 0) continue;
     const notes = s.notes ?? "";
     const titleTagged = /^\s*\[OPERATOR\]/i.test(s.title);
     const hits = [];
@@ -276,7 +303,7 @@ export function collect(stories) {
 
   declared.sort(comparePriority);
   undeclared.sort(comparePriority);
-  return { declared, undeclared, openCount: open.length };
+  return { declared, undeclared, openCount: open.length, satisfied };
 }
 
 function rank(s) {
@@ -286,10 +313,10 @@ function rank(s) {
 function main() {
   const argv = process.argv.slice(2);
   const prd = JSON.parse(fs.readFileSync(path.join(ROOT, "prd.json"), "utf8"));
-  const { declared, undeclared, openCount } = collect(prd.userStories ?? []);
+  const { declared, undeclared, openCount, satisfied } = collect(prd.userStories ?? []);
 
   if (argv.includes("--json")) {
-    console.log(JSON.stringify({ declared, undeclared, openCount }, null, 2));
+    console.log(JSON.stringify({ declared, undeclared, openCount, satisfied }, null, 2));
     return;
   }
 
@@ -297,6 +324,13 @@ function main() {
   console.log(
     `\nOperator queue: ${total} of ${openCount} open stories wait on a person.\n`,
   );
+  // Counted, never silently dropped: an item that vanishes without a trace is
+  // indistinguishable from one nobody ever wrote down.
+  if (satisfied > 0) {
+    console.log(
+      `  (${satisfied} declared item(s) marked SATISFIED with a date, no longer listed.)\n`,
+    );
+  }
 
   // The whole queue sorted by priority is a list; this is the shortest path
   // through it. Only DECLARED rows are ranked — an undeclared one is a guess at
