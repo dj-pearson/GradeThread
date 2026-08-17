@@ -437,7 +437,27 @@ export function prodToolIO(): ToolIO {
       });
     },
     rpc: async (name, args) => {
-      const { data } = await supabaseAdmin.rpc(name, (args ?? {}) as never);
+      // THROW, do not return null. This destructured only `data`, and
+      // supabase-js answers { data: null, error } on failure — so a failing RPC
+      // became a silent null that the model then reasoned over.
+      //
+      // It was not hypothetical: revenue_dashboard raises 42703 on EVERY call
+      // (US-2663 — its trial cohort selects users.trial_started_at, a column
+      // that has never existed on that table), and get_revenue answered
+      // { window, revenue: null } with no error for as long as that has been
+      // true. Nine io.rpc call sites across five RPCs degraded the same way.
+      //
+      // system_health is the sharper case: it legitimately refuses an
+      // unprivileged caller with 42501, and swallowing that made "healthy but
+      // empty" and "not allowed to look" the same answer.
+      //
+      // Throwing is safe and is the established shape here — fetchMarketplaceConnections
+      // directly above does exactly this, for the same stated reason ("here that
+      // means reporting a healthy fleet because the read failed"), and the tool
+      // dispatcher wraps every handler, turning a throw into a visible
+      // { error: { code: "tool_error" } } rather than a crash.
+      const { data, error } = await supabaseAdmin.rpc(name, (args ?? {}) as never);
+      if (error) throw new Error(`rpc ${name} failed: ${error.message}`);
       return data;
     },
     audit: (input) => writeSystemAuditLog(input),
