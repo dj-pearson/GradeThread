@@ -1,6 +1,96 @@
 # PENDING MIGRATIONS — apply BEFORE pushing this branch to origin
 
-## 🔴 HELD: 00610 — revenue_dashboard has never worked, and the break was hiding a leak (US-2663)
+## 🔴 HELD: 00611 — six functions answer an ANONYMOUS caller (US-2282)
+
+**Risk: LOW to apply. Apply it soon — the exposure is live.**
+
+`NOTIFY pgrst, 'reload schema';` **NOT required.** `CREATE OR REPLACE`, every
+signature unchanged.
+
+### What is exposed right now
+
+Measured against production on 2026-08-17 with nothing but the anon key that
+ships in the browser bundle. All six answered **HTTP 200 with real data**:
+
+| Function | What it returns |
+|---|---|
+| `ai_spend` | per-feature AI spend in USD |
+| `ai_profitability` | totals and monthly projection |
+| `funnel_metrics` | signup funnel counts |
+| `retention_cohorts` | cohort sizes and retention |
+| `ai_budget_status` | budget rows and spend percentages |
+| `reconciliation_candidates` | **user email addresses** alongside subject user ids |
+
+The last one is personal data, not a metric.
+
+### The bug is the guard, not a missing one
+
+All six already had an authorization check, which is why this survived review:
+
+```sql
+if auth.uid() is not null and not public.is_admin() then
+  raise exception '…: admin role required' using errcode = '42501';
+end if;
+```
+
+An anonymous caller has no `auth.uid()`. The condition is false, no exception
+fires, the document is returned. It only ever constrained users who were signed
+**in** — the population least likely to be the attacker.
+
+Identical to the defect 00610 fixed in `revenue_dashboard`. There an unrelated
+error was masking it; here nothing was.
+
+### The fix, already proven in production
+
+```sql
+if not (auth.role() = 'service_role' or public.is_admin()) then
+```
+
+A positive allowlist. `admin_revenue_metrics` has used it since it was written
+and `revenue_dashboard` since 00610 — on prod today that one answers **401 /
+42501** to the same anon call these six answer with data. Same database, minutes
+apart.
+
+**Every real caller is the service role and keeps working** (verified 6/6 on a
+local stack at 00610, both directions).
+
+### Six, not four
+
+US-2282 named four. Querying every live SECURITY DEFINER function for the guard's
+exact shape found two more nobody had listed — including the one returning email
+addresses. Matching on the defect beat working from a hand-written list.
+
+### No REVOKE, deliberately
+
+A denied call from anon or authenticated **segfaults** this Postgres image
+(US-2403), which is why 00527 is a permanent DO NOT APPLY. A body check raises an
+ordinary error, so it arms nothing. Per US-2666 a `REVOKE … FROM anon` would be a
+no-op anyway.
+
+### Apply
+
+```bash
+psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/00611_analytics_rpc_allowlist.sql
+```
+
+Then confirm the exposure is closed — this should now be **401**, not 200:
+
+```bash
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  "https://api.gradethread.com/rest/v1/rpc/ai_spend" \
+  -H "apikey: $ANON" -H "Authorization: Bearer $ANON" \
+  -H 'Content-Type: application/json' -d '{}'
+```
+
+### Ordering
+
+Apply, then push. The edge's boot guard now expects `00611`, so a push without
+the apply would make the next edge deploy refuse to start.
+
+---
+
+## ✅ APPLIED 2026-08-17: 00610 — revenue_dashboard (US-2663). Prod reports expected 00610 / applied 00610 / match.
 
 **Risk: LOW to apply. Do NOT skip it and push, though — see the ordering note.**
 
