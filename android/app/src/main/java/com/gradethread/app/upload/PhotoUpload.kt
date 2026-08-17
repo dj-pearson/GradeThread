@@ -23,6 +23,31 @@ import java.io.File
  *  - photo row ids are DETERMINISTIC (the work id), so a replay upserts the
  *    SAME row instead of duplicating (the photo-link race);
  *  - every client-minted UUID is LOWERCASED (the uppercase-UUID sync dup).
+ *
+ * US-2658 AC4 — THE BYTES KEEP BYPASSING THE EDGE, and that is a decision
+ * rather than an omission. The question was raised because the server pair
+ * `validateImageUpload()` + `stripImageMetadata()` never runs on Android
+ * photos: phase 2 PUTs straight at Supabase Storage. That was alarming while
+ * the camera path also skipped [com.gradethread.app.capture.PhotoProcessor],
+ * because BOTH metadata defences were then bypassed by the same shot. It is
+ * not alarming now that the client-side one is unconditional.
+ *
+ * Keeping the signed URL, for three reasons that outlast this story:
+ *  - the client defence is the STRONGER of the two. `stripImageMetadata()`
+ *    removes EXIF from bytes that already left the phone; `Bitmap.compress`
+ *    means the EXIF never leaves it. Proxying would add a weaker second copy
+ *    of a guarantee already held at the better place.
+ *  - the trust boundary does not move. The edge still mints the URL, so auth
+ *    and tenancy are enforced there either way; only the bytes take the short
+ *    path, and they are the part with no decisions in it.
+ *  - every garment photo would otherwise stream through one Deno container on
+ *    one box. iOS PUTs the same way, so changing Android alone would also
+ *    split the two clients for no gain.
+ *
+ * What would REOPEN this: a requirement that the server verify the bytes it
+ * stores (magic-byte sniffing, dimension caps), which the client cannot be
+ * trusted to do on its own behalf. That is a different argument from metadata,
+ * and it is the one to make if this comes back.
  */
 object PhotoUpload {
 
@@ -59,12 +84,11 @@ object PhotoUpload {
      * The public URL recorded on the row — EMPTY for the private bucket
      * (readers mint signed URLs, TTL <= 900s; never getPublicUrl there).
      */
-    fun publicUrlFor(supabaseUrl: String, bucket: Bucket, path: String): String =
-        if (bucket.isPublic) {
-            "$supabaseUrl/storage/v1/object/public/${bucket.bucketName}/$path"
-        } else {
-            ""
-        }
+    fun publicUrlFor(supabaseUrl: String, bucket: Bucket, path: String): String = if (bucket.isPublic) {
+        "$supabaseUrl/storage/v1/object/public/${bucket.bucketName}/$path"
+    } else {
+        ""
+    }
 
     // ── Phase 1: mint ────────────────────────────────────────────────────────
 
@@ -114,11 +138,7 @@ object PhotoUpload {
     // ── Phase 2: the single PUT ──────────────────────────────────────────────
 
     /** One PUT, x-upsert for idempotent replay. Throws on non-2xx. */
-    suspend fun putBytes(
-        client: OkHttpClient,
-        signedUrl: String,
-        file: File,
-    ) {
+    suspend fun putBytes(client: OkHttpClient, signedUrl: String, file: File) {
         val request = Request.Builder()
             .url(signedUrl)
             .put(file.asRequestBody())
@@ -143,6 +163,5 @@ object PhotoUpload {
         }
     }
 
-    private fun File.asRequestBody() =
-        readBytes().toRequestBody("image/jpeg".toMediaType())
+    private fun File.asRequestBody() = readBytes().toRequestBody("image/jpeg".toMediaType())
 }

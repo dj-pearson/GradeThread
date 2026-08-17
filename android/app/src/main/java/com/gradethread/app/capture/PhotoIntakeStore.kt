@@ -28,10 +28,7 @@ import kotlinx.serialization.json.Json
  *  - the FULL state (photos map + active + revealed slots) persists to Room
  *    so process death/backgrounding recovers the draft.
  */
-class PhotoIntakeStore(
-    initial: State = State(),
-    initialProfile: PhotoProfile = PhotoProfile.clothingFallback,
-) {
+class PhotoIntakeStore(initial: State = State(), initialProfile: PhotoProfile = PhotoProfile.clothingFallback) {
 
     @Serializable
     data class State(
@@ -156,10 +153,21 @@ class PhotoIntakeStore(
 
     // ── Mutations ────────────────────────────────────────────────────────────
 
-    /** Store a capture in the active slot, then auto-advance to next empty. */
-    fun recordCapture(path: String) {
+    /**
+     * Store a capture in the active slot, then auto-advance to next empty.
+     *
+     * US-2658: [intoSlot] lets a caller PIN the destination before an async
+     * hop. A camera shot is filed after a shutter round trip, and until this
+     * existed the key was read from `activeSlot` at CALLBACK time — so tapping
+     * a different chip while the shutter was in flight filed the photo under
+     * the slot the seller had just moved to. The library-import path passes
+     * nothing on purpose: a multi-pick fills successive slots by leaning on the
+     * auto-advance below, which is the behaviour it wants.
+     */
+    fun recordCapture(path: String, intoSlot: String? = null) {
         val current = stateFlow.value
-        val withPhoto = current.copy(photos = current.photos + (current.activeSlot to path))
+        val key = intoSlot ?: current.activeSlot
+        val withPhoto = current.copy(photos = current.photos + (key to path))
         stateFlow.value = withPhoto
         nextEmptySlot?.let { stateFlow.value = withPhoto.copy(activeSlot = it.storageKey) }
     }

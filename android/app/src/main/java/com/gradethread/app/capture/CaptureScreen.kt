@@ -161,10 +161,21 @@ fun CaptureScreen(
         onDispose { controller.unbind() }
     }
 
+    // US-2658: a camera shot that could not be processed. Surfaced rather than
+    // swallowed, because the alternative to showing it is uploading raw sensor
+    // bytes, and the seller would have no way to know either happened.
+    var captureError by remember { mutableStateOf(false) }
+
     fun capture() {
         val dir = File(context.filesDir, "captures").apply { mkdirs() }
-        val file = File(dir, "${state.activeSlot}_${System.currentTimeMillis()}.jpg")
-        val options = ImageCapture.OutputFileOptions.Builder(file).build()
+        // PINNED before the shutter round trip, and used for BOTH the filename
+        // and the slot the result is filed under. Only the filename was pinned
+        // before; recordCapture read activeSlot at callback time, so tapping
+        // another chip mid-shutter filed the shot in the wrong slot. iOS pins
+        // the same way (PhotoIntakeView.swift:1019-1028).
+        val slot = state.activeSlot
+        val raw = File(dir, "${slot}_${System.currentTimeMillis()}.jpg")
+        val options = ImageCapture.OutputFileOptions.Builder(raw).build()
         controller.takePicture(
             options,
             ContextCompat.getMainExecutor(context),
@@ -172,12 +183,36 @@ fun CaptureScreen(
                 override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                     haptics.success()
                     shutter.play()
-                    intake.recordCapture(file.absolutePath)
-                    scope.launch { intake.persist(db) } // draft after every shot
+                    // US-2658: THE CAMERA PATH RUNS PhotoProcessor TOO. It did
+                    // not, and the library picker did, so the same garment
+                    // uploaded at full sensor resolution with CameraX's EXIF
+                    // intact if it was shot here and at 2048px with no metadata
+                    // at all if it was picked. The processor is what strips
+                    // metadata and what bakes the orientation into the pixels;
+                    // eBay ignores the EXIF tag, so a shot kept upright only by
+                    // that tag lists sideways.
+                    scope.launch {
+                        val processed = runCatching { PhotoProcessor.process(raw, dir) }
+                        // The raw file goes either way. On success it is
+                        // superseded; on failure it must not linger where a
+                        // later change could pick it up, which is the whole
+                        // point of failing closed here.
+                        raw.delete()
+                        val out = processed.getOrNull()
+                        if (out == null) {
+                            captureError = true
+                            haptics.error()
+                            return@launch
+                        }
+                        captureError = false
+                        intake.recordCapture(out.file.absolutePath, slot)
+                        intake.persist(db) // draft after every shot
+                    }
                 }
 
                 override fun onError(exception: ImageCaptureException) {
                     haptics.error()
+                    captureError = true
                 }
             },
         )
@@ -198,6 +233,22 @@ fun CaptureScreen(
                     .background(MaterialTheme.colorScheme.errorContainer)
                     .padding(horizontal = Spacing.md, vertical = Spacing.xs)
                     .clickable { com.gradethread.app.intake.IntakeDrainer.clearMessage() },
+            )
+        }
+
+        // US-2658: the shot that did not survive processing. Tappable to
+        // dismiss, like the drain notice above, and cleared by the next good
+        // shot so it cannot outlive the problem it describes.
+        if (captureError) {
+            Text(
+                stringResource(R.string.capture_process_failed),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+                    .clickable { captureError = false },
             )
         }
 
