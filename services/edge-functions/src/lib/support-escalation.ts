@@ -15,8 +15,14 @@
 //     after AUTO_ESCALATION_THRESHOLD consecutive unresolved turns,
 //     decideEscalation returns trigger='auto' even though the model never asked.
 //   * 'user' trigger is reserved for a human-side action in US-839.
+//   * US-2667 adds a FOURTH: 'crisis'. It is not decided here and never can be
+//     - decideEscalation runs after the model, and the crisis path exists
+//     precisely so the model is never reached. The route builds that decision
+//     itself and calls performEscalation directly. The value lives in this union
+//     (and in the 00618 CHECK) so the admin inbox, the notification and the
+//     stored row can all tell it apart from a routine handoff.
 
-export type EscalationTrigger = "model" | "auto" | "user";
+export type EscalationTrigger = "model" | "auto" | "user" | "crisis";
 
 // Consecutive unresolved/uncertain turns before the assistant auto-escalates
 // without the user (or the model) explicitly asking. Kept small: the bot gets a

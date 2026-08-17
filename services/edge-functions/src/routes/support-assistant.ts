@@ -77,6 +77,12 @@ import {
   HUMAN_HANDLED_STATUSES,
   performEscalation,
 } from "../lib/support-escalation.ts";
+import {
+  CRISIS_ESCALATION_REASON,
+  CRISIS_ESCALATION_SUMMARY,
+  CRISIS_RESPONSE,
+  detectCrisis,
+} from "../lib/support-crisis.ts";
 import { captureAssistantEvent } from "../lib/support-analytics.ts";
 import { estimateCost } from "../lib/ai-extract.ts";
 import { captureException, readCtxVar } from "../lib/observability.ts";
@@ -280,10 +286,16 @@ async function notifyOwnerOfEscalation(
       .from("users")
       .select("id")
       .in("role", ["admin", "super_admin"]);
+    // US-2667: a crisis handoff says so in the title. An admin scanning a bell
+    // menu of "Support conversation escalated" rows has no way to tell which
+    // one to open first, and this is the one.
+    const isCrisis = trigger === "crisis";
     for (const a of (admins ?? []) as Array<{ id: string }>) {
       await notifyUser(a.id, {
         type: "system",
-        title: "Support conversation escalated",
+        title: isCrisis
+          ? "URGENT: possible crisis in a support conversation"
+          : "Support conversation escalated",
         message: `${userEmail} needs a human: ${reason}`,
         link,
       });
@@ -313,7 +325,16 @@ async function notifyOwnerOfEscalation(
 
 // Build the EscalationSink the route hands to performEscalation: the real
 // service-role status flip + owner notification + usage metering.
-function makeEscalationSink(): EscalationSink {
+//
+// US-2667: `meter` exists for the crisis path and nothing else. Every other
+// handoff follows a turn that spent tokens and is legitimately metered; the
+// crisis reply is a constant that costs nothing, and billing an escalation
+// against someone who typed that they want to hurt themselves is not a thing
+// this product is going to do. Default true, so a caller has to ask for the
+// exemption.
+function makeEscalationSink(
+  { meter = true }: { meter?: boolean } = {},
+): EscalationSink {
   return {
     setConversationEscalated: async (i) => {
       await supabaseAdmin
@@ -339,8 +360,88 @@ function makeEscalationSink(): EscalationSink {
         i.summary,
         i.trigger,
       ),
-    meterEscalation: (uid) => incrementUsage(uid, { escalations: 1 }),
+    meterEscalation: (uid) =>
+      meter ? incrementUsage(uid, { escalations: 1 }) : Promise.resolve(),
   };
+}
+
+// ── Conversation load-or-create (shared by the crisis path and the model path) ─
+//
+// US-2667 pulled this out of the /message handler so the crisis short-circuit
+// can reach a conversation row WITHOUT duplicating the tenant scoping. That is
+// the whole reason it is a function: two copies of `.eq("user_id", userId)` is
+// one copy away from a cross-tenant read (US-268).
+type ConversationLoad =
+  | {
+    ok: true;
+    conversationId: string;
+    currentStatus: string;
+    priorUnresolvedTurns: number;
+  }
+  | { ok: false; status: 404 | 500; error: string };
+
+async function loadOrCreateConversation(
+  userId: string,
+  ownerId: string,
+  message: string,
+  conversationIdArg: string | null,
+): Promise<ConversationLoad> {
+  if (conversationIdArg) {
+    const { data: conv } = await supabaseAdmin
+      .from("support_conversations")
+      .select("id, status, unresolved_turns")
+      .eq("id", conversationIdArg)
+      .eq("user_id", userId) // tenant scope: caller's own thread only
+      .maybeSingle();
+    if (!conv) return { ok: false, status: 404, error: "Conversation not found" };
+    const row = conv as {
+      id: string;
+      status?: string | null;
+      unresolved_turns?: number | null;
+    };
+    return {
+      ok: true,
+      conversationId: row.id,
+      currentStatus: row.status ?? "open",
+      priorUnresolvedTurns: typeof row.unresolved_turns === "number"
+        ? row.unresolved_turns
+        : 0,
+    };
+  }
+
+  const { data: created, error } = await supabaseAdmin
+    .from("support_conversations")
+    .insert({
+      user_id: userId,
+      workspace_owner_id: ownerId,
+      status: "open",
+      subject: message.slice(0, 80),
+    } as never)
+    .select("id")
+    .single();
+  if (error || !created) {
+    return { ok: false, status: 500, error: "Could not start conversation" };
+  }
+  return {
+    ok: true,
+    conversationId: (created as { id: string }).id,
+    currentStatus: "open",
+    priorUnresolvedTurns: 0,
+  };
+}
+
+/** Persist a user turn before anything else runs, so an aborted turn still leaves the question on record. */
+async function recordUserTurn(
+  conversationId: string,
+  message: string,
+): Promise<void> {
+  await supabaseAdmin
+    .from("support_messages")
+    .insert({
+      conversation_id: conversationId,
+      role: "user",
+      content: message,
+    } as never);
 }
 
 export type AbuseControlResult =
@@ -588,6 +689,97 @@ supportAssistantRoutes.post("/message", async (c) => {
     ? body.conversationId
     : null;
 
+  // ── US-2667 CRISIS PATH ──────────────────────────────────────────────────
+  //
+  // BEFORE the abuse controls, and that ordering is the point rather than an
+  // accident. runPreTurnAbuseControls can return a rate-limit or a lockout, and
+  // either one would answer a message about self-harm with "you have sent too
+  // many messages". The crisis reply is a constant, so it spends no tokens and
+  // there is nothing here for a flood to cost us. The per-IP limiter in main.ts
+  // (20/60s) still sits in front of this route, so the endpoint is not open.
+  //
+  // Also before the human-handled short-circuit further down: a thread a human
+  // already owns still needs the numbers on screen now, not "someone will reply
+  // here soon".
+  //
+  // IT IS STILL AFTER THE PLAN GATE, and that is a real boundary rather than an
+  // oversight. loadGateAndDecide is the launch kill-switch plus the subscription
+  // check: when it says no, the widget renders nothing at all, so there is no
+  // surface for anyone to have typed into. Moving the crisis check ahead of it
+  // would answer a caller who cannot see the chat, which is not a person in
+  // crisis - it is a direct API call.
+  const crisis = detectCrisis(message);
+  if (crisis.crisis) {
+    const conv = await loadOrCreateConversation(
+      userId,
+      ownerId,
+      message,
+      conversationIdArg,
+    );
+    if (!conv.ok) return c.json({ error: conv.error }, conv.status); // safe-raw-error: curated message, not raw DB text (US-1445)
+    const conversationId = conv.conversationId;
+
+    await recordUserTurn(conversationId, message);
+    // The reply is persisted like any assistant turn so the operator opening
+    // the thread sees exactly what the person was shown. Zero tokens, no model
+    // id: nothing generated it.
+    await supabaseAdmin
+      .from("support_messages")
+      .insert({
+        conversation_id: conversationId,
+        role: "assistant",
+        content: CRISIS_RESPONSE,
+      } as never);
+    await supabaseAdmin
+      .from("support_conversations")
+      .update({ last_message_at: new Date().toISOString() } as never)
+      .eq("id", conversationId)
+      .eq("user_id", userId);
+
+    // Hand it to a person. The decision is built here rather than by
+    // decideEscalation, which only ever runs after a model turn.
+    await performEscalation(
+      makeEscalationSink({ meter: false }),
+      {
+        escalate: true,
+        trigger: "crisis",
+        reason: CRISIS_ESCALATION_REASON,
+        summary: CRISIS_ESCALATION_SUMMARY,
+      },
+      { conversationId, userId },
+    );
+
+    // Analytics carry the matched PATTERN, never the message. This event feeds
+    // the same deflection funnel as every other outcome, and that funnel is not
+    // a place anyone should be able to read a distressed sentence.
+    captureAssistantEvent(userId, "assistant.escalated", {
+      conversation_id: conversationId,
+      trigger: "crisis",
+      reason: crisis.pattern ?? "crisis",
+    });
+
+    // The turn is NOT metered at all: no messages, no tokens, no escalation.
+    return streamSSE(c, async (stream) => {
+      await stream.writeSSE({
+        event: "meta",
+        data: JSON.stringify({ conversationId }),
+      });
+      await stream.writeSSE({
+        event: "delta",
+        data: JSON.stringify({ text: CRISIS_RESPONSE }),
+      });
+      await stream.writeSSE({
+        event: "done",
+        data: JSON.stringify({
+          conversationId,
+          status: "escalated",
+          escalated: true,
+          metered: false,
+        }),
+      });
+    });
+  }
+
   // ABUSE CONTROLS (US-836) — rate caps + jailbreak/flood detection + graduated
   // lockout — BEFORE any conversation write or model call. A tripped limit
   // returns a clear, non-leaking message (and an abusive turn never costs a
@@ -621,56 +813,23 @@ supportAssistantRoutes.post("/message", async (c) => {
   }
 
   // Load (must be the caller's own) or create the conversation.
-  let conversationId: string;
-  // Consecutive unresolved turns carried into THIS turn (US-837 auto-escalation).
-  let priorUnresolvedTurns = 0;
+  const loaded = await loadOrCreateConversation(
+    userId,
+    ownerId,
+    message,
+    conversationIdArg,
+  );
+  if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status); // safe-raw-error: curated message, not raw DB text (US-1445)
+  const conversationId = loaded.conversationId;
   // Status before this turn — used to short-circuit human-held (escalated) threads.
-  let currentStatus = "open";
-  if (conversationIdArg) {
-    const { data: conv } = await supabaseAdmin
-      .from("support_conversations")
-      .select("id, status, unresolved_turns")
-      .eq("id", conversationIdArg)
-      .eq("user_id", userId) // tenant scope: caller's own thread only
-      .maybeSingle();
-    if (!conv) return c.json({ error: "Conversation not found" }, 404);
-    const row = conv as {
-      id: string;
-      status?: string | null;
-      unresolved_turns?: number | null;
-    };
-    conversationId = row.id;
-    currentStatus = row.status ?? "open";
-    priorUnresolvedTurns = typeof row.unresolved_turns === "number"
-      ? row.unresolved_turns
-      : 0;
-  } else {
-    const { data: created, error } = await supabaseAdmin
-      .from("support_conversations")
-      .insert({
-        user_id: userId,
-        workspace_owner_id: ownerId,
-        status: "open",
-        subject: message.slice(0, 80),
-      } as never)
-      .select("id")
-      .single();
-    if (error || !created) {
-      return c.json({ error: "Could not start conversation" }, 500);
-    }
-    conversationId = (created as { id: string }).id;
-  }
+  const currentStatus = loaded.currentStatus;
+  // Consecutive unresolved turns carried into THIS turn (US-837 auto-escalation).
+  const priorUnresolvedTurns = loaded.priorUnresolvedTurns;
 
   // Persist the user turn before the model runs (so an aborted stream still
   // leaves the question on record). The human agent (US-839) also needs to see
   // follow-up messages a user adds after a handoff.
-  await supabaseAdmin
-    .from("support_messages")
-    .insert({
-      conversation_id: conversationId,
-      role: "user",
-      content: message,
-    } as never);
+  await recordUserTurn(conversationId, message);
 
   // US-837 AC: once a human owns the thread, the bot stays out of the way and
   // the message does NOT cost the user usage (no model call, no metering). We

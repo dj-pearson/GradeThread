@@ -39,6 +39,40 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
+## 🟠 PENDING: 00618 — allow `escalation_trigger = 'crisis'` (US-2667)
+
+**Risk: LOW.** One CHECK constraint on `support_conversations` is dropped and
+re-added one value wider (`'model','auto','user'` -> plus `'crisis'`). No column
+is added, no row is rewritten, no index is touched. Every existing row already
+satisfies the wider constraint, so the ADD cannot fail on legacy data.
+
+**Apply BEFORE the edge deploy.** The crisis path writes
+`escalation_trigger = 'crisis'`. Against the old constraint that INSERT/UPDATE
+raises 23514 inside `performEscalation`, which runs after the user has already
+been shown the crisis resources - so the person still gets the numbers, but the
+handoff to a human silently fails. That is the one failure mode worth avoiding
+here, and applying first avoids it entirely.
+
+**`NOTIFY pgrst, 'reload schema';` NOT required.** No table, column or function
+signature changed; PostgREST does not cache CHECK constraints.
+
+**The constraint name is discovered, not assumed.** 00188 created it inline via
+`ADD COLUMN ... CHECK (...)`, so Postgres named it. The migration drops every
+check constraint on the table whose definition mentions `escalation_trigger`
+rather than hard-coding `support_conversations_escalation_trigger_check` and
+failing on a database where it landed as `..._check1`.
+
+**Rollback is clean**, unlike an enum: drop the constraint and re-add it with
+the three original values. Any `'crisis'` rows written in between would then
+violate it, so narrow it only after checking
+`select count(*) from support_conversations where escalation_trigger = 'crisis'`.
+
+**The frontend deploy is harmless on its own.** `src/pages/admin/support.tsx`
+widens a TypeScript union and renders a badge when it sees `'crisis'`; it never
+writes the value and does not filter on it.
+
+---
+
 ## ✅ APPLIED (measured 2026-08-17): 00616 — two SQL functions a plain guard could not reach (US-2282)
 
 **Risk: LOW, and equivalence is measured rather than argued. Apply third of these three.**

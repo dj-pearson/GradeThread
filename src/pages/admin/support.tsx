@@ -62,7 +62,7 @@ interface ConversationSummary {
   subject: string | null;
   escalation_reason: string | null;
   escalation_summary: string | null;
-  escalation_trigger: "model" | "auto" | "user" | null;
+  escalation_trigger: "model" | "auto" | "user" | "crisis" | null;
   assigned_admin_id: string | null;
   assigned_admin_email: string | null;
   last_message_at: string;
@@ -108,6 +108,22 @@ const STATUS_STYLES: Record<ConversationStatus, string> = {
   resolved: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
   closed: "bg-muted text-muted-foreground",
 };
+
+// US-2667: a crisis handoff needs to be identifiable without opening it. The
+// edge already sorts these to the top; this is what says WHY the top row is the
+// top row. Deliberately not a colour change on the status badge - the status is
+// still "escalated" and overloading it would lose that.
+function CrisisBadge() {
+  return (
+    <Badge
+      variant="secondary"
+      className="bg-brand-red text-white"
+      title="Possible crisis / self-harm language. Open this first."
+    >
+      urgent
+    </Badge>
+  );
+}
 
 function StatusBadge({ status }: { status: ConversationStatus }) {
   const label = status.replace("_", " ");
@@ -329,7 +345,10 @@ export function AdminSupportPage() {
                         {conv.user_email ?? conv.user_id.slice(0, 8)}
                       </TableCell>
                       <TableCell>
-                        <StatusBadge status={conv.status} />
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {conv.escalation_trigger === "crisis" && <CrisisBadge />}
+                          <StatusBadge status={conv.status} />
+                        </div>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                         {relativeTime(conv.last_message_at)}
@@ -364,6 +383,9 @@ export function AdminSupportPage() {
           <SheetHeader className="space-y-1 border-b pb-4">
             <SheetTitle className="flex items-center gap-2">
               {thread?.conversation.subject || "Conversation"}
+              {thread?.conversation.escalation_trigger === "crisis" && (
+                <CrisisBadge />
+              )}
               {thread && <StatusBadge status={thread.conversation.status} />}
             </SheetTitle>
             <SheetDescription>

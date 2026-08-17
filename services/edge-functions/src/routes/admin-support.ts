@@ -109,6 +109,45 @@ async function notifyConversationUser(
   });
 }
 
+// ── Inbox ordering (US-2667) ─────────────────────────────────────────────────
+//
+// The list is ordered by last_message_at, which is right for every thread except
+// one. A crisis handoff is time-critical and it does NOT keep bumping itself up
+// the list - the person on the other end typically sends one message and stops,
+// so within an hour of ordinary traffic it is off the first screen.
+//
+// So an OPEN crisis thread sorts first, and everything else keeps the recency
+// order the DB already applied. Resolved and closed crisis threads sort
+// normally: pinning a finished one forever would train an operator to scroll
+// past the top of their own inbox, which is the failure this exists to prevent.
+const INBOX_SETTLED_STATUSES: ReadonlySet<string> = new Set([
+  "resolved",
+  "closed",
+]);
+
+export function isUrgentInboxRow(row: {
+  escalation_trigger?: unknown;
+  status?: unknown;
+}): boolean {
+  return row.escalation_trigger === "crisis" &&
+    !INBOX_SETTLED_STATUSES.has(String(row.status ?? ""));
+}
+
+/**
+ * Stable: only lifts urgent rows, preserving the query's recency order otherwise.
+ *
+ * Constrained to `object` rather than to the two fields it reads. A structural
+ * constraint of all-optional properties is a WEAK type, and TypeScript rejects
+ * an argument that has no property in common with it - which is every row shape
+ * the select() actually produces, since those come back as a Record.
+ */
+export function sortInboxRows<T extends object>(rows: T[]): T[] {
+  const urgent: T[] = [];
+  const rest: T[] = [];
+  for (const r of rows) (isUrgentInboxRow(r) ? urgent : rest).push(r);
+  return [...urgent, ...rest];
+}
+
 // ── GET /conversations — inbox list, optional ?status= filter ────────────────
 adminSupportRoutes.get("/conversations", async (c) => {
   const statusParam = c.req.query("status");
@@ -143,14 +182,14 @@ adminSupportRoutes.get("/conversations", async (c) => {
     rows.flatMap((r) => [r.user_id, r.assigned_admin_id].filter(Boolean) as string[]),
   );
 
-  const conversations = rows.map((r) => ({
+  const conversations = sortInboxRows(rows.map((r) => ({
     ...r,
     user_email: dir.get(r.user_id)?.email ?? null,
     user_name: dir.get(r.user_id)?.full_name ?? null,
     assigned_admin_email: r.assigned_admin_id
       ? dir.get(r.assigned_admin_id)?.email ?? null
       : null,
-  }));
+  })));
 
   return c.json({ conversations });
 });

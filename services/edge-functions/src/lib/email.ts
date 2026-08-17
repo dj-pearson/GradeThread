@@ -2383,12 +2383,22 @@ export async function sendSupportEscalationEmail(
   to: string,
   data: SupportEscalationData,
 ): Promise<boolean> {
-  const triggerLabel = data.trigger === "auto"
+  // US-2667: a crisis handoff is a different email. Same template, different
+  // subject, different banner and a different colour, because the one thing it
+  // has to survive is an inbox being skimmed.
+  const isCrisis = data.trigger === "crisis";
+  const triggerLabel = isCrisis
+    ? "Possible crisis / self-harm language - please open this first"
+    : data.trigger === "auto"
     ? "Auto-escalated (the assistant could not resolve it)"
     : "The assistant escalated this conversation";
+  const bannerBg = isCrisis ? BRAND_RED : BRAND_NIGHT;
+  const bannerText = isCrisis
+    ? "URGENT: possible crisis language in a support conversation"
+    : "Support conversation escalated to a human";
   const content = `
-    <div style="background:${BRAND_NIGHT};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
-      Support conversation escalated to a human
+    <div style="background:${bannerBg};color:#fff;padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;text-align:center;margin-bottom:20px;">
+      ${bannerText}
     </div>
     <h2 style="margin: 0 0 8px; color: ${BRAND_NIGHT}; font-size: 20px;">
       ${escapeHtml(triggerLabel)}
@@ -2414,7 +2424,9 @@ export async function sendSupportEscalationEmail(
   `;
   return await sendEmail({
     to,
-    subject: `🙋 Support escalation: ${data.userEmail}`,
+    subject: isCrisis
+      ? `URGENT - possible crisis in support: ${data.userEmail}`
+      : `🙋 Support escalation: ${data.userEmail}`,
     html: emailLayout(content),
     category: "support_escalation", // US-801: durable retry on transient failure
   });

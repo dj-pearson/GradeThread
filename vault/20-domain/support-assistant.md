@@ -4,7 +4,7 @@ type: reference
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-17
 tags: [support, ai]
 summary: How the support assistant is scoped, what it may answer, and its escalation path.
 ---
@@ -130,8 +130,9 @@ Grades under **0.75** confidence route to human review before publishing.
 
 ## Escalation flow
 
-`support-escalation.ts` decides handoff. Three paths, all scoped to the caller's
-own conversation:
+`support-escalation.ts` decides handoff. Four triggers; the first three are
+decided there, the fourth is not (see below). All scoped to the caller's own
+conversation:
 
 1. **Model** (`trigger='model'`) — the model calls `escalate_to_human` (e.g. the
    user explicitly asks for a person).
@@ -139,12 +140,55 @@ own conversation:
    `AUTO_ESCALATION_THRESHOLD = 3` (tool loop hit its cap, or the output guard
    replaced the answer).
 3. **User** (`trigger='user'`) — reserved for the human-side action.
+4. **Crisis** (`trigger='crisis'`, US-2667) — decided by the ROUTE, not by
+   `decideEscalation`, because `decideEscalation` runs after the model and the
+   crisis path exists so the model is never reached. See **Crisis path** below.
 
 On escalation the conversation flips to `escalated`, an `escalation_summary` is
 synthesized (auto path), and the platform admins + workspace owner are notified
 in-app and by email (best-effort; an alert failure never changes enforcement).
 Escalated/`awaiting_user` threads are **human-handled** — the bot stays out of the
 way until resolved.
+
+## Crisis path (US-2667)
+
+`lib/support-crisis.ts` runs a deterministic detector on the user's turn and, on
+a match, the route answers with the constant `CRISIS_RESPONSE` (988, Crisis Text
+Line 741741, findahelpline.com, local emergency number), escalates with
+`trigger='crisis'`, and returns. **The model is never called.**
+
+Why it exists: the system prompt classifies everything outside grading /
+FlipDesk / billing as out of scope and answers it with a brief refusal plus an
+offer to escalate. For a message about self-harm that refusal is polite,
+immediate, and reads as a door closing.
+
+Four properties, each pinned by a test, each easy to undo by accident:
+
+- **It runs BEFORE the abuse controls.** A rate-limited or locked-out user in
+  crisis still gets the numbers. Safe because the reply is a constant and costs
+  no tokens; the per-IP limiter in `main.ts` still fronts the route.
+- **It runs BEFORE the human-handled short-circuit**, so an already-escalated
+  thread does not answer with "a human will reply soon" instead.
+- **The turn is not metered at all** — no messages, no tokens, and
+  `makeEscalationSink({ meter: false })` suppresses the escalation count.
+- **It is never recorded as an abuse event**, and the analytics payload carries
+  the matched pattern source, never the user's text.
+
+The reply admits it is automated. Detection is English/Latin-script only, which
+is the first gap to close if the product ships a second language.
+
+It still runs **after** the launch/eligibility gate, deliberately: when that gate
+says no the widget renders nothing, so there is no surface anyone could have
+typed into, and a caller reaching the endpoint anyway is a direct API call rather
+than a person in crisis.
+
+Operator surface: the escalation email subject and the in-app notification title
+both say URGENT, and `GET /api/admin/support/conversations` lifts an OPEN crisis
+thread to the top of the inbox (`sortInboxRows`) with an "urgent" badge in
+`src/pages/admin/support.tsx`. A resolved or closed one sorts normally.
+
+`escalation_trigger` accepts `'crisis'` as of migration **00618**, which widens
+the CHECK that `00188` created with three values.
 
 ## Abuse / lockout policy
 
@@ -189,6 +233,7 @@ nothing) within the cache TTL — no redeploy.
 | Read-only tool impls | `services/edge-functions/src/lib/support-tools.ts` |
 | Abuse thresholds | `services/edge-functions/src/lib/support-abuse.ts` |
 | Escalation | `services/edge-functions/src/lib/support-escalation.ts` |
+| Crisis path | `services/edge-functions/src/lib/support-crisis.ts` |
 | KB schema | `supabase/migrations/00183_support_kb.sql` |
 | Flag + KB seed | `supabase/migrations/00189_support_assistant_launch.sql` |
 | Widget | `src/components/support/support-chat-widget.tsx` |
