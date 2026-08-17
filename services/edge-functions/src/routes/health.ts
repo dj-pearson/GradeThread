@@ -2,6 +2,10 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { isErrorTrackingConfigured, releaseSha } from "../lib/observability.ts";
 import { computeFeatureReadiness } from "../lib/env-validation.ts";
+import {
+  pagesOriginEvidenceLine,
+  pagesOriginObservation,
+} from "../lib/pages-origin-evidence.ts";
 import { edgeEnv, isProduction, isProductionEnv } from "../lib/env.ts";
 import { isPlaceholderRelease, RELEASE_ENV_KEYS } from "../lib/release-identity.ts";
 import {
@@ -406,7 +410,14 @@ healthRoutes.get("/ready", async (c) => {
     dbOk,
     missingEnv,
     {
-      ...computeFeatureReadiness(),
+      ...computeFeatureReadiness(undefined, {
+        // US-2612: the one thing about this feature that cannot be read out of
+        // our own environment, and can be observed.
+        pages_origin_bypass: pagesOriginEvidenceLine(
+          pagesOriginObservation(),
+          Date.now(),
+        ),
+      }),
       // US-2001: sits alongside the existing `observability` entry, which
       // reports "ok" purely because the Sentry DSN is present — true, and
       // misleading, while every event it ships is tagged "dev".

@@ -266,6 +266,12 @@ export const FEATURE_GROUPS: FeatureGroup[] = [
     name: "pages_origin_bypass",
     vars: ["CF_PAGES_ORIGIN_SECRET"],
     enabledWhen: () => isProduction(),
+    // US-2612: this caveat is now the FALLBACK, not the final word. Once a
+    // request carrying a matching x-pages-origin has reached this process,
+    // lib/pages-origin-evidence.ts supplies a FeatureEvidence entry that
+    // replaces the sentence below — see /health/ready in routes/health.ts. The
+    // caveat still stands inside the post-boot grace window and whenever nothing
+    // has been observed, which is when it is true.
     alsoUnverifiable:
       "set HERE, which is one of the two halves. The SAME value must be on the " +
       "Cloudflare Pages project, and a Pages env change only takes effect on the " +
@@ -316,7 +322,26 @@ export function assertRequiredEnv(get: EnvGetter = realEnv, env: string = edgeEn
 // Per-feature readiness: "ok", "missing: A, B", or "disabled" (an off,
 // enabledWhen-gated feature). Drives /health/ready (informational — it never
 // flips the service to not-ready; only DB + required env do that).
-export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string, string> {
+/**
+ * US-2612: observed evidence about a feature group, keyed by group name.
+ *
+ * `alsoUnverifiable` exists because some second halves live where this service
+ * cannot read — but for a few of them the second half can be OBSERVED even
+ * though it cannot be read. A request arriving with a matching x-pages-origin
+ * proves the Cloudflare Pages project holds the same secret; no amount of
+ * reading our own env does. When a group has such evidence it REPLACES
+ * `alsoUnverifiable`, because that sentence says the line cannot tell, and once
+ * it can, the sentence is simply false.
+ *
+ * Injected rather than read here so this module stays a pure function of the
+ * environment — the caller owns the clock and the process state.
+ */
+export type FeatureEvidence = Record<string, string | null | undefined>;
+
+export function computeFeatureReadiness(
+  get: EnvGetter = realEnv,
+  evidence: FeatureEvidence = {},
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const g of FEATURE_GROUPS) {
     if (g.enabledWhen && !g.enabledWhen(get)) {
@@ -330,7 +355,12 @@ export function computeFeatureReadiness(get: EnvGetter = realEnv): Record<string
       // "ok" alone is a claim about THIS service's environment. For a two-sided
       // feature that is only half the answer, and the half we can see is the
       // one that stops the operator looking at the other.
-      out[g.name] = g.alsoUnverifiable ? `ok — ${g.alsoUnverifiable}` : "ok";
+      const observed = evidence[g.name];
+      out[g.name] = observed
+        ? `ok — ${observed}`
+        : g.alsoUnverifiable
+        ? `ok — ${g.alsoUnverifiable}`
+        : "ok";
       continue;
     }
     const miss = g.vars.filter((v) => !has(get, v));

@@ -2,6 +2,7 @@ import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
 import { isProduction } from "../lib/env.ts";
 import { recordMetric } from "../lib/observability.ts";
+import { recordPagesOriginMatch } from "../lib/pages-origin-evidence.ts";
 import {
   applyRateLimitOverride,
   getRateLimitOverrideSync,
@@ -189,7 +190,12 @@ export function pagesOriginBypass(c: Context): boolean {
   const secret = Deno.env.get("CF_PAGES_ORIGIN_SECRET")?.trim();
   if (!secret) return false;
   const got = c.req.header("x-pages-origin")?.trim();
-  return typeof got === "string" && constantTimeEqual(got, secret);
+  const matched = typeof got === "string" && constantTimeEqual(got, secret);
+  // US-2612: a match is the only direct evidence that the Cloudflare Pages
+  // project holds the SAME value — nothing this service can read about its own
+  // environment produces it. Recorded here so /health/ready can report it.
+  if (matched) recordPagesOriginMatch();
+  return matched;
 }
 
 /**
@@ -214,7 +220,12 @@ export function requirePagesOrigin(c: Context): boolean {
   if (!secret) return false;
   const got = c.req.header("x-pages-origin")?.trim();
   if (typeof got !== "string" || got.length === 0) return false;
-  return constantTimeEqual(got, secret);
+  const matched = constantTimeEqual(got, secret);
+  // US-2612: same proof, different door. The OG render routes come through here
+  // rather than the bypass, and either one matching says the same thing about
+  // the same secret.
+  if (matched) recordPagesOriginMatch();
+  return matched;
 }
 
 export function rateLimiter(
