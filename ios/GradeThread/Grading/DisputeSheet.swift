@@ -1,8 +1,25 @@
 import SwiftUI
 
-/// Lets a reseller dispute a certified grade they believe is wrong. Inserts
-/// a `disputes` row (RLS-scoped to the owner) the same way the web does —
-/// admins review it in the existing dispute queue.
+/// Lets a reseller dispute a certified grade they believe is wrong.
+///
+/// US-2670: files through `POST /api/grade/dispute`, the same route web and
+/// Android use. It used to INSERT into `disputes` directly through the anon
+/// client, and the comment here said that was "the same way the web does" — it
+/// was not, and the difference was every rule the route enforces:
+///
+///   • the filing window. US-2153 moved it server-side precisely because "the
+///     7-day rule was only in client UI, so a slow/older report could still be
+///     disputed via a direct API call". A table insert IS that call, and
+///     `GradeDisputeWindow` only ever decided whether the button was enabled.
+///   • ownership of the REPORT. The RLS insert policies on `disputes` check
+///     `auth.uid() = user_id` and workspace membership — both on the `user_id`
+///     column. Neither checks who owns `grade_report_id`, so a direct insert
+///     accepted any valid report id.
+///   • the duplicate refusal, the evidence-image pipeline (validate, strip EXIF,
+///     store) and the submission status flip. All of it edge-side.
+///
+/// Android's DisputeService already did this and says why in its own header. iOS
+/// was the last client inserting directly.
 struct DisputeSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var authStore
@@ -134,28 +151,37 @@ struct DisputeSheet: View {
     }
 
     private func submit() async {
-        guard canSubmit, let userId = currentUserId else {
+        guard canSubmit, currentUserId != nil else {
             phase = .failed("You need to be signed in to file a dispute.")
             return
         }
         phase = .submitting
         let composed = DisputeComposer.compose(reason: reason, details: details)
-        struct DisputeInsert: Encodable {
-            let grade_report_id: String
-            let user_id: String
+        // The route derives the owner from the session, so no user_id is sent —
+        // a client-supplied one was never the thing being trusted anyway.
+        struct DisputeRequest: Encodable {
+            let gradeReportId: String
             let reason: String
         }
+        struct DisputeResponse: Decodable {
+            let success: Bool?
+        }
         do {
-            try await SupabaseShared.client
-                .from("disputes")
-                .insert(DisputeInsert(grade_report_id: gradeReportId, user_id: userId, reason: composed))
-                .execute()
+            let _: DisputeResponse = try await EdgeAPI.shared.postJSON(
+                "/api/grade/dispute",
+                body: DisputeRequest(gradeReportId: gradeReportId, reason: composed)
+            )
             Telemetry.event("grade.dispute_filed", props: ["reason": reason.rawValue])
             HapticFeedback.success()
             onSubmitted?()
             phase = .done
         } catch {
             HapticFeedback.error()
+            // EdgeAPIError is a LocalizedError whose description carries the
+            // server's own `error` string, so the two rejections a seller can
+            // actually hit — the window has closed, a dispute already exists —
+            // arrive worded by the side that owns the rule. Nothing here
+            // hardcodes the window length, which is the point of US-2153.
             phase = .failed(error.localizedDescription)
         }
     }
