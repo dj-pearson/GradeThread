@@ -1868,6 +1868,50 @@ Deno.test({
   },
 });
 
+// US-2503: GET /api/buyer/reputation — the caller’s own trust level + perks,
+// resolved server-side so iOS does not carry a third copy of the perk matrix.
+//
+// Same shape as entitlements above: no id, filter or header is read, so the
+// boundary is that it is authenticated and that the answer is the CALLER’S.
+Deno.test({
+  name: "buyer reputation requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/reputation`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `unauthenticated reputation should 401, got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "buyer reputation answers for the CALLER and leaks no identity",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // Supplying an id must change nothing — the route reads none.
+    const res = await fetch(
+      `${BASE}/api/buyer/reputation?user_id=00000000-0000-0000-0000-000000000000`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    assertEquals(res.status, 200);
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    // A buyer with no score row is level 0, not an error — everyone starts
+    // there, so the endpoint must always answer.
+    assert(typeof body.level === "number", "reputation must always resolve a level");
+    assert(typeof body.score === "number", "reputation must always resolve a score");
+    assert(!!body.perks, "reputation must carry the resolved perks");
+    // No user_id, no email, no handle — only the resolved decision.
+    const keys = Object.keys(body).sort();
+    assertEquals(
+      keys,
+      ["computedAt", "eventCount", "level", "levelName", "next", "perks", "score"],
+      `reputation must expose only the resolved payload, got: ${keys.join(", ")}`,
+    );
+  },
+});
 // US-1844: buyer trust signals. POST /api/buyer/trust-signals returns the COARSE
 // PUBLIC projection (content-public parity) for a set of cert ids — the same
 // data the anonymous /cert page shows. It is deliberately NOT tenant-scoped (a

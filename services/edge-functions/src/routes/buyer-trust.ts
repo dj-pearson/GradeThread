@@ -8,6 +8,11 @@ import {
   type TrustBadge,
   trustSignalBadges,
 } from "../lib/buyer-trust-signals.ts";
+import {
+  nextReputationLevel,
+  reputationLevelMeta,
+  resolveReputationPerks,
+} from "../lib/buyer-reputation-perks.ts";
 
 // US-1844: buyer-facing trust signals — a batch projection of the coarse public
 // verified/trust cues for a set of certificate ids, so every buyer surface
@@ -193,4 +198,54 @@ buyerTrustRoutes.post("/trust-signals", async (c) => {
   }
 
   return c.json({ signals });
+});
+
+// ── GET /reputation ───────────────────────────────────────────────
+// US-2503 AC2: the caller’s own trust level, resolved.
+//
+// The web reads buyer_trust_scores straight through RLS and resolves the
+// level meta and perks client-side from src/lib/reputation-perks.ts. That is
+// already a TWO-COPY lockstep the perk file’s own header warns about, and a
+// Swift copy would make it three. Three copies of a policy matrix is not a
+// lockstep, it is a countdown.
+//
+// So the server resolves it and the phone renders what it is told. No new
+// policy lives here — every function called is the existing canonical one.
+//
+// TENANCY (US-268): reads buyer_trust_scores for c.get("userId") only. There
+// is no id, filter or header a caller can supply, so there is nothing to
+// forge.
+//
+// A buyer with NO score row is level 0 "New" — not an error and not an empty
+// state. Everyone starts there, and rendering "we could not load it" to a new
+// buyer would be wrong about a fact we know.
+buyerTrustRoutes.get("/reputation", async (c) => {
+  const userId = c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("buyer_trust_scores")
+    .select("score, level, event_count, computed_at")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (error) {
+    console.error("[buyer-trust] reputation read failed:", error.message);
+    return c.json({ error: "Could not load your trust level." }, 500);
+  }
+  const row = data as
+    | { score: number; level: number; event_count: number; computed_at: string }
+    | null;
+  const score = row?.score ?? 0;
+  const level = row?.level ?? 0;
+  const meta = reputationLevelMeta(level);
+  const next = nextReputationLevel(score, level);
+  return c.json({
+    score: Math.round(score),
+    level: meta.level,
+    levelName: meta.name,
+    eventCount: row?.event_count ?? 0,
+    computedAt: row?.computed_at ?? null,
+    perks: resolveReputationPerks(level),
+    next: next
+      ? { levelName: next.level.name, pointsAway: next.pointsAway }
+      : null,
+  }, 200, { "Cache-Control": "no-store, private" });
 });

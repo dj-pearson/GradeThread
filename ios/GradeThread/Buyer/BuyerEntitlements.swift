@@ -142,7 +142,7 @@ struct BuyerCapability: Identifiable, Equatable {
         BuyerCapability(
             id: "trustScore",
             label: "Buyer trust score",
-            delivery: .planned,
+            delivery: .shipped,
             note: nil),
         BuyerCapability(
             id: "purchaseGuarantee",

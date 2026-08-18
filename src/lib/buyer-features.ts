@@ -131,8 +131,12 @@ export const BUYER_FEATURES: Record<keyof BuyerGateFlags, BuyerFeatureMeta> = {
     label: "Buyer trust score",
     live: true,
     match: (b) => /trust score/i.test(b),
-    // AC2 screen 3 of 4.
-    ios: "planned",
+    // AC2 screen 3 of 4 — SHIPPED. Reads GET /api/buyer/reputation, which
+    // resolves the level, the perks and the distance to the next level on the
+    // server. The web resolves those from its own mirror of the perk matrix; a
+    // Swift mirror would have made three copies of one policy.
+    ios: "shipped",
+    iosScreen: "ios/GradeThread/Buyer/BuyerTrustScoreView.swift",
   },
   // The only buyer surface still behind BuyerPlaceholderPage (/buyer/guarantee).
   purchaseGuarantee: {

@@ -51,12 +51,19 @@ struct ContentView: View {
     /// toggles it.
     @State private var appLock = AppLock()
 
+    /// US-2503: the resolved buyer entitlement payload. Owned at the root so
+    /// every buyer surface reads ONE answer — a per-screen store would let two
+    /// screens disagree about the same plan, which is the same failure the
+    /// server-side resolution exists to prevent, one level down.
+    @State private var buyerEntitlements = BuyerEntitlementsStore()
+
     var body: some View {
         ProtectedRouteShell()
             .environment(authStore)
             .environment(networkMonitor)
             .environment(syncStatus)
             .environment(appLock)
+            .environment(buyerEntitlements)
             .environment(\.syncEngine, syncEngine)
             .task {
                 authStore.start()
@@ -1691,6 +1698,10 @@ struct SettingsView: View {
             // US-194: AI Item Assistant (toggle + monthly usage meter + cap),
             // wired to the users row — mirrors US-167 on the web.
             AIAssistantSection()
+            // US-2503: the buyer tools bundled with every FlipDesk plan. The
+            // plan screen says where each one lives; this is the way into the
+            // ones that live here.
+            buyerSection
             Section("Account") {
                 if case let .signedIn(user) = authStore.phase {
                     LabeledContent("Email", value: user.email ?? "—")
@@ -1898,6 +1909,21 @@ struct SettingsView: View {
                 let ctx = WorkspaceContext(selfUserId: user.id.uuidString)
                 workspaceContext = ctx
                 await ctx.load()
+            }
+        }
+    }
+
+    // US-2503: the buyer tools that live in THIS app. One row per shipped
+    // capability, and nothing here for a capability that has no screen — the
+    // plan screen is where the full bundle is listed with its locations, so a
+    // row that opened a "coming soon" page would be the over-promise this
+    // story is about, moved rather than fixed.
+    private var buyerSection: some View {
+        Section("Buyer tools") {
+            NavigationLink {
+                BuyerTrustScoreView()
+            } label: {
+                Label("Trust score", systemImage: "rosette")
             }
         }
     }
