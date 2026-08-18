@@ -208,3 +208,39 @@ describe("session patterns are real regexes, not text that looks like one", () =
     expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
   });
 });
+
+describe("a vendor NAME is not an action", () => {
+  // Third-party runs first, so it wins every tie — which made a bare vendor
+  // name strong enough to capture a story that only MENTIONS it. US-2001's
+  // operator work is a Coolify build variable; Sentry appears there as the
+  // thing that benefits from a real release tag, not as a place to go. Filing
+  // it under "third-party consoles" sends the operator to the wrong system,
+  // which is worse than leaving it unclassified.
+  const thirdparty = SESSION_KINDS.find((k) => k.key === "thirdparty");
+
+  it("ignores a vendor named in passing", () => {
+    expect(thirdparty.match.test("every prod edge error ships tagged dev, so Sentry cannot group it by release")).toBe(false);
+    expect(thirdparty.match.test("an Apple device somewhere in the sentence")).toBe(false);
+  });
+
+  it("still catches a vendor named as a place you go", () => {
+    for (const phrase of [
+      "check Sentry and PostHog",
+      "search Sentry for the event",
+      "the Sentry dashboard",
+      "Apple support",
+      "App Store purchase history",
+      "Play Console",
+      "Stripe TEST MODE",
+    ]) {
+      expect(thirdparty.match.test(phrase), phrase).toBe(true);
+    }
+  });
+
+  it("the longest-lead sitting runs first", () => {
+    // Not cosmetic. Every other sitting is work the operator finishes in one
+    // go; this one is a REQUEST to somebody else with days of lead time, so it
+    // is started first and the wait is spent on the other eight.
+    expect(SESSION_KINDS[0].key).toBe("thirdparty");
+  });
+});

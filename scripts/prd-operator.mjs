@@ -333,40 +333,40 @@ export function collect(stories) {
  */
 export const SESSION_KINDS = [
   {
+    key: "thirdparty",
+    title: "1. Third-party consoles and partner conversations",
+    hint:
+      "App Store Connect, Play Console, Stripe, Sentry, eBay/Etsy/Depop support. " +
+      "Each is someone else's system and several have their own lead time.",
+    match:
+      /\b(app store connect|play console|stripe (dashboard|console|test mode)|(in|check|read|search) sentry|sentry (dashboard|search|routing|project)|apple (developer|support|id)|google play|partner|support ticket|ask (etsy|depop|whatnot)|web store|purchase history|restricted scopes?|apply to|approval|keystring|rotate the .* key)\b/i,
+  },
+  {
     key: "sql",
-    title: "1. One read-only SQL session against production",
+    title: "2. One read-only SQL session against production",
     hint:
       "scripts/prod-diagnostics-console.sql pastes into the Supabase SQL editor, " +
       "one section at a time. Nothing in it writes.",
     match:
-      /\b(prod-diagnostics|SELECT\s|psql|query|queries|pg_proc|pg_constraint|count\(\*\)|§\d+|section \d+|read-only)\b/i,
+      /\b(prod-diagnostics|SELECT\s|psql|query|queries|pg_proc|pg_constraint|audit prod|count\(\*\)|§\d+|section \d+|read-only)\b/i,
   },
   {
     key: "config",
-    title: "2. One configuration pass (Coolify, Cloudflare, Supabase settings)",
+    title: "3. One configuration pass (Coolify, Cloudflare, Supabase settings)",
     hint:
       "Values and toggles only. These take effect on the NEXT deploy, which is " +
       "why this session comes before the deploy one.",
     match:
-      /\b(coolify|cloudflare|env var|environment variable|set [A-Z_]{4,}|GIT_SHA|SOURCE_COMMIT|build arg|dashboard|console|scale the edge|replica)\b/i,
+      /\b(coolify|cloudflare|env var|environment variable|set [A-Z_]{4,}|GIT_SHA|SOURCE_COMMIT|build arg|dashboard|console|scale the edge|replica|gotrue|OTP TTL|in staging)\b/i,
   },
   {
     key: "deploy",
-    title: "3. One deploy window, then verify during it",
+    title: "4. One deploy window, then verify during it",
     hint:
       "Everything that can only be observed on a rebuild. Time it: at least one " +
       "item wants an ACTIVE grading batch at the moment the deploy lands.",
     match:
       /\b(after (the next )?(edge )?deploy|redeploy|rebuild|deployment window|during (a|an active)|drill|health\/ready)\b/i,
-  },
-  {
-    key: "thirdparty",
-    title: "4. Third-party consoles and partner conversations",
-    hint:
-      "App Store Connect, Play Console, Stripe, Sentry, eBay/Etsy/Depop support. " +
-      "Each is someone else's system and several have their own lead time.",
-    match:
-      /\b(app store connect|play console|stripe (dashboard|console|test mode)|sentry|apple|google play|partner|support ticket|ask (etsy|depop|whatnot)|web store|purchase history|restricted scope|apply to|approval|keystring|rotate the .* key)\b/i,
   },
   {
     key: "command",
@@ -423,14 +423,20 @@ export const SESSION_KINDS = [
  *
  * First-match rather than all-matches on purpose: an item that appears in three
  * sessions gets done three times or zero times. One home each, and the order of
- * SESSION_KINDS is the tie-break — which is why the cheapest, most-unblocking
- * session (read-only SQL) is first.
+ * SESSION_KINDS is the tie-break — which is why the sitting with the longest LEAD
+ * TIME (partner approval — a request to somebody else) is first, and the
+ * cheapest, most-unblocking one (read-only SQL) is second.
  */
 export function groupBySession(declared, undeclared) {
   const rows = [
     ...declared.map((d) => ({ id: d.id, priority: d.priority, title: d.title, text: d.items.join(" ") })),
     ...undeclared.map((u) => ({ id: u.id, priority: u.priority, title: u.title, text: u.evidence.join(" ") })),
   ];
+  // The TITLE is matched too, and it is not a nicety: the [OPERATOR]-prefixed
+  // stories carry their whole instruction in the title and have no evidence text
+  // at all, so the matcher previously had nothing to read and dropped four
+  // partner-approval items into "unclassified".
+  for (const r of rows) r.text = `${r.title} ${r.text}`.trim();
   const out = new Map(SESSION_KINDS.map((k) => [k.key, []]));
   out.set("unclassified", []);
   for (const r of rows) {
