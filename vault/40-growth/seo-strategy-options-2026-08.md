@@ -367,7 +367,7 @@ Path 2 is out. Path 4 is out. The barbell becomes:
   competition, where stain removal is 138,150 across 18 terms with 11 at Medium
   or High. Same volume, half the fight. The two entry pages are `how to fix a
   broken zipper` and `how to sew on a button`, both 50,000 and both Low.
-- **Co-lead, Path 3, the calculators.** Promoted out of "ship regardless".
+- **Lead on order, Path 3, the calculators** (see sequencing below). Promoted out of "ship regardless".
   128,700 total, and `ebay fee calculator` carries a 13.23 dollar top-of-page
   bid at 50,000 searches, which is volume and commercial intent in the same
   keyword. `ebay shipping calculator` is another 50,000. `depop fee calculator`
@@ -388,6 +388,63 @@ check did not run. Before committing the build, look at who actually holds the
 top ten for five of the repair terms. If Tide, Persil and Good Housekeeping own
 every slot with no gaps, the entry point moves to Path 3, which has no such
 incumbent.
+
+## Sequencing: why Path 3 goes first
+
+Path 1 and Path 3 both clear, and they belong in the plan together. They do
+not bring the same person, and that decides the order.
+
+| | Path 1 | Path 3 |
+|---|---|---|
+| Volume | 295,750 | 128,700 |
+| Seller intent | 1,550 (0.5%) | 127,100 (99%) |
+| Who arrives | someone with a stain on a shirt they intend to keep wearing | someone listing on eBay right now |
+| Time to rank | slowest, highest competition | fast, and the tools earn links |
+| Revenue per visit | near zero | direct |
+
+Across the whole pull, 68.8 percent of the volume is consumer and 30.9 percent
+is seller. Almost all of the consumer share is Path 1, and almost all of the
+seller share is Path 3 plus Path 7.
+
+That is not an argument against Path 1. It is an argument about what Path 1 is
+FOR. It is the authority and link engine that makes the seller pages rankable,
+and it is nearly free because the flaw data already exists. It is not a
+customer acquisition channel, and planning it as one would be a mistake.
+
+**Run it 3, then 7, then 1.**
+
+1. **Path 3 first.** 127,100 of seller-intent volume, every visitor a potential
+   customer, and calculators earn the links that currently cap everything else.
+   `ebay fee calculator` at 50,000 with a 13.23 dollar bid is the single best
+   keyword in the pull on traffic and intent together.
+2. **Path 7 alongside, not later.** It is about six landing pages and it carries
+   the largest bids in the file (54.90, 50.19, 39.17 dollars). Path 3 feeds it
+   directly: a fee calculator ends at "stop doing this in a spreadsheet", which
+   is the FlipDesk pitch delivered to someone who just did the math by hand.
+   Path 3 and Path 7 form one funnel with no gap in it.
+3. **Path 1 third, contained.** Build it under its own directory
+   (`/care/…`) rather than mixed into the reseller spine.
+
+### The risk Path 1 carries
+
+At 295,750 a month against a seller surface of roughly 157,000, care content
+would become the majority of the site. Google's understanding of the entity
+follows the content, and a domain that reads as a laundry-advice site is a
+weaker match for `clothing inventory management software` than one that reads
+as reseller tooling. Topical dilution is a real cost, not a hypothetical one.
+
+Keep it contained: care content in its own directory, linking down into the
+reseller spine but not the reverse, and do not let it onto the homepage or the
+primary navigation. Do not use a subdomain, which would split the authority
+Path 1 exists to build in the first place.
+
+### The differentiator that keeps Path 3 from being a commodity
+
+Fee calculators are commoditized and rank largely on domain strength, which is
+the thing GradeThread does not have yet. The way in is the axis nobody else
+has: a calculator that takes **condition** as an input and estimates the sale
+price from it, not just the fee on a price the user types in. That is the
+grading engine doing work inside a tool people already search for.
 
 ## The keyword pull, and what it taught
 
