@@ -133,15 +133,20 @@
       "title": "Measurement and size converter at /tools/measurement-converter",
       "description": "As either a seller writing measurements or a buyer reading them, I want a converter that handles garment measurements and international sizing, so that I can tell whether an item will fit without guessing.",
       "acceptanceCriteria": [
-        "Converts between US, UK, EU and JP sizing for the garment types in the existing garment-guides taxonomy, and between inches and centimetres for pit-to-pit, length, sleeve, waist and inseam.",
-        "Includes a labelled diagram of where each measurement is taken, matching the measurement definitions already used by the MeasureCard flow so the two cannot disagree.",
+        "Converts between US, UK, EU and JP sizing for women's clothing, men's tops and shoes, and between inches and centimetres for pit to pit, length, sleeve, waist and inseam. DATA DONE in src/lib/size-conversion.ts.",
+        "The measurement definitions are READ FROM MEASUREMENT_SPECS (src/lib/measurements.ts), not retyped, so the converter cannot disagree with what MeasureCard collects. A test asserts every label matches, and that the flat-to-worn doubling set agrees with isCircumferenceMeasurement rather than keeping a second list. DONE.",
+        "The page leads with the flat-to-worn doubling, not the size tables: a 21 inch pit to pit fits a 42 inch chest, and that misreading costs more sales than any label mismatch. MEASUREMENT_HOWTO carries a how and a pitfall for all 9 measurements.",
+        "Every size table renders SIZE_TABLE_CAVEAT next to it. The international tables are approximate by nature (no standards body, vanity sizing moves them a full size) and the page says so rather than implying precision it does not have.",
+        "The men's EU column is DERIVED and shown as such (mensChestInchesToEu: chest in cm, halved) rather than presented as folklore. That derivation test caught two rows of the first draft being three sizes adrift at XXL and 3XL.",
         "Targets `international size conversion chart`, `pit to pit measurement chart`, `mens to womens size converter` and `clothing measurement converter`, registered in keyword-targets.ts.",
-        "This is the one calculator serving buyers as well as sellers (1,600/mo combined); it links into both the buyer-facing condition glossary and the seller measurement flow."
+        "This is the one calculator serving buyers as well as sellers (1,600/mo combined); it links into both the buyer-facing condition glossary and the seller measurement flow.",
+        "REMAINING: the page component at /tools/measurement-converter, a labelled diagram of where each measurement is taken, flipping the registry entry to live (which activates the hub and US-9002's wiring), the prerender + head-builder JSON-LD wiring, and the keyword-targets entries."
       ],
       "priority": 9,
       "dependsOn": [
         "US-9002"
-      ]
+      ],
+      "notes": "Data layer landed 2026-08-18: src/lib/size-conversion.ts + 25 tests. Chosen as the first calculator to build because it is the ONLY one needing no external rate data -- US-9003 through US-9006 are all blocked on fee schedules. Length conversion is exact; the international tables are approximate and labelled so. OPTIONAL REVIEW: docs/seo/size-tables-to-review.csv has all 28 rows for the operator to check, but nothing is blocked on it."
     },
     {
       "id": "US-9008",
