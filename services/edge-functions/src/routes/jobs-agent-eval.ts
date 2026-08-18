@@ -34,10 +34,29 @@ export async function handleAgentEvalCron(c: Context): Promise<Response> {
 
     // Persist the gate map + the Mission Control results (upsert, like the
     // admin settings writes). No user actor — this is a cron.
-    await supabaseAdmin
-      .from("system_settings")
-      .upsert({ key: "agents.eval_pass", value: summary.passMap }, { onConflict: "key" });
-    await supabaseAdmin.from("system_settings").upsert(
+    //
+    // `value_type` IS REQUIRED and was the reason this job wrote nothing for its
+    // entire life. system_settings.value_type is NOT NULL with no default, so a
+    // {key, value} upsert is rejected with 23502 — and supabase-js RETURNS that
+    // as `.error` rather than throwing, so an unchecked call looks identical to
+    // a successful one. Four recorded runs (two logged `success`, 393-506s of
+    // real model calls) and neither key ever existed in the table; the
+    // autonomy-promotion gate (US-1608) has never had an eval_pass map to read.
+    // Hence the explicit error checks below: a write this job exists to perform
+    // must fail loudly, not return ok:true over a no-op.
+    const passWrite = await supabaseAdmin.from("system_settings").upsert(
+      {
+        key: "agents.eval_pass",
+        value: summary.passMap,
+        value_type: "json",
+        category: "agents",
+      },
+      { onConflict: "key" },
+    );
+    if (passWrite.error) {
+      throw new Error(`agents.eval_pass upsert failed: ${passWrite.error.message}`);
+    }
+    const resultsWrite = await supabaseAdmin.from("system_settings").upsert(
       {
         key: "agents.eval_results",
         value: {
@@ -45,9 +64,14 @@ export async function handleAgentEvalCron(c: Context): Promise<Response> {
           agents: summary.agents,
           failed: summary.failed,
         },
+        value_type: "json",
+        category: "agents",
       },
       { onConflict: "key" },
     );
+    if (resultsWrite.error) {
+      throw new Error(`agents.eval_results upsert failed: ${resultsWrite.error.message}`);
+    }
     // Invalidate the settings cache so the autonomy-promotion gate reads the
     // fresh eval_pass map on its next run.
     bustSettingCache("agents.eval_pass");

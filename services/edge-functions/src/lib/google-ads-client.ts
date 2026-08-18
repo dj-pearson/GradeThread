@@ -17,8 +17,21 @@ import { withBackoff } from "./ads-retry.ts";
 
 const OAUTH_TOKEN_URI = "https://oauth2.googleapis.com/token";
 // Google Ads API is versioned in the path; bump deliberately (breaking changes
-// per version). v18 is the current stable line.
-export const GOOGLE_ADS_API_VERSION = "v18";
+// per version).
+//
+// A SUNSET VERSION DOES NOT 404 AS JSON — googleads.googleapis.com serves an
+// HTML "Error 404 (Not Found)!!1" page, which surfaces here as an opaque
+// `Google Ads query failed (404): <!DOCTYPE html>...` and reads like a bad
+// request rather than a dead endpoint. That is how v18 sat here after sunset
+// while ads-sync failed every morning at 08:00 (2026-08-18).
+//
+// Probe before bumping — an unauthenticated POST to a LIVE version returns
+// 401 JSON, a sunset one returns 404 HTML:
+//   curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
+//     -d '{"query":"select customer.id from customer"}' \
+//     https://googleads.googleapis.com/v21/customers/1234567890/googleAds:search
+// Measured 2026-08-18: v17/v18/v19 sunset (404 HTML), v20-v24 live (401 JSON).
+export const GOOGLE_ADS_API_VERSION = "v21";
 const ADS_API_BASE = "https://googleads.googleapis.com";
 
 /** Resolved Google Ads secrets. `null` from config() when ANY required one is unset. */

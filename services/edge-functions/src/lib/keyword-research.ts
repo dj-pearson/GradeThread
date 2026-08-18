@@ -23,9 +23,14 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { createSharedTokenCache } from "./coherent-cache.ts";
+import { GOOGLE_ADS_API_VERSION } from "./google-ads-client.ts";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
-const ADS_API_VERSION = "v17";
+// IMPORTED, not re-declared. This file used to carry its own `ADS_API_VERSION`
+// and the two copies drifted: google-ads-client.ts sat on v18 while this one sat
+// on v17, so keyword-research and ads-sync were calling two different (and by
+// 2026-08-18 both sunset) versions of the same API. One declaration, one bump.
+const ADS_API_VERSION = GOOGLE_ADS_API_VERSION;
 
 // Default seed phrases — the buyer-intent roots of GradeThread + FlipDesk. The
 // scheduled run expands these; a manual run may override them.

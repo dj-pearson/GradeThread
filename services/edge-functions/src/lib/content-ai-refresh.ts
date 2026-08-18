@@ -122,7 +122,17 @@ export async function refreshBlogArticle(
 
   const response = await client.messages.create({
     model,
-    max_tokens: 8192,
+    // ⚠️ max_tokens caps THINKING + TEXT on sonnet-5, not text alone. This
+    // refresh emits a whole article (body_html + excerpt + takeaways + FAQs) as
+    // one JSON object, so it is the largest single response in the content
+    // suite — 8192 truncated it MID-JSON and every nightly run 502'd with
+    // "response was cut off at max_tokens (output_tokens=8192, chars=8738)".
+    //
+    // 16000 rather than the 128k ceiling because this runs as a Coolify
+    // scheduled task with a 300s timeout and the call is NOT streamed: the
+    // 8192-token run measured 79.6s, so latency scales with whatever the model
+    // actually spends. Raise the Coolify task timeout first if you raise this.
+    max_tokens: 16000,
     ...(temperature !== undefined ? { temperature } : {}),
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
