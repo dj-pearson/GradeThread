@@ -53,7 +53,7 @@ import {
   templateGroupFor,
   titleKeywords,
 } from "@/lib/listing-templates";
-import { garmentDescriptorFor } from "@/lib/measurement-templates";
+import { ebayCategoryLeaf, garmentDescriptorFor } from "@/lib/measurement-templates";
 import { applyMeasurementsBlock } from "@/lib/measurements";
 import { titleQuality } from "@/lib/title-quality";
 import {
@@ -433,6 +433,13 @@ export function FlipdeskComposerPage({
   // can derive the coarse item_category from it (category coupling). Null until
   // they change the category this session.
   const [livePickedCategoryPath, setLivePickedCategoryPath] = useState<
+    string | null
+  >(null);
+  // US-2673: the breadcrumb of whatever category is in effect — the fresh pick
+  // OR the one resolved from a saved draft's id. Feeds the measurement template
+  // only; `livePickedCategoryPath` above is what a SAVE acts on, and conflating
+  // the two would cascade the coarse category on load.
+  const [resolvedCategoryPath, setResolvedCategoryPath] = useState<
     string | null
   >(null);
   // US-557: the aspect map lifted out of the category picker. The picker no
@@ -1041,15 +1048,26 @@ export function FlipdeskComposerPage({
   // length+width template — which is why a blazer was never asked for a chest
   // or a sleeve. The garment columns aren't in the view, but `ebayMapping`
   // already fetches them on the side for the specifics editor.
+  // US-2673: the eBay leaf leads. Switching the category from Women's Pants to
+  // Men's Sweaters is clothing -> clothing, so the coarse cascade sees no change
+  // and never touches garment_type — the measurement card kept asking for a
+  // waist. The leaf is the one field that actually moved.
   const measurementGarment = useMemo(
     () =>
       garmentDescriptorFor({
+        ebay_leaf: ebayCategoryLeaf(resolvedCategoryPath),
         garment_category: ebayMapping?.garment_category,
         garment_type: ebayMapping?.garment_type,
         category: item?.category,
         title: item?.item_title,
       }) || null,
-    [ebayMapping?.garment_category, ebayMapping?.garment_type, item?.category, item?.item_title],
+    [
+      resolvedCategoryPath,
+      ebayMapping?.garment_category,
+      ebayMapping?.garment_type,
+      item?.category,
+      item?.item_title,
+    ],
   );
   const group = item ? templateGroupFor(item, measurementGarment) : "generic";
   const primaryPhoto =
@@ -2955,6 +2973,7 @@ export function FlipdeskComposerPage({
               setLivePickedCategoryId(id);
               setLivePickedCategoryPath(path ?? null);
             }}
+            onResolvedCategoryPath={setResolvedCategoryPath}
             onAspectsChange={handleAspectsChange}
             onUserEdit={() => {
               sellerEditedAspects.current = true;

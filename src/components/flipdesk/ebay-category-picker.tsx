@@ -70,6 +70,17 @@ interface Props {
     categoryId: string | null,
     categoryPath?: string | null,
   ) => void;
+  /**
+   * US-2673: the breadcrumb currently in effect, whether the seller just picked
+   * it or it was resolved from a saved draft's category id.
+   *
+   * Separate from `onCategoryChange` on purpose. That one means "the seller
+   * changed the category" and a save acts on it, cascading the coarse
+   * item_category; firing it for a reopened draft would make the page cascade
+   * on load. This one only tells the parent what the category IS, which is what
+   * the measurement template needs to key off.
+   */
+  onResolvedCategoryPath?: (categoryPath: string | null) => void;
   // US-557: surfaces the live aspect map to the parent on every edit. The
   // composer owns persistence now — there's ONE Save (the draft save) that
   // writes these aspects to both the listing override and the inventory mirror,
@@ -244,6 +255,7 @@ export function EbayCategoryPicker({
   onMeasurementsChange,
   measurementUnit = "in",
   onCategoryChange,
+  onResolvedCategoryPath,
   onAspectsChange,
   onUserEdit,
   onSourcesChange,
@@ -314,6 +326,15 @@ export function EbayCategoryPicker({
   // breadcrumb the server resolves alongside the aspect spec — never show a raw
   // "Category 11554" when a real path is available.
   const displayCategoryPath = categoryPath ?? aspectsQuery.data?.categoryName ?? null;
+
+  // US-2673: hand the breadcrumb to the parent so the measurement template can
+  // key off the garment the category names. Reported on resolve as well as on
+  // pick, because a reopened draft only ever has the id.
+  const reportResolved = useRef(onResolvedCategoryPath);
+  reportResolved.current = onResolvedCategoryPath;
+  useEffect(() => {
+    reportResolved.current?.(displayCategoryPath);
+  }, [displayCategoryPath]);
 
   // US-557: keep the parent's lifted aspect state in lockstep with every edit
   // (manual, AI fill, category-change prune, prefill). The composer's single

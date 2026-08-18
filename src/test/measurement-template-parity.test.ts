@@ -22,6 +22,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import {
+  ebayCategoryLeaf,
   garmentDescriptorFor,
   MEASUREMENT_TEMPLATES,
   measurementGroupFor,
@@ -445,5 +446,77 @@ describe("US-2673: brand and style words stop hijacking the template", () => {
     ] as const) {
       expect(measurementGroupFor(text), text).toBe(group);
     }
+  });
+});
+
+// US-2673: switching the eBay category switches the measurements.
+//
+// "Women's Pants" and "Men's Sweaters" are both `clothing`, so the coarse
+// cascade compares clothing to clothing, finds no family change and leaves
+// garment_type exactly where it was. The eBay leaf is the only field that
+// actually moved, and it is also the most deliberate garment statement on the
+// item — somebody picked it and eBay validated it.
+describe("US-2673: the eBay leaf leads the measurement template", () => {
+  it("reads the leaf off a breadcrumb", () => {
+    expect(
+      ebayCategoryLeaf("Clothing, Shoes & Accessories › Men › Men's Clothing › Sweaters"),
+    ).toBe("Sweaters");
+    expect(ebayCategoryLeaf("A > B > C")).toBe("C");
+    expect(ebayCategoryLeaf("Jeans")).toBe("Jeans");
+    expect(ebayCategoryLeaf(null)).toBe(null);
+    expect(ebayCategoryLeaf("")).toBe(null);
+  });
+
+  it("a category switch moves the template even when nothing else changes", () => {
+    // Same row throughout: the AI's guess still says tops, the title still says
+    // jeans. Only the category moves.
+    const row = {
+      garment_category: "other",
+      garment_type: "tops",
+      category: "clothing",
+      title: "Polo Ralph Lauren Women's Skinny Jeans Size 27",
+    };
+    const groupFor = (path: string | null) =>
+      measurementGroupFor(
+        garmentDescriptorFor({ ...row, ebay_leaf: ebayCategoryLeaf(path) }),
+      );
+    expect(groupFor("Clothing, Shoes & Accessories › Women › Women's Clothing › Jeans"))
+      .toBe("bottom");
+    expect(groupFor("Clothing, Shoes & Accessories › Men › Men's Clothing › Sweaters"))
+      .toBe("top");
+    expect(groupFor("Clothing, Shoes & Accessories › Men › Men's Clothing › Coats, Jackets & Vests"))
+      .toBe("outerwear");
+    expect(groupFor("Clothing, Shoes & Accessories › Women › Women's Shoes › Athletic Shoes"))
+      .toBe("shoes");
+  });
+
+  it("the LEAF only, never the whole path", () => {
+    // The path starts "Clothing, Shoes & Accessories". A leaf that names no
+    // garment must fall through to the other columns rather than walking back
+    // up and matching `shoes` in the marketplace root.
+    const row = { garment_type: "tops", title: "Lululemon Align Leggings 25in" };
+    const path =
+      "Clothing, Shoes & Accessories › Women › Women's Clothing › Activewear › Athletic Apparel";
+    expect(
+      measurementGroupFor(
+        garmentDescriptorFor({ ...row, ebay_leaf: ebayCategoryLeaf(path) }),
+      ),
+    ).toBe("bottom");
+  });
+
+  it("the composer feeds the resolved breadcrumb in, not just a fresh pick", () => {
+    // A reopened draft only ever has the category id, so the picker resolves
+    // the breadcrumb and reports it separately from onCategoryChange — which
+    // means "the seller changed it" and makes a save cascade the coarse
+    // category. Firing that one on load would cascade on load.
+    const composer = readFileSync("src/pages/flipdesk/composer.tsx", "utf8");
+    expect(composer).toContain("ebay_leaf: ebayCategoryLeaf(resolvedCategoryPath)");
+    expect(composer).toContain("onResolvedCategoryPath={setResolvedCategoryPath}");
+    const picker = readFileSync(
+      "src/components/flipdesk/ebay-category-picker.tsx",
+      "utf8",
+    );
+    expect(picker).toContain("onResolvedCategoryPath?: (categoryPath: string | null) => void;");
+    expect(picker).toContain("reportResolved.current?.(displayCategoryPath);");
   });
 });

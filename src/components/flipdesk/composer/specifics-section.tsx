@@ -32,6 +32,9 @@ export interface SpecificsSectionProps {
   measurementUnit: "in" | "cm";
   itemAspectSource: ItemAspectSource | null;
   onCategoryChange: (id: string | null, path?: string | null) => void;
+  /** US-2673: the breadcrumb in effect, pick or resolved-from-id. Feeds the
+   *  measurement template; unlike onCategoryChange a save does not act on it. */
+  onResolvedCategoryPath: (path: string | null) => void;
   /** Owned by the page: it also maintains the US-2256 aspect dirty baseline. */
   onAspectsChange: (next: Record<string, string[]> | null) => void;
   /** Seller-intent signal for that same baseline — see the picker's own prop. */
@@ -59,6 +62,7 @@ export function SpecificsSection({
   measurementUnit,
   itemAspectSource,
   onCategoryChange,
+  onResolvedCategoryPath,
   onAspectsChange,
   onUserEdit,
   onSourcesChange,
@@ -138,6 +142,7 @@ export function SpecificsSection({
         }
         measurementUnit={measurementUnit}
         onCategoryChange={onCategoryChange}
+        onResolvedCategoryPath={onResolvedCategoryPath}
         onAspectsChange={onAspectsChange}
         onUserEdit={onUserEdit}
         onSourcesChange={onSourcesChange}

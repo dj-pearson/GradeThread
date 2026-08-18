@@ -9,7 +9,8 @@ code_refs:
   - src/lib/ebay-category-map.ts
   - src/lib/garment-mapping.ts
   - src/lib/grading-readiness.ts
-reviewed: 2026-08-10
+  - src/lib/measurement-templates.ts
+reviewed: 2026-08-18
 tags: [flipdesk, grading, ebay, contract]
 summary: An item carries three category axes that must agree; correcting one cascades into the others, and the specifics a change cannot carry are set aside rather than destroyed.
 ---
@@ -57,6 +58,42 @@ callers must spread the result rather than filter nulls out.
 > derivation from overwriting a manual pick, and incidentally suppressing the
 > garment derivation as well. The shared helper is what stops the two routes
 > drifting again; a test asserts they agree.
+
+### What the measurements read, and why it is not the cascade (US-2673)
+
+The restraint above has a cost the cascade cannot pay: **two clothing categories
+are the same family**, so correcting a draft from Women's Pants to Men's
+Sweaters changes nothing on the garment axis and `garment_type` keeps whatever
+it had. For grading criteria that restraint is right — the seller's garment pick
+should survive. For the measurement template it left the seller staring at a
+Chest field on a pair of jeans.
+
+So the measurement surfaces do not read the garment axis directly. They call
+`garmentDescriptorFor` (`src/lib/measurement-templates.ts`), which ranks every
+garment word on the item and takes the best one:
+
+1. **the eBay category LEAF** — the most deliberate statement on the row.
+   Somebody picked it and eBay validated it, and the specifics editor already
+   trusts it enough to ask for a waist and an inseam. **The leaf, never the
+   path**: the path begins "Clothing, Shoes & Accessories", so a leaf naming no
+   garment ("Athletic Apparel") would otherwise walk back up and match `shoes`.
+2. `garment_category`, then `category`, then the title — anything specific.
+3. **the six coarse GARMENT_TYPES values, LAST.** `deriveGarmentDefaults` writes
+   `garment_type: "tops"` for ANY clothing item intake never classified, so that
+   column reads "tops" on a pair of jeans as readily as on a t-shirt. It is a
+   placeholder, not a classification, and it used to be consulted second. It
+   still resolves when it is the only garment word on the row, which is the iOS
+   case.
+
+`EbayCategoryPicker` reports the breadcrumb through `onResolvedCategoryPath`,
+which is deliberately NOT `onCategoryChange`: that one means "the seller changed
+the category" and a save acts on it, so firing it for a reopened draft would
+cascade the coarse category on load.
+
+**Still true after this:** a category switch changes what you are ASKED to
+measure. It does not rewrite `garment_type`, so grading still reads the old
+value. Teaching `deriveGarmentDefaults` to read the title would change rubric
+selection, which is gated behind the grading eval.
 
 **What does not cascade, deliberately:** a coarse-category change does not pick
 an eBay leaf. Mapping a vertical to a specific leaf is not safe to automate, so

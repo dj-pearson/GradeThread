@@ -321,12 +321,36 @@ export function measurementGroupFor(
 // swallowing the answer, and the title is a genuine last resort ("Vintage Levi's
 // 550 Denim Shorts" is a better descriptor than nothing).
 export interface GarmentDescriptorSource {
+  /**
+   * US-2673: the LEAF of the chosen eBay category, e.g. "Sweaters" out of
+   * "Clothing, Shoes & Accessories > Men > Men's Clothing > Sweaters".
+   *
+   * Ranked first, because it is the most deliberate garment statement on the
+   * item: somebody picked it, eBay validated it, and the specifics editor
+   * already trusts it enough to ask for a waist and an inseam off the back of
+   * it. Switching the category therefore switches the measurements, which is
+   * what a seller correcting "women's pants" to "men's sweater" expects and did
+   * not get — the two categories are both `clothing`, so the coarse cascade saw
+   * no change and nothing on the garment axis moved.
+   *
+   * The LEAF and not the path: the path begins "Clothing, Shoes & Accessories",
+   * and a leaf that names no garment ("Athletic Apparel") would otherwise walk
+   * back up and match `shoes` in the root.
+   */
+  ebay_leaf?: string | null;
   garment_category?: string | null;
   garment_type?: string | null;
   item_category?: string | null;
   /** items_full's COALESCE(item_category, garment_category) column. */
   category?: string | null;
   title?: string | null;
+}
+
+/** The last "a > b > c" segment of an eBay category breadcrumb. */
+export function ebayCategoryLeaf(path: string | null | undefined): string | null {
+  if (!path) return null;
+  const segs = path.split(/[>›]/).map((x) => x.trim()).filter(Boolean);
+  return segs.length ? segs[segs.length - 1]! : null;
 }
 
 // US-2673: the six coarse GARMENT_TYPES values, which are a VERTICAL and not a
@@ -353,6 +377,7 @@ const isCoarse = (s: string) => COARSE_VERTICALS.has(s.trim().toLowerCase());
 
 export function garmentDescriptorFor(item: GarmentDescriptorSource): string {
   const candidates = [
+    item.ebay_leaf,
     item.garment_category,
     item.garment_type,
     item.category,
