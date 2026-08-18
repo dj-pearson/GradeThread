@@ -521,15 +521,60 @@ function toBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-// Verifies a raw-body HMAC-SHA256 signature against DEPOP_WEBHOOK_SECRET.
-// Accepts the signature as hex or base64 (the header may carry either). Returns
-// false when no secret is configured (the receiver then refuses the event).
+/**
+ * How far a delivery's `X-Depop-Timestamp` may be from our clock (US-2326 AC5).
+ *
+ * Depop's guide says to "verify the timestamp is within an acceptable timeframe
+ * to prevent replay attacks" and does not name a number, so this is ours. Five
+ * minutes each way covers ordinary clock skew and retry latency without leaving
+ * a captured delivery replayable for an afternoon. Symmetric on purpose: a
+ * timestamp in the FUTURE is just as much a sign of a forged or skewed sender as
+ * an old one, and accepting it would leave the window open from the other side.
+ */
+export const DEPOP_WEBHOOK_MAX_SKEW_MS = 5 * 60_000;
+
+/** Pure: is a delivery's timestamp header inside the freshness window? */
+export function depopTimestampFresh(
+  timestamp: string,
+  nowMs: number,
+  maxSkewMs: number = DEPOP_WEBHOOK_MAX_SKEW_MS,
+): boolean {
+  const raw = timestamp.trim();
+  if (!raw) return false;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return false;
+  // Depop sends seconds; a 13-digit value is milliseconds. Distinguished by
+  // magnitude rather than by length so it keeps working past the next decade.
+  const ms = n > 1e11 ? n : n * 1000;
+  return Math.abs(nowMs - ms) <= maxSkewMs;
+}
+
+/**
+ * Verify a Depop webhook signature.
+ *
+ * ⚠ THE SIGNED STRING IS `<timestamp>.<body>`, NOT THE BODY (US-2326 AC5, from
+ * Depop's own "Validate webhooks" guide, checked 2026-08-17). This function
+ * used to HMAC the raw body alone, which was a guess made before the docs were
+ * read — and it means every genuine Depop delivery would have been rejected as
+ * a signature mismatch. It has never fired in anger only because the connector
+ * is still gated off (DEPOP_ENABLED, US-2473), so the bug was queued rather than
+ * live.
+ *
+ * Accepts the digest as hex or base64: the guide does not state which encoding
+ * the header carries, and tolerating both costs nothing while a wrong guess
+ * costs another silent rejection.
+ *
+ * Returns false when no secret is configured, so the receiver refuses the event
+ * rather than trusting it.
+ */
 export async function verifyDepopWebhook(
   rawBody: string,
   signature: string,
+  timestamp: string,
 ): Promise<boolean> {
   const secret = depopWebhookSecret();
-  if (!secret || !signature) return false;
+  if (!secret || !signature || !timestamp.trim()) return false;
+  const signed = `${timestamp.trim()}.${rawBody}`;
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -538,7 +583,7 @@ export async function verifyDepopWebhook(
     ["sign"],
   );
   const mac = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)),
+    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signed)),
   );
   const expectedHex = toHex(mac);
   const expectedB64 = toBase64(mac);

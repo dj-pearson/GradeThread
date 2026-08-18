@@ -25,7 +25,11 @@ import {
   parseShopifyWebhookOrder,
 } from "../lib/shopify-orders.ts";
 import { isDepopEnabled } from "../lib/depop-client.ts";
-import { parseDepopOrder, verifyDepopWebhook } from "../lib/depop-api.ts";
+import {
+  depopTimestampFresh,
+  parseDepopOrder,
+  verifyDepopWebhook,
+} from "../lib/depop-api.ts";
 import { handleDepopOrderEvent } from "../lib/depop-orders.ts";
 
 // Inbound webhooks for FlipDesk integrations.
@@ -541,9 +545,17 @@ async function processShopifyWebhookEvent(args: {
 // ── Depop webhooks (US-714) ──────────────────────────────────────────
 //
 // Receives Depop order events (sold / cancelled / refunded). Verification: Depop
-// signs every delivery with an HMAC-SHA256 of the RAW body using a shared secret
-// (DEPOP_WEBHOOK_SECRET), presented in the `X-Depop-Signature` header — only
-// Depop can produce a valid signature. The seller is resolved from a payload id
+// signs every delivery with an HMAC-SHA256 over `<timestamp>.<body>` using a
+// shared secret (DEPOP_WEBHOOK_SECRET), presented in the `X-Depop-Signature`
+// header alongside `X-Depop-Timestamp` — only Depop can produce a valid
+// signature.
+//
+// ⚠ US-2326 AC5, 2026-08-17: those two header names and the signed string are
+// now READ OFF DEPOP'S OWN "Validate webhooks" guide, not guessed. The previous
+// implementation signed the RAW BODY alone, which would have rejected every
+// genuine delivery as a mismatch — queued rather than live only because the
+// connector is gated off. The guide documents NO delivery-id header, which is
+// why the dedupe key below falls back to the payload. The seller is resolved from a payload id
 // that we verified at connect time (external_account_id / account_handle), NOT a
 // trusted-by-default body field. Returns 200 promptly and defers the heavy
 // lifting. The ENTIRE receiver 503s while the connector is disabled (US-712).
@@ -558,13 +570,27 @@ flipdeskWebhookRoutes.post("/depop", async (c) => {
     c.req.header("x-depop-signature") ??
     c.req.header("x-depop-hmac-sha256") ??
     "";
+  const timestamp = c.req.header("x-depop-timestamp") ?? "";
 
   if (!debug) {
     if (!signature) {
       console.warn("[flipdesk-webhooks] Depop event rejected: missing signature header");
       return c.json({ error: "Missing signature" }, 401);
     }
-    const ok = await verifyDepopWebhook(rawBody, signature);
+    if (!timestamp) {
+      // The timestamp is part of the signed string, so its absence is not a
+      // missing nicety — nothing can be verified without it.
+      console.warn("[flipdesk-webhooks] Depop event rejected: missing timestamp header");
+      return c.json({ error: "Missing timestamp" }, 401);
+    }
+    // US-2326 AC1: the freshness window this receiver did not have. Checked
+    // BEFORE the HMAC so a replayed delivery is refused on the cheap comparison
+    // rather than after a key import.
+    if (!depopTimestampFresh(timestamp, Date.now())) {
+      console.warn("[flipdesk-webhooks] Depop event rejected: timestamp outside the freshness window");
+      return c.json({ error: "Stale timestamp" }, 401);
+    }
+    const ok = await verifyDepopWebhook(rawBody, signature, timestamp);
     if (!ok) {
       console.warn("[flipdesk-webhooks] Depop event rejected: signature mismatch");
       return c.json({ error: "Invalid signature" }, 401);

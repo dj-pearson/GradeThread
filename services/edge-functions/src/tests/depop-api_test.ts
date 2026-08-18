@@ -14,6 +14,7 @@ import {
   estimateDepopNet,
   parseDepopOrder,
   parseProductResult,
+  depopTimestampFresh,
   verifyDepopWebhook,
 } from "../lib/depop-api.ts";
 
@@ -112,43 +113,85 @@ Deno.test("estimateDepopNet subtracts processing fee and never goes negative", (
 
 // ── Webhook HMAC ──────────────────────────────────────────────────────
 
-Deno.test("verifyDepopWebhook accepts a correct hex/base64 sig, rejects others", async () => {
+Deno.test("US-2326: the signature covers `<timestamp>.<body>`, not the body alone", async () => {
+  // Depop's own "Validate webhooks" guide: the signature is HMAC-SHA256 over
+  // "the timestamp and body of the request, separated by a dot". This code used
+  // to sign the raw body, which would have rejected every genuine delivery as a
+  // mismatch — a bug that never fired only because the connector is gated off.
   const prev = Deno.env.get("DEPOP_WEBHOOK_SECRET");
   try {
     Deno.env.set("DEPOP_WEBHOOK_SECRET", "shhh");
     const raw = '{"order":{"purchase_id":"P-1"}}';
-    // Compute the expected HMAC the same way the verifier does.
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode("shhh"),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const mac = new Uint8Array(
-      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw)),
-    );
-    const hex = Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
-    let bin = "";
-    for (const b of mac) bin += String.fromCharCode(b);
-    const b64 = btoa(bin);
+    const ts = "1760000000";
+    const sign = async (msg: string) => {
+      const key = await crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode("shhh"),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+      const mac = new Uint8Array(
+        await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(msg)),
+      );
+      const hex = Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
+      let bin = "";
+      for (const b of mac) bin += String.fromCharCode(b);
+      return { hex, b64: btoa(bin) };
+    };
 
-    assert(await verifyDepopWebhook(raw, hex), "hex sig should verify");
-    assert(await verifyDepopWebhook(raw, `sha256=${hex}`), "prefixed hex should verify");
-    assert(await verifyDepopWebhook(raw, b64), "base64 sig should verify");
-    assert(!(await verifyDepopWebhook(raw, "deadbeef")), "wrong sig rejected");
-    assert(!(await verifyDepopWebhook("tampered", hex)), "tampered body rejected");
+    const good = await sign(`${ts}.${raw}`);
+    assert(await verifyDepopWebhook(raw, good.hex, ts), "hex sig should verify");
+    assert(await verifyDepopWebhook(raw, `sha256=${good.hex}`, ts), "prefixed hex should verify");
+    assert(await verifyDepopWebhook(raw, good.b64, ts), "base64 sig should verify");
+
+    // THE REGRESSION THIS FILE EXISTED TO MISS: a body-only HMAC is exactly what
+    // the old implementation produced, and it must now be refused.
+    const bodyOnly = await sign(raw);
+    assert(
+      !(await verifyDepopWebhook(raw, bodyOnly.hex, ts)),
+      "a body-only signature is the OLD contract and must not verify",
+    );
+
+    // A signature bound to one timestamp cannot be replayed under another.
+    assert(
+      !(await verifyDepopWebhook(raw, good.hex, "1760000001")),
+      "the timestamp is signed, so a different one must not verify",
+    );
+    assert(!(await verifyDepopWebhook(raw, good.hex, "")), "no timestamp, nothing to verify");
+    assert(!(await verifyDepopWebhook(raw, "deadbeef", ts)), "wrong sig rejected");
+    assert(!(await verifyDepopWebhook("tampered", good.hex, ts)), "tampered body rejected");
   } finally {
     if (prev != null) Deno.env.set("DEPOP_WEBHOOK_SECRET", prev);
     else Deno.env.delete("DEPOP_WEBHOOK_SECRET");
   }
 });
 
+Deno.test("US-2326: the freshness window refuses a stale OR a future timestamp", () => {
+  const now = 1_760_000_000_000; // ms
+  const sec = (msOffset: number) => String((now + msOffset) / 1000);
+  assert(depopTimestampFresh(sec(0), now), "now is fresh");
+  assert(depopTimestampFresh(sec(-4 * 60_000), now), "four minutes old is fresh");
+  assert(!depopTimestampFresh(sec(-6 * 60_000), now), "six minutes old is stale");
+  // Symmetric on purpose: a FUTURE timestamp is as much a sign of a forged or
+  // skewed sender as an old one, and accepting it leaves the window open from
+  // the other side.
+  assert(!depopTimestampFresh(sec(6 * 60_000), now), "six minutes ahead is refused");
+
+  // Milliseconds are distinguished from seconds by magnitude, so a sender that
+  // switches units does not silently fall outside every window.
+  assert(depopTimestampFresh(String(now), now), "a millisecond timestamp is understood");
+
+  assert(!depopTimestampFresh("", now), "empty is not a timestamp");
+  assert(!depopTimestampFresh("not-a-number", now), "garbage is not a timestamp");
+  assert(!depopTimestampFresh("   ", now), "whitespace is not a timestamp");
+});
+
 Deno.test("verifyDepopWebhook returns false when no secret is configured", async () => {
   const prev = Deno.env.get("DEPOP_WEBHOOK_SECRET");
   try {
     Deno.env.delete("DEPOP_WEBHOOK_SECRET");
-    assert(!(await verifyDepopWebhook("{}", "anything")));
+    assert(!(await verifyDepopWebhook("{}", "anything", "1760000000")));
   } finally {
     if (prev != null) Deno.env.set("DEPOP_WEBHOOK_SECRET", prev);
   }
