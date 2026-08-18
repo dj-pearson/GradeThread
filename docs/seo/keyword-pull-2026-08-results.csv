@@ -1,0 +1,184 @@
+path,cluster,keyword,avg_monthly,competition,comp_index,bid_low,bid_high,yoy
+1-damage-care,repair,how to fix a broken zipper,50000,Low,16,0.01,0.37,0%
+1-damage-care,stain-removal,how to get blood out of clothes,50000,Medium,41,0.02,0.5,0%
+1-damage-care,stain-removal,how to remove oil stains from clothes,50000,Medium,53,0.03,0.55,0%
+1-damage-care,repair,how to sew on a button,50000,Low,13,0.01,0.05,0%
+1-damage-care,repair,how to fix a hole in jeans,5000,Low,17,0.23,0.57,0%
+1-damage-care,repair,how to fix a snag in a sweater,5000,Low,3,0.02,0.57,0%
+1-damage-care,stain-removal,how to get bleach stains out of clothes,5000,Low,12,0.24,1.06,0%
+1-damage-care,odor,how to get mildew smell out of clothes,5000,Medium,45,0.07,1.6,0%
+1-damage-care,odor,how to get musty smell out of clothes,5000,Medium,61,0.39,1.65,0%
+1-damage-care,odor,how to get smoke smell out of clothes,5000,Low,31,0.05,1.45,0%
+1-damage-care,stain-removal,how to remove deodorant stains from shirts,5000,Medium,37,0.02,0.67,0%
+1-damage-care,stain-removal,how to remove grease stains from clothes,5000,Medium,59,0.03,0.56,0%
+1-damage-care,stain-removal,how to remove ink stains from clothes,5000,High,68,0.05,0.98,0%
+1-damage-care,stain-removal,how to remove mildew stains from fabric,5000,High,82,0.02,0.6,0%
+1-damage-care,repair,how to remove pilling from clothes,5000,High,93,0.1,1.35,0%
+1-damage-care,stain-removal,how to remove stains from leather,5000,High,69,0.02,0.48,0%
+1-damage-care,stain-removal,how to remove sweat stains from white shirts,5000,Medium,52,0.08,0.78,0%
+1-damage-care,restore,how to remove wrinkles without an iron,5000,Low,7,0.02,0.4,0%
+1-damage-care,repair,how to replace a zipper pull,5000,Medium,49,0.03,0.51,0%
+1-damage-care,restore,how to unshrink clothes,5000,Low,14,0.02,0.48,0%
+1-damage-care,care,how to wash a wool sweater,5000,Low,11,0.04,0.27,0%
+1-damage-care,care,how to clean thrift store clothes,500,Low,1,,,-90%
+1-damage-care,repair,how to darn a hole in a sweater,500,Low,8,0.05,0.37,0%
+1-damage-care,repair,how to fix a broken belt loop,500,Low,0,,,0%
+1-damage-care,repair,how to fix a stretched out collar,500,Low,0,,,0%
+1-damage-care,repair,how to fix pilling on sweaters,500,Low,28,0.04,0.3,0%
+1-damage-care,restore,how to fix shrunken wool sweater,500,Low,27,0.02,0.14,0%
+1-damage-care,odor,how to get body odor out of shirts,500,Medium,59,0.49,1.63,0%
+1-damage-care,odor,how to get thrift store smell out of clothes,500,Low,12,0.14,1.49,0%
+1-damage-care,stain-removal,how to remove makeup stains from clothes,500,Low,19,0.02,0.69,0%
+1-damage-care,odor,how to remove perfume smell from clothes,500,Low,14,0.04,1.45,0%
+1-damage-care,stain-removal,how to remove rust stains from fabric,500,Medium,51,0.02,0.89,0%
+1-damage-care,stain-removal,how to remove stains from denim,500,Low,13,0.18,0.74,0%
+1-damage-care,stain-removal,how to remove stains from polyester,500,Low,15,0.03,0.86,-90%
+1-damage-care,stain-removal,how to remove stains from silk,500,Low,18,0.03,0.39,0%
+1-damage-care,stain-removal,how to remove wine stains from clothing,500,Medium,53,0.01,0.99,0%
+1-damage-care,restore,how to soften stiff denim,500,Low,4,0.02,1.5,0%
+1-damage-care,care,how to stop clothes from pilling,500,Low,32,0.3,1.62,0%
+1-damage-care,care,how to store clothes long term,500,High,99,0.04,1.26,0%
+1-damage-care,care,how to wash silk at home,500,Medium,41,0.04,0.69,0%
+1-damage-care,care,how to wash vintage clothing,500,Low,1,,,-90%
+1-damage-care,restore,how to whiten yellowed clothes,500,High,71,0.04,0.57,0%
+1-damage-care,stain-removal,how to get yellow armpit stains out of shirts,50,Medium,63,0.13,0.71,0%
+1-damage-care,care,how to prevent moth holes,50,Low,30,,,0%
+1-damage-care,stain-removal,how to remove stains from vintage clothing,50,Low,32,,,0%
+1-damage-care,stain-removal,how to remove stains from wool,50,Low,10,,,0%
+1-damage-care,restore,how to restore faded black clothes,50,High,77,0.18,0.71,0%
+1-damage-care,odor,how to deodorize vintage clothing,,,,,,
+1-damage-care,restore,how to fix color bleeding in laundry,,,,,,
+1-damage-care,repair,how to fix cracked screen print on a shirt,,,,,,
+1-damage-care,repair,how to fix fraying cuffs,,,,,,
+1-damage-care,repair,how to fix moth holes in a sweater,,,,,,
+1-damage-care,stain-removal,how to get an old stain out of clothing,,,,,,
+1-damage-care,repair,how to repair a torn lining,,,,,,
+1-damage-care,care,how to sanitize secondhand clothes,,,,,,
+2-returns,ebay-snad,how to block a buyer on ebay,5000,Low,0,0.01,0.02,0%
+2-returns,ebay-snad,ebay item not as described,500,Low,0,,,0%
+2-returns,depop,depop refund policy seller,50,Low,4,,,0%
+2-returns,ebay-snad,does ebay always side with the buyer,50,Low,0,,,0%
+2-returns,ebay-snad,ebay case closed without seller resolution,50,Low,0,,,0%
+2-returns,ebay-snad,ebay money back guarantee seller,50,Low,0,,,0%
+2-returns,ebay-snad,ebay refund without return,50,Low,0,,,0%
+2-returns,ebay-snad,ebay return abuse,50,Low,4,,,0%
+2-returns,ebay-snad,ebay seller protection returns,50,Low,0,,,0%
+2-returns,poshmark,poshmark return policy for sellers,50,Low,1,,,0%
+2-returns,ebay-snad,who pays return shipping on ebay,50,Low,0,,,0%
+2-returns,depop,depop buyer opened a dispute,,,,,,
+2-returns,ebay-snad,ebay buyer lying about item condition,,,,,,
+2-returns,ebay-snad,ebay buyer returned a different item,,,,,,
+2-returns,ebay-snad,ebay partial refund for return,,,,,,
+2-returns,ebay-snad,ebay return request buyer damaged item,,,,,,
+2-returns,ebay-snad,how do returns affect ebay seller rating,,,,,,
+2-returns,ebay-snad,how to appeal an ebay return case,,,,,,
+2-returns,evidence,how to describe flaws in a listing,,,,,,
+2-returns,mercari,how to dispute a mercari return,,,,,,
+2-returns,ebay-snad,how to fight a not as described claim on ebay,,,,,,
+2-returns,poshmark,how to fight a poshmark case,,,,,,
+2-returns,evidence,how to photograph flaws for a listing,,,,,,
+2-returns,evidence,how to prove item condition before shipping,,,,,,
+2-returns,ebay-snad,how to reduce returns on ebay,,,,,,
+2-returns,ebay-snad,how to respond to an ebay return request,,,,,,
+2-returns,evidence,how to write a condition description for used clothing,,,,,,
+2-returns,mercari,mercari buyer protection seller,,,,,,
+2-returns,mercari,mercari return request seller,,,,,,
+2-returns,poshmark,poshmark buyer says item is not as described,,,,,,
+2-returns,poshmark,poshmark case opened against seller,,,,,,
+2-returns,vinted,vinted buyer protection dispute,,,,,,
+3-tools,fee-calc,ebay fee calculator,50000,Low,0,2.17,13.23,0%
+3-tools,shipping,ebay shipping calculator,50000,Low,1,3.68,8.22,0%
+3-tools,fee-calc,depop fee calculator,5000,Low,0,2.01,10.72,900%
+3-tools,profit,ebay profit calculator,5000,Low,1,1.11,8.0,0%
+3-tools,fee-calc,etsy fee calculator,5000,Low,3,0.06,1.3,0%
+3-tools,fee-calc,how much does ebay take from a sale,5000,Low,4,0.02,0.84,0%
+3-tools,fee-calc,how much does poshmark take,5000,Low,12,0.23,4.59,-90%
+3-tools,shipping,cheapest way to ship clothes,500,Medium,40,0.88,3.76,0%
+3-tools,measure,clothing measurement converter,500,Low,13,0.03,2.48,0%
+3-tools,fee-calc,ebay final value fee calculator,500,Low,0,,,0%
+3-tools,measure,mens to womens size converter,500,Low,7,0.12,2.32,-90%
+3-tools,fee-calc,mercari fee calculator,500,Low,0,,,0%
+3-tools,measure,pit to pit measurement chart,500,Low,8,,,0%
+3-tools,fee-calc,poshmark fee calculator,500,Low,0,,,900%
+3-tools,measure,inseam measurement guide,50,Low,0,,,0%
+3-tools,measure,international size conversion chart,50,Low,0,,,0%
+3-tools,shipping,poly mailer size guide,50,High,100,,,0%
+3-tools,profit,reseller profit calculator,50,Low,5,,,∞
+3-tools,profit,cost of goods sold calculator reselling,,,,,,
+3-tools,measure,how to measure a shirt for a listing,,,,,,
+3-tools,profit,resale profit margin calculator,,,,,,
+3-tools,profit,reseller mileage tracker,,,,,,
+3-tools,measure,vintage sizing conversion chart,,,,,,
+4-value,brand-value,best brands to resell,500,Low,18,1.01,6.81,0%
+4-value,pricing,ebay sold comps,500,Low,0,1.24,1.84,900%
+4-value,pricing,how does condition affect resale value,50,Low,0,,,∞
+4-value,brand-value,how much is a carhartt jacket worth,50,Medium,37,,,0%
+4-value,pricing,how much to sell used clothes for,50,Low,11,,,0%
+4-value,pricing,how to find sold comps on ebay,50,Low,0,,,0%
+4-value,pricing,how to price used clothes,50,Low,12,0.56,7.91,0%
+4-value,pricing,how to price vintage clothing,50,Low,2,,,0%
+4-value,brand-value,patagonia resale value,50,Low,4,,,0%
+4-value,brand-value,what brands sell best on ebay,50,Low,1,,,0%
+4-value,brand-value,bolo brands list,,,,,,
+4-value,brand-value,how much are vintage band tees worth,,,,,,
+4-value,brand-value,how much is a north face jacket worth used,,,,,,
+4-value,pricing,how much less is a damaged item worth,,,,,,
+4-value,brand-value,how to tell how old a levis jacket is,,,,,,
+4-value,brand-value,vintage levis 501 value,,,,,,
+4-value,brand-value,vintage nike tag dating,,,,,,
+5-marketplace-howto,ebay,how to cancel an offer on ebay,5000,Low,0,,,0%
+5-marketplace-howto,crosslist,best crosslisting app for resellers,500,Medium,67,1.85,5.36,900%
+5-marketplace-howto,crosslist,crosslisting app,500,Medium,61,2.35,6.84,0%
+5-marketplace-howto,ebay,ebay item specifics,500,Low,0,,,900%
+5-marketplace-howto,ebay,ebay promoted listings worth it,500,Low,0,,,0%
+5-marketplace-howto,ebay,how to relist an item on ebay,500,Low,1,0.61,4.07,0%
+5-marketplace-howto,poshmark,how to relist on poshmark,500,Low,1,,,-90%
+5-marketplace-howto,ebay,how to schedule ebay listings,500,Low,0,,,0%
+5-marketplace-howto,ebay,how to send offers to watchers on ebay,500,Low,0,,,0%
+5-marketplace-howto,poshmark,how to share on poshmark,500,Low,3,0.04,4.16,900%
+5-marketplace-howto,ebay,ebay listing not showing in search,50,Low,0,,,0%
+5-marketplace-howto,ebay,how to bulk edit ebay listings,50,Low,1,,,0%
+5-marketplace-howto,ebay,how to end a listing early on ebay,50,Low,0,,,0%
+5-marketplace-howto,ebay,how to improve ebay search ranking,50,,,,,-100%
+5-marketplace-howto,workflow,how to organize reseller inventory,50,High,77,1.64,3.97,0%
+5-marketplace-howto,workflow,reseller death pile,50,Low,1,,,0%
+5-marketplace-howto,workflow,reseller inventory management,50,Medium,63,6.59,54.9,0%
+5-marketplace-howto,ebay,why are my ebay sales slow,50,Low,3,,,0%
+5-marketplace-howto,ebay,how to add item specifics in bulk,,,,,,
+5-marketplace-howto,crosslist,how to crosslist to multiple platforms,,,,,,
+5-marketplace-howto,crosslist,how to delist after selling,,,,,,
+5-marketplace-howto,poshmark,poshmark bundle discount setup,,,,,,
+6-buyer,buying-safe,is poshmark legit,50000,Low,21,0.97,7.15,0%
+6-buyer,condition-terms,what does euc mean,5000,Low,0,,,0%
+6-buyer,condition-terms,what does nwt mean,5000,Low,0,,,0%
+6-buyer,condition-terms,what does pre owned mean,5000,Low,0,0.05,0.5,0%
+6-buyer,buying-safe,is depop safe to buy from,500,Low,22,9.28,44.65,0%
+6-buyer,authenticity,clothing authentication service,50,Low,0,,,0%
+6-buyer,condition-terms,gently used clothing meaning,50,Low,0,,,0%
+6-buyer,authenticity,how to tell if designer clothes are real,50,Low,0,,,0%
+6-buyer,condition-terms,clothing condition abbreviations,,,,,,
+6-buyer,authenticity,how to authenticate a vintage tee,,,,,,
+6-buyer,buying-safe,how to buy used clothes online safely,,,,,,
+6-buyer,buying-safe,how to know if used clothes will fit,,,,,,
+6-buyer,buying-safe,how to read clothing measurements when buying online,,,,,,
+6-buyer,buying-safe,how to spot a fake listing on ebay,,,,,,
+6-buyer,buying-safe,how to tell if a seller is trustworthy,,,,,,
+6-buyer,condition-terms,nwt vs nwot,,,,,,
+6-buyer,condition-terms,what does vgc mean in clothing,,,,,,
+6-buyer,buying-safe,what to look for when buying used clothes,,,,,,
+7-positioning,comparison,depop vs poshmark,5000,High,70,3.84,17.85,0%
+7-positioning,comparison,mercari vs ebay,5000,Low,1,0.98,6.65,0%
+7-positioning,comparison,poshmark vs mercari,5000,Low,29,1.24,10.43,0%
+7-positioning,saas-commercial,ai listing generator,500,Medium,65,3.19,18.44,0%
+7-positioning,saas-commercial,clothing inventory management software,500,Low,11,11.34,39.17,-90%
+7-positioning,comparison,crosslist vs vendoo,500,Low,23,3.63,14.27,0%
+7-positioning,saas-commercial,ebay inventory management,500,Medium,34,2.55,12.25,0%
+7-positioning,saas-commercial,reseller tools,500,Low,27,1.74,7.59,0%
+7-positioning,comparison,vendoo alternative,500,Medium,43,1.76,5.22,0%
+7-positioning,saas-commercial,ai ebay listing generator,50,Medium,61,2.2,8.24,0%
+7-positioning,saas-commercial,multi channel listing software,50,Medium,53,12.2,34.51,0%
+7-positioning,saas-commercial,reseller inventory software,50,Medium,43,,,0%
+7-positioning,saas-commercial,reseller profit tracker,50,High,100,3.84,50.19,∞
+7-positioning,saas-commercial,bulk listing software ebay,,,,,,
+7-positioning,comparison,list perfectly alternative,,,,,,
+7-positioning,saas-commercial,reselling bookkeeping software,,,,,,

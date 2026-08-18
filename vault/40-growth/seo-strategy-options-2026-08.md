@@ -7,7 +7,7 @@ code_refs: []
 reviewed: 2026-08-18
 revisit_by: 2026-11-18
 tags: [seo, geo, strategy, growth, options]
-summary: Eight candidate paths for a new SEO strategy after the grading-first plan failed to produce traction, with the diagnostic that has to run first and the keyword pull that settles which paths are real.
+summary: Eight candidate paths for a new SEO strategy after the grading-first plan failed to produce traction, scored against the 2026-08-18 Keyword Planner pull, which cleared the damage-and-care and calculator paths and killed the returns spine.
 ---
 
 # SEO strategy options (Aug 2026 reset)
@@ -83,6 +83,8 @@ condition is a hope.
 
 ### Path 1: the damage and care universe
 
+> [!success] Cleared the pull: 295,750 midpoint, 42 of 55 terms above 50. Lead with it, starting with the repair sub-cluster.
+
 **The bet.** People do not search for how to grade a flaw. They search for
 how to get rid of one. "How to remove a deodorant stain from a shirt" is a
 question millions of people ask; "how to disclose a deodorant stain in a
@@ -117,6 +119,8 @@ actual SERP for five terms before committing, not just the volume column.
 
 ### Path 2: the returns and dispute spine
 
+> [!failure] Killed by the pull: 950 a month once the one off-topic term is stripped, 21 of 32 terms blank. Do not build this cluster.
+
 **The bet.** This is the hypothesis in the original question, and it is a good
 one. A seller whose buyer just filed "item not as described" is in acute pain,
 searching in plain language, and the product is literally the answer: a
@@ -146,6 +150,8 @@ the cluster.
 
 ### Path 3: free calculators and tools
 
+> [!success] Cleared the pull: 128,700 midpoint, and `ebay fee calculator` pairs 50,000 searches with a 13.23 dollar bid. Promoted to co-lead.
+
 **The bet.** There is not a single calculator on the site. Fee calculators,
 profit calculators and measurement converters are the highest link-per-hour
 asset in this category, they rank on transactional intent, and they are a
@@ -169,6 +175,8 @@ justifies it. This is the lowest-risk item on the list, which is why it
 should ship regardless of which other path wins.
 
 ### Path 4: resale value pSEO
+
+> [!failure] Killed by the pull: 1,400 midpoint, 7 of 17 terms blank.
 
 **The bet.** "What is this worth" is the largest evergreen query pool in
 resale, and the site already has a `/value` sitemap segment and a comps
@@ -195,6 +203,8 @@ built without inventing numbers, and that is not on the table.
 
 ### Path 5: marketplace how-to deflection
 
+> [!note] Marginal: 9,900 midpoint, but three of its terms are flagged as growing. Second wave.
+
 **The bet.** eBay and Poshmark's own help documentation is bad, and sellers
 search around it constantly. "How to relist on eBay", "eBay item specifics",
 "how to cancel an offer", "how to change a listing after it has bids".
@@ -215,6 +225,8 @@ reward the official source.
 
 ### Path 6: switch sides, target buyers
 
+> [!warning] The 65,650 headline is 76 percent `is poshmark legit`. The real prize here is the three condition-vocabulary terms at 5,000 each, which already have pages.
+
 **The bet.** Everything on the site addresses sellers. Buyers outnumber
 sellers by a large multiple and ask questions that grading answers directly:
 what EUC means, what NWOT means, how to tell if a listing is honest, how to
@@ -233,6 +245,8 @@ go up. Revenue might not.
 is that it does not have a business model attached yet. Do not lead with it.
 
 ### Path 7: reposition the funnel around FlipDesk
+
+> [!success] Small volume, largest bids in the whole pull (54.90, 50.19, 39.17 dollars). Keep as the revenue leg.
 
 **The bet.** This is not a content path, it is a positioning one, and it may
 be the real problem underneath all of the above. The site leads with grading.
@@ -257,6 +271,8 @@ call, and it is yours.
 
 ### Path 8: stop optimizing for Google
 
+> [!note] Not measurable in a Keyword Planner pull by construction. Unchanged: additive, not primary.
+
 **The bet.** Accept that the grading universe will never produce Google
 volume, and redirect that effort to where the audience actually is:
 ChatGPT and Perplexity citations, Reddit, and YouTube.
@@ -275,40 +291,116 @@ the answer to "we have no traffic", it is not.
 **What kills it.** Nothing kills it. It is additive. It just cannot carry the
 number alone.
 
-## The recommendation
+## Results of the 2026-08-18 pull
 
-Run the diagnostic first. It is half an hour and it can invalidate most of
-this note.
+All 183 terms came back. Full join in
+`docs/seo/keyword-pull-2026-08-results.csv`.
 
-If the diagnostic returns cause 1, no demand, run a barbell:
+**Read the volumes as buckets, not numbers.** Every value returned as 50, 500,
+5,000 or 50,000, which is what Keyword Planner gives an account without active
+spend. Real volume sits somewhere inside the bucket (50 means 10 to 100, 50,000
+means 10,000 to 100,000). The ordering below is robust anyway: recomputing every
+cluster at its bucket FLOOR instead of its midpoint changes no path's rank.
 
-- **Volume leg: Path 1**, the damage and care universe. Biggest addressable
-  pool, cheapest to build because the data already exists, and topically
-  defensible because grading damage is the product.
-- **Revenue leg: Path 2**, the returns and dispute spine. Lower traffic,
-  highest intent, and the cleanest line from a searched problem to the
-  product.
-- **Always: Path 3**, the calculators. Ship them regardless. They are cheap
-  and they fix the link problem that will otherwise cap every other path.
-- **Underneath everything: Path 7**, the repositioning. If FlipDesk is what
-  people search for, FlipDesk should be what the funnel leads with.
+| Path | Midpoint | Floor | Blank | Terms > 50 | Verdict |
+|---|---|---|---|---|---|
+| 1 damage and care | 295,750 | 59,150 | 8/55 | 42 | **Clears** |
+| 3 calculators and tools | 128,700 | 25,740 | 5/23 | 14 | **Clears** |
+| 6 buyer side | 65,650 | 13,130 | 10/18 | 5 | Mirage, see below |
+| 7 repositioning | 18,200 | 3,640 | 3/16 | 9 | Clears on volume |
+| 5 marketplace how-to | 9,900 | 1,980 | 4/22 | 10 | Marginal |
+| 2 returns and disputes | 5,950 | 1,190 | 21/32 | 2 | **Dead** |
+| 4 resale value | 1,400 | 280 | 7/17 | 2 | **Dead** |
 
-Hold Path 4 until the cause-2 answer is in, because value pages are the most
-likely family to be judged thin. Treat Paths 5, 6 and 8 as second-wave.
+### The returns spine is dead, and it was the recommendation
 
-If the diagnostic returns cause 2 or cause 3, none of the content paths are
-the answer yet. Fix indexation or authority first, then come back to this
-list.
+Path 2 was both the original hypothesis and the note's revenue leg. The data
+does not support it. Twenty-one of its 32 terms returned blank, and of the
+5,950 midpoint total, 5,000 is `how to block a buyer on ebay`, which is a
+blocking query rather than a dispute query. **Strip that one term and the
+entire dispute cluster is 950 a month.** Every specific query the cluster was
+built on came back blank: `how to fight a not as described claim on ebay`,
+`how to appeal an ebay return case`, `how to respond to an ebay return
+request`, `ebay buyer lying about item condition`, `poshmark case opened
+against seller`, `how to dispute a mercari return`.
 
-## The keyword pull
+The pain is real. People do not take it to Google in these words, or they take
+it to the eBay community forums. Do not build the cluster. One page covering
+the topic is enough, and the existing `/reselling/reduce-ebay-returns` already
+is that page.
 
-`docs/seo/keyword-pull-2026-08.csv` holds the terms to run through Keyword
-Planner, tagged by path. One pull settles which paths are real.
+### Path 6's number is one keyword
 
-Reading rules, learned from the last pull:
+`is poshmark legit` alone is 50,000 of the 65,650, which is 76 percent of the
+cluster, and it is a query GradeThread cannot monetize. That is exactly the
+concentration trap this note warned about. Ignore the headline number.
 
-- **Blank does not mean zero.** Keyword Planner suppresses low-volume terms.
-  Cross-check against Search Console impressions and autocomplete.
+### The finding that changes the diagnostic
+
+Three condition-vocabulary terms came back at 5,000 a month each on Low
+competition:
+
+| Keyword | Volume | Competition |
+|---|---|---|
+| `what does euc mean` | 5,000 | Low |
+| `what does nwt mean` | 5,000 | Low |
+| `what does pre owned mean` | 5,000 | Low |
+
+**Pages for all three already exist** in the reseller glossary. That is roughly
+15,000 monthly searches, low competition, on content that shipped months ago.
+
+This is now the sharpest diagnostic available, better than the one at the top
+of this note. Look up those three URLs in Search Console. If they are indexed
+and taking impressions, the site can rank and the problem was demand, so the
+path choice below is the whole fix. If they are not indexed, or indexed with
+near-zero impressions on terms this soft, the problem is cause 2 or cause 3 and
+**no new content universe will help until that is fixed.** Check this before
+building anything.
+
+## The revised recommendation
+
+Path 2 is out. Path 4 is out. The barbell becomes:
+
+- **Lead, Path 1, damage and care.** 295,750 at midpoint, 42 of 55 terms above
+  50, and 2.3 times the next path. Start with **repair, not stains**: the
+  repair sub-cluster is 122,000 across only 10 terms with 8 of them Low
+  competition, where stain removal is 138,150 across 18 terms with 11 at Medium
+  or High. Same volume, half the fight. The two entry pages are `how to fix a
+  broken zipper` and `how to sew on a button`, both 50,000 and both Low.
+- **Co-lead, Path 3, the calculators.** Promoted out of "ship regardless".
+  128,700 total, and `ebay fee calculator` carries a 13.23 dollar top-of-page
+  bid at 50,000 searches, which is volume and commercial intent in the same
+  keyword. `ebay shipping calculator` is another 50,000. `depop fee calculator`
+  is 5,000 and flagged as growing.
+- **Revenue, Path 7, the repositioning.** Volume is small and the bids are not:
+  `reseller inventory management` tops out at 54.90 dollars, `reseller profit
+  tracker` at 50.19, `clothing inventory management software` at 39.17, `multi
+  channel listing software` at 34.51. Build these as conversion pages and
+  accept three-figure monthly traffic. The three comparison terms
+  (`mercari vs ebay`, `poshmark vs mercari`, `depop vs poshmark`) are 5,000
+  each and carry the cluster's traffic.
+- **Second wave, Path 5.** 9,900 is marginal, but `ebay item specifics`,
+  `how to share on poshmark` and `best crosslisting app for resellers` are all
+  flagged as growing, and the audience is FlipDesk's exact user.
+
+Path 1's kill condition has not been tested yet. The volume cleared; the SERP
+check did not run. Before committing the build, look at who actually holds the
+top ten for five of the repair terms. If Tide, Persil and Good Housekeeping own
+every slot with no gaps, the entry point moves to Path 3, which has no such
+incumbent.
+
+## The keyword pull, and what it taught
+
+`docs/seo/keyword-pull-2026-08.csv` holds the 183 terms, tagged by path;
+`docs/seo/keyword-pull-2026-08-results.csv` holds the returned figures joined
+back to those tags.
+
+Reading rules, three of which the pull confirmed the hard way:
+
+- **Blank does not mean zero, but 21 blanks out of 32 means something.** A
+  scattered blank is suppression. A cluster where two thirds of the specific
+  queries return nothing is a cluster people do not phrase that way. That is
+  what killed Path 2.
 - **Volume without a SERP check is a trap.** The last plan had `graded
   clothing` at 70 a month, which turned out to be wholesale bale grading and
   the wrong audience entirely. For any term above 500 a month, look at who
@@ -320,8 +412,14 @@ Reading rules, learned from the last pull:
   A path with one 2,000-a-month term and nothing else is worse than a path
   with sixty 100-a-month terms.
 
-Pass thresholds, set in advance so the result is not rationalized after the
-fact:
+One threshold turned out to be mis-specified, and it is worth recording rather
+than quietly dropping. The "30 terms above 50 a month" test measures how many
+terms were submitted as much as how deep the market is: Path 3 cleared the
+volume bar six times over on 23 submitted terms and could never have hit 30. A
+depth test should be a ratio, not a count. Path 3 had 14 of 23 above 50, which
+is 61 percent, and that is the number that should have been in the rule.
+
+Pass thresholds, as set in advance:
 
 - A path clears if its cluster totals more than 10,000 monthly searches with
   at least 30 individual terms above 50 a month.
