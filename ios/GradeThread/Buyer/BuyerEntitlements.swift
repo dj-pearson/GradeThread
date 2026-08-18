@@ -152,7 +152,7 @@ struct BuyerCapability: Identifiable, Equatable {
         BuyerCapability(
             id: "wardrobePortfolio",
             label: "Wardrobe portfolio",
-            delivery: .planned,
+            delivery: .shipped,
             note: nil),
         BuyerCapability(
             id: "demandBoard",

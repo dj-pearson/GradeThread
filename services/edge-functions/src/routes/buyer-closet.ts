@@ -19,6 +19,11 @@ import { buildClosetCsv, type ClosetExportRow, inventoryFromCloset } from "../li
 type BuyerEnv = { Variables: { userId: string } };
 export const buyerClosetRoutes = new Hono<BuyerEnv>();
 
+// US-2503: bound on the identity list returned alongside the valuation. A
+// closet is a personal wardrobe, so this is far above any real one - it exists
+// so a single request cannot grow without limit, not to trim anybody.
+const CLOSET_ITEMS_CAP = 500;
+
 // US-1826: portfolio valuation — each closet item's current-value estimate +
 // portfolio totals (gain/loss vs cost basis). Cached + TTL-refreshed. Scoped by
 // user_id (US-268).
@@ -29,7 +34,57 @@ buyerClosetRoutes.get("/closet/valuation", async (c) => {
     const totals = computePortfolioTotals(
       valuations.map((v) => ({ estimateCents: v.estimate_cents, costBasisCents: v.cost_basis_cents })),
     );
-    return c.json({ valuations, totals });
+
+    // US-2503: `items` is ADDITIVE and exists for iOS. The valuation rows
+    // carry numbers and no identity, so the web joins them against
+    // closet_items it already holds from its own RLS read. iOS holds no such
+    // list, and giving it one would mean a second place that knows the closet
+    // row shape.
+    //
+    // Deliberately a NEW key rather than a change to `valuations`: the web
+    // reads that array and adding unvalued items to it would silently change
+    // what a portfolio page counts. Extra keys are ignored by an existing
+    // client; changed semantics are not.
+    //
+    // Items with NO valuation are INCLUDED, with nulls. An owned garment that
+    // has not been valued yet still belongs in your closet, and omitting it
+    // would make the list disagree with the `itemsUnvalued` count sitting
+    // right above it.
+    const { data: itemRows } = await supabaseAdmin
+      .from("closet_items")
+      .select("id, brand, garment_type, size, condition_grade, certificate_id, title")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(CLOSET_ITEMS_CAP);
+    type IdentityRow = {
+      id: string;
+      brand: string | null;
+      garment_type: string | null;
+      size: string | null;
+      condition_grade: number | null;
+      certificate_id: string | null;
+      title: string | null;
+    };
+    const valuationById = new Map(valuations.map((v) => [v.closet_item_id, v]));
+    const items = ((itemRows ?? []) as unknown as IdentityRow[]).map((row) => {
+      const valuation = valuationById.get(row.id);
+      return {
+        id: row.id,
+        brand: row.brand,
+        garmentType: row.garment_type,
+        size: row.size,
+        title: row.title,
+        conditionGrade: row.condition_grade,
+        certificateId: row.certificate_id,
+        estimateCents: valuation?.estimate_cents ?? null,
+        costBasisCents: valuation?.cost_basis_cents ?? null,
+        confidence: valuation?.confidence ?? "none",
+        trend: valuation?.trend ?? "unknown",
+        sellGuidance: valuation?.sell_guidance ?? "unknown",
+      };
+    });
+
+    return c.json({ valuations, totals, items });
   } catch (err) {
     console.error("[buyer-closet] valuation failed:", err);
     return c.json({ error: "Could not value your portfolio." }, 500);

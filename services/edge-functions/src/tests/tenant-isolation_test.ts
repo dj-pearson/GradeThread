@@ -4032,6 +4032,12 @@ Deno.test({
 //   • GET /api/buyer/impact, GET /api/buyer/closet/valuation,
 //     GET /api/buyer/closet/export.csv, GET /api/buyer/wants — self-scoped reads
 //     (.eq("user_id"|"buyer_user_id", userId)); return only the caller's own rows.
+//     US-2503 added an `items` array to the valuation response (the identity
+//     fields iOS needs alongside the estimates). Same read, same scope — the
+//     closet_items select is .eq("user_id", userId) and takes no id from the
+//     caller — so this bullet still covers it. Noted rather than left implicit:
+//     a route that grows a new key is exactly when an accounting like this one
+//     goes quietly out of date.
 //   • POST /api/buyer/wants — inserts with the caller's user_id (cap-checked);
 //     takes no foreign id.
 //   • GET/POST /api/buyer/profile, POST /api/buyer/profile/extension-token —

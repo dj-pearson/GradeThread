@@ -1926,6 +1926,11 @@ struct SettingsView: View {
                 Label("Trust score", systemImage: "rosette")
             }
             NavigationLink {
+                BuyerPortfolioView()
+            } label: {
+                Label("Closet", systemImage: "hanger")
+            }
+            NavigationLink {
                 BuyerGuaranteeView()
             } label: {
                 Label("Purchase guarantee", systemImage: "shield")

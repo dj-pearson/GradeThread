@@ -122,6 +122,7 @@ describe("the deliverable list cannot advertise what does not exist", () => {
       "prioritySupport",
       "purchaseGuarantee",
       "trustScore",
+      "wardrobePortfolio",
     ]);
   });
 });
@@ -136,17 +137,38 @@ describe("the bundling that makes this a promise, not a gap (AC1)", () => {
     expect(SELLER_PLAN_BUYER_TIER.free).toBe("free");
   });
 
-  it("the iOS tree still has none of the four screens", () => {
-    // A BASELINE, not a permanent assertion — the story exists to make this
-    // false. Its value until then is that nobody closes US-2503 believing the
-    // Swift landed. Update it when the screens ship; do not delete it.
-    // Read the app's own view tree rather than trusting the story's prose.
+  it("routes to every buyer screen it claims to have shipped", () => {
+    // THIS TEST USED TO ASSERT THE OPPOSITE, and it was green for the wrong
+    // reason when I came to invert it.
+    //
+    // It read: the iOS tree contains none of "conditionAlert", "trustScore",
+    // "purchaseGuarantee". Its own comment called it a baseline and said to
+    // update it when the screens shipped. But those are the REGISTRY's flag
+    // names, and Swift files are named after their views — so `BuyerTrustScoreView`
+    // and `BuyerGuaranteeView` were both wired into ContentView while this
+    // assertion still passed. It would have gone on passing with all four
+    // screens shipped, reporting that none of them existed.
+    //
+    // Inverted, and keyed on the file the registry NAMES rather than on a token
+    // somebody hoped would appear. Scoped to Buyer/ because prioritySupport is
+    // an existing screen reached from its own place in the app, not a new row.
     const contentView = readFileSync(
       resolve(process.cwd(), "ios/GradeThread/ContentView.swift"),
       "utf8",
     );
-    for (const token of ["conditionAlert", "trustScore", "purchaseGuarantee"]) {
-      expect(contentView, token).not.toContain(token);
+    const buyerScreens = iosDeliverableFeatures()
+      .map((f) => BUYER_FEATURES[f].iosScreen ?? "")
+      .filter((path) => path.startsWith("ios/GradeThread/Buyer/"));
+    expect(
+      buyerScreens.length,
+      "no shipped capability names a Buyer/ screen — did the registry change?",
+    ).toBeGreaterThan(0);
+    for (const path of buyerScreens) {
+      const viewName = path.split("/").pop()!.replace(/\.swift$/, "");
+      expect(
+        contentView,
+        `${viewName} is marked shipped but nothing in ContentView routes to it`,
+      ).toContain(`${viewName}()`);
     }
   });
 });

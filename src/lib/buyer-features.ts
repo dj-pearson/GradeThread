@@ -160,8 +160,13 @@ export const BUYER_FEATURES: Record<keyof BuyerGateFlags, BuyerFeatureMeta> = {
     label: "Wardrobe portfolio",
     live: true,
     match: (b) => /closet|portfolio/i.test(b),
-    // AC2 screen 2 of 4.
-    ios: "planned",
+    // AC2 screen 2 of 4 — SHIPPED. Reads GET /api/buyer/closet/valuation,
+    // which gained an additive `items` array carrying the identity fields
+    // alongside the estimates it already computed. A new key rather than a
+    // change to `valuations`, which the web reads: an extra key is ignored by
+    // an existing client, changed semantics are not.
+    ios: "shipped",
+    iosScreen: "ios/GradeThread/Buyer/BuyerPortfolioView.swift",
   },
   demandBoard: {
     label: "Graded-Wanted demand board",
