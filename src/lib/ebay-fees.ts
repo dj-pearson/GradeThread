@@ -31,8 +31,16 @@
  * Under eBay Managed Payments this ALREADY INCLUDES payment processing — there
  * is no separate processor cut to subtract, which is the mistake to avoid when
  * someone later "adds Stripe-style fees" on top.
+ *
+ * ⚠️ CORRECTED 2026-08-18 (US-9003), from 0.1325 to 0.136. The old number is a
+ * real eBay rate, but it belongs to Coins & Paper Money and the trading-card
+ * categories, not apparel — apparel falls under "Most categories" at 13.6%.
+ * Verified against eBay id=4822 rather than a secondary source. Under-stating
+ * the fee by 0.35 points ran the same direction everywhere it was read: ScoutAI
+ * called marginal buys profitable and the composer promised sellers more than
+ * they got.
  */
-export const EBAY_FEE_RATE = 0.1325;
+export const EBAY_FEE_RATE = 0.136;
 
 /** Fixed per-ORDER fee, in dollars. Charged once per order, not per item. */
 export const EBAY_FIXED_FEE = 0.4;
@@ -43,8 +51,11 @@ export const EBAY_FEE_SOURCE = {
     "eBay Managed Payments standard final-value fee for most categories " +
     "(clothing/shoes/accessories), inclusive of payment processing, plus the " +
     "fixed per-order fee. Category-specific rates and store-subscription " +
-    "discounts are NOT modelled — pass an override where a caller knows better.",
-  lastVerified: "2026-06",
+    "discounts are NOT modelled — pass an override where a caller knows better. " +
+    "The full schedule (store tiers, the handbag cliff, the athletic-shoe " +
+    "threshold, standing surcharges) lives in src/lib/ebay-fee-schedule.ts, " +
+    "which is not mirrored to the edge.",
+  lastVerified: "2026-08",
 } as const;
 
 /**

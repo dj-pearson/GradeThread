@@ -96,7 +96,7 @@ interface PlatformFacts {
 const PLATFORM_FACTS: Record<string, PlatformFacts> = {
   ebay: {
     name: "eBay",
-    fees: "A final value fee around 13% for apparel plus a per-order fee; lower with a Store subscription and more levers to reduce cost.",
+    fees: "A 13.6% final value fee on apparel plus $0.40 per order; 12.7% with a Basic Store or above. Charged on shipping and tax as well as the price.",
     audience: "The largest, global secondhand-clothing buyer pool, with deep demand for brands, vintage, and hard-to-find sizes.",
     categoryFit: "Everything — vintage, designer, workwear, deadstock, and anything with an established sold-comp history.",
     shipping: "Full control of carrier, service, and cost; calculated shipping and combined-order discounts reward volume.",
@@ -360,7 +360,7 @@ export const COMPARISONS: Comparison[] = [
       {
         dimension: "Selling fees",
         a: "A flat ~10% selling fee plus payment processing; historically the lowest-friction fee model. Fee structures shift often — verify the current rate before you price.",
-        b: "Final value fee ~13.25% for most apparel categories plus a per-order fee; lower with a Store subscription. Higher headline take, but more levers to reduce it.",
+        b: "Final value fee 13.6% for most apparel categories plus a $0.40 per-order fee; 12.7% with a Basic Store or above. Higher headline take, but more levers to reduce it.",
       },
       {
         dimension: "Audience & reach",

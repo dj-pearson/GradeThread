@@ -65,7 +65,7 @@ export function calculatorPath(slug: string): string {
 export const CALCULATORS: readonly Calculator[] = [
   {
     slug: "ebay-fee-calculator",
-    status: "planned",
+    status: "live",
     story: "US-9003",
     audience: "seller",
     title: "eBay Fee Calculator: What a Sale Nets You",
@@ -74,6 +74,35 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "eBay fee calculator",
     cardBlurb: "Every eBay fee on one sale, itemised, including the ones sellers forget.",
     primaryKeyword: "ebay fee calculator",
+    secondaryKeywords: [
+      "ebay final value fee calculator",
+      "how much does ebay take from a sale",
+      "ebay seller fees",
+    ],
+    intro:
+      "Most fee calculators multiply your price by one percentage and stop. eBay does not work that way, and the three places it does not are where sellers lose money they had already counted. Shipping and sales tax are part of what the fee is charged on, so a $40 item with $8 postage is a $48 sale. A Starter Store gets no discount at all, despite costing money. And athletic shoes crossing $150 change rate AND stop being charged the per-order fee, while a handbag crossing $2,000 re-rates the entire sale, so a $2,001 bag costs less in fees than a $1,999 one.",
+    faqs: [
+      {
+        q: "How much does eBay take from a sale?",
+        a: "For clothing, shoes and accessories, 13.6% of the total amount of the sale plus $0.40 per order, if you have no Store or a Starter Store. A Basic Store or above pays 12.7%. Total amount of the sale means item price plus handling plus the shipping the buyer paid plus sales tax, so the fee is always charged on more than the price on the listing.",
+      },
+      {
+        q: "Does eBay charge fees on shipping and sales tax?",
+        a: "Yes, on both. This is the single most common surprise on a payout. If you charge $8 shipping on a $40 item and $3 tax is collected, the final value fee is calculated on $51, not $40. Free shipping does not avoid it either, because the cost is inside the item price instead.",
+      },
+      {
+        q: "Is an eBay Store worth it?",
+        a: "It depends on volume, and the calculator shows the crossover. A Basic Store costs $21.95 a month on a yearly renewal and drops the apparel fee from 13.6% to 12.7%, which is 0.9 points, so it pays for itself somewhere around $2,440 of monthly sales. A Starter Store at $4.95 gives you no fee discount whatsoever, only cheaper insertion fees and the same 250 free listings you already get.",
+      },
+      {
+        q: "Why do sneakers have a different eBay fee?",
+        a: "eBay charges 8% rather than 13.6% on men's and women's athletic shoes when the sale total is $150 or more, and does not charge the per-order fee at all on those sales. There is a second, separate $150 test on the starting price, which is what makes the listing free. Miss the threshold by a cent and you pay the ordinary apparel rate plus the per-order fee plus an insertion fee.",
+      },
+      {
+        q: "What fees do sellers forget?",
+        a: "Four. The 1.65% international fee, which fires on the buyer's registered address as well as the delivery address, and which disappears entirely if you offer eBay International Shipping. The insertion fee once you pass your free listings, charged again on every relist and every monthly renewal. The seller-standing surcharge, which adds 6 percentage points for Below Standard and 5 for a Very High 'not as described' return rate. And the $20 dispute fee, which is fifty times the per-order fee.",
+      },
+    ],
   },
   {
     slug: "ebay-shipping-calculator",

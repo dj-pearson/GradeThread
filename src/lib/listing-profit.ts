@@ -23,7 +23,7 @@ export interface ProfitInputs {
   gradingCost?: number | null;
   /** Seller-paid shipping label, if known. */
   shippingCost?: number | null;
-  /** eBay final-value fee fraction (default 13.25%). */
+  /** eBay final-value fee fraction (default 13.6%, from EBAY_FEE_RATE). */
   feeRate?: number;
   /** Fixed per-order fee (default $0.40). */
   fixedFee?: number;

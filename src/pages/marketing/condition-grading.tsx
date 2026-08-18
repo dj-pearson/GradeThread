@@ -4,6 +4,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { getRouteMeta } from "@/lib/seo/public-routes";
 import { GRADE_FACTORS } from "@/lib/constants";
 import {
   PUBLISHED_SIZE_BUCKETS,
@@ -65,11 +66,19 @@ const FAQS = CONDITION_GRADING_FAQS;
 const TIER_GLOSSARY = GLOSSARY_ENTRIES.filter((e) => e.kind === "tier");
 const FACTOR_GLOSSARY = GLOSSARY_ENTRIES.filter((e) => e.kind === "factor");
 
+// US-9017: read the title and description from the registry rather than keeping
+// a second copy here. They WERE a second copy, and rewriting the registry entry
+// for the CTR pass left this one behind — the breadcrumb name is built from the
+// title, so jsonld-parity.test.tsx went red on a mismatch between the head the
+// crawler gets and the one the SPA renders. One source, no drift.
+const META = getRouteMeta("/condition-grading");
+
 export function ConditionGradingPage() {
+  if (!META) throw new Error("[condition-grading] not in PUBLIC_ROUTES");
   return (
     <MarketingLayout
-      title="What Is Clothing Condition Grading?"
-      description="A complete guide to pre-owned clothing condition grading: the 1.0–10.0 scale, the 7 tiers (NWT to Poor), and the 5 weighted factors graders assess."
+      title={META.title}
+      description={META.description}
       canonicalPath="/condition-grading"
       jsonLd={conditionGradingJsonLd()}
     >

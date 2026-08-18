@@ -65,3 +65,22 @@ Sixty days after the pass. Re-export Search Console for the same 19 URLs and
 compare CTR against the `ctr_actual_pct` column captured here. Record the
 result against US-9016's threshold table. Two months is the minimum for a title
 change to re-crawl, re-rank and accumulate enough impressions to read.
+
+---
+
+## Postscript: the fee rate this pass did not touch
+
+While confirming the eBay fee schedule for the calculator (US-9003), the shared
+fee model in `src/lib/ebay-fees.ts` turned out to carry 13.25% for apparel. That
+is a real eBay rate — it belongs to Coins & Paper Money and the trading-card
+categories. Apparel is 13.6%.
+
+That number is read by ScoutAI's buy/skip decision and by the profit estimate in
+the listing composer, so both had been understating fees by 0.35 points, always
+in the seller's favour, on the two screens where a seller decides to spend
+money. Corrected in both halves of the edge mirror, and in the reader-facing
+figures on 16 comparison pages and the where-to-sell guide.
+
+Recorded here because it is the same failure mode this whole SEO pass keeps
+hitting: a plausible number, written down once, never checked against the
+source.

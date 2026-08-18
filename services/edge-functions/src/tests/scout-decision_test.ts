@@ -59,8 +59,9 @@ Deno.test("US-2325: the decision nets fees the same way the composer does", () =
     costCents: 500,
   });
   assertEquals(d.estProceedsCents, ebayNetProceedsCents(1200));
-  // 13.25% of $12 is $1.59; the fixed $0.40 is another 3.3% of the sale on top.
-  assertEquals(d.estProceedsCents, 1200 - (Math.ceil(1200 * 0.1325) + 40));
+  // 13.6% of $12 is $1.64; the fixed $0.40 is another 3.3% of the sale on top.
+  // Rate corrected from 0.1325 under US-9003 — see the note on EBAY_FEE_RATE.
+  assertEquals(d.estProceedsCents, 1200 - (Math.ceil(1200 * 0.136) + 40));
 });
 
 Deno.test("negative margin → skip", () => {

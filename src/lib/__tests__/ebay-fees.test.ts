@@ -24,6 +24,7 @@ import {
   ebayNetProceeds,
   ebayNetProceedsCents,
 } from "../ebay-fees";
+import { finalValueFee } from "../ebay-fee-schedule";
 
 const CANONICAL = resolve(process.cwd(), "src/lib/ebay-fees.ts");
 const EDGE_MIRROR = resolve(
@@ -61,9 +62,27 @@ describe("edge mirror stays in sync (US-2325)", () => {
 
 describe("the fee model itself", () => {
   it("charges the rate AND the fixed per-order fee", () => {
-    // $100 → $13.25 + $0.40. Dropping either term is the bug that shipped.
-    expect(ebayFeesFor(100)).toBeCloseTo(13.25 + 0.4, 10);
-    expect(ebayNetProceeds(100)).toBeCloseTo(100 - 13.65, 10);
+    // $100 → $13.60 + $0.40. Dropping either term is the bug that shipped.
+    expect(ebayFeesFor(100)).toBeCloseTo(13.6 + 0.4, 10);
+    expect(ebayNetProceeds(100)).toBeCloseTo(100 - 14.0, 10);
+  });
+
+  it("uses the apparel rate eBay actually publishes (US-9003)", () => {
+    // Corrected from 0.1325, which is the Coins & Paper Money and trading-card
+    // rate, not apparel. Read off eBay id=4822 on 2026-08-18; the working is in
+    // docs/seo/ebay-fee-schedule-CONFIRMED.csv. Asserted as a literal here on
+    // purpose: this is the number the whole model rests on, and a test that
+    // reads it back from the constant would have passed on the wrong one too.
+    expect(EBAY_FEE_RATE).toBe(0.136);
+    expect(EBAY_FEE_SOURCE.lastVerified).toBe("2026-08");
+  });
+
+  it("agrees with the public calculator on the headline apparel rate", () => {
+    // src/lib/ebay-fee-schedule.ts models every category shape and store tier
+    // and is NOT mirrored to the edge; this blended model is. They are allowed
+    // to differ in detail and must not differ on the number a seller sees most.
+    const onOneHundred = finalValueFee(100, "apparel", "none").amount;
+    expect(onOneHundred).toBeCloseTo(100 * EBAY_FEE_RATE, 10);
   });
 
   it("the fixed fee matters most on cheap items", () => {
@@ -85,8 +104,8 @@ describe("the fee model itself", () => {
   });
 
   it("rounds the cents fee UP, against the seller's optimism", () => {
-    // 1234 * 0.1325 = 163.505 → 164, + 40 fixed = 204.
-    expect(ebayNetProceedsCents(1234)).toBe(1234 - (164 + 40));
+    // 1234 * 0.136 = 167.824 → 168, + 40 fixed = 208.
+    expect(ebayNetProceedsCents(1234)).toBe(1234 - (168 + 40));
   });
 
   it("agrees with the dollar path", () => {

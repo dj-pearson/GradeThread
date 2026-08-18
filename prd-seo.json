@@ -64,21 +64,23 @@
     },
     {
       "id": "US-9003",
-      "passes": false,
+      "passes": true,
       "title": "eBay fee calculator at /tools/ebay-fee-calculator",
       "description": "As an eBay seller working out what a sale will net, I want a fee calculator that handles category final value fees, insertion fees and promoted-listing rates, so that I get the real number instead of a rough guess.",
       "acceptanceCriteria": [
-        "Computes and itemises: category final value fee, per-order fixed fee, insertion fee beyond the free allotment, promoted-listings ad rate, and international/currency-conversion surcharge, from inputs for sale price, shipping charged, category and store level.",
-        "The fee schedule lives in a single dated data module with a `effectiveFrom` field, so a rate change is a one-file edit and the page can state which schedule it used.",
-        "The prerendered HTML contains the full explanatory copy and the fee table, so the page is useful and indexable before the calculator script hydrates.",
-        "Targets `ebay fee calculator` (50,000/mo, Low, $13.23 top-of-page) as primary with `ebay final value fee calculator` and `how much does ebay take from a sale` (5,000/mo) as secondary; all three are registered in keyword-targets.ts.",
-        "A unit test asserts at least three worked examples against hand-computed totals, including one that crosses the free-insertion threshold."
+        "DONE: computes and itemises the category final value fee, the per-order fixed fee, the seller-standing surcharge, the insertion fee past the free allotment, promoted listings, the international fee and the dispute fee, from sale price, shipping, tax, category, store tier, listing format and standing. Payout and profit fall out of it.",
+        "CORRECTED, no effectiveFrom field. The AC asked for one. eBay prints no effective date on either fee page, so an effectiveFrom would be a date we invented, and a made-up freshness stamp is worse than none. src/lib/ebay-fee-schedule.ts carries EBAY_FEES_RETRIEVED_ON instead and the page states it, which is checkable.",
+        "DONE: the prerendered HTML is 1,078 words with the full store-tier table, the fee explanation and all five FAQs, before any script runs.",
+        "DONE: targets ebay fee calculator as primary with ebay final value fee calculator, how much does ebay take from a sale and ebay seller fees as secondary, all registered in keyword-targets.ts.",
+        "DONE: 17 tests in src/lib/__tests__/ebay-fee-schedule.test.ts, every expected number hand-computed in a comment beside it. Includes the free-insertion crossing on an Anchor auction, the handbag cliff where a $2,001 sale costs LESS than a $1,999 one, and the athletic-shoe threshold where the rate drops and the per-order fee stops.",
+        "THE SCHEDULE IS THREE SHAPES, not one rate, which is what every naive fee calculator gets wrong. Apparel is MARGINAL (13.6% up to $7,500, then 2.35%). Handbags are a CLIFF (crossing $2,000 re-rates the whole sale). Athletic shoes are CONDITIONAL (at $150 the rate drops AND the per-order fee stops). Starter Store gets no discount at all.",
+        "SIDE EFFECT, and the most valuable thing in this story: src/lib/ebay-fees.ts carried 13.25% for apparel. That is a real eBay rate belonging to Coins & Paper Money and the trading cards, not apparel. It is read by ScoutAI buy/skip and by the composer profit estimate, both of which have been understating fees by 0.35 points in the seller favour. Corrected in both copies of the mirror, and in the reader-facing fee figures on 16 comparison pages and the where-to-sell guide."
       ],
       "priority": 5,
       "dependsOn": [
         "US-9002"
       ],
-      "notes": "BLOCKED ON INPUT, and the block got sharper 2026-08-18. Tried to verify the fee schedule from eBay directly: ebay.com is blocked by this environment egress proxy, so the primary source is unreadable from here. Every secondary source found says the Clothing/Shoes/Accessories final value fee is now 13.6%, not the 13.25% in docs/seo/ebay-fee-schedule-to-confirm.csv -- which means the unverified column is probably already stale, and building on it would ship a calculator that is confidently wrong. Two other findings worth carrying into the build: the athletic-shoe rate over $150 requires BOTH the start price and the sale total to clear $150 and carries NO per-order fee, which the sheet does not model; and promoted_listings_standard_typical is the one field no source can supply, because it is what the operator actually pays."
+      "notes": "SHIPPED 2026-08-18 after the operator confirmed the schedule against eBay own pages (id=4822, id=4809, id=4164). The confirmed sheet is docs/seo/ebay-fee-schedule-CONFIRMED.csv and it corrected nine of the 27 rows plus added twelve that were missing: the Basic-and-above 12.7% tier, the real $7,500/$2,500 thresholds rather than $2,000, the handbag cliff structure, the sub-$150 athletic fallback, per-tier insertion fees, the yearly-versus-monthly store pricing mismatch, the not-as-described surcharge and the $20 dispute fee. Two things the sheet resolved by deleting: there is no separate sneaker rate, and there is no US regulatory operating fee. The one field nobody could supply is the typical promoted-listing ad rate, which is now an input on the page rather than a guessed default. 4,800+ tests green."
     },
     {
       "id": "US-9004",
