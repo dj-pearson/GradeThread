@@ -170,6 +170,14 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/tools/authenticity-check": "2026-07-09",
   // Free fit-checker tool (US-1780).
   "/tools/fit-checker": "2026-07-09",
+  // The calculator family (US-9002). These three were missing until 2026-08-18
+  // and were therefore claiming DEFAULT_LAST_MODIFIED, a 2026-06-01 that predates
+  // the pages existing. calculatorRoutes() generates the PUBLIC_ROUTES entries,
+  // and this map is deliberately NOT generative, so a generated route family
+  // still needs a hand-written date per member. That asymmetry is the trap.
+  "/tools/calculators": "2026-08-18",
+  "/tools/measurement-converter": "2026-08-18",
+  "/tools/ebay-fee-calculator": "2026-08-18",
   // Brand-partner pitch landing (US-1788).
   "/for-brands": "2026-07-09",
   // Legal pages mirror their rendered effectiveDate. Keep each entry in sync

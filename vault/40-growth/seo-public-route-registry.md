@@ -9,7 +9,7 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-17
+reviewed: 2026-08-18
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
@@ -83,6 +83,20 @@ stays red after you "fixed" it.
 >
 > Adding a competitor is therefore a step 7 that has TWO files now. The test is
 > what stops the second one being forgotten.
+
+> [!note] A GENERATED route family still needs hand-written dates (US-9002, 2026-08-18)
+> The calculator family is the first one where `PUBLIC_ROUTES` entries are
+> produced by a generator (`calculatorRoutes()`), and `entry-server.tsx` builds
+> BOTH its maps from the same `liveCalculators()` list, so step 5 cannot drift
+> for it. Step 4 can, and did: `ROUTE_LAST_MODIFIED` is not generative, and all
+> three calculator routes shipped without an entry. They spent their first day
+> advertising `DEFAULT_LAST_MODIFIED` — a 2026-06-01 that predates the pages
+> existing — in the sitemap and the manifest, exactly as step 4 warns.
+>
+> Nothing failed. The sync guard compares `PAGES` to `ROUTE_PAGE_MODULES` and
+> never looks at the date map, so a generated family reads as fully wired while
+> half of step 4 is missing. **When a route family is generated, check the date
+> map by hand**; the generator does not reach it.
 
 > [!note] The admin-subtree split does not affect this contract (US-2112)
 > `src/routes/index.tsx` handed its `/admin/*` subtree to
