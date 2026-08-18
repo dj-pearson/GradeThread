@@ -168,7 +168,14 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         // through to `.forbidden`, which rendered the right sentence by
         // accident and gave the app no way to act on it once.
         if statusCode == 403, payload?.discriminator == "workspace_mfa_required" {
-            return .workspaceMfaRequired(detail: detail)
+            // Deliberately NOT `detail`, which falls back to `bodyPreview` — the
+            // RAW RESPONSE BODY. The fallback sentence on this case was written
+            // for an older edge that sends only the code, and with `detail` it
+            // could never fire: that edge would have put the literal
+            // `{"error_code":"workspace_mfa_required"}` in front of a seller
+            // instead. Only a real sentence counts here; nil hands the case its
+            // own copy. Found by the fallback test failing, not by reading.
+            return .workspaceMfaRequired(detail: payload?.detail ?? payload?.error)
         }
         // US-1510: capability gates. Keyed on the discriminator (not just the
         // status) so the mapping survives a future status tweak on the edge.

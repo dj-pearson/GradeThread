@@ -256,6 +256,12 @@ final class EdgeAPITests: XCTestCase {
 
     // ...but an older edge that sends only the code must not produce an empty
     // alert, so the fallback is the same sentence web falls back to.
+    //
+    // This case FAILED on its first run, and it was right to. The shared
+    // `detail` in `from` ends in `bodyPreview`, which is the raw response body —
+    // so the fallback could never fire, and the alert would have shown a seller
+    // the literal `{"error_code":"workspace_mfa_required"}`. The mapping now
+    // takes only a real sentence.
     func test_workspaceMfaRequired_fallsBackWhenTheEdgeSendsOnlyTheCode() {
         let body = Data(#"{"error_code":"workspace_mfa_required"}"#.utf8)
         let mapped = EdgeAPIError.from(statusCode: 403, body: body)
