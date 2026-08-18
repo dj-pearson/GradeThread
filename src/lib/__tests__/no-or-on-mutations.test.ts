@@ -93,21 +93,78 @@ export function chainFrom(src: string, mutationIdx: number): string {
   return src.slice(mutationIdx, Math.min(i + 1, src.length));
 }
 
+/**
+ * Byte ranges of every comment in a file, string-aware. Exported for its test.
+ *
+ * WHY THIS EXISTS, and it is chainFrom's own lesson from the other direction.
+ * chainFrom skips comments it MEETS during the walk, but the walk's STARTING
+ * point came from a raw regex over the whole file - so a `.update(` written in
+ * PROSE started a chain inside a comment, which then ran forward until it found
+ * an unrelated `.or(` and reported a hit.
+ *
+ * Not hypothetical: mutation-qualifier-guard_test.ts (US-2668) documents the
+ * sibling rule and necessarily writes those method names, and `.or()`, in its
+ * own header. One guard's prose failed another guard, and it sat red on main.
+ *
+ * A false POSITIVE is how a guard gets disabled - so this refuses to START in a
+ * comment rather than blanking comments out of the source, which would shift
+ * every index and break the line numbers the report depends on.
+ */
+export function commentRanges(src: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let quote: string | null = null;
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i]!;
+    if (quote) {
+      if (c === quote && src[i - 1] !== "\\") quote = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") { quote = c; continue; }
+    if (c === "/" && src[i + 1] === "/") {
+      const nl = src.indexOf(String.fromCharCode(10), i);
+      const end = nl === -1 ? src.length : nl;
+      ranges.push([i, end]);
+      i = end;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      const close = src.indexOf("*/", i + 2);
+      const end = close === -1 ? src.length : close + 2;
+      ranges.push([i, end]);
+      i = end - 1;
+      continue;
+    }
+  }
+  return ranges;
+}
+
+/** Is this index inside one of those ranges? Ranges are produced in order. */
+export function inRanges(idx: number, ranges: ReadonlyArray<[number, number]>): boolean {
+  for (const [a, b] of ranges) {
+    if (a > idx) return false;
+    if (idx < b) return true;
+  }
+  return false;
+}
+
 interface Hit {
   file: string;
   line: number;
   snippet: string;
 }
 
-function findHits(entries: Array<{ file: string; text: string }>): Hit[] {
+export function findHits(entries: Array<{ file: string; text: string }>): Hit[] {
   const hits: Hit[] = [];
   for (const { file, text } of entries) {
     const rel = relative(ROOT, file).split(sep).join("/");
     if (rel === "src/lib/__tests__/no-or-on-mutations.test.ts") continue;
 
+    const comments = commentRanges(text);
     for (const m of text.matchAll(
       new RegExp(`\\.(${MUTATIONS.join("|")})\\s*\\(`, "g"),
     )) {
+      // A `.update(` in PROSE is not a mutation. See commentRanges above.
+      if (inRanges(m.index!, comments)) continue;
       // A supabase chain is one statement, so the chain has to END somewhere —
       // but "slice to the first semicolon" ends it in the WRONG place when an
       // earlier argument contains one inside a string literal
@@ -162,4 +219,40 @@ describe("US-1552: no .or() on a supabase mutation", () => {
         hits.map((h) => `${h.file}:${h.line}  ${h.snippet}`).join("\n  "),
     ).toEqual([]);
   }, SCAN_TIMEOUT_MS);
+});
+
+describe("US-1552: the scan does not start inside a comment", () => {
+  // The regression that put this file red on main: mutation-qualifier-guard_test.ts
+  // (US-2668) documents the sibling rule, so its header necessarily writes the
+  // mutation method names and `.or()` as PROSE. The walk started there and ran
+  // forward to an unrelated `.or(`. One guard's comment failed another guard.
+  it("finds line and block comments, and ignores them inside strings", () => {
+    const src = [
+      'const a = "// not a comment";',
+      "// a real one",
+      "const b = `/* also not one */`;",
+      "/* a real block */",
+    ].join("\n");
+    const ranges = commentRanges(src);
+    expect(ranges.length, `expected exactly the two real comments: ${JSON.stringify(ranges)}`).toBe(2);
+    expect(src.slice(ranges[0]![0], ranges[0]![1])).toBe("// a real one");
+    expect(src.slice(ranges[1]![0], ranges[1]![1])).toBe("/* a real block */");
+  });
+
+  it("a mutation written in prose is not a hit, but the same line of code is", () => {
+    const prose = '/** documents `.update(` then later `.or(` */\nexport const x = 1;\n';
+    const code = 'await sb.from("t").update({ a: 1 }).or("x.eq.1");\n';
+    const proseHits = findHits([{ file: `${ROOT}/fake-prose.ts`, text: prose }]);
+    const codeHits = findHits([{ file: `${ROOT}/fake-code.ts`, text: code }]);
+    expect(proseHits, "prose must not be a hit").toEqual([]);
+    expect(codeHits.length, "real code must still be caught — a guard that stops firing is worse than none").toBe(1);
+  });
+
+  it("inRanges is inclusive of the start and exclusive of the end", () => {
+    const r: Array<[number, number]> = [[10, 20]];
+    expect(inRanges(9, r)).toBe(false);
+    expect(inRanges(10, r)).toBe(true);
+    expect(inRanges(19, r)).toBe(true);
+    expect(inRanges(20, r)).toBe(false);
+  });
 });

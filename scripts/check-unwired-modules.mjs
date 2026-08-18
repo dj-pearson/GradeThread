@@ -55,12 +55,13 @@ export const ALLOWED_DEAD_MODULES = {
     "grading non-clothing) needs a golden set that does not exist yet. Its " +
     "client mirror src/lib/rubrics.ts IS live, and a shared behavioural " +
     "fixture pins the two.",
-  "size-systems.ts":
-    "PENDING, deliberately, and its own story says so. US-2215 landed the " +
-    "size-system dimension and the corpus-derived conversion layer, and its " +
-    "notes state plainly that NOTHING READS THESE COLUMNS YET — putting a " +
-    "converted size on a certificate is a later step that must go through the " +
-    "trusted-block discipline first.",
+  // size-systems.ts came OFF this list on 2026-08-17 (US-2215): the reading half
+  // shipped. usEquivalentForLabel is called from grading-size.ts's
+  // sizeVerificationLine, which is the trusted block the old entry said a
+  // converted size would have to go through first — so it went through it, and
+  // the entry stopped being true. Left as a comment rather than deleted
+  // silently, so the next reader sees a module that graduated rather than a
+  // name that quietly vanished.
   "brand-seed.ts":
     "PENDING. The brand-KB seeding gate; see shipped-but-unwired.md for why it " +
     "could never have run as written.",
