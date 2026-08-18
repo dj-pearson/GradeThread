@@ -63,7 +63,19 @@ function fail(msg) {
 function countMatches(s, re) {
   return (s.match(re) ?? []).length;
 }
-function validateHeadIntegrity(html, body, routePath) {
+// US-9007: an inline <svg> may carry its own <title>, and it means something
+// completely different — it is the accessible name of the drawing, the SVG
+// equivalent of an alt attribute. This guard is looking for a HEAD title that
+// leaked into the body, so it has to stop counting the ones inside SVG or the
+// only way to draw an accessible diagram is to make it inaccessible. Stripping
+// the whole element is deliberate: <desc>, <text> and everything else inside an
+// SVG are body content this guard has no business reading either.
+function withoutSvg(html) {
+  return html.replace(/<svg[\s\S]*?<\/svg>/gi, "");
+}
+function validateHeadIntegrity(rawHtml, rawBody, routePath) {
+  const html = withoutSvg(rawHtml);
+  const body = withoutSvg(rawBody);
   const titles = countMatches(html, /<title[\s>]/gi);
   if (titles !== 1) {
     fail(`${routePath}: expected exactly 1 <title>, found ${titles}.`);

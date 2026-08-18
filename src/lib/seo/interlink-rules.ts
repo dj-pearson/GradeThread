@@ -120,23 +120,35 @@ export const APPROVED_ANCHORS: Record<string, readonly string[]> = {
   ],
   // US-2113: the comparison cluster shipped 16 pages (comparison-guides.ts) and
   // none of them could be linked to, because the interlinker only emits a body
-  // link when its target has anchors here. The hub plus the two highest-volume
-  // pairs get entries; the other 13 are reachable from the hub, which is what a
-  // hub is for. Adding all 16 would spread anchor rotation thin for no gain.
+  // link when its target has anchors here. The hub plus two pairs get entries;
+  // the other 14 are reachable from the hub, which is what a hub is for. Adding
+  // all 16 would spread anchor rotation thin for no gain.
+  //
+  // US-9008, 2026-08-18: WHICH two changed. The budget went to
+  // poshmark-vs-mercari and mercari-vs-ebay as "the two highest-volume pairs",
+  // picked from Keyword Planner volume before the site had any data of its own.
+  // Ten weeks of Search Console says those are the two pages that cannot rank:
+  // position 44.8 on 10 impressions and 39 on 2. Every pair naming eBay,
+  // Poshmark, Mercari or Depop sits at 20-45; every pair naming Grailed or
+  // Vinted sits in the top 11. Same template, same publish date, and the two
+  // losers are the only two that had internal links — so the variable is which
+  // platforms are named, not the pages. Internal authority is worth spending
+  // where it can cross a threshold, which is a page at 8.5 or 11.0, not one at
+  // 44.8.
   "/compare": [
     "compare the resale marketplaces",
     "which marketplace to list on",
     "the marketplace comparison guides",
   ],
-  "/compare/poshmark-vs-mercari": [
-    "Poshmark vs Mercari",
-    "how Poshmark and Mercari compare",
-    "the Poshmark and Mercari fee comparison",
+  "/compare/vinted-vs-mercari": [
+    "Vinted vs Mercari",
+    "how Vinted and Mercari compare",
+    "the Vinted and Mercari fee comparison",
   ],
-  "/compare/mercari-vs-ebay": [
-    "Mercari vs eBay",
-    "how Mercari and eBay compare",
-    "the Mercari and eBay fee comparison",
+  "/compare/grailed-vs-poshmark": [
+    "Grailed vs Poshmark",
+    "how Grailed and Poshmark compare",
+    "the Grailed and Poshmark fee comparison",
   ],
 };
 

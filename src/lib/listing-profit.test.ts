@@ -18,11 +18,12 @@ describe("estimateListingProfit", () => {
 
   it("applies the default eBay fee + fixed fee and cost basis", () => {
     const r = estimateListingProfit({ price: 100, costBasis: 20 });
-    // 100 * 0.1325 + 0.40 = 13.65 fees; costs 20; net 66.35
-    expect(r.fees).toBeCloseTo(13.65, 2);
+    // 100 * 0.136 + 0.40 = 14.00 fees; costs 20; net 66.00.
+    // Rate corrected from 0.1325 under US-9003 — see the note on EBAY_FEE_RATE.
+    expect(r.fees).toBeCloseTo(14.0, 2);
     expect(r.costs).toBe(20);
-    expect(r.net).toBeCloseTo(66.35, 2);
-    expect(r.marginPct).toBeCloseTo(66.35, 2);
+    expect(r.net).toBeCloseTo(66.0, 2);
+    expect(r.marginPct).toBeCloseTo(66.0, 2);
   });
 
   it("folds in grading + shipping costs", () => {

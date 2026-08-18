@@ -103,9 +103,9 @@ export const PLATFORM_STANDARDS: PlatformStandard[] = [
   {
     slug: "ebay",
     name: "eBay",
-    title: "eBay Condition Standards, Mapped",
+    title: "eBay Conditions: Which One Avoids Returns",
     description:
-      "How eBay's item conditions map to a 1.0–10.0 condition grade, what triggers a 'not as described' return on eBay, and listing copy per grade.",
+      "How eBay's item conditions map to a 1.0–10.0 grade, what triggers a not-as-described return, and the listing copy that matches the condition you picked.",
     h1: "eBay condition standards mapped to the 1.0–10.0 scale",
     definition:
       "eBay uses a fixed set of item conditions — New, New other, and the Used tiers (Excellent, Very Good, Good, Acceptable) for pre-owned clothing. Each maps cleanly onto a band of the GradeThread 1.0–10.0 scale, so an objective grade tells you exactly which eBay condition to select and backs it up.",
@@ -187,9 +187,9 @@ export const PLATFORM_STANDARDS: PlatformStandard[] = [
   {
     slug: "depop",
     name: "Depop",
-    title: "Depop Condition Standards, Mapped",
+    title: "Depop Conditions: Which to Pick, and Why",
     description:
-      "How Depop condition wording (Brand new to Used–fair) maps to a 1.0–10.0 grade, what triggers a Depop Buyer Protection claim, and listing copy per grade.",
+      "How Depop's wording (Brand new down to Used–fair) maps to a 1.0–10.0 grade, what triggers a Buyer Protection claim, and the listing copy for each grade.",
     h1: "Depop condition standards mapped to the 1.0–10.0 scale",
     definition:
       "Depop uses a short condition list — Brand new, Like new, Used – excellent, Used – good, Used – fair. Each maps to a band of the GradeThread 1.0–10.0 scale, so a grade removes the guesswork from which Depop condition to choose.",

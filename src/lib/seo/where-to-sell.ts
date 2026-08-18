@@ -35,7 +35,7 @@ export const SELLING_VENUES: SellingVenue[] = [
     name: "eBay",
     bestFor: "brands, vintage, and anything with resale demand — the widest reach",
     effort: "High",
-    economics: "~13% fee for apparel; you set price and shipping",
+    economics: "13.6% fee for apparel plus $0.40 an order; you set price and shipping",
     pro: "Largest buyer pool and the best prices for desirable items",
     con: "Most listing effort and the strictest seller standards",
   },
@@ -123,7 +123,7 @@ export const WHERE_TO_SELL = {
   criteria: [
     { name: "What you're selling", text: "Desirable brands, vintage, and designer earn the most on eBay, Depop, Grailed, or luxury consignment. Everyday mid-market clothing does fine on Mercari or Vinted and often isn't worth the fees elsewhere." },
     { name: "How much effort you'll put in", text: "Listing each item yourself (photos, description, shipping) earns the most. Bag-it-and-mail-it consignment earns the least but takes almost no time. Be honest about which you'll actually do." },
-    { name: "Fees and payout", text: "Fees range from zero seller fee (Vinted) to ~13% (eBay) to a large consignment cut. Faster, predictable payouts matter if you need the cash soon." },
+    { name: "Fees and payout", text: "Fees range from zero seller fee (Vinted) to 13.6% (eBay) to a large consignment cut. Faster, predictable payouts matter if you need the cash soon." },
     { name: "Condition and returns", text: "Condition is the #1 cause of 'not as described' returns everywhere. Describing it accurately — ideally with a verifiable grade — is what keeps a sale from bouncing back." },
   ],
   faqs: [

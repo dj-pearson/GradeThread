@@ -106,9 +106,9 @@ export const RESELLER_TERMS: ResellerTerm[] = [
     term: "VGUC",
     alternateNames: ["Very Good Used Condition"],
     group: "condition-lingo",
-    title: "VGUC Meaning (Very Good Used Condition)",
+    title: "VGUC: What It Means and What It's Worth",
     description:
-      "VGUC means Very Good Used Condition — light, even wear that doesn't affect look or function. What it means and how it maps to a 1–10 grade.",
+      "VGUC means Very Good Used Condition, but sellers use it loosely. What VGUC really covers, where it lands on a 1–10 grade, and what to check before you buy.",
     h1: "What does VGUC mean?",
     definition:
       "VGUC stands for Very Good Used Condition. It describes a pre-owned garment with light, even wear consistent with occasional use: maybe slight softening of the fabric or very minor pilling, but no holes, stains, odor, or broken hardware. On the GradeThread scale it anchors a 7 out of 10.",
@@ -628,9 +628,9 @@ export const RESELLER_TERMS: ResellerTerm[] = [
     term: "INR",
     alternateNames: ["Item Not Received"],
     group: "marketplace",
-    title: "INR Meaning (Item Not Received)",
+    title: "INR Claims: When a Buyer Says It Never Arrived",
     description:
-      "INR means Item Not Received — a buyer claim that a paid order never arrived. What INR is, how it differs from SNAD, and why tracking matters.",
+      "INR means Item Not Received. How an INR claim differs from SNAD, what tracking actually proves, and how to respond so you are not the one eating the loss.",
     h1: "What does INR mean?",
     definition:
       "INR stands for Item Not Received, a buyer claim that a paid-for order never arrived. Unlike SNAD, it's about delivery, not condition. Sellers protect themselves with tracked shipping and proof of delivery, since marketplaces side with buyers when there's no tracking. INR is a fulfillment dispute and has nothing to do with an item's grade.",
@@ -1123,9 +1123,9 @@ export function resellerTermsByGroup(): Array<{
 export function resellerGlossaryRoutes(): PublicRoute[] {
   const hub: PublicRoute = {
     path: RESELLER_GLOSSARY_HUB_PATH,
-    title: "Reseller Condition Glossary",
+    title: "Reseller Condition Terms, Mapped to a Grade",
     description:
-      "The reseller's glossary of clothing condition vocabulary — EUC, VGUC, NWT vs NWOT, death pile, comps, SNAD and more, each mapped to a 1–10 grade.",
+      "EUC, VGUC, NWT vs NWOT, SNAD, death pile, comps. Every reseller condition term, what it actually covers, and where it lands on a 1–10 grade.",
     changefreq: "monthly",
     priority: 0.7,
     jsonLdType: "DefinedTermSet",

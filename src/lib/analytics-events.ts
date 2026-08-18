@@ -58,6 +58,16 @@ export const ANALYTICS_EVENTS = {
   "authenticity_checker_cta_click": "A conversion control on an authenticity result was pressed.",
   "verify_lookup": "A certificate id was looked up on the verify page.",
 
+  // ── Marketplace comparison handoff (US-9018) ──────────────────────────────
+  // The two migration sections on /compare/{a}-vs-{b} answer "how do I move my
+  // listings from X to Y" — 13 queries and 202 impressions of intent that had
+  // no next step. This records the click on that next step, NOT the migration
+  // happening. Properties are `source` (the comparison slug) and `destination`,
+  // the same pair US-9010 uses for the calculator handoff, so both funnels read
+  // off one property shape.
+  "comparison_crosslist_cta_click":
+    "A comparison page handed off to the FlipDesk crosslisting page.",
+
   // ── Garment passport ──────────────────────────────────────────────────────
   "passport_scan_lookup": "A passport code was scanned or looked up.",
   "passport_view_cta_clicked": "The view control on a passport was pressed.",

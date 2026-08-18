@@ -5,6 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarketingLayout, MarketingCTA } from "@/components/marketing/marketing-layout";
 import {
+  BottomMeasurementDiagram,
+  TopMeasurementDiagram,
+} from "@/components/marketing/measurement-diagram";
+import {
   MEASUREMENT_HOWTO,
   MENS_TOP_SIZES,
   MENS_TO_WOMENS_TOP,
@@ -155,8 +159,13 @@ export function MeasurementConverterPage() {
           <p className="mt-2 text-muted-foreground">
             These are the same definitions GradeThread uses when it records measurements on an
             item, so a number here and a number in a GradeThread listing mean the same thing.
+            Pick a measurement above and it lights up on the diagram.
           </p>
-          <dl className="mt-6 space-y-6">
+          <div className="mt-8 flex flex-wrap justify-center gap-10">
+            <TopMeasurementDiagram highlight={key} />
+            <BottomMeasurementDiagram highlight={key} />
+          </div>
+          <dl className="mt-10 space-y-6">
             {MEASUREMENT_HOWTO.map((m) => (
               <div key={m.key}>
                 <dt className="font-medium">{m.label}</dt>

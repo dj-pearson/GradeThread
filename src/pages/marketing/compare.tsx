@@ -1,6 +1,7 @@
 import { Link, useParams } from "react-router";
-import { ArrowRight, ShieldCheck } from "lucide-react";
+import { ArrowRight, Repeat2, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { track } from "@/lib/analytics";
 import {
   MarketingLayout,
   MarketingCTA,
@@ -164,6 +165,46 @@ export function ComparisonPage({ slug: slugProp }: { slug?: string }) {
           </div>
         </section>
       ))}
+
+      {/* US-9018: the migration handoff. The two sections directly above answer
+          "how do I move my listings from X to Y", which is the intent 13 queries
+          and 202 impressions arrive with and which no page on the site had a
+          next step for. This is that next step, placed after the answer rather
+          than before it. */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl rounded-xl border p-6">
+          <h2 className="flex items-center gap-2 text-2xl font-bold">
+            <Repeat2 className="h-6 w-6 text-brand-red-text" />
+            Moving more than a handful of listings?
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            Relisting by hand is fine for ten items and painful past twenty, and
+            the expensive part is not the typing. It is the item that sells on{" "}
+            {cmp.platformA} and stays live on {cmp.platformB}, which becomes a
+            cancelled order and a hit to your metrics. FlipDesk lists once,
+            publishes to both, and pulls the listing everywhere the moment it
+            sells — with the condition grade carried across, so the wording
+            change between platforms does not turn a clean relist into a
+            not-as-described case.
+          </p>
+          <div className="mt-5">
+            <Link
+              to="/flipdesk/crosslisting"
+              onClick={() =>
+                track("comparison_crosslist_cta_click", {
+                  source: cmp.slug,
+                  destination: "flipdesk-crosslisting",
+                })
+              }
+            >
+              <Button size="sm">
+                How FlipDesk crosslisting works
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {/* Verdict */}
       <section className="border-t px-6 py-16">

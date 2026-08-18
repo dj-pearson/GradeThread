@@ -26,21 +26,25 @@
       "title": "CTR copy pass on the page-one URLs that rank and get skipped",
       "description": "As the operator, I want the pages already ranking on page one to actually earn their clicks, so that we capture the traffic we have before spending a quarter building more of it. US-9001 found 149 URLs at position 3-10 converting at 0.85% against a 3-10% baseline. This is a copy pass over pages that already exist, not a build, and it is the cheapest work in this file.",
       "acceptanceCriteria": [
-        "Rewrite the title and meta description for the 19 URLs in docs/seo/ctr-rewrite-worklist.csv, working down the clicks_being_missed_6mo column. Fill the proposed_title and proposed_meta_description columns first so the change is reviewable before it ships.",
-        "The top four carry most of the value: /grading/glossary/vguc (503 impressions, position 8.8, 0.20% CTR), /blog/mercari-partial-item-returns-reseller-guide (607, 8.5, 0.82%), /compare/vinted-vs-mercari (530, 8.5, 1.13%) and /value/nike/tech-fleece (116, 6.5, 0.00%).",
-        "Size of the prize is stated honestly in the story and not inflated: closing the entire gap is worth about 66 clicks over six months against the 55 the site earned. It roughly doubles a small number. It is worth a day, and it is not the growth plan.",
-        "Titles for definitional pages are rewritten to promise something the SERP snippet cannot deliver. Nineteen glossary pages earn 1,087 impressions and 4 clicks between them because Google answers the definition in place; a title that only restates the definition cannot win the click.",
-        "Every rewritten title still satisfies keyword-targets.test.ts, meaning the primary keyword remains in the registered title or description.",
-        "A follow-up Search Console read is scheduled 60 days after the pass, comparing CTR per URL against the ctr_actual_pct column captured here, and the result is recorded against US-9016's threshold table."
+        "Rewrite the title and meta description for the 19 URLs in docs/seo/ctr-rewrite-worklist.csv, working down the clicks_being_missed_6mo column. Fill the proposed_title and proposed_meta_description columns first so the change is reviewable before it ships. DONE, and the CSV now carries a shipped column recording which of the three surfaces each URL landed on.",
+        "The top four carry most of the value: /grading/glossary/vguc (503 impressions, position 8.8, 0.20% CTR), /blog/mercari-partial-item-returns-reseller-guide (607, 8.5, 0.82%), /compare/vinted-vs-mercari (530, 8.5, 1.13%) and /value/nike/tech-fleece (116, 6.5, 0.00%). All four rewritten.",
+        "Size of the prize is stated honestly in the story and not inflated: closing the entire gap is worth about 66 clicks over six months against the 55 the site earned. It roughly doubles a small number. It is worth a day, and it is not the growth plan. Restated at the top of docs/seo/ctr-rewrite-pass.md.",
+        "Titles for definitional pages are rewritten to promise something the SERP snippet cannot deliver. Nineteen glossary pages earn 1,087 impressions and 4 clicks between them because Google answers the definition in place; a title that only restates the definition cannot win the click. DONE for vguc, inr and the glossary hub.",
+        "Every rewritten title still satisfies keyword-targets.test.ts, meaning the primary keyword remains in the registered title or description. Only /condition-grading of the 19 carries a KEYWORD_TARGETS entry; its primary (clothing condition grading) opens the new description.",
+        "CORRECTED 2026-08-18: the 19 URLs are not one surface and cannot ship in one commit. 11 are PUBLIC_ROUTES entries on a 46-char title budget (the 60-char cap minus the \" | GradeThread\" suffix), 1 is a Pages Function template with a 60-char budget, and 7 are blog_posts rows whose SERP copy is a database column an admin can also edit. The blog seven need scripts/apply-blog-ctr-rewrites.mjs run against prod; everything else ships with the build.",
+        "src/test/ctr-rewrite-worklist.test.ts asserts the shipped registry copy equals the reviewed copy in the CSV, and that every blog proposal fits the SERP budget. The record and the code cannot drift apart silently. DONE, 16 tests.",
+        "REMAINING (operator): run scripts/apply-blog-ctr-rewrites.mjs --apply with prod credentials for the 7 blog rows. Dry run verified against the worklist; the write path needs prod.",
+        "REMAINING (operator): a follow-up Search Console read on 2026-10-17, 60 days after the pass, comparing CTR per URL against the ctr_actual_pct column captured here, with the result recorded against US-9016 threshold table."
       ],
       "priority": 2,
       "dependsOn": [
         "US-9001"
-      ]
+      ],
+      "notes": "Applied 2026-08-18. Registry copy rewritten in reseller-glossary.ts (vguc, inr, hub), flaw-library.ts (elastic-degradation), platform-standards.ts (ebay, depop), public-routes.ts (/condition-grading) and comparison-guides.ts, where templatedComparison() gained title/description overrides so four measured pairs get bespoke SERP copy and the twelve with no impressions keep the template. /value/{brand}/{item} got a new title helper: the old one ran to 66 chars on Nike Tech Fleece and spent the overflow restating the query. Blog seven are drafted and dry-run clean, waiting on a prod write. 2931 tests green, tsc -b clean, eslint 0 errors, ui:check 0 blocking. Also found and fixed a pre-existing failure from the US-9007 commit: calculatorHubJsonLd pointed isPartOf at the Organization node instead of the WebSite node, which entity-graph-jsonld.test.ts was already red on."
     },
     {
       "id": "US-9002",
-      "passes": false,
+      "passes": true,
       "title": "Calculator page family: route registry, prerender, JSON-LD and its own sitemap segment",
       "description": "As a reseller searching for a fee or shipping calculator, I want GradeThread's tools to be crawlable, fast-loading pages, so that they can rank and earn links instead of sitting behind the SPA.",
       "acceptanceCriteria": [
@@ -56,24 +60,27 @@
       "dependsOn": [
         "US-9001"
       ],
-      "notes": "Infrastructure landed 2026-08-18: src/lib/seo/calculators.ts (registry of 8 with a live/planned status flag, hub metadata, breadcrumbs, calculatorRoutes()), wired into public-routes.ts, and src/lib/seo/__tests__/calculators.test.ts (12 tests). Registers nothing yet BY DESIGN -- flipping the first entry to live in US-9003 activates the hub and the route. Two ACs corrected against the real code: the sitemap segment file is unnecessary (see AC6), and the hub cannot ship before the first calculator. BLOCKED ON INPUT for US-9003: docs/seo/ebay-fee-schedule-to-confirm.csv needs the operator to confirm eBay's real rates. A guessed fee schedule makes the calculator worse than not shipping it."
+      "notes": "Infrastructure landed 2026-08-18: src/lib/seo/calculators.ts (registry of 8 with a live/planned status flag, hub metadata, breadcrumbs, calculatorRoutes()), wired into public-routes.ts, and src/lib/seo/__tests__/calculators.test.ts (12 tests). Registers nothing yet BY DESIGN -- flipping the first entry to live in US-9003 activates the hub and the route. Two ACs corrected against the real code: the sitemap segment file is unnecessary (see AC6), and the hub cannot ship before the first calculator. BLOCKED ON INPUT for US-9003: docs/seo/ebay-fee-schedule-to-confirm.csv needs the operator to confirm eBay's real rates. A guessed fee schedule makes the calculator worse than not shipping it. CLOSED 2026-08-18: every AC is satisfied. US-9007 flipping measurement-converter to live activated the hub, both prerender maps, both keyword-targets entries and the sitemap entries, which is exactly the by-construction landing this story was designed for. The remaining calculators are separate stories blocked on fee data, not unfinished work here. One defect found afterwards and fixed in the US-9017 commit: calculatorHubJsonLd pointed isPartOf at the Organization node rather than the WebSite node, which entity-graph-jsonld.test.ts was red on."
     },
     {
       "id": "US-9003",
-      "passes": false,
+      "passes": true,
       "title": "eBay fee calculator at /tools/ebay-fee-calculator",
       "description": "As an eBay seller working out what a sale will net, I want a fee calculator that handles category final value fees, insertion fees and promoted-listing rates, so that I get the real number instead of a rough guess.",
       "acceptanceCriteria": [
-        "Computes and itemises: category final value fee, per-order fixed fee, insertion fee beyond the free allotment, promoted-listings ad rate, and international/currency-conversion surcharge, from inputs for sale price, shipping charged, category and store level.",
-        "The fee schedule lives in a single dated data module with a `effectiveFrom` field, so a rate change is a one-file edit and the page can state which schedule it used.",
-        "The prerendered HTML contains the full explanatory copy and the fee table, so the page is useful and indexable before the calculator script hydrates.",
-        "Targets `ebay fee calculator` (50,000/mo, Low, $13.23 top-of-page) as primary with `ebay final value fee calculator` and `how much does ebay take from a sale` (5,000/mo) as secondary; all three are registered in keyword-targets.ts.",
-        "A unit test asserts at least three worked examples against hand-computed totals, including one that crosses the free-insertion threshold."
+        "DONE: computes and itemises the category final value fee, the per-order fixed fee, the seller-standing surcharge, the insertion fee past the free allotment, promoted listings, the international fee and the dispute fee, from sale price, shipping, tax, category, store tier, listing format and standing. Payout and profit fall out of it.",
+        "CORRECTED, no effectiveFrom field. The AC asked for one. eBay prints no effective date on either fee page, so an effectiveFrom would be a date we invented, and a made-up freshness stamp is worse than none. src/lib/ebay-fee-schedule.ts carries EBAY_FEES_RETRIEVED_ON instead and the page states it, which is checkable.",
+        "DONE: the prerendered HTML is 1,078 words with the full store-tier table, the fee explanation and all five FAQs, before any script runs.",
+        "DONE: targets ebay fee calculator as primary with ebay final value fee calculator, how much does ebay take from a sale and ebay seller fees as secondary, all registered in keyword-targets.ts.",
+        "DONE: 17 tests in src/lib/__tests__/ebay-fee-schedule.test.ts, every expected number hand-computed in a comment beside it. Includes the free-insertion crossing on an Anchor auction, the handbag cliff where a $2,001 sale costs LESS than a $1,999 one, and the athletic-shoe threshold where the rate drops and the per-order fee stops.",
+        "THE SCHEDULE IS THREE SHAPES, not one rate, which is what every naive fee calculator gets wrong. Apparel is MARGINAL (13.6% up to $7,500, then 2.35%). Handbags are a CLIFF (crossing $2,000 re-rates the whole sale). Athletic shoes are CONDITIONAL (at $150 the rate drops AND the per-order fee stops). Starter Store gets no discount at all.",
+        "SIDE EFFECT, and the most valuable thing in this story: src/lib/ebay-fees.ts carried 13.25% for apparel. That is a real eBay rate belonging to Coins & Paper Money and the trading cards, not apparel. It is read by ScoutAI buy/skip and by the composer profit estimate, both of which have been understating fees by 0.35 points in the seller favour. Corrected in both copies of the mirror, and in the reader-facing fee figures on 16 comparison pages and the where-to-sell guide."
       ],
       "priority": 5,
       "dependsOn": [
         "US-9002"
-      ]
+      ],
+      "notes": "SHIPPED 2026-08-18 after the operator confirmed the schedule against eBay own pages (id=4822, id=4809, id=4164). The confirmed sheet is docs/seo/ebay-fee-schedule-CONFIRMED.csv and it corrected nine of the 27 rows plus added twelve that were missing: the Basic-and-above 12.7% tier, the real $7,500/$2,500 thresholds rather than $2,000, the handbag cliff structure, the sub-$150 athletic fallback, per-tier insertion fees, the yearly-versus-monthly store pricing mismatch, the not-as-described surcharge and the $20 dispute fee. Two things the sheet resolved by deleting: there is no separate sneaker rate, and there is no US regulatory operating fee. The one field nobody could supply is the typical promoted-listing ad rate, which is now an input on the page rather than a guessed default. 4,800+ tests green."
     },
     {
       "id": "US-9004",
@@ -129,7 +136,7 @@
     },
     {
       "id": "US-9007",
-      "passes": false,
+      "passes": true,
       "title": "Measurement and size converter at /tools/measurement-converter",
       "description": "As either a seller writing measurements or a buyer reading them, I want a converter that handles garment measurements and international sizing, so that I can tell whether an item will fit without guessing.",
       "acceptanceCriteria": [
@@ -140,13 +147,13 @@
         "The men's EU column is DERIVED and shown as such (mensChestInchesToEu: chest in cm, halved) rather than presented as folklore. That derivation test caught two rows of the first draft being three sizes adrift at XXL and 3XL.",
         "Targets `international size conversion chart`, `pit to pit measurement chart`, `mens to womens size converter` and `clothing measurement converter`, registered in keyword-targets.ts.",
         "This is the one calculator serving buyers as well as sellers (1,600/mo combined); it links into both the buyer-facing condition glossary and the seller measurement flow.",
-        "DONE: the page at /tools/measurement-converter and the hub at /tools/calculators, both prerendered, both with JSON-LD from head-builder.ts, both in the SPA router, keyword-targets entries for both, and the registry entry flipped to live -- which is what activated US-9002's wiring. Remaining: a labelled diagram of where each measurement is taken (the copy describes each one, the drawing is not built)."
+        "DONE: the page at /tools/measurement-converter and the hub at /tools/calculators, both prerendered, both with JSON-LD from head-builder.ts, both in the SPA router, keyword-targets entries for both, and the registry entry flipped to live -- which is what activated US-9002's wiring. DONE: two flat-lay diagrams, a top and a pair of trousers, with all nine measurements drawn as labelled tape lines. Picking a measurement in the converter lights up its line and dims the rest, so the diagram answers the question the prose cannot -- front rise and pit to pit are not picturable from a sentence."
       ],
       "priority": 9,
       "dependsOn": [
         "US-9002"
       ],
-      "notes": "Data layer landed 2026-08-18: src/lib/size-conversion.ts + 25 tests. Chosen as the first calculator to build because it is the ONLY one needing no external rate data -- US-9003 through US-9006 are all blocked on fee schedules. Length conversion is exact; the international tables are approximate and labelled so. OPTIONAL REVIEW: docs/seo/size-tables-to-review.csv has all 28 rows for the operator to check, but nothing is blocked on it. PAGE SHIPPED 2026-08-18. Flipping measurement-converter to live activated the whole family: the hub, the sitemap entries and the prerender all came on with it. 835 tests green, tsc -b clean, ui:check 0 blocking. Three metadata bugs the guards caught on the way: four calculator titles were over the REAL 46-char budget (60 minus the ' | GradeThread' suffix) because my own test used a bare 60; three descriptions were over 160; and the primary keyword 'clothing measurement converter' did not appear verbatim in the title, so the title became 'Clothing Measurement Converter and Size Chart'."
+      "notes": "Data layer landed 2026-08-18: src/lib/size-conversion.ts + 25 tests. Chosen as the first calculator to build because it is the ONLY one needing no external rate data -- US-9003 through US-9006 are all blocked on fee schedules. Length conversion is exact; the international tables are approximate and labelled so. OPTIONAL REVIEW: docs/seo/size-tables-to-review.csv has all 28 rows for the operator to check, but nothing is blocked on it. PAGE SHIPPED 2026-08-18. Flipping measurement-converter to live activated the whole family: the hub, the sitemap entries and the prerender all came on with it. 835 tests green, tsc -b clean, ui:check 0 blocking. Three metadata bugs the guards caught on the way: four calculator titles were over the REAL 46-char budget (60 minus the ' | GradeThread' suffix) because my own test used a bare 60; three descriptions were over 160; and the primary keyword 'clothing measurement converter' did not appear verbatim in the title, so the title became 'Clothing Measurement Converter and Size Chart'. CLOSED 2026-08-18 with the diagrams. Inline SVG, no image file: it survives the prerender, reads in both themes from currentColor with no hardcoded palette, and the labels are selectable text. The keys are compared against MEASUREMENT_HOWTO in the test, so a tenth measurement cannot be added without a line being drawn for it. One guard had to be corrected on the way: US-432 post-prerender check counts <title> elements and fails above one, which is right for a leaked Helmet title and wrong for an SVG accessible name -- it now strips SVG before counting, and measurement-diagram.test.tsx asserts the relaxation is exactly that narrow."
     },
     {
       "id": "US-9008",
@@ -154,18 +161,19 @@
       "title": "Fix the two underperforming comparison pages: poshmark-vs-mercari and depop-vs-poshmark",
       "description": "As a seller choosing where to list, I want a comparison that covers how each marketplace handles condition disputes and returns, so that I can pick on the terms that actually cost me money. CORRECTED 2026-08-18: this story originally asked to CREATE these two pages, on the claim that the comparison family held only mercari-vs-ebay. That claim came from grepping the COMPARISONS array in comparison-guides.ts, which holds one entry; the other 15 comparison routes are registered in public-routes.ts. Both pages have been live since 2026-07-06 with ~1,400 words each. The work is to fix them, not build them.",
       "acceptanceCriteria": [
-        "/compare/poshmark-vs-mercari (live, 1,430 words) ranks at average position 44.8 on 10 impressions over 6 months. /compare/depop-vs-poshmark (live, 1,393 words) has never had an impression. Both underperform every sibling: /compare/vinted-vs-mercari sits at position 8.5 on 530 impressions. Diagnose the difference against the siblings that rank, and fix it.",
-        "Together these target 10,000/mo (`poshmark vs mercari` 5,000 Low, `depop vs poshmark` 5,000 High). The competing GradeThread page /blog/depop-vs-poshmark-which-should-you-use already earns 168 impressions at position 16.45, ahead of the /compare/ page for the same term: resolve the cannibalisation, either by canonicalising one to the other or by splitting the intent, and state which and why.",
-        "Each comparison gains the condition-and-returns section that is GradeThread's differentiated angle, linking to the relevant /standards/{platform} page and to /reselling/reduce-ebay-returns.",
-        "Titles and meta descriptions are rewritten against docs/seo/ctr-rewrite-worklist.csv: the /compare/ family earns 1,172 impressions for 8 clicks (0.68%) despite averaging position 8.5 on its leaders.",
-        "Registered in keyword-targets.ts and covered by the existing comparison route tests; `npm run ui:check` stays at zero.",
-        "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, `vendoo alternative` is 500/mo and `list perfectly alternative` returned blank."
+        "DIAGNOSED 2026-08-18, and the premise is wrong for the third time in this file. The pages are not the variable: which platforms they name is. All 16 comparison pages ship from one template on one publish date, and they split cleanly -- every pair naming Grailed or Vinted ranks in the top 15, every pair made only of eBay, Poshmark, Mercari and Depop ranks at 20 to 45. Full table and the two ruled-out confounds in docs/seo/compare-family-diagnosis.md.",
+        "Two alternatives ruled out rather than assumed. More words did not help: /compare/mercari-vs-ebay is the hand-written flagship and ranks 39th on 2 impressions, worse than 13 template pages. More internal links did not help: the only two pages carrying named anchor sets in interlink-rules.ts were poshmark-vs-mercari (44.8) and mercari-vs-ebay (39), so the confound runs backwards from the fix-the-page hypothesis.",
+        "DONE: the interlink anchor budget moved to /compare/vinted-vs-mercari (position 8.5) and /compare/grailed-vs-poshmark (position 11.0). Internal authority is worth spending where a page can cross a threshold into the top five, not on a page at 44.8.",
+        "DONE under US-9017: titles and meta descriptions rewritten for the four comparison pages that earn impressions. The other twelve keep the template, because there is nothing to learn from rewriting a page nobody sees.",
+        "OPEN DECISION for the operator: /blog/depop-vs-poshmark-which-should-you-use has 168 impressions at position 16.45; /compare/depop-vs-poshmark has never had an impression. Consolidation is correct on the merits and the direction is not close, but de-indexing a page is not a call to make unasked. Recommendation and the one-line change are in the diagnosis note.",
+        "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, vendoo alternative is 500/mo and list perfectly alternative returned blank.",
+        "Do NOT build more head-term comparison pages. The family covers all 16 pairs, and the ceiling on the incumbent pairs is set by competition a ten-week-old site cannot outspend. The pages that rank are the pairs nobody else bothered to write."
       ],
       "priority": 10,
       "dependsOn": [
         "US-9001"
       ],
-      "notes": "Rewritten 2026-08-18 from Search Console evidence. Original premise (family holds only mercari-vs-ebay) was false: 16 live /compare/ URLs, 15 registered via public-routes.ts rather than the COMPARISONS array."
+      "notes": "Rewritten 2026-08-18 from Search Console evidence. Original premise (family holds only mercari-vs-ebay) was false: 16 live /compare/ URLs, 15 registered via public-routes.ts rather than the COMPARISONS array. Diagnosed 2026-08-18. The repair this story asked for would not have worked: rewriting poshmark-vs-mercari harder is the thing already tried on mercari-vs-ebay, which is the worst-ranking page in the family. Everything actionable is done; one operator decision is open."
     },
     {
       "id": "US-9009",
@@ -174,18 +182,20 @@
       "description": "As a seller who has just finished a fee calculation, I want a page that explains the tool that would do this automatically, so that I have somewhere to go other than back to the search results.",
       "acceptanceCriteria": [
         "One page per job-to-be-done covering `clothing inventory management software` ($39.17 top-of-page), `reseller inventory management` ($54.90), `multi channel listing software` ($34.51), `reseller profit tracker` ($50.19) and `ai listing generator` ($18.44).",
-        "EVIDENCE ADDED 2026-08-18: crosslisting is the strongest commercial signal in the Search Console export -- 42 queries, 162 impressions, ZERO clicks, average position 49.9. `cross listing software` alone is 32 impressions at position 58. /reselling/best-crosslisting-apps already exists and sits at position 51.5 on 203 impressions with no clicks. Build the crosslisting/multi-channel page FIRST in this story, and diagnose why the existing page is on page five before writing a new one that lands in the same place.",
+        "DIAGNOSED 2026-08-18, before writing anything, which is what AC2 asked for. /reselling/best-crosslisting-apps IS the page this story proposes to build and it ranks 51st on 203 impressions. Two problems: it is a best-apps list published by one of the apps it ranks, which is a trust signal no rewrite changes, and it is 944 words against a SERP where the top ten run three to five times longer. Six GradeThread URLs cover crosslisting and the other five all rank in the top 11. Full table in docs/seo/crosslisting-cluster-diagnosis.md.",
         "These are judged on CONVERSION RATE, not search position. Combined volume is 2,200/mo and the segment will not move the traffic number at any ranking; their job is to catch traffic arriving from the calculators. The story is not complete without the conversion measurement in AC4.",
         "Each page has a single primary call to action into FlipDesk signup, and states the condition-grading differentiator that separates it from Vendoo and List Perfectly.",
         "A PostHog funnel is defined from calculator view to landing page view to signup start, and registered in vault/40-growth/analytics-event-registry.md.",
-        "Registered in keyword-targets.ts and in the marketing sitemap segment."
+        "Registered in keyword-targets.ts and in the marketing sitemap segment.",
+        "REVISED SCOPE from that diagnosis: do NOT build a second head-term landing page. Point commercial intent at /flipdesk/crosslisting (position 10.8, a vendor page that can credibly describe its own product) and either retire the listicle or stop presenting it as neutral. Put depth where the site already ranks, on the task-intent pages at position 7 to 11.",
+        "The $34.51 top-of-page bid is a warning, not a target. It says advertisers compete there, which is a reason the organic SERP is hard. Same Keyword Planner pull that produced three zero-impression URLs in US-9001."
       ],
       "priority": 11,
       "dependsOn": [
         "US-9003",
         "US-9006"
       ],
-      "notes": "Evidence added 2026-08-18 from the Search Console export. See docs/seo/unserved-query-clusters.md."
+      "notes": "Evidence added 2026-08-18 from the Search Console export. See docs/seo/unserved-query-clusters.md. Diagnosed 2026-08-18. The build this story asks for would have landed on page five next to the page that is already there."
     },
     {
       "id": "US-9010",
@@ -311,7 +321,7 @@
     },
     {
       "id": "US-9018",
-      "passes": false,
+      "passes": true,
       "title": "Answer the migration intent on the comparison pages that already rank for it",
       "description": "As a reseller who has decided to switch marketplaces, I want the page to tell me how to move my listings, not which platform is better. CORRECTED 2026-08-18 before building: this story originally asked for a new /migrate/{from}-to-{to} family. Checked first, and ALL 13 migration queries already have a live /compare/ page for that exact pair, ranking at position 10 to 30. Building a parallel family would split authority against pages that already rank, on a site whose measured problem is authority concentration and CTR rather than page count. The work is one template change reaching all 16 comparison pages, and zero new URLs.",
       "acceptanceCriteria": [
@@ -320,13 +330,13 @@
         "The condition-wording change between platforms is called out as the thing that turns a clean relist into a not-as-described case. This is the grading wedge applied to the migration intent, and it is what no competitor page says.",
         "The delisting problem (item sells on one platform, stays live on the other, becomes a cancelled order and a metrics hit) is named in the cross-listing FAQ, since that is the job FlipDesk actually does.",
         "NO new URLs. Evidence in docs/seo/unserved-query-clusters.md: 13 queries, 202 impressions, ZERO clicks, every one already served by a live /compare/ page.",
-        "REMAINING: a call to action into FlipDesk crosslisting on each comparison page, carrying the same PostHog property as US-9010's calculator handoff."
+        "DONE: every one of the 16 comparison pages carries a call to action into /flipdesk/crosslisting, placed after the two migration sections rather than before them, naming the delisting problem in the platforms own names. It emits comparison_crosslist_cta_click with { source: <comparison slug>, destination: flipdesk-crosslisting } -- the property pair US-9010 calculator handoff must reuse, recorded in vault/40-growth/analytics-event-registry.md."
       ],
       "priority": 3,
       "dependsOn": [
         "US-9001"
       ],
-      "notes": "Rewritten and implemented 2026-08-18. The original plan (10 new /migrate/ pages) was checked against the data before building and rejected: every migration query already has a ranking /compare/ page. One template change now gives all 16 comparison pages migration content in both directions. 810 SEO tests green, tsc -b clean, ui:check 0 blocking."
+      "notes": "Rewritten and implemented 2026-08-18. The original plan (10 new /migrate/ pages) was checked against the data before building and rejected: every migration query already has a ranking /compare/ page. One template change now gives all 16 comparison pages migration content in both directions. 810 SEO tests green, tsc -b clean, ui:check 0 blocking. Handoff landed 2026-08-18: the CTA on all 16 pages, the event registered in analytics-events.ts (which tsc enforces), and src/test/comparison-crosslist-cta.test.tsx asserting every pair carries it and that it sits AFTER the migration answer. The vault note records why each handoff surface keeps its own event name but shares one property shape. Story closed."
     }
   ]
 }

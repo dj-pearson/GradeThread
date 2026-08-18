@@ -145,6 +145,7 @@ import { FitCheckerPage } from "@/pages/tools/fit-checker";
 import { CALCULATOR_HUB_PATH, calculatorPath, liveCalculators } from "@/lib/seo/calculators";
 import { CalculatorHubPage } from "@/pages/tools/calculators";
 import { MeasurementConverterPage } from "@/pages/tools/measurement-converter";
+import { EbayFeeCalculatorPage } from "@/pages/tools/ebay-fee-calculator";
 import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
 import { ForBrandsPage } from "@/pages/marketing/for-brands";
 
@@ -155,6 +156,7 @@ import { ForBrandsPage } from "@/pages/marketing/for-brands";
 // the lockstep guard below rather than shipping a blank route.
 const CALCULATOR_PAGES: Record<string, React.ReactNode> = {
   "measurement-converter": <MeasurementConverterPage />,
+  "ebay-fee-calculator": <EbayFeeCalculatorPage />,
 };
 
 const PAGES: Record<string, React.ReactNode> = {

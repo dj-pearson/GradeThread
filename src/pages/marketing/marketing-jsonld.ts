@@ -1167,7 +1167,7 @@ export function calculatorHubJsonLd(): JsonLd[] {
     name: CALCULATOR_HUB_META.title,
     url: absoluteUrl(CALCULATOR_HUB_PATH),
     description: CALCULATOR_HUB_META.description,
-    isPartOf: { "@id": ORG_ID },
+    isPartOf: { "@type": "WebSite", "@id": WEBSITE_ID, name: "GradeThread", url: `${SITE_URL}/` },
     mainEntity: {
       "@type": "ItemList",
       numberOfItems: live.length,

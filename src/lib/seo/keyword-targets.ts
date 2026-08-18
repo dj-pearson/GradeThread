@@ -236,6 +236,23 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    path: "/tools/ebay-fee-calculator",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "ebay fee calculator",
+    secondary: [
+      "ebay final value fee calculator",
+      "how much does ebay take from a sale",
+      "ebay seller fees",
+    ],
+    questions: [
+      "how much does ebay take from a sale",
+      "does ebay charge fees on shipping",
+      "is an ebay store worth it",
+      "why do sneakers have a different ebay fee",
+    ],
+  },
+  {
     path: "/tools/measurement-converter",
     cluster: "reseller-tools",
     intent: "informational",
