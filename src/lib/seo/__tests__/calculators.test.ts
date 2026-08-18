@@ -58,11 +58,14 @@ describe("calculator registry", () => {
   });
 
   it("breadcrumbs run home, hub, page", () => {
-    const crumbs = calculatorBreadcrumbItems(CALCULATORS[0]);
+    const first = CALCULATORS[0];
+    expect(first).toBeDefined();
+    if (!first) return;
+    const crumbs = calculatorBreadcrumbItems(first);
     expect(crumbs.map((c) => c.path)).toEqual([
       "/",
       CALCULATOR_HUB_PATH,
-      calculatorPath(CALCULATORS[0].slug),
+      calculatorPath(first.slug),
     ]);
   });
 });
@@ -85,7 +88,7 @@ describe("calculator routing", () => {
       return;
     }
     expect(routes).toHaveLength(live.length + 1);
-    expect(routes[0].path).toBe(CALCULATOR_HUB_PATH);
+    expect(routes[0]?.path).toBe(CALCULATOR_HUB_PATH);
     for (const c of live) {
       const r = routes.find((x) => x.path === calculatorPath(c.slug));
       expect(r, `${c.slug} is live but unrouted`).toBeDefined();

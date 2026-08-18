@@ -45,6 +45,18 @@ export function flatToWorn(key: string, flat: number): number {
   return isCircumferenceMeasurement(key) ? round2(flat * 2) : round2(flat);
 }
 
+/**
+ * The shared label for a measurement key, or a throw. MEASUREMENT_SPECS is a
+ * plain Record, so every read is `| undefined` under noUncheckedIndexedAccess;
+ * failing loudly at module load beats rendering an empty label on a page whose
+ * entire job is telling people where to put the tape.
+ */
+function specLabel(key: string): string {
+  const spec = MEASUREMENT_SPECS[key];
+  if (!spec) throw new Error(`[size-conversion] no MEASUREMENT_SPECS entry for "${key}"`);
+  return spec.label;
+}
+
 /** How and where to take each measurement. Keyed to MEASUREMENT_SPECS. */
 export interface MeasurementHowTo {
   key: string;
@@ -59,62 +71,62 @@ export interface MeasurementHowTo {
 export const MEASUREMENT_HOWTO: readonly MeasurementHowTo[] = [
   {
     key: "chest",
-    label: MEASUREMENT_SPECS.chest.label,
+    label: specLabel("chest"),
     how: "Lay the garment flat, fasten it, and measure straight across from one armpit seam to the other.",
     pitfall:
       "This is half the chest, not the whole chest. A 21 inch pit to pit fits a 42 inch chest. Doubling it is the step most buyers skip.",
   },
   {
     key: "length",
-    label: MEASUREMENT_SPECS.length.label,
+    label: specLabel("length"),
     how: "From the highest point of the shoulder seam, next to the collar, straight down to the hem.",
     pitfall:
       "Measuring from the back collar seam instead of the shoulder gives a shorter number, and the two are not interchangeable between listings.",
   },
   {
     key: "shoulder",
-    label: MEASUREMENT_SPECS.shoulder.label,
+    label: specLabel("shoulder"),
     how: "Across the back, from the seam where one sleeve joins the body to the same seam on the other side.",
     pitfall:
       "On a dropped-shoulder or oversized cut this number says almost nothing about fit. Use chest and length instead.",
   },
   {
     key: "sleeve",
-    label: MEASUREMENT_SPECS.sleeve.label,
+    label: specLabel("sleeve"),
     how: "From the shoulder seam down the outside of the arm to the cuff.",
     pitfall:
       "Raglan sleeves have no shoulder seam. Measure from the centre back collar instead and say that you did.",
   },
   {
     key: "waist",
-    label: MEASUREMENT_SPECS.waist.label,
+    label: specLabel("waist"),
     how: "Lay flat, smooth the waistband, and measure straight across from edge to edge.",
     pitfall:
       "Another half measurement. A 16 inch flat waist is a 32 inch waist. Stretch waistbands should be measured relaxed, with the stretched number given separately.",
   },
   {
     key: "hip",
-    label: MEASUREMENT_SPECS.hip.label,
+    label: specLabel("hip"),
     how: "Flat, across the widest point below the waistband, usually 7 to 9 inches down.",
     pitfall: "Measuring at the pocket line rather than the widest point understates it.",
   },
   {
     key: "inseam",
-    label: MEASUREMENT_SPECS.inseam.label,
+    label: specLabel("inseam"),
     how: "From the crotch seam straight down the inside leg to the hem.",
     pitfall:
       "Cuffed hems must be unrolled first, or the listing understates the inseam by an inch or two.",
   },
   {
     key: "rise",
-    label: MEASUREMENT_SPECS.rise.label,
+    label: specLabel("rise"),
     how: "From the crotch seam up to the top of the waistband at the front.",
     pitfall:
       "Rise is what decides whether jeans sit at the hip or the waist, and it is the number most often left out.",
   },
   {
     key: "leg_opening",
-    label: MEASUREMENT_SPECS.leg_opening.label,
+    label: specLabel("leg_opening"),
     how: "Flat, straight across the hem at the bottom of the leg.",
     pitfall: "Half measurement again. Double it for the opening the foot has to pass through.",
   },

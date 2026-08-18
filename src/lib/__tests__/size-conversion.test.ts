@@ -72,7 +72,7 @@ describe("measurement how-to", () => {
 
   it("takes its labels from the shared spec so the two cannot disagree", () => {
     for (const m of MEASUREMENT_HOWTO) {
-      expect(m.label).toBe(MEASUREMENT_SPECS[m.key].label);
+      expect(m.label).toBe(MEASUREMENT_SPECS[m.key]?.label);
     }
   });
 
@@ -97,7 +97,7 @@ describe("size tables", () => {
     for (const k of ["us", "uk", "eu", "jp"] as const) {
       const v = nums(k);
       for (let i = 1; i < v.length; i++) {
-        expect(v[i], `${k} row ${i}`).toBeGreaterThan(v[i - 1]);
+        expect(Number(v[i]), `${k} row ${i}`).toBeGreaterThan(Number(v[i - 1]));
       }
     }
   });
@@ -120,7 +120,7 @@ describe("size tables", () => {
     }
     const eu = SHOE_SIZES.map((s) => Number(s.eu));
     for (let i = 1; i < eu.length; i++) {
-      expect(eu[i]).toBeGreaterThan(eu[i - 1]);
+      expect(Number(eu[i])).toBeGreaterThan(Number(eu[i - 1]));
     }
   });
 
