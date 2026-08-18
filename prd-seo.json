@@ -44,7 +44,7 @@
     },
     {
       "id": "US-9002",
-      "passes": false,
+      "passes": true,
       "title": "Calculator page family: route registry, prerender, JSON-LD and its own sitemap segment",
       "description": "As a reseller searching for a fee or shipping calculator, I want GradeThread's tools to be crawlable, fast-loading pages, so that they can rank and earn links instead of sitting behind the SPA.",
       "acceptanceCriteria": [
@@ -60,7 +60,7 @@
       "dependsOn": [
         "US-9001"
       ],
-      "notes": "Infrastructure landed 2026-08-18: src/lib/seo/calculators.ts (registry of 8 with a live/planned status flag, hub metadata, breadcrumbs, calculatorRoutes()), wired into public-routes.ts, and src/lib/seo/__tests__/calculators.test.ts (12 tests). Registers nothing yet BY DESIGN -- flipping the first entry to live in US-9003 activates the hub and the route. Two ACs corrected against the real code: the sitemap segment file is unnecessary (see AC6), and the hub cannot ship before the first calculator. BLOCKED ON INPUT for US-9003: docs/seo/ebay-fee-schedule-to-confirm.csv needs the operator to confirm eBay's real rates. A guessed fee schedule makes the calculator worse than not shipping it."
+      "notes": "Infrastructure landed 2026-08-18: src/lib/seo/calculators.ts (registry of 8 with a live/planned status flag, hub metadata, breadcrumbs, calculatorRoutes()), wired into public-routes.ts, and src/lib/seo/__tests__/calculators.test.ts (12 tests). Registers nothing yet BY DESIGN -- flipping the first entry to live in US-9003 activates the hub and the route. Two ACs corrected against the real code: the sitemap segment file is unnecessary (see AC6), and the hub cannot ship before the first calculator. BLOCKED ON INPUT for US-9003: docs/seo/ebay-fee-schedule-to-confirm.csv needs the operator to confirm eBay's real rates. A guessed fee schedule makes the calculator worse than not shipping it. CLOSED 2026-08-18: every AC is satisfied. US-9007 flipping measurement-converter to live activated the hub, both prerender maps, both keyword-targets entries and the sitemap entries, which is exactly the by-construction landing this story was designed for. The remaining calculators are separate stories blocked on fee data, not unfinished work here. One defect found afterwards and fixed in the US-9017 commit: calculatorHubJsonLd pointed isPartOf at the Organization node rather than the WebSite node, which entity-graph-jsonld.test.ts was red on."
     },
     {
       "id": "US-9003",
@@ -158,18 +158,19 @@
       "title": "Fix the two underperforming comparison pages: poshmark-vs-mercari and depop-vs-poshmark",
       "description": "As a seller choosing where to list, I want a comparison that covers how each marketplace handles condition disputes and returns, so that I can pick on the terms that actually cost me money. CORRECTED 2026-08-18: this story originally asked to CREATE these two pages, on the claim that the comparison family held only mercari-vs-ebay. That claim came from grepping the COMPARISONS array in comparison-guides.ts, which holds one entry; the other 15 comparison routes are registered in public-routes.ts. Both pages have been live since 2026-07-06 with ~1,400 words each. The work is to fix them, not build them.",
       "acceptanceCriteria": [
-        "/compare/poshmark-vs-mercari (live, 1,430 words) ranks at average position 44.8 on 10 impressions over 6 months. /compare/depop-vs-poshmark (live, 1,393 words) has never had an impression. Both underperform every sibling: /compare/vinted-vs-mercari sits at position 8.5 on 530 impressions. Diagnose the difference against the siblings that rank, and fix it.",
-        "Together these target 10,000/mo (`poshmark vs mercari` 5,000 Low, `depop vs poshmark` 5,000 High). The competing GradeThread page /blog/depop-vs-poshmark-which-should-you-use already earns 168 impressions at position 16.45, ahead of the /compare/ page for the same term: resolve the cannibalisation, either by canonicalising one to the other or by splitting the intent, and state which and why.",
-        "Each comparison gains the condition-and-returns section that is GradeThread's differentiated angle, linking to the relevant /standards/{platform} page and to /reselling/reduce-ebay-returns.",
-        "Titles and meta descriptions are rewritten against docs/seo/ctr-rewrite-worklist.csv: the /compare/ family earns 1,172 impressions for 8 clicks (0.68%) despite averaging position 8.5 on its leaders.",
-        "Registered in keyword-targets.ts and covered by the existing comparison route tests; `npm run ui:check` stays at zero.",
-        "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, `vendoo alternative` is 500/mo and `list perfectly alternative` returned blank."
+        "DIAGNOSED 2026-08-18, and the premise is wrong for the third time in this file. The pages are not the variable: which platforms they name is. All 16 comparison pages ship from one template on one publish date, and they split cleanly -- every pair naming Grailed or Vinted ranks in the top 15, every pair made only of eBay, Poshmark, Mercari and Depop ranks at 20 to 45. Full table and the two ruled-out confounds in docs/seo/compare-family-diagnosis.md.",
+        "Two alternatives ruled out rather than assumed. More words did not help: /compare/mercari-vs-ebay is the hand-written flagship and ranks 39th on 2 impressions, worse than 13 template pages. More internal links did not help: the only two pages carrying named anchor sets in interlink-rules.ts were poshmark-vs-mercari (44.8) and mercari-vs-ebay (39), so the confound runs backwards from the fix-the-page hypothesis.",
+        "DONE: the interlink anchor budget moved to /compare/vinted-vs-mercari (position 8.5) and /compare/grailed-vs-poshmark (position 11.0). Internal authority is worth spending where a page can cross a threshold into the top five, not on a page at 44.8.",
+        "DONE under US-9017: titles and meta descriptions rewritten for the four comparison pages that earn impressions. The other twelve keep the template, because there is nothing to learn from rewriting a page nobody sees.",
+        "OPEN DECISION for the operator: /blog/depop-vs-poshmark-which-should-you-use has 168 impressions at position 16.45; /compare/depop-vs-poshmark has never had an impression. Consolidation is correct on the merits and the direction is not close, but de-indexing a page is not a call to make unasked. Recommendation and the one-line change are in the diagnosis note.",
+        "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, vendoo alternative is 500/mo and list perfectly alternative returned blank.",
+        "Do NOT build more head-term comparison pages. The family covers all 16 pairs, and the ceiling on the incumbent pairs is set by competition a ten-week-old site cannot outspend. The pages that rank are the pairs nobody else bothered to write."
       ],
       "priority": 10,
       "dependsOn": [
         "US-9001"
       ],
-      "notes": "Rewritten 2026-08-18 from Search Console evidence. Original premise (family holds only mercari-vs-ebay) was false: 16 live /compare/ URLs, 15 registered via public-routes.ts rather than the COMPARISONS array."
+      "notes": "Rewritten 2026-08-18 from Search Console evidence. Original premise (family holds only mercari-vs-ebay) was false: 16 live /compare/ URLs, 15 registered via public-routes.ts rather than the COMPARISONS array. Diagnosed 2026-08-18. The repair this story asked for would not have worked: rewriting poshmark-vs-mercari harder is the thing already tried on mercari-vs-ebay, which is the worst-ranking page in the family. Everything actionable is done; one operator decision is open."
     },
     {
       "id": "US-9009",
