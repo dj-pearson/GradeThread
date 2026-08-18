@@ -85,7 +85,11 @@ final class VideoGradeUploader {
 
     private(set) var phase: Phase = .idle
 
-    private let upload: (URL, VideoGradeRequest, @MainActor (Double) -> Void) async throws -> VideoGradeOutcome
+    /// The inner closure carries @escaping in the TYPE, matching the init
+    /// parameter exactly. Written without it the two spellings are different
+    /// types and the assignment does not compile - the error names the
+    /// assignment rather than the missing keyword.
+    private let upload: (URL, VideoGradeRequest, @escaping @MainActor (Double) -> Void) async throws -> VideoGradeOutcome
 
     init(
         upload: ((URL, VideoGradeRequest, @MainActor @escaping (Double) -> Void) async throws -> VideoGradeOutcome)? = nil
