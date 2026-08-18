@@ -184,3 +184,6 @@ ios-screenshots/**/*.zip
 # of it on every archive run would be pure noise.
 prd.json.bak
 prd.archive.json.bak
+keyword-pull-2026-08.csv
+Saved Keywords Stats 2026-08-18 at 14_37_11.csv
+assets/*
