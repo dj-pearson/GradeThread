@@ -73,8 +73,17 @@ describe("US-2557: the unread badge reads the edge, not the table", () => {
 describe("US-2557: the shell renders and refreshes it", () => {
   const shell = code(read(SHELL));
 
-  it("badges the Home tab", () => {
-    expect(shell).toContain(".badge(unreadBadge.unreadCount)");
+  it("badges the Home tab, with the count threaded from the shell that refreshes it", () => {
+    // Checked as a CHAIN rather than one string. The first version asserted
+    // ".badge(unreadBadge.unreadCount)" and was green over code that did not
+    // compile: the store lives in MainShell and the TabView in TabBarShell, a
+    // different struct, so the property was not in scope. A single-string check
+    // could not see that; three links can.
+    expect(shell, "the store is not declared").toContain("unreadBadge = UnreadBadgeStore()");
+    expect(shell, "the count is not passed to the tab shell").toContain(
+      "unreadCount: unreadBadge.unreadCount",
+    );
+    expect(shell, "the tab is not badged").toContain(".badge(unreadCount)");
   });
 
   it("refreshes on first render AND on foreground", () => {

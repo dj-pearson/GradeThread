@@ -642,7 +642,7 @@ struct MainShell: View {
                 if horizontalSizeClass == .regular {
                     SidebarSplitView(router: router)
                 } else {
-                    TabBarShell(router: router)
+                    TabBarShell(router: router, unreadCount: unreadBadge.unreadCount)
                 }
             }
         }
@@ -1019,6 +1019,10 @@ private struct ItemCanvasSceneHost: View {
 
 private struct TabBarShell: View {
     @Bindable var router: AppRouter
+    /// US-2557: unread notifications, owned and refreshed by ``MainShell``.
+    /// Passed as a count rather than the store, so the renderer does not take a
+    /// dependency on something only the shell has a reason to drive.
+    var unreadCount: Int = 0
 
     var body: some View {
         TabView(selection: router.tabSelectionBinding) {
@@ -1070,7 +1074,7 @@ private struct TabBarShell: View {
             // this needs no conditional — and Home is the tab because the
             // notification surface lives on the dashboard and the 5-tab limit
             // is already spent.
-            .badge(unreadBadge.unreadCount)
+            .badge(unreadCount)
             .tag(AppSection.home)
 
             NavigationStack(path: $router.inventoryPath) {

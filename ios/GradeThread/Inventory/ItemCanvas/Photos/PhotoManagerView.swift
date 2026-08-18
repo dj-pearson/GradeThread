@@ -152,8 +152,60 @@ struct PhotoManagerView: View {
             for: item.itemCategory,
             garment: item.garmentCategory ?? item.garmentType
         )
+        let position = working.firstIndex(where: { $0.id == photo.id })
         PhotoManagerRow(photo: photo, isCover: isCover)
             .contextMenu { rowContextMenu(for: photo, isCover: isCover, profile: profile) }
+            // US-2534: VoiceOver reads the row as one element naming the slot,
+            // its position, and whether it is the cover — position matters here
+            // because the ORDER is the data: the top photo is the cover and the
+            // main eBay image.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(rowAccessibilityLabel(for: photo, isCover: isCover, at: position))
+            // US-2534: the reorder alternative AC2 asks for. `.onMove` is a
+            // drag, which VoiceOver and Switch Control cannot perform, so
+            // without these the screen's primary function is unreachable rather
+            // than merely awkward. Same idiom as PhotoIntakeView's delete action
+            // (US-704), for the same reason.
+            .accessibilityActions {
+                if let position, position > 0 {
+                    Button("Move up") { moveRow(from: position, to: position - 1) }
+                }
+                if let position, position < working.count - 1 {
+                    Button("Move down") { moveRow(from: position, to: position + 2) }
+                }
+                if !isCover {
+                    Button("Set as cover") { setCover(photo) }
+                }
+                Button("Rotate right") { rotate(photo, clockwise: true) }
+                Button("Rotate left") { rotate(photo, clockwise: false) }
+            }
+    }
+
+    /// What VoiceOver reads for one row. Position is 1-based and spoken,
+    /// because "photo 3 of 7" is the only way a non-sighted user can tell where
+    /// a move landed — the visual order is the entire feedback channel here.
+    private func rowAccessibilityLabel(
+        for photo: LocalItemPhoto,
+        isCover: Bool,
+        at position: Int?
+    ) -> String {
+        let slot = FlipdeskPhotoType.label(for: photo.photoType, role: photo.photoRole)
+        var parts = [slot]
+        if let position {
+            parts.append("photo \(position + 1) of \(working.count)")
+        }
+        if isCover {
+            parts.append("cover photo")
+        }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Reorder from an accessibility action. Routes through the SAME `move`
+    /// the drag uses, so the persistence and the dirty-marking cannot diverge
+    /// between the two paths — which is exactly how an accessible alternative
+    /// ends up saving nothing.
+    private func moveRow(from source: Int, to destination: Int) {
+        move(from: IndexSet(integer: source), to: destination)
     }
 
     @ViewBuilder
