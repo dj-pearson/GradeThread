@@ -147,82 +147,161 @@ export const MEASUREMENT_TEMPLATES: Record<
   ],
 };
 
-// US-2464. "dress" is a noun AND a modifier, and the modifier sense is more
-// common in resale than the garment sense. Because the dress branch is tested
-// before both `bottom` and `top`, every one of these compounds was being
-// measured as a dress: "dress pants" was asked for a bust and never for an
-// inseam, and "dress shirt" was asked for a hip.
+// US-2673: how a free-form garment string is matched.
 //
-// Matching the compound and REFUSING the dress branch (rather than reordering
-// the branches) is what keeps "sundress" and "shirtdress" correct — those are
-// genuine dresses whose names contain another garment's noun, and any reorder
-// that fixed "dress shirt" would have broken "shirtdress".
-const DRESS_MODIFIER =
-  /dress\s*-?\s*(shirt|blouse|pant|trouser|slack|short|skirt|sock|shoe|boot|belt|tie|watch|coat|jacket|blazer|vest|suit|uniform)/;
+// This used to be an ordered list of substring tests, and both halves of that
+// were wrong in ways that only showed up once the TITLE became a real witness
+// (see garmentDescriptorFor).
+//
+// SUBSTRINGS. `/bag/` matched "Baggies", `/cap/` matched "Capri", `/boot/`
+// matched "Bootcut" and `/top/` matches half the brand names in resale. So
+// "Patagonia Baggies Shorts" was measured as a handbag and "Zara Capri Pants"
+// as a hat. Matching whole words (with a plural tolerance, because everything
+// in resale is listed plural) removes the entire class.
+//
+// ORDER. Testing bags before shoes was a deliberate fix for "boot bag" — but
+// the rule it was reaching for is not "bags win", it is that ENGLISH PUTS THE
+// HEAD NOUN LAST. A boot bag is a bag, a cargo jacket is a jacket, a dress
+// shirt is a shirt and fleece joggers are joggers. Taking the LAST garment word
+// gets all of those right from one rule, and it retires three hand-written
+// exception patterns (DRESS_MODIFIER, NOT_A_SUIT_SET, SUIT_SINGLE_BOTTOM) that
+// existed only to undo the ordering. It also fixes cases nobody had listed: a
+// "mini skirt" is a skirt, not a dress.
+//
+// Compounds that are one word ("shirtdress", "pantsuit", "tracksuit") no longer
+// fall out of a substring match, so they are spelled out below. That is the
+// cost of whole-word matching and it is worth paying: an unlisted compound
+// degrades to `generic`, which is honest, where a substring match degrades to
+// confidently wrong.
 
-// US-2464. A suit set is measured as a top AND a bottom. The exclusions are the
-// words that merely CONTAIN "suit" without being a two-piece: a swimsuit and a
-// bodysuit are single garments, and a jumpsuit is measured like a dress.
-// Tracksuits and sweatsuits are deliberately NOT excluded — they are two
-// pieces and a buyer needs both sets of numbers.
-const NOT_A_SUIT_SET = /(swim|jump|body|cat|snow|wet|rain|play)suit/;
-const SUIT_SET =
-  /(pant.?suit|suit|tuxedo|\btux\b|two.?piece|three.?piece|coverall|overall|scrub|pajama|pyjama)/;
-// "Suit pants" sold on their own are a bottom, not a set. `pantsuit` is safe
-// here: it is "pant" then "suit", so it never matches "suit" then "pant".
-const SUIT_SINGLE_BOTTOM = /(suit|tuxedo|tux)\s*-?\s*(pant|trouser|slack|short|skirt)/;
+type NamedGroup = Exclude<MeasurementGroup, "generic">;
+
+/**
+ * Single words. Matched against whole tokens, tolerating a plural `s`/`es` —
+ * so `jean` matches "jeans" but `bag` does not match "baggies".
+ */
+const GROUP_WORDS: Record<NamedGroup, readonly string[]> = {
+  bag: [
+    "bag", "purse", "tote", "clutch", "satchel", "crossbody", "backpack",
+    "rucksack", "duffel", "duffle", "handbag", "hobo", "pouch", "wallet",
+    "briefcase",
+  ],
+  // `sock` is deliberately ABSENT from accessory and everywhere else — socks
+  // are sold by size, not by measurement, and a template would ask a seller to
+  // measure something nobody publishes.
+  headwear: [
+    "hat", "cap", "beanie", "snapback", "fitted", "trucker", "visor", "fedora",
+    "beret", "headwear", "balaclava",
+  ],
+  accessory: [
+    "tie", "necktie", "belt", "scarf", "scarves", "glove", "mitten", "shawl",
+    "cravat", "ascot", "suspender", "accessory", "accessories",
+  ],
+  shoes: [
+    "shoe", "sneaker", "boot", "sandal", "footwear", "loafer", "mule", "clog",
+    "slipper",
+  ],
+  watch: ["watch"],
+  // US-2464: swimwear is measured on bust/waist/hip, the same three numbers a
+  // dress is, and fell to `generic` before.
+  dress: [
+    "dress", "dresses", "sundress", "shirtdress", "romper", "jumpsuit", "maxi",
+    "midi", "mini", "swimsuit", "bikini", "tankini", "monokini",
+  ],
+  // US-2464: robes and kimonos are open-front layers measured exactly like a
+  // coat, and had no entry at all.
+  outerwear: [
+    "jacket", "coat", "outerwear", "blazer", "parka", "windbreaker",
+    "overcoat", "anorak", "bomber", "vest", "gilet", "fleece", "cardigan",
+    "robe", "bathrobe", "kimono", "poncho", "cape",
+  ],
+  // US-2464: a suit set is measured as a top AND a bottom. "swimsuit",
+  // "jumpsuit" and "bodysuit" are single garments and are not listed here;
+  // whole-word matching is what keeps `suit` from reaching inside them, which
+  // is why the old NOT_A_SUIT_SET exclusion is gone.
+  suit: [
+    "suit", "tuxedo", "tux", "pantsuit", "tracksuit", "sweatsuit", "coverall",
+    "overall", "scrub", "pajama", "pyjama",
+  ],
+  // US-2464: `trunk` for swim trunks. US-2468: `bottom` for the coarse
+  // GARMENT_TYPES value iOS stores in garment_type.
+  bottom: [
+    "pant", "jean", "short", "skirt", "trouser", "chino", "jogger", "legging",
+    "sweatpant", "cargo", "trunk", "slack", "capri", "bottom",
+  ],
+  top: [
+    "shirt", "tshirt", "tee", "top", "blouse", "sweater", "hoodie",
+    "sweatshirt", "tank", "polo", "jersey", "henley", "pullover", "crewneck",
+    "longsleeve", "rugby", "oxford", "flannel", "thermal",
+  ],
+};
+
+/**
+ * Multi-word names. Needed where the phrase means something its last word does
+ * not: "one piece" is a swimsuit, "three piece" is a suit, "pocket square" is
+ * an accessory. Position is taken from the phrase's LAST word, so a phrase and
+ * a plain word compete on the same footing.
+ */
+const GROUP_PHRASES: Record<NamedGroup, readonly string[]> = {
+  bag: [],
+  headwear: ["bucket hat"],
+  accessory: ["bow tie", "pocket square"],
+  shoes: [],
+  watch: [],
+  dress: ["one piece"],
+  outerwear: [],
+  suit: ["two piece", "three piece"],
+  bottom: [],
+  top: ["t shirt", "long sleeve", "button down", "button up"],
+};
+
+const NAMED_GROUPS = Object.keys(GROUP_WORDS) as NamedGroup[];
+
+/** Lowercase, and turn every run of punctuation into a space, so "t-shirt"
+ *  becomes "t shirt" and "button-down" becomes "button down". */
+function tokenize(value: string): string[] {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ")
+    .filter(Boolean);
+}
+
+function matchesWord(token: string, word: string): boolean {
+  return token === word || token === `${word}s` || token === `${word}es`;
+}
 
 // Map a free-form category/garment string to a measurement group.
 export function measurementGroupFor(
   category: string | null | undefined,
 ): MeasurementGroup {
-  const c = (category ?? "").toLowerCase();
-  if (!c) return "generic";
-  // US-2225: bags are tested FIRST, deliberately. "boot bag", "shoe bag" and
-  // "cargo bag" all contain a keyword that a later branch claims, and every one
-  // of them is a bag — the noun that matters is the last one. Testing bags last
-  // would have routed a boot bag to the shoe template and asked the seller for
-  // an insole length.
-  if (/(bag|purse|tote|clutch|satchel|crossbody|backpack|rucksack|duffel|duffle|handbag|hobo|pouch|wallet|briefcase)/.test(c))
-    return "bag";
-  // US-2224: after bags (a "tie bag" is a bag) and before shoes, so "glove"
-  // and "belt" cannot be claimed by a later branch. `sock` is deliberately
-  // ABSENT — socks are sold by size, not by measurement, and adding them here
-  // would ask a seller to measure something nobody publishes.
-  // US-2223: before accessories, because "cap" and "hat" are the nouns here and
-  // a "bucket hat" must not be claimed by anything else. `visor` is included —
-  // it has a brim and a band and nothing else, which this template covers.
-  if (/(hat|cap|beanie|snapback|fitted|trucker|visor|fedora|beret|bucket.?hat|headwear|balaclava)/.test(c))
-    return "headwear";
-  // US-2468: `accessor` catches the coarse GARMENT_TYPES value "accessories",
-  // which iOS stores in garment_type and which resolved to `generic` before.
-  if (/(tie|necktie|bow.?tie|belt|scarf|scarves|glove|mitten|shawl|pocket.?square|cravat|ascot|suspender|accessor)/.test(c))
-    return "accessory";
-  if (/(shoe|sneaker|boot|sandal|footwear|loafer|mule|clog|slipper)/.test(c)) return "shoes";
-  if (/watch/.test(c)) return "watch";
-  // US-2464: swimwear joins the dress template — a one-piece, bikini or tankini
-  // is sold on bust/waist/hip, the same three numbers, and fell to `generic`
-  // (length + width) before.
-  if (
-    !DRESS_MODIFIER.test(c) &&
-    /(dress|romper|jumpsuit|maxi|mini|midi|swimsuit|bikini|tankini|monokini|one.?piece)/.test(c)
-  )
-    return "dress";
-  // US-2464: robes and kimonos are open-front layers measured exactly like a
-  // coat, and had no branch at all.
-  if (/(jacket|coat|outerwear|blazer|parka|windbreaker|overcoat|anorak|bomber|vest|gilet|fleece|cardigan|robe|kimono|poncho|cape)/.test(c))
-    return "outerwear";
-  // US-2464: AFTER outerwear so a standalone "suit jacket" stays outerwear, and
-  // BEFORE bottom so "pantsuit" is not claimed by the `pant` keyword.
-  if (SUIT_SET.test(c) && !NOT_A_SUIT_SET.test(c) && !SUIT_SINGLE_BOTTOM.test(c))
-    return "suit";
-  // US-2464: `trunk` added for swim trunks — board shorts already matched.
-  // US-2468: `bottom` catches the coarse GARMENT_TYPES value "bottoms".
-  if (/(pant|jean|short|skirt|trouser|chino|jogger|legging|sweatpant|cargo|trunk|slack|bottom)/.test(c))
-    return "bottom";
-  if (/(shirt|tee|t-shirt|top|blouse|sweater|hoodie|sweatshirt|tank|polo|jersey|henley|pullover|crewneck|longsleeve|long.sleeve|rugby|button.down|button.up|oxford|flannel|thermal)/.test(c))
-    return "top";
-  return "generic";
+  const tokens = tokenize(category ?? "");
+  if (tokens.length === 0) return "generic";
+
+  const hits: Array<{ end: number; len: number; group: NamedGroup }> = [];
+  for (const group of NAMED_GROUPS) {
+    for (const phrase of GROUP_PHRASES[group]) {
+      const words = phrase.split(" ");
+      for (let i = 0; i + words.length <= tokens.length; i++) {
+        if (words.every((w, k) => matchesWord(tokens[i + k]!, w))) {
+          hits.push({ end: i + words.length - 1, len: words.length, group });
+        }
+      }
+    }
+    for (const word of GROUP_WORDS[group]) {
+      for (let i = 0; i < tokens.length; i++) {
+        if (matchesWord(tokens[i]!, word)) hits.push({ end: i, len: 1, group });
+      }
+    }
+  }
+  if (hits.length === 0) return "generic";
+
+  // The winner is the match that ENDS LAST. On a tie the longer match wins, so
+  // "one piece" beats a single word sitting at the same index.
+  let best = hits[0]!;
+  for (const hit of hits) {
+    if (hit.end > best.end || (hit.end === best.end && hit.len > best.len)) {
+      best = hit;
+    }
+  }
+  return best.group;
 }
 
 // US-2595: the group has to come from the GARMENT word, and callers rarely
@@ -250,6 +329,28 @@ export interface GarmentDescriptorSource {
   title?: string | null;
 }
 
+// US-2673: the six coarse GARMENT_TYPES values, which are a VERTICAL and not a
+// garment. `garment_type` is filled by deriveGarmentType() from item_category
+// whenever intake never captured one — "clothing" becomes "tops" — so on any
+// item the AI did not classify, this column reads "tops" whether the garment is
+// a t-shirt or a pair of jeans. It was consulted second, ahead of the title, so
+// a listing called "Polo Ralph Lauren Women's Skinny Jeans" was offered a chest
+// and a sleeve and never a waist or an inseam.
+//
+// They still resolve — iOS genuinely stores the coarse value here, and "bottoms"
+// with nothing else on the row is better than `generic`. They just go last, so a
+// real garment noun anywhere else on the item beats a value that may be a guess.
+const COARSE_VERTICALS = new Set([
+  "tops",
+  "bottoms",
+  "outerwear",
+  "dresses",
+  "footwear",
+  "accessories",
+]);
+
+const isCoarse = (s: string) => COARSE_VERTICALS.has(s.trim().toLowerCase());
+
 export function garmentDescriptorFor(item: GarmentDescriptorSource): string {
   const candidates = [
     item.garment_category,
@@ -258,6 +359,12 @@ export function garmentDescriptorFor(item: GarmentDescriptorSource): string {
     item.item_category,
     item.title,
   ];
+  // Two passes over the same list, so the order above still expresses
+  // preference within each tier: everything specific first, verticals after.
+  for (const c of candidates) {
+    const s = (c ?? "").trim();
+    if (s && !isCoarse(s) && measurementGroupFor(s) !== "generic") return s;
+  }
   for (const c of candidates) {
     const s = (c ?? "").trim();
     if (s && measurementGroupFor(s) !== "generic") return s;

@@ -342,3 +342,108 @@ describe("US-2595: 'clothing' is a vertical, not a garment", () => {
     expect(card).toContain("const category = garment ?? item.category;");
   });
 });
+
+// US-2673: a real pair of jeans was offered a chest and a sleeve.
+//
+// Reported on a live listing: "Polo Ralph Lauren Women's Skinny Jeans Size 27".
+// The row held garment_type "tops" and garment_category "other" — not a
+// classification, but the pair deriveGarmentFields() writes for ANY clothing
+// item intake never classified. The resolver read that vertical second, ahead
+// of the title, so the measurement card, the photo tags and the description
+// template all said Top while the eBay category on the same row said Jeans.
+describe("US-2673: a fabricated vertical does not outrank a real garment word", () => {
+  it("the reported item resolves as a bottom", () => {
+    const row = {
+      garment_category: "other",
+      garment_type: "tops",
+      category: "clothing",
+      title: "Polo Ralph Lauren Women's Skinny Jeans Size 27 Floral Print Denim RL",
+    };
+    expect(measurementGroupForItem(row)).toBe("bottom");
+    const keys = MEASUREMENT_TEMPLATES[measurementGroupForItem(row)].map((f) => f.key);
+    expect(keys).toContain("waist");
+    expect(keys).toContain("inseam");
+    expect(keys).not.toContain("sleeve");
+  });
+
+  it("a vertical still wins when it is the only garment word on the row", () => {
+    // iOS genuinely stores the coarse value here, and "bottoms" with nothing
+    // else to go on beats `generic`. The change is precedence, not exclusion.
+    expect(
+      measurementGroupForItem({ garment_type: "bottoms", title: "Levi's 501 W34 L32" }),
+    ).toBe("bottom");
+    expect(measurementGroupForItem({ garment_type: "tops" })).toBe("top");
+    expect(measurementGroupForItem({ garment_type: "accessories" })).toBe("accessory");
+  });
+
+  it("a real classification is still preferred over the title", () => {
+    expect(
+      measurementGroupForItem({
+        garment_category: "jeans",
+        garment_type: "bottoms",
+        title: "Brooks Brothers Blazer 42R",
+      }),
+    ).toBe("bottom");
+  });
+});
+
+// US-2673: the matcher reads whole words and takes the LAST garment noun.
+describe("US-2673: brand and style words stop hijacking the template", () => {
+  it("does not match a garment word inside a longer word", () => {
+    // Every one of these was confidently wrong before: /bag/ matched Baggies,
+    // /cap/ matched Capri, /boot/ matched Bootcut.
+    expect(measurementGroupFor("Patagonia Baggies Shorts 5in Mens M")).toBe("bottom");
+    expect(measurementGroupFor("Zara Capri Pants Womens 6")).toBe("bottom");
+    expect(measurementGroupFor("Levi's 505 Bootcut Jeans W34 L32")).toBe("bottom");
+    expect(measurementGroupFor("Topshop Jamie Jeans W28")).toBe("bottom");
+  });
+
+  it("takes the head noun, which in English comes last", () => {
+    expect(measurementGroupFor("Nike Tech Fleece Joggers")).toBe("bottom");
+    expect(measurementGroupFor("The North Face Fleece Jacket")).toBe("outerwear");
+    expect(measurementGroupFor("Carhartt Cargo Jacket")).toBe("outerwear");
+    expect(measurementGroupFor("Carhartt Cargo Pants")).toBe("bottom");
+    expect(measurementGroupFor("Ralph Lauren Dress Shirt")).toBe("top");
+    expect(measurementGroupFor("Reformation Shirt Dress")).toBe("dress");
+    // A mini skirt is a skirt. Nobody had listed this one, and the old
+    // dress-before-bottom ordering got it wrong.
+    expect(measurementGroupFor("Vintage Mini Skirt Size 4")).toBe("bottom");
+  });
+
+  it("keeps the exception cases the ordering hacks used to carry", () => {
+    // US-2225: the noun that matters is the last one, which is why bags used
+    // to be tested first.
+    expect(measurementGroupFor("boot bag")).toBe("bag");
+    expect(measurementGroupFor("cargo bag")).toBe("bag");
+    // US-2464: a standalone suit jacket is outerwear; suit pants are a bottom;
+    // a swimsuit and a jumpsuit are not two-piece sets.
+    expect(measurementGroupFor("suit jacket")).toBe("outerwear");
+    expect(measurementGroupFor("suit pants")).toBe("bottom");
+    expect(measurementGroupFor("two piece suit")).toBe("suit");
+    expect(measurementGroupFor("tracksuit")).toBe("suit");
+    expect(measurementGroupFor("swimsuit")).toBe("dress");
+    expect(measurementGroupFor("jumpsuit")).toBe("dress");
+    // Compounds have to be spelled out now, so they are covered here.
+    expect(measurementGroupFor("shirtdress")).toBe("dress");
+    expect(measurementGroupFor("sundress")).toBe("dress");
+    expect(measurementGroupFor("pantsuit")).toBe("suit");
+    expect(measurementGroupFor("bathrobe")).toBe("outerwear");
+    expect(measurementGroupFor("t-shirt")).toBe("top");
+    expect(measurementGroupFor("button-down")).toBe("top");
+  });
+
+  it("resolves plurals, because resale lists everything plural", () => {
+    for (const [text, group] of [
+      ["jeans", "bottom"],
+      ["shorts", "bottom"],
+      ["leggings", "bottom"],
+      ["overalls", "suit"],
+      ["watches", "watch"],
+      ["scarves", "accessory"],
+      ["dresses", "dress"],
+      ["sneakers", "shoes"],
+    ] as const) {
+      expect(measurementGroupFor(text), text).toBe(group);
+    }
+  });
+});
