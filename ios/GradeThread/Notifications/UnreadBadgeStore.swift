@@ -37,21 +37,39 @@ public final class UnreadBadgeStore {
     /// Re-entrancy guard so overlapping foreground refreshes do not stack.
     private var isRefreshing = false
 
+    /// The route's response. File-scoped rather than nested in the initializer:
+    /// a type declared inside a DEFAULT ARGUMENT of a public init is private to
+    /// that expression, and Swift refuses to reference it there ("property
+    /// 'unread' is private and cannot be referenced from a default argument
+    /// value"). That is what the first version of this file did, and it is the
+    /// kind of mistake only a compiler finds — the source-scan guard beside it
+    /// checks intent, not compilation.
+    private struct UnreadCountResponse: Decodable {
+        let unread: Int
+    }
+
+    private static func loadCount() async throws -> Int {
+        let response: UnreadCountResponse =
+            try await EdgeAPI.shared.getJSON("/api/notifications/unread-count")
+        return response.unread
+    }
+
+    /// iOS 16+ replacement for applicationIconBadgeNumber. Failures are
+    /// swallowed: a refused badge must never surface as an error to a seller who
+    /// did not ask for one.
+    private static func writeIconBadge(_ count: Int) async {
+        try? await UNUserNotificationCenter.current().setBadgeCount(max(0, count))
+    }
+
+    /// Both defaults are resolved in the BODY rather than as default argument
+    /// values, so they can reference private members. Passing nil means "use the
+    /// real one"; a test passes its own.
     public init(
-        fetchCount: @escaping () async throws -> Int = {
-            struct Response: Decodable { let unread: Int }
-            let response: Response = try await EdgeAPI.shared.getJSON("/api/notifications/unread-count")
-            return response.unread
-        },
-        setIconBadge: @escaping (Int) async -> Void = { count in
-            // iOS 16+ replacement for applicationIconBadgeNumber. Failures are
-            // swallowed: a refused badge must never surface as an error to a
-            // seller who did not ask for one.
-            try? await UNUserNotificationCenter.current().setBadgeCount(max(0, count))
-        }
+        fetchCount: (() async throws -> Int)? = nil,
+        setIconBadge: ((Int) async -> Void)? = nil
     ) {
-        self.fetchCount = fetchCount
-        self.setIconBadge = setIconBadge
+        self.fetchCount = fetchCount ?? { try await Self.loadCount() }
+        self.setIconBadge = setIconBadge ?? { count in await Self.writeIconBadge(count) }
     }
 
     /// Whether the tab badge should render at all.
