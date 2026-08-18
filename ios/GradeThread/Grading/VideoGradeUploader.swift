@@ -135,6 +135,18 @@ final class VideoGradeUploader {
         }
     }
 
+    /// Back to idle so the seller can record again.
+    ///
+    /// Deliberately refuses while bytes are in flight: a "back" that abandoned
+    /// an upload mid-request would leave the server holding a submission the
+    /// client has forgotten about, and the seller with no way to reach it.
+    func reset() {
+        switch phase {
+        case .uploading, .grading: return
+        default: phase = .idle
+        }
+    }
+
     // MARK: - Copy
 
     /// What the seller reads under the bar. The grading phase says what is
