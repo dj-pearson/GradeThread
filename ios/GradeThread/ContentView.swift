@@ -574,6 +574,8 @@ struct MainShell: View {
     /// US-749: tab-independent orphan-listing count for the shell Reconcile
     /// banner. Refreshed on appear + foreground; the full list loads on tap.
     @State private var reconcileBadge = ReconcileBadgeStore()
+    /// US-2557: unread notifications, for the Home tab badge and the app icon.
+    @State private var unreadBadge = UnreadBadgeStore()
 
     /// US-1157: per-scene state restoration for iPad multi-window. `@SceneStorage`
     /// is scoped to THIS scene (window) and survives teardown/relaunch, so two
@@ -727,6 +729,8 @@ struct MainShell: View {
             await drainSharedInboxIfNeeded()
             // US-749: load the orphan-listing count for the shell Reconcile banner.
             refreshReconcileBadge()
+            // US-2557: and the unread count behind the Home badge.
+            await unreadBadge.refresh()
             // US-696: cold-launch / first-render unlock prompt.
             if appLock.state == .locked { await appLock.authenticate() }
         }
@@ -736,6 +740,10 @@ struct MainShell: View {
                 // US-749: re-check orphan listings on foreground (an eBay sync
                 // while backgrounded may have produced new unmatched rows).
                 refreshReconcileBadge()
+                // US-2557: a push may have raised the badge while we were away,
+                // and rows may have been read on another device — the server
+                // only ever RAISES it, so the app is what brings it back down.
+                Task { await unreadBadge.refresh() }
                 // US-696: prompt to unlock when returning to the foreground.
                 if appLock.state == .locked { Task { await appLock.authenticate() } }
             }
@@ -1058,6 +1066,11 @@ private struct TabBarShell: View {
                     }
             }
             .tabItem { Label("Home", systemImage: "house") }
+            // US-2557: unread notifications. SwiftUI renders nothing at 0, so
+            // this needs no conditional — and Home is the tab because the
+            // notification surface lives on the dashboard and the 5-tab limit
+            // is already spent.
+            .badge(unreadBadge.unreadCount)
             .tag(AppSection.home)
 
             NavigationStack(path: $router.inventoryPath) {
