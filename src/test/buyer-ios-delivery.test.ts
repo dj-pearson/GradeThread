@@ -119,6 +119,7 @@ describe("the deliverable list cannot advertise what does not exist", () => {
     // dropping one each require an edit here, which is where the next reader
     // finds out what actually shipped.
     expect(iosDeliverableFeatures().sort()).toEqual([
+      "conditionAlerts",
       "prioritySupport",
       "purchaseGuarantee",
       "trustScore",

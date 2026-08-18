@@ -92,8 +92,14 @@ export const BUYER_FEATURES: Record<keyof BuyerGateFlags, BuyerFeatureMeta> = {
     label: "Condition alerts",
     live: true,
     match: (b) => /condition alert|\balerts?\b/i.test(b),
-    // AC2 screen 1 of 4.
-    ios: "planned",
+    // AC2 screen 1 of 4 — SHIPPED, and the last of the four. Reads and writes
+    // saved_searches under owner RLS exactly as the web does; the match feed is
+    // the same notifications rows, filtered to the same type constant. Category
+    // and size filters are web-only for now and the editor says so rather than
+    // dropping them silently — an alert already carrying them keeps them,
+    // because this screen never writes those columns.
+    ios: "shipped",
+    iosScreen: "ios/GradeThread/Buyer/BuyerAlertsView.swift",
   },
   fitPrediction: {
     label: "Fit prediction",

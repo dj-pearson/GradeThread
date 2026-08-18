@@ -1921,6 +1921,11 @@ struct SettingsView: View {
     private var buyerSection: some View {
         Section("Buyer tools") {
             NavigationLink {
+                BuyerAlertsView()
+            } label: {
+                Label("Condition alerts", systemImage: "bell")
+            }
+            NavigationLink {
                 BuyerTrustScoreView()
             } label: {
                 Label("Trust score", systemImage: "rosette")

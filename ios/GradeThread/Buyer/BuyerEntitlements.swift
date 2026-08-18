@@ -117,7 +117,7 @@ struct BuyerCapability: Identifiable, Equatable {
         BuyerCapability(
             id: "conditionAlerts",
             label: "Condition alerts",
-            delivery: .planned,
+            delivery: .shipped,
             note: nil),
         BuyerCapability(
             id: "fitPrediction",
