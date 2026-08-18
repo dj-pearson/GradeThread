@@ -42,6 +42,15 @@ export interface Calculator {
   cardBlurb: string;
   /** The head keyword this page owns, mirrored into keyword-targets.ts. */
   primaryKeyword: string;
+  /** Supporting keywords, woven into copy and headings. */
+  secondaryKeywords?: string[];
+  /**
+   * Lead paragraph. Required once an entry goes live: this is the prose the
+   * prerender emits, and it has to be useful before any script hydrates.
+   */
+  intro?: string;
+  /** FAQPage source. Required once an entry goes live. */
+  faqs?: { q: string; a: string }[];
 }
 
 export function calculatorPath(slug: string): string {
@@ -59,9 +68,9 @@ export const CALCULATORS: readonly Calculator[] = [
     status: "planned",
     story: "US-9003",
     audience: "seller",
-    title: "eBay Fee Calculator: What a Sale Actually Nets You",
+    title: "eBay Fee Calculator: What a Sale Nets You",
     description:
-      "Work out the real payout on an eBay sale: category final value fee, per-order fixed fee, insertion fees past the free allotment, promoted-listing rate and international surcharge.",
+      "The real payout on an eBay sale: category final value fee, per-order fixed fee, insertion fees past the free allotment, promoted listings and the overseas cut.",
     h1: "eBay fee calculator",
     cardBlurb: "Every eBay fee on one sale, itemised, including the ones sellers forget.",
     primaryKeyword: "ebay fee calculator",
@@ -73,7 +82,7 @@ export const CALCULATORS: readonly Calculator[] = [
     audience: "seller",
     title: "eBay Shipping Calculator for Clothing Sellers",
     description:
-      "Compare shipping cost by weight, box size and service for the packages clothing sellers actually send, with dimensional weight applied and flat-rate compared against weight-based.",
+      "Shipping cost by weight, box size and service for the packages clothing sellers send, with dimensional weight applied and flat rate compared to weight based.",
     h1: "eBay shipping calculator",
     cardBlurb: "Weight, box size and service compared, with dimensional weight shown separately.",
     primaryKeyword: "ebay shipping calculator",
@@ -119,7 +128,7 @@ export const CALCULATORS: readonly Calculator[] = [
     status: "planned",
     story: "US-9005",
     audience: "seller",
-    title: "Etsy Fee Calculator for Vintage and Resale Sellers",
+    title: "Etsy Fee Calculator for Resale Sellers",
     description:
       "Listing fee, transaction fee, payment processing and offsite ads, applied to a vintage or resale listing so you can see the payout before you set the price.",
     h1: "Etsy fee calculator",
@@ -131,9 +140,9 @@ export const CALCULATORS: readonly Calculator[] = [
     status: "planned",
     story: "US-9006",
     audience: "seller",
-    title: "Reseller Profit Calculator That Factors In Condition",
+    title: "Reseller Profit Calculator With Condition",
     description:
-      "Cost of goods, fees, shipping and the item's condition grade, worked through to net profit, margin and ROI. The condition adjustment is shown, not buried in the total.",
+      "Cost of goods, fees, shipping and the item's condition grade, worked through to net profit, margin and ROI. The condition adjustment is shown, not buried.",
     h1: "Reseller profit calculator",
     cardBlurb:
       "The only one that adjusts the sale price for what condition the item is actually in.",
@@ -141,21 +150,50 @@ export const CALCULATORS: readonly Calculator[] = [
   },
   {
     slug: "measurement-converter",
-    status: "planned",
+    status: "live",
     story: "US-9007",
     audience: "both",
-    title: "Clothing Measurement and Size Converter",
+    title: "Clothing Measurement Converter and Size Chart",
     description:
-      "Convert US, UK, EU and JP sizing, and inches to centimetres for pit to pit, length, sleeve, waist and inseam, with a diagram of where each measurement is taken.",
+      "Convert US, UK, EU and JP sizing, and inches to centimetres for pit to pit, length, sleeve, waist and inseam, with where on the garment each is taken.",
     h1: "Measurement and size converter",
     cardBlurb: "US, UK, EU and JP sizing, plus where on the garment each measurement is taken.",
     primaryKeyword: "clothing measurement converter",
+    secondaryKeywords: [
+      "international size conversion chart",
+      "pit to pit measurement chart",
+      "mens to womens size converter",
+    ],
+    intro:
+      "A size label tells you which brand made the garment. A measurement tells you whether it fits. This converts between US, UK, EU and Japanese sizing, and between inches and centimetres, but the part worth reading first is the doubling: a garment measured flat gives you half the number your body has to fit through. A 21 inch pit to pit is a 42 inch chest. Get that one wrong and no size chart will save you.",
+    faqs: [
+      {
+        q: "What does pit to pit mean, and do I double it?",
+        a: "Pit to pit is the distance straight across a garment laid flat, from one armpit seam to the other. Yes, you double it. The garment is folded, so the tape only crosses half the circumference: a 21 inch pit to pit fits a 42 inch chest. The same doubling applies to a flat waist, hip and leg opening, and it is the most common misreading of a clothing listing.",
+      },
+      {
+        q: "What size is a US 8 in UK and EU sizing?",
+        a: "A women's US 8 is usually a UK 12, an EU 40 and a Japanese 13, which lands around a medium. Usually is doing real work in that sentence: no standards body governs clothing sizes, brands cut to their own blocks, and vanity sizing moves the number a full size in either direction. Use it to narrow down, then check the measurements.",
+      },
+      {
+        q: "How do I convert men's sizes to women's?",
+        a: "For shoes it is reliable: add 1.5 to a men's US size to get the women's equivalent, so a men's 8 and a women's 9.5 are the same shoe. For tops it is not. Men's and women's garments are cut differently through the shoulder, chest and waist, so the label converts but the fit may not. Compare the pit to pit and the shoulder before you buy.",
+      },
+      {
+        q: "Why do size charts disagree with each other?",
+        a: "Because none of them is authoritative. Clothing sizing has no governing standard in the US, UK, EU or Japan, so every chart is one brand's or one retailer's convention written down. That is why a measurement in inches or centimetres is the only number in a listing that means the same thing to everyone.",
+      },
+      {
+        q: "How do I measure a garment I am selling?",
+        a: "Lay it flat on a hard surface, smooth out the wrinkles, fasten any buttons or zips, and measure edge to edge without stretching the fabric. Give the flat number and say it is flat. Buyers who know the convention will double it, and the ones who do not will ask rather than return.",
+      },
+    ],
   },
 ];
 
 export const CALCULATOR_HUB_META = {
   path: CALCULATOR_HUB_PATH,
-  title: "Free Reseller Calculators: Fees, Shipping and Profit",
+  title: "Free Reseller Calculators: Fees and Profit",
   description:
     "Free calculators for people who sell used clothing: marketplace fees, shipping cost, and profit that accounts for the item's condition. No signup, no account.",
   h1: "Reseller calculators",
@@ -180,6 +218,22 @@ export const CALCULATOR_HUB_META = {
 /** Only calculators whose compute has shipped. */
 export function liveCalculators(): Calculator[] {
   return CALCULATORS.filter((c) => c.status === "live");
+}
+
+/**
+ * A live entry's page content, or a throw. `intro` and `faqs` are optional on
+ * the type so a planned entry can be registered before its copy is written, but
+ * a LIVE one without them would prerender an empty page, which is the failure
+ * the status flag exists to prevent. Guarded here rather than at every call site.
+ */
+export function calculatorContent(calc: Calculator): {
+  intro: string;
+  faqs: { q: string; a: string }[];
+} {
+  if (!calc.intro || !calc.faqs?.length) {
+    throw new Error(`[calculators] "${calc.slug}" is live but has no intro or faqs`);
+  }
+  return { intro: calc.intro, faqs: calc.faqs };
 }
 
 export function getCalculatorBySlug(slug: string): Calculator | undefined {

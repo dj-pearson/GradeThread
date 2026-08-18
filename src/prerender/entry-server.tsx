@@ -142,10 +142,21 @@ import { AUTHENTICITY_CHECK_PATH } from "@/lib/seo/authenticity-check";
 import { AuthenticityCheckPage } from "@/pages/tools/authenticity-check";
 import { FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { FitCheckerPage } from "@/pages/tools/fit-checker";
+import { CALCULATOR_HUB_PATH, calculatorPath, liveCalculators } from "@/lib/seo/calculators";
+import { CalculatorHubPage } from "@/pages/tools/calculators";
+import { MeasurementConverterPage } from "@/pages/tools/measurement-converter";
 import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
 import { ForBrandsPage } from "@/pages/marketing/for-brands";
 
 // Static map of prerenderable routes → page element.
+// US-9002: slug -> page element for the calculator family. Kept beside the
+// registry rather than inline in PAGES so that adding a calculator is one entry
+// here and one status flip in calculators.ts, and forgetting either one fails
+// the lockstep guard below rather than shipping a blank route.
+const CALCULATOR_PAGES: Record<string, React.ReactNode> = {
+  "measurement-converter": <MeasurementConverterPage />,
+};
+
 const PAGES: Record<string, React.ReactNode> = {
   "/": <LandingPage />,
   "/how-it-works": <HowItWorksPage />,
@@ -299,6 +310,13 @@ const PAGES: Record<string, React.ReactNode> = {
   // Free authenticity-check tool (US-1771).
   [AUTHENTICITY_CHECK_PATH]: <AuthenticityCheckPage />,
   [FIT_CHECKER_PATH]: <FitCheckerPage />,
+  // The calculator family (US-9002). Generated from the registry so a new
+  // calculator cannot ship a route without a page, and the lockstep guard
+  // below catches it if the module map falls behind.
+  [CALCULATOR_HUB_PATH]: <CalculatorHubPage />,
+  ...Object.fromEntries(
+    liveCalculators().map((c) => [calculatorPath(c.slug), CALCULATOR_PAGES[c.slug]]),
+  ),
   [FOR_BRANDS_PATH]: <ForBrandsPage />,
 };
 
@@ -433,6 +451,10 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   [GRADE_CHECKER_PATH]: `${M}tools/grade-checker`,
   [AUTHENTICITY_CHECK_PATH]: `${M}tools/authenticity-check`,
   [FIT_CHECKER_PATH]: `${M}tools/fit-checker`,
+  [CALCULATOR_HUB_PATH]: `${M}tools/calculators`,
+  ...Object.fromEntries(
+    liveCalculators().map((c) => [calculatorPath(c.slug), `${M}tools/${c.slug}`]),
+  ),
   [FOR_BRANDS_PATH]: `${M}marketing/for-brands`,
 };
 

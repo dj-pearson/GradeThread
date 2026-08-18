@@ -215,4 +215,41 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "does GradeThread refund a wrong grade",
     ],
   },
+  // ── reseller-tools cluster: the calculator family (US-9002/9007) ────
+  // /tools/authenticity-check earns 9.0% CTR at average position 13.4 against a
+  // 0.85% site average (Search Console, 6 months to 2026-08-16). Tool pages are
+  // the highest-converting surface on this site by an order of magnitude, and
+  // that is the local evidence this cluster is a bet on — not a Planner volume.
+  {
+    path: "/tools/calculators",
+    cluster: "reseller-tools",
+    intent: "commercial",
+    primary: "reseller calculators",
+    secondary: [
+      "marketplace fee calculator",
+      "resale profit calculator",
+      "free seller tools",
+    ],
+    questions: [
+      "how much does a marketplace take from a sale",
+      "what will I make after fees",
+    ],
+  },
+  {
+    path: "/tools/measurement-converter",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "clothing measurement converter",
+    secondary: [
+      "international size conversion chart",
+      "pit to pit measurement chart",
+      "mens to womens size converter",
+    ],
+    questions: [
+      "what does pit to pit mean",
+      "do I double a pit to pit measurement",
+      "what size is a US 8 in UK",
+      "how do I convert mens sizes to womens",
+    ],
+  },
 ] as const;

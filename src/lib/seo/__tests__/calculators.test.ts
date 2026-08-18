@@ -35,10 +35,15 @@ describe("calculator registry", () => {
     }
   });
 
-  it("keeps titles and descriptions inside what a SERP will render", () => {
+  it("keeps titles and descriptions inside the real US-435 budget", () => {
+    // 60 minus the " | GradeThread" the SEO layer appends. The first draft of
+    // this test used a bare 60 and let four over-length titles through;
+    // route-metadata.test.ts caught them once the family went live.
+    const TITLE_MAX = 60 - " | GradeThread".length;
     for (const c of [...CALCULATORS, CALCULATOR_HUB_META]) {
-      expect(c.title.length, `${c.title} is too long`).toBeLessThanOrEqual(60);
-      expect(c.description.length, `${c.title} description`).toBeLessThanOrEqual(200);
+      expect(c.title.length, `title too long: "${c.title}"`).toBeLessThanOrEqual(TITLE_MAX);
+      expect(c.description.length, `description too long: "${c.title}"`).toBeLessThanOrEqual(160);
+      expect(c.description.length, `description too short: "${c.title}"`).toBeGreaterThanOrEqual(70);
     }
   });
 

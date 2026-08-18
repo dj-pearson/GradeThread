@@ -95,6 +95,9 @@ import {
   durabilityReportJsonLd,
   authenticityCheckJsonLd,
   fitCheckerJsonLd,
+  calculatorHubJsonLd,
+  calculatorJsonLd,
+  calculatorBreadcrumbLdItems,
   forBrandsJsonLd,
   forResellersJsonLd,
   developersJsonLd,
@@ -119,6 +122,7 @@ import {
   getComparisonByPath,
   isCompareHubPath,
 } from "@/lib/seo/comparison-guides";
+import { getCalculatorByPath } from "@/lib/seo/calculators";
 import { getOpportunistGuideByPath } from "@/lib/seo/opportunist-guides";
 import { isReturnsSpinePath } from "@/lib/seo/returns-spine";
 import {
@@ -197,6 +201,9 @@ const MARKETING_LD: Record<string, () => JsonLd[]> = {
   // which is what made these two easy to miss.
   "/tools/authenticity-check": authenticityCheckJsonLd,
   "/tools/fit-checker": fitCheckerJsonLd,
+  // US-9002/9007: the calculator hub. Individual calculators resolve through
+  // the registry in jsonLdForRoute() rather than being listed one by one.
+  "/tools/calculators": calculatorHubJsonLd,
   "/verify": verifyJsonLd,
   // US-1106: buyer-facing passport lookup (HowTo + FAQPage).
   "/scan": passportScanJsonLd,
@@ -230,6 +237,17 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(flipdeskLandingBreadcrumbItems(flipdeskLanding)),
       ...flipdeskLandingJsonLd(flipdeskLanding),
+    ];
+  }
+  // The calculator family (US-9002): Organization + 3-level breadcrumb +
+  // WebApplication + FAQPage, resolved from the registry rather than a
+  // hand-listed path map, so a new calculator gets its markup for free.
+  const calc = getCalculatorByPath(path);
+  if (calc) {
+    return [
+      organizationLd(),
+      breadcrumbLd(calculatorBreadcrumbLdItems(calc)),
+      ...calculatorJsonLd(calc),
     ];
   }
   // Reselling pillar (US-1688): Organization + 2-level breadcrumb + HowTo + FAQ.

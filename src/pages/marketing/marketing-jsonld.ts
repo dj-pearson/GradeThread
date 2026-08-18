@@ -92,6 +92,14 @@ import {
 import { CONDITION_CHART_META, CONDITION_CHART_PATH } from "@/lib/seo/condition-chart";
 import { GRADE_CHECKER_META, GRADE_CHECKER_PATH } from "@/lib/seo/grade-checker";
 import {
+  CALCULATOR_HUB_META,
+  CALCULATOR_HUB_PATH,
+  calculatorContent,
+  calculatorPath,
+  liveCalculators,
+  type Calculator,
+} from "@/lib/seo/calculators";
+import {
   AUTHENTICITY_CHECK_META,
   AUTHENTICITY_CHECK_PATH,
 } from "@/lib/seo/authenticity-check";
@@ -1128,6 +1136,67 @@ export function fitCheckerJsonLd(): JsonLd[] {
     provider: { "@id": ORG_ID },
   };
   return [app, faqPageLd(FIT_CHECKER_META.faqs)];
+}
+
+// -- The calculator family (US-9002/9007) ----------------------------
+// Each live calculator is a free WebApplication + its FAQ, matching the three
+// tools above. The hub is a CollectionPage carrying an ItemList of whatever is
+// live, so the family is machine-readable as a set rather than as loose pages.
+export function calculatorHubBreadcrumbLdItems(): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Calculators", url: `${SITE_URL}${CALCULATOR_HUB_PATH}` },
+  ];
+}
+
+export function calculatorBreadcrumbLdItems(
+  calc: Calculator,
+): Array<{ name: string; url: string }> {
+  return [
+    { name: "GradeThread", url: `${SITE_URL}/` },
+    { name: "Calculators", url: `${SITE_URL}${CALCULATOR_HUB_PATH}` },
+    { name: calc.h1, url: `${SITE_URL}${calculatorPath(calc.slug)}` },
+  ];
+}
+
+export function calculatorHubJsonLd(): JsonLd[] {
+  const live = liveCalculators();
+  const page: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: CALCULATOR_HUB_META.title,
+    url: absoluteUrl(CALCULATOR_HUB_PATH),
+    description: CALCULATOR_HUB_META.description,
+    isPartOf: { "@id": ORG_ID },
+    mainEntity: {
+      "@type": "ItemList",
+      numberOfItems: live.length,
+      itemListElement: live.map((c, i) => ({
+        "@type": "ListItem",
+        position: i + 1,
+        name: c.h1,
+        url: absoluteUrl(calculatorPath(c.slug)),
+      })),
+    },
+  };
+  return [page, faqPageLd(CALCULATOR_HUB_META.faqs)];
+}
+
+export function calculatorJsonLd(calc: Calculator): JsonLd[] {
+  const { faqs } = calculatorContent(calc);
+  const app: JsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: calc.title,
+    url: absoluteUrl(calculatorPath(calc.slug)),
+    applicationCategory: "UtilitiesApplication",
+    operatingSystem: "Web",
+    description: calc.description,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    isAccessibleForFree: true,
+    provider: { "@id": ORG_ID },
+  };
+  return [app, faqPageLd(faqs)];
 }
 
 // ── /grading/methodology (US-1677, E-E-A-T) ─────────────────────────

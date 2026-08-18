@@ -116,6 +116,8 @@ const ConditionIndexItemPage = lazy(() => import("@/pages/marketing/condition-in
 const GradeCheckerPage = lazy(() => import("@/pages/tools/grade-checker").then(m => ({ default: m.GradeCheckerPage })));
 const AuthenticityCheckPage = lazy(() => import("@/pages/tools/authenticity-check").then(m => ({ default: m.AuthenticityCheckPage })));
 const FitCheckerPage = lazy(() => import("@/pages/tools/fit-checker").then(m => ({ default: m.FitCheckerPage })));
+const CalculatorHubPage = lazy(() => import("@/pages/tools/calculators").then(m => ({ default: m.CalculatorHubPage })));
+const MeasurementConverterPage = lazy(() => import("@/pages/tools/measurement-converter").then(m => ({ default: m.MeasurementConverterPage })));
 const ForBrandsPage = lazy(() => import("@/pages/marketing/for-brands").then(m => ({ default: m.ForBrandsPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
@@ -417,6 +419,9 @@ export const router = createBrowserRouter([
       { path: "/tools/authenticity-check", element: <SuspenseWrapper><AuthenticityCheckPage /></SuspenseWrapper> },
       // US-1780: free fit-checker tool.
       { path: "/tools/fit-checker", element: <SuspenseWrapper><FitCheckerPage /></SuspenseWrapper> },
+      // US-9002/9007: the calculator family.
+      { path: "/tools/calculators", element: <SuspenseWrapper><CalculatorHubPage /></SuspenseWrapper> },
+      { path: "/tools/measurement-converter", element: <SuspenseWrapper><MeasurementConverterPage /></SuspenseWrapper> },
       { path: "/for-brands", element: <SuspenseWrapper><ForBrandsPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
