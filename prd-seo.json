@@ -2,12 +2,12 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9017",
+  "nextId": "US-9018",
   "archive": "prd.archive.json",
   "userStories": [
     {
       "id": "US-9001",
-      "passes": false,
+      "passes": true,
       "title": "[OPERATOR] Search Console diagnostic: separate no-demand from no-indexation before any SEO build",
       "description": "As the operator, I want to know which of the three causes is producing zero traffic, so that we do not spend a quarter building content when the real problem is that Google is not indexing what we already shipped.",
       "acceptanceCriteria": [
@@ -17,7 +17,26 @@
         "Write the verdict (cause 1 no-demand / cause 2 no-indexation / cause 3 no-authority) with the supporting numbers into the diagnosis section of vault/40-growth/seo-strategy-options-2026-08.md, and bump its `reviewed` date.",
         "If the verdict is cause 2 or cause 3, append a BLOCKED note to every Path 1, 3 and 7 build story in prd-seo.json naming the blocking cause: no new content universe helps until indexation or authority is fixed."
       ],
-      "priority": 1
+      "priority": 1,
+      "notes": "DONE 2026-08-18. Search Console export (keyword/, Web, 2026-05-25..2026-08-16) analysed. VERDICT: none of the three causes. Site is 10 weeks into a normal indexation ramp -- 2 impressions/week in early June to 2,410/week by 2026-08-16; 6,434 impressions / 55 clicks / 270 URLs / 366 queries over 6mo. Cause 1 failed (impressions accelerating). Cause 2 failed (270 URLs earning impressions; /sitemap.xml is a flat 519-URL urlset exactly equal to the union of all 15 segment sitemaps, no orphans; the 4 named URLs are 200 + self-canonical + index,follow + in sitemap). Cause 3 failed (156 of 270 URLs in the top 10). REAL CAUSE is a fourth: ranking without clicks -- 149 URLs at position 3-10 convert at 0.85% vs a 3-10% baseline; 'vguc meaning' = 355 impressions at position 8.88 and ZERO clicks. NO BLOCKED notes applied: causes 2 and 3 both failed. Working: docs/seo/US-9001-VERDICT.md. Worklist: docs/seo/ctr-rewrite-worklist.csv (19 URLs). Vault diagnosis section updated, reviewed date already 2026-08-18."
+    },
+    {
+      "id": "US-9017",
+      "passes": false,
+      "title": "CTR copy pass on the page-one URLs that rank and get skipped",
+      "description": "As the operator, I want the pages already ranking on page one to actually earn their clicks, so that we capture the traffic we have before spending a quarter building more of it. US-9001 found 149 URLs at position 3-10 converting at 0.85% against a 3-10% baseline. This is a copy pass over pages that already exist, not a build, and it is the cheapest work in this file.",
+      "acceptanceCriteria": [
+        "Rewrite the title and meta description for the 19 URLs in docs/seo/ctr-rewrite-worklist.csv, working down the clicks_being_missed_6mo column. Fill the proposed_title and proposed_meta_description columns first so the change is reviewable before it ships.",
+        "The top four carry most of the value: /grading/glossary/vguc (503 impressions, position 8.8, 0.20% CTR), /blog/mercari-partial-item-returns-reseller-guide (607, 8.5, 0.82%), /compare/vinted-vs-mercari (530, 8.5, 1.13%) and /value/nike/tech-fleece (116, 6.5, 0.00%).",
+        "Size of the prize is stated honestly in the story and not inflated: closing the entire gap is worth about 66 clicks over six months against the 55 the site earned. It roughly doubles a small number. It is worth a day, and it is not the growth plan.",
+        "Titles for definitional pages are rewritten to promise something the SERP snippet cannot deliver. Nineteen glossary pages earn 1,087 impressions and 4 clicks between them because Google answers the definition in place; a title that only restates the definition cannot win the click.",
+        "Every rewritten title still satisfies keyword-targets.test.ts, meaning the primary keyword remains in the registered title or description.",
+        "A follow-up Search Console read is scheduled 60 days after the pass, comparing CTR per URL against the ctr_actual_pct column captured here, and the result is recorded against US-9016's threshold table."
+      ],
+      "priority": 2,
+      "dependsOn": [
+        "US-9001"
+      ]
     },
     {
       "id": "US-9002",
@@ -32,7 +51,7 @@
         "New functions/sitemap-tools.xml.ts emits the calculator URLs and is referenced from functions/sitemap.xml.ts.",
         "`npm run ui:check` still reports zero findings for src/, and `npx tsc -b` is clean."
       ],
-      "priority": 2,
+      "priority": 3,
       "dependsOn": [
         "US-9001"
       ]
@@ -49,7 +68,7 @@
         "Targets `ebay fee calculator` (50,000/mo, Low, $13.23 top-of-page) as primary with `ebay final value fee calculator` and `how much does ebay take from a sale` (5,000/mo) as secondary; all three are registered in keyword-targets.ts.",
         "A unit test asserts at least three worked examples against hand-computed totals, including one that crosses the free-insertion threshold."
       ],
-      "priority": 3,
+      "priority": 4,
       "dependsOn": [
         "US-9002"
       ]
@@ -66,7 +85,7 @@
         "Targets `ebay shipping calculator` (50,000/mo, Low) as primary and `cheapest way to ship clothes` (500/mo) as secondary, both registered in keyword-targets.ts.",
         "A unit test covers a dimensional-weight case and a flat-rate-cheaper case."
       ],
-      "priority": 4,
+      "priority": 5,
       "dependsOn": [
         "US-9002"
       ]
@@ -83,7 +102,7 @@
         "Targets registered in keyword-targets.ts: `depop fee calculator` (5,000/mo, flagged growing), `etsy fee calculator` (5,000/mo), `how much does poshmark take` (5,000/mo), `poshmark fee calculator` and `mercari fee calculator` (500/mo each).",
         "A unit test asserts one worked example per marketplace against hand-computed totals."
       ],
-      "priority": 5,
+      "priority": 6,
       "dependsOn": [
         "US-9002"
       ]
@@ -100,7 +119,7 @@
         "Targets `reseller profit calculator` (50/mo), `ebay profit calculator` (5,000/mo) and `resale profit margin calculator`, registered in keyword-targets.ts.",
         "A unit test asserts that two identical items differing only in condition grade produce different estimated sale prices, and that a 10.0 grade applies no downward adjustment."
       ],
-      "priority": 6,
+      "priority": 7,
       "dependsOn": [
         "US-9002",
         "US-9005"
@@ -117,7 +136,7 @@
         "Targets `international size conversion chart`, `pit to pit measurement chart`, `mens to womens size converter` and `clothing measurement converter`, registered in keyword-targets.ts.",
         "This is the one calculator serving buyers as well as sellers (1,600/mo combined); it links into both the buyer-facing condition glossary and the seller measurement flow."
       ],
-      "priority": 7,
+      "priority": 8,
       "dependsOn": [
         "US-9002"
       ]
@@ -125,19 +144,21 @@
     {
       "id": "US-9008",
       "passes": false,
-      "title": "Fill the comparison gap: poshmark-vs-mercari and depop-vs-poshmark",
-      "description": "As a seller choosing where to list, I want a comparison that covers how each marketplace handles condition disputes and returns, so that I can pick on the terms that actually cost me money.",
+      "title": "Fix the two underperforming comparison pages: poshmark-vs-mercari and depop-vs-poshmark",
+      "description": "As a seller choosing where to list, I want a comparison that covers how each marketplace handles condition disputes and returns, so that I can pick on the terms that actually cost me money. CORRECTED 2026-08-18: this story originally asked to CREATE these two pages, on the claim that the comparison family held only mercari-vs-ebay. That claim came from grepping the COMPARISONS array in comparison-guides.ts, which holds one entry; the other 15 comparison routes are registered in public-routes.ts. Both pages have been live since 2026-07-06 with ~1,400 words each. The work is to fix them, not build them.",
       "acceptanceCriteria": [
-        "Two new entries in COMPARISONS in src/lib/seo/comparison-guides.ts, which currently holds only mercari-vs-ebay, taking the family to three.",
-        "Together these target 10,000/mo (`poshmark vs mercari` 5,000 Low, `depop vs poshmark` 5,000 High) that currently has no page at all: this is the largest unserved segment in the pull.",
-        "Each comparison includes the condition-and-returns section that is GradeThread's differentiated angle, linking to the relevant /standards/{platform} page and to /reselling/reduce-ebay-returns.",
+        "/compare/poshmark-vs-mercari (live, 1,430 words) ranks at average position 44.8 on 10 impressions over 6 months. /compare/depop-vs-poshmark (live, 1,393 words) has never had an impression. Both underperform every sibling: /compare/vinted-vs-mercari sits at position 8.5 on 530 impressions. Diagnose the difference against the siblings that rank, and fix it.",
+        "Together these target 10,000/mo (`poshmark vs mercari` 5,000 Low, `depop vs poshmark` 5,000 High). The competing GradeThread page /blog/depop-vs-poshmark-which-should-you-use already earns 168 impressions at position 16.45, ahead of the /compare/ page for the same term: resolve the cannibalisation, either by canonicalising one to the other or by splitting the intent, and state which and why.",
+        "Each comparison gains the condition-and-returns section that is GradeThread's differentiated angle, linking to the relevant /standards/{platform} page and to /reselling/reduce-ebay-returns.",
+        "Titles and meta descriptions are rewritten against docs/seo/ctr-rewrite-worklist.csv: the /compare/ family earns 1,172 impressions for 8 clicks (0.68%) despite averaging position 8.5 on its leaders.",
         "Registered in keyword-targets.ts and covered by the existing comparison route tests; `npm run ui:check` stays at zero.",
         "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, `vendoo alternative` is 500/mo and `list perfectly alternative` returned blank."
       ],
-      "priority": 8,
+      "priority": 9,
       "dependsOn": [
         "US-9001"
-      ]
+      ],
+      "notes": "Rewritten 2026-08-18 from Search Console evidence. Original premise (family holds only mercari-vs-ebay) was false: 16 live /compare/ URLs, 15 registered via public-routes.ts rather than the COMPARISONS array."
     },
     {
       "id": "US-9009",
@@ -151,7 +172,7 @@
         "A PostHog funnel is defined from calculator view to landing page view to signup start, and registered in vault/40-growth/analytics-event-registry.md.",
         "Registered in keyword-targets.ts and in the marketing sitemap segment."
       ],
-      "priority": 9,
+      "priority": 10,
       "dependsOn": [
         "US-9003",
         "US-9006"
@@ -168,7 +189,7 @@
         "A dashboard or saved query reports calculator sessions, call-to-action click rate and signup conversion per calculator slug.",
         "A baseline is recorded 30 days after the first calculator ships, so the kill criteria in the measurement story have something to compare against."
       ],
-      "priority": 10,
+      "priority": 11,
       "dependsOn": [
         "US-9003",
         "US-9009"
@@ -185,7 +206,7 @@
         "Path 1 cleared the pull on volume but its kill condition was never tested; this story is that test. If every slot on all five terms belongs to a major publisher with no gaps, record Path 1 as blocked in vault/40-growth/seo-strategy-options-2026-08.md and shift the effort to Path 3 and Path 7, which have no such incumbent.",
         "Write the verdict and the evidence into the Path 1 section of the strategy note."
       ],
-      "priority": 11,
+      "priority": 12,
       "dependsOn": [
         "US-9001"
       ]
@@ -203,7 +224,7 @@
         "keyword-targets.ts entries are updated from disclosure keywords to removal keywords; keyword-targets.test.ts passes.",
         "`npm run ui:check` still reports zero for src/."
       ],
-      "priority": 12,
+      "priority": 13,
       "dependsOn": [
         "US-9011"
       ]
@@ -220,7 +241,7 @@
         "Remaining repair terms (`how to fix a hole in jeans`, `how to fix a snag in a sweater`, `how to darn a hole in a sweater`, `how to replace a zipper pull`, `how to fix a stretched out collar`, `how to fix a broken belt loop`) are covered by the same template.",
         "Registered in keyword-targets.ts and in the /care/ sitemap segment."
       ],
-      "priority": 13,
+      "priority": 14,
       "dependsOn": [
         "US-9012"
       ]
@@ -237,7 +258,7 @@
         "Page count is logged at build time so silent growth is visible; if the matrix exceeds 400 pages, the story stops and the cap is re-argued rather than shipped.",
         "Every generated page is registered through calculatorRoutes()-style spread into PUBLIC_ROUTES and appears in the /care/ sitemap segment."
       ],
-      "priority": 14,
+      "priority": 15,
       "dependsOn": [
         "US-9013"
       ]
@@ -254,7 +275,7 @@
         "The ratio of care URLs to reseller URLs is reported by the sitemap build; the rationale for the chosen ceiling is recorded in vault/40-growth/seo-strategy-options-2026-08.md.",
         "Path 1 is documented in the vault note as an authority and link engine, not an acquisition channel: it is 0.5% seller intent (1,550 of 295,750) and planning it as a customer channel is the failure mode this guard prevents."
       ],
-      "priority": 15,
+      "priority": 16,
       "dependsOn": [
         "US-9012"
       ]
@@ -271,7 +292,7 @@
         "A quarterly re-pull of docs/seo/keyword-pull-2026-08.csv is scheduled so the bucketed figures (50/500/5k/50k) can be replaced with real numbers once the Ads account has spend.",
         "The July 2026 grading-cluster kill criterion is marked as FIRED in the measurement note, since that is what triggered this rebuild."
       ],
-      "priority": 16,
+      "priority": 17,
       "dependsOn": [
         "US-9001",
         "US-9003",

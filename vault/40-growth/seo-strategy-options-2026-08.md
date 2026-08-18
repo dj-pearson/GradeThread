@@ -75,6 +75,53 @@ The kill criteria in [[seo-distribution-and-measurement]] anticipated exactly
 this moment. Under 1,000 grading-cluster impressions per month at six months
 was the stated trigger to stop investing in the moat. Honor it.
 
+## The diagnosis, run (2026-08-18)
+
+US-9001 is closed. Source: the Search Console export in `keyword/`, Web search,
+2026-05-25 to 2026-08-16. Full working in `docs/seo/US-9001-VERDICT.md`.
+
+**Verdict: none of the three causes. The premise above is wrong.**
+
+The site is not flat. It is ten weeks into a normal indexation ramp and
+compounding: first impression 2026-06-06, 2 impressions in the week of June 1,
+**2,410 in the week of August 10**. Six-month totals are 6,434 impressions and
+55 clicks across 270 URLs and 366 queries.
+
+- **Cause 1, no demand: failed.** 6,434 impressions and accelerating.
+- **Cause 2, no indexation: failed.** 270 URLs earn impressions. `/sitemap.xml`
+  is a flat 519-URL urlset exactly equal to the union of all 15 segment
+  sitemaps, no orphans. The four spot-checked URLs are 200, self-canonical,
+  `index, follow`, in the sitemap.
+- **Cause 3, no authority: failed.** 156 of 270 URLs rank in the top 10.
+
+**The real cause is a fourth one nobody listed: ranking without clicks.** 149
+URLs sit at position 3-10 and convert at 0.85%, against a 3-10% baseline. The
+query `vguc meaning` returns 355 impressions at average position 8.88 and zero
+clicks.
+
+Three findings that change the plan:
+
+1. **Definition pages are a zero-click class.** Nineteen glossary pages earn
+   1,087 impressions between them and 4 clicks. Google answers "what does VGUC
+   mean" in the SERP. Deprioritise anything glossary-shaped.
+2. **Tool pages already win by 10x.** `/tools/authenticity-check` earns 9.0% CTR
+   at position 13.4, against a 0.85% site average, and out-clicks 104 blog posts
+   sitting at position 8. This is local evidence for Path 3, stronger than the
+   Keyword Planner numbers Path 3 was originally argued from.
+3. **The Planner buckets are unreliable.** Three of the four URLs US-9001 named
+   as proven 5,000/mo demand (`/grading/glossary/euc`, `nwt-vs-nwot`,
+   `pre-owned`) have never had a single impression. Treat the 50,000/mo behind
+   `ebay fee calculator` with the same suspicion.
+
+Nothing is blocked. Build order stands, with a cheap CTR copy pass in front of
+it (`docs/seo/ctr-rewrite-worklist.csv`, 19 URLs, worth about 66 clicks over six
+months, which roughly doubles a small number). Path 3 is confirmed as the bet.
+
+Correction to the backlog: US-9008 claimed the comparison family holds only
+`mercari-vs-ebay`. There are 16 live `/compare/` URLs, and both pages that story
+asked to create have existed since 2026-07-06. It has been rewritten to fix them
+rather than build them.
+
 ## The eight paths
 
 Ranked by expected traffic per unit of build effort, given what already
