@@ -76,6 +76,29 @@ jobs:
       # Needs the full history fetched above — on a shallow clone `git log -1`
       # returns the same commit for every path, so the script detects that and
       # skips drift rather than reporting every note as drifted.
+      # US-2499 AC4: the iOS source guards, on the FAST runner.
+      #
+      # All six are pure Python text scans - no Xcode, no simulator, no project.
+      # They already moved ahead of the build INSIDE ios-ci.yml, which fixed the
+      # worst of it, but that whole workflow waits on a macOS runner: the slowest
+      # to schedule and the most expensive minute in the fleet. A bare string or
+      # an ungated print would sit unreported until one was free.
+      #
+      # Running the same lane here reports it in about a minute, on the runner
+      # that was already going to start. This does NOT replace the macOS copy -
+      # ios-ci.yml still runs them, and src/test/ios-guard-lane.test.ts fails if
+      # the two lists ever diverge - it just gets the answer back first.
+      - name: iOS source guards
+        if: ${{ !cancelled() }}
+        # `python3 --version` first, deliberately. The lane SKIPS rather than
+        # fails when no interpreter is found (scripts/verify.mjs, so a Windows
+        # box without Python still gets a useful run) - and a skip on CI is a
+        # green tick for a guard that never executed, which is the exact failure
+        # this repo keeps re-learning. If the runner image ever drops python3,
+        # this step goes red instead of quietly passing.
+        run: |
+          python3 --version
+          node scripts/verify.mjs --ios
       - name: Vault lint
         if: ${{ !cancelled() }}
         run: node scripts/vault-lint.mjs --strict
