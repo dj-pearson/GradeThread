@@ -102,17 +102,44 @@ describe("the policy endpoints are client-agnostic (US-2532 AC2)", () => {
   });
 });
 
-describe("what this slice does NOT claim (US-2532)", () => {
-  it("no iOS MFA-policy screen is asserted to exist", () => {
-    // AC2's iOS control is Swift that cannot be compiled or run here. When it
-    // lands it reads the same endpoint and shows the same server-authored
-    // sentence, with no new copy to keep in step.
-    const swift = read("ios/GradeThread/Team/TeamView.swift");
-    expect(
-      /mfa|two-factor/i.test(swift),
-      "an iOS MFA control appeared — extend this guard to assert it reads " +
-        "/api/workspace/mfa-policy and renders the server's error string",
-    ).toBe(false);
+describe("the iOS control reads the same endpoint and the same sentence (US-2532)", () => {
+  // This block used to assert the OPPOSITE — that no iOS MFA control existed —
+  // and its own failure message said what to do when one appeared: "extend this
+  // guard to assert it reads /api/workspace/mfa-policy and renders the server's
+  // error string". That is exactly what it now does. The point of the original
+  // was never that iOS should stay empty; it was that nobody should be able to
+  // close US-2532 believing Swift had landed when it had not.
+
+  it("the iOS Team screen has an MFA policy control", () => {
+    expect(/two-factor/i.test(read("ios/GradeThread/Team/TeamView.swift"))).toBe(true);
+  });
+
+  it("it reads the same endpoint, not a Swift copy of the rule", () => {
+    // The whole reason the endpoint is client-agnostic. A native reimplementation
+    // of the threshold logic would drift from the web the first time either side
+    // changed, and nothing would be red.
+    expect(read("ios/GradeThread/Team/TeamService.swift")).toContain(
+      "/api/workspace/mfa-policy",
+    );
+  });
+
+  it("a failed read is not rendered as 'not required'", () => {
+    // The load-bearing behaviour, and the one a naive port gets wrong. On a
+    // security control, "we could not tell" must not render as an explicit, safe
+    // setting. US-2185 made the same point on the web card.
+    expect(read("ios/GradeThread/Team/TeamStore.swift")).toContain("mfaLoadFailed");
+  });
+
+  it("a blocked member gets the SERVER's sentence, not a third copy of it", () => {
+    // Web renders `data.error` from the edge; iOS surfaces the same string
+    // through a typed error case rather than a local literal. Three clients
+    // writing their own wording is how one of them ends up out of step.
+    const swift = read("ios/GradeThread/Networking/EdgeAPIError.swift");
+    expect(swift).toContain("workspace_mfa_required");
+    expect(swift).toContain("workspaceMfaRequired");
+  });
+
+  it("still tracks the story", () => {
     const tracker = read("docs/reviews/full-surface-2026-08/FIX-PROGRESS.md");
     expect(tracker).toContain("US-2532");
   });

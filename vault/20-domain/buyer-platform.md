@@ -25,7 +25,7 @@ code_refs:
   - supabase/migrations/00535_ingested_listings.sql
   - supabase/migrations/00536_buyer_video_grading.sql
   - supabase/migrations/00537_buyer_growth_metrics.sql
-reviewed: 2026-08-14
+reviewed: 2026-08-18
 tags: [buyer, plans, entitlements, contract]
 summary: A buyer's effective tier is the higher of their buyer subscription and the tier their seller plan already includes; the plan matrix is written twice and only a cross-boundary parity test keeps the halves honest.
 ---
@@ -135,6 +135,51 @@ the key order** of `BUYER_FEATURES`. A bullet naming two features ("3 authentici
 + 2 video-grade credits / month") badges only on the first one that matches, so
 flipping the second feature's `live` changes nothing visible. A feature that needs
 its own badge needs its own bullet.
+
+### …and `ios` is not `live` either (US-2503)
+
+`live` answers "has this shipped **at all**". With two clients that stopped being
+the same question as "has it shipped **here**", and the gap was a live
+over-promise: `/pricing` says every FlipDesk plan includes buyer tools,
+`SELLER_PLAN_BUYER_TIER` really does bundle them, and a phone-only subscriber
+could reach none of them and was told nothing about it.
+
+So each entry also carries `ios`, with exactly three values and no fourth:
+
+- **`shipped`** — an iOS screen exists. Requires `iosScreen`, the Swift file's
+  repo-relative path.
+- **`planned`** — iOS could deliver it and has not yet. The plan screen says so
+  rather than omitting the bullet.
+- **`desktop-only`** — iOS *cannot* deliver it, for a reason about the capability
+  rather than about effort. Requires `iosNote`, the sentence the plan screen
+  shows. Only `extensionSecondOpinion` qualifies on its own merits: it is a
+  browser extension that reads the page you are looking at. The four riding on it
+  (`discrepancyScoring`, `priceFairness`, `fitPrediction`, `authenticityAddon`)
+  are reached *through* that surface or bought against a grade on the web.
+
+The bar for a new `desktop-only` entry is high, and it is the entry to be
+suspicious of: it is the one that closes a question permanently.
+
+Three things enforce this rather than three comments asking for care:
+
+- `src/test/buyer-ios-delivery.test.ts` — a `shipped` claim must name a Swift
+  file that **exists on disk**, and (for a `Buyer/` screen) `ContentView.swift`
+  must actually route to it. Its first version only *counted* shipped entries,
+  so flipping `planned` → `shipped` sailed straight through; a threshold is not
+  a property.
+- `src/test/buyer-ios-capability-parity.test.ts` — the Swift capability table
+  (`ios/GradeThread/Buyer/BuyerEntitlements.swift`) is parsed and compared field
+  by field to this registry. The list is duplicated into Swift because the plan
+  screen needs it; the duplicate is *tested*, not trusted.
+- The `Record<keyof BuyerGateFlags, …>` key type, which means a new gate flag
+  does not compile until somebody classifies it. The default is **decide**,
+  never "quietly becomes an iOS bullet".
+
+Note the direction of the iOS entitlement read, which is the opposite of the edge
+rule and catches reviewers out: the buyer screens read `saved_searches` and
+`notifications` through the **buyer's own** Supabase client, so owner RLS is the
+control. [[service-role-tables]]'s "every query carries `.eq(user_id)`" is about
+the service-role client, which bypasses RLS.
 
 ## A gate flag is a switch; an allowance needs a *binding*
 
