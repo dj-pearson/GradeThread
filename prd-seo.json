@@ -134,7 +134,7 @@
     },
     {
       "id": "US-9007",
-      "passes": false,
+      "passes": true,
       "title": "Measurement and size converter at /tools/measurement-converter",
       "description": "As either a seller writing measurements or a buyer reading them, I want a converter that handles garment measurements and international sizing, so that I can tell whether an item will fit without guessing.",
       "acceptanceCriteria": [
@@ -145,13 +145,13 @@
         "The men's EU column is DERIVED and shown as such (mensChestInchesToEu: chest in cm, halved) rather than presented as folklore. That derivation test caught two rows of the first draft being three sizes adrift at XXL and 3XL.",
         "Targets `international size conversion chart`, `pit to pit measurement chart`, `mens to womens size converter` and `clothing measurement converter`, registered in keyword-targets.ts.",
         "This is the one calculator serving buyers as well as sellers (1,600/mo combined); it links into both the buyer-facing condition glossary and the seller measurement flow.",
-        "DONE: the page at /tools/measurement-converter and the hub at /tools/calculators, both prerendered, both with JSON-LD from head-builder.ts, both in the SPA router, keyword-targets entries for both, and the registry entry flipped to live -- which is what activated US-9002's wiring. Remaining: a labelled diagram of where each measurement is taken (the copy describes each one, the drawing is not built)."
+        "DONE: the page at /tools/measurement-converter and the hub at /tools/calculators, both prerendered, both with JSON-LD from head-builder.ts, both in the SPA router, keyword-targets entries for both, and the registry entry flipped to live -- which is what activated US-9002's wiring. DONE: two flat-lay diagrams, a top and a pair of trousers, with all nine measurements drawn as labelled tape lines. Picking a measurement in the converter lights up its line and dims the rest, so the diagram answers the question the prose cannot -- front rise and pit to pit are not picturable from a sentence."
       ],
       "priority": 9,
       "dependsOn": [
         "US-9002"
       ],
-      "notes": "Data layer landed 2026-08-18: src/lib/size-conversion.ts + 25 tests. Chosen as the first calculator to build because it is the ONLY one needing no external rate data -- US-9003 through US-9006 are all blocked on fee schedules. Length conversion is exact; the international tables are approximate and labelled so. OPTIONAL REVIEW: docs/seo/size-tables-to-review.csv has all 28 rows for the operator to check, but nothing is blocked on it. PAGE SHIPPED 2026-08-18. Flipping measurement-converter to live activated the whole family: the hub, the sitemap entries and the prerender all came on with it. 835 tests green, tsc -b clean, ui:check 0 blocking. Three metadata bugs the guards caught on the way: four calculator titles were over the REAL 46-char budget (60 minus the ' | GradeThread' suffix) because my own test used a bare 60; three descriptions were over 160; and the primary keyword 'clothing measurement converter' did not appear verbatim in the title, so the title became 'Clothing Measurement Converter and Size Chart'."
+      "notes": "Data layer landed 2026-08-18: src/lib/size-conversion.ts + 25 tests. Chosen as the first calculator to build because it is the ONLY one needing no external rate data -- US-9003 through US-9006 are all blocked on fee schedules. Length conversion is exact; the international tables are approximate and labelled so. OPTIONAL REVIEW: docs/seo/size-tables-to-review.csv has all 28 rows for the operator to check, but nothing is blocked on it. PAGE SHIPPED 2026-08-18. Flipping measurement-converter to live activated the whole family: the hub, the sitemap entries and the prerender all came on with it. 835 tests green, tsc -b clean, ui:check 0 blocking. Three metadata bugs the guards caught on the way: four calculator titles were over the REAL 46-char budget (60 minus the ' | GradeThread' suffix) because my own test used a bare 60; three descriptions were over 160; and the primary keyword 'clothing measurement converter' did not appear verbatim in the title, so the title became 'Clothing Measurement Converter and Size Chart'. CLOSED 2026-08-18 with the diagrams. Inline SVG, no image file: it survives the prerender, reads in both themes from currentColor with no hardcoded palette, and the labels are selectable text. The keys are compared against MEASUREMENT_HOWTO in the test, so a tenth measurement cannot be added without a line being drawn for it. One guard had to be corrected on the way: US-432 post-prerender check counts <title> elements and fails above one, which is right for a leaked Helmet title and wrong for an SVG accessible name -- it now strips SVG before counting, and measurement-diagram.test.tsx asserts the relaxation is exactly that narrow."
     },
     {
       "id": "US-9008",
