@@ -38,6 +38,7 @@ import { computePhashFromImage } from "../lib/perceptual-hash.ts";
 import {
   GRADE_TIERS,
   type GradeTier,
+  TIER_CREDIT_COST,
   type PrecedenceResult,
   forensicAddonEnabled,
   runPaymentPrecedence,
@@ -412,6 +413,15 @@ gradeRoutes.post("/submit", async (c) => {
   // asked for it rather than only in a submissions list. Ownership-verified
   // below (US-268); a foreign/forged id is ignored, not fatal.
   const closetItemOf = (formData.get("closet_item_id") as string | null)?.trim() || null;
+  // US-2504: the seller’s inventory item this grade belongs to.
+  //
+  // The clip path had NO way to say which item it was grading - closet_item_id
+  // is the BUYER’s portfolio, and the route that links to inventory
+  // (/api/flipdesk/grading/submit) grades from photos already on the item and
+  // takes no clip. So a walk-around grade produced a real certificate attached
+  // to nothing, and the seller had to link it to their listing by hand.
+  const inventoryItemOf =
+    (formData.get("inventory_item_id") as string | null)?.trim() || null;
 
   const errors: string[] = [];
   if (!title || title.trim().length === 0) errors.push("title is required");
@@ -782,6 +792,22 @@ gradeRoutes.post("/submit", async (c) => {
       .eq("user_id", ownerId)
       .maybeSingle();
     if (closetRow) closetItemId = (closetRow as { id: string }).id;
+  }
+
+  // US-2504/US-268: same shape, same reasoning. Scoped to the account the
+  // grade is billed to, so a forged id cannot land one tenant’s grade on
+  // another tenant’s item. An unowned id is IGNORED rather than refused -
+  // refusing would leak whether the id exists in another tenant, which is the
+  // choice closet_item_id and `regrade_of` already make.
+  let inventoryItemId: string | null = null;
+  if (inventoryItemOf) {
+    const { data: itemRow } = await supabaseAdmin
+      .from("inventory_items")
+      .select("id")
+      .eq("id", inventoryItemOf)
+      .eq("user_id", ownerId)
+      .maybeSingle();
+    if (itemRow) inventoryItemId = (itemRow as { id: string }).id;
   }
 
   // Create submission (unpaid). user_id is the workspace owner so the row
@@ -1169,6 +1195,46 @@ gradeRoutes.post("/submit", async (c) => {
       `[video-grade] ${submissionId}: ${frameRecords.length} frame(s) from ` +
         `${extraction.extracted} decode(s), cap ${videoMaxFrames}`,
     );
+  }
+
+  // US-2504: link the finished submission to the seller’s item.
+  //
+  // PLACED HERE ON PURPOSE - past every abstain and every frame-storage
+  // failure, which return earlier, and before payment. Linking sooner would
+  // leave an item marked "grading" against a submission that abstained, and a
+  // bridge row pointing at a submission the failure paths delete.
+  //
+  // Two writes, both of which the pipeline already reads:
+  //   - flipdesk_grading_submissions is what the in-app status poll reads and
+  //     what grading-pipeline.ts flips to completed / pending_review.
+  //   - inventory_items.submission_id is what the pipeline’s item sync keys on
+  //     to write grade_value / grade_label / grade_report_id back.
+  // Mirrors steps 4 and 5 of the FlipDesk path so one grade does not reach an
+  // item by two different mechanisms.
+  if (inventoryItemId) {
+    try {
+      await supabaseAdmin.from("flipdesk_grading_submissions").insert({
+        inventory_item_id: inventoryItemId,
+        submission_id: submissionId,
+        tier,
+        status: "pending",
+        cost: TIER_CREDIT_COST[tier] ?? 0,
+        submitted_at: new Date().toISOString(),
+      });
+      await supabaseAdmin
+        .from("inventory_items")
+        .update({ status: "grading", submission_id: submissionId })
+        .eq("id", inventoryItemId)
+        .eq("user_id", ownerId);
+    } catch (linkErr) {
+      // The GRADE is not conditional on the link. A failed bridge write leaves
+      // a certificate the seller can still attach by hand; throwing here would
+      // lose a grade they have already paid for.
+      console.error(
+        `[grade] inventory link failed for ${submissionId}:`,
+        linkErr instanceof Error ? linkErr.message : String(linkErr),
+      );
+    }
   }
 
   // US-949: now that the retake submission exists with its images, mark the

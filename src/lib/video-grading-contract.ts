@@ -35,6 +35,21 @@ export const VIDEO_GRADING_OPT_IN = "true";
 export const VIDEO_SLOT_MARKS_FIELD = "video_slot_marks";
 
 /**
+ * US-2504: the SELLER's inventory item this grade belongs to.
+ *
+ * The clip path had no way to say which item it was grading. `closet_item_id`
+ * below is the BUYER's portfolio, and the route that does link to inventory
+ * (`/api/flipdesk/grading/submit`) grades from photos already attached to the
+ * item and takes no clip — so a walk-around grade produced a real certificate
+ * attached to nothing, and the seller had to link it to their listing by hand.
+ *
+ * An id the caller does not own is IGNORED, not refused: refusing would leak
+ * whether the id exists in another tenant. So the failure mode is an unlinked
+ * grade rather than a 400, which is the same choice `closet_item_id` makes.
+ */
+export const INVENTORY_ITEM_FIELD = "inventory_item_id";
+
+/**
  * How the clip entered the app. Positive-only provenance: anything the server
  * does not recognise normalises to null rather than to a claim, so an
  * unrecognised value can never read as "recorded live".

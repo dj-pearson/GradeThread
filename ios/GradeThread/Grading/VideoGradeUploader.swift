@@ -22,6 +22,10 @@ struct VideoGradeRequest: Equatable {
     /// Links the result back to a buyer's closet item. Clip path only — a photo
     /// grade already reaches the closet by certificate.
     var closetItemId: String?
+    /// The seller's inventory item this grade belongs to. Without it the
+    /// finished certificate attaches to nothing and the seller has to link it to
+    /// their listing by hand.
+    var inventoryItemId: String?
 }
 
 /// What came back. The abstain case is a first-class outcome rather than an
@@ -337,6 +341,9 @@ enum VideoGradeUploadService {
         }
         if let closetItemId = request.closetItemId, !closetItemId.isEmpty {
             out.append(("closet_item_id", closetItemId))
+        }
+        if let inventoryItemId = request.inventoryItemId, !inventoryItemId.isEmpty {
+            out.append((VideoGradingContract.inventoryItemField, inventoryItemId))
         }
         // NO images / image_types parts, ever. The server refuses photos
         // alongside a clip, and the refusal arrives after the upload.

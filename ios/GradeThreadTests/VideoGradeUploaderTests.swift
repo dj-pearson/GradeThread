@@ -231,6 +231,25 @@ final class VideoGradeUploaderTests: XCTestCase {
         XCTAssertTrue(names.contains("description"))
     }
 
+    // US-2504: without this the finished certificate attaches to nothing and
+    // the seller links it to their listing by hand. An id they do not own is
+    // IGNORED server-side rather than refused, so the failure mode is an
+    // unlinked grade, not a lost one.
+    func test_theInventoryItemIsSentWhenThereIsOne() {
+        var linked = request()
+        linked.inventoryItemId = "item-1"
+        let byName = Dictionary(
+            uniqueKeysWithValues: VideoGradeUploadService.fields(for: linked))
+        XCTAssertEqual(byName[VideoGradingContract.inventoryItemField], "item-1")
+        XCTAssertEqual(VideoGradingContract.inventoryItemField, "inventory_item_id")
+
+        // Omitted when absent, so an unlinked grade sends no key rather than an
+        // empty one the server would have to interpret.
+        let unlinked = Dictionary(
+            uniqueKeysWithValues: VideoGradeUploadService.fields(for: request()))
+        XCTAssertNil(unlinked[VideoGradingContract.inventoryItemField])
+    }
+
     // Sent explicitly false rather than omitted. The server re-checks either
     // way, but leaving them out puts the request's meaning at the mercy of a
     // default that could change server-side without this client knowing.

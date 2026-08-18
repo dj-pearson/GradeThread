@@ -30,6 +30,15 @@ enum VideoGradingContract {
     /// did not record.
     static let videoSlotMarksField = "video_slot_marks"
 
+    /// US-2504: the seller’s inventory item this grade belongs to.
+    ///
+    /// Without it a walk-around grade produced a real certificate attached to
+    /// nothing: closet_item_id is the BUYER’s portfolio, and the route that
+    /// links to inventory grades from photos already on the item and takes no
+    /// clip. An id the caller does not own is IGNORED server-side, not
+    /// refused, so an unlinked grade is the failure mode rather than a 400.
+    static let inventoryItemField = "inventory_item_id"
+
     /// How the clip entered the app. Positive-only provenance: anything the
     /// server does not recognise normalises to null rather than to a claim.
     static let videoCaptureSourceField = "video_capture_source"

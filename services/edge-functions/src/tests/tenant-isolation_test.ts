@@ -4043,6 +4043,15 @@ Deno.test({
 //   • GET/POST /api/buyer/profile, POST /api/buyer/profile/extension-token —
 //     act ONLY on the caller's own users row (.eq("id", userId)); the token is
 //     minted for c.get("userId"). No id is read from the body.
+//   • POST /api/grade/submit `inventory_item_id` (US-2504) — identical shape to
+//     `closet_item_id` below and for the same reason. The lookup is
+//     .eq("id", body).eq("user_id", ownerId), so a foreign item resolves to
+//     null and the grade proceeds UNLINKED rather than being refused; refusing
+//     would leak whether the id exists in another tenant. The two write-backs
+//     (the flipdesk_grading_submissions bridge row and the inventory_items
+//     patch) both run only when that owner-scoped lookup returned a row, and
+//     the patch repeats .eq("user_id", ownerId), so a link that somehow
+//     survived would still update zero rows.
 //   • POST /api/grade/submit `closet_item_id` (US-1841) — a foreign closet item
 //     is FILTERED, not refused: the lookup is
 //     .eq("id", body).eq("user_id", ownerId), and an unowned id resolves to null

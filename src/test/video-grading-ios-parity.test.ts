@@ -5,6 +5,7 @@ import {
   VIDEO_ABSTAIN_STATUS,
   VIDEO_CAPTURE_SOURCE_FIELD,
   VIDEO_CAPTURE_SOURCES,
+  INVENTORY_ITEM_FIELD,
   VIDEO_FIELD,
   VIDEO_GRADING_FIELD,
   VIDEO_GRADING_OPT_IN,
@@ -72,6 +73,7 @@ describe("the Swift video-grading contract mirrors the TypeScript one", () => {
     expect(swiftString("videoGradingOptIn")).toBe(VIDEO_GRADING_OPT_IN);
     expect(swiftString("videoSlotMarksField")).toBe(VIDEO_SLOT_MARKS_FIELD);
     expect(swiftString("videoCaptureSourceField")).toBe(VIDEO_CAPTURE_SOURCE_FIELD);
+    expect(swiftString("inventoryItemField")).toBe(INVENTORY_ITEM_FIELD);
   });
 
   it("agrees on the capture-source vocabulary", () => {
