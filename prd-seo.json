@@ -180,18 +180,20 @@
       "description": "As a seller who has just finished a fee calculation, I want a page that explains the tool that would do this automatically, so that I have somewhere to go other than back to the search results.",
       "acceptanceCriteria": [
         "One page per job-to-be-done covering `clothing inventory management software` ($39.17 top-of-page), `reseller inventory management` ($54.90), `multi channel listing software` ($34.51), `reseller profit tracker` ($50.19) and `ai listing generator` ($18.44).",
-        "EVIDENCE ADDED 2026-08-18: crosslisting is the strongest commercial signal in the Search Console export -- 42 queries, 162 impressions, ZERO clicks, average position 49.9. `cross listing software` alone is 32 impressions at position 58. /reselling/best-crosslisting-apps already exists and sits at position 51.5 on 203 impressions with no clicks. Build the crosslisting/multi-channel page FIRST in this story, and diagnose why the existing page is on page five before writing a new one that lands in the same place.",
+        "DIAGNOSED 2026-08-18, before writing anything, which is what AC2 asked for. /reselling/best-crosslisting-apps IS the page this story proposes to build and it ranks 51st on 203 impressions. Two problems: it is a best-apps list published by one of the apps it ranks, which is a trust signal no rewrite changes, and it is 944 words against a SERP where the top ten run three to five times longer. Six GradeThread URLs cover crosslisting and the other five all rank in the top 11. Full table in docs/seo/crosslisting-cluster-diagnosis.md.",
         "These are judged on CONVERSION RATE, not search position. Combined volume is 2,200/mo and the segment will not move the traffic number at any ranking; their job is to catch traffic arriving from the calculators. The story is not complete without the conversion measurement in AC4.",
         "Each page has a single primary call to action into FlipDesk signup, and states the condition-grading differentiator that separates it from Vendoo and List Perfectly.",
         "A PostHog funnel is defined from calculator view to landing page view to signup start, and registered in vault/40-growth/analytics-event-registry.md.",
-        "Registered in keyword-targets.ts and in the marketing sitemap segment."
+        "Registered in keyword-targets.ts and in the marketing sitemap segment.",
+        "REVISED SCOPE from that diagnosis: do NOT build a second head-term landing page. Point commercial intent at /flipdesk/crosslisting (position 10.8, a vendor page that can credibly describe its own product) and either retire the listicle or stop presenting it as neutral. Put depth where the site already ranks, on the task-intent pages at position 7 to 11.",
+        "The $34.51 top-of-page bid is a warning, not a target. It says advertisers compete there, which is a reason the organic SERP is hard. Same Keyword Planner pull that produced three zero-impression URLs in US-9001."
       ],
       "priority": 11,
       "dependsOn": [
         "US-9003",
         "US-9006"
       ],
-      "notes": "Evidence added 2026-08-18 from the Search Console export. See docs/seo/unserved-query-clusters.md."
+      "notes": "Evidence added 2026-08-18 from the Search Console export. See docs/seo/unserved-query-clusters.md. Diagnosed 2026-08-18. The build this story asks for would have landed on page five next to the page that is already there."
     },
     {
       "id": "US-9010",
