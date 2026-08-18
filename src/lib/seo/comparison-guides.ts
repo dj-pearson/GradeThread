@@ -78,6 +78,19 @@ interface PlatformFacts {
   returns: string;
   /** One clause: who this platform is for (used in intro/verdict). */
   bestFor: string;
+  /**
+   * US-9018 migration facts. Search Console found 13 queries of the shape
+   * "mercari to grailed" earning 202 impressions and ZERO clicks, every one of
+   * them landing on the /compare/ page for that pair. They are not asking which
+   * is better; they are asking how to move. These three fields answer that on
+   * the page that already ranks.
+   */
+  /** What survives the move when you relist here. */
+  carriesOver: string;
+  /** What does not, and cannot be rebuilt by relisting. */
+  leftBehind: string;
+  /** How condition has to be expressed on this platform. */
+  conditionWording: string;
 }
 
 const PLATFORM_FACTS: Record<string, PlatformFacts> = {
@@ -90,6 +103,12 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     payout: "Managed Payments deposits on a set schedule once an order clears — predictable for cash flow.",
     returns: "Money-back-guarantee cases for 'item not as described'; eBay tends to side with buyers on condition, and repeated cases hurt your seller metrics.",
     bestFor: "volume and specialist sellers who want reach and comp depth",
+    carriesOver:
+      "Photos and description text, if you keep copies. eBay wants item specifics (brand, size, colour, style) that other platforms do not ask for, so expect to fill gaps rather than paste.",
+    leftBehind:
+      "Your feedback score, seller level and sold history all start from zero. On eBay that matters more than most: seller metrics feed Cassini, so a new account ranks below an established one on identical listings.",
+    conditionWording:
+      "A fixed condition dropdown, not free text. Apparel runs on a three-tier set, and the tier you pick is what a not-as-described case is judged against.",
   },
   poshmark: {
     name: "Poshmark",
@@ -100,6 +119,12 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     payout: "Funds release after delivery confirmation; direct deposit lands in a few business days.",
     returns: "Posh Protect cases for 'not as described'; there are no fit or change-of-mind returns, but condition claims favor buyers.",
     bestFor: "social sellers of contemporary fashion who work the sharing and community engine",
+    carriesOver:
+      "Photos and copy. Poshmark's listing form is light, so a listing from anywhere else transfers with little rework.",
+    leftBehind:
+      "Followers, shares and your closet's social history, which is the engine Poshmark rewards. Rebuilding that is the real cost of arriving, not the relisting.",
+    conditionWording:
+      "A short condition dropdown plus free text. Most sellers carry the detail in the description, which means a Posh Protect case turns on what you wrote.",
   },
   mercari: {
     name: "Mercari",
@@ -110,6 +135,12 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     payout: "Funds release after delivery confirmation; direct deposit in a few business days.",
     returns: "A buyer can return within the rating window if an item is not as described; condition claims favor buyers.",
     bestFor: "fast turnover of mid-priced everyday clothing with low friction",
+    carriesOver:
+      "Photos and description. Mercari's form is the lightest of the group, so this is the easiest destination to relist into.",
+    leftBehind:
+      "Ratings and sold history. Mercari surfaces seller ratings prominently, so an empty profile sells slower at the same price.",
+    conditionWording:
+      "A five-step condition dropdown, from new to poor, plus free text. The dropdown is what a buyer filters on.",
   },
   depop: {
     name: "Depop",
@@ -120,6 +151,12 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     payout: "Paid to your linked payment account after the sale clears.",
     returns: "Buyer Protection claims for not-as-described items; photo-led disputes favor buyers.",
     bestFor: "trend and vintage sellers reaching a young, style-led audience",
+    carriesOver:
+      "Photos, which Depop leans on harder than anywhere else. Copy usually needs rewriting: what reads as thorough on eBay reads as corporate here.",
+    leftBehind:
+      "Followers and likes, which drive Depop's feed. A listing with no social signal behind it is close to invisible.",
+    conditionWording:
+      "A condition dropdown from brand new to used-fair, plus free text and hashtags. Buyers read the photos first and the words second, so flaws have to be shown, not only described.",
   },
   grailed: {
     name: "Grailed",
@@ -130,6 +167,12 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     payout: "Released after the buyer-protection window closes.",
     returns: "Buyer Protection disputes for not-as-described items; condition scrutiny is high on designer pieces.",
     bestFor: "designer and menswear sellers with higher-value, condition-scrutinized pieces",
+    carriesOver:
+      "Photos and description, but Grailed asks for designer, category and precise measurements that other platforms treat as optional. Expect to add data, not paste it.",
+    leftBehind:
+      "Your seller history and any transaction feedback. On higher-value designer pieces buyers check that record before they buy, so it costs more here than elsewhere.",
+    conditionWording:
+      "A condition scale from new to very worn, and buyers hold it to a stricter standard than any other platform on this list because the items are worth more.",
   },
   vinted: {
     name: "Vinted",
@@ -140,6 +183,12 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     payout: "Held until the buyer accepts the order, then paid to your Vinted balance.",
     returns: "Buyer Protection claims for not-as-described items; funds stay held until the buyer accepts.",
     bestFor: "no-seller-fee casual selling to a value-focused audience",
+    carriesOver:
+      "Photos and copy. Vinted's form is simple, and there is no seller fee, so the cost of relisting is your time only.",
+    leftBehind:
+      "Ratings and any following. Vinted's search leans on freshness, so a new seller is not penalised the way an eBay one is.",
+    conditionWording:
+      "A five-step condition dropdown from new with tags to satisfactory, plus free text. The dropdown is a filter, so the wrong pick hides the item.",
   },
   whatnot: {
     name: "Whatnot",
@@ -150,6 +199,12 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
     payout: "Released after the order clears.",
     returns: "Returns for not-as-described items; live sales move fast, so the on-stream condition call is what sets expectations.",
     bestFor: "live sellers who move volume through streamed drops",
+    carriesOver:
+      "Almost nothing, and this is the one move that is not a relist. Whatnot is live selling: the item goes into a stream, not a listing page, so photos and copy become a script and a camera angle.",
+    leftBehind:
+      "Everything reputational, plus the format itself. There is no static listing to carry over and no browse traffic to inherit.",
+    conditionWording:
+      "Spoken, on stream, in real time. The condition call you make out loud is what sets the expectation, and it is the hardest one to evidence afterwards.",
   },
 };
 
@@ -159,6 +214,11 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
  * hand-written flagship (poshmark-vs-mercari, depop-vs-poshmark) supply editorial
  * intro/verdict copy while reusing the derived table + FAQ.
  */
+/** Lowercase the first letter so a sentence-shaped fact can be spliced mid-clause. */
+function lowerFirst(text: string): string {
+  return text.charAt(0).toLowerCase() + text.slice(1);
+}
+
 function templatedComparison(
   aSlug: string,
   bSlug: string,
@@ -190,6 +250,12 @@ function templatedComparison(
       { heading: `Who ${a.name} is for`, body: `${a.name} fits ${a.bestFor}. Match it to the items and pace that suit that profile, and it will out-earn a platform you picked by habit.` },
       { heading: `Who ${b.name} is for`, body: `${b.name} fits ${b.bestFor}. If your inventory and selling style line up with that, it's the stronger home for those listings.` },
       { heading: "The risk both share: condition", body: `On both ${a.name} and ${b.name}, the most expensive event is a 'not as described' return over condition. Both resolve these in the buyer's favor by default and put the burden of proof on the seller — identical risk whichever you choose, and the piece you can actually control.` },
+      // US-9018. People searching "${aSlug} to ${bSlug}" have already decided;
+      // they want to know how to move. Answering that here rather than on a
+      // separate /migrate/ page keeps one URL per pair, which matters on a site
+      // whose problem is authority concentration rather than page count.
+      { heading: `Moving your listings from ${a.name} to ${b.name}`, body: `What comes with you: ${b.carriesOver} What does not: ${b.leftBehind} And the part that trips people up, because it is not a copy-paste — condition. ${a.name} expects ${lowerFirst(a.conditionWording)} ${b.name} expects ${lowerFirst(b.conditionWording)} Relisting the same words on the new platform is how a clean item becomes a not-as-described case.` },
+      { heading: `Moving from ${b.name} to ${a.name}`, body: `The same move in reverse. What comes with you: ${a.carriesOver} What does not: ${a.leftBehind} Re-read the condition line before you publish: ${a.name} expects ${lowerFirst(a.conditionWording)}` },
     ],
     verdict:
       overrides?.verdict ??
@@ -203,6 +269,14 @@ function templatedComparison(
       {
         q: `Who wins a condition dispute on ${a.name} vs ${b.name}?`,
         a: `Both platforms resolve 'not as described' condition disputes in the buyer's favor by default and put the burden of proof on the seller. The best protection on either is accurate condition disclosure up front — an objective grade and certificate document that you did.`,
+      },
+      {
+        q: `How do I move my listings from ${a.name} to ${b.name}?`,
+        a: `There is no transfer button on either platform, so every listing is created again on the destination. ${b.carriesOver} ${b.leftBehind} Rewrite the condition line rather than pasting it: ${b.name} expects ${lowerFirst(b.conditionWording)} Cross-listing software does the relisting in bulk, which is worth it past roughly twenty items.`,
+      },
+      {
+        q: `Can I sell the same item on ${a.name} and ${b.name} at once?`,
+        a: `Yes, and most sellers past a certain volume do. The catch is delisting: an item that sells on one and stays live on the other becomes a cancelled order and a metrics hit. That is the problem cross-listing tools exist to solve, by removing the listing everywhere the moment it sells.`,
       },
     ],
   };

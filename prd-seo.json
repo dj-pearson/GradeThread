@@ -312,20 +312,21 @@
     {
       "id": "US-9018",
       "passes": false,
-      "title": "Marketplace migration pages: the \"move my listings from X to Y\" intent",
-      "description": "As a reseller who has decided to switch marketplaces, I want a page about moving my listings from one to the other, so that I find out how rather than being told again which one is better. Found 2026-08-18 in the Search Console export: 19 queries of the shape 'X to Y' earn 202 impressions at average position 19.5 and ZERO clicks. Google lands them on the /compare/ pages, which answer 'which is better' when the searcher asked 'how do I move'. FlipDesk already does crosslisting; nothing on the site says so for this intent.",
+      "title": "Answer the migration intent on the comparison pages that already rank for it",
+      "description": "As a reseller who has decided to switch marketplaces, I want the page to tell me how to move my listings, not which platform is better. CORRECTED 2026-08-18 before building: this story originally asked for a new /migrate/{from}-to-{to} family. Checked first, and ALL 13 migration queries already have a live /compare/ page for that exact pair, ranking at position 10 to 30. Building a parallel family would split authority against pages that already rank, on a site whose measured problem is authority concentration and CTR rather than page count. The work is one template change reaching all 16 comparison pages, and zero new URLs.",
       "acceptanceCriteria": [
-        "A migration page family under /migrate/{from}-to-{to}, seeded from the same platform list the /compare/ family uses so the two cannot drift apart.",
-        "Seed the family from real demand, not the full cross product: mercari-to-grailed (21 impressions), grailed-to-mercari (18), grailed-to-poshmark (18), whatnot-to-poshmark (17), mercari-to-vinted (17), poshmark-to-whatnot (17), ebay-to-grailed (16), poshmark-to-grailed (16), grailed-to-ebay (14), vinted-to-mercari (14). Full evidence in docs/seo/unserved-query-clusters.csv.",
-        "Each page answers the migration question directly: what transfers, what does not, how condition wording has to change between the two platforms' standards, and what it costs in fees to relist. Links to both /grading/platform-standards/{platform} pages.",
-        "Each page carries a call to action into FlipDesk crosslisting, since that is the product that does the thing being searched for. The link carries the same PostHog property as US-9010's calculator handoff, so both funnels report the same way.",
-        "Cross-linked with the matching /compare/{a}-vs-{b} page in both directions, so the comparison catches the decision and the migration page catches the execution.",
-        "Registered through PUBLIC_ROUTES and entry-server.tsx per US-9002's pattern, added to a sitemap segment, entries in keyword-targets.ts; `npm run ui:check` stays at zero and `npx tsc -b` is clean."
+        "PLATFORM_FACTS in src/lib/seo/comparison-guides.ts gains carriesOver, leftBehind and conditionWording per platform, so migration content is derived rather than hand-written 16 times. DONE for all 7 platforms.",
+        "templatedComparison() emits two migration sections per page, one in each direction, plus two FAQs phrased the way the queries are actually typed ('How do I move my listings from X to Y?' and 'Can I sell the same item on X and Y at once?'). DONE.",
+        "The condition-wording change between platforms is called out as the thing that turns a clean relist into a not-as-described case. This is the grading wedge applied to the migration intent, and it is what no competitor page says.",
+        "The delisting problem (item sells on one platform, stays live on the other, becomes a cancelled order and a metrics hit) is named in the cross-listing FAQ, since that is the job FlipDesk actually does.",
+        "NO new URLs. Evidence in docs/seo/unserved-query-clusters.md: 13 queries, 202 impressions, ZERO clicks, every one already served by a live /compare/ page.",
+        "REMAINING: a call to action into FlipDesk crosslisting on each comparison page, carrying the same PostHog property as US-9010's calculator handoff."
       ],
       "priority": 3,
       "dependsOn": [
         "US-9001"
-      ]
+      ],
+      "notes": "Rewritten and implemented 2026-08-18. The original plan (10 new /migrate/ pages) was checked against the data before building and rejected: every migration query already has a ranking /compare/ page. One template change now gives all 16 comparison pages migration content in both directions. 810 SEO tests green, tsc -b clean, ui:check 0 blocking."
     }
   ]
 }
