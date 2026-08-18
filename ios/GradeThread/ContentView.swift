@@ -582,7 +582,7 @@ struct MainShell: View {
     // drops into the global status banner the instant they happen (see the
     // `.onChange(of: networkMonitor.isConnected)` below).
     @Environment(NetworkMonitor.self) private var networkMonitor
-    @Environment(.openURL) private var openURL
+    @Environment(\.openURL) private var openURL
     @Environment(SyncStatusStore.self) private var syncStatus
     @State private var router = AppRouter()
     /// US-749: tab-independent orphan-listing count for the shell Reconcile
