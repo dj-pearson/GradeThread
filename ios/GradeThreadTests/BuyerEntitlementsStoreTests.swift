@@ -97,16 +97,25 @@ final class BuyerEntitlementsStoreTests: XCTestCase {
 
     // isUsable is a different question from isIncluded, and conflating them is
     // how a paying subscriber gets told to upgrade for something they already
-    // pay for. Every AC2 capability is `planned` until its screen lands, so it
-    // is included and not yet usable.
+    // pay for.
+    //
+    // This used to name conditionAlerts as the not-yet-shipped example, and
+    // shipping that screen turned it red — correctly, but it made the test about
+    // one capability's status rather than about the distinction. It now takes
+    // whichever capability is still `planned`, and fails loudly if none is left,
+    // because at that point the assertion has nothing to say and should be
+    // rewritten rather than quietly passing over an empty case.
     func test_includedButNotYetOnIPhoneIsNotUsable() async {
         let store = makeStore(.success(connoisseurPayload()))
         await store.load()
 
-        let alerts = capability("conditionAlerts")
-        XCTAssertEqual(alerts.delivery, .planned)
-        XCTAssertTrue(store.isIncluded(alerts))
-        XCTAssertFalse(store.isUsable(alerts), "no screen exists yet, so it is not usable here")
+        guard let planned = BuyerCapability.all.first(where: { $0.delivery == .planned }) else {
+            return XCTFail("nothing is planned any more — this test needs rewriting, not deleting")
+        }
+        XCTAssertTrue(store.isIncluded(planned))
+        XCTAssertFalse(
+            store.isUsable(planned),
+            "\(planned.id) has no iOS screen yet, so it is not usable here")
 
         let support = capability("prioritySupport")
         XCTAssertEqual(support.delivery, .shipped)
