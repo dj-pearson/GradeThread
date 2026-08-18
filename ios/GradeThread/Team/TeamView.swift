@@ -31,6 +31,12 @@ struct TeamView: View {
                     inviteSection
                 }
                 membersSection
+                // US-2532: the 2FA requirement was web-only, which made a
+                // security control desktop-only. Owner sets it; an admin can see
+                // it (the edge allows the read and refuses the write).
+                if store.canManageMembers {
+                    mfaPolicySection
+                }
                 if !store.invitations.isEmpty {
                     invitationsSection
                 }
@@ -301,6 +307,82 @@ struct TeamView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// US-2532: the workspace 2FA requirement, mirroring the web card's options
+    /// and its refusal to guess.
+    private var mfaPolicySection: some View {
+        Section {
+            if store.mfaLoadFailed {
+                // ⚠ NOT a picker defaulted to "Not required". A failed read
+                // rendered as off reads like an explicit, safe setting when the
+                // truth is unknown — US-2185 on web, same reasoning here.
+                VStack(alignment: .leading, spacing: Spacing.xxs) {
+                    Text("Couldn't load the 2FA requirement.")
+                        .font(.subheadline)
+                    Button("Try again") { Task { await store.loadMfaPolicy() } }
+                        .font(.subheadline)
+                }
+            } else {
+                Picker("Require 2FA", selection: mfaBinding) {
+                    ForEach(TeamView.mfaOptions) { option in
+                        Text(option.label).tag(option.role)
+                    }
+                }
+                .disabled(!store.isOwner || store.mfaSaving)
+                Text(TeamView.mfaHint(for: store.mfaPolicy))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !store.isOwner {
+                    // The edge refuses a non-owner write; saying so beats a 403
+                    // the user has to trigger to discover.
+                    Text("Only the workspace owner can change this.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        } header: {
+            Text("Two-factor authentication")
+        }
+    }
+
+    /// The picker works in `WorkspaceRole?` where nil is "not required", so the
+    /// binding maps the selection straight onto the value the endpoint takes —
+    /// there is no "off" sentinel to translate, and inventing one is how a
+    /// literal "off" ends up sent as a role.
+    private var mfaBinding: Binding<WorkspaceRole?> {
+        Binding(
+            get: { store.mfaPolicy },
+            set: { next in Task { await store.setMfaPolicy(next) } }
+        )
+    }
+
+    /// One choice in the 2FA picker. A struct rather than a tuple so the
+    /// ForEach identity is unambiguous — `nil` is a real option here (it means
+    /// "not required"), so the id cannot be the role itself.
+    fileprivate struct MfaOption: Identifiable {
+        let role: WorkspaceRole?
+        let label: String
+        var id: String { role?.rawValue ?? "off" }
+    }
+
+    fileprivate static let mfaOptions: [MfaOption] = [
+        MfaOption(role: nil, label: "Not required"),
+        MfaOption(role: .admin, label: "Admins"),
+        MfaOption(role: .listingManager, label: "Managers and above"),
+        MfaOption(role: .member, label: "Staff and above"),
+        MfaOption(role: .viewer, label: "Everyone"),
+    ]
+
+    fileprivate static func mfaHint(for role: WorkspaceRole?) -> String {
+        switch role {
+        case .none: return "Members sign in with a password only."
+        case .admin: return "Admins must use 2FA."
+        case .listingManager: return "Managers and Admins must use 2FA."
+        case .member: return "Everyone except Viewers must use 2FA."
+        case .viewer: return "All members must use 2FA."
+        case .owner: return "Only the owner must use 2FA."
         }
     }
 

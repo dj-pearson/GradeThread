@@ -15,6 +15,14 @@ protocol TeamProviding {
     func updateRole(ownerId: String, memberId: String, role: WorkspaceRole) async throws
     func remove(ownerId: String, memberId: String) async throws
     func revoke(invitationId: String) async throws
+    /// US-2532: the workspace MFA threshold. `nil` means enforcement is off.
+    /// Owner and admin may READ it; only the owner may write it, and the EDGE is
+    /// what enforces that — this client never decides it locally.
+    func mfaPolicy() async throws -> WorkspaceRole?
+    /// Returns the policy the server stored, so the UI reflects what was
+    /// actually saved rather than what was requested.
+    @discardableResult
+    func setMfaPolicy(_ role: WorkspaceRole?) async throws -> WorkspaceRole?
 }
 
 struct TeamService: TeamProviding {
@@ -118,4 +126,32 @@ struct TeamService: TeamProviding {
         return try await api.postJSON(
             "/api/workspace/invitations/\(invitationId)/resend", body: Empty())
     }
+    /// US-2532: GET /api/workspace/mfa-policy.
+    ///
+    /// No owner id is sent: the edge resolves the ACTIVE workspace from the
+    /// session, and accepting one here would invite a client to ask about a
+    /// workspace it is not acting in.
+    func mfaPolicy() async throws -> WorkspaceRole? {
+        struct Response: Decodable { let required_role: WorkspaceRole? }
+        let response: Response = try await api.getJSON("/api/workspace/mfa-policy")
+        return response.required_role
+    }
+
+    /// US-2532: PUT the threshold. `nil` CLEARS it — the endpoint takes null
+    /// rather than a sentinel, so the "Not required" choice must send null and
+    /// never the string "off".
+    ///
+    /// The route echoes the stored value back, so the caller can render what was
+    /// saved instead of what it asked for.
+    @discardableResult
+    func setMfaPolicy(_ role: WorkspaceRole?) async throws -> WorkspaceRole? {
+        struct Body: Encodable { let required_role: WorkspaceRole? }
+        struct Response: Decodable { let required_role: WorkspaceRole? }
+        let response: Response = try await api.putJSON(
+            "/api/workspace/mfa-policy",
+            body: Body(required_role: role)
+        )
+        return response.required_role
+    }
+
 }

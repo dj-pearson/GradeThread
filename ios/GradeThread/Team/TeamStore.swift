@@ -45,6 +45,17 @@ final class TeamStore {
     /// Surfaced by row actions (role change / remove / revoke / resend) on failure.
     var actionError: String?
 
+    // MARK: - US-2532: workspace MFA policy
+
+    /// The threshold at/above which members must use 2FA. `nil` = enforcement off.
+    private(set) var mfaPolicy: WorkspaceRole?
+    /// ⚠ A FAILED READ IS NOT "OFF". US-2185 made exactly this point on web: a
+    /// GET that fails must not render "Not required", because that reads as an
+    /// explicit, safe setting when the real policy is unknown. This flag makes
+    /// the view show a retry instead of a value it does not have.
+    private(set) var mfaLoadFailed = false
+    var mfaSaving = false
+
     init(ownerId: String, selfId: String, service: TeamProviding = TeamService()) {
         self.ownerId = ownerId
         self.selfId = selfId
@@ -91,6 +102,9 @@ final class TeamStore {
             currentRole = resolveCurrentRole()
             invitations = WorkspaceInvites.active(try await invitesTask, now: Date())
             phase = .ready
+            // US-2532: owner/admin only — the edge 403s anyone else, and asking
+            // would surface an error for a control they cannot see anyway.
+            if canManageMembers { await loadMfaPolicy() }
         } catch {
             phase = .failed(message(error))
         }
@@ -203,4 +217,32 @@ final class TeamStore {
     private func message(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
     }
+    // MARK: - US-2532: MFA policy
+
+    func loadMfaPolicy() async {
+        mfaLoadFailed = false
+        do {
+            mfaPolicy = try await service.mfaPolicy()
+        } catch {
+            // Deliberately does NOT fall back to nil-means-off. See mfaLoadFailed.
+            mfaLoadFailed = true
+        }
+    }
+
+    /// Owner-only in practice; the EDGE enforces it and this only hides the
+    /// control. On failure the previous value is restored, so the picker never
+    /// shows a policy the server did not accept.
+    func setMfaPolicy(_ role: WorkspaceRole?) async {
+        let previous = mfaPolicy
+        mfaSaving = true
+        defer { mfaSaving = false }
+        mfaPolicy = role
+        do {
+            mfaPolicy = try await service.setMfaPolicy(role)
+        } catch {
+            mfaPolicy = previous
+            actionError = message(error)
+        }
+    }
+
 }
