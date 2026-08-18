@@ -505,28 +505,36 @@ impressions, demand was never the problem and the answer is cause 2 or cause
 
 ## The backlog
 
-Sixteen stories in **`prd-seo.json`**, US-2674 to US-2689, held out of
-`prd.json` so the Ralph loop cannot clobber them mid-write.
+Sixteen stories in **`prd-seo.json`**, US-9001 to US-9016, held entirely out
+of `prd.json` so the Ralph loop cannot collide with them.
 
 Ordered 3 then 7 then 1, behind two gates:
 
 | Priority | Stories | What |
 |---|---|---|
-| 1 | US-2674 | Search Console diagnostic. Blocks everything else. |
-| 2-7 | US-2675 to US-2680 | Path 3, the calculators |
-| 8-10 | US-2681 to US-2683 | Path 7, comparisons and conversion |
-| 11 | US-2684 | SERP gate on Path 1's untested kill condition |
-| 12-15 | US-2685 to US-2688 | Path 1, damage and care, contained |
-| 16 | US-2689 | Kill criteria and cluster tracking |
+| 1 | US-9001 | Search Console diagnostic. Blocks everything else. |
+| 2-7 | US-9002 to US-9007 | Path 3, the calculators |
+| 8-10 | US-9008 to US-9010 | Path 7, comparisons and conversion |
+| 11 | US-9011 | SERP gate on Path 1's untested kill condition |
+| 12-15 | US-9012 to US-9015 | Path 1, damage and care, contained |
+| 16 | US-9016 | Kill criteria and cluster tracking |
 
 Path 2 and Path 4 have no stories. The pull killed them and adding stories
 "just in case" is how a dead path comes back.
 
-**The id block is reserved.** `prd.json.nextId` was bumped from US-2674 to
-US-2690 in the same commit, so Ralph cannot hand out an id this file already
-uses and merging back needs no renumbering. Priorities are local to
-`prd-seo.json` and will need a re-rank on merge, since `prd.json` already has
-sixteen stories at priority 5.
+### Why the ids start at 9001
+
+The first attempt reserved US-2674 to US-2689 the documented way, by taking
+the block from `prd.json.nextId` and bumping it. That failed twice over: PR
+#275 merged the same block to `main` first as the eBay ranking stories, so the
+ids collided anyway, and the bump itself was the only thing putting `prd.json`
+into the merge conflict.
+
+Sequential reservation does not work when another loop is allocating from the
+same counter concurrently. A high reserved block does. Ralph allocates upward
+from US-2684 and will not reach 9001, so `prd.json` never has to be touched by
+this file again. Priorities are local to `prd-seo.json`; merging back means
+renumbering into the live sequence and re-ranking.
 
 ## The keyword pull, and what it taught
 

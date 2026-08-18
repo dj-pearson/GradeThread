@@ -1,12 +1,12 @@
 {
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
-  "description": "SEO rebuild backlog, split out of prd.json so the Ralph loop cannot collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. Ids US-2674 onward are RESERVED out of prd.json.nextId, which was bumped past this block in the same commit, so merging back needs no renumbering. Priorities are local to this file and will need a re-rank on merge.",
-  "nextId": "US-2690",
+  "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
+  "nextId": "US-9017",
   "archive": "prd.archive.json",
   "userStories": [
     {
-      "id": "US-2674",
+      "id": "US-9001",
       "passes": false,
       "title": "[OPERATOR] Search Console diagnostic: separate no-demand from no-indexation before any SEO build",
       "description": "As the operator, I want to know which of the three causes is producing zero traffic, so that we do not spend a quarter building content when the real problem is that Google is not indexing what we already shipped.",
@@ -20,7 +20,7 @@
       "priority": 1
     },
     {
-      "id": "US-2675",
+      "id": "US-9002",
       "passes": false,
       "title": "Calculator page family: route registry, prerender, JSON-LD and its own sitemap segment",
       "description": "As a reseller searching for a fee or shipping calculator, I want GradeThread's tools to be crawlable, fast-loading pages, so that they can rank and earn links instead of sitting behind the SPA.",
@@ -34,11 +34,11 @@
       ],
       "priority": 2,
       "dependsOn": [
-        "US-2674"
+        "US-9001"
       ]
     },
     {
-      "id": "US-2676",
+      "id": "US-9003",
       "passes": false,
       "title": "eBay fee calculator at /tools/ebay-fee-calculator",
       "description": "As an eBay seller working out what a sale will net, I want a fee calculator that handles category final value fees, insertion fees and promoted-listing rates, so that I get the real number instead of a rough guess.",
@@ -51,11 +51,11 @@
       ],
       "priority": 3,
       "dependsOn": [
-        "US-2675"
+        "US-9002"
       ]
     },
     {
-      "id": "US-2677",
+      "id": "US-9004",
       "passes": false,
       "title": "eBay shipping calculator at /tools/ebay-shipping-calculator",
       "description": "As a seller pricing a listing, I want to compare shipping cost by weight, dimensions and service, so that I do not lose margin by guessing postage.",
@@ -68,11 +68,11 @@
       ],
       "priority": 4,
       "dependsOn": [
-        "US-2675"
+        "US-9002"
       ]
     },
     {
-      "id": "US-2678",
+      "id": "US-9005",
       "passes": false,
       "title": "Fee calculators for Poshmark, Mercari, Depop and Etsy",
       "description": "As a seller who lists across several marketplaces, I want the same fee calculator for each of them, so that I can compare what a given item nets on each platform.",
@@ -85,11 +85,11 @@
       ],
       "priority": 5,
       "dependsOn": [
-        "US-2675"
+        "US-9002"
       ]
     },
     {
-      "id": "US-2679",
+      "id": "US-9006",
       "passes": false,
       "title": "Reseller profit calculator that takes CONDITION as an input",
       "description": "As a reseller deciding whether an item is worth listing, I want a profit calculator that factors the item's condition into the estimated sale price, so that I get a realistic number rather than one based on a mint-condition comp.",
@@ -102,12 +102,12 @@
       ],
       "priority": 6,
       "dependsOn": [
-        "US-2675",
-        "US-2678"
+        "US-9002",
+        "US-9005"
       ]
     },
     {
-      "id": "US-2680",
+      "id": "US-9007",
       "passes": false,
       "title": "Measurement and size converter at /tools/measurement-converter",
       "description": "As either a seller writing measurements or a buyer reading them, I want a converter that handles garment measurements and international sizing, so that I can tell whether an item will fit without guessing.",
@@ -119,11 +119,11 @@
       ],
       "priority": 7,
       "dependsOn": [
-        "US-2675"
+        "US-9002"
       ]
     },
     {
-      "id": "US-2681",
+      "id": "US-9008",
       "passes": false,
       "title": "Fill the comparison gap: poshmark-vs-mercari and depop-vs-poshmark",
       "description": "As a seller choosing where to list, I want a comparison that covers how each marketplace handles condition disputes and returns, so that I can pick on the terms that actually cost me money.",
@@ -136,11 +136,11 @@
       ],
       "priority": 8,
       "dependsOn": [
-        "US-2674"
+        "US-9001"
       ]
     },
     {
-      "id": "US-2682",
+      "id": "US-9009",
       "passes": false,
       "title": "FlipDesk conversion landing pages for the high-bid commercial terms",
       "description": "As a seller who has just finished a fee calculation, I want a page that explains the tool that would do this automatically, so that I have somewhere to go other than back to the search results.",
@@ -153,12 +153,12 @@
       ],
       "priority": 9,
       "dependsOn": [
-        "US-2676",
-        "US-2679"
+        "US-9003",
+        "US-9006"
       ]
     },
     {
-      "id": "US-2683",
+      "id": "US-9010",
       "passes": false,
       "title": "Wire the calculators into the FlipDesk funnel and measure the handoff",
       "description": "As the operator, I want to know how many calculator visitors become signups, so that I can tell whether Path 3 is an acquisition channel or just traffic.",
@@ -170,12 +170,12 @@
       ],
       "priority": 10,
       "dependsOn": [
-        "US-2676",
-        "US-2682"
+        "US-9003",
+        "US-9009"
       ]
     },
     {
-      "id": "US-2684",
+      "id": "US-9011",
       "passes": false,
       "title": "[GATE] SERP-check five repair terms before committing to the damage-and-care build",
       "description": "As the operator, I want to know who actually holds the top ten for the repair keywords, so that we do not commit to a 295,750/mo cluster that is locked up by domain-authority-80 incumbents.",
@@ -187,11 +187,11 @@
       ],
       "priority": 11,
       "dependsOn": [
-        "US-2674"
+        "US-9001"
       ]
     },
     {
-      "id": "US-2685",
+      "id": "US-9012",
       "passes": false,
       "title": "Reframe the flaw library from disclosure-first to removal-first under /care/",
       "description": "As someone who just found a stain on a garment, I want a page that tells me how to get it out, so that I land on GradeThread for the question I actually asked rather than one about listing terminology.",
@@ -205,11 +205,11 @@
       ],
       "priority": 12,
       "dependsOn": [
-        "US-2684"
+        "US-9011"
       ]
     },
     {
-      "id": "US-2686",
+      "id": "US-9013",
       "passes": false,
       "title": "Repair entry pages for the two 50,000/mo Low-competition terms",
       "description": "As someone with a broken zipper or a missing button, I want a step-by-step repair guide, so that I can fix the garment myself.",
@@ -222,11 +222,11 @@
       ],
       "priority": 13,
       "dependsOn": [
-        "US-2685"
+        "US-9012"
       ]
     },
     {
-      "id": "US-2687",
+      "id": "US-9014",
       "passes": false,
       "title": "Flaw-crossed-with-fabric matrix, only where the answer genuinely differs",
       "description": "As someone with a specific stain on a specific fabric, I want advice for that combination, so that I do not ruin a silk blouse using a method written for denim.",
@@ -239,11 +239,11 @@
       ],
       "priority": 14,
       "dependsOn": [
-        "US-2686"
+        "US-9013"
       ]
     },
     {
-      "id": "US-2688",
+      "id": "US-9015",
       "passes": false,
       "title": "Containment guards so the care cluster cannot dilute the reseller entity",
       "description": "As the operator, I want the care content structurally separated from the reseller surface, so that Google's read of what GradeThread is does not drift toward laundry advice.",
@@ -256,11 +256,11 @@
       ],
       "priority": 15,
       "dependsOn": [
-        "US-2685"
+        "US-9012"
       ]
     },
     {
-      "id": "US-2689",
+      "id": "US-9016",
       "passes": false,
       "title": "Kill criteria and cluster tracking for the rebuilt SEO paths",
       "description": "As the operator, I want each new cluster measured against a threshold set in advance, so that the next review reads the numbers instead of rationalising them.",
@@ -273,10 +273,10 @@
       ],
       "priority": 16,
       "dependsOn": [
-        "US-2674",
-        "US-2676",
-        "US-2682",
-        "US-2685"
+        "US-9001",
+        "US-9003",
+        "US-9009",
+        "US-9012"
       ]
     }
   ]
