@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "claude/seo-strategy-options-evftv2",
   "description": "SEO rebuild backlog, held OUT of prd.json entirely so the Ralph loop can never collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. IDS USE A RESERVED HIGH BLOCK (US-9001+) RATHER THAN prd.json.nextId: an earlier attempt reserved US-2674..US-2689 by bumping prd.json.nextId, and PR #275 merged the same block to main first, so the reservation both conflicted and failed. prd.json is now never touched by this file. Ralph allocates sequentially from US-2684 and will not reach 9001. On merge back, renumber into the live sequence and re-rank priorities, which are local to this file.",
-  "nextId": "US-9018",
+  "nextId": "US-9019",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -51,7 +51,7 @@
         "New functions/sitemap-tools.xml.ts emits the calculator URLs and is referenced from functions/sitemap.xml.ts.",
         "`npm run ui:check` still reports zero findings for src/, and `npx tsc -b` is clean."
       ],
-      "priority": 3,
+      "priority": 4,
       "dependsOn": [
         "US-9001"
       ]
@@ -68,7 +68,7 @@
         "Targets `ebay fee calculator` (50,000/mo, Low, $13.23 top-of-page) as primary with `ebay final value fee calculator` and `how much does ebay take from a sale` (5,000/mo) as secondary; all three are registered in keyword-targets.ts.",
         "A unit test asserts at least three worked examples against hand-computed totals, including one that crosses the free-insertion threshold."
       ],
-      "priority": 4,
+      "priority": 5,
       "dependsOn": [
         "US-9002"
       ]
@@ -85,7 +85,7 @@
         "Targets `ebay shipping calculator` (50,000/mo, Low) as primary and `cheapest way to ship clothes` (500/mo) as secondary, both registered in keyword-targets.ts.",
         "A unit test covers a dimensional-weight case and a flat-rate-cheaper case."
       ],
-      "priority": 5,
+      "priority": 6,
       "dependsOn": [
         "US-9002"
       ]
@@ -102,7 +102,7 @@
         "Targets registered in keyword-targets.ts: `depop fee calculator` (5,000/mo, flagged growing), `etsy fee calculator` (5,000/mo), `how much does poshmark take` (5,000/mo), `poshmark fee calculator` and `mercari fee calculator` (500/mo each).",
         "A unit test asserts one worked example per marketplace against hand-computed totals."
       ],
-      "priority": 6,
+      "priority": 7,
       "dependsOn": [
         "US-9002"
       ]
@@ -119,7 +119,7 @@
         "Targets `reseller profit calculator` (50/mo), `ebay profit calculator` (5,000/mo) and `resale profit margin calculator`, registered in keyword-targets.ts.",
         "A unit test asserts that two identical items differing only in condition grade produce different estimated sale prices, and that a 10.0 grade applies no downward adjustment."
       ],
-      "priority": 7,
+      "priority": 8,
       "dependsOn": [
         "US-9002",
         "US-9005"
@@ -136,7 +136,7 @@
         "Targets `international size conversion chart`, `pit to pit measurement chart`, `mens to womens size converter` and `clothing measurement converter`, registered in keyword-targets.ts.",
         "This is the one calculator serving buyers as well as sellers (1,600/mo combined); it links into both the buyer-facing condition glossary and the seller measurement flow."
       ],
-      "priority": 8,
+      "priority": 9,
       "dependsOn": [
         "US-9002"
       ]
@@ -154,7 +154,7 @@
         "Registered in keyword-targets.ts and covered by the existing comparison route tests; `npm run ui:check` stays at zero.",
         "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, `vendoo alternative` is 500/mo and `list perfectly alternative` returned blank."
       ],
-      "priority": 9,
+      "priority": 10,
       "dependsOn": [
         "US-9001"
       ],
@@ -167,16 +167,18 @@
       "description": "As a seller who has just finished a fee calculation, I want a page that explains the tool that would do this automatically, so that I have somewhere to go other than back to the search results.",
       "acceptanceCriteria": [
         "One page per job-to-be-done covering `clothing inventory management software` ($39.17 top-of-page), `reseller inventory management` ($54.90), `multi channel listing software` ($34.51), `reseller profit tracker` ($50.19) and `ai listing generator` ($18.44).",
+        "EVIDENCE ADDED 2026-08-18: crosslisting is the strongest commercial signal in the Search Console export -- 42 queries, 162 impressions, ZERO clicks, average position 49.9. `cross listing software` alone is 32 impressions at position 58. /reselling/best-crosslisting-apps already exists and sits at position 51.5 on 203 impressions with no clicks. Build the crosslisting/multi-channel page FIRST in this story, and diagnose why the existing page is on page five before writing a new one that lands in the same place.",
         "These are judged on CONVERSION RATE, not search position. Combined volume is 2,200/mo and the segment will not move the traffic number at any ranking; their job is to catch traffic arriving from the calculators. The story is not complete without the conversion measurement in AC4.",
         "Each page has a single primary call to action into FlipDesk signup, and states the condition-grading differentiator that separates it from Vendoo and List Perfectly.",
         "A PostHog funnel is defined from calculator view to landing page view to signup start, and registered in vault/40-growth/analytics-event-registry.md.",
         "Registered in keyword-targets.ts and in the marketing sitemap segment."
       ],
-      "priority": 10,
+      "priority": 11,
       "dependsOn": [
         "US-9003",
         "US-9006"
-      ]
+      ],
+      "notes": "Evidence added 2026-08-18 from the Search Console export. See docs/seo/unserved-query-clusters.md."
     },
     {
       "id": "US-9010",
@@ -189,7 +191,7 @@
         "A dashboard or saved query reports calculator sessions, call-to-action click rate and signup conversion per calculator slug.",
         "A baseline is recorded 30 days after the first calculator ships, so the kill criteria in the measurement story have something to compare against."
       ],
-      "priority": 11,
+      "priority": 12,
       "dependsOn": [
         "US-9003",
         "US-9009"
@@ -206,7 +208,7 @@
         "Path 1 cleared the pull on volume but its kill condition was never tested; this story is that test. If every slot on all five terms belongs to a major publisher with no gaps, record Path 1 as blocked in vault/40-growth/seo-strategy-options-2026-08.md and shift the effort to Path 3 and Path 7, which have no such incumbent.",
         "Write the verdict and the evidence into the Path 1 section of the strategy note."
       ],
-      "priority": 12,
+      "priority": 13,
       "dependsOn": [
         "US-9001"
       ]
@@ -224,7 +226,7 @@
         "keyword-targets.ts entries are updated from disclosure keywords to removal keywords; keyword-targets.test.ts passes.",
         "`npm run ui:check` still reports zero for src/."
       ],
-      "priority": 13,
+      "priority": 14,
       "dependsOn": [
         "US-9011"
       ]
@@ -241,7 +243,7 @@
         "Remaining repair terms (`how to fix a hole in jeans`, `how to fix a snag in a sweater`, `how to darn a hole in a sweater`, `how to replace a zipper pull`, `how to fix a stretched out collar`, `how to fix a broken belt loop`) are covered by the same template.",
         "Registered in keyword-targets.ts and in the /care/ sitemap segment."
       ],
-      "priority": 14,
+      "priority": 15,
       "dependsOn": [
         "US-9012"
       ]
@@ -258,7 +260,7 @@
         "Page count is logged at build time so silent growth is visible; if the matrix exceeds 400 pages, the story stops and the cap is re-argued rather than shipped.",
         "Every generated page is registered through calculatorRoutes()-style spread into PUBLIC_ROUTES and appears in the /care/ sitemap segment."
       ],
-      "priority": 15,
+      "priority": 16,
       "dependsOn": [
         "US-9013"
       ]
@@ -275,7 +277,7 @@
         "The ratio of care URLs to reseller URLs is reported by the sitemap build; the rationale for the chosen ceiling is recorded in vault/40-growth/seo-strategy-options-2026-08.md.",
         "Path 1 is documented in the vault note as an authority and link engine, not an acquisition channel: it is 0.5% seller intent (1,550 of 295,750) and planning it as a customer channel is the failure mode this guard prevents."
       ],
-      "priority": 16,
+      "priority": 17,
       "dependsOn": [
         "US-9012"
       ]
@@ -292,12 +294,30 @@
         "A quarterly re-pull of docs/seo/keyword-pull-2026-08.csv is scheduled so the bucketed figures (50/500/5k/50k) can be replaced with real numbers once the Ads account has spend.",
         "The July 2026 grading-cluster kill criterion is marked as FIRED in the measurement note, since that is what triggered this rebuild."
       ],
-      "priority": 17,
+      "priority": 18,
       "dependsOn": [
         "US-9001",
         "US-9003",
         "US-9009",
         "US-9012"
+      ]
+    },
+    {
+      "id": "US-9018",
+      "passes": false,
+      "title": "Marketplace migration pages: the \"move my listings from X to Y\" intent",
+      "description": "As a reseller who has decided to switch marketplaces, I want a page about moving my listings from one to the other, so that I find out how rather than being told again which one is better. Found 2026-08-18 in the Search Console export: 19 queries of the shape 'X to Y' earn 202 impressions at average position 19.5 and ZERO clicks. Google lands them on the /compare/ pages, which answer 'which is better' when the searcher asked 'how do I move'. FlipDesk already does crosslisting; nothing on the site says so for this intent.",
+      "acceptanceCriteria": [
+        "A migration page family under /migrate/{from}-to-{to}, seeded from the same platform list the /compare/ family uses so the two cannot drift apart.",
+        "Seed the family from real demand, not the full cross product: mercari-to-grailed (21 impressions), grailed-to-mercari (18), grailed-to-poshmark (18), whatnot-to-poshmark (17), mercari-to-vinted (17), poshmark-to-whatnot (17), ebay-to-grailed (16), poshmark-to-grailed (16), grailed-to-ebay (14), vinted-to-mercari (14). Full evidence in docs/seo/unserved-query-clusters.csv.",
+        "Each page answers the migration question directly: what transfers, what does not, how condition wording has to change between the two platforms' standards, and what it costs in fees to relist. Links to both /grading/platform-standards/{platform} pages.",
+        "Each page carries a call to action into FlipDesk crosslisting, since that is the product that does the thing being searched for. The link carries the same PostHog property as US-9010's calculator handoff, so both funnels report the same way.",
+        "Cross-linked with the matching /compare/{a}-vs-{b} page in both directions, so the comparison catches the decision and the migration page catches the execution.",
+        "Registered through PUBLIC_ROUTES and entry-server.tsx per US-9002's pattern, added to a sitemap segment, entries in keyword-targets.ts; `npm run ui:check` stays at zero and `npx tsc -b` is clean."
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-9001"
       ]
     }
   ]
