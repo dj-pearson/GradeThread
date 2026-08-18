@@ -45,12 +45,14 @@
 // Pure — no network, no DB, no model — so every rule here is unit-testable.
 
 import type { AcceptedTagField } from "./tag-ground-truth.ts";
+import { usEquivalentForLabel } from "./size-systems.ts";
 
 /**
  * Rollout gate: `GRADING_SIZE_VERIFY`, default OFF. Its own flag rather than
  * riding on GRADING_TAG_OCR because it is a SEPARATE vision call with a separate
  * cost, and an operator has to be able to buy one without the other.
  */
+
 export function sizeVerifyGradingEnabled(): boolean {
   const v = (Deno.env.get("GRADING_SIZE_VERIFY") ?? "").trim().toLowerCase();
   return v === "1" || v === "true" || v === "yes" || v === "on";
@@ -186,7 +188,18 @@ export function sizeVerificationLine(v: SizeVerification | null): string {
       "read from the size label AND independently confirmed by the measurement photos",
   };
   const gender = v.gender ? `${v.gender} ` : "";
-  const base = `- Size: ${gender}${v.size} (${how[v.source]})`;
+  // US-2215: when the size is labelled in a foreign system AND a corpus-backed
+  // offset exists for that system/department, state the US equivalent alongside
+  // it. A size a US buyer cannot interpret is functionally an unsized item.
+  //
+  // usEquivalentForLabel refuses far more often than it answers — no announced
+  // system, already US, no offset for the department, or the label already
+  // stating its own US equivalent — and a refusal renders the line exactly as it
+  // rendered before this shipped. That is the property the test pins: the eight
+  // conversions we can make are additive, and everything else is byte-identical.
+  const us = usEquivalentForLabel(v.size, v.gender ?? null);
+  const usSuffix = us === null ? "" : ` ≈ US ${us}`;
+  const base = `- Size: ${gender}${v.size}${usSuffix} (${how[v.source]})`;
   if (!v.disagreement) return base;
   return `${base}\n- NOTE: the measurement photos indicate ${v.disagreement.measurements}, which does NOT match the label. Both readings are recorded; neither has been treated as correct.`;
 }

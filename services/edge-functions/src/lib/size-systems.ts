@@ -201,3 +201,69 @@ export function usEquivalentForRow(
   if (n === null) return null;
   return toUsSize(system, chart.department, n);
 }
+
+// ── Reading half (US-2215) ──────────────────────────────────────────────────
+//
+// Everything above converts a CHART ROW, whose system is known because the chart
+// declares it. The certificate does not have a chart — it has one size STRING
+// that a tag pass transcribed ("IT 48") or a measurement pass produced. These
+// three functions are what let that string reach a US-reading buyer, and every
+// one of them is written to refuse rather than to guess.
+//
+// Until this, nothing in production imported this module at all: the dimension
+// and the conversions shipped and no surface called them. The story's own note
+// said seeding charts before wiring the reading half would be "shipped-but-
+// unwired with a sourcing bill attached", so this is the reading half.
+
+/** The chart departments a conversion rule can key on. Everything else refuses. */
+export function normalizeDepartment(gender: string | null | undefined): string | null {
+  const g = (gender ?? "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (g === "women" || g === "womens" || g === "female" || g === "w") return "Women";
+  if (g === "men" || g === "mens" || g === "male" || g === "m") return "Men";
+  // Unisex, Kids, Baby and anything unrecognised: no corpus-backed offset
+  // exists, and inventing one is the failure this whole module is shaped
+  // against. `M` is deliberately read as Men here and NOT as a size — this
+  // function only ever receives a department, never a size label.
+  return null;
+}
+
+/**
+ * The size system a LABEL announces, or null when it announces none.
+ *
+ * Only an explicit two-letter prefix counts. A bare "48" is not an IT 48: it is
+ * a number whose system nobody recorded, and guessing one would turn an
+ * unlabelled size into a confident wrong one. "W30 L32" is refused for the same
+ * reason from the other direction — W is a waist measurement in inches, not a
+ * place in a national size sequence, and that exact case is why labelNumber's
+ * test pins a refusal.
+ */
+export function systemFromLabel(label: string): SizeSystem | null {
+  const m = label.trim().match(/^([A-Z]{2})\s*\d/i);
+  if (!m) return null;
+  const token = m[1]!.toUpperCase();
+  return (SIZE_SYSTEMS as readonly string[]).includes(token) ? (token as SizeSystem) : null;
+}
+
+/**
+ * The US equivalent of a size LABEL, or null to refuse.
+ *
+ * Refuses when the label announces no system, when it is already US, when the
+ * department has no corpus-backed offset, and — the case worth naming — when the
+ * label ALREADY states a US equivalent. The corpus is full of those: US-2215
+ * exists partly because 00456 wrote "JP L (approx US M)" inside the size label
+ * for want of a structured field. Appending "(US 38)" to a label that already
+ * says so is noise, and noise on a certificate is indistinguishable from a bug.
+ */
+export function usEquivalentForLabel(
+  label: string,
+  gender: string | null | undefined,
+): number | null {
+  if (/\bUS\b/i.test(label.replace(/^\s*[A-Z]{2}/i, ""))) return null;
+  const system = systemFromLabel(label);
+  if (!system) return null;
+  const department = normalizeDepartment(gender);
+  if (!department) return null;
+  const n = labelNumber(label);
+  if (n === null) return null;
+  return toUsSize(system, department, n);
+}

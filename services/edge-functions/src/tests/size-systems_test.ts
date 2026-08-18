@@ -248,3 +248,79 @@ Deno.test("US-2215: detection never invents a system for a bare-number chart", (
     );
   }
 });
+
+// ── US-2215 reading half: label → US equivalent ─────────────────────────────
+//
+// Until this, nothing in production imported this module. These functions are
+// what carry a corpus-backed conversion onto the certificate line, and every one
+// of them is written to refuse rather than to guess — so most of what is pinned
+// here is the refusals.
+
+const {
+  normalizeDepartment,
+  systemFromLabel,
+  usEquivalentForLabel,
+} = await import("../lib/size-systems.ts");
+
+Deno.test("US-2215: a department is normalized to the two the corpus has offsets for", () => {
+  for (const g of ["Women", "women", "Womens", "women's", "female"]) {
+    assertEquals(normalizeDepartment(g), "Women", g);
+  }
+  for (const g of ["Men", "mens", "Male", "men's"]) {
+    assertEquals(normalizeDepartment(g), "Men", g);
+  }
+  // Unisex, Kids and Baby have no corpus-backed offset. Refusing is the whole
+  // discipline: a conversion we cannot evidence must not be invented.
+  for (const g of ["Unisex", "Kids", "Baby", "", null, undefined, "??"]) {
+    assertEquals(normalizeDepartment(g as string | null), null, String(g));
+  }
+});
+
+Deno.test("US-2215: only an EXPLICIT system prefix counts", () => {
+  assertEquals(systemFromLabel("IT 48"), "IT");
+  assertEquals(systemFromLabel("fr 38"), "FR");
+  assertEquals(systemFromLabel("UK10"), "UK");
+  // A bare number is a size whose system nobody recorded. Guessing one turns an
+  // unlabelled size into a confidently wrong one.
+  assertEquals(systemFromLabel("48"), null);
+  assertEquals(systemFromLabel("M"), null);
+  // W30 L32 is a waist measurement in inches, not a place in a national size
+  // sequence — the same refusal labelNumber's own test pins.
+  assertEquals(systemFromLabel("W30 L32"), null);
+  // A two-letter token that is not a system we know.
+  assertEquals(systemFromLabel("XS 4"), null);
+});
+
+Deno.test("US-2215: the four corpus-backed conversions answer", () => {
+  assertEquals(usEquivalentForLabel("IT 48", "Men"), 38);
+  assertEquals(usEquivalentForLabel("IT 40", "Women"), 4);
+  assertEquals(usEquivalentForLabel("FR 36", "Women"), 4);
+  assertEquals(usEquivalentForLabel("UK 8", "Women"), 4);
+});
+
+Deno.test("US-2215: everything outside the corpus REFUSES", () => {
+  // No offset for this system/department pair.
+  assertEquals(usEquivalentForLabel("IT 48", "Women"), 12, "IT Women has its own offset");
+  assertEquals(usEquivalentForLabel("JP 5", "Women"), null, "no JP offset in the corpus");
+  assertEquals(usEquivalentForLabel("UK 8", "Men"), null, "no UK Men offset");
+  assertEquals(usEquivalentForLabel("EU 42", "Men"), null, "no EU offset — IT is not EU");
+  // Already US, or no system at all.
+  assertEquals(usEquivalentForLabel("US 8", "Women"), null);
+  assertEquals(usEquivalentForLabel("8", "Women"), null);
+  // Department we cannot key on.
+  assertEquals(usEquivalentForLabel("IT 48", "Unisex"), null);
+  assertEquals(usEquivalentForLabel("IT 48", null), null);
+  // Below the offset, which means the rule does not reach that end of the range.
+  assertEquals(usEquivalentForLabel("IT 8", "Men"), null);
+});
+
+Deno.test("US-2215: a label that ALREADY states its US equivalent is left alone", () => {
+  // The exact shape US-2215 was filed over: 00456 wrote "JP L (approx US M)"
+  // inside the size label because there was nowhere structured to put it.
+  // Appending our own "US 38" to a label that already says so is noise, and
+  // noise on a certificate is indistinguishable from a bug.
+  assertEquals(usEquivalentForLabel("IT 48 (US 38)", "Men"), null);
+  assertEquals(usEquivalentForLabel("IT 48 approx us 38", "Men"), null);
+  // But the leading system token itself must not be mistaken for that claim.
+  assertEquals(usEquivalentForLabel("IT 48", "Men"), 38);
+});

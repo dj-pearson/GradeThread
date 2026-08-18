@@ -241,3 +241,61 @@ Deno.test("a size alone is enough to render a block", () => {
 Deno.test("sizeVerificationLine renders nothing for no verification", () => {
   assertEquals(sizeVerificationLine(null), "");
 });
+
+// ── US-2215: the US equivalent on the certificate line ──────────────────────
+//
+// The reading half. size-systems.ts had shipped its dimension and its four
+// corpus-backed conversions and NOTHING in production imported it — the story's
+// own note warned that seeding charts before wiring this would be
+// "shipped-but-unwired with a sourcing bill attached".
+
+Deno.test("US-2215: a foreign size gains its US equivalent", () => {
+  const line = sizeVerificationLine({
+    size: "IT 48",
+    source: "label",
+    confidence: 0.9,
+    gender: "Men",
+  });
+  assertStringIncludes(line, "IT 48 ≈ US 38");
+  assertStringIncludes(line, "read from the size label");
+});
+
+Deno.test("US-2215 REGRESSION: every refused case renders EXACTLY as before", () => {
+  // The additive-feature rule from the grading contract: when the new signal is
+  // absent the output must be byte-identical, not merely similar. These are the
+  // shapes that made up every certificate line before this shipped.
+  const cases: Array<{ size: string; gender: string | null; why: string }> = [
+    { size: "M", gender: "Women", why: "alpha size, nothing to convert" },
+    { size: "8", gender: "Women", why: "no system announced" },
+    { size: "US 8", gender: "Women", why: "already US" },
+    { size: "W30 L32", gender: "Men", why: "waist measurement, not a size sequence" },
+    { size: "IT 48", gender: "Unisex", why: "no offset for the department" },
+    { size: "IT 48", gender: null, why: "no department at all" },
+    { size: "JP 5", gender: "Women", why: "no JP offset in the corpus" },
+    { size: "IT 48 (US 38)", gender: "Men", why: "label already states it" },
+  ];
+  for (const { size, gender, why } of cases) {
+    const line = sizeVerificationLine({
+      size,
+      source: "label",
+      confidence: 0.9,
+      gender,
+    });
+    const expected = `- Size: ${gender ? `${gender} ` : ""}${size} (read from the size label)`;
+    assertEquals(line, expected, `${size} / ${gender}: ${why}`);
+  }
+});
+
+Deno.test("US-2215: the conversion rides alongside a disagreement, it does not replace it", () => {
+  // A contested reading is the case where a buyer most needs both numbers.
+  const line = sizeVerificationLine({
+    size: "IT 48",
+    source: "label",
+    confidence: 0.5,
+    gender: "Men",
+    disagreement: { label: "IT 48", measurements: "IT 50" },
+  });
+  assertStringIncludes(line, "IT 48 ≈ US 38");
+  assertStringIncludes(line, "does NOT match the label");
+  assertStringIncludes(line, "neither has been treated as correct");
+});
