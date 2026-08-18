@@ -446,6 +446,63 @@ has: a calculator that takes **condition** as an input and estimates the sale
 price from it, not just the fee on a price the user types in. That is the
 grading engine doing work inside a tool people already search for.
 
+## Path 7 and the competitor question
+
+The concern is that Vendoo, List Perfectly and Crosslist already own this
+space. That is true, and it applies to 12 percent of the path.
+
+Path 7 splits in two, and only one half has those competitors in it:
+
+| Segment | Volume | Share | Who ranks |
+|---|---|---|---|
+| Comparisons | 16,000 | 88% | blogs and listicles |
+| SaaS head terms | 2,200 | 12% | Vendoo, List Perfectly, Crosslist |
+
+And 15,000 of that 16,000 is **marketplace versus marketplace**, not tool
+versus tool: `mercari vs ebay`, `poshmark vs mercari`, `depop vs poshmark` at
+5,000 each. Vendoo does not rank for `mercari vs ebay`. Nobody selling
+crosslisting software does. Those SERPs belong to reseller blogs and content
+sites, which is a much softer field than a funded SaaS competitor.
+
+`mercari vs ebay` carries an advertiser competition index of **1 out of 100**
+on 5,000 searches a month. That is the anomaly the July research already
+flagged as the best pure-SEO target in the file, and it has not changed.
+
+### What is already built, and what is missing
+
+- `/compare/mercari-vs-ebay` **exists**. The 5,000-a-month, index-1 term has a
+  live page.
+- `poshmark vs mercari` and `depop vs poshmark` have **no page**. That is
+  10,000 a month of the strongest segment in the path, unserved.
+- All three competitor-alternative pages (Vendoo, List Perfectly, Crosslist)
+  **exist**. Do not invest further here: `vendoo alternative` is 500 a month
+  and `list perfectly alternative` came back blank. The alternative play is
+  real but small, and it is already done.
+
+### The reframe that matters more than the ranking
+
+The SaaS head terms are not a traffic play and should not be judged as one.
+`clothing inventory management software` at 500 a month will never move the
+number, whoever ranks for it. Those pages exist to **convert traffic that
+arrives from Path 3**, where someone finishes a fee calculation and needs
+somewhere to land. Judge them on conversion, not position. Competing with
+Vendoo for a 500-a-month keyword is not the job; being the page that catches
+127,100 a month of calculator traffic is.
+
+Where the head terms do pay is bid economics. Ranking organically for
+`reseller inventory management` (54.90 dollars top-of-page) or `clothing
+inventory management software` (39.17 dollars) is worth that much per click in
+avoided spend, on volume too small for anyone to fight hard over. Build them
+once, well, and stop.
+
+### Another already-built page for the Search Console test
+
+`/compare/mercari-vs-ebay` joins the three glossary terms as a live page
+targeting real, low-competition demand. That is now roughly **20,000 monthly
+searches already served by shipped pages**. If none of those four URLs takes
+impressions, demand was never the problem and the answer is cause 2 or cause
+3. Check all four together.
+
 ## The keyword pull, and what it taught
 
 `docs/seo/keyword-pull-2026-08.csv` holds the 183 terms, tagged by path;
