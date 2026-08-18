@@ -503,6 +503,31 @@ searches already served by shipped pages**. If none of those four URLs takes
 impressions, demand was never the problem and the answer is cause 2 or cause
 3. Check all four together.
 
+## The backlog
+
+Sixteen stories in **`prd-seo.json`**, US-2674 to US-2689, held out of
+`prd.json` so the Ralph loop cannot clobber them mid-write.
+
+Ordered 3 then 7 then 1, behind two gates:
+
+| Priority | Stories | What |
+|---|---|---|
+| 1 | US-2674 | Search Console diagnostic. Blocks everything else. |
+| 2-7 | US-2675 to US-2680 | Path 3, the calculators |
+| 8-10 | US-2681 to US-2683 | Path 7, comparisons and conversion |
+| 11 | US-2684 | SERP gate on Path 1's untested kill condition |
+| 12-15 | US-2685 to US-2688 | Path 1, damage and care, contained |
+| 16 | US-2689 | Kill criteria and cluster tracking |
+
+Path 2 and Path 4 have no stories. The pull killed them and adding stories
+"just in case" is how a dead path comes back.
+
+**The id block is reserved.** `prd.json.nextId` was bumped from US-2674 to
+US-2690 in the same commit, so Ralph cannot hand out an id this file already
+uses and merging back needs no renumbering. Priorities are local to
+`prd-seo.json` and will need a re-rank on merge, since `prd.json` already has
+sixteen stories at priority 5.
+
 ## The keyword pull, and what it taught
 
 `docs/seo/keyword-pull-2026-08.csv` holds the 183 terms, tagged by path;

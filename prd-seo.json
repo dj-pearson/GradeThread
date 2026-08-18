@@ -1,0 +1,283 @@
+{
+  "project": "GradeThread",
+  "branchName": "claude/seo-strategy-options-evftv2",
+  "description": "SEO rebuild backlog, split out of prd.json so the Ralph loop cannot collide with it. Derived from vault/40-growth/seo-strategy-options-2026-08.md and the 2026-08-18 Keyword Planner pull (docs/seo/keyword-pull-2026-08-results.csv). Build order is Path 3 (calculators, 127,100/mo seller intent), then Path 7 (conversion + comparisons), then Path 1 (damage and care, 295,750/mo, authority engine only). Path 2 (returns) and Path 4 (resale value) were killed by the pull and are deliberately absent. Ids US-2674 onward are RESERVED out of prd.json.nextId, which was bumped past this block in the same commit, so merging back needs no renumbering. Priorities are local to this file and will need a re-rank on merge.",
+  "nextId": "US-2690",
+  "archive": "prd.archive.json",
+  "userStories": [
+    {
+      "id": "US-2674",
+      "passes": false,
+      "title": "[OPERATOR] Search Console diagnostic: separate no-demand from no-indexation before any SEO build",
+      "description": "As the operator, I want to know which of the three causes is producing zero traffic, so that we do not spend a quarter building content when the real problem is that Google is not indexing what we already shipped.",
+      "acceptanceCriteria": [
+        "Record trailing-90-day impressions, clicks and average position for the four ALREADY-SHIPPED URLs that target real low-competition demand: /compare/mercari-vs-ebay (5,000/mo, competition index 1) and the reseller-glossary pages for 'what does euc mean', 'what does nwt mean' and 'what does pre owned mean' (5,000/mo each, Low).",
+        "Record indexed vs 'Crawled - currently not indexed' vs 'Discovered - currently not indexed' counts per sitemap segment, one row per functions/sitemap-*.xml.ts file.",
+        "Record total site impressions over 90 days and the average position of every query above 50 impressions.",
+        "Write the verdict (cause 1 no-demand / cause 2 no-indexation / cause 3 no-authority) with the supporting numbers into the diagnosis section of vault/40-growth/seo-strategy-options-2026-08.md, and bump its `reviewed` date.",
+        "If the verdict is cause 2 or cause 3, append a BLOCKED note to every Path 1, 3 and 7 build story in prd-seo.json naming the blocking cause: no new content universe helps until indexation or authority is fixed."
+      ],
+      "priority": 1
+    },
+    {
+      "id": "US-2675",
+      "passes": false,
+      "title": "Calculator page family: route registry, prerender, JSON-LD and its own sitemap segment",
+      "description": "As a reseller searching for a fee or shipping calculator, I want GradeThread's tools to be crawlable, fast-loading pages, so that they can rank and earn links instead of sitting behind the SPA.",
+      "acceptanceCriteria": [
+        "New src/lib/seo/calculators.ts exports calculatorRoutes(): PublicRoute[] and is spread into PUBLIC_ROUTES in src/lib/seo/public-routes.ts, following the pattern of comparisonRoutes() and glossaryRoutes().",
+        "Every calculator path is added to src/prerender/entry-server.tsx; src/lib/seo/__tests__/public-routes.test.ts and the prerender sync-guard both pass.",
+        "src/prerender/head-builder.ts jsonLdForRoute() emits SoftwareApplication JSON-LD for each calculator path, mirrored by the <SEO jsonLd=…> prop on the live SPA route, per the react-helmet-async gotcha in CLAUDE.md.",
+        "Each calculator has a KEYWORD_TARGETS entry in src/lib/seo/keyword-targets.ts; keyword-targets.test.ts passes, meaning the primary keyword appears in the registered title or description.",
+        "New functions/sitemap-tools.xml.ts emits the calculator URLs and is referenced from functions/sitemap.xml.ts.",
+        "`npm run ui:check` still reports zero findings for src/, and `npx tsc -b` is clean."
+      ],
+      "priority": 2,
+      "dependsOn": [
+        "US-2674"
+      ]
+    },
+    {
+      "id": "US-2676",
+      "passes": false,
+      "title": "eBay fee calculator at /tools/ebay-fee-calculator",
+      "description": "As an eBay seller working out what a sale will net, I want a fee calculator that handles category final value fees, insertion fees and promoted-listing rates, so that I get the real number instead of a rough guess.",
+      "acceptanceCriteria": [
+        "Computes and itemises: category final value fee, per-order fixed fee, insertion fee beyond the free allotment, promoted-listings ad rate, and international/currency-conversion surcharge, from inputs for sale price, shipping charged, category and store level.",
+        "The fee schedule lives in a single dated data module with a `effectiveFrom` field, so a rate change is a one-file edit and the page can state which schedule it used.",
+        "The prerendered HTML contains the full explanatory copy and the fee table, so the page is useful and indexable before the calculator script hydrates.",
+        "Targets `ebay fee calculator` (50,000/mo, Low, $13.23 top-of-page) as primary with `ebay final value fee calculator` and `how much does ebay take from a sale` (5,000/mo) as secondary; all three are registered in keyword-targets.ts.",
+        "A unit test asserts at least three worked examples against hand-computed totals, including one that crosses the free-insertion threshold."
+      ],
+      "priority": 3,
+      "dependsOn": [
+        "US-2675"
+      ]
+    },
+    {
+      "id": "US-2677",
+      "passes": false,
+      "title": "eBay shipping calculator at /tools/ebay-shipping-calculator",
+      "description": "As a seller pricing a listing, I want to compare shipping cost by weight, dimensions and service, so that I do not lose margin by guessing postage.",
+      "acceptanceCriteria": [
+        "Takes weight, package dimensions, origin and destination ZIP, and returns a compared table of the services a clothing seller actually uses, including a flat-rate versus weight-based recommendation.",
+        "Rate data is a dated static table with an `effectiveFrom` field, not a live carrier API call, so the page prerenders and cannot break on a third-party outage.",
+        "Dimensional weight is applied and shown as its own line when it exceeds actual weight, since that is the case sellers get wrong.",
+        "Targets `ebay shipping calculator` (50,000/mo, Low) as primary and `cheapest way to ship clothes` (500/mo) as secondary, both registered in keyword-targets.ts.",
+        "A unit test covers a dimensional-weight case and a flat-rate-cheaper case."
+      ],
+      "priority": 4,
+      "dependsOn": [
+        "US-2675"
+      ]
+    },
+    {
+      "id": "US-2678",
+      "passes": false,
+      "title": "Fee calculators for Poshmark, Mercari, Depop and Etsy",
+      "description": "As a seller who lists across several marketplaces, I want the same fee calculator for each of them, so that I can compare what a given item nets on each platform.",
+      "acceptanceCriteria": [
+        "One page per marketplace under /tools/{marketplace}-fee-calculator, generated from the shared calculator family rather than four hand-built pages.",
+        "Each uses the same dated fee-schedule module shape as the eBay calculator, so a platform rate change is a one-file edit.",
+        "A cross-platform comparison view shows the same item's net across all five marketplaces and links to the relevant /compare/ page.",
+        "Targets registered in keyword-targets.ts: `depop fee calculator` (5,000/mo, flagged growing), `etsy fee calculator` (5,000/mo), `how much does poshmark take` (5,000/mo), `poshmark fee calculator` and `mercari fee calculator` (500/mo each).",
+        "A unit test asserts one worked example per marketplace against hand-computed totals."
+      ],
+      "priority": 5,
+      "dependsOn": [
+        "US-2675"
+      ]
+    },
+    {
+      "id": "US-2679",
+      "passes": false,
+      "title": "Reseller profit calculator that takes CONDITION as an input",
+      "description": "As a reseller deciding whether an item is worth listing, I want a profit calculator that factors the item's condition into the estimated sale price, so that I get a realistic number rather than one based on a mint-condition comp.",
+      "acceptanceCriteria": [
+        "Inputs cost of goods, marketplace, sale price, shipping, and a condition grade on the 1.0-10.0 scale; outputs gross, fees, net profit, margin and ROI.",
+        "The condition input adjusts the estimated sale price using the same tier definitions the grading engine uses, and the page states the adjustment applied rather than hiding it. This is the differentiator that keeps the calculator off the commodity pile: no competing fee calculator has a condition axis.",
+        "A 'grade this item' call to action links to the grading flow, and the link carries a UTM or PostHog property so the calculator-to-grading path is measurable.",
+        "Targets `reseller profit calculator` (50/mo), `ebay profit calculator` (5,000/mo) and `resale profit margin calculator`, registered in keyword-targets.ts.",
+        "A unit test asserts that two identical items differing only in condition grade produce different estimated sale prices, and that a 10.0 grade applies no downward adjustment."
+      ],
+      "priority": 6,
+      "dependsOn": [
+        "US-2675",
+        "US-2678"
+      ]
+    },
+    {
+      "id": "US-2680",
+      "passes": false,
+      "title": "Measurement and size converter at /tools/measurement-converter",
+      "description": "As either a seller writing measurements or a buyer reading them, I want a converter that handles garment measurements and international sizing, so that I can tell whether an item will fit without guessing.",
+      "acceptanceCriteria": [
+        "Converts between US, UK, EU and JP sizing for the garment types in the existing garment-guides taxonomy, and between inches and centimetres for pit-to-pit, length, sleeve, waist and inseam.",
+        "Includes a labelled diagram of where each measurement is taken, matching the measurement definitions already used by the MeasureCard flow so the two cannot disagree.",
+        "Targets `international size conversion chart`, `pit to pit measurement chart`, `mens to womens size converter` and `clothing measurement converter`, registered in keyword-targets.ts.",
+        "This is the one calculator serving buyers as well as sellers (1,600/mo combined); it links into both the buyer-facing condition glossary and the seller measurement flow."
+      ],
+      "priority": 7,
+      "dependsOn": [
+        "US-2675"
+      ]
+    },
+    {
+      "id": "US-2681",
+      "passes": false,
+      "title": "Fill the comparison gap: poshmark-vs-mercari and depop-vs-poshmark",
+      "description": "As a seller choosing where to list, I want a comparison that covers how each marketplace handles condition disputes and returns, so that I can pick on the terms that actually cost me money.",
+      "acceptanceCriteria": [
+        "Two new entries in COMPARISONS in src/lib/seo/comparison-guides.ts, which currently holds only mercari-vs-ebay, taking the family to three.",
+        "Together these target 10,000/mo (`poshmark vs mercari` 5,000 Low, `depop vs poshmark` 5,000 High) that currently has no page at all: this is the largest unserved segment in the pull.",
+        "Each comparison includes the condition-and-returns section that is GradeThread's differentiated angle, linking to the relevant /standards/{platform} page and to /reselling/reduce-ebay-returns.",
+        "Registered in keyword-targets.ts and covered by the existing comparison route tests; `npm run ui:check` stays at zero.",
+        "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, `vendoo alternative` is 500/mo and `list perfectly alternative` returned blank."
+      ],
+      "priority": 8,
+      "dependsOn": [
+        "US-2674"
+      ]
+    },
+    {
+      "id": "US-2682",
+      "passes": false,
+      "title": "FlipDesk conversion landing pages for the high-bid commercial terms",
+      "description": "As a seller who has just finished a fee calculation, I want a page that explains the tool that would do this automatically, so that I have somewhere to go other than back to the search results.",
+      "acceptanceCriteria": [
+        "One page per job-to-be-done covering `clothing inventory management software` ($39.17 top-of-page), `reseller inventory management` ($54.90), `multi channel listing software` ($34.51), `reseller profit tracker` ($50.19) and `ai listing generator` ($18.44).",
+        "These are judged on CONVERSION RATE, not search position. Combined volume is 2,200/mo and the segment will not move the traffic number at any ranking; their job is to catch traffic arriving from the calculators. The story is not complete without the conversion measurement in AC4.",
+        "Each page has a single primary call to action into FlipDesk signup, and states the condition-grading differentiator that separates it from Vendoo and List Perfectly.",
+        "A PostHog funnel is defined from calculator view to landing page view to signup start, and registered in vault/40-growth/analytics-event-registry.md.",
+        "Registered in keyword-targets.ts and in the marketing sitemap segment."
+      ],
+      "priority": 9,
+      "dependsOn": [
+        "US-2676",
+        "US-2679"
+      ]
+    },
+    {
+      "id": "US-2683",
+      "passes": false,
+      "title": "Wire the calculators into the FlipDesk funnel and measure the handoff",
+      "description": "As the operator, I want to know how many calculator visitors become signups, so that I can tell whether Path 3 is an acquisition channel or just traffic.",
+      "acceptanceCriteria": [
+        "Every calculator page carries a contextual call to action into the matching FlipDesk surface, placed after the user has a result rather than before.",
+        "PostHog events fire for calculator_used, calculator_cta_clicked and signup_started_from_tool, each carrying the calculator slug; all three are registered in vault/40-growth/analytics-event-registry.md.",
+        "A dashboard or saved query reports calculator sessions, call-to-action click rate and signup conversion per calculator slug.",
+        "A baseline is recorded 30 days after the first calculator ships, so the kill criteria in the measurement story have something to compare against."
+      ],
+      "priority": 10,
+      "dependsOn": [
+        "US-2676",
+        "US-2682"
+      ]
+    },
+    {
+      "id": "US-2684",
+      "passes": false,
+      "title": "[GATE] SERP-check five repair terms before committing to the damage-and-care build",
+      "description": "As the operator, I want to know who actually holds the top ten for the repair keywords, so that we do not commit to a 295,750/mo cluster that is locked up by domain-authority-80 incumbents.",
+      "acceptanceCriteria": [
+        "Record the top ten organic results for five terms: `how to fix a broken zipper` (50,000, Low), `how to sew on a button` (50,000, Low), `how to fix a hole in jeans` (5,000), `how to fix a snag in a sweater` (5,000) and `how to unshrink clothes` (5,000).",
+        "For each, note how many of the ten are major publishers (Tide, Persil, Good Housekeeping, Real Simple, Martha Stewart) versus reachable sites, and whether any result is thin enough to displace.",
+        "Path 1 cleared the pull on volume but its kill condition was never tested; this story is that test. If every slot on all five terms belongs to a major publisher with no gaps, record Path 1 as blocked in vault/40-growth/seo-strategy-options-2026-08.md and shift the effort to Path 3 and Path 7, which have no such incumbent.",
+        "Write the verdict and the evidence into the Path 1 section of the strategy note."
+      ],
+      "priority": 11,
+      "dependsOn": [
+        "US-2674"
+      ]
+    },
+    {
+      "id": "US-2685",
+      "passes": false,
+      "title": "Reframe the flaw library from disclosure-first to removal-first under /care/",
+      "description": "As someone who just found a stain on a garment, I want a page that tells me how to get it out, so that I land on GradeThread for the question I actually asked rather than one about listing terminology.",
+      "acceptanceCriteria": [
+        "The 35 entries in src/lib/seo/flaw-library.ts each gain a removal-and-prevention section that comes BEFORE the existing disclosure-and-grading section, and titles are rewritten from grading language to removal language.",
+        "Pages are served under a /care/ path prefix, separate from the reseller spine, per the containment decision in the strategy note.",
+        "Existing flaw-library URLs 301 to their /care/ equivalents, and the redirect map is covered by a test so a rename cannot silently orphan them.",
+        "Each page ends on the honest hinge that some damage does not come out, linking down into pricing and grading. That link runs one way only, per the containment guard story.",
+        "keyword-targets.ts entries are updated from disclosure keywords to removal keywords; keyword-targets.test.ts passes.",
+        "`npm run ui:check` still reports zero for src/."
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-2684"
+      ]
+    },
+    {
+      "id": "US-2686",
+      "passes": false,
+      "title": "Repair entry pages for the two 50,000/mo Low-competition terms",
+      "description": "As someone with a broken zipper or a missing button, I want a step-by-step repair guide, so that I can fix the garment myself.",
+      "acceptanceCriteria": [
+        "Full guides for `how to fix a broken zipper` and `how to sew on a button`, both 50,000/mo on Low competition and the cheapest entry into the whole cluster.",
+        "Build the repair sub-cluster before stain removal: repair is 122,000/mo across 10 terms with 8 on Low competition, where stain removal is 138,150/mo across 18 terms with 11 at Medium or High. Same volume, half the fight.",
+        "Each guide carries HowTo JSON-LD with real numbered steps, tools and materials, emitted from head-builder.ts as well as the SPA route.",
+        "Remaining repair terms (`how to fix a hole in jeans`, `how to fix a snag in a sweater`, `how to darn a hole in a sweater`, `how to replace a zipper pull`, `how to fix a stretched out collar`, `how to fix a broken belt loop`) are covered by the same template.",
+        "Registered in keyword-targets.ts and in the /care/ sitemap segment."
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-2685"
+      ]
+    },
+    {
+      "id": "US-2687",
+      "passes": false,
+      "title": "Flaw-crossed-with-fabric matrix, only where the answer genuinely differs",
+      "description": "As someone with a specific stain on a specific fabric, I want advice for that combination, so that I do not ruin a silk blouse using a method written for denim.",
+      "acceptanceCriteria": [
+        "A generated page family crossing the flaw taxonomy with the fabrics that behave differently, seeded from the existing fabric taxonomy rather than a new list.",
+        "A combination only gets a page when the procedure genuinely differs; combinations whose answer is identical to the parent flaw page are NOT generated and canonicalise to it instead. A test asserts no generated page duplicates its parent's procedure.",
+        "This is the test a programmatic family has to pass and the reason this one is allowed where Path 4's value pages were not: getting oil out of silk is not the procedure for cotton denim.",
+        "Page count is logged at build time so silent growth is visible; if the matrix exceeds 400 pages, the story stops and the cap is re-argued rather than shipped.",
+        "Every generated page is registered through calculatorRoutes()-style spread into PUBLIC_ROUTES and appears in the /care/ sitemap segment."
+      ],
+      "priority": 14,
+      "dependsOn": [
+        "US-2686"
+      ]
+    },
+    {
+      "id": "US-2688",
+      "passes": false,
+      "title": "Containment guards so the care cluster cannot dilute the reseller entity",
+      "description": "As the operator, I want the care content structurally separated from the reseller surface, so that Google's read of what GradeThread is does not drift toward laundry advice.",
+      "acceptanceCriteria": [
+        "A test asserts no /care/ URL appears in the primary navigation, the homepage, or the top tier of functions/sitemap.xml.ts.",
+        "A test asserts the interlink rules in src/lib/seo/interlink-rules.ts allow /care/ pages to link INTO the reseller spine but not the reverse, so link equity flows toward the commercial pages and the entity signal does not invert.",
+        "Care content stays on the main domain in a subdirectory, NOT a subdomain: a subdomain would split the authority this cluster exists to build.",
+        "The ratio of care URLs to reseller URLs is reported by the sitemap build; the rationale for the chosen ceiling is recorded in vault/40-growth/seo-strategy-options-2026-08.md.",
+        "Path 1 is documented in the vault note as an authority and link engine, not an acquisition channel: it is 0.5% seller intent (1,550 of 295,750) and planning it as a customer channel is the failure mode this guard prevents."
+      ],
+      "priority": 15,
+      "dependsOn": [
+        "US-2685"
+      ]
+    },
+    {
+      "id": "US-2689",
+      "passes": false,
+      "title": "Kill criteria and cluster tracking for the rebuilt SEO paths",
+      "description": "As the operator, I want each new cluster measured against a threshold set in advance, so that the next review reads the numbers instead of rationalising them.",
+      "acceptanceCriteria": [
+        "A Search Console cluster view per path (tools, compare, care, flipdesk-landing), one row each, extending the existing views in vault/40-growth/seo-distribution-and-measurement.md.",
+        "Thresholds set BEFORE the data arrives: Path 3 is failing if the calculator segment is under 2,000 impressions/mo at month 4; Path 1 is failing if the /care/ segment is under 10,000 impressions/mo at month 6; Path 7 is judged on signup conversion from tool traffic, not on impressions.",
+        "The depth test is recorded as a RATIO, not a count. The original 'thirty terms above 50/mo' rule measured how many terms got submitted rather than how deep the market is, and Path 3 could never have hit it on 23 submitted terms despite clearing volume six times over.",
+        "A quarterly re-pull of docs/seo/keyword-pull-2026-08.csv is scheduled so the bucketed figures (50/500/5k/50k) can be replaced with real numbers once the Ads account has spend.",
+        "The July 2026 grading-cluster kill criterion is marked as FIRED in the measurement note, since that is what triggered this rebuild."
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-2674",
+        "US-2676",
+        "US-2682",
+        "US-2685"
+      ]
+    }
+  ]
+}
