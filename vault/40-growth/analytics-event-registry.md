@@ -8,7 +8,7 @@ code_refs:
   - src/lib/analytics.ts
   - src/lib/buyer-analytics.ts
   - src/lib/__tests__/analytics-events.test.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-18
 tags: [analytics, posthog, measurement, naming]
 summary: Every product event name is declared in src/lib/analytics-events.ts and enforced by tsc; two naming conventions are live and neither may be renamed.
 ---
@@ -107,5 +107,25 @@ problem wearing the costume of user error — see the `auth_email_hook` group in
 These are emitted from the CLIENT, so they see only people who reach the app. An
 email that never arrives produces `signup.confirm_sent` and then silence, the
 same shape as an email ignored. The two are told apart by SES delivery, not here.
+
+## Handoffs share a property shape, not an event name (US-9018, 2026-08-18)
+
+A free public page that sends someone to a FlipDesk page is a handoff, and there
+are going to be several: comparison pages, calculators, the flaw library. Each
+gets its own event name, because they are separate surfaces with separate
+denominators and merging them would make "what fraction of comparison readers
+click through" unanswerable.
+
+What they share is the property pair, and that is the part worth writing down:
+
+| Property | What it holds |
+|---|---|
+| `source` | the slug of the page the click came from, e.g. `vinted-vs-mercari` |
+| `destination` | the FlipDesk surface it points at, e.g. `flipdesk-crosslisting` |
+
+One shape means one saved query answers "which free pages actually feed
+FlipDesk" across every surface, instead of one query per surface plus a manual
+union. `comparison_crosslist_cta_click` is the first to use it. US-9010's
+calculator handoff is the second and must match.
 
 Related: [[buyer-economy]].

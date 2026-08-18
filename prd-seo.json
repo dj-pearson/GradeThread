@@ -315,7 +315,7 @@
     },
     {
       "id": "US-9018",
-      "passes": false,
+      "passes": true,
       "title": "Answer the migration intent on the comparison pages that already rank for it",
       "description": "As a reseller who has decided to switch marketplaces, I want the page to tell me how to move my listings, not which platform is better. CORRECTED 2026-08-18 before building: this story originally asked for a new /migrate/{from}-to-{to} family. Checked first, and ALL 13 migration queries already have a live /compare/ page for that exact pair, ranking at position 10 to 30. Building a parallel family would split authority against pages that already rank, on a site whose measured problem is authority concentration and CTR rather than page count. The work is one template change reaching all 16 comparison pages, and zero new URLs.",
       "acceptanceCriteria": [
@@ -324,13 +324,13 @@
         "The condition-wording change between platforms is called out as the thing that turns a clean relist into a not-as-described case. This is the grading wedge applied to the migration intent, and it is what no competitor page says.",
         "The delisting problem (item sells on one platform, stays live on the other, becomes a cancelled order and a metrics hit) is named in the cross-listing FAQ, since that is the job FlipDesk actually does.",
         "NO new URLs. Evidence in docs/seo/unserved-query-clusters.md: 13 queries, 202 impressions, ZERO clicks, every one already served by a live /compare/ page.",
-        "REMAINING: a call to action into FlipDesk crosslisting on each comparison page, carrying the same PostHog property as US-9010's calculator handoff."
+        "DONE: every one of the 16 comparison pages carries a call to action into /flipdesk/crosslisting, placed after the two migration sections rather than before them, naming the delisting problem in the platforms own names. It emits comparison_crosslist_cta_click with { source: <comparison slug>, destination: flipdesk-crosslisting } -- the property pair US-9010 calculator handoff must reuse, recorded in vault/40-growth/analytics-event-registry.md."
       ],
       "priority": 3,
       "dependsOn": [
         "US-9001"
       ],
-      "notes": "Rewritten and implemented 2026-08-18. The original plan (10 new /migrate/ pages) was checked against the data before building and rejected: every migration query already has a ranking /compare/ page. One template change now gives all 16 comparison pages migration content in both directions. 810 SEO tests green, tsc -b clean, ui:check 0 blocking."
+      "notes": "Rewritten and implemented 2026-08-18. The original plan (10 new /migrate/ pages) was checked against the data before building and rejected: every migration query already has a ranking /compare/ page. One template change now gives all 16 comparison pages migration content in both directions. 810 SEO tests green, tsc -b clean, ui:check 0 blocking. Handoff landed 2026-08-18: the CTA on all 16 pages, the event registered in analytics-events.ts (which tsc enforces), and src/test/comparison-crosslist-cta.test.tsx asserting every pair carries it and that it sits AFTER the migration answer. The vault note records why each handoff surface keeps its own event name but shares one property shape. Story closed."
     }
   ]
 }
