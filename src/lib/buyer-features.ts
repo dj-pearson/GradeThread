@@ -148,8 +148,13 @@ export const BUYER_FEATURES: Record<keyof BuyerGateFlags, BuyerFeatureMeta> = {
     // false would keep advertising a shipped feature as unshipped.
     live: true,
     match: (b) => /guarantee|purchase protection/i.test(b),
-    // AC2 screen 4 of 4.
-    ios: "planned",
+    // AC2 screen 4 of 4 — SHIPPED. Reads GET /api/buyer/guarantee-coverage,
+    // which joins purchases to their coverage snapshot and any filed claim.
+    // The web builds the same view from five parallel reads joined in the
+    // browser; a second implementation of that join is a second answer to
+    // "what am I covered for".
+    ios: "shipped",
+    iosScreen: "ios/GradeThread/Buyer/BuyerGuaranteeView.swift",
   },
   wardrobePortfolio: {
     label: "Wardrobe portfolio",

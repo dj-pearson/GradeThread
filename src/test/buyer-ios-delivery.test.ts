@@ -107,12 +107,22 @@ describe("the deliverable list cannot advertise what does not exist", () => {
     }
   });
 
-  it("still reflects the truth this story was filed about", () => {
-    // AC1's premise, as a number rather than a sentence: almost nothing bundled
-    // is reachable on a phone today. Kept alongside the check above, not instead
-    // of it — this one tells the next reader whether the story progressed, and
-    // the one above is what stops the number being reached by claiming.
-    expect(iosDeliverableFeatures().length).toBeLessThanOrEqual(2);
+  it("names exactly what iOS delivers today", () => {
+    // This began as `length <= 2` — AC1's premise as a number, "almost nothing
+    // bundled is reachable on a phone". Two screens later it failed, correctly,
+    // and the obvious fix was to raise the number.
+    //
+    // A raised number is a worse test than the one it replaces. It only ever
+    // catches growth, so a capability that STOPS being delivered — a screen
+    // deleted, an entry flipped back — slides under a ceiling and nothing
+    // notices. Naming the set checks both directions: adding a claim and
+    // dropping one each require an edit here, which is where the next reader
+    // finds out what actually shipped.
+    expect(iosDeliverableFeatures().sort()).toEqual([
+      "prioritySupport",
+      "purchaseGuarantee",
+      "trustScore",
+    ]);
   });
 });
 

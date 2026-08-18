@@ -1868,6 +1868,57 @@ Deno.test({
   },
 });
 
+// US-2503: GET /api/buyer/guarantee-coverage — the joined coverage view iOS
+// reads instead of reproducing the web’s five-way client-side join.
+//
+// The route takes NO input: every read is .eq("user_id", <token id>), and the
+// child reads are keyed on purchase ids that came out of the owner-scoped
+// parent read. There is no id to forge, so the boundaries that matter are
+// authentication and the entitlement gate.
+Deno.test({
+  name: "buyer guarantee coverage requires authentication",
+  ignore: !BASE,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/buyer/guarantee-coverage`);
+    const status = res.status;
+    await res.body?.cancel();
+    assert(
+      status === 401,
+      `unauthenticated guarantee coverage should 401, got ${status}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "buyer guarantee coverage returns only the caller’s purchases",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(
+      `${BASE}/api/buyer/guarantee-coverage?user_id=00000000-0000-0000-0000-000000000000`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    // 402 is a legitimate answer here: the gate runs before any read, so a B
+    // without the entitlement is refused rather than served an empty list.
+    // Either way it must never carry A’s rows.
+    assert(
+      res.status === 200 || res.status === 402,
+      `expected 200 or 402, got ${res.status}`,
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      purchases?: Array<Record<string, unknown>>;
+    };
+    if (res.status === 402) return;
+    assert(Array.isArray(body.purchases), "coverage must return a purchases array");
+    // Whatever came back is B’s. The one identifier that could betray a
+    // cross-tenant read is A’s known purchase id.
+    const ids = (body.purchases ?? []).map((p) => String(p.id));
+    assert(
+      !ids.includes(A_BUYER_PURCHASE_ID ?? "__none__"),
+      "B must never see A’s purchase in their coverage",
+    );
+  },
+});
+
 // US-2503: GET /api/buyer/reputation — the caller’s own trust level + perks,
 // resolved server-side so iOS does not carry a third copy of the perk matrix.
 //

@@ -126,6 +126,110 @@ buyerPurchasesRoutes.post("/purchases", async (c) => {
   return c.json({ ok: true, purchase, coverage });
 });
 
+// ── GET /guarantee-coverage ───────────────────────────────────────
+// US-2503 AC2: the buyer’s purchase-guarantee coverage, joined and resolved.
+//
+// The web builds this view from FIVE parallel RLS reads in
+// use-buyer-purchases.ts and joins them in the browser. That is fine for one
+// client; asking iOS to reproduce a five-way client-side join is asking for a
+// second implementation of the same join, which is where two clients start to
+// disagree about what a buyer is covered for.
+//
+// This returns only what a COVERAGE view needs — not the arrival captures, not
+// the dispute text. A screen that shows what you are covered for has no reason
+// to carry the photographs.
+//
+// TENANCY (US-268): every read is .eq("user_id", userId) from the token. The
+// child reads are additionally keyed on purchase ids that came out of the
+// owner-scoped parent read, so a foreign purchase id cannot be reached even if
+// one were supplied — and none is: the route takes no input at all.
+//
+// GATED on the purchaseGuarantee entitlement, like every other guarantee route.
+// Reading coverage you do not have is not harmful, but answering as though you
+// might be covered is: a buyer who reads a window and a cap will believe they
+// have one.
+buyerPurchasesRoutes.get("/guarantee-coverage", async (c) => {
+  const userId = c.get("userId");
+  const gate = await requireBuyerFeature(c, "purchaseGuarantee");
+  if (gate instanceof Response) return gate;
+
+  const { data: purchaseRows, error } = await supabaseAdmin
+    .from("buyer_purchases")
+    .select("id, brand, title, certificate_id, purchase_price_cents, purchased_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    console.error("[buyer-purchases] coverage read failed:", error.message);
+    return c.json({ error: "Could not load your coverage." }, 500);
+  }
+  const purchases = (purchaseRows ?? []) as Array<{
+    id: string;
+    brand: string | null;
+    title: string | null;
+    certificate_id: string;
+    purchase_price_cents: number | null;
+    purchased_at: string | null;
+  }>;
+  if (purchases.length === 0) return c.json({ purchases: [] });
+
+  const ids = purchases.map((p) => p.id);
+  const [coverageRes, claimRes] = await Promise.all([
+    supabaseAdmin
+      .from("purchase_coverage")
+      .select(
+        "purchase_id, eligible, ineligible_reason, window_days, payout_cap_cents, " +
+          "grade_delta_threshold, covered_until",
+      )
+      .eq("user_id", userId)
+      .in("purchase_id", ids),
+    supabaseAdmin
+      .from("buyer_guarantee_claims")
+      .select("purchase_id, status, remedy_cents, remedy_credits")
+      .eq("user_id", userId)
+      .in("purchase_id", ids),
+  ]);
+
+  type CoverageRow = {
+    purchase_id: string;
+    eligible: boolean;
+    ineligible_reason: string | null;
+    window_days: number;
+    payout_cap_cents: number;
+    grade_delta_threshold: number;
+    covered_until: string | null;
+  };
+  type ClaimRow = {
+    purchase_id: string;
+    status: string;
+    remedy_cents: number;
+    remedy_credits: number;
+  };
+  const coverageById = new Map<string, CoverageRow>(
+    ((coverageRes.data ?? []) as unknown as CoverageRow[]).map((r) => [r.purchase_id, r]),
+  );
+  const claimById = new Map<string, ClaimRow>(
+    ((claimRes.data ?? []) as unknown as ClaimRow[]).map((r) => [r.purchase_id, r]),
+  );
+
+  return c.json({
+    purchases: purchases.map((p) => ({
+      id: p.id,
+      brand: p.brand,
+      title: p.title,
+      certificateId: p.certificate_id,
+      purchasePriceCents: p.purchase_price_cents,
+      purchasedAt: p.purchased_at,
+      // null means no snapshot was taken — DISTINCT from eligible:false, which
+      // means one was taken and it said no. The client must not render the two
+      // the same way: "not covered" and "we do not know yet" are different
+      // answers to "am I covered".
+      coverage: coverageById.get(p.id) ?? null,
+      claim: claimById.get(p.id) ?? null,
+    })),
+  }, 200, { "Cache-Control": "no-store, private" });
+});
+
 // US-1842: the buyer's circularity impact — aggregated across their CONFIRMED
 // purchases (items they bought secondhand + verified kept in circulation). Reuses
 // the US-1785 methodology (summarizeUserImpact) — no new impact model. Scoped by

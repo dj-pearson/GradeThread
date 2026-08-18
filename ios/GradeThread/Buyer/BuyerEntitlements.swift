@@ -147,7 +147,7 @@ struct BuyerCapability: Identifiable, Equatable {
         BuyerCapability(
             id: "purchaseGuarantee",
             label: "Grade-locked purchase guarantee",
-            delivery: .planned,
+            delivery: .shipped,
             note: nil),
         BuyerCapability(
             id: "wardrobePortfolio",
