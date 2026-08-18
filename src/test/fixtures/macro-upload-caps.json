@@ -1,0 +1,18 @@
+{
+  "_comment": "US-2135 AC3 reader. The upload width cap per photo slot, mirrored by the web compressor (src/lib/macro-photo-quality.ts) and by the edge confidence reader (services/edge-functions/src/lib/macro-evidence-density.ts). BOTH suites assert their own constant against this file, so the two cannot drift. Same shape as src/test/fixtures/rubric-factors.json (US-1997 AC4). Changing a number here without changing both constants fails both suites.",
+  "defaultMaxWidthPx": 2400,
+  "slots": {
+    "serial": 3600,
+    "marking": 3600,
+    "surface": 3600,
+    "corner": 3600,
+    "sole": 3600,
+    "measurement": 3600,
+    "tag": 3000,
+    "label": 3000,
+    "detail": 3000,
+    "defect": 3000,
+    "interior": 3000,
+    "certificate": 3000
+  }
+}

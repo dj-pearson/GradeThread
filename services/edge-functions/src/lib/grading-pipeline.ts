@@ -35,6 +35,10 @@ import {
 } from "./peer-norm.ts";
 import { reconcileNeedsReview } from "./ai-config.ts";
 import {
+  assessMacroDensity,
+  type DeliveredImage,
+} from "./macro-evidence-density.ts";
+import {
   evaluateSecondOpinion,
   resolveSecondOpinionConfig,
   type SecondOpinionConfig,
@@ -1372,7 +1376,7 @@ export async function processSubmission(submissionId: string) {
     // --- Step 2: Fetch associated images ---
     const { data: images, error: imagesError } = await supabaseAdmin
       .from("submission_images")
-      .select("id, image_type, image_role, storage_path, display_order, phash, exif, original_storage_path, capture_source, quality_score")
+      .select("id, image_type, image_role, storage_path, display_order, phash, exif, original_storage_path, capture_source, quality_score, width, height")
       .eq("submission_id", submissionId)
       .order("display_order", { ascending: true });
 
@@ -2396,6 +2400,45 @@ export async function processSubmission(submissionId: string) {
     } catch (err) {
       console.error(
         `[Pipeline] peer-norm check failed for ${submissionId} (skipped):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+
+    // US-2135 AC3, the reader half: condition confidence on the pixel density
+    // that actually ARRIVED for the close-up slots, not on the cap the client
+    // was aiming at. 00613 recorded width/height per image and left this open,
+    // naming it a column with no consumer.
+    //
+    // Non-macro slots are ignored — a front shot is not trying to resolve stitch
+    // pitch — and an image with no recorded dimensions is ignored rather than
+    // treated as zero. Every row predating 00613 is null, and Number(null) is a
+    // finite 0, which would cap every historical regrade at the worst possible
+    // reading.
+    try {
+      const delivered: DeliveredImage[] = images.map((img) => {
+        const row = img as { image_type: string | null; width: number | null; height: number | null };
+        return { image_type: row.image_type, width: row.width, height: row.height };
+      });
+      const density = assessMacroDensity(delivered);
+      if (density.confidenceCap !== null) {
+        compositeResult.confidence_score = composeConfidenceCap(
+          compositeResult.confidence_score,
+          density.confidenceCap,
+        );
+        // US-2299: the ceiling too, or the next provenance boost lifts the stored
+        // number back over a cap applied because the evidence was thin.
+        confidenceCeiling = Math.min(confidenceCeiling, compositeResult.confidence_score);
+        compositeResult.needs_human_review = true;
+        detailedNotes["macro_evidence_density"] = density.note;
+        console.log(
+          `[Pipeline] thin macro evidence on ${submissionId}: ${density.thin} of ${density.measured} measured slot(s)`,
+        );
+      }
+    } catch (err) {
+      // Best-effort, same posture as peer-norm: a failure here skips the check,
+      // never the grade.
+      console.error(
+        `[Pipeline] macro density check failed for ${submissionId} (skipped):`,
         err instanceof Error ? err.message : String(err),
       );
     }

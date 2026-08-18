@@ -10,6 +10,8 @@
 // tested here; measureMacroPhoto's canvas plumbing is the thin untested layer.
 
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   assessMacroPhoto,
   DEFAULT_MIN_SHARPNESS,
@@ -383,5 +385,30 @@ describe("scoped upload resolution (US-2135 AC1/AC5)", () => {
       const worstCaseBytes = w * (w * 0.75) * 0.5;
       expect(worstCaseBytes).toBeLessThan(10 * 1024 * 1024);
     }
+  });
+});
+
+// US-2135 AC3: this table is MIRRORED by the edge confidence reader
+// (services/edge-functions/src/lib/macro-evidence-density.ts), which cannot
+// import from src/. The fixture is what stops the two drifting — both suites
+// assert their own constant against it, the same arrangement as
+// rubric-factors.json (US-1997 AC4). Changing a number in one place fails both.
+describe("US-2135: the upload caps match the fixture the edge reader mirrors", () => {
+  const fixture = JSON.parse(
+    readFileSync(join(process.cwd(), "src/test/fixtures/macro-upload-caps.json"), "utf8"),
+  ) as { defaultMaxWidthPx: number; slots: Record<string, number> };
+
+  it("the default matches", () => {
+    expect(DEFAULT_UPLOAD_MAX_WIDTH_PX).toBe(fixture.defaultMaxWidthPx);
+  });
+
+  it("every slot matches, in both directions", () => {
+    // Both directions on purpose: a slot added here and not to the fixture is
+    // as much a drift as a value changed.
+    expect(MACRO_UPLOAD_MAX_WIDTH_PX).toEqual(fixture.slots);
+  });
+
+  it("the fixture is not empty, so this cannot pass vacuously", () => {
+    expect(Object.keys(fixture.slots).length).toBeGreaterThanOrEqual(12);
   });
 });
