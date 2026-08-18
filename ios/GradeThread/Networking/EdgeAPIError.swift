@@ -35,6 +35,20 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     /// workspace was revoked mid-session. Distinct from `.unauthorized` so the
     /// client can clear the stale scope and recover under the personal tenant.
     case workspaceAccessRevoked
+    /// US-2532: the workspace's 2FA policy blocked this member (403
+    /// `{ error_code: "workspace_mfa_required" }`). Distinct from `.forbidden`
+    /// for two reasons.
+    ///
+    /// It is not a per-request permission denial. The workspace middleware
+    /// blocks EVERY request the member makes, so `.forbidden` turned one
+    /// account-level condition into "You don't have permission to do that" on
+    /// whichever screen happened to ask first, repeatedly, with no way to tell
+    /// it apart from a genuine role limit.
+    ///
+    /// And the fix is off-device. This app has no 2FA enrollment screen
+    /// (US-2671), so the notice sends them to the web app rather than to a
+    /// Settings row that does not exist here.
+    case workspaceMfaRequired(detail: String?)
     /// US-1510: the server declared this capability unavailable on the current
     /// eBay connection (501 `{ code: "feature_unavailable" }`) — e.g. send-offer
     /// while the production keyset lacks the sell.negotiation scope. Distinct
@@ -74,6 +88,11 @@ public enum EdgeAPIError: LocalizedError, Equatable {
             return "You're going a little too fast. Try again in a moment."
         case .notFound(let detail):
             return detail ?? "We couldn't find that."
+        case .workspaceMfaRequired(let detail):
+            // The edge writes this sentence (lib/workspace-roles.ts) and web
+            // renders the server's copy too — one wording across three clients,
+            // not three that drift. The literal is the version-skew fallback.
+            return detail ?? "This workspace requires two-factor authentication for your role. Enable 2FA, then sign in again to continue."
         case .forbidden(let detail):
             return detail ?? "You don't have permission to do that."
         case .badRequest(let detail):
@@ -143,6 +162,13 @@ public enum EdgeAPIError: LocalizedError, Equatable {
         // `.unauthorized`) skip the futile token-refresh + retry.
         if statusCode == 403, payload?.discriminator == "email_unverified" {
             return .emailUnverified
+        }
+        // US-2532: blocked by the workspace's 2FA policy. Keyed on the
+        // discriminator alongside the other 403s rather than left to fall
+        // through to `.forbidden`, which rendered the right sentence by
+        // accident and gave the app no way to act on it once.
+        if statusCode == 403, payload?.discriminator == "workspace_mfa_required" {
+            return .workspaceMfaRequired(detail: detail)
         }
         // US-1510: capability gates. Keyed on the discriminator (not just the
         // status) so the mapping survives a future status tweak on the edge.

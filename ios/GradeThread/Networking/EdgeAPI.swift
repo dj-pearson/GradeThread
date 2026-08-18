@@ -472,6 +472,14 @@ public actor EdgeAPI {
                     WorkspaceScope.handleAccessRevoked()
                     throw error
                 }
+                // US-2532: blocked by the workspace's 2FA policy. Notify once so
+                // the shell explains it at the account level, then surface the
+                // typed error. Nothing to recover locally and nothing to retry —
+                // a fresh token is still not AAL2.
+                if case .workspaceMfaRequired(let detail) = error {
+                    WorkspaceScope.handleMfaRequired(message: detail)
+                    throw error
+                }
                 // US-1146: one forced token refresh + retry before surfacing an
                 // auth failure. The SDK refreshes near-expiry on its own, but a
                 // token the server actively rejects (rotation, clock skew) needs

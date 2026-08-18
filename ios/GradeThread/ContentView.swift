@@ -559,6 +559,19 @@ struct ProtectedRouteShell: View {
 /// at regular width (iPad full-screen) it switches to a NavigationSplitView
 /// with a sidebar. The section model is shared so deep links + selection
 /// state survive the layout switch.
+/// An account-level condition the shell explains in one alert: the workspace
+/// 2FA policy blocking this member (US-2532), or their membership being
+/// revoked mid-session (US-794). Both are true of the ACCOUNT, not of the
+/// screen that happened to surface them.
+private struct WorkspaceNotice: Identifiable {
+    let id = UUID()
+    let title: String
+    let message: String
+    /// Where the user can actually fix it, when that is somewhere. nil for a
+    /// revoked membership, which has already been recovered from.
+    let fixURL: URL?
+}
+
 struct MainShell: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
@@ -569,6 +582,7 @@ struct MainShell: View {
     // drops into the global status banner the instant they happen (see the
     // `.onChange(of: networkMonitor.isConnected)` below).
     @Environment(NetworkMonitor.self) private var networkMonitor
+    @Environment(.openURL) private var openURL
     @Environment(SyncStatusStore.self) private var syncStatus
     @State private var router = AppRouter()
     /// US-749: tab-independent orphan-listing count for the shell Reconcile
@@ -576,6 +590,11 @@ struct MainShell: View {
     @State private var reconcileBadge = ReconcileBadgeStore()
     /// US-2557: unread notifications, for the Home tab badge and the app icon.
     @State private var unreadBadge = UnreadBadgeStore()
+    /// US-2532 / US-794: an account-level workspace condition the app must
+    /// explain ONCE rather than as a per-screen error. Both arrive on
+    /// whichever request happened to be in flight, and neither is about the
+    /// screen the user is looking at.
+    @State private var workspaceNotice: WorkspaceNotice?
 
     /// US-1157: per-scene state restoration for iPad multi-window. `@SceneStorage`
     /// is scoped to THIS scene (window) and survives teardown/relaunch, so two
@@ -663,6 +682,52 @@ struct MainShell: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Where would you like to start?")
+        }
+        // US-2532: the workspace 2FA policy blocked this member. One notice,
+        // carrying the EDGE's sentence, with the only route that actually
+        // fixes it: this app has no 2FA enrollment screen (US-2671), so
+        // "enable it in Settings" would point at nothing.
+        .onReceive(
+            NotificationCenter.default.publisher(for: .workspaceMfaRequired)
+        ) { notification in
+            workspaceNotice = WorkspaceNotice(
+                title: "Two-factor authentication required",
+                message: notification.userInfo?[WorkspaceScope.noticeMessageKey]
+                    as? String
+                    ?? EdgeAPIError.workspaceMfaRequired(detail: nil)
+                        .errorDescription
+                    ?? "",
+                fixURL: URL(string: "https://gradethread.com/dashboard/account?tab=settings")
+            )
+        }
+        // US-794: this notification has been posted since June and nothing
+        // has ever observed it, so the "brief notice" its own doc comment
+        // promises never appeared — the workspace silently switched back to
+        // personal and the user saw their own data where a colleague's had
+        // been. Same surface, so it is fixed here rather than filed.
+        .onReceive(
+            NotificationCenter.default.publisher(for: .workspaceAccessRevoked)
+        ) { _ in
+            workspaceNotice = WorkspaceNotice(
+                title: "Workspace access ended",
+                message: EdgeAPIError.workspaceAccessRevoked.errorDescription ?? "",
+                fixURL: nil
+            )
+        }
+        .alert(
+            workspaceNotice?.title ?? "",
+            isPresented: Binding(
+                get: { workspaceNotice != nil },
+                set: { if !$0 { workspaceNotice = nil } }
+            ),
+            presenting: workspaceNotice
+        ) { notice in
+            if let url = notice.fixURL {
+                Button("Open gradethread.com") { openURL(url) }
+            }
+            Button("OK", role: .cancel) {}
+        } message: { notice in
+            Text(notice.message)
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .applyDeepLink)

@@ -37,6 +37,26 @@ enum WorkspaceScope {
     /// cache reset/re-pull a workspace switch does, and post a one-time notice
     /// for the UI. No-op if there was no active workspace selected. Nonisolated
     /// so the data layer can call it off the main actor.
+    /// Key under which handleMfaRequired(message:) carries the server's own
+    /// explanation in the notification userInfo.
+    static let noticeMessageKey = "message"
+
+    /// US-2532: the workspace's 2FA policy blocked this member. Posted once so
+    /// the app shows a single account-level notice instead of a per-screen
+    /// permission error on whatever request happened to be in flight.
+    ///
+    /// Unlike a revoked membership there is nothing to recover from locally.
+    /// Dropping the workspace scope would not help: the member IS a member,
+    /// and the policy is doing exactly what the owner set it to do. So this
+    /// only notifies, and it carries the SERVER's sentence rather than a local
+    /// copy of it.
+    static func handleMfaRequired(message: String?) {
+        var info: [AnyHashable: Any]?
+        if let message, !message.isEmpty { info = [noticeMessageKey: message] }
+        NotificationCenter.default.post(
+            name: .workspaceMfaRequired, object: nil, userInfo: info)
+    }
+
     static func handleAccessRevoked() {
         guard activeOwnerId != nil else { return }
         clear()
@@ -53,6 +73,10 @@ extension Notification.Name {
     /// mid-session and the app auto-switched back to the personal workspace —
     /// the UI shows a brief notice.
     static let workspaceAccessRevoked = Notification.Name("com.gradethread.app.workspaceAccessRevoked")
+    /// US-2532: posted when the workspace's 2FA policy blocked the request.
+    /// The userInfo carries the edge's own explanation under
+    /// WorkspaceScope.noticeMessageKey.
+    static let workspaceMfaRequired = Notification.Name("com.gradethread.app.workspaceMfaRequired")
 }
 
 /// A workspace the signed-in user can operate within: their own, plus any they

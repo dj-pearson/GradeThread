@@ -226,6 +226,50 @@ final class EdgeAPITests: XCTestCase {
         XCTAssertTrue(mapped.isUpgradePrompt)
     }
 
+    // MARK: - US-2532: workspace MFA policy
+
+    func test_from_workspaceMfaRequired_isItsOwnCase() {
+        let body = Data(#"{"error":"This workspace requires two-factor authentication for your role.","error_code":"workspace_mfa_required"}"#.utf8)
+        XCTAssertEqual(
+            EdgeAPIError.from(statusCode: 403, body: body),
+            .workspaceMfaRequired(
+                detail: "This workspace requires two-factor authentication for your role."))
+    }
+
+    // It used to fall through to .forbidden, which rendered the right sentence
+    // BY ACCIDENT (detail defaults to the body error) while giving the app no
+    // way to tell an account-level block from a per-action permission limit.
+    // The middleware denies EVERY request, so that difference is the whole
+    // experience: one explanation, or the same toast on every screen.
+    func test_workspaceMfaRequired_isNotAGenericForbidden() {
+        let body = Data(#"{"error":"nope","error_code":"workspace_mfa_required"}"#.utf8)
+        let mapped = EdgeAPIError.from(statusCode: 403, body: body)
+        XCTAssertNotEqual(mapped, .forbidden(detail: "nope"))
+    }
+
+    // The edge writes the sentence; the client renders it. A local copy would
+    // be a fourth wording to keep in step with web, Android and the edge.
+    func test_workspaceMfaRequired_rendersTheServersSentence() {
+        let error = EdgeAPIError.workspaceMfaRequired(detail: "Ask the owner to lower the threshold.")
+        XCTAssertEqual(error.errorDescription, "Ask the owner to lower the threshold.")
+    }
+
+    // ...but an older edge that sends only the code must not produce an empty
+    // alert, so the fallback is the same sentence web falls back to.
+    func test_workspaceMfaRequired_fallsBackWhenTheEdgeSendsOnlyTheCode() {
+        let body = Data(#"{"error_code":"workspace_mfa_required"}"#.utf8)
+        let mapped = EdgeAPIError.from(statusCode: 403, body: body)
+        XCTAssertEqual(mapped.errorDescription?.isEmpty, false)
+        XCTAssertEqual(mapped.errorDescription?.contains("two-factor"), true)
+    }
+
+    // A fresh token is still not AAL2, so retrying is pure latency on a member
+    // who is blocked until they enroll.
+    func test_workspaceMfaRequired_isNotRetried() {
+        let error = EdgeAPIError.workspaceMfaRequired(detail: nil)
+        XCTAssertFalse(EdgeAPI.shouldRetry(error, method: "GET"))
+        XCTAssertFalse(EdgeAPI.shouldRetry(error, method: "POST"))
+    }
     // AC2: the specific discriminators are checked BEFORE action:"upgrade", so a
     // revoked workspace still recovers under the personal tenant even if the body
     // also carried the upgrade marker.
