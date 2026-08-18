@@ -38,6 +38,8 @@ import {
   evalExemplarSet,
 } from "../lib/few-shot-exemplars.ts";
 import { computeDefectAccuracyReport } from "../lib/defect-accuracy.ts";
+import { correlateOutcomes } from "../lib/outcome-correlation.ts";
+import { fetchOutcomeRows } from "../lib/outcome-correlation-fetch.ts";
 import {
   authenticityGateStatus,
   EXPECTED_LABELS,
@@ -235,6 +237,49 @@ adminGradingRoutes.get("/accuracy/defects", async (c) => {
     return c.json(
       {
         error: "Failed to compute defect accuracy",
+        detail: err instanceof Error ? err.message : String(err),
+      },
+      500,
+    );
+  }
+});
+
+// GET /accuracy/outcomes — does a higher grade actually realize a higher price?
+// (US-2280). Spearman rank correlation between the assigned grade and
+// sale_price / comp_median, plus return and dispute rates per grade band.
+//
+// ?days=N bounds the window (default 180). Platform-wide by design — it sits in
+// the /api/admin/* group behind adminAuthMiddleware, the same posture as
+// /accuracy/defects above. Nothing per-seller is in the response: the fetch
+// projects into OutcomeRow, which has no identifying field, and a source-scanned
+// guard keeps it that way.
+//
+// The response reports a coefficient ONLY above the minimum sample and says so
+// in words otherwise — "not enough data to look" and "no relationship found" are
+// different answers and this endpoint never collapses them.
+adminGradingRoutes.get("/accuracy/outcomes", async (c) => {
+  try {
+    const rawDays = Number(c.req.query("days"));
+    const days = Number.isFinite(rawDays) && rawDays > 0 && rawDays <= 3650
+      ? Math.floor(rawDays)
+      : 180;
+    const sinceIso = new Date(Date.now() - days * 24 * 3600_000).toISOString();
+    const fetched = await fetchOutcomeRows(sinceIso);
+    const report = correlateOutcomes(fetched.rows);
+    return c.json({
+      ...report,
+      window_days: days,
+      // Coverage, so a thin report is readable as thin rather than as a finding:
+      // how many graded FlipDesk items the scan saw, how many of those had sold
+      // at all, and whether the scan hit its cap.
+      scanned: fetched.scanned,
+      graded_with_sale: fetched.gradedWithSale,
+      scan_capped: fetched.capped,
+    });
+  } catch (err) {
+    return c.json(
+      {
+        error: "Failed to compute outcome correlation",
         detail: err instanceof Error ? err.message : String(err),
       },
       500,

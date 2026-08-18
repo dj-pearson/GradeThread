@@ -188,3 +188,79 @@ Deno.test("US-2280 PRIVACY: an OutcomeRow has no way to carry a seller", () => {
     );
   }
 });
+
+// ── The join (US-2280, the impure half's pure core) ─────────────────────────
+//
+// joinOutcomeRows is where every judgement about what counts lives. The reads
+// around it need a database; this does not.
+
+const { joinOutcomeRows } = await import("../lib/outcome-correlation-fetch.ts");
+
+const LINKS = [{ submission_id: "sub-1", inventory_item_id: "item-1" }];
+const REPORTS = [{ id: "rep-1", submission_id: "sub-1", overall_score: 8.5 }];
+const SALES = [{ inventory_item_id: "item-1", sale_price: 42.5 }];
+const COMPS = [{ inventory_item_id: "item-1", comp_median_cents: 5000 }];
+const ITEMS = [{ id: "item-1", category: "outerwear", status: "sold" }];
+
+function join(over: Partial<Parameters<typeof joinOutcomeRows>[0]> = {}) {
+  return joinOutcomeRows({
+    links: LINKS,
+    reports: REPORTS,
+    sales: SALES,
+    comps: COMPS,
+    items: ITEMS,
+    disputedReportIds: new Set<string>(),
+    ...over,
+  });
+}
+
+Deno.test("US-2280 JOIN: dollars become cents, because the comp is already in cents", () => {
+  // The bug this exists for is invisible in the output it produces: a 100x error
+  // on every realization still yields a plausible coefficient, because a
+  // constant factor does not change RANKS. Only an absolute number catches it.
+  const [r] = join();
+  assertEquals(r.salePriceCents, 4250, "42.50 dollars is 4250 cents");
+  assertEquals(r.compMedianCents, 5000);
+  assertAlmostEquals(r.salePriceCents / (r.compMedianCents ?? 1), 0.85, 1e-9);
+});
+
+Deno.test("US-2280 JOIN: no sale means no row", () => {
+  // An item graded and never sold says nothing about whether the grade predicted
+  // its price. Counting it would drag the population toward unsold inventory.
+  assertEquals(join({ sales: [] }).length, 0);
+  // And no grade means no row either.
+  assertEquals(join({ reports: [] }).length, 0);
+  assertEquals(
+    join({ reports: [{ id: "rep-1", submission_id: "sub-1", overall_score: null }] }).length,
+    0,
+    "a report with no score is not a grade",
+  );
+});
+
+Deno.test("US-2280 JOIN: a missing comp still produces a row", () => {
+  // It cannot enter the coefficient, but its return and dispute outcome counts.
+  const [r] = join({ comps: [] });
+  assertEquals(r.compMedianCents, null);
+  assertEquals(r.grade, 8.5);
+});
+
+Deno.test("US-2280 JOIN: returned and disputed come from real signals, not defaults", () => {
+  const returned = join({ items: [{ id: "item-1", category: "tops", status: "returned" }] })[0];
+  assertEquals(returned.returned, true);
+  assertEquals(join()[0].returned, false);
+
+  const disputed = join({ disputedReportIds: new Set(["rep-1"]) })[0];
+  assertEquals(disputed.disputed, true);
+  // A dispute on SOMEONE ELSE's report must not mark this one.
+  assertEquals(join({ disputedReportIds: new Set(["rep-999"]) })[0].disputed, false);
+});
+
+Deno.test("US-2280 JOIN: a missing item row degrades to 'unknown', it does not drop the sale", () => {
+  const [r] = join({ items: [] });
+  assertEquals(r.category, "unknown");
+  assertEquals(r.returned, false, "absence of an item row is not evidence of a return");
+});
+
+Deno.test("US-2280 JOIN: a link with no submission is skipped rather than throwing", () => {
+  assertEquals(join({ links: [{ submission_id: null, inventory_item_id: "item-1" }] }).length, 0);
+});
