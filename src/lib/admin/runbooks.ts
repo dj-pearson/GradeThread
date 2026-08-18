@@ -60,16 +60,22 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
-    // Re-read 2026-08-15 against the vault note. The only change since the
-    // 08-14 check is the scheduled-task count moving 77 → 78 (US-2035 added the
-    // weekly grading-self-consistency job). This copy names no count — it points
-    // at CRON_REGISTRY — so the order, the per-layer mechanics and the smoke
-    // checks all still match and there is nothing to edit.
+    // Re-read 2026-08-17 against the vault note, and this time there WAS
+    // something to edit — the first time in four checks.
     //
-    // Third consecutive cron addition to cost a date bump and no edit, which is
-    // the phrasing working rather than the check being noisy: a copy that quoted
-    // the number would have been WRONG three times instead of stale once.
-    reviewed: "2026-08-15",
+    // US-2665 and US-2609 both landed operator-facing facts in deploy.md, and
+    // one of them is exactly what this copy exists for: an operator reading this
+    // DURING an incident needs to know that `no available server` is what a
+    // routine deploy produces, because it is also the documented signature of an
+    // edge event-loop hang. Someone who has not been told that either escalates
+    // a rollover or, worse, shrugs at a real hang. The compose-file line is the
+    // second: it stops a chase for a setting the repo declares and the running
+    // container does not have.
+    //
+    // The three prior checks cost a date bump and no edit because this copy
+    // names no counts and points at CRON_REGISTRY instead — that phrasing
+    // working, not the check being noisy.
+    reviewed: "2026-08-17",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -98,6 +104,11 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "- **Database** — manual apply (CLI / `psql`) against self-hosted Supabase. Back up prod FIRST. Apply pending files in order (each is idempotent), then record the applied versions into `supabase_migrations.schema_migrations` so the edge boot assertion stays active.",
       "- **Edge** — Coolify auto-deploys on push to `main` via its deploy webhook; a manual **Redeploy** builds from the latest commit. Coolify Scheduled Tasks live on the service, so they survive a redeploy.",
+      "",
+      "> **A deploy makes the API answer `no available server` for a few seconds, and that is the same string a real edge HANG produces.** Every push rolls the single edge container, including a docs-only commit — there is no path filter. During or just after a deploy, two 503s followed by a 200 is the rollover, not an incident. Re-check `/health/ready` a few seconds later before escalating; if it stays down past a minute, it is not the rollover.",
+      "",
+      "> **`docker-compose.coolify.yml` is not the deployed configuration.** Measured 2026-08-17: `/health/metrics` reports no memory limit while that file declares 2048 MB. If you are chasing a setting that \"should\" be set, check the Coolify UI rather than the repo file — and expect the two to disagree.",
+      "",
       "- **Frontend** — Cloudflare Pages auto-deploys on push to `main`. Build command runs the TypeScript check → Vite build → prerender. Pages env-var changes only take effect on the next build.",
       "",
       "## Post-deploy verification",
