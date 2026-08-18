@@ -63,6 +63,18 @@ jobs:
       - name: Held-migration gate
         run: node scripts/held-migration-gate.mjs --ci
       - run: npm ci
+      # The scripts test lane below shells out to "deno run scripts/*.ts" --
+      # the operator scripts are Deno, and this job never had it installed. Those
+      # tests failed with "deno: not found" and took the whole lane down with
+      # them, which is why CI has been red on main independently of any change.
+      #
+      # Installing it rather than skipping them: a guard that only runs on a
+      # developer laptop is not a guard. Version pinned to match security.yml and
+      # money-cert-integration.yml, so one Deno behaviour change cannot pass one
+      # lane and fail another.
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.0"
       # US-1998: every gate below carries `if: !cancelled()` so a failure in one
       # does NOT skip the rest. Previously `npm run lint` was the first step, so
       # three no-useless-escape errors on main (2026-07-17) meant CI never
