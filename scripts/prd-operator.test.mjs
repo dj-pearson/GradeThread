@@ -158,3 +158,53 @@ describe("groupBySession", () => {
     }
   });
 });
+
+describe("session patterns are real regexes, not text that looks like one", () => {
+  // WHY THIS EXISTS, and it is a trap this repo already documents. These
+  // patterns were extended through an inline shell heredoc, which ATE a
+  // backslash: every `\\b` was written to the file as U+0008, a real backspace
+  // control character. The source still LOOKED right in an editor and in grep,
+  // `node -c` passed, the module imported fine — and a regex whose source
+  // reads /(counsel|...)/i returned false for the string "counsel".
+  //
+  // CLAUDE.md forbids invisible characters in source for exactly this reason.
+  // A guard that reads the file is the only thing that sees them.
+  it("no session pattern contains a control character", () => {
+    for (const kind of SESSION_KINDS) {
+      const bad = [...kind.match.source].filter((c) => c.charCodeAt(0) < 32);
+      expect(
+        bad.map((c) => c.charCodeAt(0)),
+        `${kind.key}: control character in the pattern — a backslash was eaten somewhere`,
+      ).toEqual([]);
+    }
+  });
+
+  it("every pattern actually matches a phrase it is supposed to match", () => {
+    // A pattern that matches nothing is indistinguishable from a missing one,
+    // and that is precisely the state the backspace bug produced.
+    const probes = {
+      sql: "run the query against prod",
+      config: "set it in the Coolify dashboard",
+      deploy: "after deploy, confirm it answers 200",
+      thirdparty: "App Store Connect",
+      command: "node scripts/seed-help-articles.mjs",
+      device: "needs a screen reader",
+      counsel: "counsel has to write it",
+      sourcing: "source licensed reference imagery",
+      host: "full-disk encryption on the box",
+    };
+    for (const kind of SESSION_KINDS) {
+      const probe = probes[kind.key];
+      expect(probe, `no probe for session kind ${kind.key} — add one`).toBeTruthy();
+      expect(kind.match.test(probe), `${kind.key} does not match its own probe`).toBe(true);
+    }
+  });
+
+  it("the sittings are numbered in the order they are listed", () => {
+    // The array order IS the running order, so a title numbered out of sequence
+    // tells the operator to do them in an order the tool will not print.
+    const numbers = SESSION_KINDS.map((k) => Number(String(k.title).match(/^(\\d+)\\./)?.[1]));
+    expect(numbers, "every session title starts with its number").not.toContain(undefined);
+    expect(numbers).toEqual([...numbers].sort((a, b) => a - b));
+  });
+});

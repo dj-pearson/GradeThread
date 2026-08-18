@@ -357,7 +357,7 @@ export const SESSION_KINDS = [
       "Everything that can only be observed on a rebuild. Time it: at least one " +
       "item wants an ACTIVE grading batch at the moment the deploy lands.",
     match:
-      /\b(after the next (edge )?deploy|redeploy|rebuild|deployment window|during (a|an active)|drill|health\/ready)\b/i,
+      /\b(after (the next )?(edge )?deploy|redeploy|rebuild|deployment window|during (a|an active)|drill|health\/ready)\b/i,
   },
   {
     key: "thirdparty",
@@ -366,7 +366,7 @@ export const SESSION_KINDS = [
       "App Store Connect, Play Console, Stripe, Sentry, eBay/Etsy/Depop support. " +
       "Each is someone else's system and several have their own lead time.",
     match:
-      /\b(app store connect|play console|stripe (dashboard|console)|sentry|apple|google play|partner|support ticket|ask (etsy|depop|whatnot)|web store|purchase history|restricted scope|apply to|approval|keystring|rotate the .* key)\b/i,
+      /\b(app store connect|play console|stripe (dashboard|console|test mode)|sentry|apple|google play|partner|support ticket|ask (etsy|depop|whatnot)|web store|purchase history|restricted scope|apply to|approval|keystring|rotate the .* key)\b/i,
   },
   {
     key: "command",
@@ -384,7 +384,37 @@ export const SESSION_KINDS = [
       "A screen reader, a phone, a live marketplace listing. Nothing here can be " +
       "simulated from a checkout.",
     match:
-      /\b(screen reader|NVDA|VoiceOver|real (multi-variation|listing|device)|sandbox store|logged in|by hand|physically)\b/i,
+      /\b(screen reader|NVDA|VoiceOver|real (multi-variation|listing|device|browser)|sandbox store|logged in|by hand|physically|installing the add-on|with the product open|a tape measure)\b/i,
+  },
+  {
+    key: "counsel",
+    title: "7. Counsel review — legal wording, not engineering",
+    hint:
+      "Terms, disclosures, claim substantiation. Every one of these stories says " +
+      "in its own criteria that an agent must not draft the language, so they " +
+      "cannot be closed by anyone here no matter how much code is done.",
+    match:
+      /\b(counsel|lawyer|legal (copy|review|language|wording)|substantiation|do not let an agent draft|not agent work)\b/i,
+  },
+  {
+    key: "sourcing",
+    title: "8. Sourcing — material that has to be created or licensed",
+    hint:
+      "Reference imagery, brand data, screenshots, golden-set labels. The " +
+      "mechanism is built in every one of these; what is missing is the content, " +
+      "and no amount of code produces it.",
+    match:
+      /\b(sourcing|source licensed|reference imagery|brand profiles do not exist|business action|needs a real image|with the product open|physical garments)\b/i,
+  },
+  {
+    key: "host",
+    title: "9. Root on the database/storage host",
+    hint:
+      "Actions on the Contabo box itself — disk encryption, cron installation, " +
+      "moving a key off the machine it protects. Separate from the config pass " +
+      "because these need shell access, not a dashboard.",
+    match:
+      /\b(full-disk encryption|host action|on the prod DB host|install the backup cron|off the DB host|rclone crypt)\b/i,
   },
 ];
 
