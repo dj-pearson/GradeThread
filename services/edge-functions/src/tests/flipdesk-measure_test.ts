@@ -159,6 +159,12 @@ Deno.test("US-2627: escalate only when more pixels could change the answer", () 
   // Nothing resolution can fix.
   assert(!shouldEscalate(failure("photo_too_blurry", 0), false));
   assert(!shouldEscalate(failure("card_bent_or_angled", 4), false));
+  // US-2672: except blur, when the card was actually seen. Downsampling to the
+  // cheap rung is itself a low-pass filter, so a sharp card in a large-garment
+  // frame can read soft at 2000px and sharp at 4032. With no markers at all the
+  // softness belongs to the photo and the answer does not change.
+  assert(shouldEscalate(failure("photo_too_blurry", 4), true));
+  assert(!shouldEscalate(failure("photo_too_blurry", 0), true));
   // A success never climbs.
   assert(
     !shouldEscalate(

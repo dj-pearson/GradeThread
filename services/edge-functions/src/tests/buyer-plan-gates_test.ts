@@ -167,6 +167,13 @@ const GATES: readonly RouteGate[] = [
   },
   {
     file: "buyer-purchases.ts",
+    route: 'get("/guarantee-coverage"',
+    feature: "purchaseGuarantee",
+    why:
+      "US-2503: the coverage view iOS reads instead of re-implementing the web's five-way join. Reading coverage you do not have is not harmful; answering as though you might be covered is.",
+  },
+  {
+    file: "buyer-purchases.ts",
     route: 'get("/impact"',
     feature: null,
     why: "circularity impact (US-1842) has no flag in BuyerGateFlags",
@@ -200,6 +207,13 @@ const GATES: readonly RouteGate[] = [
     route: 'post("/trust-signals"',
     feature: null,
     why: "trustScore is true on every tier, so a gate would never deny anyone",
+  },
+  {
+    file: "buyer-trust.ts",
+    route: 'get("/reputation"',
+    feature: null,
+    why:
+      "US-2503: the caller's own trust level, server-resolved so iOS does not become a third copy of the perk matrix. trustScore is true on every tier",
   },
 ];
 

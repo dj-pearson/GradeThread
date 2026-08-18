@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2672",
+  "nextId": "US-2673",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2018,6 +2018,21 @@
         "The enrolled state is visible and a factor can be removed, matching the web card."
       ],
       "notes": "Filed 2026-08-18 while closing US-2532 AC3. Found by looking for the Settings row web routes to and finding none. The blocked member is a phone-only reseller who was invited into a workspace whose owner turned on 2FA - the app tells them what to do and gives them no way to do it. Android is unchecked; the same grep should be run there before this is scoped."
+    },
+    {
+      "id": "US-2672",
+      "title": "MeasureCard reads at a fraction of the pixels, so large garments calibrate",
+      "description": "Sellers measuring Men's Large and up were told 'the MeasureCard's squares are too few pixels to read' on photos that could not be shot any better: the card is small in frame because the garment is big, and moving closer crops the garment the card is there to measure. Three separate gates measured the garment when they meant to measure the photograph, and the resolution ladder added in US-2627 was a no-op.",
+      "acceptanceCriteria": [
+        "Sub-pixel corner refinement: marker corners come from the grayscale black/white crossing along each side, line-fitted and intersected, instead of from binarized blob pixel centres. A 40px marker measures 40px, not 39.",
+        "MIN_MARKER_SIDE_PX drops from 40 to 18, the measured detection floor. MAX_REPROJ_RESIDUAL_IN (in inches) is the gate that decides accuracy; calibrations under SOFT_MARKER_SIDE_PX carry quality.lowResolution + quality.inchesPerPx instead of being refused.",
+        "Blur is scored over the marker region, not the whole frame, so flat fabric and flat floor cannot outvote a sharp card.",
+        "toGray stops calling ImageScript's mutating resize, so each rung of the resolution ladder genuinely sees more pixels and its scale is measured against the original.",
+        "A resolution sweep test pins the curve (20px through 110px), and an OpenCV-validated 24px large-garment fixture joins the detector fixture set."
+      ],
+      "priority": 12,
+      "passes": true,
+      "notes": "[DONE 2026-08-18] Root cause was four things, each of which measured the garment rather than the photo. (1) The 40px minimum-marker gate was a proxy for accuracy applied BEFORE the real accuracy check; the measured curve (src/tests/measure-resolution_test.ts) shows ppi recovery flat to within 0.02% from 20px to 110px, with reprojection residual 0.016in at 20px against a 0.06in gate. (2) hullToQuad returned pixel CENTRES, so an S-px marker came back as an (S-1)-px quad: a correct 40px marker measured 39 and failed a 40px gate, and the same 1/S drift walked the 7x7 bit sampling off-module, which is why decoding died at 24px but worked at 45px. Fixed by expandQuad(rough, 0.5) before decode and sub-pixel refineQuad after id match. (3) Blur was laplacianVariance over the WHOLE frame; a sharp card beside pants scored 55 vs a 60 threshold while the same card beside a t-shirt scored 92. Now scored over markersRoi. (4) ImageScript's Image.resize MUTATES its receiver, so toGray destroyed the caller's photo: rung one of the US-2627 ladder permanently shrank it and rung two re-scaled that copy UP, and rung two's scale came back 1.0 against the shrunken image, leaving the homography in the wrong pixel space (a silent factor-of-two in the inches whenever escalation fired). toGray now box-downsamples straight into the gray buffer. Also: photo_too_blurry now escalates when markers WERE found, because downsampling is itself a low-pass filter. minArea in detectMarkers 400 -> 144. Contract written up in vault/20-domain/measurement-accuracy.md section 3b."
     }
   ]
 }

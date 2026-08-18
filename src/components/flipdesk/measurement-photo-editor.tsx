@@ -270,6 +270,7 @@ export function MeasurementPhotoEditor({
         ok?: boolean;
         message?: string;
         error?: string;
+        quality?: { lowResolution?: boolean; inchesPerPx?: number };
       };
       if (!res.ok || json.ok === false) {
         // The silent pass runs unprompted, so a failure is not an error the
@@ -281,7 +282,17 @@ export function MeasurementPhotoEditor({
         return;
       }
       if (!opts.silent) {
-        toast.success("MeasureCard detected — the photo is calibrated.");
+        // US-2672: a card that came out small in frame still calibrates — it
+        // used to be refused outright — so say how fine the reading is instead
+        // of pretending every calibration is the same one.
+        const perPx = json.quality?.inchesPerPx;
+        toast.success(
+          json.quality?.lowResolution && perPx
+            ? `MeasureCard detected. It is small in this photo, so measurements read to about ${
+              (Math.ceil(perPx * 100) / 100).toFixed(2)
+            } in.`
+            : "MeasureCard detected — the photo is calibrated.",
+        );
       }
       await qc.invalidateQueries({ queryKey: ["measure_photo", itemId] });
     } finally {

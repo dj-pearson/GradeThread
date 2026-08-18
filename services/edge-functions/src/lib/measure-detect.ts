@@ -5,12 +5,13 @@
 // plane — the ground truth every measurement (auto or manual) is computed
 // from. Pure TS on a grayscale buffer: no OpenCV/WASM dependency in the edge
 // container. That's viable because this is NOT a general ArUco detector — it
-// is tuned to OUR card: huge (>=40px) K-only-black markers on matte white,
-// exactly four known ids (lib/measure-card.ts), quiet zones guaranteed by the
-// print spec. CI validates its outputs against real OpenCV detections on
-// generated fixtures (src/tests/fixtures/measure-card/, produced by
-// scripts/generate-measure-fixtures.py) so the two implementations can't
-// drift silently.
+// is tuned to OUR card: K-only-black markers on matte white, exactly four known
+// ids (lib/measure-card.ts), quiet zones guaranteed by the print spec, and
+// readable down to about 20px a side (US-2672). CI validates its outputs
+// against real OpenCV detections on generated fixtures
+// (src/tests/fixtures/measure-card/, produced by
+// scripts/generate-measure-fixtures.py) so the two implementations can't drift
+// silently; src/tests/measure-resolution_test.ts pins the scale curve.
 //
 // Injectable + deterministic: callers pass {width, height, gray} — the route
 // decodes the photo (ImageScript) and the tests decode fixture PNGs.
@@ -44,6 +45,21 @@ export interface CalibrationQuality {
   blurScore: number;
   /** RMS reprojection residual of the 16 marker corners, in INCHES. */
   reprojResidualIn: number;
+  /**
+   * US-2672: inches per image pixel at the card plane — the finest distinction
+   * this photo can express, and the honest way to talk about a card that came
+   * out small. A 20px marker measures to 0.05in per pixel, which is well inside
+   * the +/-0.25in the measurement gate asks for; a flat "too few pixels" refusal
+   * could not say that, so it refused photos that were good enough.
+   * Absent on a failure, where there is no fitted scale.
+   */
+  inchesPerPx?: number;
+  /**
+   * True when the card is smaller in frame than SOFT_MARKER_SIDE_PX. NOT a
+   * failure — a hint the surface can show, and the reason to prefer another
+   * photo of the same item if one calibrates better.
+   */
+  lowResolution?: boolean;
 }
 
 export type CalibrateFailure =
@@ -62,6 +78,12 @@ export const CALIBRATE_REMEDIATION: Record<CalibrateFailure, string> = {
   // seller measuring a pair of pants CANNOT take — moving closer crops the
   // garment the card is there to measure. On a big garment the constraint is
   // the photo's resolution, not the photographer's distance.
+  // US-2672: and this now means what it says. It used to fire at 40px, which a
+  // correct 40px marker could not reach (the gate measured the binarized blob,
+  // one pixel short) and which the detector did not need — sub-pixel corner
+  // refinement recovers the scale exactly at 20px. The floor is now the point
+  // where the squares stop resolving at all, so reaching it really does mean
+  // there are not enough pixels.
   markers_too_small:
     "The MeasureCard's squares are too few pixels to read. On a large garment, shoot at your camera's full resolution rather than moving closer — moving closer crops the garment. Re-uploading the photo at full size usually fixes it.",
   photo_too_blurry:
@@ -91,7 +113,33 @@ export interface CalibrateError {
 export type CalibrateResult = CalibrateSuccess | CalibrateError;
 
 // Quality thresholds (exported for tests/UI copy).
-export const MIN_MARKER_SIDE_PX = 40;
+//
+// US-2672 — why this is 20 and not 40. The 40px floor was a PROXY for accuracy
+// applied BEFORE the real accuracy check, and on a large garment it measured
+// the wrong thing entirely: the card is small in frame because a pair of pants
+// fills ~50in of it, so the gate was really asking "how much of the frame does
+// the card occupy", which is a fact about the garment.
+//
+// The resolution sweep (src/tests/measure-resolution_test.ts) puts numbers on
+// it. With sub-pixel corner refinement the recovered ppi is exact to 0.02% at a
+// 20px marker and the reprojection residual is 0.016in — a quarter of the
+// 0.06in gate that follows. What actually fails below 20px is DETECTION: the
+// squares stop resolving and the honest answers are card_not_found /
+// card_not_fully_visible, which the detector already gives.
+//
+// So the floor sits where the pipeline genuinely stops, and MAX_REPROJ_RESIDUAL_IN
+// — which is in INCHES, an absolute statement about accuracy — does the judging.
+//
+// 18 rather than 20 for the reason the old gate is a cautionary tale about: a
+// card shot at exactly 20px measures 19.9 on one frame and 20.1 on the next, so
+// a gate set at the measured floor rejects half of the photos that sit on it.
+export const MIN_MARKER_SIDE_PX = 18;
+/**
+ * Not a gate. Below this the calibration is flagged `lowResolution` so a
+ * surface can say the measurement is coarser than usual, and so a scan that has
+ * several candidate photos can prefer the one that resolves the card best.
+ */
+export const SOFT_MARKER_SIDE_PX = 40;
 export const MIN_BLUR_SCORE = 60; // Laplacian variance; tuned on fixtures
 export const MAX_REPROJ_RESIDUAL_IN = 0.06;
 
@@ -335,6 +383,181 @@ function hullToQuad(hull: Array<[number, number]>): Array<[number, number]> | nu
   return [0, 1, 2, 3].map((i) => quad[(start + i) % 4]);
 }
 
+// ── Sub-pixel quad refinement ───────────────────────────────────────
+//
+// US-2672: `hullToQuad` returns corners drawn from the BINARIZED blob, so its
+// accuracy tops out at one pixel and it reads systematically small — the
+// boundary pixel is the last one that came out black, not the true black/white
+// transition. On a 110px marker that rounding is 1%; on the 38px marker a
+// MeasureCard makes when it lies beside a pair of pants, it is 3%, and it
+// showed up as a marker measuring 39px against a 40px gate.
+//
+// So find the edges where the GRAYSCALE actually crosses, not where the
+// threshold happened to land: walk the normal at many points along each side,
+// interpolate the half-way crossing between the marker's own black and the
+// card's own white, fit a line through those crossings, and intersect adjacent
+// lines for the corners. Averaging tens of crossings per side is what buys the
+// sub-pixel accuracy — no single sample is better than the noise.
+
+function bilinear(img: GrayImage, x: number, y: number): number {
+  const { width: w, height: h, gray } = img;
+  if (x < 0 || y < 0 || x > w - 1 || y > h - 1) return NaN;
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const x1 = Math.min(w - 1, x0 + 1), y1 = Math.min(h - 1, y0 + 1);
+  const fx = x - x0, fy = y - y0;
+  const a = gray[y0 * w + x0], b = gray[y0 * w + x1];
+  const c = gray[y1 * w + x0], d = gray[y1 * w + x1];
+  return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+}
+
+/** Total-least-squares line through points: returns a point + unit direction. */
+function fitLine(
+  pts: Array<[number, number]>,
+): { px: number; py: number; dx: number; dy: number } | null {
+  const n = pts.length;
+  if (n < 3) return null;
+  let mx = 0, my = 0;
+  for (const [x, y] of pts) { mx += x; my += y; }
+  mx /= n; my /= n;
+  let sxx = 0, sxy = 0, syy = 0;
+  for (const [x, y] of pts) {
+    const dx = x - mx, dy = y - my;
+    sxx += dx * dx; sxy += dx * dy; syy += dy * dy;
+  }
+  // Principal axis of the 2x2 scatter matrix.
+  const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  const dx = Math.cos(theta), dy = Math.sin(theta);
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return null;
+  return { px: mx, py: my, dx, dy };
+}
+
+function intersectLines(
+  a: { px: number; py: number; dx: number; dy: number },
+  b: { px: number; py: number; dx: number; dy: number },
+): [number, number] | null {
+  const den = a.dx * b.dy - a.dy * b.dx;
+  // Near-parallel sides mean the quad is degenerate; the caller keeps the raw one.
+  if (Math.abs(den) < 1e-6) return null;
+  const t = ((b.px - a.px) * b.dy - (b.py - a.py) * b.dx) / den;
+  return [a.px + a.dx * t, a.py + a.dy * t];
+}
+
+/**
+ * Push every side of a quad outward by `d` pixels (negative shrinks).
+ *
+ * US-2672: `hullToQuad` returns pixel CENTRES, so an S-px marker comes back as
+ * an (S-1)-px quad — the black ink covers half a pixel more on each side than
+ * the outermost black pixel's centre. Sampling the 7x7 module grid through that
+ * quad therefore walks progressively off-module: the drift is 1/S of a module
+ * per module, which is 0.15 of a module at the far corner of a 45px marker and
+ * 0.27 at a 24px one. That is the difference between reading the bottom row of
+ * bits and reading the row above it, and it is why the decoder gave up at 24px
+ * while happily decoding the same marker at 45px.
+ */
+function expandQuad(
+  quad: Array<[number, number]>,
+  d: number,
+): Array<[number, number]> {
+  const cx = (quad[0][0] + quad[1][0] + quad[2][0] + quad[3][0]) / 4;
+  const cy = (quad[0][1] + quad[1][1] + quad[2][1] + quad[3][1]) / 4;
+  const lines: Array<{ px: number; py: number; dx: number; dy: number }> = [];
+  for (let e = 0; e < 4; e++) {
+    const a = quad[e], b = quad[(e + 1) % 4];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 1e-6) return quad;
+    const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
+    let nx = -uy, ny = ux;
+    const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+    if ((mx + nx - cx) ** 2 + (my + ny - cy) ** 2 <
+      (mx - nx - cx) ** 2 + (my - ny - cy) ** 2) {
+      nx = -nx; ny = -ny;
+    }
+    lines.push({ px: mx + nx * d, py: my + ny * d, dx: ux, dy: uy });
+  }
+  const out: Array<[number, number]> = [];
+  for (let e = 0; e < 4; e++) {
+    const p = intersectLines(lines[(e + 3) % 4], lines[e]);
+    if (!p) return quad;
+    out.push(p);
+  }
+  return out;
+}
+
+/**
+ * Refine a marker quad to sub-pixel corners against the grayscale image.
+ * Returns null (keep the raw quad) whenever the evidence is thin: a tiny quad,
+ * a side with too little contrast, or a corner that moves implausibly far.
+ */
+export function refineQuad(
+  img: GrayImage,
+  quad: Array<[number, number]>,
+): Array<[number, number]> | null {
+  const cx = (quad[0][0] + quad[1][0] + quad[2][0] + quad[3][0]) / 4;
+  const cy = (quad[0][1] + quad[1][1] + quad[2][1] + quad[3][1]) / 4;
+  const lines: Array<{ px: number; py: number; dx: number; dy: number }> = [];
+  let maxSearch = 0;
+
+  for (let e = 0; e < 4; e++) {
+    const a = quad[e], b = quad[(e + 1) % 4];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 8) return null; // below this there is nothing to average
+    const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len;
+    // Outward normal: whichever of the two points away from the centroid.
+    let nx = -uy, ny = ux;
+    const midX = (a[0] + b[0]) / 2, midY = (a[1] + b[1]) / 2;
+    if ((midX + nx - cx) ** 2 + (midY + ny - cy) ** 2 <
+      (midX - nx - cx) ** 2 + (midY - ny - cy) ** 2) {
+      nx = -nx; ny = -ny;
+    }
+    // Search band: wide enough to bracket the transition, narrow enough not to
+    // reach the next module in (or the neighbouring marker out).
+    const reach = Math.min(4, Math.max(1.5, len * 0.12));
+    maxSearch = Math.max(maxSearch, reach);
+    const step = 0.25;
+    const samples = Math.min(64, Math.max(8, Math.round(len)));
+    const pts: Array<[number, number]> = [];
+
+    for (let s = 0; s < samples; s++) {
+      // Skip the corner thirds — that is where the adjacent side bends the profile.
+      const t = 0.18 + (0.64 * s) / Math.max(1, samples - 1);
+      const sx = a[0] + ux * len * t, sy = a[1] + uy * len * t;
+      const inside = bilinear(img, sx - nx * reach, sy - ny * reach);
+      const outside = bilinear(img, sx + nx * reach, sy + ny * reach);
+      if (!Number.isFinite(inside) || !Number.isFinite(outside)) continue;
+      // The marker is ink on white card: inside must be the darker end.
+      if (outside - inside < 25) continue;
+      const level = (inside + outside) / 2;
+      let prevV = inside, prevD = -reach, hit: number | null = null;
+      for (let d = -reach + step; d <= reach + 1e-9; d += step) {
+        const v = bilinear(img, sx + nx * d, sy + ny * d);
+        if (!Number.isFinite(v)) break;
+        if (prevV < level && v >= level) {
+          hit = prevD + (step * (level - prevV)) / (v - prevV);
+          break;
+        }
+        prevV = v; prevD = d;
+      }
+      if (hit == null) continue;
+      pts.push([sx + nx * hit, sy + ny * hit]);
+    }
+    const line = fitLine(pts);
+    if (!line) return null;
+    lines.push(line);
+  }
+
+  const out: Array<[number, number]> = [];
+  for (let e = 0; e < 4; e++) {
+    // Corner e is where side (e-1) meets side e.
+    const p = intersectLines(lines[(e + 3) % 4], lines[e]);
+    if (!p) return null;
+    // A refinement that moves a corner further than the search band did not
+    // refine anything — it found a different feature. Keep the raw quad.
+    if (Math.hypot(p[0] - quad[e][0], p[1] - quad[e][1]) > maxSearch * 2) return null;
+    out.push(p);
+  }
+  return out;
+}
+
 // ── Marker decoding ─────────────────────────────────────────────────
 
 const CANON = 70; // canonical unwarp size: 7 modules x 10px
@@ -424,12 +647,31 @@ function matchId(
 
 // ── Blur metric ─────────────────────────────────────────────────────
 
-export function laplacianVariance(img: GrayImage): number {
+/** Inclusive pixel box, clamped by the caller. */
+export interface Roi { x0: number; y0: number; x1: number; y1: number }
+
+/**
+ * Laplacian variance over the image, or over `roi` when one is given.
+ *
+ * US-2672: the ROI is the whole point on a large garment. Blur is a property of
+ * the card, but this was measured over the ENTIRE frame — and the bigger the
+ * garment, the more of that frame is flat fabric or flat floor with nothing to
+ * be sharp about. A perfectly sharp card beside a pair of pants scored 55
+ * against a threshold of 60 and was rejected as "too blurry", while the same
+ * card beside a t-shirt (less flat area, same sharpness) scored 92.
+ */
+export function laplacianVariance(img: GrayImage, roi?: Roi): number {
   const { width: w, height: h, gray } = img;
+  const x0 = Math.max(1, roi ? Math.floor(roi.x0) : 1);
+  const y0 = Math.max(1, roi ? Math.floor(roi.y0) : 1);
+  const x1 = Math.min(w - 2, roi ? Math.ceil(roi.x1) : w - 2);
+  const y1 = Math.min(h - 2, roi ? Math.ceil(roi.y1) : h - 2);
+  if (x1 < x0 || y1 < y0) return 0;
   let sum = 0, sumSq = 0, n = 0;
-  const step = Math.max(1, ((w * h) / 250_000) | 0); // sample big images
-  for (let y = 1; y < h - 1; y += 1) {
-    for (let x = 1 + (y % step); x < w - 1; x += step) {
+  const area = (x1 - x0 + 1) * (y1 - y0 + 1);
+  const step = Math.max(1, (area / 250_000) | 0); // sample big regions
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0 + (y % step); x <= x1; x += step) {
       const i = y * w + x;
       const lap = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - w] - gray[i + w];
       sum += lap; sumSq += lap * lap; n++;
@@ -438,6 +680,22 @@ export function laplacianVariance(img: GrayImage): number {
   if (n === 0) return 0;
   const mean = sum / n;
   return sumSq / n - mean * mean;
+}
+
+/** Bounding box of every detected marker, padded by `pad` x the card's span. */
+export function markersRoi(markers: DetectedMarker[], pad = 0.15): Roi | null {
+  if (markers.length === 0) return null;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const m of markers) {
+    for (const [x, y] of m.corners) {
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+    }
+  }
+  const px = (x1 - x0) * pad, py = (y1 - y0) * pad;
+  return { x0: x0 - px, y0: y0 - py, x1: x1 + px, y1: y1 + py };
 }
 
 // ── Public API ──────────────────────────────────────────────────────
@@ -449,7 +707,13 @@ export function detectMarkers(
 ): DetectedMarker[] {
   const bin = binarize(img);
   const { labels, comps } = labelComponents(bin, img.width, img.height);
-  const minArea = 20 * 20;
+  // US-2672: a marker whose side is S px has roughly 0.7*S^2 of ink (the black
+  // border ring plus about 40% of the inner modules), so a 20x20 floor threw
+  // away every marker under ~24px BEFORE anything tried to decode it. Detection
+  // is the real limit on a big garment, not accuracy: on the resolution sweep
+  // the reprojection residual is flat from 22px to 110px. Lowered to admit the
+  // small end; the border check and the id match still reject stray blobs.
+  const minArea = 12 * 12;
   const maxArea = (img.width * img.height) / 4;
   const candidates = cards.flatMap((card) =>
     card.markerIds.map((id) => {
@@ -485,13 +749,17 @@ export function detectMarkers(
       }
     }
     if (pts.length < 4) continue;
-    const quad = hullToQuad(convexHull(pts));
-    if (!quad) continue;
-    const decoded = decodeQuad(img, quad);
+    const rough = hullToQuad(convexHull(pts));
+    if (!rough) continue;
+    // Decode on the blob quad grown to the ink's true outer boundary, then
+    // refine the geometry — refinement is the expensive half and there is no
+    // point paying it for a stray blob that is not one of our four markers.
+    const decoded = decodeQuad(img, expandQuad(rough, 0.5));
     if (!decoded || decoded.border < 0.85) continue;
     const id = matchId(decoded.bits, candidates);
     if (id == null || usedIds.has(id)) continue;
     usedIds.add(id);
+    const quad = refineQuad(img, rough) ?? rough;
     // Refined center: canonical center through the quad homography.
     const Hc = fitHomography(
       [[0, 0], [CANON, 0], [CANON, CANON], [0, CANON]],
@@ -519,7 +787,13 @@ export function calibrateMeasurePhoto(
   cards: MeasureCardGeometry[],
 ): CalibrateResult {
   const markers = detectMarkers(img, cards);
-  const blurScore = laplacianVariance(img);
+  // Sharpness is judged where the measurement comes from. With no markers there
+  // is no card region to judge, so the whole frame is all there is — and there
+  // the low score is genuinely telling us the photo may be too soft to find
+  // anything in. See laplacianVariance for what the frame-wide number does to a
+  // large garment.
+  const roi = markersRoi(markers);
+  const blurScore = laplacianVariance(img, roi ?? undefined);
   const baseQuality: CalibrationQuality = {
     markersFound: markers.length,
     minMarkerSidePx: markers.length
@@ -619,5 +893,16 @@ export function calibrateMeasurePhoto(
   }
   const ppi = edges.reduce((s, e) => s + e[2], 0) / edges.length;
 
-  return { ok: true, cardVersion: card.version, ppi, homography: H, markers, quality };
+  return {
+    ok: true,
+    cardVersion: card.version,
+    ppi,
+    homography: H,
+    markers,
+    quality: {
+      ...quality,
+      inchesPerPx: ppi > 0 ? 1 / ppi : undefined,
+      lowResolution: quality.minMarkerSidePx < SOFT_MARKER_SIDE_PX,
+    },
+  };
 }

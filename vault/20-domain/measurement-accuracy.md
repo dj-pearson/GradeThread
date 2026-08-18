@@ -6,7 +6,7 @@ source_of_truth: code
 code_refs:
   - src/lib/measurements.ts
   - services/edge-functions/src/lib/measurements.ts
-reviewed: 2026-08-17
+reviewed: 2026-08-18
 tags: [measurement, contract]
 summary: Tolerances the measurement pipeline must hold and how accuracy is validated.
 ---
@@ -98,6 +98,57 @@ Prints per-class/per-key stats (n, misses, p50, p95, max, signed bias) and the
 gate verdict; exits non-zero on failure. Re-run after any change to
 `measure-detect.ts`, `measure-extract.ts`, the extraction prompt, or a new
 card version.
+
+## 3b. What the card has to look like in frame (US-2672)
+
+How small the card may be is a question about **detection**, not about how much
+of the frame it fills. The two got confused, and on a large garment they point
+opposite ways: a pair of pants laid flat fills roughly 50in of frame, so the
+card's 1in squares are small *because the garment is big*, and there is no
+photograph a seller can take that fixes it.
+
+The measured curve, from `services/edge-functions/src/tests/measure-resolution_test.ts`:
+
+| marker side | recovered ppi error | reprojection residual | verdict |
+|---|---|---|---|
+| 110 px | < 0.01% | 0.0002 in | fine |
+| 40 px | < 0.01% | 0.0007 in | fine |
+| 24 px | 0.02% | 0.011 in | fine, flagged `lowResolution` |
+| 20 px | 0.01% | 0.016 in | the floor |
+| 16 px and under | — | — | detection stops; fails closed |
+
+Scale recovery is **flat** across that whole range. What ends at ~20px is the
+detector's ability to find and decode the squares at all, and that failure is
+already reported honestly as `card_not_found` / `card_not_fully_visible`. So:
+
+- `MIN_MARKER_SIDE_PX` is **18** — the measured floor with enough margin that a
+  card sitting exactly on it is not rejected by frame-to-frame noise.
+- `MAX_REPROJ_RESIDUAL_IN` (0.06in) is the gate that actually decides. It is in
+  INCHES, so it is a statement about accuracy rather than a proxy for one.
+- Under `SOFT_MARKER_SIDE_PX` (40) the calibration carries
+  `quality.lowResolution` and `quality.inchesPerPx`. Not a refusal — the number
+  a seller measuring to a quarter inch needs, and at 20px it is 0.05in.
+
+One thing that sounds like it should be a problem is not. The homography is fit
+from four markers spanning 6x4in and then used to measure a garment several
+times that size, so it is an extrapolation. Measured on a 24in span sitting 20in
+away from the card, with 40px markers: 0.002in of error top-down, and under
+0.06in at every tilt from 5 to 30 degrees. Card size is the constraint that
+matters, not distance from it.
+
+Two other things measured the garment when they meant to measure the photo, and
+both are fixed:
+
+- **Blur was scored over the whole frame.** The bigger the garment, the more of
+  that frame is flat fabric and flat floor with nothing to be sharp about, so a
+  sharp card next to pants scored 55 against a threshold of 60 while the same
+  card next to a t-shirt scored 92. Sharpness is now measured over the marker
+  region.
+- **The resolution ladder never climbed.** `Image.resize` in ImageScript mutates
+  its receiver, so rung one permanently shrank the photo and rung two re-scaled
+  that copy *up*. Downsampling now writes straight into the gray buffer.
+
+Re-run the §3 eval after touching any of this.
 
 ## 4. Production telemetry (correction deltas)
 

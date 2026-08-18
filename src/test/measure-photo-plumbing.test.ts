@@ -124,6 +124,10 @@ describe("US-2632: the card frame keeps its pixels", () => {
       "utf8",
     );
     expect(edge).toContain("minMarkerSidePx");
-    expect(edge).toContain("they need 40px");
+    // US-2672: the floor is quoted from MIN_MARKER_SIDE_PX, not written out.
+    // It moved from 40 to 20 when the detector stopped needing the headroom,
+    // and a literal here would have gone on citing a number nothing enforced.
+    expect(edge).toContain("they need ${MIN_MARKER_SIDE_PX}px");
+    expect(edge).toContain('import { MIN_MARKER_SIDE_PX } from "./measure-detect.ts"');
   });
 });

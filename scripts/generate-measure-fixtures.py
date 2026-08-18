@@ -140,6 +140,21 @@ emit(
     "card far from camera; markers just above MIN_MARKER_SIDE_PX",
 )
 
+# 4b) US-2672: the large-garment shot. The card is 24px-per-inch and sits in the
+# corner of a wide, mostly FLAT frame - which is what a pair of pants laid out on
+# a floor actually looks like. Two separate gates used to reject this: a 40px
+# minimum marker side (a proxy for accuracy that really measured how much of the
+# frame the card filled) and a frame-wide blur score that the flat fabric dragged
+# under its threshold. Both are properties of the garment, not the photograph.
+tiny = render_card(24)
+tiny_scene = scene(tiny, (1600, 1200), (90, 840))
+emit(
+    "tiny-in-frame-large-garment",
+    tiny_scene,
+    "calibrates",
+    "24px markers in a wide flat frame - the big-garment case",
+)
+
 # 5) One marker occluded (a 'sleeve' covers the bottom-left marker).
 occluded_scene = scene(card, (1100, 850), (120, 100))
 mx, my = CENTERS[13]

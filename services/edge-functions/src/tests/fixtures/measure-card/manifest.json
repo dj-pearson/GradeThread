@@ -444,6 +444,116 @@
       ]
     },
     {
+      "name": "tiny-in-frame-large-garment",
+      "file": "tiny-in-frame-large-garment.png",
+      "expect": "calibrates",
+      "note": "24px markers in a wide flat frame - the big-garment case",
+      "width": 1600,
+      "height": 1200,
+      "opencv": [
+        {
+          "id": 10,
+          "center": [
+            107.5,
+            857.5
+          ],
+          "corners": [
+            [
+              96.0,
+              846.0
+            ],
+            [
+              119.0,
+              846.0
+            ],
+            [
+              119.0,
+              869.0
+            ],
+            [
+              96.0,
+              869.0
+            ]
+          ]
+        },
+        {
+          "id": 11,
+          "center": [
+            251.5,
+            857.5
+          ],
+          "corners": [
+            [
+              240.0,
+              846.0
+            ],
+            [
+              263.0,
+              846.0
+            ],
+            [
+              263.0,
+              869.0
+            ],
+            [
+              240.0,
+              869.0
+            ]
+          ]
+        },
+        {
+          "id": 12,
+          "center": [
+            251.5,
+            953.5
+          ],
+          "corners": [
+            [
+              240.0,
+              942.0
+            ],
+            [
+              263.0,
+              942.0
+            ],
+            [
+              263.0,
+              965.0
+            ],
+            [
+              240.0,
+              965.0
+            ]
+          ]
+        },
+        {
+          "id": 13,
+          "center": [
+            107.5,
+            953.5
+          ],
+          "corners": [
+            [
+              96.0,
+              942.0
+            ],
+            [
+              119.0,
+              942.0
+            ],
+            [
+              119.0,
+              965.0
+            ],
+            [
+              96.0,
+              965.0
+            ]
+          ]
+        }
+      ]
+    },
+    {
       "name": "occluded-marker",
       "file": "occluded-marker.png",
       "expect": "fails",

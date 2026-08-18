@@ -32,6 +32,7 @@ import {
   toGray,
   type StoredCalibration,
 } from "./measure-calibrate.ts";
+import { MIN_MARKER_SIDE_PX } from "./measure-detect.ts";
 import {
   extractMeasurements,
   mergeMeasurementsFillOnly,
@@ -255,9 +256,14 @@ async function findCardPhoto(
         // too small" with no way to tell a badly-shot photo from one the
         // uploader had already downscaled past readability.
         if (detected.reason === "markers_too_small") {
+          // US-2672: quote the live floor, not a literal. The number moved from
+          // 40 to 20 once the detector stopped needing the headroom, and a
+          // hard-coded "they need 40px" would have kept telling sellers to fix
+          // photos that had long since been good enough.
           lastMessage +=
             ` (squares measured ${Math.round(detected.quality.minMarkerSidePx)}px` +
-            ` in a ${decoded.width}x${decoded.height} photo; they need 40px)`;
+            ` in a ${decoded.width}x${decoded.height} photo;` +
+            ` they need ${MIN_MARKER_SIDE_PX}px)`;
         }
       }
       continue;
