@@ -26,17 +26,21 @@
       "title": "CTR copy pass on the page-one URLs that rank and get skipped",
       "description": "As the operator, I want the pages already ranking on page one to actually earn their clicks, so that we capture the traffic we have before spending a quarter building more of it. US-9001 found 149 URLs at position 3-10 converting at 0.85% against a 3-10% baseline. This is a copy pass over pages that already exist, not a build, and it is the cheapest work in this file.",
       "acceptanceCriteria": [
-        "Rewrite the title and meta description for the 19 URLs in docs/seo/ctr-rewrite-worklist.csv, working down the clicks_being_missed_6mo column. Fill the proposed_title and proposed_meta_description columns first so the change is reviewable before it ships.",
-        "The top four carry most of the value: /grading/glossary/vguc (503 impressions, position 8.8, 0.20% CTR), /blog/mercari-partial-item-returns-reseller-guide (607, 8.5, 0.82%), /compare/vinted-vs-mercari (530, 8.5, 1.13%) and /value/nike/tech-fleece (116, 6.5, 0.00%).",
-        "Size of the prize is stated honestly in the story and not inflated: closing the entire gap is worth about 66 clicks over six months against the 55 the site earned. It roughly doubles a small number. It is worth a day, and it is not the growth plan.",
-        "Titles for definitional pages are rewritten to promise something the SERP snippet cannot deliver. Nineteen glossary pages earn 1,087 impressions and 4 clicks between them because Google answers the definition in place; a title that only restates the definition cannot win the click.",
-        "Every rewritten title still satisfies keyword-targets.test.ts, meaning the primary keyword remains in the registered title or description.",
-        "A follow-up Search Console read is scheduled 60 days after the pass, comparing CTR per URL against the ctr_actual_pct column captured here, and the result is recorded against US-9016's threshold table."
+        "Rewrite the title and meta description for the 19 URLs in docs/seo/ctr-rewrite-worklist.csv, working down the clicks_being_missed_6mo column. Fill the proposed_title and proposed_meta_description columns first so the change is reviewable before it ships. DONE, and the CSV now carries a shipped column recording which of the three surfaces each URL landed on.",
+        "The top four carry most of the value: /grading/glossary/vguc (503 impressions, position 8.8, 0.20% CTR), /blog/mercari-partial-item-returns-reseller-guide (607, 8.5, 0.82%), /compare/vinted-vs-mercari (530, 8.5, 1.13%) and /value/nike/tech-fleece (116, 6.5, 0.00%). All four rewritten.",
+        "Size of the prize is stated honestly in the story and not inflated: closing the entire gap is worth about 66 clicks over six months against the 55 the site earned. It roughly doubles a small number. It is worth a day, and it is not the growth plan. Restated at the top of docs/seo/ctr-rewrite-pass.md.",
+        "Titles for definitional pages are rewritten to promise something the SERP snippet cannot deliver. Nineteen glossary pages earn 1,087 impressions and 4 clicks between them because Google answers the definition in place; a title that only restates the definition cannot win the click. DONE for vguc, inr and the glossary hub.",
+        "Every rewritten title still satisfies keyword-targets.test.ts, meaning the primary keyword remains in the registered title or description. Only /condition-grading of the 19 carries a KEYWORD_TARGETS entry; its primary (clothing condition grading) opens the new description.",
+        "CORRECTED 2026-08-18: the 19 URLs are not one surface and cannot ship in one commit. 11 are PUBLIC_ROUTES entries on a 46-char title budget (the 60-char cap minus the \" | GradeThread\" suffix), 1 is a Pages Function template with a 60-char budget, and 7 are blog_posts rows whose SERP copy is a database column an admin can also edit. The blog seven need scripts/apply-blog-ctr-rewrites.mjs run against prod; everything else ships with the build.",
+        "src/test/ctr-rewrite-worklist.test.ts asserts the shipped registry copy equals the reviewed copy in the CSV, and that every blog proposal fits the SERP budget. The record and the code cannot drift apart silently. DONE, 16 tests.",
+        "REMAINING (operator): run scripts/apply-blog-ctr-rewrites.mjs --apply with prod credentials for the 7 blog rows. Dry run verified against the worklist; the write path needs prod.",
+        "REMAINING (operator): a follow-up Search Console read on 2026-10-17, 60 days after the pass, comparing CTR per URL against the ctr_actual_pct column captured here, with the result recorded against US-9016 threshold table."
       ],
       "priority": 2,
       "dependsOn": [
         "US-9001"
-      ]
+      ],
+      "notes": "Applied 2026-08-18. Registry copy rewritten in reseller-glossary.ts (vguc, inr, hub), flaw-library.ts (elastic-degradation), platform-standards.ts (ebay, depop), public-routes.ts (/condition-grading) and comparison-guides.ts, where templatedComparison() gained title/description overrides so four measured pairs get bespoke SERP copy and the twelve with no impressions keep the template. /value/{brand}/{item} got a new title helper: the old one ran to 66 chars on Nike Tech Fleece and spent the overflow restating the query. Blog seven are drafted and dry-run clean, waiting on a prod write. 2931 tests green, tsc -b clean, eslint 0 errors, ui:check 0 blocking. Also found and fixed a pre-existing failure from the US-9007 commit: calculatorHubJsonLd pointed isPartOf at the Organization node instead of the WebSite node, which entity-graph-jsonld.test.ts was already red on."
     },
     {
       "id": "US-9002",

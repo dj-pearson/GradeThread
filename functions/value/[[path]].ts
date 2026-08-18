@@ -35,6 +35,7 @@ import {
   renderGradingFactors,
   renderMethodology,
   renderPerGradeSummary,
+  valueItemTitle,
   valueProductLd,
 } from "../_shared/condition-index-render";
 import { headOf } from "../_shared/head-of";
@@ -258,8 +259,13 @@ export const onRequestGet: PagesFunction<PagesEnv> = async (context: Ctx) => {
 
     return renderSsrResponse(
       {
-        title: `${curve.label} resale value by condition — GradeThread Value Index`,
-        description: `What a ${curve.label} sells for at each condition grade, from condition-matched comps. Updated ${formatDate(curve.refreshedAt)}.`,
+        // US-9017: the old title was `<label> resale value by condition —
+        // GradeThread Value Index`, which ran past the ~60-char SERP cap on
+        // most labels and spent what was left restating the query. The
+        // measured page (/value/nike/tech-fleece: 116 impressions at position
+        // 6.5, zero clicks) needs a title promising the number itself.
+        title: valueItemTitle(curve.label),
+        description: `What a used ${curve.label} actually sells for at each condition grade, from condition-matched sold comps rather than asking prices. Updated ${formatDate(curve.refreshedAt)}.`,
         canonicalUrl: canonical,
         bodyHtml: body,
         jsonLd,

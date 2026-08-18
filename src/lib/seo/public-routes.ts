@@ -271,9 +271,9 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   {
     path: "/condition-grading",
     jsonLdType: "DefinedTermSet",
-    title: "What Is Clothing Condition Grading?",
+    title: "How to Grade Used Clothing Condition, 1-10",
     description:
-      "A complete guide to pre-owned clothing condition grading: the 1.0–10.0 scale, the 7 tiers (NWT to Poor), and the 5 weighted factors graders assess.",
+      "Clothing condition grading on a 1.0–10.0 scale: 5 weighted factors, 7 tiers from NWT to Poor, and the criteria graders actually apply, with worked examples.",
     changefreq: "monthly",
     priority: 0.9,
   },

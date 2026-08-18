@@ -213,6 +213,13 @@ const PLATFORM_FACTS: Record<string, PlatformFacts> = {
  * carries the unique returns/condition-dispute wedge row. `overrides` lets a
  * hand-written flagship (poshmark-vs-mercari, depop-vs-poshmark) supply editorial
  * intro/verdict copy while reusing the derived table + FAQ.
+ *
+ * US-9017: `title`/`description` are overridable too. The default
+ * "X vs Y for Resellers (2026)" pattern ranks — four of these pairs sit at
+ * position 8.5 — and does not get clicked, because it promises the same thing
+ * as the nine results above it. A pair that earns real impressions gets a title
+ * naming the ANSWER instead of the matchup. Pairs with no measured traffic keep
+ * the template; there is nothing to learn from rewriting those yet.
  */
 /** Lowercase the first letter so a sentence-shaped fact can be spliced mid-clause. */
 function lowerFirst(text: string): string {
@@ -222,7 +229,7 @@ function lowerFirst(text: string): string {
 function templatedComparison(
   aSlug: string,
   bSlug: string,
-  overrides?: Partial<Pick<Comparison, "intro" | "verdict" | "h1">>,
+  overrides?: Partial<Pick<Comparison, "intro" | "verdict" | "h1" | "title" | "description">>,
 ): Comparison {
   const a = PLATFORM_FACTS[aSlug];
   const b = PLATFORM_FACTS[bSlug];
@@ -232,8 +239,10 @@ function templatedComparison(
     slug,
     platformA: a.name,
     platformB: b.name,
-    title: `${a.name} vs ${b.name} for Resellers (2026)`,
-    description: `${a.name} vs ${b.name} for selling used clothes: fees, category fit, shipping, payout speed, and how each handles condition disputes and returns.`,
+    title: overrides?.title ?? `${a.name} vs ${b.name} for Resellers (2026)`,
+    description:
+      overrides?.description ??
+      `${a.name} vs ${b.name} for selling used clothes: fees, category fit, shipping, payout speed, and how each handles condition disputes and returns.`,
     h1: overrides?.h1 ?? `${a.name} vs ${b.name}: which is better for resellers in 2026?`,
     intro:
       overrides?.intro ??
@@ -302,15 +311,36 @@ const COMPARISON_PAIRS: Comparison[] = [
   templatedComparison("ebay", "poshmark"),
   templatedComparison("ebay", "depop"),
   templatedComparison("mercari", "depop"),
-  templatedComparison("grailed", "ebay"),
+  // 165 impressions at position 9.7 for 1 click (US-9017).
+  templatedComparison("grailed", "ebay", {
+    title: "Grailed vs eBay: Where Menswear Actually Sells",
+    description:
+      "Grailed vs eBay for used menswear: the fee split, buyer base, payout speed and condition disputes. Plus what to expect if you move listings between them.",
+  }),
   templatedComparison("grailed", "depop"),
-  templatedComparison("grailed", "poshmark"),
+  // 124 impressions at position 11.0, zero clicks (US-9017).
+  templatedComparison("grailed", "poshmark", {
+    title: "Grailed vs Poshmark: Which Fits Your Inventory",
+    description:
+      "Grailed vs Poshmark on fees, audience, shipping and condition disputes. Which suits menswear, streetwear and designer resale, and when to list on both.",
+  }),
   templatedComparison("vinted", "poshmark"),
   templatedComparison("vinted", "depop"),
-  templatedComparison("vinted", "mercari"),
+  // The worst CTR gap in the family: 530 impressions at position 8.5 for 6
+  // clicks (1.13%), where page one should return 3-10% (US-9017).
+  templatedComparison("vinted", "mercari", {
+    title: "Vinted vs Mercari: Who Pays Sellers More",
+    description:
+      "Vinted charges the buyer, Mercari charges you. Fees, payout speed, category fit and how each handles condition disputes, worked through on a $40 item.",
+  }),
   templatedComparison("vinted", "ebay"),
   templatedComparison("whatnot", "ebay"),
-  templatedComparison("whatnot", "poshmark"),
+  // 99 impressions at position 15.5, zero clicks (US-9017).
+  templatedComparison("whatnot", "poshmark", {
+    title: "Whatnot vs Poshmark: Live Selling or Listings?",
+    description:
+      "Whatnot vs Poshmark on fees, format and audience. Whether live selling beats static listings for your inventory, and what moving between them involves.",
+  }),
   templatedComparison("mercari", "grailed"),
 ];
 

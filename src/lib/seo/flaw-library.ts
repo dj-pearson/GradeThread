@@ -755,9 +755,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "elastic-degradation",
     name: "Elastic degradation",
     alternateNames: ["dead elastic", "worn elastic", "shot elastic"],
-    title: "Elastic Degradation: Grade Impact",
+    title: "Stretched Elastic: Fixable, or a Grade Hit?",
     description:
-      "Elastic degradation is slack, crumbly, or wavy elastic in waistbands and cuffs. How to test the rebound, its grade impact, and how to disclose it.",
+      "Slack, crumbly or wavy elastic in waistbands and cuffs. How to test the rebound, whether it is recoverable, what it does to the grade, and how to disclose it.",
     h1: "Elastic degradation",
     definition:
       "Elastic degradation is the breakdown of stretch fibers in waistbands, cuffs, and straps, where the elastic goes slack, crumbly, or wavy and no longer rebounds. Age, heat, and washing accelerate it, leaving the garment loose and unsupportive, and it weighs on functional elements and structural integrity.",

@@ -263,6 +263,19 @@ export function conditionDatasetLd(
 // item; this is observed condition-matched resale data (paired with the Dataset
 // above). Returns null when the curve has no priced points (never a fabricated
 // offer). Optionally scoped to one condition band's range.
+/**
+ * SERP title for a /value/{brand}/{item} page (US-9017). Google truncates
+ * around 60 characters, so a long curve label falls back to the plain form
+ * rather than being cut off mid-promise.
+ */
+const VALUE_TITLE_MAX = 60;
+export function valueItemTitle(label: string): string {
+  const hook = `${label} Resale Value: What Yours Is Worth`;
+  if (hook.length <= VALUE_TITLE_MAX) return hook;
+  const plain = `${label} Resale Value by Condition`;
+  return plain.length <= VALUE_TITLE_MAX ? plain : `${label} Resale Value`;
+}
+
 export function valueProductLd(
   curve: ConditionCurveLite,
   canonical: string,
