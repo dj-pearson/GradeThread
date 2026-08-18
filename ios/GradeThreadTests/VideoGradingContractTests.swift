@@ -111,7 +111,7 @@ final class VideoGradingContractTests: XCTestCase {
     // to null rather than to a claim. A typo here does not read as "recorded
     // live" — it silently drops the claim the recorder exists to make.
     func test_theCaptureSourceIsTheRecordersOwn() {
-        let clip = WalkAroundRecorder.Clip(
+        let clip = WalkAroundClip(
             url: URL(fileURLWithPath: "/tmp/a.mov"),
             bytes: 10, durationSeconds: 5, format: "mov")
         XCTAssertEqual(clip.captureSource, "in_app_recorder")

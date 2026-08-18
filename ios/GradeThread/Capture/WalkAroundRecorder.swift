@@ -16,6 +16,23 @@ import Observation
 // never listens. Recording a seller's room audio because it was the default is
 // the kind of thing that is only noticed from the outside.
 
+/// A recorded clip on disk. A value type describing a file, so it is NOT
+/// nested in the @MainActor recorder - nesting made it inherit that isolation
+/// and a nonisolated caller could not read its fields.
+struct WalkAroundClip: Equatable {
+    let url: URL
+    let bytes: Int
+    /// nil when AVFoundation could not report it. Passed through as nil
+    /// rather than guessed: the server refuses an unreadable duration, and
+    /// inventing one here would send a clip that fails after the upload.
+    let durationSeconds: Double?
+    let format: String
+
+    /// The provenance value the submit posts. Always the recorder's, because
+    /// this type is only ever produced by recording.
+    var captureSource: String { VideoGradingContract.captureSourceInAppRecorder }
+}
+
 @MainActor
 @Observable
 final class WalkAroundRecorder: NSObject {
@@ -25,23 +42,10 @@ final class WalkAroundRecorder: NSObject {
         case preparing
         case ready
         case recording(secondsElapsed: Double)
-        case finished(Clip)
+        case finished(WalkAroundClip)
         case failed(String)
     }
 
-    struct Clip: Equatable {
-        let url: URL
-        let bytes: Int
-        /// nil when AVFoundation could not report it. Passed through as nil
-        /// rather than guessed: the server refuses an unreadable duration, and
-        /// inventing one here would send a clip that fails after the upload.
-        let durationSeconds: Double?
-        let format: String
-
-        /// The provenance value the submit posts. Always the recorder's, because
-        /// this type is only ever produced by recording.
-        var captureSource: String { VideoGradingContract.captureSourceInAppRecorder }
-    }
 
     private(set) var phase: Phase = .idle
 
@@ -112,7 +116,7 @@ final class WalkAroundRecorder: NSObject {
     /// Failure is ignored on purpose — a leftover file in the temporary
     /// directory is the system's to reap, and surfacing "couldn't delete" to a
     /// seller who just got their grade would be noise.
-    func discard(_ clip: Clip) {
+    func discard(_ clip: WalkAroundClip) {
         try? FileManager.default.removeItem(at: clip.url)
         if phase == .finished(clip) { phase = .ready }
     }
@@ -208,13 +212,13 @@ final class WalkAroundRecorder: NSObject {
     /// The container name from a file extension, lowercased, for the contract's
     /// format check. Unknown extensions pass through unchanged so the rejection
     /// message names what was actually seen.
-    static func format(for url: URL) -> String {
+    nonisolated static func format(for url: URL) -> String {
         url.pathExtension.lowercased()
     }
 
     /// Size in bytes, or 0 when the file is unreadable — which the contract
     /// rejects as "that clip is empty", the right answer either way.
-    static func byteSize(of url: URL) -> Int {
+    nonisolated static func byteSize(of url: URL) -> Int {
         let values = try? url.resourceValues(forKeys: [.fileSizeKey])
         return values?.fileSize ?? 0
     }
@@ -225,7 +229,7 @@ final class WalkAroundRecorder: NSObject {
     /// refusal of an unreadable duration is a real rule; a client GUESS at one
     /// would either block clips the server would have taken, or claim a length
     /// the frame planner then cannot find.
-    static func duration(of url: URL) async -> Double? {
+    nonisolated static func duration(of url: URL) async -> Double? {
         let asset = AVURLAsset(url: url)
         guard let loaded = try? await asset.load(.duration) else { return nil }
         let seconds = CMTimeGetSeconds(loaded)
@@ -263,7 +267,7 @@ extension WalkAroundRecorder: AVCaptureFileOutputRecordingDelegate {
 
             let bytes = Self.byteSize(of: outputFileURL)
             let seconds = await Self.duration(of: outputFileURL)
-            self.phase = .finished(Clip(
+            self.phase = .finished(WalkAroundClip(
                 url: outputFileURL,
                 bytes: bytes,
                 durationSeconds: seconds,
