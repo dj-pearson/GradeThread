@@ -3312,6 +3312,43 @@ Deno.test({
   },
 });
 
+// ── US-2557: the unread badge count ───────────────────────────────────────────
+//
+// The count is derived from the SESSION and the route accepts no user id at
+// all — there is no ?userId to forge, which is the point. So the two properties
+// worth pinning are that it is unreachable unauthenticated, and that it stays
+// that way: an id parameter added later would turn a self-scoped counter into a
+// cross-tenant oracle ("does this account have unread mail?") without anything
+// else in the route looking different.
+Deno.test({
+  name: "US-2557: the unread count is unreachable without a session",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/notifications/unread-count`);
+    await res.body?.cancel();
+    assertDenied(res.status, "GET unread-count unauthenticated");
+  },
+});
+
+Deno.test({
+  name: "US-2557: a userId parameter cannot redirect the count at another tenant",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    // B asks for the zero-UUID's count. The route must ignore the parameter
+    // entirely and answer for B — never for the id in the query string.
+    const res = await fetch(
+      `${BASE}/api/notifications/unread-count?userId=${ZERO_UUID}&u=${ZERO_UUID}`,
+      { headers: authHeaders(B_JWT!) },
+    );
+    const body = await res.json().catch(() => null);
+    assertEquals(res.status, 200, "B's own count should still answer");
+    assert(
+      body !== null && typeof body.unread === "number",
+      "the response is B's own count, not an error about the foreign id",
+    );
+  },
+});
+
 // ── US-1639: verified.ts — the write must require auth ────────────────────────
 //
 // The verified profile is strictly self-scoped (c.get("userId")); it has no

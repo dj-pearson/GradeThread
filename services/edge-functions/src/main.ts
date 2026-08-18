@@ -388,6 +388,8 @@ app.use("/api/keys/*", authMiddleware);
 app.use("/api/notifications/dispute-status", authMiddleware);
 app.use("/api/notifications/dispute-filed", authMiddleware);
 app.use("/api/notifications/register", authMiddleware);
+// US-2557: the badge count. Session-scoped, so it needs the same guard.
+app.use("/api/notifications/unread-count", authMiddleware);
 app.use("/api/notifications/feedback", authMiddleware);
 // US-1638: /welcome now derives its target from the verified token (was an
 // unauthenticated body-userId → account-existence oracle).

@@ -11,6 +11,7 @@ import {
 import { captureServer } from "../lib/posthog.ts";
 import { emitEvent } from "../lib/user-events.ts";
 import { verifyUnsubscribeToken } from "../lib/unsubscribe.ts";
+import { unreadNotificationCount } from "../lib/notification-badge.ts";
 import {
   applyCategoryConsent,
   applyUnsubscribeAll,
@@ -433,6 +434,43 @@ export function parsePushEnvironment(
 // last_seen_at + is_active=true and skips the insert. APNs send paths
 // (sale.created, payout.cleared, token.expiring, item.review_needed)
 // fan out per active row.
+/**
+ * GET /unread-count — how many unread notifications the signed-in user has.
+ *
+ * US-2557 AC3/AC4. The badge number, served rather than recomputed per client.
+ *
+ * WHY A ROUTE AND NOT A CLIENT QUERY. Web reads `notifications` straight
+ * through the RLS-scoped client and iOS could too — but the count has to be a
+ * head+exact query, and getting that wrong is not a compile error, it is a
+ * number that silently stops rising at the page size. That exact bug shipped on
+ * web (its bell counted a .limit(20) page, so its own "99+" branch was
+ * unreachable) and re-implementing the query per platform is how it ships twice.
+ * One counter, already tested, behind one route.
+ *
+ * Reuses unreadNotificationCount, so the badge a push carries and the badge a
+ * client asks for cannot disagree — they are the same function.
+ *
+ * TENANT SCOPING: the id comes from the SESSION, never from a query parameter.
+ * There is deliberately no ?userId — an admin wanting someone else's count is a
+ * different route with a different guard, and accepting an id here would make
+ * this one of them by accident.
+ */
+notificationRoutes.get("/unread-count", async (c) => {
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) {
+    return c.json({ error: "Sign-in required" }, 401);
+  }
+  const count = await unreadNotificationCount(userId);
+  if (count === null) {
+    // The counter returns null for "could not read", never 0. Passing that
+    // through as 0 would tell a client to CLEAR a badge showing five unread
+    // because the database hiccupped — the same absent-vs-zero distinction the
+    // push payload is built around. 503 lets the client keep what it has.
+    return c.json({ error: "Unread count unavailable" }, 503);
+  }
+  return c.json({ unread: count });
+});
+
 notificationRoutes.post("/register", async (c) => {
   const userId = c.get("userId") as string | undefined;
   if (!userId) {
