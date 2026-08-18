@@ -35,6 +35,7 @@ import { conditionChartRoute } from "./condition-chart";
 import { gradeCheckerRoute } from "./grade-checker";
 import { authenticityCheckRoute } from "./authenticity-check";
 import { fitCheckerRoute } from "./fit-checker";
+import { calculatorRoutes } from "./calculators";
 import { forBrandsRoute } from "./for-brands";
 import {
   SITE_URL,
@@ -654,6 +655,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   authenticityCheckRoute(),
   // Free fit-checker tool (US-1780).
   fitCheckerRoute(),
+  // The calculator family (US-9002): the hub, plus every calculator whose
+  // compute has shipped. Tool pages are the highest-converting surface on the
+  // site by an order of magnitude -- see the note at the top of calculators.ts.
+  ...calculatorRoutes(),
   // Brand-partner pitch landing (US-1788).
   forBrandsRoute(),
 ];

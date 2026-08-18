@@ -44,17 +44,19 @@
       "title": "Calculator page family: route registry, prerender, JSON-LD and its own sitemap segment",
       "description": "As a reseller searching for a fee or shipping calculator, I want GradeThread's tools to be crawlable, fast-loading pages, so that they can rank and earn links instead of sitting behind the SPA.",
       "acceptanceCriteria": [
-        "New src/lib/seo/calculators.ts exports calculatorRoutes(): PublicRoute[] and is spread into PUBLIC_ROUTES in src/lib/seo/public-routes.ts, following the pattern of comparisonRoutes() and glossaryRoutes().",
-        "Every calculator path is added to src/prerender/entry-server.tsx; src/lib/seo/__tests__/public-routes.test.ts and the prerender sync-guard both pass.",
-        "src/prerender/head-builder.ts jsonLdForRoute() emits SoftwareApplication JSON-LD for each calculator path, mirrored by the <SEO jsonLd=…> prop on the live SPA route, per the react-helmet-async gotcha in CLAUDE.md.",
-        "Each calculator has a KEYWORD_TARGETS entry in src/lib/seo/keyword-targets.ts; keyword-targets.test.ts passes, meaning the primary keyword appears in the registered title or description.",
-        "New functions/sitemap-tools.xml.ts emits the calculator URLs and is referenced from functions/sitemap.xml.ts.",
-        "`npm run ui:check` still reports zero findings for src/, and `npx tsc -b` is clean."
+        "New src/lib/seo/calculators.ts exports calculatorRoutes(): PublicRoute[] and is spread into PUBLIC_ROUTES in src/lib/seo/public-routes.ts, following the pattern of comparisonRoutes() and glossaryRoutes(). DONE.",
+        "The registry carries a status flag per calculator. calculatorRoutes() emits only `live` entries, and emits NOTHING AT ALL (hub included) while every entry is planned: an empty list page is a worse result than no page. This makes US-9002 and US-9003 land together by construction. DONE.",
+        "When the first calculator goes live: its path and the hub are added to src/prerender/entry-server.tsx (both the PAGES map and the page-module map, which are lockstep-guarded), and src/lib/seo/__tests__/public-routes.test.ts plus the prerender sync-guard pass.",
+        "src/prerender/head-builder.ts jsonLdForRoute() emits WebApplication JSON-LD for each live calculator and CollectionPage for the hub, mirrored by the <SEO jsonLd=…> prop on the live SPA route, per the react-helmet-async gotcha in CLAUDE.md. Follow /tools/authenticity-check and /tools/fit-checker, which are already wired at head-builder.ts:198-199.",
+        "Each live calculator has a KEYWORD_TARGETS entry in src/lib/seo/keyword-targets.ts; keyword-targets.test.ts passes, meaning the primary keyword appears in the registered title or description. The registry already carries primaryKeyword per entry so the two cannot drift.",
+        "CORRECTED 2026-08-18, no sitemap segment file is needed. The original AC asked for functions/sitemap-tools.xml.ts referenced from functions/sitemap.xml.ts. Verified while building: any route in PUBLIC_ROUTES flows into the sitemap manifest automatically and lands in both /sitemap.xml and sitemap-marketing.xml via partitionedStaticUrls() (functions/_shared/sitemap.ts:266). /sitemap.xml only becomes a sitemapindex above SITEMAP_MAX_URLS = 5000 and the site is at 519 URLs, so a tools segment would be a second copy of URLs already advertised, which is what the 15 existing segments already are. Do not build it.",
+        "`npm run ui:check` reports zero findings for src/, and `npx tsc -b` is clean. DONE: 12 new tests in src/lib/seo/__tests__/calculators.test.ts, 446 route-guard tests still passing, ui:check at 0 blocking."
       ],
       "priority": 4,
       "dependsOn": [
         "US-9001"
-      ]
+      ],
+      "notes": "Infrastructure landed 2026-08-18: src/lib/seo/calculators.ts (registry of 8 with a live/planned status flag, hub metadata, breadcrumbs, calculatorRoutes()), wired into public-routes.ts, and src/lib/seo/__tests__/calculators.test.ts (12 tests). Registers nothing yet BY DESIGN -- flipping the first entry to live in US-9003 activates the hub and the route. Two ACs corrected against the real code: the sitemap segment file is unnecessary (see AC6), and the hub cannot ship before the first calculator. BLOCKED ON INPUT for US-9003: docs/seo/ebay-fee-schedule-to-confirm.csv needs the operator to confirm eBay's real rates. A guessed fee schedule makes the calculator worse than not shipping it."
     },
     {
       "id": "US-9003",

@@ -1,0 +1,28 @@
+field,scope,my_value_UNVERIFIED,your_value,unit,notes
+final_value_fee_pct,"Clothing, Shoes & Accessories",13.25,,percent of total amount of sale,"Applies to item price + shipping + tax. Confirm whether CSA is still its own rate or folded into the general 13.25%."
+final_value_fee_pct,"Clothing, Shoes & Accessories, portion over $2000",2.35,,percent,"eBay drops the rate above a threshold. Confirm the threshold and the reduced rate."
+final_value_fee_pct,"Handbags & Wallets under $2000",15.0,,percent,"Confirm - handbags are often a higher rate than the rest of CSA."
+final_value_fee_pct,"Sneakers over $150",8.0,,percent,"Confirm - eBay has a special sneaker rate. Does it still exist?"
+final_value_fee_pct,"Athletic Shoes over $150",8.0,,percent,Confirm this is the same rate as sneakers or a separate one.
+per_order_fixed_fee,orders $10.00 and under,0.30,,USD per order,Confirm the threshold and both amounts.
+per_order_fixed_fee,orders over $10.00,0.40,,USD per order,
+insertion_fee,per listing past the free allotment,0.35,,USD per listing,Confirm. Some categories differ.
+free_listings_per_month,no store subscription,250,,listings,
+free_listings_per_month,Starter store,250,,listings,Confirm - Starter may include fixed-price only.
+free_listings_per_month,Basic store,1000,,listings,
+free_listings_per_month,Premium store,10000,,listings,
+free_listings_per_month,Anchor store,25000,,listings,
+free_listings_per_month,Enterprise store,100000,,listings,
+store_monthly_cost,Starter,7.95,,USD per month billed annually,Needed so the calculator can say when a store pays for itself.
+store_monthly_cost,Basic,27.95,,USD per month billed annually,
+store_monthly_cost,Premium,74.95,,USD per month billed annually,
+store_monthly_cost,Anchor,349.95,,USD per month billed annually,
+store_monthly_cost,Enterprise,2999.95,,USD per month billed annually,
+promoted_listings_standard_min,seller-set ad rate floor,2.0,,percent,Confirm the minimum eBay allows.
+promoted_listings_standard_typical,apparel,5.0,,percent,"What YOU actually pay. This is the number that makes the calculator honest - a made-up default is worse than asking."
+promoted_listings_standard_max,seller-set ad rate ceiling,100.0,,percent,Confirm the ceiling.
+international_fee_pct,buyer registered outside US/CA,1.65,,percent of total amount of sale,Confirm the rate and which buyer countries trigger it.
+currency_conversion_pct,payout converted to another currency,3.0,,percent,Confirm. May not apply for US sellers paid in USD.
+below_standard_seller_surcharge,Below Standard seller rating,6.0,,percentage points added to FVF,Confirm this still exists and the size of the surcharge.
+regulatory_operating_fee_pct,US,0.35,,percent,"Confirm - eBay added this in some markets. Does it apply to US sellers?"
+schedule_effective_from,whole schedule,2026-01-01,,YYYY-MM-DD,"The date these rates took effect. The page states this so a stale result is visible rather than silent."
