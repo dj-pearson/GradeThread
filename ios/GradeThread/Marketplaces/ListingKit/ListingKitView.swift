@@ -262,6 +262,12 @@ private struct PlatformVariantCard: View {
             }
             .buttonStyle(.brandSecondary)
             .disabled(value.isEmpty)
+            // US-2534: the visible word is "Copy" on every field, so VoiceOver
+            // read "Copy, Copy, Copy" down the screen with nothing to tell them
+            // apart. Naming the field is the whole fix — and note this is
+            // invisible to an audit that counts whether a label EXISTS, because
+            // every one of these already had one. Same shape as US-2450.
+            .accessibilityLabel(copiedKey == key ? "Copied \(field.label)" : "Copy \(field.label)")
         }
         .padding(.vertical, Spacing.xxs)
     }

@@ -105,17 +105,21 @@ struct FulfillmentView: View {
 
             Section {
                 ForEach(store.orders) { order in
-                    FulfillmentRow(order: order, currency: currency)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button {
-                                shippingOrder = order
-                            } label: {
-                                Label("Mark shipped", systemImage: "checkmark.circle")
-                            }
-                            .tint(Color.brandNavy)
+                    Button {
+                        shippingOrder = order
+                    } label: {
+                        FulfillmentRow(order: order, currency: currency)
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button {
+                            shippingOrder = order
+                        } label: {
+                            Label("Mark shipped", systemImage: "checkmark.circle")
                         }
-                        .contentShape(Rectangle())
-                        .onTapGesture { shippingOrder = order }
+                        .tint(Color.brandNavy)
+                    }
+                    .accessibilityHint("Opens the ship sheet")
                 }
             } header: {
                 Text("\(store.orders.count) order\(store.orders.count == 1 ? "" : "s") · oldest first")

@@ -72,6 +72,13 @@ struct MeasurementPhotoEditorView: View {
                             }
                         }
                         .disabled(busy != nil)
+                        // US-2534: the label is swapped for a bare ProgressView
+                        // while running, so during the one period the user most
+                        // wants to know what is happening VoiceOver had nothing
+                        // to read. A stable label survives the swap; the value
+                        // carries the state instead.
+                        .accessibilityLabel("Auto-measure")
+                        .accessibilityValue(busy == "extract" ? "Measuring" : "")
                         Button("Save") {
                             Task { await save() }
                         }
