@@ -77,7 +77,8 @@
       "priority": 5,
       "dependsOn": [
         "US-9002"
-      ]
+      ],
+      "notes": "BLOCKED ON INPUT, and the block got sharper 2026-08-18. Tried to verify the fee schedule from eBay directly: ebay.com is blocked by this environment egress proxy, so the primary source is unreadable from here. Every secondary source found says the Clothing/Shoes/Accessories final value fee is now 13.6%, not the 13.25% in docs/seo/ebay-fee-schedule-to-confirm.csv -- which means the unverified column is probably already stale, and building on it would ship a calculator that is confidently wrong. Two other findings worth carrying into the build: the athletic-shoe rate over $150 requires BOTH the start price and the sale total to clear $150 and carries NO per-order fee, which the sheet does not model; and promoted_listings_standard_typical is the one field no source can supply, because it is what the operator actually pays."
     },
     {
       "id": "US-9004",

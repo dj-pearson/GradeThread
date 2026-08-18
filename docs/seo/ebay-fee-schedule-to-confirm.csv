@@ -1,10 +1,10 @@
 field,scope,my_value_UNVERIFIED,your_value,unit,notes
-final_value_fee_pct,"Clothing, Shoes & Accessories",13.25,,percent of total amount of sale,"Applies to item price + shipping + tax. Confirm whether CSA is still its own rate or folded into the general 13.25%."
+final_value_fee_pct,"Clothing, Shoes & Accessories",13.25,,percent of total amount of sale,"Applies to item price + shipping + tax. LIKELY STALE: checked 2026-08-18 and every secondary source now says 13.6%, not 13.25%. ebay.com is blocked by this environment egress proxy so the primary page could not be read. Confirm from your own seller fee page before this ships."
 final_value_fee_pct,"Clothing, Shoes & Accessories, portion over $2000",2.35,,percent,"eBay drops the rate above a threshold. Confirm the threshold and the reduced rate."
 final_value_fee_pct,"Handbags & Wallets under $2000",15.0,,percent,"Confirm - handbags are often a higher rate than the rest of CSA."
-final_value_fee_pct,"Sneakers over $150",8.0,,percent,"Confirm - eBay has a special sneaker rate. Does it still exist?"
+final_value_fee_pct,"Sneakers over $150",8.0,,percent,"Confirm - eBay has a special sneaker rate. Secondary sources 2026-08-18 say it exists, applies when BOTH the start price and the sale total are at least $150, and carries NO per-order fee. The no-per-order-fee part is not in this sheet and the calculator has to model it."
 final_value_fee_pct,"Athletic Shoes over $150",8.0,,percent,Confirm this is the same rate as sneakers or a separate one.
-per_order_fixed_fee,orders $10.00 and under,0.30,,USD per order,Confirm the threshold and both amounts.
+per_order_fixed_fee,orders $10.00 and under,0.30,,USD per order,"Confirm the threshold and both amounts. Secondary sources agree with 0.30/0.40 as of 2026-08-18."
 per_order_fixed_fee,orders over $10.00,0.40,,USD per order,
 insertion_fee,per listing past the free allotment,0.35,,USD per listing,Confirm. Some categories differ.
 free_listings_per_month,no store subscription,250,,listings,
