@@ -247,6 +247,11 @@ struct PaywallView: View {
         intervalSection
         plansSection
         creditsSection
+        // US-2503: what the bundled buyer tools give you on THIS device. The
+        // subscription has always included them; this app shipped none of them
+        // and said nothing, so a phone-only subscriber paid for thirteen
+        // capabilities and could not find out where they were.
+        BuyerToolsSection()
         legalSection
         restoreSection
     }
