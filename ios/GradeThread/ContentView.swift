@@ -690,13 +690,11 @@ struct MainShell: View {
         .onReceive(
             NotificationCenter.default.publisher(for: .workspaceMfaRequired)
         ) { notification in
+            let sent = notification.userInfo?[WorkspaceScope.noticeMessageKey] as? String
+            let fallback = EdgeAPIError.workspaceMfaRequired(detail: nil).errorDescription
             workspaceNotice = WorkspaceNotice(
                 title: "Two-factor authentication required",
-                message: notification.userInfo?[WorkspaceScope.noticeMessageKey]
-                    as? String
-                    ?? EdgeAPIError.workspaceMfaRequired(detail: nil)
-                        .errorDescription
-                    ?? "",
+                message: sent ?? fallback ?? "",
                 fixURL: URL(string: "https://gradethread.com/dashboard/account?tab=settings")
             )
         }
@@ -716,18 +714,17 @@ struct MainShell: View {
         }
         .alert(
             workspaceNotice?.title ?? "",
-            isPresented: Binding(
+            isPresented: Binding<Bool>(
                 get: { workspaceNotice != nil },
-                set: { if !$0 { workspaceNotice = nil } }
-            ),
-            presenting: workspaceNotice
-        ) { notice in
-            if let url = notice.fixURL {
+                set: { presented in if !presented { workspaceNotice = nil } }
+            )
+        ) {
+            if let url = workspaceNotice?.fixURL {
                 Button("Open gradethread.com") { openURL(url) }
             }
             Button("OK", role: .cancel) {}
-        } message: { notice in
-            Text(notice.message)
+        } message: {
+            Text(workspaceNotice?.message ?? "")
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .applyDeepLink)
