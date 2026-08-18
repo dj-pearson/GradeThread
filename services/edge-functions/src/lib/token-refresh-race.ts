@@ -12,16 +12,21 @@
  * the seller is force-disconnected by our own concurrency, with no revocation and
  * nothing wrong with their account.
  *
- * ⚠ ONLY WHATNOT DOCUMENTS THAT THE OLD TOKEN DIES (US-2322 AC4, checked
- * 2026-08-17). This header used to assert it of all three as established fact and
- * it was not: Whatnot's authentication docs say "The used refresh token will be
- * invalidated"; Etsy's say a new refresh token is issued and nothing about the
- * previous one; Depop's partner docs have no rotation section at all. That sets
- * SEVERITY, not correctness — {@link siblingRefreshWon} makes the race survivable
- * whichever way the two unknowns fall, which is why the fix did not wait on the
- * answer. Do not remove either defence for Etsy or Depop on the strength of a
- * silent document. Full reasoning + sources in
+ * ⚠ TWO OF THREE DOCUMENT THAT THE OLD TOKEN DIES (US-2322 AC4, 2026-08-17).
+ * This header used to assert it of all three as established fact without anyone
+ * having checked. Whatnot: "The used refresh token will be invalidated." Depop:
+ * "The previous Access Token and Refresh Token are immediately invalidated and
+ * cannot be used again." Etsy says a new refresh token is issued and nothing
+ * about the previous one, and is still open.
+ *
+ * The Depop entry read "undocumented" for a day, on the strength of the page
+ * whose title matched the question. The answer was in How to Guides → Using
+ * OAuth Refresh Tokens, a section nobody had enumerated. Sources + that lesson in
  * vault/30-platform/marketplace-connector-contract.md §4a.
+ *
+ * SEVERITY, not correctness — {@link siblingRefreshWon} makes the race survivable
+ * whichever way Etsy falls, which is why the fix did not wait on the answer. Do
+ * not remove either defence for Etsy on the strength of a silent document.
  *
  * TWO DEFENCES, and the second is the load-bearing one.
  *

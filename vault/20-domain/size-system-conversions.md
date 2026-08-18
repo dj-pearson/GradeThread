@@ -6,8 +6,9 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/size-systems.ts
+  - services/edge-functions/src/lib/grading-size.ts
   - services/edge-functions/src/lib/sizing-charts.ts
-reviewed: 2026-07-31
+reviewed: 2026-08-17
 tags: [sizing, brands, conversion, contract]
 summary: Only four size-system conversions are performed, every one derived from paired data already in the corpus; EU, JP, AU and alpha are refused outright, and a refusal is the correct answer rather than a gap.
 ---
@@ -73,6 +74,33 @@ numbers stays **null** — a bare "6" could be US or UK and nothing in the row
 says which — and null means "not recorded", never an implied US. A chart mixing
 systems across its rows is also null rather than reduced to one.
 
+## From a chart row to a size label (US-2215, wired 2026-08-17)
+
+Everything above converts a chart **row**, whose system is known because the
+chart declares it. A certificate has no chart — it has one size **string** a tag
+pass transcribed. Until this was wired, `size-systems.ts` was imported by nothing
+in production: the dimension and the four conversions had shipped and no surface
+called them.
+
+Three functions carry a label rather than a row:
+
+| Function | Answers | Refuses when |
+|---|---|---|
+| `normalizeDepartment` | `Women` / `Men` | Unisex, Kids, Baby, anything unrecognised — no corpus-backed offset exists |
+| `systemFromLabel` | the system an explicit two-letter prefix names | a bare number, an alpha size, `W30 L32`, a token not on the allowlist |
+| `usEquivalentForLabel` | the US number | any of the above, already-US, a value below the offset, **or a label that already states its own US equivalent** |
+
+That last refusal is specific to this corpus: 115 of 292 charts embed the
+equivalence inside the label because there was nowhere structured to put it, and
+appending a second copy is noise. **Noise on a certificate is indistinguishable
+from a bug.**
+
+It renders through `sizeVerificationLine` in `grading-size.ts`, the line US-2213
+already uses for the verified size, so the conversion inherits that trusted-block
+discipline instead of getting a path of its own. When it refuses, the line is
+**byte-identical** to what it was before this shipped — asserted by string
+equality over eight refused shapes, not by resemblance.
+
 ## Extended sizing exists as a dimension, not as data
 
 `size_class` (plus / petite / tall / big_and_tall / maternity) is now
@@ -84,7 +112,8 @@ collapsed to a single class that would be false for two thirds of its rows.
 
 Seeding real plus/petite/tall charts is a **sourcing** project, like the RN
 coverage gap in [[brand-kb-negative-findings]]. The dimension is the
-prerequisite, not the deliverable.
+prerequisite, not the deliverable — and since 2026-08-17 the reading half above
+exists, so a chart added tomorrow is *read* rather than stored.
 
 ## Related
 

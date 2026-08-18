@@ -9,11 +9,13 @@
 // classified as PERMANENT — is_active false, reconnect message, seller locked out
 // by our own concurrency.
 //
-// ⚠ ONLY WHATNOT DOCUMENTS THE INVALIDATION (US-2322 AC4, checked 2026-08-17).
-// These three headers all used to state it of all three providers as fact.
-// Whatnot's docs say "The used refresh token will be invalidated"; Etsy's and
-// Depop's say nothing either way. Severity, not correctness — the defences below
-// make the race survivable regardless, and they stay for all three. See
+// ⚠ TWO OF THREE DOCUMENT THE INVALIDATION (US-2322 AC4, 2026-08-17). These
+// three headers all used to state it of all three providers as fact. Whatnot and
+// Depop both say so in their own docs; Etsy says nothing either way and is still
+// open. The Depop entry was itself wrong for a day — recorded "undocumented" from
+// the page whose title matched the question, while the answer sat in a How-To
+// guide nobody had enumerated. Severity, not correctness: the defences below make
+// the race survivable regardless and they stay for all three. See
 // vault/30-platform/marketplace-connector-contract.md §4a.
 //
 // eBay is deliberately absent from all of this: it does not rotate its refresh

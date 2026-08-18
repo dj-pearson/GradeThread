@@ -19,7 +19,7 @@ code_refs:
   - services/edge-functions/src/lib/prompt-blocks.ts
   - services/edge-functions/src/lib/listing-eval.ts
   - supabase/migrations/00563_prompt_block_versions.sql
-reviewed: 2026-08-15
+reviewed: 2026-08-17
 tags: [grading, prompts, security, injection, contract]
 summary: Everything in a grading prompt is either server-generated trusted context or seller-supplied fenced text; the two channels must never be concatenated, and the test for which one a new block belongs to is who can influence its content.
 ---
@@ -111,6 +111,13 @@ established**.
 
 The general form: a trusted block should carry a conclusion the grader can use,
 not a table it has to reason over. Prompt noise on a paid call is a real cost.
+
+US-2215 (2026-08-17) is the same rule applied once more. That line can now read
+`IT 48 ≈ US 38` — still a conclusion, and still one line. What did NOT happen is
+the conversion table going into the prompt: the four corpus-derived offsets stay
+in `size-systems.ts`, the grader is handed the answer, and a size the offsets
+cannot reach renders exactly as it did before rather than as a hedge the model
+has to interpret.
 
 ## Choosing WHICH trusted block gets injected is itself privileged
 

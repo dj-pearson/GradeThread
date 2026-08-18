@@ -56,36 +56,50 @@ therefore produced an `invalid_grant` for the loser, which every connector
 classified as PERMANENT — `is_active: false` and a reconnect message, i.e. the
 seller disconnected by our own concurrency with nothing wrong with their account.
 
-> [!warning] Only Whatnot documents that the OLD token dies (US-2322 AC4, checked 2026-08-17)
+> [!warning] Two of three document that the OLD token dies (US-2322 AC4, 2026-08-17)
 > This section, `token-refresh-race.ts` and its test all used to state as fact
-> that all three invalidate the previous refresh token on first use. One of the
-> three says so; the other two do not say either way, and nobody had asked.
+> that all three invalidate the previous refresh token on first use. Two of the
+> three say so in their own docs; Etsy does not say either way, and nobody had
+> asked before this.
 >
 > - **Whatnot — CONFIRMED, from the vendor's own docs.** developers.whatnot.com
 >   → Getting Started → Authentication: *"The used refresh token will be
 >   invalidated, and you should store the newly returned Refresh Token."*
 >   Refresh tokens expire in 1 year. So the race is real on Whatnot.
-> - **Etsy — UNDOCUMENTED.** The authentication page describes a 90-day refresh
+> - **Depop — CONFIRMED, and this entry read "UNDOCUMENTED" for a day.** That was
+>   wrong, and how it was wrong is worth more than the correction. It rested on
+>   the *Authentication* concepts page, which names a "long-lived Refresh Token"
+>   and stops. The answer lives in a page nobody had enumerated — How to Guides →
+>   *Using OAuth Refresh Tokens*: *"You receive a **new Refresh Token** with every
+>   successful refresh request. The **previous Access Token and Refresh Token are
+>   immediately invalidated** and cannot be used again."* The new token inherits
+>   the grant's original expiry, 1 year from consent. Depop rotates strictly and
+>   single-use, so the race is real there too.
+>
+>   **Read the vendor's section list before concluding silence.** Opening the page
+>   whose title matches the question and stopping is how a documented fact becomes
+>   an "undocumented" one — and an absence written into a contract note gets read
+>   as evidence by everyone after you.
+> - **Etsy — STILL UNDOCUMENTED**, and re-checked after the Depop miss rather than
+>   left on the first reading. The authentication page describes a 90-day refresh
 >   token and a new one on each refresh, and says nothing about the old one's
->   fate. The closest thing to an answer is Etsy staff in open-api discussion
->   #1351 (*"Each time you use your access_token, the API provides a new refresh
->   token"* and *"You should not have issues with your refresh_token after 24
->   hours of non-use"*) — neither of which states whether the previous token is
->   revoked. Community reports of `invalid_grant` / *"refresh_token is revoked"*
->   exist but do not separate rotation from expiry or genuine revocation.
-> - **Depop — UNDOCUMENTED.** The partner API authentication page names a
->   "long-lived Refresh Token" and has no rotation, reuse or single-use section
->   at all.
+>   fate; its refresh section describes only how to use the new token. The closest
+>   thing to an answer is Etsy staff in open-api discussion #1351 (*"Each time you
+>   use your access_token, the API provides a new refresh token"* and *"You should
+>   not have issues with your refresh_token after 24 hours of non-use"*) — neither
+>   states whether the previous token is revoked. Community reports of
+>   `invalid_grant` / *"refresh_token is revoked"* exist but do not separate
+>   rotation from expiry or genuine revocation.
 >
 > **This changes severity, not correctness.** `siblingRefreshWon` makes the race
-> survivable whichever way the two unknowns fall, which is exactly why the fix
-> did not wait for this answer. What it means practically: on Whatnot the defence
-> is load-bearing, and on Etsy/Depop it may be belt-and-braces. Do not delete it
-> on either of them on the strength of a doc that is silent — silence is not a
-> guarantee, and a provider can start rotating strictly without telling anyone.
+> survivable whichever way the remaining unknown falls, which is why the fix did
+> not wait for this answer. Practically: on Whatnot and Depop the defence is
+> load-bearing and confirmed; on Etsy it may be belt-and-braces. Do not delete it
+> there on the strength of a doc that is silent — silence is not a guarantee, and
+> a provider can start rotating strictly without telling anyone.
 >
-> Settling the other two needs a partner answer or a deliberate two-refresh
-> experiment on a real connection, neither of which is available from the repo.
+> Settling Etsy needs a partner answer or a deliberate two-refresh experiment on a
+> real connection, neither of which is available from the repo.
 
 Two defences, in `lib/token-refresh-race.ts`:
 
