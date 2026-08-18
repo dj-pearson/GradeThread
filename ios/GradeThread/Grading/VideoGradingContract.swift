@@ -102,9 +102,9 @@ enum VideoGradingContract {
         bytes: Int,
         durationSeconds: Double?,
         format: String,
-        stagedPhotoCount: Int
+        photoPartCount: Int
     ) -> String? {
-        if stagedPhotoCount > 0 {
+        if photoPartCount > 0 {
             return "Video grading grades the clip's own frames, so photos can't be included too."
         }
         if bytes <= 0 { return "That clip is empty." }

@@ -22,7 +22,7 @@ final class VideoGradingContractTests: XCTestCase {
             bytes: 0,                       // also empty
             durationSeconds: 900,           // also far too long
             format: "avi",                  // also the wrong container
-            stagedPhotoCount: 3)
+            photoPartCount: 3)
         XCTAssertEqual(
             message,
             "Video grading grades the clip's own frames, so photos can't be included too.")
@@ -31,20 +31,20 @@ final class VideoGradingContractTests: XCTestCase {
     func test_eachRefusalHasItsOwnSentence() {
         XCTAssertEqual(
             VideoGradingContract.rejection(
-                bytes: 0, durationSeconds: 5, format: "mov", stagedPhotoCount: 0),
+                bytes: 0, durationSeconds: 5, format: "mov", photoPartCount: 0),
             "That clip is empty.")
         XCTAssertEqual(
             VideoGradingContract.rejection(
                 bytes: VideoGradingContract.maxBytes + 1,
-                durationSeconds: 5, format: "mov", stagedPhotoCount: 0),
+                durationSeconds: 5, format: "mov", photoPartCount: 0),
             "That clip is too large (max 60 MB).")
         XCTAssertEqual(
             VideoGradingContract.rejection(
-                bytes: 10, durationSeconds: 5, format: "avi", stagedPhotoCount: 0),
+                bytes: 10, durationSeconds: 5, format: "avi", photoPartCount: 0),
             "That video format can't be graded.")
         XCTAssertEqual(
             VideoGradingContract.rejection(
-                bytes: 10, durationSeconds: 46, format: "mov", stagedPhotoCount: 0),
+                bytes: 10, durationSeconds: 46, format: "mov", photoPartCount: 0),
             "That clip is too long (max 45 seconds).")
     }
 
@@ -54,21 +54,21 @@ final class VideoGradingContractTests: XCTestCase {
     // it is the one that counts.
     func test_anUnreadableDurationIsPassedThroughRatherThanGuessedAt() {
         XCTAssertNil(VideoGradingContract.rejection(
-            bytes: 10, durationSeconds: nil, format: "mov", stagedPhotoCount: 0))
+            bytes: 10, durationSeconds: nil, format: "mov", photoPartCount: 0))
         // A duration we DID read and that is zero is a different fact, and is
         // refused.
         XCTAssertNotNil(VideoGradingContract.rejection(
-            bytes: 10, durationSeconds: 0, format: "mov", stagedPhotoCount: 0))
+            bytes: 10, durationSeconds: 0, format: "mov", photoPartCount: 0))
     }
 
     func test_aGoodClipIsAccepted() {
         XCTAssertNil(VideoGradingContract.rejection(
-            bytes: 12_000_000, durationSeconds: 22, format: "mov", stagedPhotoCount: 0))
+            bytes: 12_000_000, durationSeconds: 22, format: "mov", photoPartCount: 0))
         // The boundary values themselves are fine; only past them is not.
         XCTAssertNil(VideoGradingContract.rejection(
             bytes: VideoGradingContract.maxBytes,
             durationSeconds: VideoGradingContract.maxDurationSeconds,
-            format: "mp4", stagedPhotoCount: 0))
+            format: "mp4", photoPartCount: 0))
     }
 
     // AVFoundation writes .mov by default. If that ever stopped being an accepted
@@ -95,7 +95,7 @@ final class VideoGradingContractTests: XCTestCase {
         XCTAssertEqual(
             VideoGradingContract.rejection(
                 bytes: WalkAroundRecorder.byteSize(of: missing),
-                durationSeconds: nil, format: "mov", stagedPhotoCount: 0),
+                durationSeconds: nil, format: "mov", photoPartCount: 0),
             "That clip is empty.")
     }
 
