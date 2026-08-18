@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2674",
+  "nextId": "US-2684",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2018,6 +2018,163 @@
         "The enrolled state is visible and a factor can be removed, matching the web card."
       ],
       "notes": "Filed 2026-08-18 while closing US-2532 AC3. Found by looking for the Settings row web routes to and finding none. The blocked member is a phone-only reseller who was invited into a workspace whose owner turned on 2FA - the app tells them what to do and gives them no way to do it. Android is unchecked; the same grep should be run there before this is scoped."
+    },
+    {
+      "id": "US-2674",
+      "passes": false,
+      "title": "listing_gen_v2 carries the verified eBay policy rules and has never gone live",
+      "description": "As a FlipDesk seller, I want the listing prompt that encodes eBays title policy and AI-summary description rules to be the one generating my drafts, so that my listings never carry search-manipulation phrasing or a keyword-dump description.",
+      "acceptanceCriteria": [
+        "runListingEval (services/edge-functions/src/lib/listing-eval.ts) runs against listing_gen_v2 and its ai_prompt_versions row shows eval_passed = true before any activation attempt.",
+        "Activation goes through activatePromptVersion (lib/grading-eval.ts). No code path changes the LISTING_GEN_PROMPT_VERSION default to hot-swap the champion.",
+        "A canary window is recorded: listing_prompt_acceptance rows exist for both listing_gen_v1 and listing_gen_v2 before v2 can become champion.",
+        "summarizeListingPromptPerformance (lib/listing-acceptance.ts) reports v2 field keep-rate at or above v1 over at least 30 drafts, or the activation is rolled back.",
+        "A unit test asserts resolvePromptText returns LISTING_GEN_SYSTEM_PROMPT_V2 when the active ai_prompt_versions row has version_name listing_gen_v2 and empty prompt_text.",
+        "vault/30-platform/ebay-ranking-playbook.md gap 10 is struck in the same commit that activates v2."
+      ],
+      "priority": 61
+    },
+    {
+      "id": "US-2675",
+      "passes": false,
+      "title": "AutoLister mines high-demand terms from ACTIVE listings, so it learns seller language instead of buyer demand",
+      "description": "As a FlipDesk seller, I want the keywords the AI puts in my title to come from items that actually sold, so that my title matches what buyers search and buy rather than what other sellers happened to write.",
+      "acceptanceCriteria": [
+        "getEbaySearchDemandTerms (services/edge-functions/src/lib/demand-terms.ts) mines titles from realized comps via getRealizedComps (lib/sold-comps.ts) in addition to the current searchBrowseComps active-listing pull.",
+        "A new pure exported function computes a sold-versus-active frequency lift per term and ranks by it. Unit-tested from fixture title arrays with no network calls, matching the existing mineDemandTerms purity contract.",
+        "At equal raw frequency, a term that appears in sold titles ranks above a term that appears only in active titles.",
+        "When realized comps number fewer than MIN_SOLD_COMPS the miner falls back to the current active-title behaviour, and the returned terms carry a source flag so the composer can label them.",
+        "Either comp fetch failing still returns an empty array and never blocks listing generation, preserving the existing non-throwing wrapper contract.",
+        "The DemandTerm shape carries the source (sold or active), and the composer title chips render that source."
+      ],
+      "priority": 62
+    },
+    {
+      "id": "US-2676",
+      "passes": false,
+      "title": "Title A/B is scored on sell-through, which cannot converge on one-of-a-kind clothing",
+      "description": "As a FlipDesk seller, I want title variants judged by click-through at matched impressions, so that I learn which wording works within days instead of after the inventory has already sold out.",
+      "acceptanceCriteria": [
+        "listing_metrics rows (written by the getTrafficReport sync in routes/flipdesk-ebay.ts) are joined to the listings active title-variant label, and a pure exported summarizer returns impressions, views and click_through_rate per label.",
+        "summarizeTitleVariantSellThrough (lib/demand-terms.ts) is kept but is no longer the only promotion input. A winner needs both the CTR readout and the sell-through readout.",
+        "A variant is only declared a winner once both labels clear an exported MIN_VARIANT_IMPRESSIONS constant. Below that the readout returns a not-enough-exposure state rather than a winner.",
+        "The per-variant CTR readout is attributed to the listing_gen prompt version so summarizeListingPromptPerformance can read CTR alongside field keep-rate.",
+        "Every new edge read of listing_metrics is scoped with .eq(user_id, workspaceOwnerId ?? userId) and a case is added to tenant-isolation_test.ts (US-268).",
+        "Unit tests cover: one label short of the impression floor returns no winner, and a label with lower sell-through but decisively higher CTR is reported as the CTR winner without being auto-promoted."
+      ],
+      "priority": 63,
+      "dependsOn": [
+        "US-2675"
+      ]
+    },
+    {
+      "id": "US-2677",
+      "passes": false,
+      "title": "Nothing stops the AI lister writing near-identical titles across a sellers own live listings",
+      "description": "As a FlipDesk seller listing many similar thrifted garments, I want a warning when a new listing looks like a near-duplicate of one of my own live listings, so that eBay does not demote or hide my whole store under the duplicate-listings policy.",
+      "acceptanceCriteria": [
+        "A pure exported function computes token overlap between a candidate title and the sellers other ACTIVE listing titles in the same leaf category. Unit-tested with no network calls, threshold exported as a named constant.",
+        "The /api/flipdesk/ebay/listings/validate response returns the finding in warnings, never in blockers, and names the conflicting listing so the seller can open it.",
+        "The composer renders the warning with a differentiate action that regenerates the title while excluding the conflicting titles distinctive tokens.",
+        "The lookup query is scoped to the owner (workspaceOwnerId ?? userId) and to active listings only, with a case added to tenant-isolation_test.ts (US-268).",
+        "A listing whose seller has no other active listing in that leaf category produces no warning.",
+        "The same overlap check runs over the AutoLister bulk draft set before publish, so a batch of nine similar tees is flagged at generation rather than one at a time."
+      ],
+      "priority": 64
+    },
+    {
+      "id": "US-2678",
+      "passes": false,
+      "title": "The Listing Quality Score omits price, which eBay confirms is a ranking signal",
+      "description": "As a FlipDesk seller, I want the quality score to tell me when my price is out of line with what comparable items actually sold for, so that I am not the listing nobody clicks while the score still reads green.",
+      "acceptanceCriteria": [
+        "computeListingQualityScore (services/edge-functions/src/lib/listing-quality-score.ts) gains a price component with a documented weight, and the existing weights are rebalanced so the nominal total stays 100.",
+        "The component scores against the realized comp band from getRealizedComps (lib/sold-comps.ts), never against active asking prices.",
+        "When realized comps are unavailable the component reports status unknown and is dropped from BOTH numerator and denominator, per the existing rescaling contract in the file header.",
+        "fixSurface is composer.price and the component participates in topFixes ordering.",
+        "The header comment block is updated to cite playbook section 4 (competitive total price is an eBay-confirmed signal) as the source for the new weight, matching how every other weight is justified.",
+        "Unit tests cover: price inside the comp band scores ok, price above p75 scores fix, and no comps returns unknown with the remaining components correctly rescaled."
+      ],
+      "priority": 65
+    },
+    {
+      "id": "US-2679",
+      "passes": false,
+      "title": "The Listing Quality Score never appears in the composer, the one surface that can fix it",
+      "description": "As a FlipDesk seller, I want the score and its ranked fixes at the top of the composer, so that I know which field is worth fixing before I publish instead of finding out from a chip on the listings table afterwards.",
+      "acceptanceCriteria": [
+        "src/pages/flipdesk/composer.tsx calls useListingQuality (src/hooks/use-ebay.ts) and renders the score plus the top three fixes above the title card.",
+        "Each fix uses its fixSurface value to scroll to and focus the matching composer card (composer.title, composer.photos, composer.category, composer.price, composer.condition, composer.policies).",
+        "A blocked listing (score capped at BLOCKED_SCORE_CEILING) renders its blockingReasons visually distinct from ordinary fixes, so a seller cannot mistake a publish blocker for a nice-to-have.",
+        "When the hook returns null (an item with no resolved eBay category) nothing renders and no error state is shown.",
+        "npm run ui:check stays at zero enforced findings, and no colored border-left is used to mark the score card.",
+        "A test asserts the composer requests the score once per item and does not refetch on every keystroke."
+      ],
+      "priority": 66
+    },
+    {
+      "id": "US-2680",
+      "passes": false,
+      "title": "The composer title meter teaches padding to 70 characters, a target the quality score refuses to measure",
+      "description": "As a FlipDesk seller, I want the title meter to count distinct searchable terms instead of characters, so that I stop padding titles with words my item specifics already carry.",
+      "acceptanceCriteria": [
+        "titleQuality (src/lib/title-quality.ts) returns a distinct searchable-term count that excludes tokens already present in the listings filled item specifics.",
+        "The green band is defined on that term count, not on character length. TITLE_GREEN_MIN as a character threshold is removed.",
+        "The 80-character readout stays as a hard-limit counter only and no longer colours the 70 to 80 range green.",
+        "The lint half of the file stays in lockstep with services/edge-functions/src/lib/title-lint.ts rule for rule, and the existing lockstep test still passes.",
+        "Unit test: a 78-character title that repeats values already in Brand/Size/Color scores lower than a 62-character title carrying distinct buyer-typed qualifiers.",
+        "The composer title card description text is rewritten to stop telling sellers to fill the space, matching playbook section 2 which flags the 70 to 80 rule as vendor lore."
+      ],
+      "priority": 67
+    },
+    {
+      "id": "US-2681",
+      "passes": false,
+      "title": "Photo preflight checks pixels and count but never asks whether the lead photo can be found by image search",
+      "description": "As a FlipDesk seller, I want the cover photo checked against what eBays image search actually reads, so that my garment shows up when a buyer searches with a picture instead of words.",
+      "acceptanceCriteria": [
+        "QA_ISSUE_TYPES (services/edge-functions/src/lib/ai-photo-qa.ts) gains cover-photo issue types matching playbook section 11: garment does not fill the frame, more than one garment in shot, busy or low-contrast ground, prop or hand in frame.",
+        "assessPhotoQuality evaluates those issue types for the slot-1 photo only, so a detail or tag shot is not penalised for them.",
+        "photoStandardsPreflight (lib/publish-preflight.ts) surfaces them as warnings and as a photoNudge, never as publish blockers.",
+        "selectListingPhotos (lib/listing-photo-budget.ts) prefers a photo with no cover-photo issue for slot 1 when one exists, and falls back to the current role ordering when none does.",
+        "vault/30-platform/ebay-ranking-playbook.md section 11 is the cited spec, and a test asserts the implemented check list matches the four items named there.",
+        "An item whose photos were never QA-assessed reports unknown rather than clean, so the nudge never claims a check that did not run."
+      ],
+      "priority": 68
+    },
+    {
+      "id": "US-2682",
+      "passes": false,
+      "title": "The description has no fixed-shape facts block, so eBays AI summary and agent buyers have to guess",
+      "description": "As a FlipDesk seller, I want the grade, measurements, fibre content and disclosed flaws emitted in a stable structured block, so that eBays description summariser and AI shopping agents read them correctly instead of paraphrasing my prose.",
+      "acceptanceCriteria": [
+        "listing-template.ts emits a labelled facts block at a fixed position in every generated description, carrying the GradeThread grade and factor breakdown, flat measurements in inches, fibre content and disclosed flaws.",
+        "A round-trip test parses the emitted block and recovers every field it was given, so the shape is machine-readable and not just visually tidy.",
+        "The block contains no comma-separated keyword dump and no repeated phrase. A test asserts this, since keyword stuffing a description is an eBay policy violation.",
+        "The listing_gen_v2 measurement rule still holds: supplied measurements survive verbatim into the block.",
+        "Revise-in-place picks the block up on existing listings, so nothing has to be ended and relisted to gain it (playbook section 5).",
+        "The block renders acceptably in eBays description view on mobile, verified against the marketplace spec in lib/marketplace-specs.ts rather than assumed."
+      ],
+      "priority": 69
+    },
+    {
+      "id": "US-2683",
+      "passes": false,
+      "title": "eBays Promoted Listings reports are the only real buyer-query data we can get, and we never pull them",
+      "description": "As a FlipDesk seller running Priority ads, I want eBays own search-term report pulled into FlipDesk, so that my titles use the words buyers actually typed to find my items instead of words mined from other sellers listings.",
+      "acceptanceCriteria": [
+        "lib/ebay-marketing.ts gains the Promoted Listings report flow (create report task, poll for completion, download the result) for the report types eBay exposes on Priority CPC campaigns, at keyword level and at search-term level where available.",
+        "Terms land in a new per-seller table with impressions, clicks and attributed sales, RLS on, every edge read scoped by user_id, and a case added to tenant-isolation_test.ts (US-268).",
+        "The migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and a self-record footer.",
+        "The demand-term pool prefers a sellers own eBay search terms over mined comp terms when both exist for a brand or category, and the composer chip labels which source a term came from.",
+        "A seller with no Priority campaign gets a clean no-op: no error toast, no empty-state noise, and no repeated failing calls in the cron.",
+        "A query with impressions but zero clicks across the window is reported as a term to REMOVE from titles, not just as a term to add.",
+        "The ingest cron is registered in the job ledger like every other cron (see US-2617)."
+      ],
+      "priority": 70,
+      "dependsOn": [
+        "US-2675"
+      ]
     }
   ]
 }
