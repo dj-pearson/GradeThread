@@ -100,7 +100,7 @@ final class VideoGradeUploader {
         }
     }
 
-    func submit(clip: WalkAroundClip, request: VideoGradeRequest, stagedPhotoCount: Int) async {
+    func submit(clip: WalkAroundClip, request: VideoGradeRequest, photoPartCount: Int) async {
         // Refuse before spending the upload, in the server's own order — the
         // photo conflict first, because it is the only one the seller can fix
         // without re-recording.
@@ -108,7 +108,7 @@ final class VideoGradeUploader {
             bytes: clip.bytes,
             durationSeconds: clip.durationSeconds,
             format: clip.format,
-            stagedPhotoCount: stagedPhotoCount
+            photoPartCount: photoPartCount
         ) {
             phase = .failed(rejection)
             return

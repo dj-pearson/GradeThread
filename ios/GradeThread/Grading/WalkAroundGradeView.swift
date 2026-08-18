@@ -10,13 +10,19 @@ import SwiftUI
 
 struct WalkAroundGradeView: View {
     let request: VideoGradeRequest
-    /// How many photos are staged for this item right now.
+    /// How many IMAGE PARTS this request will carry. Not the item’s photo
+    /// count, and the difference matters.
     ///
-    /// Photos and a clip in one submission are REFUSED, and it is a 400 that
-    /// arrives after the upload. The screen therefore has to know, and the
-    /// entry point has to make video a MODE that clears staged photos rather
-    /// than an addition to them.
-    let stagedPhotoCount: Int
+    /// The server counts imageFiles.length in THE SAME multipart request
+    /// (grade.ts, videoPhotoConflict) - not photos already attached to an
+    /// inventory item. VideoGradeUploadService builds no image parts, so this
+    /// is structurally 0 today, and passing an item’s photo count here would
+    /// block a submission the server would have accepted.
+    ///
+    /// Kept as a parameter rather than hard-coded so a future flow that DOES
+    /// attach photos inherits the refusal instead of rediscovering it after
+    /// an upload.
+    var photoPartCount: Int = 0
     var onGraded: (String) -> Void = { _ in }
 
     @Environment(\.dismiss) private var dismiss
@@ -115,7 +121,7 @@ struct WalkAroundGradeView: View {
             } header: {
                 Text("Your clip")
             } footer: {
-                Text(Self.reviewFooter(clip: clip, stagedPhotoCount: stagedPhotoCount))
+                Text(Self.reviewFooter(clip: clip, photoPartCount: photoPartCount))
             }
             Section {
                 Button {
@@ -123,7 +129,7 @@ struct WalkAroundGradeView: View {
                         await uploader.submit(
                             clip: clip,
                             request: request,
-                            stagedPhotoCount: stagedPhotoCount)
+                            photoPartCount: photoPartCount)
                     }
                 } label: {
                     Text("Grade this clip").frame(maxWidth: .infinity)
@@ -229,7 +235,7 @@ struct WalkAroundGradeView: View {
             bytes: clip.bytes,
             durationSeconds: clip.durationSeconds,
             format: clip.format,
-            stagedPhotoCount: stagedPhotoCount)
+            photoPartCount: photoPartCount)
     }
 
     // MARK: - Copy
@@ -263,12 +269,12 @@ struct WalkAroundGradeView: View {
 
     /// The review step's one line. When the clip WILL be refused, this says why
     /// before the seller spends the upload finding out.
-    nonisolated static func reviewFooter(clip: WalkAroundClip, stagedPhotoCount: Int) -> String {
+    nonisolated static func reviewFooter(clip: WalkAroundClip, photoPartCount: Int) -> String {
         if let rejection = VideoGradingContract.rejection(
             bytes: clip.bytes,
             durationSeconds: clip.durationSeconds,
             format: clip.format,
-            stagedPhotoCount: stagedPhotoCount
+            photoPartCount: photoPartCount
         ) {
             return rejection
         }

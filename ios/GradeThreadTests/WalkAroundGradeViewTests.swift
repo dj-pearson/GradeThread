@@ -47,22 +47,22 @@ final class WalkAroundGradeViewTests: XCTestCase {
     // finding out.
     func test_theReviewFooterNamesTheRefusalBeforeTheUpload() {
         XCTAssertEqual(
-            WalkAroundGradeView.reviewFooter(clip: clip(), stagedPhotoCount: 2),
+            WalkAroundGradeView.reviewFooter(clip: clip(), photoPartCount: 2),
             "Video grading grades the clip's own frames, so photos can't be included too.")
         XCTAssertEqual(
             WalkAroundGradeView.reviewFooter(
-                clip: clip(bytes: VideoGradingContract.maxBytes + 1), stagedPhotoCount: 0),
+                clip: clip(bytes: VideoGradingContract.maxBytes + 1), photoPartCount: 0),
             "That clip is too large (max 60 MB).")
         XCTAssertEqual(
             WalkAroundGradeView.reviewFooter(
-                clip: clip(durationSeconds: 0), stagedPhotoCount: 0),
+                clip: clip(durationSeconds: 0), photoPartCount: 0),
             "That clip's length could not be read, so it can't be graded.")
     }
 
     // And when it looks fine, the footer promises the thing that makes trying
     // it safe — which is the server's guarantee, not the client's.
     func test_anAcceptableClipPromisesTheAbstainGuarantee() {
-        let footer = WalkAroundGradeView.reviewFooter(clip: clip(), stagedPhotoCount: 0)
+        let footer = WalkAroundGradeView.reviewFooter(clip: clip(), photoPartCount: 0)
         XCTAssertTrue(footer.contains("won't be charged"))
     }
 
@@ -71,7 +71,7 @@ final class WalkAroundGradeViewTests: XCTestCase {
     // block clips the server would have taken.
     func test_anUnreadableDurationStillOffersTheUpload() {
         let footer = WalkAroundGradeView.reviewFooter(
-            clip: clip(durationSeconds: nil), stagedPhotoCount: 0)
+            clip: clip(durationSeconds: nil), photoPartCount: 0)
         XCTAssertTrue(footer.contains("won't be charged"))
     }
 
@@ -106,13 +106,13 @@ final class WalkAroundGradeViewTests: XCTestCase {
         observer.uploader = midFlight
 
         await midFlight.submit(
-            clip: clip(), request: request(), stagedPhotoCount: 0)
+            clip: clip(), request: request(), photoPartCount: 0)
 
         XCTAssertEqual(observer.phaseAfterReset, .uploading(fraction: 0.5),
                        "reset must not abandon an upload in progress")
 
         // ...and it DOES work once the request is over.
-        await uploader.submit(clip: clip(), request: request(), stagedPhotoCount: 0)
+        await uploader.submit(clip: clip(), request: request(), photoPartCount: 0)
         uploader.reset()
         XCTAssertEqual(uploader.phase, .idle)
     }

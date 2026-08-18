@@ -35,7 +35,7 @@ final class VideoGradeUploaderTests: XCTestCase {
         })
 
         await uploader.submit(
-            clip: clip(), request: request(), stagedPhotoCount: 3)
+            clip: clip(), request: request(), photoPartCount: 3)
 
         XCTAssertEqual(calls.count, 0, "a 40 MB upload must not be spent on a known refusal")
         guard case .failed(let message) = uploader.phase else {
@@ -60,7 +60,7 @@ final class VideoGradeUploaderTests: XCTestCase {
         })
         observer.uploader = uploader
 
-        await uploader.submit(clip: clip(), request: request(), stagedPhotoCount: 0)
+        await uploader.submit(clip: clip(), request: request(), photoPartCount: 0)
 
         XCTAssertEqual(observer.seen, [
             .uploading(fraction: 0.25),
@@ -82,7 +82,7 @@ final class VideoGradeUploaderTests: XCTestCase {
         })
         observer.uploader = uploader
 
-        await uploader.submit(clip: clip(), request: request(), stagedPhotoCount: 0)
+        await uploader.submit(clip: clip(), request: request(), photoPartCount: 0)
 
         XCTAssertEqual(observer.seen, [
             .uploading(fraction: 0.8),
@@ -103,7 +103,7 @@ final class VideoGradeUploaderTests: XCTestCase {
         })
         observer.uploader = uploader
 
-        await uploader.submit(clip: clip(), request: request(), stagedPhotoCount: 0)
+        await uploader.submit(clip: clip(), request: request(), photoPartCount: 0)
 
         XCTAssertEqual(observer.seen, [.grading], "the last byte is not the last step")
         // And the copy for that phase says what is happening rather than
