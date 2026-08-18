@@ -100,8 +100,22 @@ final class BuyerAlertsStore {
 
     private let service: BuyerAlertsServing
 
-    init(service: BuyerAlertsServing = BuyerAlertsService()) {
-        self.service = service
+    /// The default is built in the BODY, not in the default argument value.
+    /// iOS CI rejected `= BuyerAlertsService()` there with "call to main
+    /// actor-isolated initializer in a synchronous nonisolated context".
+    ///
+    /// AND THE OBVIOUS GENERALISATION IS WRONG, which is worth writing down
+    /// because I tried to build a guard on it. "A default argument cannot
+    /// construct a @MainActor type" would flag seven call sites in this app
+    /// that compile today - EbayAccountsStore, ReconciliationStore and five
+    /// more all take `= SomeMainActorService()` and are fine. So the property
+    /// that breaks is narrower than that, and I do not know it precisely
+    /// enough to encode. What differs here is that this service is a struct
+    /// whose isolation is INFERRED from a @MainActor protocol rather than
+    /// declared on the type; the ones that work declare it. Resolving in the
+    /// body sidesteps the question entirely and costs one line.
+    init(service: BuyerAlertsServing? = nil) {
+        self.service = service ?? BuyerAlertsService()
     }
 
     var activeCount: Int {
