@@ -23,6 +23,7 @@ import { resellerGlossaryRoutes } from "./reseller-glossary";
 import { flipdeskLandingRoutes } from "./flipdesk-landing";
 import { resellingRoutes } from "./reselling-guides";
 import { flawLibraryRoutes } from "./flaw-library";
+import { careMatrixRoutes } from "./care-matrix";
 import { garmentGuideRoutes } from "./garment-guides";
 import { comparisonRoutes } from "./comparison-guides";
 import { opportunistRoutes } from "./opportunist-guides";
@@ -639,6 +640,10 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...resellingRoutes(),
   // Flaw library pSEO (US-1683), moved to /care by US-9012: hub + /care/<flaw>.
   ...flawLibraryRoutes(),
+  // US-9014: the flaw-crossed-with-fabric matrix, /care/<flaw>/<fabric>. 18
+  // pages out of a possible 192, because a combination only earns a URL when
+  // the procedure genuinely differs from the parent's.
+  ...careMatrixRoutes(),
   // Garment-type grading guides pSEO (US-1682): /grading/guides hub + per garment.
   ...garmentGuideRoutes(),
   // Marketplace comparison hub + pages (US-1667): /compare + /compare/{a}-vs-{b}.

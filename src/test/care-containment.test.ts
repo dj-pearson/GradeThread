@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
+import { FLAW_ENTRIES } from "@/lib/seo/flaw-library";
+import { CARE_MATRIX } from "@/lib/seo/care-matrix";
 import {
   CARE_HUB_PATH,
   HUB_PILLARS,
@@ -25,9 +27,14 @@ const carePaths = PUBLIC_ROUTES.map((r) => r.path).filter(
 );
 
 describe("the care cluster exists and is bounded (US-9015)", () => {
-  it("registers the hub and all 32 entries", () => {
+  it("registers the hub, every flaw entry and every matrix page", () => {
+    // Computed, not hardcoded. This asserted `33` until US-9014 added 18
+    // flaw-by-fabric pages, and a literal count in a containment test is a
+    // tripwire that fires on intended growth while saying nothing about
+    // unintended growth. The ceiling assertion below is the one that guards
+    // the actual risk.
     expect(carePaths).toContain("/care");
-    expect(carePaths.length).toBe(33);
+    expect(carePaths.length).toBe(1 + FLAW_ENTRIES.length + CARE_MATRIX.length);
   });
 
   it("stays on the main domain in a subdirectory, never a subdomain", () => {

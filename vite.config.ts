@@ -14,6 +14,7 @@ import {
   DEFAULT_OG_IMAGE_ALT,
 } from "./src/lib/seo/public-routes";
 // US-421 + US-2593: the SW navigation denylist. Kept in src/ so it is testable.
+import { MATRIX_PAGE_CAP } from "./src/lib/seo/care-matrix";
 import { NAVIGATE_FALLBACK_DENYLIST } from "./src/lib/pwa/navigate-fallback-denylist";
 // US-2106: sources for dist/llms-full-data.json. All existing constants — this
 // plugin derives, it does not author.
@@ -108,6 +109,19 @@ function seoManifestPlugin(): Plugin {
           image: manifestImageFor(r.path),
         })),
       };
+      // US-9014 AC4: the matrix page count is printed at build time so silent
+      // growth is visible in the build log rather than discovered in a sitemap
+      // six months later. The cap is MATRIX_PAGE_CAP in care-matrix.ts; passing
+      // it is meant to stop the story and re-argue the number, not raise it.
+      const matrixPages = PUBLIC_ROUTES.filter((r) =>
+        /^\/care\/[^/]+\/[^/]+$/.test(r.path),
+      ).length;
+      const carePages = PUBLIC_ROUTES.filter((r) => r.path.startsWith("/care")).length;
+      console.log(
+        `[seo] care cluster: ${carePages} pages, of which ${matrixPages} are ` +
+          `flaw-by-fabric (cap ${MATRIX_PAGE_CAP}); ` +
+          `${Math.round((carePages / PUBLIC_ROUTES.length) * 1000) / 10}% of ${PUBLIC_ROUTES.length} static routes`,
+      );
       writeFileSync(
         path.resolve(__dirname, "dist/seo-manifest.json"),
         JSON.stringify(manifest, null, 2) + "\n",

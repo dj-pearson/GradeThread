@@ -301,15 +301,20 @@
     },
     {
       "id": "US-9014",
-      "passes": false,
+      "passes": true,
       "title": "Flaw-crossed-with-fabric matrix, only where the answer genuinely differs",
       "description": "As someone with a specific stain on a specific fabric, I want advice for that combination, so that I do not ruin a silk blouse using a method written for denim.",
       "acceptanceCriteria": [
-        "A generated page family crossing the flaw taxonomy with the fabrics that behave differently, seeded from the existing fabric taxonomy rather than a new list.",
-        "A combination only gets a page when the procedure genuinely differs; combinations whose answer is identical to the parent flaw page are NOT generated and canonicalise to it instead. A test asserts no generated page duplicates its parent's procedure.",
-        "This is the test a programmatic family has to pass and the reason this one is allowed where Path 4's value pages were not: getting oil out of silk is not the procedure for cotton denim.",
-        "Page count is logged at build time so silent growth is visible; if the matrix exceeds 400 pages, the story stops and the cap is re-argued rather than shipped.",
-        "Every generated page is registered through calculatorRoutes()-style spread into PUBLIC_ROUTES and appears in the /care/ sitemap segment."
+        "A generated page family crossing the flaw taxonomy with the fabrics that behave differently, seeded from the existing fabric taxonomy rather than a new list. DONE. Six fibre classes MIRRORED from FiberClass in services/edge-functions/src/lib/fabric-criteria.ts, the grading engine's own taxonomy, with a test that reads that file and fails if the two drift.",
+        "A combination only gets a page when the procedure genuinely differs; combinations whose answer is identical to the parent are NOT generated. DONE: 18 pages out of a possible 192. Every entry carries a `differs` line stating what changes; if you cannot write that line, the combination does not get a page.",
+        "A test asserts no generated page duplicates its parent's procedure. DONE, two of them: an exact-match check on every step against the parent's removal steps, and a looser check that no entry is mostly the parent's text with words moved.",
+        "NO THIN CANONICALISING PAGES. The AC allowed generating the other 174 and canonicalising them to the parent. They are simply not generated instead, because a page that exists only to point at another page is still a page Google crawls and judges. A test asserts that /care/pilling/linen and friends have no route at all.",
+        "This is the test a programmatic family has to pass and the reason this one is allowed where Path 4's value pages were not. Holds: getting a stain out of silk forbids the enzyme detergent that is step one on cotton, because silk is a protein and so is the stain.",
+        "Page count is logged at build time so silent growth is visible. DONE, in vite.config.ts: `[seo] care cluster: 51 pages, of which 18 are flaw-by-fabric (cap 400); 20.9% of 244 static routes`.",
+        "If the matrix exceeds 400 pages, the story stops and the cap is re-argued rather than shipped. MATRIX_PAGE_CAP is declared with that instruction next to it. Worth noting the cap was never the binding constraint: we are at 18 of 400. The binding constraint is having something different to say.",
+        "Every generated page is registered through a calculatorRoutes()-style spread into PUBLIC_ROUTES and appears in the /care/ sitemap segment. DONE via careMatrixRoutes(), and because the pages live under /care they inherit every US-9015 containment guard automatically.",
+        "MARKUP: Article, not HowTo, even though the pages have numbered steps. The parent flaw page already claims the HowTo for the task where one exists, and two HowTo nodes competing over one procedure is exactly the over-marking Google's guidance warns about.",
+        "CAUGHT MY OWN GUARD BEING WRONG: US-9015's containment test asserted the care cluster was exactly 33 pages. That is a tripwire that fires on intended growth while saying nothing about unintended growth. It now computes 1 + flaws + matrix, and the 40% ceiling assertion is the one guarding the actual risk."
       ],
       "priority": 17,
       "dependsOn": [

@@ -26,9 +26,11 @@ import {
   FLAW_ENTRIES,
   FLAW_LIBRARY_HUB_PATH,
   flawPath,
+  getFlawBySlug,
   flawTrail,
   type FlawEntry,
 } from "@/lib/seo/flaw-library";
+import { matrixPath, type MatrixEntry } from "@/lib/seo/care-matrix";
 import {
   GARMENT_GUIDES_HUB_PATH,
   guidePath,
@@ -556,6 +558,40 @@ export function flawHubBreadcrumbItems(): Array<{ name: string; url: string }> {
 }
 
 /** A single flaw page: Article + DefinedTerm + FAQPage. */
+/**
+ * US-9014. Article + breadcrumb for a flaw-and-fibre page.
+ *
+ * No HowTo here even though the page has numbered steps, and that is
+ * deliberate. The parent flaw page already claims the HowTo for this task where
+ * one exists, and two HowTo nodes competing for one procedure is the kind of
+ * over-marking Google's own guidance warns about. This page is the fibre-
+ * specific variation, which is an Article.
+ */
+export function careMatrixJsonLd(entry: MatrixEntry): JsonLd[] {
+  return [
+    articleLd({
+      headline: entry.h1,
+      description: entry.description,
+      url: absoluteUrl(matrixPath(entry)),
+      datePublished: FLAW_PUBLISHED,
+      dateModified: FLAW_MODIFIED,
+    }),
+  ];
+}
+
+export function careMatrixBreadcrumbItems(
+  entry: MatrixEntry,
+): Array<{ name: string; url: string }> {
+  const parent = getFlawBySlug(entry.flaw);
+  const abs = (p: string) => (p === "/" ? `${SITE_URL}/` : `${SITE_URL}${p}`);
+  return [
+    { name: "GradeThread", url: abs("/") },
+    { name: "Care", url: abs(FLAW_LIBRARY_HUB_PATH) },
+    ...(parent ? [{ name: parent.name, url: abs(flawPath(parent.slug)) }] : []),
+    { name: entry.h1, url: abs(matrixPath(entry)) },
+  ];
+}
+
 export function flawJsonLd(flaw: FlawEntry): JsonLd[] {
   const url = absoluteUrl(flawPath(flaw.slug));
   return [

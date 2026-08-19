@@ -97,6 +97,8 @@ import {
   FlawLibraryHubPage,
   FlawPage,
 } from "@/pages/marketing/flaw-library";
+import { CARE_MATRIX, matrixPath } from "@/lib/seo/care-matrix";
+import { CareMatrixPage } from "@/pages/marketing/care-matrix";
 import {
   GARMENT_GUIDES,
   GARMENT_GUIDES_HUB_PATH,
@@ -269,6 +271,11 @@ const PAGES: Record<string, React.ReactNode> = {
       <ResellingGuidePage key={g.slug} slug={g.slug} />,
     ]),
   ),
+  // US-9014: the flaw-crossed-with-fabric matrix. Each page is resolved from
+  // its own path, like the flaw pages, so the prerender renders the right one.
+  ...Object.fromEntries(
+    CARE_MATRIX.map((e) => [matrixPath(e), <CareMatrixPage path={matrixPath(e)} />]),
+  ),
   // Flaw library (US-1683).
   [FLAW_LIBRARY_HUB_PATH]: <FlawLibraryHubPage />,
   ...Object.fromEntries(
@@ -440,6 +447,10 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   [FLAW_LIBRARY_HUB_PATH]: `${M}marketing/flaw-library`,
   ...Object.fromEntries(
     FLAW_ENTRIES.map((f) => [flawPath(f.slug), `${M}marketing/flaw-library`]),
+  ),
+  // US-9014: the matrix has its own page module.
+  ...Object.fromEntries(
+    CARE_MATRIX.map((e) => [matrixPath(e), `${M}marketing/care-matrix`]),
   ),
   [GARMENT_GUIDES_HUB_PATH]: `${M}marketing/garment-guides`,
   ...Object.fromEntries(

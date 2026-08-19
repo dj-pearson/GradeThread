@@ -88,6 +88,8 @@ import {
   flawBreadcrumbItems,
   flawHubJsonLd,
   flawHubBreadcrumbItems,
+  careMatrixJsonLd,
+  careMatrixBreadcrumbItems,
   garmentGuideJsonLd,
   guideBreadcrumbItems,
   garmentHubJsonLd,
@@ -135,6 +137,7 @@ import { getAlternativeByPath } from "@/lib/seo/competitor-alternatives";
 import { isConditionChartPath } from "@/lib/seo/condition-chart";
 import { isGradeCheckerPath } from "@/lib/seo/grade-checker";
 import { getFlawByPath, isFlawHubPath } from "@/lib/seo/flaw-library";
+import { getMatrixEntryByPath } from "@/lib/seo/care-matrix";
 import { getGuideByPath, isGuideHubPath } from "@/lib/seo/garment-guides";
 import { twitterSiteHandle, twitterCreatorHandle } from "@/lib/seo/social";
 
@@ -376,6 +379,16 @@ export function jsonLdForRoute(path: string): JsonLd[] {
       organizationLd(),
       breadcrumbLd(flawHubBreadcrumbItems()),
       ...flawHubJsonLd(),
+    ];
+  }
+  // US-9014: a flaw-and-fibre page. Checked BEFORE the flaw page, because
+  // /care/stains-general/silk must not be mistaken for the parent.
+  const matrixEntry = getMatrixEntryByPath(path);
+  if (matrixEntry) {
+    return [
+      organizationLd(),
+      breadcrumbLd(careMatrixBreadcrumbItems(matrixEntry)),
+      ...careMatrixJsonLd(matrixEntry),
     ];
   }
   // Flaw page (US-1683): Organization + 3-level breadcrumb + Article +

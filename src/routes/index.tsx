@@ -127,6 +127,7 @@ const EtsyFeeCalculatorPage = lazy(() => import("@/pages/tools/marketplace-fee-c
 const ResellerProfitCalculatorPage = lazy(() => import("@/pages/tools/reseller-profit-calculator").then(m => ({ default: m.ResellerProfitCalculatorPage })));
 const ForBrandsPage = lazy(() => import("@/pages/marketing/for-brands").then(m => ({ default: m.ForBrandsPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
+const CareMatrixPage = lazy(() => import("@/pages/marketing/care-matrix").then(m => ({ default: m.CareMatrixPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
 const GarmentGuidesHubPage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidesHubPage })));
 const GarmentGuidePage = lazy(() => import("@/pages/marketing/garment-guides").then(m => ({ default: m.GarmentGuidePage })));
@@ -413,6 +414,9 @@ export const router = createBrowserRouter([
       // public/_redirects; the router does not need to know about them.
       { path: "/care", element: <SuspenseWrapper><FlawLibraryHubPage /></SuspenseWrapper> },
       { path: "/care/:flaw", element: <SuspenseWrapper><FlawPage /></SuspenseWrapper> },
+      // US-9014: the flaw-crossed-with-fabric matrix. Declared AFTER /care/:flaw
+      // so the one-segment route still wins for a bare flaw path.
+      { path: "/care/:flaw/:fabric", element: <SuspenseWrapper><CareMatrixPage /></SuspenseWrapper> },
       // Garment-type grading guides (US-1682): hub + per-garment pages.
       { path: "/grading/guides", element: <SuspenseWrapper><GarmentGuidesHubPage /></SuspenseWrapper> },
       { path: "/grading/guides/:garment", element: <SuspenseWrapper><GarmentGuidePage /></SuspenseWrapper> },
