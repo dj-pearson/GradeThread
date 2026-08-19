@@ -1,11 +1,15 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!important] 00610–00617 ARE APPLIED. Measured 2026-08-17, not assumed.
+> [!important] 00610–00620 ARE APPLIED. Measured 2026-08-19, not assumed.
 >
 > `GET https://functions.gradethread.com/health/ready` reports
-> `schema { expected: "00617", applied: "00617", status: "match" }`, and the
-> deployed edge expects 00617 — so the migrations landed AND the edge that needs
-> them is running.
+> `schema { expected: "00620", applied: "00620", status: "match" }`, and the
+> deployed edge expects 00620 — so the migrations landed AND the edge that needs
+> them is running. **Nothing is held.**
+>
+> The 2026-08-17 measurement below, which read 00617 on both sides, is kept
+> because the anon-probe table under it is the evidence for 00610–00616 and is
+> not re-derivable from a version number.
 >
 > **The guards were checked from OUTSIDE, which is the part that matters.** A
 > recorded version proves a file ran, not that it worked — that is the whole
@@ -39,11 +43,23 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
-## 🟠 PENDING: 00620 — OAuth authorization server storage (US-9122)
+**As of 2026-08-19 there are no 🟠 entries.** Everything through 00620 is
+applied and the deployed edge expects 00620.
 
-> [!warning] TWO MIGRATIONS ARE NOW HELD. Apply **00619 first, then 00620**,
-> both before the next edge deploy. The boot guard expects 00620 once the new
-> container ships, and it will refuse to start on a database at 00618.
+## ✅ APPLIED (measured 2026-08-19): 00620 — OAuth authorization server storage (US-9122)
+
+> **Applied by the operator on 2026-08-19**, together with 00618 and 00619, and
+> the edge deployed alongside them. `/health/ready` reports
+> `expected: "00620", applied: "00620", status: "match"`, so the SQL landed and
+> the container that needs it is running.
+>
+> ⚠ **A matching version proves the FILES ran, not that they work** — that is the
+> 00611 lesson and it applies here too. What is NOT probed from outside: the five
+> tables are deny-all with no policies, so an anon read returning nothing is the
+> same answer whether RLS is right or the table is empty, and it is empty. The
+> guards were proven on the local stack instead (see below). The OAuth flow stays
+> off behind `MCP_OAUTH_ENABLED`, so nothing reads or writes these tables in
+> production yet — the first real exercise of them is US-9121/US-9123.
 
 **Risk: LOW.** Five new tables, eight indexes, two CHECK constraints and one
 operator function. Nothing existing is altered and no row is rewritten. All
@@ -86,7 +102,23 @@ from grants; grants and codes cascade from clients) and
 and no seller has authorized anything yet because the flow is off.
 
 ---
-## 🟠 PENDING: 00619 — MCP connector tool-call audit log (US-9113)
+## ✅ APPLIED (measured 2026-08-19): 00619 — MCP connector tool-call audit log (US-9113)
+
+> **Applied by the operator on 2026-08-19.** `/health/ready` reads 00620 on both
+> sides, which covers this file too.
+>
+> ⚠ **The one thing worth re-checking here is NOT re-checkable from outside, and
+> it does not need to be.** The prod risk this migration carried was a denied
+> call restarting the database (US-2403), and that risk came from a `REVOKE`
+> which the shipped version does not contain — all three roles hold EXECUTE and
+> the refusal happens in the body as a 42501. That is a property of the SQL text,
+> already verified by reading it and by driving anon against it on the local
+> stack, so a prod probe would add nothing and would mean POSTing to a function
+> whose whole point is that it might not be guarded.
+>
+> **The retention sweep now HAS a caller** (2026-08-19): `handleDataRetentionCron`
+> invokes `sweep_mcp_tool_calls` and `sweep_oauth_expired` nightly. The
+> paragraph below saying nothing calls it on a schedule was true when written.
 
 **Risk: LOW.** One new table, three indexes, one CHECK constraint and one
 operator function. Nothing existing is altered, no row is rewritten, no
@@ -142,7 +174,10 @@ either, so nothing else breaks. You lose the audit history, which is the
 point of the table but not a dependency of anything.
 
 ---
-## 🟠 PENDING: 00618 — allow `escalation_trigger = 'crisis'` (US-2667)
+## ✅ APPLIED (measured 2026-08-19): 00618 — allow `escalation_trigger = 'crisis'` (US-2667)
+
+> **Applied by the operator on 2026-08-19.** `/health/ready` reads 00620 on both
+> sides, which covers this file.
 
 **Risk: LOW.** One CHECK constraint on `support_conversations` is dropped and
 re-added one value wider (`'model','auto','user'` -> plus `'crisis'`). No column

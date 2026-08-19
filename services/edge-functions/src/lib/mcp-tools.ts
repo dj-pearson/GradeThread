@@ -73,6 +73,15 @@ import { gradeBatchTool, gradeItemTool } from "./mcp-grade-tools.ts";
 import { createDraftTool, updateDraftTool } from "./mcp-draft-tools.ts";
 // US-9116: the publish tool. The one that puts a garment in front of buyers.
 import { publishListingTool } from "./mcp-publish-tool.ts";
+// US-9117: repricing. Five tools over the existing engine, plus the guard that
+// a valid confirmation does NOT buy past.
+import {
+  applySuggestionTool,
+  dismissSuggestionTool,
+  priceSuggestionsTool,
+  repriceApplyTool,
+  repricePreviewTool,
+} from "./mcp-reprice-tools.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1264,6 +1273,11 @@ export const TOOLS: McpToolDefinition[] = [
   createDraftTool,
   updateDraftTool,
   publishListingTool,
+  repricePreviewTool,
+  repriceApplyTool,
+  priceSuggestionsTool,
+  applySuggestionTool,
+  dismissSuggestionTool,
   sandboxGradeTool,
   sandboxPublishTool,
   sandboxPriceGuideTool,

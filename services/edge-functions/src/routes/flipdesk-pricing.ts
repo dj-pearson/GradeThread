@@ -36,6 +36,12 @@ import {
 } from "../lib/grade-band-pricing.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
 import {
+  type PricingOutcome,
+  registerRepricer,
+  type RepriceApplyResult,
+  type RepriceRow,
+} from "../lib/reprice-port.ts";
+import {
   decideNewPriceCents,
   isDue,
   type ListingFacts,
@@ -449,93 +455,15 @@ flipdeskPricingRoutes.get("/performance", async (c) => {
 // ── POST /suggestions/:id/apply ───────────────────────────────────
 flipdeskPricingRoutes.post("/suggestions/:id/apply", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const id = c.req.param("id");
-
-  const { data: suggestion } = await supabaseAdmin
-    .from("repricing_suggestions")
-    .select("id, user_id, listing_id, suggested_price_cents")
-    .eq("id", id)
-    .eq("user_id", ownerId)
-    .maybeSingle();
-  if (!suggestion) return c.json({ error: "Suggestion not found" }, 404);
-
-  const dollars = (suggestion as { suggested_price_cents: number }).suggested_price_cents / 100;
-  const listingId = (suggestion as { listing_id: string }).listing_id;
-
-  // Tenant isolation (US-268): don't trust listing_id from the request —
-  // re-verify ownership through the parent inventory_item (inner join + user_id
-  // filter) so the subsequent update-by-id is provably scoped to this tenant,
-  // not just relying on the suggestion-creation invariant. (US-1485: migration
-  // 00146 added a trigger-maintained `listings.user_id`, so a direct
-  // `.eq("user_id", ownerId)` is also valid for trigger-covered rows; the parent
-  // join is kept here since it also holds for any row predating the backfill.)
-  const { data: listing } = await supabaseAdmin
-    .from("listings")
-    .select("id, platform_offer_id, inventory_items!inner(user_id)")
-    .eq("id", listingId)
-    .eq("inventory_items.user_id", ownerId)
-    .maybeSingle();
-  if (!listing) return c.json({ error: "Listing not found" }, 404);
-
-  const offerId = (listing as { platform_offer_id: string | null }).platform_offer_id;
-  const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
-
-  // US-467: push to eBay FIRST. If the remote update fails we must NOT update
-  // the local price (which would silently desync local vs eBay) and must NOT
-  // mark the suggestion applied — leave it 'pending' so it stays in the list
-  // and is retryable, and so the next local<->eBay reconcile doesn't mask the
-  // failed apply (local still equals eBay's current price).
-  if (hasLiveOffer) {
-    try {
-      await updateOfferPrice(ownerId, offerId!, dollars);
-    } catch (err) {
-      const ebayError = err instanceof Error ? err.message : String(err);
-      console.error(
-        "[repricing] updateOfferPrice failed — suggestion left pending:",
-        ebayError,
-      );
-      return c.json(
-        {
-          applied: false,
-          ebay_synced: false,
-          error: "Couldn't update the price on eBay — left unapplied so you can retry.",
-          ebay_error: ebayError,
-        },
-        502,
-      );
-    }
-  }
-
-  // Remote update succeeded (or there is no live offer to push) — persist the
-  // new price locally and mark the suggestion applied.
-  const { error: updErr } = await supabaseAdmin
-    .from("listings")
-    .update({ listing_price: dollars, price_is_estimated: false })
-    .eq("id", listingId);
-  if (updErr) return failSafe(c, 500, "Couldn't save the new price.", updErr, "repricing.apply");
-
-  await supabaseAdmin
-    .from("repricing_suggestions")
-    .update({ status: "applied", applied_at: new Date().toISOString() })
-    .eq("id", id);
-
-  return c.json({ applied: true, new_price: dollars, ebay_synced: hasLiveOffer });
+  const outcome = await applyPriceSuggestion(ownerId, c.req.param("id"));
+  return c.json(outcome.body, outcome.status as 200);
 });
 
 // ── POST /suggestions/:id/dismiss ─────────────────────────────────
 flipdeskPricingRoutes.post("/suggestions/:id/dismiss", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const id = c.req.param("id");
-  const { data, error } = await supabaseAdmin
-    .from("repricing_suggestions")
-    .update({ status: "dismissed", dismissed_at: new Date().toISOString() })
-    .eq("id", id)
-    .eq("user_id", ownerId)
-    .select("id")
-    .maybeSingle();
-  if (error) return failSafe(c, 500, "Couldn't dismiss the suggestion.", error, "repricing.dismiss");
-  if (!data) return jsonError(c, 404, "Suggestion not found");
-  return c.json({ dismissed: true });
+  const outcome = await dismissPriceSuggestion(ownerId, c.req.param("id"));
+  return c.json(outcome.body, outcome.status as 200);
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -669,13 +597,12 @@ flipdeskPricingRoutes.post("/reprice/preview", async (c) => {
     return jsonError(c, 400, "Provide at least one listingId.");
   }
 
-  const listings = await loadOwnedRepriceListings(ownerId, listingIds);
-  const items: RepricePreviewRow[] = [];
-  for (const listing of listings) {
-    items.push(await buildPreviewRow(listing));
-  }
+  const outcome = await previewRepriceFor(ownerId, listingIds);
   // Tell the UI when we trimmed an oversized selection to the per-call cap.
-  return c.json({ items, capped: requestedCount > listingIds.length });
+  return c.json(
+    { ...outcome.body, capped: requestedCount > listingIds.length },
+    outcome.status as 200,
+  );
 });
 
 // ── POST /reprice/apply ───────────────────────────────────────────
@@ -714,74 +641,8 @@ flipdeskPricingRoutes.post("/reprice/apply", async (c) => {
     return jsonError(c, 400, "No valid items to apply.");
   }
 
-  const listings = await loadOwnedRepriceListings(
-    ownerId,
-    capped.map((r) => r.listingId),
-  );
-  const byId = new Map<string, ListingJoinRow>();
-  for (const l of listings) byId.set(l.id, l);
-
-  let applied = 0;
-  let ebaySynced = 0;
-  const skipped: Array<{ listing_id: string; reason: BulkSkipReason | "not_found" }> = [];
-  const errors: Array<{ listing_id: string; message: string }> = [];
-  const now = new Date().toISOString();
-
-  for (const req of capped) {
-    const listing = byId.get(req.listingId);
-    if (!listing) {
-      skipped.push({ listing_id: req.listingId, reason: "not_found" });
-      continue;
-    }
-    const floor = computeFloorCents(
-      listing.inventory_items.acquired_price,
-      DEFAULT_MARGIN_FLOOR_PCT,
-    );
-    if (floor != null && req.priceCents < floor) {
-      skipped.push({ listing_id: req.listingId, reason: "below_margin_floor" });
-      continue;
-    }
-
-    const dollars = req.priceCents / 100;
-    const offerId = listing.platform_offer_id;
-    const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
-
-    // Push to eBay FIRST (US-467): a failed remote update must not desync the
-    // local price, so skip the local write and surface it as a retryable error.
-    if (hasLiveOffer) {
-      try {
-        await updateOfferPrice(ownerId, offerId!, dollars);
-      } catch (err) {
-        errors.push({
-          listing_id: req.listingId,
-          message: err instanceof Error ? err.message : String(err),
-        });
-        continue;
-      }
-    }
-
-    const { error: updErr } = await supabaseAdmin
-      .from("listings")
-      .update({ listing_price: dollars, price_is_estimated: false })
-      .eq("id", req.listingId);
-    if (updErr) {
-      errors.push({ listing_id: req.listingId, message: updErr.message });
-      continue;
-    }
-
-    // Clear any pending comp suggestion for this listing so the nudges feed
-    // doesn't re-surface a price the user just acted on.
-    await supabaseAdmin
-      .from("repricing_suggestions")
-      .update({ status: "applied", applied_at: now })
-      .eq("listing_id", req.listingId)
-      .eq("user_id", ownerId);
-
-    applied++;
-    if (hasLiveOffer) ebaySynced++;
-  }
-
-  return c.json({ applied, ebay_synced: ebaySynced, skipped, errors });
+  const outcome = await applyRepriceFor(ownerId, capped);
+  return c.json(outcome.body, outcome.status as 200);
 });
 
 // ── Cron: scan every owner's active listings ──────────────────────
@@ -1249,3 +1110,240 @@ export async function handleRepriceRulesCron(c: Context): Promise<Response> {
     await lock.release();
   }
 }
+
+// ── US-9117: the four pricing bodies, as functions ─────────────────────────
+//
+// The HTTP handlers below call these, and lib/reprice-port.ts registers them so
+// the connector's reprice tools run the SAME code rather than a second
+// implementation. Sliced verbatim out of the handlers; the only rewrites were
+// the context reads and the response builders.
+//
+// ⚠ THE ORDER IN applyReprice IS THE MONEY RULE (US-467): push to eBay FIRST,
+// write the local price only if that succeeded. A local write after a failed
+// remote update leaves the seller's price disagreeing with the live listing and
+// nothing surfaces it.
+
+const json = (
+  body: Record<string, unknown>,
+  status = 200,
+): PricingOutcome => ({ status, body });
+
+const jsonErrorOutcome = (status: number, message: string): PricingOutcome =>
+  json({ error: message }, status);
+
+export async function applyPriceSuggestion(
+  ownerId: string,
+  id: string,
+): Promise<PricingOutcome> {
+    
+  const { data: suggestion } = await supabaseAdmin
+    .from("repricing_suggestions")
+    .select("id, user_id, listing_id, suggested_price_cents")
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (!suggestion) return json({ error: "Suggestion not found" }, 404);
+
+  const dollars = (suggestion as { suggested_price_cents: number }).suggested_price_cents / 100;
+  const listingId = (suggestion as { listing_id: string }).listing_id;
+
+  // Tenant isolation (US-268): don't trust listing_id from the request —
+  // re-verify ownership through the parent inventory_item (inner join + user_id
+  // filter) so the subsequent update-by-id is provably scoped to this tenant,
+  // not just relying on the suggestion-creation invariant. (US-1485: migration
+  // 00146 added a trigger-maintained `listings.user_id`, so a direct
+  // `.eq("user_id", ownerId)` is also valid for trigger-covered rows; the parent
+  // join is kept here since it also holds for any row predating the backfill.)
+  const { data: listing } = await supabaseAdmin
+    .from("listings")
+    .select("id, platform_offer_id, inventory_items!inner(user_id)")
+    .eq("id", listingId)
+    .eq("inventory_items.user_id", ownerId)
+    .maybeSingle();
+  if (!listing) return json({ error: "Listing not found" }, 404);
+
+  const offerId = (listing as { platform_offer_id: string | null }).platform_offer_id;
+  const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+
+  // US-467: push to eBay FIRST. If the remote update fails we must NOT update
+  // the local price (which would silently desync local vs eBay) and must NOT
+  // mark the suggestion applied — leave it 'pending' so it stays in the list
+  // and is retryable, and so the next local<->eBay reconcile doesn't mask the
+  // failed apply (local still equals eBay's current price).
+  if (hasLiveOffer) {
+    try {
+      await updateOfferPrice(ownerId, offerId!, dollars);
+    } catch (err) {
+      const ebayError = err instanceof Error ? err.message : String(err);
+      console.error(
+        "[repricing] updateOfferPrice failed — suggestion left pending:",
+        ebayError,
+      );
+      return json(
+        {
+          applied: false,
+          ebay_synced: false,
+          error: "Couldn't update the price on eBay — left unapplied so you can retry.",
+          ebay_error: ebayError,
+        },
+        502,
+      );
+    }
+  }
+
+  // Remote update succeeded (or there is no live offer to push) — persist the
+  // new price locally and mark the suggestion applied.
+  const { error: updErr } = await supabaseAdmin
+    .from("listings")
+    .update({ listing_price: dollars, price_is_estimated: false })
+    .eq("id", listingId);
+  if (updErr) {
+    console.error(`[${"repricing.apply"}] `, updErr);
+    return json({ error: "Couldn't save the new price." }, 500);
+  }
+
+  await supabaseAdmin
+    .from("repricing_suggestions")
+    .update({ status: "applied", applied_at: new Date().toISOString() })
+    .eq("id", id);
+
+  return json({ applied: true, new_price: dollars, ebay_synced: hasLiveOffer });
+}
+
+export async function dismissPriceSuggestion(
+  ownerId: string,
+  id: string,
+): Promise<PricingOutcome> {
+      const { data, error } = await supabaseAdmin
+    .from("repricing_suggestions")
+    .update({ status: "dismissed", dismissed_at: new Date().toISOString() })
+    .eq("id", id)
+    .eq("user_id", ownerId)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    console.error(`[${"repricing.dismiss"}] `, error);
+    return json({ error: "Couldn't dismiss the suggestion." }, 500);
+  }
+  if (!data) return jsonErrorOutcome(404, "Suggestion not found");
+  return json({ dismissed: true });
+}
+
+async function previewRepriceFor(
+  ownerId: string,
+  listingIds: string[],
+): Promise<PricingOutcome> {
+  const listings = await loadOwnedRepriceListings(ownerId, listingIds);
+  const items: RepricePreviewRow[] = [];
+  for (const listing of listings) {
+    items.push(await buildPreviewRow(listing));
+  }
+  return json({ items });
+}
+
+async function applyRepriceFor(
+  ownerId: string,
+  capped: Array<{ listingId: string; priceCents: number }>,
+): Promise<PricingOutcome> {
+  const listings = await loadOwnedRepriceListings(
+    ownerId,
+    capped.map((r) => r.listingId),
+  );
+  const byId = new Map<string, ListingJoinRow>();
+  for (const l of listings) byId.set(l.id, l);
+
+  let applied = 0;
+  let ebaySynced = 0;
+  const skipped: Array<{ listing_id: string; reason: BulkSkipReason | "not_found" }> = [];
+  const errors: Array<{ listing_id: string; message: string }> = [];
+  const now = new Date().toISOString();
+
+  for (const req of capped) {
+    const listing = byId.get(req.listingId);
+    if (!listing) {
+      skipped.push({ listing_id: req.listingId, reason: "not_found" });
+      continue;
+    }
+    const floor = computeFloorCents(
+      listing.inventory_items.acquired_price,
+      DEFAULT_MARGIN_FLOOR_PCT,
+    );
+    if (floor != null && req.priceCents < floor) {
+      skipped.push({ listing_id: req.listingId, reason: "below_margin_floor" });
+      continue;
+    }
+
+    const dollars = req.priceCents / 100;
+    const offerId = listing.platform_offer_id;
+    const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+
+    // Push to eBay FIRST (US-467): a failed remote update must not desync the
+    // local price, so skip the local write and surface it as a retryable error.
+    if (hasLiveOffer) {
+      try {
+        await updateOfferPrice(ownerId, offerId!, dollars);
+      } catch (err) {
+        errors.push({
+          listing_id: req.listingId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        continue;
+      }
+    }
+
+    const { error: updErr } = await supabaseAdmin
+      .from("listings")
+      .update({ listing_price: dollars, price_is_estimated: false })
+      .eq("id", req.listingId);
+    if (updErr) {
+      errors.push({ listing_id: req.listingId, message: updErr.message });
+      continue;
+    }
+
+    // Clear any pending comp suggestion for this listing so the nudges feed
+    // doesn't re-surface a price the user just acted on.
+    await supabaseAdmin
+      .from("repricing_suggestions")
+      .update({ status: "applied", applied_at: now })
+      .eq("listing_id", req.listingId)
+      .eq("user_id", ownerId);
+
+    applied++;
+    if (hasLiveOffer) ebaySynced++;
+  }
+
+  return json({ applied, ebay_synced: ebaySynced, skipped, errors });
+}
+
+// The port adapters. Registered at module load; main.ts imports this module, so
+// any request that can reach a tool has already run this.
+registerRepricer({
+  preview: async (ownerId, listingIds) => {
+    const ids = parseListingIds(listingIds);
+    const outcome = await previewRepriceFor(ownerId, ids);
+    return {
+      items: (outcome.body.items ?? []) as RepriceRow[],
+      capped: listingIds.length > ids.length,
+    };
+  },
+  apply: async (ownerId, items) => {
+    // Normalised the same way the route normalises a request body: positive
+    // integers only, first occurrence of a listing id wins, capped.
+    const requested: Array<{ listingId: string; priceCents: number }> = [];
+    for (const r of items) {
+      if (
+        typeof r.listing_id === "string" &&
+        Number.isFinite(r.price_cents) &&
+        r.price_cents > 0 &&
+        !requested.some((x) => x.listingId === r.listing_id)
+      ) {
+        requested.push({ listingId: r.listing_id, priceCents: Math.round(r.price_cents) });
+      }
+    }
+    const outcome = await applyRepriceFor(ownerId, requested.slice(0, MAX_BULK_REPRICE));
+    return outcome.body as unknown as RepriceApplyResult;
+  },
+  applySuggestion: applyPriceSuggestion,
+  dismissSuggestion: dismissPriceSuggestion,
+});
+

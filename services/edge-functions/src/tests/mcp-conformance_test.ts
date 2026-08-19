@@ -45,8 +45,10 @@ const {
  * has a saved prompt that uses the old name.
  */
 const GOLDEN_TOOLS = [
+  "gradethread_apply_price_suggestion",
   "gradethread_comps",
   "gradethread_create_draft",
+  "gradethread_dismiss_price_suggestion",
   "gradethread_get_batch",
   "gradethread_get_grade",
   "gradethread_get_item",
@@ -58,7 +60,10 @@ const GOLDEN_TOOLS = [
   "gradethread_list_listings",
   "gradethread_list_sales",
   "gradethread_price_guide",
+  "gradethread_price_suggestions",
   "gradethread_publish_listing",
+  "gradethread_reprice_apply",
+  "gradethread_reprice_preview",
   "gradethread_sandbox_grade",
   "gradethread_sandbox_price_guide",
   "gradethread_sandbox_publish",
@@ -90,8 +95,10 @@ function fingerprint(tool: typeof TOOLS[number]): string {
 }
 
 const GOLDEN_FINGERPRINTS = [
+  "gradethread_apply_price_suggestion|scope=submit|destructive|args=suggestion_id|required=suggestion_id",
   "gradethread_comps|scope=read|read|args=item_id|required=item_id",
   "gradethread_create_draft|scope=submit|destructive|args=item_ids,template_id,use_comps|required=item_ids",
+  "gradethread_dismiss_price_suggestion|scope=submit|destructive|args=suggestion_id|required=suggestion_id",
   "gradethread_get_batch|scope=read|read|args=batch_id|required=batch_id",
   "gradethread_get_grade|scope=read|read|args=submission_id|required=submission_id",
   "gradethread_get_item|scope=read|read|args=item_id|required=item_id",
@@ -103,7 +110,10 @@ const GOLDEN_FINGERPRINTS = [
   "gradethread_list_listings|scope=read|read|args=cursor,limit,marketplace,max_price_cents,min_days_live,min_price_cents,min_watchers,status|required=",
   "gradethread_list_sales|scope=read|read|args=cursor,limit,marketplace,sold_after,sold_before,status|required=",
   "gradethread_price_guide|scope=read|read|args=slug|required=",
+  "gradethread_price_suggestions|scope=read|read|args=limit|required=",
   "gradethread_publish_listing|scope=submit|destructive|args=confirm_token,item_id,mode|required=item_id",
+  "gradethread_reprice_apply|scope=submit|destructive|args=confirm_token,items|required=confirm_token,items",
+  "gradethread_reprice_preview|scope=read|read|args=listing_ids|required=listing_ids",
   "gradethread_sandbox_grade|scope=read|read|args=brand,title|required=title",
   "gradethread_sandbox_price_guide|scope=read|read|args=slug|required=",
   "gradethread_sandbox_publish|scope=read|read|args=marketplace,price_cents,title|required=title",

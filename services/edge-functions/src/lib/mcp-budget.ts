@@ -130,7 +130,18 @@ export const auditLogCounter: BudgetCounter = async (subject, kind, sinceIso) =>
  */
 export const TOOLS_BY_KIND: Record<BudgetKind, string[]> = {
   publish: ["gradethread_publish_listing"],
-  price_change: ["gradethread_reprice_apply", "gradethread_set_price"],
+  price_change: [
+    "gradethread_reprice_apply",
+    "gradethread_set_price",
+    // US-9117. Taking one suggestion is a price change on a live listing, so it
+    // shares the ceiling rather than getting its own -- the cap is about how much
+    // a model may move a seller's prices per hour, not about which tool did it.
+    "gradethread_apply_price_suggestion",
+    // Dismissing changes no price. It is here because the coverage guard requires
+    // every destructive tool to be budgeted, and a runaway loop dismissing every
+    // suggestion a seller has is worth stopping even though it costs nothing.
+    "gradethread_dismiss_price_suggestion",
+  ],
   end_listing: ["gradethread_end_listing", "gradethread_relist"],
   grade: ["gradethread_grade_item", "gradethread_grade_batch"],
   draft_generation: ["gradethread_create_draft"],

@@ -5879,6 +5879,100 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "MCP gradethread_reprice_preview returns nothing for A's listing as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // A DIFFERENT SHAPE from the denial cases: preview is a per-listing report,
+    // so a foreign id correctly comes back as an EMPTY item list rather than as
+    // an error — loadOwnedRepriceListings filters on inventory_items.user_id, so
+    // the row never enters the set. The assertion is therefore that A's id and
+    // A's title are both absent from the answer, and that no token was issued
+    // for a listing B does not own.
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_reprice_preview", {
+      listing_ids: [listingId],
+    });
+    assertListExcludes(body, listingId, "gradethread_reprice_preview");
+    const title = Deno.env.get("TEST_USER_A_ITEM_TITLE");
+    if (title) {
+      assert(
+        !body.includes(title),
+        `gradethread_reprice_preview leaked another tenant's title: ${body.slice(0, 300)}`,
+      );
+    }
+    assert(
+      !body.includes("confirm_token"),
+      `gradethread_reprice_preview issued a reprice token for another tenant's listing: ${
+        body.slice(0, 300)
+      }`,
+    );
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_reprice_apply cannot reprice A's listing as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // B cannot obtain a token for A's listing at all, so this asserts the
+    // SECOND line of defence: even with a token-shaped string, apply refuses.
+    // The listing must also keep its price, which the tenant-scoped load is what
+    // guarantees.
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_reprice_apply", {
+      items: [{ listing_id: listingId, price_cents: 100 }],
+      confirm_token: "gtc_forged-token",
+    });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_reprice_apply",
+    );
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_price_suggestions shows B nothing of A's",
+  ignore: !CONFIGURED || !B_API_KEY,
+  fn: async () => {
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_price_suggestions", {});
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID");
+    if (listingId) assertListExcludes(body, listingId, "gradethread_price_suggestions");
+    const title = Deno.env.get("TEST_USER_A_ITEM_TITLE");
+    if (title) {
+      assert(
+        !body.includes(title),
+        `gradethread_price_suggestions leaked another tenant's item: ${body.slice(0, 300)}`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_apply_price_suggestion cannot act on A's suggestion as B",
+  ignore: !CONFIGURED || !B_API_KEY,
+  fn: async () => {
+    // No fixture suggestion exists, so this drives a random id: the property is
+    // that the verb is scoped by user_id and answers "not found" rather than
+    // acting. A tool that trusted the id would reprice a stranger's listing.
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_apply_price_suggestion", {
+      suggestion_id: crypto.randomUUID(),
+    });
+    assertToolDeniedById(body, undefined, "gradethread_apply_price_suggestion");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_dismiss_price_suggestion cannot act on A's suggestion as B",
+  ignore: !CONFIGURED || !B_API_KEY,
+  fn: async () => {
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_dismiss_price_suggestion", {
+      suggestion_id: crypto.randomUUID(),
+    });
+    assertToolDeniedById(body, undefined, "gradethread_dismiss_price_suggestion");
+  },
+});
+
 // ── Sandbox tools (US-9124) ────────────────────────────────────────
 //
 // A DIFFERENT PROPERTY from the tools above, and the difference is the point.
