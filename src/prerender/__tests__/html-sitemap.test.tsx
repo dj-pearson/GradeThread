@@ -38,7 +38,11 @@ describe("HTML sitemap page", () => {
       "/compare",
       "/reselling",
       "/grading/glossary",
-      "/grading/flaws",
+      // US-9012 moved the flaw library from /grading/flaws to /care and left a
+      // 301 behind. The sitemap links where the page IS, not where it was — a
+      // sitemap that lists a redirect is a sitemap that costs a crawl hop on
+      // every entry under it.
+      "/care",
       "/tools/grade-checker",
       "/condition-index",
       "/value",

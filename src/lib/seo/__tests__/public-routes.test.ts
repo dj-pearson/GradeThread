@@ -72,6 +72,12 @@ const AUTH_OR_FLOW_EXACT = new Set([
   // equity to the articles it found. Registering it would put a noindex page in
   // the sitemap and prerender an empty result set into dist/.
   "/help/search",
+  // US-9121: the OAuth consent screen. A flow page, not content — it exists to
+  // be arrived at from /oauth/authorize carrying a query string, and without
+  // one it renders "This connection link is incomplete". Registering it put a
+  // page in the sitemap whose prerendered body was that error, which is how the
+  // heading-outline guard found it had no h1 in that state.
+  "/connect/claude",
 ]);
 
 /** A router path that should have a static, indexable registry entry. */

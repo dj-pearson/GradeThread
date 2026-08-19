@@ -43,6 +43,8 @@ const REVOKE_FN =
 interface Fn {
   files: string[];
   trigger: boolean;
+  /** Every definition's source, so a claimed body guard can be verified. */
+  bodies: string[];
 }
 
 function migrationFiles(): string[] {
@@ -76,8 +78,9 @@ function securityDefinerFunctions(): Map<string, Fn> {
       const body = src.slice(m.index, end);
       if (!/SECURITY\s+DEFINER/i.test(body)) continue;
       const name = m[1]!;
-      const entry = out.get(name) ?? { files: [], trigger: false };
+      const entry = out.get(name) ?? { files: [], trigger: false, bodies: [] };
       entry.files.push(f);
+      entry.bodies.push(body);
       if (/\)\s*RETURNS\s+trigger\b/i.test(body)) entry.trigger = true;
       out.set(name, entry);
     }
@@ -116,6 +119,34 @@ function namesMatching(re: RegExp): Set<string> {
  * break 29 migrations' policies at once. 00527 handles exactly that; do not
  * hand-revoke these one at a time.
  */
+/**
+ * Functions that enforce the role check INSIDE THE BODY, on purpose, because a
+ * REVOKE on them is not a defence — it is a crash.
+ *
+ * This is a real third state, not a softer debt list. US-2403: denying EXECUTE
+ * to a role in supautils.hint_roles segfaults the backend and restarts the
+ * database, which is why 00527 is permanently blocked. For a function in public
+ * whose arguments all have defaults, an argument-less POST from the anon key
+ * that ships in the browser bundle reaches that path — so a REVOKE would not
+ * protect the function, it would publish a restart button.
+ *
+ * The alternative to this list was adding these names to UNGRANTED_DEBT, and
+ * that would have been wrong twice: the debt list is SHRINK-ONLY by
+ * construction, and these functions are not ungranted-by-oversight, they are
+ * guarded-by-a-better-mechanism.
+ *
+ * VERIFIED, NOT ASSERTED. Membership here is checked against the function's own
+ * SQL below: it must raise 42501 unless auth.role() is service_role. An entry
+ * that stops guarding itself fails, which is the difference between this and a
+ * comment saying "it's fine".
+ *
+ * See vault/20-domain/postgres-revoke-from-anon-is-a-noop.md.
+ */
+const BODY_GUARDED = [
+  "sweep_mcp_tool_calls",
+  "sweep_oauth_expired",
+];
+
 const UNGRANTED_DEBT = [
   "claim_grade_lease",
   "debit_api_credits",
@@ -164,6 +195,7 @@ describe("US-2282 AC4: SECURITY DEFINER functions declare who may execute them",
       .map(([name]) => name)
       .filter((name) => !granted.has(name) && !revoked.has(name))
       .filter((name) => !UNGRANTED_DEBT.includes(name))
+      .filter((name) => !BODY_GUARDED.includes(name))
       .sort();
 
     expect(
@@ -178,6 +210,41 @@ describe("US-2282 AC4: SECURITY DEFINER functions declare who may execute them",
     ).toEqual([]);
   });
 
+  it("every body-guarded function actually guards its body", () => {
+    // The assertion that makes BODY_GUARDED a category rather than a second
+    // allowlist. A name here claims the function refuses anyone who is not
+    // service_role, from inside; this reads the SQL and checks it.
+    const fns = securityDefinerFunctions();
+
+    const missing = BODY_GUARDED.filter((name) => !fns.has(name)).sort();
+    expect(
+      missing,
+      `listed as body-guarded but not a SECURITY DEFINER function any more: ` +
+        `${missing.join(", ")}. Delete the entries.`,
+    ).toEqual([]);
+
+    const unguarded = BODY_GUARDED.filter((name) => {
+      const bodies = fns.get(name)?.bodies ?? [];
+      // EVERY definition must guard, not just the newest. An older CREATE OR
+      // REPLACE without the check is still reachable if it is applied last.
+      return !bodies.every((b) =>
+        /auth\.role\(\)/i.test(b) && /42501/.test(b) && /service_role/i.test(b)
+      );
+    }).sort();
+    expect(
+      unguarded,
+      `these are listed as body-guarded but their SQL does not raise 42501 ` +
+        `unless auth.role() is service_role: ${unguarded.join(", ")}. Either ` +
+        `add the guard or remove them from BODY_GUARDED — an unchecked entry ` +
+        `here is exactly the comment-says-it-is-fine failure this file exists ` +
+        `to prevent.`,
+    ).toEqual([]);
+
+    // And the two lists stay disjoint: a function is either ungranted debt or
+    // deliberately body-guarded, and claiming both hides which one is true.
+    const both = BODY_GUARDED.filter((n) => UNGRANTED_DEBT.includes(n)).sort();
+    expect(both, `listed in BOTH lists: ${both.join(", ")}`).toEqual([]);
+  });
   it("the ungranted-debt list is shrink-only", () => {
     const fns = securityDefinerFunctions();
     const granted = namesMatching(GRANT_FN);

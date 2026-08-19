@@ -55,6 +55,17 @@ const NOT_A_PROCESSOR: Record<string, string> = {
   "store.myshopify.com": "the Shopify host pattern — Shopify is listed",
   "example.com": "documentation and test fixtures",
   "www.example.com": "documentation and test fixtures",
+  // Our own hosts, added when the connector work introduced them.
+  "www.gradethread.com": "our own domain",
+  "staging.gradethread.com": "our own staging domain",
+  "flipdesk.com": "our own domain",
+  "www.flipdesk.com": "our own domain",
+  // The OAuth redirect_uri the MCP connector sends the SELLER'S BROWSER to
+  // (lib/oauth-metadata.ts CLAUDE_CALLBACK). The edge never calls it, so no
+  // data flows to it from us — the browser arrives carrying an authorization
+  // code the seller just approved. Anthropic is separately listed as a
+  // subprocessor for the grading calls, which DO send data.
+  "claude.ai": "an OAuth redirect the seller's browser follows, not a call we make",
 };
 
 /** Which listed subprocessor a host belongs to. */

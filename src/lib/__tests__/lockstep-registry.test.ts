@@ -129,7 +129,12 @@ const PINNED: Record<string, string> = {
     "two copies had ALREADY drifted on a missing factor (web coalesced to 0, " +
     "edge fell out as NaN) and neither suite covered it, so the mirror looked " +
     "pinned while its most dangerous input was not.",
-  "services/edge-functions/src/routes/flipdesk-ai.ts":
+  // MOVED FILE, SAME MIRROR. AI_ACTION_LIMITS lived in routes/flipdesk-ai.ts
+  // until fd25954a2 lifted it into lib/ai-quota.ts, and the registry kept
+  // pointing at the old path — which failed BOTH ways at once: the new file
+  // looked unclassified and the old entry looked stale. Re-pointed rather than
+  // re-argued; the guard underneath it never changed.
+  "services/edge-functions/src/lib/ai-quota.ts":
     "AI_ACTION_LIMITS is asserted against PLAN_MATRIX.aiActionsPerMonth by " +
     "services/edge-functions/src/tests/ai-quota_test.ts. NOTE the source " +
     "comment says the test asserts it against FALLBACK_MATRIX; the test " +

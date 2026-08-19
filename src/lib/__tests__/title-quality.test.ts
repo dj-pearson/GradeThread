@@ -4,7 +4,6 @@ import {
   isBrandFirst,
   lintTitle,
   packTitleSuggestions,
-  TITLE_MAX,
   titleQuality,
   titleUtilization,
   titleTerms,
