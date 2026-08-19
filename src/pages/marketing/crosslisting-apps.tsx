@@ -5,6 +5,7 @@ import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
+import { track } from "@/lib/analytics";
 import { RESELLING_PILLAR_PATH } from "@/lib/seo/reselling-guides";
 import {
   CROSSLIST_APPS,
@@ -44,6 +45,9 @@ export function CrosslistingAppsPage() {
             {CROSSLIST_APPS_PAGE.definition}
           </p>
           <p className="mt-6 text-muted-foreground">{CROSSLIST_APPS_PAGE.intro}</p>
+          <p className="mt-4 rounded-xl border px-4 py-3 text-sm text-foreground">
+            <strong>Who wrote this.</strong> {CROSSLIST_APPS_PAGE.disclosure}
+          </p>
           <p className="mt-3 text-sm text-muted-foreground">
             Verified {CROSSLIST_APPS_VERIFIED} · features and pricing change —
             verify on each tool's site.
@@ -83,12 +87,54 @@ export function CrosslistingAppsPage() {
               <tbody>
                 {CROSSLIST_APPS.map((app) => (
                   <tr key={app.name} className="border-b align-top">
-                    <th className="py-3 pr-4 font-medium">{app.name}</th>
+                    <th className="py-3 pr-4 font-medium">
+                      {app.name}
+                      {app.isOurs && (
+                        <span className="ml-2 text-xs font-normal text-muted-foreground">
+                          ours
+                        </span>
+                      )}
+                    </th>
                     <td className="py-3 text-muted-foreground">{app.bestFor}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      </section>
+
+      {/* US-9009: commercial intent has somewhere to go that is allowed to
+          argue for one product. The diagnosis found this listicle at position
+          51.5 and /flipdesk/crosslisting at 10.8 — a vendor may not credibly
+          rank itself in a neutral list, but it may credibly describe its own
+          tool. */}
+      <section className="border-t px-6 py-12">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-2xl font-bold sm:text-3xl">
+            Looking for what ours actually does?
+          </h2>
+          <p className="mt-3 text-muted-foreground">
+            This page is a comparison and it is not the place to sell you
+            anything. If you want the version where we do argue for FlipDesk,
+            including where it loses to Vendoo and List Perfectly on marketplace
+            coverage, that page exists and says so.
+          </p>
+          <div className="mt-5">
+            <Link
+              to="/flipdesk/crosslisting"
+              onClick={() =>
+                track("crosslist_listicle_vendor_handoff", {
+                  source: "best-crosslisting-apps",
+                  destination: "flipdesk-crosslisting",
+                })
+              }
+            >
+              <span className="inline-flex items-center text-sm font-medium text-brand-red-text hover:underline">
+                What FlipDesk crosslisting does
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </span>
+            </Link>
           </div>
         </div>
       </section>

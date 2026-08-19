@@ -1,4 +1,6 @@
+import { useEffect } from "react";
 import { Link, useLocation } from "react-router";
+import { track } from "@/lib/analytics";
 import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +23,14 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
   const path = slugProp ? `/flipdesk/${slugProp}` : pathname;
   const landing = getFlipdeskLandingByPath(path);
 
+  // US-9009 step two of the funnel: calculator view -> landing view -> signup
+  // start. Fired on mount rather than on the CTA, because the number that
+  // matters is what SHARE of arrivals convert, and that needs the denominator.
+  const slug = landing?.slug;
+  useEffect(() => {
+    if (slug) track("commercial_landing_view", { landing: slug });
+  }, [slug]);
+
   if (!landing) return <NotFoundPage />;
 
   return (
@@ -42,7 +52,12 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
           </h1>
           <p className="mt-6 text-lg text-foreground">{landing.intro}</p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <Link to="/signup">
+            <Link
+              to="/signup"
+              onClick={() =>
+                track("commercial_landing_signup_start", { landing: landing.slug })
+              }
+            >
               <Button
                 size="lg"
                 className="bg-brand-red text-white hover:bg-brand-red/90"

@@ -168,6 +168,10 @@ export const FLIPDESK_LANDINGS: FlipdeskLanding[] = [
         heading: "The differentiator a crosslister can't copy",
         body: "A standardized 1.0–10.0 condition grade and a public certificate ride along in every listing. Buyers can verify the condition, which builds trust and reduces the 'not as described' returns that eat reseller margin.",
       },
+      {
+        heading: "Where this differs from Vendoo and List Perfectly",
+        body: "Vendoo and List Perfectly are crosslisters, and both cover more marketplaces than FlipDesk does. If breadth of marketplace coverage is what you are buying, they are the better tools and this page is not going to argue otherwise. What neither produces is evidence about condition. They move your description from one site to another; the buyer still has only your word for what 'excellent' means. FlipDesk grades the garment from photographs on a published 1.0–10.0 scale and attaches a certificate the buyer can check, which is the input that decides whether a not-as-described case goes your way. Pick on that axis, not on the crosslisting itself.",
+      },
     ],
     faqs: [
       {

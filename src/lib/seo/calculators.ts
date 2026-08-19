@@ -45,6 +45,15 @@ export interface Calculator {
   /** Supporting keywords, woven into copy and headings. */
   secondaryKeywords?: string[];
   /**
+   * Page module under src/pages/, WITHOUT the extension, when it is not
+   * `tools/{slug}`. The four marketplace fee calculators are one parameterised
+   * component (US-9005), so four slugs share one file, and the prerender's
+   * chunk-preload map has to be told that or it looks for a file that does not
+   * exist. It degrades to a skipped preload with a single warning, which is
+   * exactly the US-1950 regression the map exists to prevent.
+   */
+  pageModule?: string;
+  /**
    * Lead paragraph. Required once an entry goes live: this is the prose the
    * prerender emits, and it has to be useful before any script hydrates.
    */
@@ -149,6 +158,7 @@ export const CALCULATORS: readonly Calculator[] = [
   {
     slug: "poshmark-fee-calculator",
     status: "live",
+    pageModule: "tools/marketplace-fee-calculator",
     story: "US-9005",
     audience: "seller",
     title: "Poshmark Fee Calculator: What Poshmark Takes",
@@ -186,6 +196,7 @@ export const CALCULATORS: readonly Calculator[] = [
   {
     slug: "mercari-fee-calculator",
     status: "live",
+    pageModule: "tools/marketplace-fee-calculator",
     story: "US-9005",
     audience: "seller",
     title: "Mercari Fee Calculator: Your Real Payout",
@@ -223,6 +234,7 @@ export const CALCULATORS: readonly Calculator[] = [
   {
     slug: "depop-fee-calculator",
     status: "live",
+    pageModule: "tools/marketplace-fee-calculator",
     story: "US-9005",
     audience: "seller",
     title: "Depop Fee Calculator: What You Keep on a Sale",
@@ -260,6 +272,7 @@ export const CALCULATORS: readonly Calculator[] = [
   {
     slug: "etsy-fee-calculator",
     status: "live",
+    pageModule: "tools/marketplace-fee-calculator",
     story: "US-9005",
     audience: "seller",
     title: "Etsy Fee Calculator for Resale Sellers",
@@ -402,6 +415,11 @@ export const CALCULATOR_HUB_META = {
     },
   ],
 };
+
+/** The page module backing a calculator, defaulting to one file per slug. */
+export function calculatorPageModule(calc: Calculator): string {
+  return calc.pageModule ?? `tools/${calc.slug}`;
+}
 
 /** Only calculators whose compute has shipped. */
 export function liveCalculators(): Calculator[] {

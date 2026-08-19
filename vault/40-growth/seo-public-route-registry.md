@@ -9,7 +9,7 @@ code_refs:
   - src/prerender/entry-server.tsx
   - src/prerender/head-builder.ts
   - src/routes/index.tsx
-reviewed: 2026-08-17
+reviewed: 2026-08-18
 tags: [seo, prerender, routing]
 summary: A new indexable page must be registered in several places in lockstep; CI guards catch some omissions but not all.
 ---
@@ -19,6 +19,41 @@ summary: A new indexable page must be registered in several places in lockstep; 
 `PUBLIC_ROUTES` in `src/lib/seo/public-routes.ts` is the registry of indexable
 routes. `dist/seo-manifest.json` is emitted from it by a Vite plugin, and
 `scripts/prerender.mjs` renders the static public pages at build time.
+
+## `canonicalPath`: pointing a route at a different URL (US-9008, 2026-08-18)
+
+`PublicRoute` carries an optional `canonicalPath`. Set it when two URLs serve one
+intent and you have decided which one wins. The route stays live, stays in the
+router and stays linked; what changes is that the prerendered `<link
+rel=canonical>` and `og:url` point at the target, and
+`functions/_shared/sitemap.ts` skips the route entirely, because advertising a
+URL you have just told Google to ignore is a contradictory signal.
+
+It is deliberately not a redirect and not a 404. The only use so far is
+`/compare/depop-vs-poshmark` → `/blog/depop-vs-poshmark-which-should-you-use`.
+
+Both renders have to agree, so the SPA page component needs the same override
+(`src/pages/marketing/compare.tsx` reads `COMPARISON_CANONICAL_OVERRIDES`).
+`src/test/canonical-overrides.test.ts` locks the target, the carry-through into
+`PUBLIC_ROUTES`, and the absence of canonical chains — a canonical pointing at
+another canonicalised page is resolved by Google ignoring all of them.
+
+## A shared page module needs `pageModule` (US-9009, 2026-08-18)
+
+Step 5 below says `ROUTE_PAGE_MODULES` maps a path to its page module. That map
+is derived per-family, and the calculator family derived it as `tools/{slug}` —
+correct until four fee calculators shipped as ONE parameterised component
+(US-9005). Four routes then pointed at files that do not exist.
+
+Nothing failed. `scripts/prerender.mjs` degrades a missing module to one warning
+and no preload, latched so it prints once, which is the US-1950 regression the
+map exists to prevent arriving silently in 226 lines of build output. The
+existing lockstep guard could not catch it: it compares the KEYS of two maps
+built from the same source, so it can only find a typo.
+
+Set `pageModule` on the registry entry when several slugs share one file, and
+note that `src/test/route-page-modules-exist.test.ts` now resolves every module
+id against the filesystem.
 
 ## Adding a public static page
 

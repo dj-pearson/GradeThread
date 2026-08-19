@@ -112,10 +112,18 @@ export const CROSSLIST_APPS_PAGE = {
   path: CROSSLIST_APPS_PATH,
   title: "Best Crosslisting Apps for Resellers (2026)",
   h1: "The best crosslisting apps for resellers in 2026",
+  // US-9009. The diagnosis (docs/seo/crosslisting-cluster-diagnosis.md) found
+  // this page at position 51.5 while every other crosslisting page on the site
+  // ranks in the top 11. The structural problem is that it is a "best apps"
+  // list published by one of the apps, and no rewrite changes what the page IS.
+  // What a rewrite can change is whether the page is honest about it. This runs
+  // above the fold, in the reader's line of sight, not in a footer.
+  disclosure:
+    "GradeThread builds FlipDesk, which is one of the five tools below. We have tried to be fair about where it loses, and you should still read the other four on their own sites before you decide.",
   definition:
     "The best crosslisting app depends on what you need: List Perfectly and Vendoo lead on marketplace breadth, Crosslist on fast bulk listing, Flyp on hands-off managed selling, and FlipDesk on building condition grading and returns reduction directly into the reselling lifecycle. There's no single winner — match the tool to whether your bottleneck is listing volume or condition-driven returns.",
   intro:
-    "Crosslisting tools save resellers hours by posting one item to many marketplaces at once. But they're not interchangeable — they differ on marketplace coverage, pricing, automation depth, and whether they address the returns that eat your margin. This honest roundup compares the main options on explicit criteria.",
+    "Crosslisting tools save resellers hours by posting one item to many marketplaces at once. They are not interchangeable: they differ on marketplace coverage, pricing, automation depth, and whether they do anything about the returns that eat your margin. This page compares them on stated criteria, and you should know before you read it that we make one of them.",
   criteria: [
     { name: "Marketplace coverage", text: "How many marketplaces it crosslists to, and whether via API or a browser extension. Broad coverage matters most if you sell everywhere." },
     { name: "Pricing model", text: "Flat subscription, tiered, or per-item. The right model depends on your listing volume — per-item is cheap at low volume and expensive at high." },

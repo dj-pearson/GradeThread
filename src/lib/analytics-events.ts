@@ -79,6 +79,22 @@ export const ANALYTICS_EVENTS = {
   "calculator_grading_cta_click":
     "A calculator handed off to the grading flow.",
 
+  // ── Commercial landing funnel (US-9009) ───────────────────────────────────
+  // The funnel is: calculator view -> landing page view -> signup start.
+  // `calculator_grading_cta_click` (US-9006) is the other exit from step one.
+  //
+  // WHY THESE ARE JUDGED ON CONVERSION AND NOT POSITION: combined volume on the
+  // five commercial terms is 2,200/mo and the SERP is held by independent
+  // listicles a vendor page cannot outrank. The job of these pages is to catch
+  // traffic that already arrived from the calculators, so the number that
+  // matters is what share of them starts a signup.
+  "commercial_landing_view":
+    "A FlipDesk commercial landing page was viewed. Property `landing` is the slug.",
+  "commercial_landing_signup_start":
+    "The primary call to action on a FlipDesk commercial landing page was pressed.",
+  "crosslist_listicle_vendor_handoff":
+    "The crosslisting listicle handed off to the FlipDesk crosslisting page.",
+
   // ── Garment passport ──────────────────────────────────────────────────────
   "passport_scan_lookup": "A passport code was scanned or looked up.",
   "passport_view_cta_clicked": "The view control on a passport was pressed.",

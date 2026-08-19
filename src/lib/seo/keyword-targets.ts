@@ -335,6 +335,22 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    path: "/flipdesk/crosslisting",
+    cluster: "reseller-tools",
+    intent: "commercial",
+    primary: "clothing crosslisting software",
+    secondary: [
+      "multi channel listing software",
+      "cross listing app",
+      "crosslist clothing to multiple marketplaces",
+    ],
+    questions: [
+      "what is the best crosslisting app for clothing",
+      "which marketplaces can flipdesk crosslist to",
+      "how is flipdesk different from vendoo",
+    ],
+  },
+  {
     path: "/tools/reseller-profit-calculator",
     cluster: "reseller-tools",
     intent: "informational",

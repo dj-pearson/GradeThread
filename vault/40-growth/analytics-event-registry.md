@@ -128,4 +128,32 @@ FlipDesk" across every surface, instead of one query per surface plus a manual
 union. `comparison_crosslist_cta_click` is the first to use it. US-9010's
 calculator handoff is the second and must match.
 
+## The commercial landing funnel (US-9009, 2026-08-18)
+
+Three events, in order, and the reason they exist is that this segment cannot be
+judged the way the rest of the SEO backlog is judged.
+
+| Step | Event | Fired |
+|---|---|---|
+| 1 | `commercial_landing_view` | on mount of any `/flipdesk/*` landing page, property `landing` = the slug |
+| 2 | `commercial_landing_signup_start` | on the primary call to action, same `landing` property |
+| — | `crosslist_listicle_vendor_handoff` | the listicle sending commercial intent to the vendor page, `{source, destination}` |
+
+**Step one fires on mount, not on a click.** A conversion rate needs its
+denominator, and a click-only event gives you a numerator and nothing to divide
+it by. That is the mistake GT-001 records in a different form.
+
+**Why conversion and not position.** Combined volume across the five commercial
+terms US-9009 targeted is 2,200/mo, and `docs/seo/crosslisting-cluster-diagnosis.md`
+found the SERP is held by independent listicles that a vendor page structurally
+cannot outrank: GradeThread's own crosslisting listicle sits at position 51.5
+while every other crosslisting page on the site ranks in the top 11, and the
+difference is that the listicle is a "best apps" list published by one of the
+apps. So the landing pages are not trying to win that SERP. Their job is to
+catch traffic that already arrived from the calculators, which makes the share
+of arrivals that start a signup the only number that says whether they work.
+
+The `calculator_grading_cta_click` event (US-9006) is the other exit from step
+one and uses the same `{source, destination}` pair described above.
+
 Related: [[buyer-economy]].

@@ -142,7 +142,12 @@ import { AUTHENTICITY_CHECK_PATH } from "@/lib/seo/authenticity-check";
 import { AuthenticityCheckPage } from "@/pages/tools/authenticity-check";
 import { FIT_CHECKER_PATH } from "@/lib/seo/fit-checker";
 import { FitCheckerPage } from "@/pages/tools/fit-checker";
-import { CALCULATOR_HUB_PATH, calculatorPath, liveCalculators } from "@/lib/seo/calculators";
+import {
+  CALCULATOR_HUB_PATH,
+  calculatorPageModule,
+  calculatorPath,
+  liveCalculators,
+} from "@/lib/seo/calculators";
 import { CalculatorHubPage } from "@/pages/tools/calculators";
 import { MeasurementConverterPage } from "@/pages/tools/measurement-converter";
 import { EbayFeeCalculatorPage } from "@/pages/tools/ebay-fee-calculator";
@@ -469,7 +474,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   [FIT_CHECKER_PATH]: `${M}tools/fit-checker`,
   [CALCULATOR_HUB_PATH]: `${M}tools/calculators`,
   ...Object.fromEntries(
-    liveCalculators().map((c) => [calculatorPath(c.slug), `${M}tools/${c.slug}`]),
+    liveCalculators().map((c) => [calculatorPath(c.slug), `${M}${calculatorPageModule(c)}`]),
   ),
   [FOR_BRANDS_PATH]: `${M}marketing/for-brands`,
 };
