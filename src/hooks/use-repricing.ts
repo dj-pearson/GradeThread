@@ -117,6 +117,7 @@ export function useApplyReprice() {
       });
       const data = (await res.json().catch(() => ({}))) as {
         applied?: boolean;
+        old_price?: number | null;
         new_price?: number;
         ebay_synced?: boolean;
         error?: string;
@@ -125,8 +126,13 @@ export function useApplyReprice() {
       return data;
     },
     onSuccess: (r) => {
+      // Both numbers. "New price $42.00" does not say whether that was a cut or
+      // a rise, and the row it came from has already moved on.
+      const move = typeof r.old_price === "number"
+        ? `$${r.old_price.toFixed(2)} to $${(r.new_price ?? 0).toFixed(2)}`
+        : `to $${(r.new_price ?? 0).toFixed(2)}`;
       toast.success(
-        `New price $${(r.new_price ?? 0).toFixed(2)} applied${r.ebay_synced ? " and pushed to eBay" : ""}.`,
+        `Price changed ${move}${r.ebay_synced ? " and pushed to eBay" : ""}.`,
       );
       queryClient.invalidateQueries({ queryKey: ["repricing_suggestions"] });
     },

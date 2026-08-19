@@ -1138,7 +1138,7 @@ export async function applyPriceSuggestion(
     
   const { data: suggestion } = await supabaseAdmin
     .from("repricing_suggestions")
-    .select("id, user_id, listing_id, suggested_price_cents")
+    .select("id, user_id, listing_id, suggested_price_cents, current_price_cents")
     .eq("id", id)
     .eq("user_id", ownerId)
     .maybeSingle();
@@ -1156,7 +1156,7 @@ export async function applyPriceSuggestion(
   // join is kept here since it also holds for any row predating the backfill.)
   const { data: listing } = await supabaseAdmin
     .from("listings")
-    .select("id, platform_offer_id, inventory_items!inner(user_id)")
+    .select("id, listing_price, platform_offer_id, inventory_items!inner(user_id)")
     .eq("id", listingId)
     .eq("inventory_items.user_id", ownerId)
     .maybeSingle();
@@ -1164,6 +1164,18 @@ export async function applyPriceSuggestion(
 
   const offerId = (listing as { platform_offer_id: string | null }).platform_offer_id;
   const hasLiveOffer = Boolean(offerId) && isEbayConfigured();
+
+  // US-9117: read the old price BEFORE the update overwrites it. Prefer the
+  // listing's live price; fall back to the price the suggestion was computed
+  // against, which is the number the seller was actually shown.
+  const listingPrice = (listing as { listing_price: number | null }).listing_price;
+  const suggestedFrom = (suggestion as { current_price_cents: number | null })
+    .current_price_cents;
+  const oldDollars = typeof listingPrice === "number"
+    ? listingPrice
+    : typeof suggestedFrom === "number"
+    ? suggestedFrom / 100
+    : null;
 
   // US-467: push to eBay FIRST. If the remote update fails we must NOT update
   // the local price (which would silently desync local vs eBay) and must NOT
@@ -1207,7 +1219,15 @@ export async function applyPriceSuggestion(
     .update({ status: "applied", applied_at: new Date().toISOString() })
     .eq("id", id);
 
-  return json({ applied: true, new_price: dollars, ebay_synced: hasLiveOffer });
+  // The old price travels with the answer. Every caller that has to say "was X,
+  // now Y" -- the dashboard row, the connector's audit trail -- otherwise has to
+  // go back and read a price this function has already overwritten.
+  return json({
+    applied: true,
+    old_price: oldDollars,
+    new_price: dollars,
+    ebay_synced: hasLiveOffer,
+  });
 }
 
 export async function dismissPriceSuggestion(
