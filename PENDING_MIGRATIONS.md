@@ -155,8 +155,25 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
-**No 🟠 entries as of 2026-08-19.** Everything through 00623 is applied and
-the deployed edge expects 00623.
+**⚠ 00621 AND 00622 ARE HELD, and this line used to say otherwise.** It
+was written when 00623 was the newest entry and it was true then. Two HELD
+entries were added ABOVE it afterwards, and a reader who stopped here would
+have taken "everything through 00623 is applied" as current. 00623 IS applied;
+00621 and 00622 are not.
+
+**The boot guard cannot catch this, by design.** `compareSchemaVersion` reads
+the HIGHEST applied version, so an applied 00623 reports `status: "match"`
+while two lower numbers are missing. The check that does see it is
+`checkSchemaCompleteness`, published on `/health/ready` as `schema.missing` —
+expect `["00621", "00622"]` there today. It is advisory rather than fatal
+(US-2009), so nothing stops a deploy over the gap.
+
+**00621 is the one with teeth.** `ai-listing.ts` writes `demand_terms_detail`
+into the listing insert unconditionally, so an edge carrying that code against a
+database without the column fails the insert. Apply 00621 before or with the
+edge deploy that includes it, not after.
+
+Read the two entries at the top of this file for the SQL and the risk notes.
 
 ## ✅ APPLIED (measured 2026-08-19): 00620 — OAuth authorization server storage (US-9122)
 
