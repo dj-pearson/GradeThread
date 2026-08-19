@@ -148,7 +148,7 @@ export const CALCULATORS: readonly Calculator[] = [
   },
   {
     slug: "poshmark-fee-calculator",
-    status: "planned",
+    status: "live",
     story: "US-9005",
     audience: "seller",
     title: "Poshmark Fee Calculator: What Poshmark Takes",
@@ -157,10 +157,35 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Poshmark fee calculator",
     cardBlurb: "The flat fee, the commission, and where the cutoff between them falls.",
     primaryKeyword: "how much does poshmark take",
+    secondaryKeywords: [
+      "how much does poshmark take",
+      "poshmark fees",
+      "poshmark commission",
+    ],
+    intro:
+      "Poshmark has the simplest fee structure of any resale app and the highest headline rate. Twenty percent, charged on the item price alone. No listing fee, no payment processing fee, nothing hidden underneath it. The catch is at the bottom of the range: anything under $15 is charged a flat $2.95 instead, which on a $10 sale works out to 29.5%. That is the number worth knowing before you list a cheap item, and it is why the $15 line is the most important price point on the platform.",
+    faqs: [
+      {
+        q: "How much does Poshmark take?",
+        a: "Twenty percent of the sale price on anything $15 or over, and a flat $2.95 on anything under $15. There is no listing fee, no monthly subscription and no separate payment processing fee, which is unusual: on most platforms the headline rate is only part of what you pay.",
+      },
+      {
+        q: "Why is the fee on a cheap item so high?",
+        a: "Because $2.95 is a flat fee, not a percentage. On a $14 sale it is 21%, on a $10 sale it is 29.5%, and on a $5 sale it is 59%. Twenty percent would have been cheaper on every one of those. If you are listing something near the line, pricing it at $15 rather than $14 leaves you with more money.",
+      },
+      {
+        q: "Does Poshmark charge a fee on shipping?",
+        a: "No. The buyer pays a flat shipping rate directly to Poshmark and gets a prepaid label, so the postage never passes through your account and the 20% is charged on the item price alone. This is genuinely different from eBay and Etsy, which both charge their percentage on the shipping you collect.",
+      },
+      {
+        q: "Is Poshmark more expensive than Mercari or Depop?",
+        a: "On the headline rate, yes, by a wide margin. In practice it depends on the item. Poshmark's 20% of a $40 item is $8.00. Mercari's 10% of the same sale with $8 shipping is $4.80. Depop charges US sellers nothing to sell and only takes processing, about $2.13. The comparison table on this page runs your own numbers through all five.",
+      },
+    ],
   },
   {
     slug: "mercari-fee-calculator",
-    status: "planned",
+    status: "live",
     story: "US-9005",
     audience: "seller",
     title: "Mercari Fee Calculator: Your Real Payout",
@@ -169,10 +194,35 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Mercari fee calculator",
     cardBlurb: "Selling fee, processing cut, and who ends up paying the postage.",
     primaryKeyword: "mercari fee calculator",
+    secondaryKeywords: [
+      "mercari fees",
+      "how much does mercari take",
+      "mercari selling fee",
+    ],
+    intro:
+      "Mercari spent 2024 charging sellers nothing and moving the cost to buyers. It ended that on 6 January 2025. The structure now is a flat 10% selling fee, charged on the item price plus any shipping the buyer paid, and no payment processing fee at all, because the old 2.9% plus $0.50 was removed rather than folded in. Buyers pay a separate 3.6% Buyer Protection fee, which is not your cost but is your conversion rate.",
+    faqs: [
+      {
+        q: "How much does Mercari take from a sale?",
+        a: "Ten percent, charged on the item price plus buyer-paid shipping. On a $40 item with $8 shipping that is $4.80. There is no payment processing fee on top, which is the part sellers coming from eBay or Etsy do not expect, and no listing fee.",
+      },
+      {
+        q: "Did Mercari get rid of seller fees?",
+        a: "It did, and then it changed its mind. The zero-seller-fee structure ran through 2024 and ended on 6 January 2025, replaced by the flat 10%. The trade was real, though: the 2.9% plus $0.50 payment processing fee that used to sit under the old selling fee is gone for good.",
+      },
+      {
+        q: "What is the Mercari Buyer Protection fee?",
+        a: "A flat 3.6% the buyer pays on the item price plus shipping. It does not come out of your payout. It does raise what the buyer sees at checkout, so a $40 listing costs them about $1.73 more than the price on the screen, which is worth knowing when you set a price against a competing listing on another app.",
+      },
+      {
+        q: "Does Mercari charge on shipping?",
+        a: "Yes, when the buyer pays it. The 10% is charged on the completed item price and the buyer-paid shipping together. If you ship on your own label and build the cost into the item price instead, the fee is charged on the higher item price, so it comes to the same thing.",
+      },
+    ],
   },
   {
     slug: "depop-fee-calculator",
-    status: "planned",
+    status: "live",
     story: "US-9005",
     audience: "seller",
     title: "Depop Fee Calculator: What You Keep on a Sale",
@@ -181,10 +231,35 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Depop fee calculator",
     cardBlurb: "Depop's cut, next to what the same item nets on four other platforms.",
     primaryKeyword: "depop fee calculator",
+    secondaryKeywords: [
+      "depop fees",
+      "does depop charge selling fees",
+      "depop boosted listings fee",
+    ],
+    intro:
+      "Depop stopped charging US sellers a selling fee on 18 July 2024, which makes it the cheapest of the five platforms to sell on and the most misunderstood. The money did not vanish, it moved to the buyer, who now pays a marketplace fee of up to 5% plus up to $1 at checkout. What you still pay is payment processing: 3.3% plus $0.45, charged on the item price plus shipping plus tax. And if you boost a listing, that costs 12%, which is more than several platforms charge to sell at all.",
+    faqs: [
+      {
+        q: "Does Depop still charge a selling fee?",
+        a: "Not for sellers based in the US, the UK or Australia. The 10% selling fee was removed for US sellers on 18 July 2024 and has not come back. Sellers outside those three countries still pay 10%. What every US seller still pays is the payment processing fee.",
+      },
+      {
+        q: "What does Depop actually cost me per sale?",
+        a: "3.3% plus $0.45, charged on the item price plus shipping plus any applicable tax. On a $40 item with $8 shipping and $3 tax that is $2.13, or about 5.3% of the item price. That is roughly a third of what the same sale costs on Poshmark.",
+      },
+      {
+        q: "Is boosting a Depop listing worth it?",
+        a: "It costs 12% of the item price plus shipping, charged only when the boosted item sells. Look at that number against what the platform charges to sell without it, which is zero. Boosting turns Depop from the cheapest platform in this comparison into one that costs more than Mercari. It can still pay for itself, but it has to earn that 12%, not just spend it.",
+      },
+      {
+        q: "What does the buyer pay on Depop?",
+        a: "Up to 5% of the item price plus up to $1, excluding taxes and postage, introduced the same day the seller fee was removed. It is not your cost, but it is on the screen when someone decides whether to buy, so a $40 listing looks like roughly $43 to them.",
+      },
+    ],
   },
   {
     slug: "etsy-fee-calculator",
-    status: "planned",
+    status: "live",
     story: "US-9005",
     audience: "seller",
     title: "Etsy Fee Calculator for Resale Sellers",
@@ -193,6 +268,31 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Etsy fee calculator",
     cardBlurb: "Listing, transaction, processing and offsite ads on one vintage listing.",
     primaryKeyword: "etsy fee calculator",
+    secondaryKeywords: [
+      "etsy fees",
+      "how much does etsy take",
+      "etsy offsite ads fee",
+    ],
+    intro:
+      "Etsy has the lowest headline rate of the five and is not the cheapest, because the headline rate is three fees short of the answer. The 6.5% transaction fee is charged on the item price plus the shipping you collect. Under it sits 3% plus $0.25 payment processing, and under that a $0.20 listing fee charged when you list and again every four months whether the item sells or not. Then there is Offsite Ads, which is 15%, becomes 12% and mandatory once your shop passes $10,000 in a rolling year, and cannot be switched off after that for the life of the shop.",
+    faqs: [
+      {
+        q: "How much does Etsy take from a sale?",
+        a: "For a US seller: 6.5% of the item price plus shipping, plus 3% and $0.25 for payment processing, plus $0.20 for the listing. On a $40 item with $8 shipping that is $5.01 in total, or 12.5% of the item price. The 6.5% on its own would have been $3.12.",
+      },
+      {
+        q: "What are Etsy Offsite Ads and can I turn them off?",
+        a: "Etsy advertises your listings on Google, social platforms and partner sites, and charges you when a buyer clicks one and buys within 30 days. The fee is 15% if your shop has always made under $10,000 in a rolling 365-day period, and you can opt out. Once the shop passes $10,000 the rate drops to 12% and participation becomes mandatory for the lifetime of the shop, even if sales fall back below the threshold.",
+      },
+      {
+        q: "Does Etsy charge a fee on shipping?",
+        a: "Yes. The 6.5% transaction fee applies to the total order, which includes any shipping and gift wrap you charge the buyer. Offering free shipping does not avoid it, because the cost is inside the item price instead, and Etsy charges on that too.",
+      },
+      {
+        q: "Is Etsy worth it for reselling used clothing?",
+        a: "Etsy's rules require handmade, vintage over 20 years old, or craft supplies, so ordinary used clothing does not belong there at all. Genuine vintage does, and it is one of the better places for it. If your inventory is mostly recent secondhand, the fee comparison is beside the point: check the category rules first.",
+      },
+    ],
   },
   {
     slug: "reseller-profit-calculator",

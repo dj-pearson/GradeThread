@@ -104,15 +104,18 @@
     },
     {
       "id": "US-9005",
-      "passes": false,
+      "passes": true,
       "title": "Fee calculators for Poshmark, Mercari, Depop and Etsy",
       "description": "As a seller who lists across several marketplaces, I want the same fee calculator for each of them, so that I can compare what a given item nets on each platform.",
       "acceptanceCriteria": [
-        "One page per marketplace under /tools/{marketplace}-fee-calculator, generated from the shared calculator family rather than four hand-built pages.",
-        "Each uses the same dated fee-schedule module shape as the eBay calculator, so a platform rate change is a one-file edit.",
-        "A cross-platform comparison view shows the same item's net across all five marketplaces and links to the relevant /compare/ page.",
-        "Targets registered in keyword-targets.ts: `depop fee calculator` (5,000/mo, flagged growing), `etsy fee calculator` (5,000/mo), `how much does poshmark take` (5,000/mo), `poshmark fee calculator` and `mercari fee calculator` (500/mo each).",
-        "A unit test asserts one worked example per marketplace against hand-computed totals."
+        "One page per marketplace under /tools/{marketplace}-fee-calculator, generated from the shared calculator family rather than four hand-built pages. DONE. ONE component, src/pages/tools/marketplace-fee-calculator.tsx, parameterised by MarketplaceKey and exported four times. Everything that differs between the platforms is data in the fee schedule or the calculator registry.",
+        "Each uses the same dated fee-schedule module shape as the eBay calculator, so a platform rate change is a one-file edit. DONE. src/lib/marketplace-fee-schedules.ts holds all four in one shape: a rate, a base, at most one threshold rule, processing, listing fee, promotion and buyer fee.",
+        "A cross-platform comparison view shows the same item's net across all five marketplaces and links to the relevant /compare/ page. DONE, on every one of the four pages, sorted by payout, with the /compare/ link resolved in either direction and omitted when no page exists (Etsy has none, so it shows none rather than linking to a 404).",
+        "Targets registered in keyword-targets.ts: `depop fee calculator`, `etsy fee calculator`, `how much does poshmark take`, `poshmark fee calculator` and `mercari fee calculator`. DONE, four entries with three secondaries and three question targets each.",
+        "A unit test asserts one worked example per marketplace against hand-computed totals. DONE, 15 tests in src/lib/__tests__/marketplace-fee-schedules.test.ts. All five worked examples pass on the same $40 item with $8 shipping and $3 tax.",
+        "SOURCING: every rate was read off the marketplace's OWN fee page and confirmed against a second source before it entered the code. Poshmark from its Posh Guide, Mercari from help_center article 2518, Depop from its Help Centre fee table and its own newsroom announcement, Etsy from Etsy Fee Basics plus the per-country processing table plus the Offsite Ads page. Working in docs/seo/marketplace-fees-CONFIRMED.csv. Third story running this procedure.",
+        "EBAY IS NOT DUPLICATED. The comparison row calls calculateEbayFees() from the existing eBay module rather than re-entering its rates, so the table and /tools/ebay-fee-calculator cannot drift apart. A test asserts eBay is the only one of the five charging on sales tax.",
+        "THE FINDING: headline rates are not comparable, because the five charge them on five different bases. On a $40 item with $8 shipping and $3 tax, Depop nets $45.87 and Poshmark nets $40.00, a $5.87 spread, and the platform with the LOWEST headline rate (Etsy at 6.5%) finishes third. That comparison is the reason the page exists rather than four separate answers."
       ],
       "priority": 7,
       "dependsOn": [

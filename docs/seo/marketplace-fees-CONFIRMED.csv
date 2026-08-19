@@ -1,0 +1,40 @@
+# Working record for src/lib/marketplace-fee-schedules.ts (US-9005).
+# Every rate in the module traces to a row here. Source A is the marketplace's
+# OWN fee page, read 2026-08-18. Source B is an independent second source.
+# Nothing entered the code until both agreed.
+#
+# This procedure exists because US-9003's first draft carried 13.25% for
+# apparel, which is a real eBay rate belonging to Coins & Paper Money. US-9004
+# followed it for USPS. This is the third time.
+#
+platform,item,source_a_value,source_a_url,source_b_value,agree,note
+poshmark,selling commission,20% of item price,https://poshmark.com/posh_guide/get_started_on_poshmark,20%,yes,charged on the item price only
+poshmark,flat fee under $15,$2.95,https://poshmark.com/posh_guide/get_started_on_poshmark,$2.95,yes,replaces the 20%; on a $10 sale it is 29.5%
+poshmark,payment processing,none,https://poshmark.com/posh_guide/get_started_on_poshmark,none,yes,no separate processing fee
+poshmark,listing fee,none,https://poshmark.com/posh_guide/get_started_on_poshmark,none,yes,
+mercari,selling fee,10% of item price plus buyer-paid shipping,https://www.mercari.com/us/help_center/article/2518/,10%,yes,"exact wording: flat 10% selling fee on the completed item price and buyer-paid shipping"
+mercari,payment processing,none,https://www.mercari.com/us/help_center/article/2518/,none,yes,"exact wording: no additional payment processing fee for either buyers or sellers"
+mercari,buyer protection fee,3.6%,https://www.mercari.com/us/help_center/article/2518/,3.6%,yes,paid by the buyer; not a seller cost
+mercari,effective date,2025-01-06,https://www.mercari.com/us/help_center/article/2518/,January 2025,yes,ended the zero-seller-fee experiment
+depop,selling fee US,0%,https://depophelp.zendesk.com/hc/en-gb/articles/360001791127-Seller-fees-and-charges,0%,yes,"no Depop selling fees for sellers based in UK, US or AUS"
+depop,payment processing US,3.3% + $0.45,https://depophelp.zendesk.com/hc/en-gb/articles/360001791127-Seller-fees-and-charges,3.3% + $0.45,yes,charged on item sale price plus shipping plus applicable taxes
+depop,boosting fee,12%,https://depophelp.zendesk.com/hc/en-gb/articles/360001791127-Seller-fees-and-charges,12%,yes,"UK and US, new listings from 23 March 2026; 8% elsewhere"
+depop,buyer marketplace fee,up to 5% plus up to $1,https://news.depop.com/company-news/depop-removes-selling-fees-in-the-united-states-evolves-fee-structure/,up to 5% + $1,yes,excludes taxes and postage
+depop,effective date,2024-07-18,https://news.depop.com/company-news/depop-removes-selling-fees-in-the-united-states-evolves-fee-structure/,July 18 2024,yes,selling fee removed and buyer fee introduced same day
+etsy,listing fee,$0.20 per listing,https://help.etsy.com/hc/en-us/articles/360035902374-Etsy-Fee-Basics,$0.20,yes,charged whether or not the item sells; renews every 4 months
+etsy,transaction fee,6.5% of total order,https://help.etsy.com/hc/en-us/articles/360035902374-Etsy-Fee-Basics,6.5%,yes,includes shipping and gift wrap you charge the buyer
+etsy,payment processing US,3% + $0.25,https://help.etsy.com/hc/en-us/articles/115015628847-What-are-Payment-Processing-Fees-for-Selling-on-Etsy,3% + $0.25,yes,read off Etsy's own per-country table
+etsy,offsite ads standard,15%,https://help.etsy.com/hc/en-us/articles/360000338367-How-Etsy-s-Offsite-Ads-Work,15%,yes,shops under $10000 in a rolling 365 days; optional
+etsy,offsite ads discounted,12%,https://help.etsy.com/hc/en-us/articles/360000338367-How-Etsy-s-Offsite-Ads-Work,12%,yes,"shops at or over $10000; mandatory for the lifetime of the shop"
+etsy,offsite ads cap,$100 per order,https://help.etsy.com/hc/en-us/articles/360000338367-How-Etsy-s-Offsite-Ads-Work,$100,yes,not modelled; no clothing order reaches it
+ebay,apparel rate,13.6% + $0.40,src/lib/ebay-fee-schedule.ts,13.6%,yes,not re-entered here; the comparison calls the eBay module directly
+#
+# NOT MODELLED, and why:
+# - Poshmark buyer shipping ($7.67 flat) is paid by the buyer to Poshmark and
+#   never touches the seller's ledger, so it is not a fee.
+# - Etsy's $100 Offsite Ads cap per order. A clothing order would need to be
+#   $667 at 15% to reach it.
+# - Depop and Etsy currencies other than USD. These calculators are US only,
+#   and the pages say so.
+# - Mercari Instant Pay ($3 per transfer). It is a withdrawal choice, not a
+#   sale cost.

@@ -147,6 +147,12 @@ import { CalculatorHubPage } from "@/pages/tools/calculators";
 import { MeasurementConverterPage } from "@/pages/tools/measurement-converter";
 import { EbayFeeCalculatorPage } from "@/pages/tools/ebay-fee-calculator";
 import { EbayShippingCalculatorPage } from "@/pages/tools/ebay-shipping-calculator";
+import {
+  PoshmarkFeeCalculatorPage,
+  MercariFeeCalculatorPage,
+  DepopFeeCalculatorPage,
+  EtsyFeeCalculatorPage,
+} from "@/pages/tools/marketplace-fee-calculator";
 import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
 import { ForBrandsPage } from "@/pages/marketing/for-brands";
 
@@ -159,6 +165,10 @@ const CALCULATOR_PAGES: Record<string, React.ReactNode> = {
   "measurement-converter": <MeasurementConverterPage />,
   "ebay-fee-calculator": <EbayFeeCalculatorPage />,
   "ebay-shipping-calculator": <EbayShippingCalculatorPage />,
+  "poshmark-fee-calculator": <PoshmarkFeeCalculatorPage />,
+  "mercari-fee-calculator": <MercariFeeCalculatorPage />,
+  "depop-fee-calculator": <DepopFeeCalculatorPage />,
+  "etsy-fee-calculator": <EtsyFeeCalculatorPage />,
 };
 
 const PAGES: Record<string, React.ReactNode> = {

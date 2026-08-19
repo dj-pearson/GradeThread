@@ -271,6 +271,70 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    path: "/tools/poshmark-fee-calculator",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "how much does poshmark take",
+    secondary: [
+      "poshmark fee calculator",
+      "poshmark fees",
+      "poshmark commission",
+    ],
+    questions: [
+      "how much does poshmark take",
+      "why is the poshmark fee on a cheap item so high",
+      "does poshmark charge a fee on shipping",
+    ],
+  },
+  {
+    path: "/tools/mercari-fee-calculator",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "mercari fee calculator",
+    secondary: [
+      "mercari fees",
+      "how much does mercari take",
+      "mercari selling fee",
+    ],
+    questions: [
+      "how much does mercari take from a sale",
+      "did mercari get rid of seller fees",
+      "what is the mercari buyer protection fee",
+    ],
+  },
+  {
+    path: "/tools/depop-fee-calculator",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "depop fee calculator",
+    secondary: [
+      "depop fees",
+      "does depop charge selling fees",
+      "depop boosted listings fee",
+    ],
+    questions: [
+      "does depop still charge a selling fee",
+      "what does depop cost per sale",
+      "is boosting a depop listing worth it",
+    ],
+  },
+  {
+    path: "/tools/etsy-fee-calculator",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "etsy fee calculator",
+    secondary: [
+      "etsy fees",
+      "how much does etsy take",
+      "etsy offsite ads fee",
+    ],
+    questions: [
+      "how much does etsy take from a sale",
+      "what are etsy offsite ads",
+      "does etsy charge a fee on shipping",
+    ],
+  },
+  {
     path: "/tools/measurement-converter",
     cluster: "reseller-tools",
     intent: "informational",
