@@ -1,4 +1,4 @@
-import { Loader2, Plus, Sparkles, TrendingUp, Wand2 } from "lucide-react";
+import { Loader2, Plus, Search, Sparkles, TrendingUp, Wand2 } from "lucide-react";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +27,7 @@ type TitleQuality = ReturnType<typeof titleQuality>;
  */
 export interface TitleChip {
   token: string;
-  evidence?: "sold" | "active";
+  evidence?: "ebay_search" | "sold" | "active";
 }
 export interface TitleCardProps {
   title: string;
@@ -334,11 +334,16 @@ export function TitleCard({
           {titleChips.map((chip) => {
             const kw = chip.token;
             const fits = chipFits(kw) && !isEbayOrigin;
-            // US-2675: only "sold" is marked. Marking "active" too would put a
-            // badge on nearly every chip, which reads as decoration and stops
-            // meaning anything -- the point is that a few of them are backed by
-            // items that actually sold.
+            // US-2675: "active" is never marked. Badging nearly every chip reads
+            // as decoration and stops meaning anything -- the point is that a
+            // few are backed by something stronger than other sellers' wording.
+            //
+            // US-2683 added a second, stronger mark. An eBay search term is a
+            // query a buyer TYPED against this seller's own items, which is the
+            // only evidence here that is not an inference, so it gets its own
+            // icon rather than sharing the sold one.
             const soldBacked = chip.evidence === "sold";
+            const searchBacked = chip.evidence === "ebay_search";
             return (
               <button
                 key={kw}
@@ -350,9 +355,11 @@ export function TitleCard({
                     ? ebayOwnedHint
                     : !fits
                       ? "Won't fit in 80 characters"
-                      : soldBacked
-                        ? "Common in titles of items that sold, not just in what other sellers are asking"
-                        : undefined
+                      : searchBacked
+                        ? "Buyers typed this to find your items — from your eBay Promoted Listings report"
+                        : soldBacked
+                          ? "Common in titles of items that sold, not just in what other sellers are asking"
+                          : undefined
                 }
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs",
@@ -363,6 +370,12 @@ export function TitleCard({
               >
                 <Plus className="h-3 w-3" />
                 {kw}
+                {searchBacked && (
+                  <>
+                    <Search className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    <span className="sr-only">buyers searched this</span>
+                  </>
+                )}
                 {soldBacked && (
                   <>
                     <TrendingUp className="h-3 w-3 shrink-0" aria-hidden="true" />

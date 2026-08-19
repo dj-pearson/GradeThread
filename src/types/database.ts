@@ -1189,8 +1189,13 @@ export type SlabImageMode = "off" | "hero" | "extra";
  * actually sold; `active` means it came only from what other sellers are
  * currently asking. Only the first is buyer demand, which is the whole reason
  * the distinction is stored rather than inferred.
+ *
+ * US-2683 added `ebay_search`, which outranks both: a query a buyer actually
+ * TYPED against this seller's own items, from eBay's Promoted Listings report.
+ * Sold titles are still seller writing weighted by outcome; this is not an
+ * inference at all.
  */
-export type DemandTermSource = "sold" | "active";
+export type DemandTermSource = "ebay_search" | "sold" | "active";
 
 export interface DemandTermDetail {
   term: string;

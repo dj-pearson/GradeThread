@@ -1,3 +1,4 @@
+import { handleEbaySearchTermsCron } from "./routes/jobs-ebay-search-terms.ts";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
@@ -1327,6 +1328,8 @@ app.route("/api/support/assistant", supportAssistantRoutes);
 // middleware above doesn't intercept it; the handler enforces
 // X-Internal-Job-Secret itself (mirrors the GSC sync cron).
 app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
+// US-2683: eBay Promoted Listings search-term ingest, daily.
+app.post("/api/jobs/ebay-search-terms", (c) => handleEbaySearchTermsCron(c));
 // US-672 repricing-automation cron — applies owner-defined rules. Same
 // X-Internal-Job-Secret gate as reprice-scan.
 app.post("/api/jobs/reprice-rules", (c) => handleRepriceRulesCron(c));

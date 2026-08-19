@@ -18,6 +18,9 @@ import { searchBrowseComps } from "./ebay-client.ts";
 // US-2675: the same floor the pricing path uses to decide sold data is
 // trustworthy. Imported rather than restated so the two cannot drift.
 import { getRealizedCompTitles, MIN_SOLD_COMPS } from "./sold-comps.ts";
+// US-2683: the add/remove verdict for a seller's own eBay search terms. One
+// definition, in the module that owns the reports.
+import { loadSearchTerms, type SearchTermRow, termVerdict } from "./ebay-ad-reports.ts";
 
 // Words that carry no search-demand signal: generic filler, condition/marketing
 // boilerplate, and pronouns. Kept lowercase; matched case-insensitively.
@@ -68,12 +71,19 @@ export interface MineDemandOptions {
 }
 
 /**
- * Where a term's evidence came from. US-2675: `active` means other sellers are
- * WRITING it; `sold` means listings carrying it actually SOLD. Only the second
- * is buyer demand -- the first is seller language, which is what this miner
- * mistook for demand until now.
+ * Where a term's evidence came from.
+ *
+ * US-2675: `active` means other sellers are WRITING it; `sold` means listings
+ * carrying it actually SOLD. Only the second is buyer demand -- the first is
+ * seller language, which is what this miner mistook for demand until now.
+ *
+ * US-2683 added `ebay_search`, and it outranks both. Sold titles are still
+ * SELLER writing, weighted by outcome; an eBay search term is a query a buyer
+ * actually TYPED against this seller's own items. That is the only source here
+ * that is not an inference, which is why it wins outright rather than being
+ * blended in.
  */
-export type DemandTermSource = "sold" | "active";
+export type DemandTermSource = "ebay_search" | "sold" | "active";
 
 export interface DemandTerm {
   term: string;
@@ -295,6 +305,13 @@ export function mineDemandTermsFromTitles(
 }
 
 export interface DemandTermArgs {
+  /**
+   * US-2683: the resolved owner, so the seller's OWN eBay search terms can lead
+   * the pool. Optional — without it the answer is the mined pool alone, which
+   * is exactly what every caller got before and what a seller with no Priority
+   * campaign gets now.
+   */
+  ownerId?: string | null;
   brand?: string | null;
   categoryId?: string | null;
   // Extra query hint (e.g. the item's current title or a style code).
@@ -374,9 +391,17 @@ export async function getEbaySearchDemandTermsDetailed(
     })
     : [];
 
-  if (activeTitles.length === 0 && soldTitles.length === 0) return [];
+  // US-2683: the seller's own eBay search terms, which are the only source here
+  // that is not an inference. Loaded before the early return, because a seller
+  // with real search terms and no comps at all still has something to say.
+  const sellerTerms = args.ownerId ? await loadSearchTerms(args.ownerId, { limit: max * 4 }) : [];
 
-  return mineDemandTermsWithLift(soldTitles, activeTitles, { seedTerms, max });
+  if (activeTitles.length === 0 && soldTitles.length === 0 && sellerTerms.length === 0) {
+    return [];
+  }
+
+  const mined = mineDemandTermsWithLift(soldTitles, activeTitles, { seedTerms, max });
+  return preferSellerSearchTerms(sellerTerms, mined, { max });
 }
 
 // ── US-546 (AC3): A/B title-variant sell-through summary ───────────────────
@@ -430,5 +455,59 @@ export function summarizeTitleVariantSellThrough(
     });
   }
   out.sort((a, b) => b.sellThrough - a.sellThrough || (a.label < b.label ? -1 : 1));
+  return out;
+}
+
+// ── US-2683: the seller's own eBay search terms ────────────────────────────
+
+/**
+ * Fold a seller's own eBay search terms into a mined pool, ahead of it.
+ *
+ * PREFERENCE, NOT A MERGE. An eBay search term and a mined term are different
+ * kinds of evidence and averaging them would produce a number that means
+ * neither: a query buyers typed 400 times is not comparable to a word that
+ * appeared in 9 of 50 sold titles. So the eBay terms lead, in their own order,
+ * and the mined pool fills whatever `max` is left.
+ *
+ * A term present in both keeps its eBay provenance and is not repeated -- the
+ * chip should say the strongest thing true of it.
+ *
+ * Terms the report marks REMOVE are excluded entirely (US-2683 AC6): a query
+ * with impressions and no clicks is buyers seeing this listing and rejecting it
+ * at the thumbnail, so putting it in a title spends characters to attract
+ * traffic that has already said no.
+ */
+export function preferSellerSearchTerms(
+  sellerTerms: SearchTermRow[],
+  mined: DemandTerm[],
+  opts: { max?: number; minImpressions?: number } = {},
+): DemandTerm[] {
+  const max = opts.max ?? 12;
+
+  const out: DemandTerm[] = [];
+  const seen = new Set<string>();
+
+  for (const t of sellerTerms ?? []) {
+    const term = (t.term ?? "").trim().toLowerCase();
+    if (!term || seen.has(term)) continue;
+    // Only "add" gets through. "remove" is a term buyers saw and rejected, and
+    // "not_enough_data" is a term nobody has seen enough of to say either way --
+    // suggesting the second would be inventing evidence. The rule lives in
+    // ebay-ad-reports.ts, where it is defined and tested; duplicating it here
+    // is how the two would come to disagree.
+    if (termVerdict(t, opts.minImpressions) !== "add") continue;
+    seen.add(term);
+    out.push({ term, count: t.impressions, source: "ebay_search" });
+    if (out.length >= max) return out;
+  }
+
+  for (const t of mined ?? []) {
+    const key = t.term.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+    if (out.length >= max) break;
+  }
+
   return out;
 }

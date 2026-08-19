@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-15
+reviewed: 2026-08-19
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a two-entry exemption list that carries repayment triggers.
 ---
@@ -133,6 +133,34 @@ the table holds a handful of rows per user, so the planner win is single-digit;
 the migration is already applied and therefore immutable, so the correct form
 needs a NEW migration; and RLS DDL cannot be validated without Docker, so that
 migration would ship unverified.
+
+## The connector tables (added 2026-08-18, recorded 2026-08-19)
+
+The MCP connector work registered six more tables in `SERVICE_ROLE_ONLY` and
+this note did not follow them, which is the drift the guard is for. All six are
+deny-all in BOTH directions, and in each case the write side is the sharper
+risk rather than the read:
+
+| Table | Readable, it is | Writable, it would let a caller |
+|---|---|---|
+| `oauth_clients` | which integrations exist | register their own |
+| `oauth_grants` | which sellers connected what, and when | mint a grant and skip the consent screen |
+| `oauth_authorization_codes` | a short-lived exchange in flight | forge one |
+| `oauth_refresh_tokens` | who holds long-lived access | issue themselves some |
+| `oauth_access_tokens` | who is currently connected | impersonate a seller |
+| `mcp_tool_calls` | every seller's connector activity: which items, when, how often | fabricate the record that exonerates them |
+
+Secrets in the OAuth tables are stored hashed, so even a read is not a read of
+credentials — it is a read of who authorized whom, which is its own disclosure.
+The audit log is the one where writability is the whole point: an audit log a
+caller can edit is not an audit log.
+
+**`ebay_search_terms` (00622, US-2683) is deliberately NOT here.** It carries a
+per-seller RLS SELECT policy, so a seller reads their own rows through the anon
+key like any other tenant table. It is listed for contrast because it looks like
+an operator table at a glance — written only by a cron, through the service-role
+client — and it is not one. The test for that distinction is whether a SELLER
+has any business reading it, and here they do: they are their own search terms.
 
 | File | Table | Repay when |
 |---|---|---|

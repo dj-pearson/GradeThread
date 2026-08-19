@@ -1511,3 +1511,98 @@ export async function deleteItemPromotion(
     { method: "DELETE" },
   );
 }
+
+// ── US-2683: the Promoted Listings report transport ────────────────────────
+//
+// The three eBay calls behind the search-term ingest. They live HERE because
+// this module owns the authed Marketing fetch and the campaign state, and they
+// are REGISTERED into ebay-ad-reports.ts rather than imported by it — that
+// keeps the parsing and the add/remove verdict, which is where the real logic
+// is, unit-testable without an eBay account.
+
+import {
+  type AdReportType,
+  registerAdReportTransport,
+} from "./ebay-ad-reports.ts";
+
+/** ISO date, N days back from now, as eBay's report window wants it. */
+function isoDaysAgo(days: number): string {
+  return new Date(Date.now() - days * 86_400_000).toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+registerAdReportTransport({
+  createTask: async (userId, reportType: AdReportType, windowDays) => {
+    try {
+      const campaignId = await cpcCampaignIdFor(userId);
+      if (!campaignId) return { unavailable: true as const, reason: "no CPC campaign" };
+
+      const { location } = await marketingFetch<unknown>(
+        userId,
+        "/sell/marketing/v1/ad_report_task",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            campaignIds: [campaignId],
+            reportType,
+            dateFrom: isoDaysAgo(windowDays),
+            dateTo: isoDaysAgo(0),
+            reportFormat: "TSV_GZIP",
+            marketplaceId: getMarketplaceId(),
+          }),
+        },
+      );
+      // eBay returns the task id in the Location header, not the body.
+      const taskId = (location ?? "").split("/").filter(Boolean).pop() ?? "";
+      if (!taskId) return { unavailable: true as const, reason: "no task id returned" };
+      return { taskId };
+    } catch (err) {
+      // A 400 here is the ordinary answer for an account eBay does not expose
+      // this report type on, so it is "unavailable" rather than "failed".
+      return {
+        unavailable: true as const,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+  },
+
+  taskStatus: async (userId, taskId) => {
+    const { body } = await marketingFetch<{
+      reportTaskStatus?: string;
+      reportId?: string;
+      reportTaskStatusReason?: string;
+    }>(userId, `/sell/marketing/v1/ad_report_task/${encodeURIComponent(taskId)}`);
+
+    const state = (body.reportTaskStatus ?? "").toUpperCase();
+    if (state === "SUCCESS" && body.reportId) {
+      return { state: "done" as const, reportId: body.reportId };
+    }
+    if (state === "FAILED") {
+      return {
+        state: "failed" as const,
+        reason: body.reportTaskStatusReason ?? "eBay reported FAILED with no reason",
+      };
+    }
+    return { state: "pending" as const };
+  },
+
+  download: async (userId, reportId) => {
+    const { body } = await marketingFetch<string>(
+      userId,
+      `/sell/marketing/v1/ad_report/${encodeURIComponent(reportId)}`,
+    );
+    return typeof body === "string" ? body : JSON.stringify(body);
+  },
+});
+
+/** The seller's CPC campaign id, or null. Read, never created, on this path. */
+async function cpcCampaignIdFor(userId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from("marketplace_connections")
+    .select("ebay_cpc_campaign_id")
+    .eq("user_id", userId)
+    .eq("marketplace", "ebay")
+    .eq("is_active", true)
+    .maybeSingle();
+  const id = (data as { ebay_cpc_campaign_id?: string | null } | null)?.ebay_cpc_campaign_id;
+  return typeof id === "string" && id.trim().length > 0 ? id : null;
+}

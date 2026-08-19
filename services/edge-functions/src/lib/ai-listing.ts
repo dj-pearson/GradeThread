@@ -1713,6 +1713,8 @@ export async function generateListing(
   // prompt still gets plain words -- the model has no use for the provenance,
   // and the seller looking at the chip is the one who does.
   const demandTermDetail = await getEbaySearchDemandTermsDetailed({
+    // US-2683: so the seller's own eBay search terms lead the pool.
+    ownerId,
     brand: normalizedBrand,
     categoryId,
     query: demandQueryHint || null,

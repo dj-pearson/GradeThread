@@ -270,6 +270,12 @@ export const CRON_REGISTRY: CronDef[] = [
   // US-1645: recorded via the eBay-cron recorder (cronNameForPath) so a missed
   // run signals in the cron_runs ledger.
   { name: "ebay-performance-sync", label: "eBay performance sync", schedule: "0 */6 * * *", category: "sync", endpoint: "/api/flipdesk/ebay/sync/performance", recorded: true },
+  // US-2683: eBay's own buyer search terms, from the Promoted Listings reports.
+  // Daily, because the reports cover a 30-day window and eBay regenerates them
+  // on its own clock — a tighter cadence re-downloads the same numbers. A
+  // healthy run is usually mostly no_campaign: the report only exists for a
+  // seller running Priority, and most are not.
+  { name: "ebay-search-terms", label: "eBay search-term ingest", schedule: "25 6 * * *", category: "sync", endpoint: "/api/jobs/ebay-search-terms", recorded: true, healthy: "200 with {ok:true, owners, stored, no_campaign, ...}; owners is 0 on an account with no Priority campaigns" },
   { name: "ebay-publish-due", label: "Scheduled publish-due", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/flipdesk/ebay/jobs/publish-due", recorded: true },
   // Recorded via recordEbayCron mounted on the sync/push path (cronNameForPath),
   // so a missed/failed 5-min sheet sync signals in the cron_runs ledger + ops stream.

@@ -258,7 +258,7 @@ export type SuggestionSource = "demand" | "aspect";
  * from what other sellers are currently asking. Undefined means the draft
  * predates the distinction being recorded, which is not the same as "active".
  */
-export type DemandEvidence = "sold" | "active";
+export type DemandEvidence = "ebay_search" | "sold" | "active";
 
 /** A demand term that knows where it came from (listings.demand_terms_detail). */
 export interface DemandTermInput {

@@ -17,7 +17,7 @@ code_refs:
   - supabase/migrations/00587_item_photo_role_qualifier.sql
   - supabase/migrations/00589_submission_image_role.sql
   - services/edge-functions/src/routes/flipdesk-grading.ts
-reviewed: 2026-08-17
+reviewed: 2026-08-19
 tags: [flipdesk, photos, listings, ebay, contract]
 summary: Two independent levers (canonical order and required set) duplicated across ~7 surfaces, plus the separate path photo edits take to reach eBay.
 ---
@@ -163,6 +163,16 @@ same-tag set.
 
 They are independent. Changing one does not change the other, and each lives in
 several places that must move together.
+
+**US-2681 gave the cover slot a second input.** Role order still decides it, but
+a photo carrying a `cover_` QA issue (garment too small, more than one garment,
+busy ground, a prop in frame) yields index 0 to a clean one — and only to a
+photo already ELIGIBLE to be a cover, meaning `front`, `flatlay`, `on_model` or
+`back`. The reason for that restriction is the part worth remembering: cover
+flags are only ever set against slot 1, so a tag shot carrying no flag means
+nothing was checked rather than that it is a good cover, and promoting it would
+manufacture the exact situation the reorder nudge exists to complain about. An
+unassessed photo (`undefined`, not `false`) never displaces a flagged one.
 
 **Canonical order** — index 0 is the cover, which is eBay's main image, and the
 index drives `sort_order`:

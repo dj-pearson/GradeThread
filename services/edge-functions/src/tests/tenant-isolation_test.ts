@@ -6235,3 +6235,37 @@ Deno.test({
     assertDenied(res.status, "GET autolister batch owned by A");
   },
 });
+
+// -- US-2683: eBay search terms -------------------------------------------
+//
+// ebay_search_terms holds the queries buyers typed against a seller's items,
+// which is commercially sensitive in a way a listing title is not: it is what
+// is working for a competitor's store. RLS is on the table AND the edge filters
+// on user_id, because the edge runs service-role and RLS does not apply to it.
+//
+// There is no route that takes a term id, so the exposure is the DEMAND-TERM
+// pool: loadSearchTerms feeds getEbaySearchDemandTermsDetailed, which feeds the
+// composer's keyword chips. An unscoped read would put A's buyer queries into
+// B's chip list, labelled as B's own search data.
+
+Deno.test({
+  name: "B's title conflicts and chips never carry A's search terms",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // The composer surface that renders the pool. A foreign item id must not
+    // resolve at all, which also proves the terms behind it are unreachable.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/title-conflicts/${itemId}`, { headers: authHeaders(B_JWT!) });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "GET title-conflicts on A's item as B");
+      return;
+    }
+    const json = await res.json();
+    assertEquals(
+      json.conflicts ?? [],
+      [],
+      "a foreign item resolved for B, so anything derived from it is reachable too",
+    );
+  },
+});

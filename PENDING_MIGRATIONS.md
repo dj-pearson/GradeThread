@@ -1,5 +1,38 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00622 — ebay_search_terms (US-2683)
+
+**Risk: low.** One new table, its unique key, one index, an updated_at trigger
+and one RLS SELECT policy. Nothing existing is altered and nothing is dropped.
+All `IF NOT EXISTS` / `DROP ... IF EXISTS` before `CREATE`, so re-running the
+directory is safe.
+
+**What it is for.** The queries buyers actually typed against a seller's items,
+from eBay Promoted Listings reports. Every other demand signal FlipDesk has is
+inferred from other sellers' listings; this is the only one that is not.
+
+**Apply order:** after 00621. It does not depend on it, but applying in file
+order keeps `applied_migrations` contiguous.
+
+```sql
+-- supabase/migrations/00622_ebay_search_terms.sql
+NOTIFY pgrst, 'reload schema';
+```
+
+**The edge REQUIRES this before its next deploy.** `lib/ebay-ad-reports.ts`
+reads and upserts `ebay_search_terms`, and the daily `ebay-search-terms` cron
+calls it. Against a database without the table those calls fail — the cron
+reports failures rather than the clean `no_campaign` it should. The boot guard
+covers it (`EXPECTED_SCHEMA_VERSION` moves 00621 → 00622 in the same commit),
+but apply the SQL first.
+
+**Nothing in the frontend reads it directly**, so a Pages deploy ahead of the
+SQL is harmless: the composer chips simply show mined terms, which is what they
+showed before.
+
+**One new Coolify task**: `ebay-search-terms`, daily at 06:25 UTC, POST to
+`/api/jobs/ebay-search-terms` with the shared job secret. The regenerated block
+is in `services/edge-functions/CRON_SETUP.md`.
 ## HELD: 00621 — listings.demand_terms_detail (US-2675)
 
 **Risk: low to apply, but the edge REQUIRES it.** The SQL itself is one
