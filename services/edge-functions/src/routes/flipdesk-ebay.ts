@@ -289,6 +289,7 @@ import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { registerEbayPublisher } from "../lib/ebay-publish-port.ts";
+import { capacityAllowedForUser } from "../lib/plan-gate.ts";
 import { pushTokenExpiring } from "../lib/transactional-push.ts";
 import {
   notifyListingEnded,
@@ -8219,28 +8220,36 @@ flipdeskEbayRoutes.post("/listings/push", async (c) => {
 //     the replenish target at 1, so a previously-sold item can't go live empty.
 //   • Idempotent: publishOrAdoptOffer adopts an already-live listing and the
 //     quantity write is a fixed set, so a retry converges to the same state.
-flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
+// ── US-9118: the relist body, as a function ────────────────────────────────
+//
+// The HTTP handler below calls this, and lib/ebay-publish-port.ts registers it
+// so the connector's relist tool runs the SAME guards. Sliced verbatim out of
+// the handler; the capacity gate swapped requireFlipdesk for its context-free
+// sibling, which resolves the plan identically and refuses with the same
+// numbers.
+//
+// ⚠ THE ORDER MATTERS: the quantity is replenished BEFORE publishing, so the
+// publish context resolves a non-zero availableQuantity. Calling
+// publishItemForOwner({relist:true}) directly would relist at quantity zero.
+
+type RelistOutcome = { status: number; body: Record<string, unknown> };
+
+const relistJson = (
+  body: Record<string, unknown>,
+  status = 200,
+): RelistOutcome => ({ status, body });
+const relistOk = (body: Record<string, unknown>): RelistOutcome => relistJson(body, 200);
+
+export async function relistOwnedListing(
+  userId: string,
+  listingId: string,
+  replenishQty: number,
+): Promise<RelistOutcome> {
   if (!isEbayConfigured()) {
-    return c.json({ error: "eBay is not configured on this server." }, 503);
+    return relistJson({ error: "eBay is not configured on this server." }, 503);
   }
-  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
-  const listingId = c.req.param("id");
-
-  let body: { quantity?: unknown };
-  try {
-    body = await c.req.json();
-  } catch {
-    body = {};
-  }
-  // Respect an explicit replenish quantity; otherwise default to 1. Floor at 1
-  // (non-positive / non-integer requests clamp up) so a republished
-  // previously-sold item never goes live at quantity 0.
-  const requested = Number(body.quantity);
-  const replenishQty =
-    Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 1;
-
   const row = await loadListingOwned(listingId, userId);
-  if (!row.ok) return c.json(row.error, row.status);
+  if (!row.ok) return { status: row.status, body: row.error as Record<string, unknown> };
   // US-1507: refuse to relist an eBay-ORIGINATED (imported) listing. The withdraw
   // needs a platform_offer_id we never have for imported rows, so the old live
   // listing would never end AND the re-publish would upsert onto this same row —
@@ -8254,7 +8263,7 @@ flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
     synced_to_ebay_at: row.listing.synced_to_ebay_at,
   });
   if (relistOrigin === "ebay") {
-    return c.json(
+    return relistJson(
       {
         error:
           "This listing was created on eBay, not in FlipDesk, so it can't be relisted here. End it on eBay (or in FlipDesk) and create a fresh FlipDesk listing to sell it again.",
@@ -8263,7 +8272,7 @@ flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
     );
   }
   if (!row.listing.inventory_item_id) {
-    return c.json(
+    return relistJson(
       { error: "This listing is not linked to an inventory item; cannot relist." },
       409,
     );
@@ -8280,11 +8289,26 @@ flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
     .eq("user_id", userId)
     .maybeSingle();
   const alreadyListed = (existing as { status?: string } | null)?.status === "listed";
-  const capGate = await requireFlipdesk(c, {
-    capacity: { kind: "activeListings", delta: alreadyListed ? 0 : 1 },
-    userId,
+  // US-9118: the context-free sibling, so the connector's relist tool cannot be
+  // the one entry point that skips the active-listing cap. Same resolution and
+  // the same numbers requireFlipdesk would have refused with.
+  const cap = await capacityAllowedForUser(userId, {
+    kind: "activeListings",
+    delta: alreadyListed ? 0 : 1,
   });
-  if (capGate) return capGate;
+  if (!cap.allowed) {
+    return {
+      status: 402,
+      body: {
+        error: "CAP_REACHED",
+        cap: cap.cap,
+        used: cap.used,
+        delta: cap.delta,
+        limit: cap.limit,
+        plan: cap.plan,
+      },
+    };
+  }
 
   // Replenish the quantity on the draft listing row BEFORE publishing so the
   // publish context resolves the new availableQuantity for both the inventory
@@ -8295,12 +8319,12 @@ flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
     .eq("id", listingId);
   if (qtyErr) {
     console.error("[flipdesk-ebay] relist: quantity replenish failed:", qtyErr);
-    return c.json({ error: "Could not replenish listing quantity." }, 500);
+    return relistJson({ error: "Could not replenish listing quantity." }, 500);
   }
 
   const result = await publishItemForOwner(userId, itemId, { relist: true });
-  if (!result.ok) return c.json(result.body, result.status);
-  return c.json({
+  if (!result.ok) return { status: result.status, body: result.body };
+  return relistOk({
     ok: true,
     listing_id: result.listing_id,
     listing_url: result.listing_url,
@@ -8309,6 +8333,27 @@ flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
     quantity: replenishQty,
     sync_pending: result.sync_pending ?? false,
   });
+}
+
+flipdeskEbayRoutes.post("/listings/:id/relist", async (c) => {
+  const userId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const listingId = c.req.param("id");
+
+  let body: { quantity?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    body = {};
+  }
+  // Respect an explicit replenish quantity; otherwise default to 1. Floor at 1
+  // (non-positive / non-integer requests clamp up) so a republished
+  // previously-sold item never goes live at quantity 0.
+  const requested = Number(body.quantity);
+  const replenishQty =
+    Number.isFinite(requested) && requested >= 1 ? Math.floor(requested) : 1;
+
+  const outcome = await relistOwnedListing(userId, listingId, replenishQty);
+  return c.json(outcome.body, outcome.status as 200);
 });
 
 // US-528: how long a publish claim is honored before it's considered stale and
@@ -10544,6 +10589,8 @@ registerEbayPublisher({
     };
   },
   publish: (ownerId, itemId, opts) => publishItemForOwner(ownerId, itemId, opts ?? {}),
+  relist: (ownerId, listingId, quantity) =>
+    relistOwnedListing(ownerId, listingId, quantity),
 });
 
 export async function assemblePublishContext(

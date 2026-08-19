@@ -5973,6 +5973,71 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "MCP gradethread_end_listing cannot end A's listing as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // The preview half is the one to watch: it loads the listing to show its
+    // title and price, and that load is where an ownership check would be
+    // forgotten. loadEndCandidates joins on inventory_items.user_id, so a
+    // foreign id resolves to nothing and there is no token to confirm with.
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_end_listing", {
+      listing_id: listingId,
+      mode: "preview",
+    });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_end_listing",
+    );
+    assert(
+      !body.includes("confirm_token"),
+      `gradethread_end_listing issued an end token for another tenant's listing: ${
+        body.slice(0, 300)
+      }`,
+    );
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_end_listings drops A's listing from a bulk preview",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // Bulk is where a foreign id hides best: mixed into a set the caller does
+    // own, a partial accept would end it alongside the rest. B owns nothing
+    // here, so the whole set resolves empty and the call refuses.
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_end_listings", {
+      listing_ids: [listingId, crypto.randomUUID()],
+      mode: "preview",
+    });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_end_listings",
+    );
+    assert(!body.includes("confirm_token"));
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_relist cannot relist A's listing as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_relist", {
+      listing_id: listingId,
+      mode: "preview",
+    });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_relist",
+    );
+  },
+});
+
 // ── Sandbox tools (US-9124) ────────────────────────────────────────
 //
 // A DIFFERENT PROPERTY from the tools above, and the difference is the point.

@@ -82,6 +82,13 @@ import {
   repriceApplyTool,
   repricePreviewTool,
 } from "./mcp-reprice-tools.ts";
+// US-9118: end, bulk end and relist. Bulk end loops the SINGLE end rather than
+// adding a third delist loop to a codebase that already has two.
+import {
+  endListingsBulkTool,
+  endListingTool,
+  relistTool,
+} from "./mcp-lifecycle-tools.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -121,6 +128,15 @@ export interface McpToolResult {
   /** Machine-readable mirror of the same answer, when the tool declares one. */
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
+  /**
+   * US-9117: facts the audit row needs that the ARGUMENTS do not carry.
+   *
+   * A reprice is asked for as "listing X, 4200 cents" and the interesting half
+   * of the row is what X cost before, which only the handler ever sees. The
+   * dispatcher merges this into the audited arguments and strips it from the
+   * JSON-RPC result, so it never reaches the model.
+   */
+  auditDetail?: Record<string, unknown>;
 }
 
 export type McpToolHandler = (
@@ -1278,6 +1294,9 @@ export const TOOLS: McpToolDefinition[] = [
   priceSuggestionsTool,
   applySuggestionTool,
   dismissSuggestionTool,
+  endListingTool,
+  endListingsBulkTool,
+  relistTool,
   sandboxGradeTool,
   sandboxPublishTool,
   sandboxPriceGuideTool,

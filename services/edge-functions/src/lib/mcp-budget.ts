@@ -142,7 +142,14 @@ export const TOOLS_BY_KIND: Record<BudgetKind, string[]> = {
     // suggestion a seller has is worth stopping even though it costs nothing.
     "gradethread_dismiss_price_suggestion",
   ],
-  end_listing: ["gradethread_end_listing", "gradethread_relist"],
+  end_listing: [
+    "gradethread_end_listing",
+    // US-9118. Bulk end shares the ceiling rather than getting a looser one:
+    // the cap is about how many of a seller's listings a model may take off
+    // sale per hour, and doing it in one call does not make it fewer.
+    "gradethread_end_listings",
+    "gradethread_relist",
+  ],
   grade: ["gradethread_grade_item", "gradethread_grade_batch"],
   draft_generation: ["gradethread_create_draft"],
   draft_edit: ["gradethread_update_draft"],

@@ -58,9 +58,25 @@ export type PublishFn = (
   opts?: { relist?: boolean },
 ) => Promise<PublishItemOutcome>;
 
+/**
+ * US-9118: relist a sold-out listing under its existing eBay offer.
+ *
+ * A separate function rather than `publish({relist:true})` because the route
+ * does real work around that call — it refuses eBay-originated listings, checks
+ * the active-listing cap, and replenishes the quantity BEFORE publishing so the
+ * publish context resolves a non-zero availableQuantity. Calling publish
+ * directly would skip all three and relist at quantity zero.
+ */
+export type RelistFn = (
+  ownerId: string,
+  listingId: string,
+  quantity: number,
+) => Promise<{ status: number; body: Record<string, unknown> }>;
+
 interface Publisher {
   preview: PreviewFn;
   publish: PublishFn;
+  relist: RelistFn;
 }
 
 let publisher: Publisher | null = null;

@@ -78,6 +78,9 @@ function stub(opts: {
           },
       );
     },
+    // US-9118 added relist to the port. Not exercised here — it has its own
+    // tool and its own suite — but the shape has to be complete.
+    relist: () => Promise.resolve({ status: 200, body: { ok: true } }),
   });
   return calls;
 }
@@ -351,6 +354,10 @@ Deno.test("the caller's tenant is the owner, never an argument", async () => {
         offer_id: "o",
         sku: "s",
       });
+    },
+    relist: (owner, listing) => {
+      seen.push({ owner, item: listing });
+      return Promise.resolve({ status: 200, body: { ok: true } });
     },
   });
 

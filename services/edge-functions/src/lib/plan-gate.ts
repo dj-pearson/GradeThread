@@ -270,6 +270,54 @@ export async function requireFlipdesk<E extends EnvWithUser = EnvWithUser>(
 }
 
 /**
+ * Non-HTTP CAPACITY check: would `delta` more of `kind` fit in the plan?
+ *
+ * US-9118: the sibling of featureAllowedForUser, added for the same reason —
+ * the connector's tools have no Hono context, and a tool that puts a listing
+ * live must not be the one entry point that skips the active-listing cap.
+ *
+ * Returns the same numbers requireFlipdesk would refuse with, so a caller can
+ * say "you are at 50 of 50 live listings" rather than "no". `allowed: true`
+ * with a null reason means it fits, or the plan is unlimited.
+ *
+ * Fails CLOSED (allowed: false) when the user cannot be loaded, matching
+ * featureAllowedForUser. A gate that opens when the lookup breaks is not a gate.
+ */
+export async function capacityAllowedForUser(
+  userId: string,
+  capacity: CapacityCheck,
+  deps: Pick<PlanGateDeps, "loadUser" | "readUsage"> = defaultDeps,
+): Promise<
+  | { allowed: true }
+  | { allowed: false; cap: string; used: number; delta: number; limit: number; plan: string }
+> {
+  const user = await deps.loadUser(userId);
+  if (!user) {
+    return { allowed: false, cap: capacity.kind, used: 0, delta: 0, limit: 0, plan: "unknown" };
+  }
+  if (user.role === "super_admin") return { allowed: true };
+
+  const effectivePlan = effectivePlanFor(
+    user.flipdesk_plan,
+    user.subscription_status,
+    user.trial_ends_at,
+    new Date(),
+    user.past_due_since,
+  ) as FlipdeskPlan;
+  const matrix = await getPlanMatrix();
+  const plan = matrix[effectivePlan];
+
+  const delta = capacity.delta ?? 1;
+  const used = await deps.readUsage(userId, capacity.kind, user);
+  const limit = getLimit(plan, capacity.kind, user);
+  if (limit === -1) return { allowed: true };
+  if (used + delta > limit) {
+    return { allowed: false, cap: capacity.kind, used, delta, limit, plan: effectivePlan };
+  }
+  return { allowed: true };
+}
+
+/**
  * Non-HTTP feature check: does `userId`'s EFFECTIVE plan grant `feature`?
  *
  * Same resolution as requireFlipdesk (super_admin bypass; paused / expired-trial
