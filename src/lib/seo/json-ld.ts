@@ -598,10 +598,29 @@ export function aboutPageLd(url: string): JsonLd {
   };
 }
 
-/** HowTo, for step-by-step pages like /how-it-works. */
+/**
+ * HowTo, for step-by-step pages like /how-it-works.
+ *
+ * US-9013 added the optional url, totalTime, estimatedCost, tool and supply
+ * fields for the /care repair guides. They are optional because /how-it-works
+ * has no tools and no honest minute count, and emitting an invented one would
+ * be a machine-readable lie rather than a missing field.
+ *
+ * `estimatedCost` is a plain string rather than a MonetaryAmount on purpose: we
+ * know "under $10" and we do not know $8.99, and inventing precision to satisfy
+ * a schema is how structured data starts lying on your behalf.
+ */
 export function howToLd(opts: {
   name: string;
   description?: string;
+  url?: string;
+  /** Minutes. Emitted as an ISO 8601 duration. */
+  minutes?: number;
+  cost?: string;
+  /** Things you keep. */
+  tools?: readonly string[];
+  /** Things you use up. */
+  supplies?: readonly string[];
   steps: ReadonlyArray<{ name: string; text: string; url?: string }>;
 }): JsonLd {
   return {
@@ -609,13 +628,29 @@ export function howToLd(opts: {
     "@type": "HowTo",
     name: opts.name,
     ...(opts.description ? { description: opts.description } : {}),
-    step: opts.steps.map((s, i) => ({
-      "@type": "HowToStep",
-      position: i + 1,
-      name: s.name,
-      text: s.text,
-      ...(s.url ? { url: s.url } : {}),
-    })),
+    ...(opts.url ? { url: opts.url } : {}),
+    ...(opts.minutes ? { totalTime: `PT${opts.minutes}M` } : {}),
+    ...(opts.cost ? { estimatedCost: opts.cost } : {}),
+    ...(opts.tools?.length
+      ? { tool: opts.tools.map((t) => ({ "@type": "HowToTool", name: t })) }
+      : {}),
+    ...(opts.supplies?.length
+      ? { supply: opts.supplies.map((t) => ({ "@type": "HowToSupply", name: t })) }
+      : {}),
+    step: opts.steps.map((s, i) => {
+      // Google wants a fragment per step so a result can deep-link into one.
+      // SPREAD, never `url: undefined`: an explicit undefined serialises into
+      // the node and the schema lint rejects it. /how-it-works has no step URLs
+      // and this is where writing it as a plain assignment broke 38 routes.
+      const url = s.url ?? (opts.url ? `${opts.url}#step-${i + 1}` : undefined);
+      return {
+        "@type": "HowToStep",
+        position: i + 1,
+        name: s.name,
+        text: s.text,
+        ...(url ? { url } : {}),
+      };
+    }),
   };
 }
 

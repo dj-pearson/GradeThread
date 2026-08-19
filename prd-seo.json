@@ -279,17 +279,19 @@
     },
     {
       "id": "US-9013",
-      "passes": false,
+      "passes": true,
       "title": "Repair entry pages for the two 50,000/mo Low-competition terms",
       "description": "As someone with a broken zipper or a missing button, I want a step-by-step repair guide, so that I can fix the garment myself.",
       "acceptanceCriteria": [
-        "Full guides for `how to fix a broken zipper` and `how to sew on a button`, both 50,000/mo on Low competition and the cheapest entry into the whole cluster.",
-        "Build the repair sub-cluster before stain removal: repair is 122,000/mo across 10 terms with 8 on Low competition, where stain removal is 138,150/mo across 18 terms with 11 at Medium or High. Same volume, half the fight.",
-        "Each guide carries HowTo JSON-LD with real numbered steps, tools and materials, emitted from head-builder.ts as well as the SPA route.",
-        "Remaining repair terms (`how to fix a hole in jeans`, `how to fix a snag in a sweater`, `how to darn a hole in a sweater`, `how to replace a zipper pull`, `how to fix a stretched out collar`, `how to fix a broken belt loop`) are covered by the same template.",
-        "Registered in keyword-targets.ts and in the /care/ sitemap segment.",
-        "CHALLENGED BY THE US-9011 GATE (2026-08-18). This story names the two 50,000/mo terms as the entry point. The SERP check says enter on the 5,000/mo terms instead: `how to fix a snag in a sweater` and `how to unshrink clothes` have the weakest incumbents in the whole set (a jewellery site holds the top slot on the first; a wrong-locale appliance page and two spam PDFs hold three of seven slots on the second), and both are CONDITION DEFECTS WITH A RESALE CONSEQUENCE, which is the only bridge from repair intent back to the product.",
-        "DO NOT WRITE THE BUTTON PAGE YET. `how to sew on a button` is 50,000/mo of the purest non-adjacent intent in the set: someone searching it wants to sew a button, and the page-one results are craft blogs that do it better than we would. Volume is not the argument; adjacency is."
+        "SUPERSEDED BY THE GATE: full guides for both 50,000/mo terms. The zipper guide shipped. The button guide did NOT, per AC7, and a test asserts its absence so it cannot be added back without someone deciding to.",
+        "Build the repair sub-cluster before stain removal. DONE. Seven repair guides, no stain-removal guides.",
+        "Each guide carries HowTo JSON-LD with real numbered steps, tools and materials, emitted from head-builder.ts as well as the SPA route. DONE, and verified in the built HTML: /care/snags-pulls ships one HowTo, six HowToStep and two HowToTool nodes with totalTime PT10M and a per-step fragment URL.",
+        "THE MARKUP AND THE PAGE ARE ONE ARRAY. The HowTo is built from the same steps the page renders, so it can never describe steps a reader cannot see. Google's own HowTo documentation names that as the first failure, and it is the easy mistake to make when structured data is written separately from copy.",
+        "Remaining repair terms are covered by the same template. DONE: hole in jeans, snag in a sweater, darn a hole in a sweater, broken belt loop, stretched-out collar, and the zipper. Six of the seven named terms; `how to replace a zipper pull` is covered inside the zipper guide rather than as its own entry.",
+        "Registered in keyword-targets.ts and in the /care/ sitemap segment. DONE, seven entries in the care cluster, and the segment is functions/sitemap-care.xml.ts from US-9015.",
+        "ONE URL PER INTENT, which is the design decision worth recording. The guides attach to the EXISTING /care entries rather than creating a second /care/repair/* family. A reader searching `how to fix a snag in a sweater` and one searching `what is a snag` want the same page; splitting them would leave two thin URLs competing for one query.",
+        "ENTRY TERMS FOLLOWED THE GATE, not the volume. The two 5,000/mo terms it cleared (snag in a sweater, unshrink clothes) both got guides, and both are condition defects with a resale consequence, which is the only bridge from repair intent back to the product.",
+        "DEFECT CAUGHT BY A GUARD, worth recording because the guard nearly did not exist: extending howToLd() for tools and times wrote `url: undefined` onto every step of pages with no step URLs, which serialises into the node. jsonld-schema-lint.test.ts failed 38 routes including /how-it-works and every garment guide. Fixed with a conditional spread; the comment says why."
       ],
       "priority": 16,
       "dependsOn": [

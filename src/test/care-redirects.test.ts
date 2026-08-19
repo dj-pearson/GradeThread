@@ -109,3 +109,55 @@ describe("the reframe actually happened (US-9012)", () => {
     expect(gradingWords.map((f) => f.slug)).toEqual([]);
   });
 });
+
+// US-9013. Seven entries carry a full step-by-step repair guide, which drives
+// the HowTo JSON-LD. The guide and the markup are built from ONE array, so
+// these assert the parts that can still drift: which entries have one, and that
+// nothing invents a HowTo out of prose.
+describe("repair guides (US-9013)", () => {
+  const withGuides = FLAW_ENTRIES.filter((f) => f.repair);
+
+  it("covers the seven entries the gate cleared", () => {
+    expect(withGuides.map((f) => f.slug).sort()).toEqual(
+      [
+        "belt-loop-damage",
+        "broken-zipper",
+        "holes-tears",
+        "moth-holes",
+        "shrinkage",
+        "snags-pulls",
+        "stretching",
+      ].sort(),
+    );
+  });
+
+  it("does NOT write the button guide, which is the gate's explicit instruction", () => {
+    // `how to sew on a button` is 50,000/mo and the purest non-adjacent intent
+    // in the set. Volume is not the argument; adjacency is.
+    const buttons = FLAW_ENTRIES.find((f) => f.slug === "missing-buttons");
+    expect(buttons).toBeDefined();
+    expect(buttons!.repair).toBeUndefined();
+  });
+
+  it("gives every guide real steps, tools and an honest time", () => {
+    for (const f of withGuides) {
+      const g = f.repair!;
+      expect(g.steps.length, f.slug).toBeGreaterThanOrEqual(5);
+      expect(g.minutes, f.slug).toBeGreaterThan(0);
+      expect(g.cost.length, f.slug).toBeGreaterThan(3);
+      expect(g.tools.length, f.slug).toBeGreaterThan(0);
+      for (const step of g.steps) {
+        expect(step.name.length, `${f.slug}: ${step.name}`).toBeGreaterThan(5);
+        expect(step.text.length, `${f.slug}: ${step.name}`).toBeGreaterThan(40);
+      }
+    }
+  });
+
+  it("keeps one URL per intent instead of a second /care/repair family", () => {
+    // A reader searching "how to fix a snag in a sweater" and one searching
+    // "what is a snag" want the same page. Two URLs would compete for one query.
+    for (const f of withGuides) {
+      expect(flawPath(f.slug)).toBe(`/care/${f.slug}`);
+    }
+  });
+});

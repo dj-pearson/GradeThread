@@ -157,6 +157,71 @@ export function FlawPage({ slug: slugProp }: { slug?: string }) {
         </div>
       </section>
 
+      {/* US-9013: the full repair guide, on the seven entries where somebody is
+          actually going to pick up a needle. The HowTo JSON-LD is built from
+          this same array, so the markup can never describe steps the page does
+          not show. */}
+      {flaw.repair && (
+        <section className="border-t px-6 py-16">
+          <div className="mx-auto max-w-3xl">
+            <h2 className="text-2xl font-bold sm:text-3xl">{flaw.repair.name}</h2>
+            <dl className="mt-5 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+              <div>
+                <dt className="inline font-medium">Difficulty: </dt>
+                <dd className="inline text-muted-foreground">{flaw.repair.difficulty}</dd>
+              </div>
+              <div>
+                <dt className="inline font-medium">Time: </dt>
+                <dd className="inline text-muted-foreground">
+                  About {flaw.repair.minutes} minutes
+                </dd>
+              </div>
+              <div>
+                <dt className="inline font-medium">Cost: </dt>
+                <dd className="inline text-muted-foreground">{flaw.repair.cost}</dd>
+              </div>
+            </dl>
+
+            {(flaw.repair.tools.length > 0 || flaw.repair.supplies.length > 0) && (
+              <div className="mt-6 grid gap-6 sm:grid-cols-2">
+                {flaw.repair.tools.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-bold">Tools</h3>
+                    <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                      {flaw.repair.tools.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {flaw.repair.supplies.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-bold">Materials</h3>
+                    <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                      {flaw.repair.supplies.map((t) => (
+                        <li key={t}>{t}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <ol className="mt-8 space-y-5">
+              {flaw.repair.steps.map((step, i) => (
+                <li key={step.name} id={`step-${i + 1}`} className="border-b pb-5 last:border-b-0">
+                  <h3 className="font-medium">
+                    <span className="mr-2 tabular-nums text-muted-foreground">{i + 1}.</span>
+                    {step.name}
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{step.text}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+      )}
+
       {/* Photos — rendered only when the graded corpus supplies them */}
       {flaw.photos?.length ? (
         <section className="border-t px-6 py-12">

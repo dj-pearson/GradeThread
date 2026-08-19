@@ -410,6 +410,44 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "can you fix a hole without a sewing machine",
     ],
   },
+  // US-9013: the remaining repair terms from AC4, on the entries that carry a
+  // full HowTo guide. `how to sew on a button` is absent on purpose (AC7).
+  {
+    path: "/care/belt-loop-damage",
+    cluster: "care",
+    intent: "informational",
+    primary: "how to fix a broken belt loop",
+    secondary: ["reattach a belt loop", "belt loop repair", "torn belt loop"],
+    questions: [
+      "how do you reattach a belt loop",
+      "what stitch holds a belt loop",
+      "why do belt loops keep tearing off",
+    ],
+  },
+  {
+    path: "/care/stretching",
+    cluster: "care",
+    intent: "informational",
+    primary: "how to fix a stretched out collar",
+    secondary: ["fix a stretched neckline", "shrink a stretched shirt", "stretched cuffs"],
+    questions: [
+      "how do you fix a stretched out collar",
+      "can you shrink a stretched shirt back",
+      "why do collars stretch out",
+    ],
+  },
+  {
+    path: "/care/moth-holes",
+    cluster: "care",
+    intent: "informational",
+    primary: "how to darn a hole in a sweater",
+    secondary: ["darn moth holes", "mend a wool sweater", "invisible mending"],
+    questions: [
+      "how do you darn a hole in a sweater",
+      "how do you kill moth larvae in clothes",
+      "how big a moth hole can be darned",
+    ],
+  },
   {
     path: "/tools/reseller-profit-calculator",
     cluster: "reseller-tools",

@@ -48,6 +48,36 @@ export interface FlawPhoto {
   alt: string;
 }
 
+/** One step of a repair, in the shape schema.org HowToStep expects. */
+export interface RepairStep {
+  /** Short imperative label. Becomes HowToStep.name. */
+  name: string;
+  /** What to actually do, and where it goes wrong. Becomes HowToStep.text. */
+  text: string;
+}
+
+/**
+ * A step-by-step repair guide (US-9013), emitted as HowTo JSON-LD.
+ *
+ * Every field here maps to something schema.org HowTo asks for. We do not
+ * invent a totalTime or an estimatedCost we have not thought about, because a
+ * fabricated number in structured data is a lie a machine repeats.
+ */
+export interface RepairGuide {
+  /** HowTo.name. The task, phrased as the reader would say it. */
+  name: string;
+  difficulty: "Easy" | "Moderate" | "Hard";
+  /** Realistic minutes for someone who has not done it before. HowTo.totalTime. */
+  minutes: number;
+  /** HowTo.estimatedCost, in plain words rather than a fake precise figure. */
+  cost: string;
+  /** HowTo.tool: things you keep. */
+  tools: string[];
+  /** HowTo.supply: things you use up. May be empty, and often is. */
+  supplies: string[];
+  steps: RepairStep[];
+}
+
 export interface FlawEntry {
   slug: string;
   name: string;
@@ -81,6 +111,23 @@ export interface FlawEntry {
   removal: string[];
   /** One paragraph on stopping it happening again. */
   prevention: string;
+  /**
+   * US-9013. A full step-by-step repair guide, present only on the entries
+   * where somebody is actually going to pick up a needle.
+   *
+   * IT LIVES ON THE EXISTING ENTRY rather than at a second /care/repair/<slug>
+   * URL. One URL per intent: a reader searching "how to fix a snag in a
+   * sweater" and one searching "what is a snag" want the same page, and
+   * splitting them leaves two thin URLs competing for one query. It drives the
+   * HowTo JSON-LD, which is what the repair SERPs actually reward.
+   *
+   * Seven entries carry one, chosen by the US-9011 SERP gate rather than by
+   * volume. `missing-buttons` deliberately does NOT, even though
+   * "how to sew on a button" is 50,000/mo, because it is the purest
+   * non-adjacent intent in the set: someone searching it wants to sew a button,
+   * not to sell a garment.
+   */
+  repair?: RepairGuide;
   /** How to disclose it honestly in a listing. */
   disclosure: string;
   /** 2–3 related flaw slugs. */
@@ -174,9 +221,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "moth-holes",
     name: "Moth holes",
     alternateNames: ["moth damage"],
-    title: "Moth Holes: Kill, Clean, Then Mend",
+    title: "How to Darn a Hole in a Sweater",
     description:
-      "Moth holes cannot be removed, only mended. Kill what is still in the fibres first, then darn small holes yourself and price the rest honestly.",
+      "Kill whatever is still in the fibres first, then harvest matching yarn from an inside seam and weave the darn in two directions. Above 5mm it shows.",
     h1: "Moth holes",
     definition:
       "Moth holes are small, irregular holes chewed by clothes-moth larvae, most common in wool, cashmere, and other animal fibers. They're often clustered and can be tiny, so they're easy to miss — and because they're structural damage, they weigh heavily on the grade.",
@@ -200,6 +247,44 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "For anything larger, invisible mending by a specialist is the only result that does not read as a repair, and it costs more than most garments are worth.",
     ],
     prevention: "Moths eat protein fibres and are drawn to sweat and food traces, so store wool clean and never store it dirty for a season. Cedar and lavender deter, they do not kill. Airtight containers work; a full wardrobe with airflow does not.",
+    repair: {
+      name: "Darn a moth hole in a sweater",
+      difficulty: "Moderate",
+      minutes: 40,
+      cost: "Free if you harvest the yarn",
+      tools: ["Darning needle", "Darning mushroom or a smooth round object"],
+      supplies: ["Matching yarn, ideally pulled from an inside seam of the garment"],
+      steps: [
+        {
+          name: "Kill whatever is still in the fibres first",
+          text: "72 hours sealed in a bag in the freezer. Mending a garment that still has larvae in it produces a second hole beside your repair.",
+        },
+        {
+          name: "Wash or dry-clean before mending",
+          text: "Larvae feed on the body oils in the wool rather than the wool itself, so a clean garment is a much less attractive one.",
+        },
+        {
+          name: "Harvest matching yarn from the garment",
+          text: "Pull a length from an inside seam allowance or the hem. Nothing you buy will match an aged garment as well as the garment does.",
+        },
+        {
+          name: "Support the hole from behind",
+          text: "A darning mushroom under the hole keeps the tension even. Without it the darn puckers and pulls the surrounding knit in.",
+        },
+        {
+          name: "Lay parallel threads across the hole",
+          text: "Anchor in sound fabric well outside the opening, and run threads across in one direction first, close together.",
+        },
+        {
+          name: "Weave the second direction through",
+          text: "Go over and under the first set at right angles. Density is what makes a darn hold and what makes it disappear.",
+        },
+        {
+          name: "Know the limit",
+          text: "Above about 5mm this stops being invisible. Specialist invisible mending is the only result that does not read as a repair, and it costs more than most garments are worth.",
+        },
+      ],
+    },
     relatedSlugs: ["fabric-thinning", "seam-stress"],
     faqs: [
       {
@@ -428,6 +513,36 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "If teeth are missing, the zip is finished. Replacement is the only fix and on most garments it costs more than the garment.",
     ],
     prevention: "Zip a garment up before washing it. An open zip in a machine is what bends teeth, and it also snags everything else in the drum.",
+    repair: {
+      name: "Fix a zipper that will not stay closed",
+      difficulty: "Moderate",
+      minutes: 15,
+      cost: "Free, or under $5 for a replacement slider",
+      tools: ["Needle-nose pliers"],
+      supplies: ["Replacement slider, only if crimping fails"],
+      steps: [
+        {
+          name: "Work out what actually failed",
+          text: "Zip it and watch. If the teeth separate behind the slider as it passes, the slider has worn open. If a tooth is bent or missing, that is a different problem and the slider is fine.",
+        },
+        {
+          name: "Straighten any bent tooth first",
+          text: "Grip the tooth with needle-nose pliers and ease it back into line. Skipping this destroys a new slider on its first pass.",
+        },
+        {
+          name: "Crimp the slider a fraction at a time",
+          text: "Squeeze the back of the slider gently, top and bottom, and test after every squeeze. Overtightening jams it permanently, and there is no way back from that.",
+        },
+        {
+          name: "Refeed the slider if it came off",
+          text: "Pry the metal stop off the bottom of the zip, feed both tapes back through the slider evenly, run it up to check, then crimp the stop back on.",
+        },
+        {
+          name: "Know when to stop",
+          text: "If teeth are missing rather than bent, the zip is finished. Replacement is the only fix, and on most garments a tailor charges more than the garment is worth.",
+        },
+      ],
+    },
     relatedSlugs: ["missing-buttons", "elastic-degradation"],
     faqs: [
       {
@@ -504,6 +619,40 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Steam the area and let it dry flat. Most snags become invisible at this point.",
     ],
     prevention: "Snags come from jewellery, velcro, rough nails and zips in the same wash load. Rings and watches off before dressing, knitwear in a mesh bag, and fasten every zip in the drum.",
+    repair: {
+      name: "Fix a snag in a sweater",
+      difficulty: "Easy",
+      minutes: 10,
+      cost: "Under $10 for a snag needle",
+      tools: ["Snag needle or fine crochet hook", "Steam iron or kettle"],
+      supplies: [],
+      steps: [
+        {
+          name: "Do not cut it",
+          text: "A cut loop unravels along the row and turns a ten-minute fix into a hole. Whatever else you do, the loop stays attached.",
+        },
+        {
+          name: "Stretch the fabric across the snag",
+          text: "Hold the knit either side of the pull and stretch gently, first along the row and then across it. Some of the yarn retracts on its own before you touch a tool.",
+        },
+        {
+          name: "Push the needle through from the wrong side",
+          text: "Work from inside the garment. Push the snag needle through at the base of the pulled loop so its latch or hook comes up beside the loop on the right side.",
+        },
+        {
+          name: "Catch the loop and draw it inside",
+          text: "Hook the loop, then pull the needle back through. The pulled yarn now sits on the inside of the garment where nobody sees it.",
+        },
+        {
+          name: "Spread the slack along the row",
+          text: "The yarn is still too long, so the stitches around it are still distorted. Work the excess outward a stitch at a time in both directions until no single stitch is carrying it.",
+        },
+        {
+          name: "Steam and dry flat",
+          text: "Steam relaxes the fibres back into shape. Lay the garment flat to dry. Most snags are invisible at this point.",
+        },
+      ],
+    },
     relatedSlugs: ["pilling", "fabric-thinning"],
     faqs: [
       {
@@ -582,6 +731,40 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Accept that a mend shows. The goal is a repair that reads as deliberate, not one that reads as hidden.",
     ],
     prevention: "Most holes on used clothing start as thinning or a snag, both of which are visible months earlier. Catching them at that stage is the whole game.",
+    repair: {
+      name: "Mend a hole in jeans",
+      difficulty: "Moderate",
+      minutes: 30,
+      cost: "Under $10",
+      tools: ["Sewing machine, or a needle for hand darning", "Scissors", "Pins"],
+      supplies: ["Backing patch in matching denim", "Thread matching the fabric"],
+      steps: [
+        {
+          name: "Stabilise the edges",
+          text: "A running stitch or a few drops of fray stopper around the opening stops it growing while you work. Skip this and the hole is bigger by the time you finish.",
+        },
+        {
+          name: "Wash and dry the garment first",
+          text: "Denim shrinks. Patching before the first wash means the patch puckers afterwards.",
+        },
+        {
+          name: "Cut the backing patch oversized",
+          text: "At least 25mm larger than the hole on every side, so the stitching lands on sound fabric rather than on the weakened edge.",
+        },
+        {
+          name: "Pin the patch inside, aligned with the grain",
+          text: "Match the direction of the weave. A patch set across the grain reads as a repair from across a room.",
+        },
+        {
+          name: "Darn across the opening",
+          text: "Straight rows of machine stitching across the hole, then a second set at right angles. This is what a commercial repair does, and the density of the rows is what decides whether it holds.",
+        },
+        {
+          name: "Press and check from the right side",
+          text: "A mend shows. The goal is a repair that reads as deliberate rather than as concealment.",
+        },
+      ],
+    },
     relatedSlugs: ["moth-holes", "fabric-thinning", "seam-stress"],
     faqs: [
       {
@@ -659,6 +842,44 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Let it dry flat, fully, before you move it. Most of the recovery is lost if you hang it wet.",
     ],
     prevention: "Cotton shrinks from heat, wool shrinks from agitation plus heat, and both are irreversible once felting has started. Wash cold, and air dry anything you care about.",
+    repair: {
+      name: "Unshrink a shrunken garment",
+      difficulty: "Easy",
+      minutes: 45,
+      cost: "A capful of conditioner",
+      tools: ["Basin or sink", "Two dry towels"],
+      supplies: ["Hair conditioner or baby shampoo"],
+      steps: [
+        {
+          name: "Fill a basin with lukewarm water",
+          text: "Lukewarm, not hot. Heat is what shrank it and more heat will shrink it further.",
+        },
+        {
+          name: "Add conditioner, not detergent",
+          text: "One capful of hair conditioner or baby shampoo. Conditioner coats the fibres and lets them slide past each other; detergent does the opposite and will do nothing here.",
+        },
+        {
+          name: "Soak for up to 30 minutes",
+          text: "Cotton and wool both need the full time. This is the step that does the work, and rushing it is why most attempts fail.",
+        },
+        {
+          name: "Squeeze out the water without rinsing",
+          text: "Leave the conditioner in. Press the water out rather than wringing, which twists fibres you are about to stretch.",
+        },
+        {
+          name: "Roll in a towel",
+          text: "Lay the garment on a dry towel, roll the two together, and press. You want it damp rather than wet, because a soaking garment tears when stretched.",
+        },
+        {
+          name: "Stretch back to size on a second towel",
+          text: "Work outward from the middle, a section at a time, easing rather than yanking. Pin it to shape if it will not hold.",
+        },
+        {
+          name: "Dry flat and completely",
+          text: "Do not move it until it is dry. Hanging it wet undoes most of what you just recovered.",
+        },
+      ],
+    },
     relatedSlugs: ["felting", "stretching"],
     faqs: [
       {
@@ -671,9 +892,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "stretching",
     name: "Stretching",
     alternateNames: ["bagging", "misshapen", "stretched out"],
-    title: "How to Shrink Stretched Clothes Back",
+    title: "How to Fix a Stretched Out Collar",
     description:
-      "Cotton comes back with heat, wool with careful felting, and anything with failed elastane does not come back at all. Which one you have decides everything.",
+      "Cotton comes back with heat and wool with careful felting; anything with failed elastane does not come back at all. Which one you have decides everything.",
     h1: "Stretching and bagging",
     definition:
       "Stretching is the permanent loss of a garment's original shape, where knit collars, cuffs, waistbands, and knees bag out and no longer recover. Caused by wear, hanging, or blown-out elastic, it leaves the piece misshapen and loose, and it weighs on structural integrity and how the item reads cosmetically.",
@@ -697,6 +918,36 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "For a stretched neckline or cuff specifically, steam it and let it dry flat, which recovers more than washing does.",
     ],
     prevention: "Hanging is what stretches knitwear, at the shoulders and down the body. Fold anything knitted. Hang anything woven.",
+    repair: {
+      name: "Fix a stretched-out collar or cuff",
+      difficulty: "Easy",
+      minutes: 20,
+      cost: "Free",
+      tools: ["Steam iron or kettle", "Towel"],
+      supplies: [],
+      steps: [
+        {
+          name: "Check the fibre before you do anything",
+          text: "Cotton and wool come back. Anything with elastane that has gone slack does not, because the elastic itself has failed and no amount of heat restores it.",
+        },
+        {
+          name: "Wet the stretched area only",
+          text: "Warm water on the collar or cuff, not the whole garment. Treating the whole thing shrinks parts that were fine.",
+        },
+        {
+          name: "Work it gently between your hands",
+          text: "For wool, a small amount of controlled friction pulls the fibres back together. Stop early. This is felting under control and it does not reverse.",
+        },
+        {
+          name: "Steam and reshape",
+          text: "Steam the area and ease it back to the shape it should be, then hold it there for a few seconds as it cools.",
+        },
+        {
+          name: "Dry flat",
+          text: "Lay it on a towel in the right shape. Hanging it puts the weight of the garment straight back into the part you just fixed.",
+        },
+      ],
+    },
     relatedSlugs: ["elastic-degradation", "shrinkage"],
     faqs: [
       {
@@ -1130,9 +1381,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "belt-loop-damage",
     name: "Belt loop damage",
     alternateNames: ["torn belt loop", "missing belt loop", "broken loop"],
-    title: "How to Reattach a Torn Belt Loop",
+    title: "How to Fix a Broken Belt Loop",
     description:
-      "The original stitch holes show you where it belongs. Bar tack both ends, or it pulls out again on the first tug.",
+      "The original stitch holes show you exactly where it belongs. Bar tack both ends, or it pulls straight out again on the first tug.",
     h1: "Belt loop damage",
     definition:
       "Belt loop damage is the tearing, stretching, or complete loss of the loops that hold a belt at a trouser or jean waistband. Caused by yanking a snug belt, it leaves a frayed stub or a bare waistband, interrupts intended function, and is graded under functional elements with a cosmetic note.",
@@ -1156,6 +1407,36 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "If the loop itself has torn through, cut a new one from the inside of a hem or a pocket bag on the same garment so the fabric matches.",
     ],
     prevention: "Belt loops fail from being pulled to hoist trousers up. Lift by the waistband, and if you are lifting often the trousers are the wrong size.",
+    repair: {
+      name: "Reattach a torn belt loop",
+      difficulty: "Easy",
+      minutes: 15,
+      cost: "Under $5",
+      tools: ["Needle", "Thimble"],
+      supplies: ["Heavy-duty or topstitch thread"],
+      steps: [
+        {
+          name: "Find the original stitch holes",
+          text: "They are still in the waistband and they are where the loop belongs. Guessing a new position leaves the belt sitting crooked.",
+        },
+        {
+          name: "Fold the raw ends under",
+          text: "Turn about 6mm under at each end so the loop cannot fray out from under the stitching.",
+        },
+        {
+          name: "Sew through every layer",
+          text: "Waistbands are thick. Use a thimble, and go through the loop, the waistband facing and the outer fabric together rather than just the top layer.",
+        },
+        {
+          name: "Bar tack both ends",
+          text: "Eight to ten close stitches across the full width of the loop, backstitched at each end. A single row of stitching pulls out again on the first tug, which is what happened the first time.",
+        },
+        {
+          name: "Replace the loop if it tore through itself",
+          text: "Cut a new one from the inside of a hem or a pocket bag on the same garment, so the fabric and the fade match.",
+        },
+      ],
+    },
     relatedSlugs: ["seam-stress", "missing-buttons"],
     faqs: [
       {

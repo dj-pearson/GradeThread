@@ -557,11 +557,12 @@ export function flawHubBreadcrumbItems(): Array<{ name: string; url: string }> {
 
 /** A single flaw page: Article + DefinedTerm + FAQPage. */
 export function flawJsonLd(flaw: FlawEntry): JsonLd[] {
+  const url = absoluteUrl(flawPath(flaw.slug));
   return [
     articleLd({
       headline: flaw.h1,
       description: flaw.description,
-      url: absoluteUrl(flawPath(flaw.slug)),
+      url,
       datePublished: FLAW_PUBLISHED,
       dateModified: FLAW_MODIFIED,
     }),
@@ -571,6 +572,24 @@ export function flawJsonLd(flaw: FlawEntry): JsonLd[] {
       definition: flaw.definition,
       path: flawPath(flaw.slug),
     }),
+    // US-9013: HowTo only where a real repair guide exists. Seven of the 32
+    // carry one. Emitting a HowTo built from the removal prose on the other
+    // 25 would be marking up steps that are not steps, which is the failure
+    // Google's own documentation names first.
+    ...(flaw.repair
+      ? [
+          howToLd({
+            name: flaw.repair.name,
+            description: flaw.description,
+            url,
+            minutes: flaw.repair.minutes,
+            cost: flaw.repair.cost,
+            tools: flaw.repair.tools,
+            supplies: flaw.repair.supplies,
+            steps: flaw.repair.steps,
+          }),
+        ]
+      : []),
     faqPageLd(flaw.faqs),
   ];
 }
