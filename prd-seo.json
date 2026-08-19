@@ -233,14 +233,17 @@
     },
     {
       "id": "US-9011",
-      "passes": false,
+      "passes": true,
       "title": "[GATE] SERP-check five repair terms before committing to the damage-and-care build",
       "description": "As the operator, I want to know who actually holds the top ten for the repair keywords, so that we do not commit to a 295,750/mo cluster that is locked up by domain-authority-80 incumbents.",
       "acceptanceCriteria": [
-        "Record the top ten organic results for five terms: `how to fix a broken zipper` (50,000, Low), `how to sew on a button` (50,000, Low), `how to fix a hole in jeans` (5,000), `how to fix a snag in a sweater` (5,000) and `how to unshrink clothes` (5,000).",
-        "For each, note how many of the ten are major publishers (Tide, Persil, Good Housekeeping, Real Simple, Martha Stewart) versus reachable sites, and whether any result is thin enough to displace.",
-        "Path 1 cleared the pull on volume but its kill condition was never tested; this story is that test. If every slot on all five terms belongs to a major publisher with no gaps, record Path 1 as blocked in vault/40-growth/seo-strategy-options-2026-08.md and shift the effort to Path 3 and Path 7, which have no such incumbent.",
-        "Write the verdict and the evidence into the Path 1 section of the strategy note."
+        "Record the top ten organic results for the five terms. DONE, 2026-08-18, all five, 39 results recorded in docs/seo/repair-serp-check.md. Stated plainly in that note: this is a search-API sample, not a rank-tracker snapshot, so it answers WHO occupies the space and does not establish any URL's exact position.",
+        "For each, note how many of the ten are major publishers versus reachable sites, and whether any result is thin enough to displace. DONE. Across all 39 results there is EXACTLY ONE major publisher (Fox News, on an AMP real-estate URL). None of Tide, Persil, Good Housekeeping, Real Simple or Martha Stewart appears anywhere. The space is held by small craft blogs, clothing and appliance brand blogs, and UGC.",
+        "SIX OF 39 SLOTS ARE VISIBLY WEAK: a jewellery company ranking first for a sweater-snag query, Speed Queen's Thailand page for a US search, two spam PDFs on a hijacked New Zealand government domain, one more on a hijacked university domain, and a London waste-authority leaflet.",
+        "GATE RESULT: Path 1 is NOT blocked. AC3's kill condition is not met and it is not close. Path 1 is not recorded as blocked in the strategy note; the verdict and evidence are written into it instead.",
+        "Write the verdict and the evidence into the Path 1 section of the strategy note. DONE, in vault/40-growth/seo-strategy-options-2026-08.md, replacing the 'kill condition has not been tested yet' paragraph and reinforcing 'The risk Path 1 carries' with the same evidence.",
+        "THE FINDING THE STORY DID NOT ASK FOR, and it changes what Path 1 is worth rather than whether it is possible: not one of the 39 results is a resale, grading or secondhand-clothing site. The two closest are Oxfam, a charity shop, and Levi's. So there is no incumbent to displace, AND Google does not read these queries as resale-shaped and the visitor behind them is not a seller. The whole risk moves onto topical dilution.",
+        "CONSEQUENCES FOR THE DOWNSTREAM STORIES, which is what a gate is for: US-9015 (containment) is reprioritised ahead of US-9013 and US-9014, because the boundary is cheap now and expensive after a hundred care pages exist. US-9013's entry terms are challenged in that story's own notes."
       ],
       "priority": 13,
       "dependsOn": [
@@ -275,12 +278,15 @@
         "Build the repair sub-cluster before stain removal: repair is 122,000/mo across 10 terms with 8 on Low competition, where stain removal is 138,150/mo across 18 terms with 11 at Medium or High. Same volume, half the fight.",
         "Each guide carries HowTo JSON-LD with real numbered steps, tools and materials, emitted from head-builder.ts as well as the SPA route.",
         "Remaining repair terms (`how to fix a hole in jeans`, `how to fix a snag in a sweater`, `how to darn a hole in a sweater`, `how to replace a zipper pull`, `how to fix a stretched out collar`, `how to fix a broken belt loop`) are covered by the same template.",
-        "Registered in keyword-targets.ts and in the /care/ sitemap segment."
+        "Registered in keyword-targets.ts and in the /care/ sitemap segment.",
+        "CHALLENGED BY THE US-9011 GATE (2026-08-18). This story names the two 50,000/mo terms as the entry point. The SERP check says enter on the 5,000/mo terms instead: `how to fix a snag in a sweater` and `how to unshrink clothes` have the weakest incumbents in the whole set (a jewellery site holds the top slot on the first; a wrong-locale appliance page and two spam PDFs hold three of seven slots on the second), and both are CONDITION DEFECTS WITH A RESALE CONSEQUENCE, which is the only bridge from repair intent back to the product.",
+        "DO NOT WRITE THE BUTTON PAGE YET. `how to sew on a button` is 50,000/mo of the purest non-adjacent intent in the set: someone searching it wants to sew a button, and the page-one results are craft blogs that do it better than we would. Volume is not the argument; adjacency is."
       ],
-      "priority": 15,
+      "priority": 16,
       "dependsOn": [
         "US-9012"
-      ]
+      ],
+      "notes": "Entry terms challenged by the US-9011 gate on 2026-08-18. Evidence in docs/seo/repair-serp-check.md. The zipper term is still worth doing; the button term is the one to drop."
     },
     {
       "id": "US-9014",
@@ -294,7 +300,7 @@
         "Page count is logged at build time so silent growth is visible; if the matrix exceeds 400 pages, the story stops and the cap is re-argued rather than shipped.",
         "Every generated page is registered through calculatorRoutes()-style spread into PUBLIC_ROUTES and appears in the /care/ sitemap segment."
       ],
-      "priority": 16,
+      "priority": 17,
       "dependsOn": [
         "US-9013"
       ]
@@ -311,7 +317,7 @@
         "The ratio of care URLs to reseller URLs is reported by the sitemap build; the rationale for the chosen ceiling is recorded in vault/40-growth/seo-strategy-options-2026-08.md.",
         "Path 1 is documented in the vault note as an authority and link engine, not an acquisition channel: it is 0.5% seller intent (1,550 of 295,750) and planning it as a customer channel is the failure mode this guard prevents."
       ],
-      "priority": 17,
+      "priority": 15,
       "dependsOn": [
         "US-9012"
       ]

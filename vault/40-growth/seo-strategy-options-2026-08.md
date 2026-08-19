@@ -430,11 +430,39 @@ Path 2 is out. Path 4 is out. The barbell becomes:
   `how to share on poshmark` and `best crosslisting app for resellers` are all
   flagged as growing, and the audience is FlipDesk's exact user.
 
-Path 1's kill condition has not been tested yet. The volume cleared; the SERP
-check did not run. Before committing the build, look at who actually holds the
-top ten for five of the repair terms. If Tide, Persil and Good Housekeeping own
-every slot with no gaps, the entry point moves to Path 3, which has no such
-incumbent.
+Path 1's kill condition **was tested on 2026-08-18 (US-9011) and did not fire.**
+Five terms, 39 results, recorded in `docs/seo/repair-serp-check.md`.
+
+Exactly **one** major publisher appears anywhere in the set: Fox News, on an AMP
+real-estate URL. None of Tide, Persil, Good Housekeeping, Real Simple or Martha
+Stewart appears at all. What holds these SERPs is small craft blogs, clothing
+and appliance brand blogs, and UGC — Quora, TikTok, YouTube, Instructables, a
+Facebook group, a menswear forum.
+
+Six of the 39 slots are visibly weak: a **jewellery company ranking first for a
+sweater-snag query**, Speed Queen's **Thailand** page for a US search, two spam
+PDFs on a hijacked New Zealand government domain, one more on a hijacked
+university domain, and a London waste-authority leaflet.
+
+**But the check found something the story did not ask for, and it changes what
+Path 1 is worth rather than whether it is possible.** Not one of the 39 results
+is a resale, grading or secondhand-clothing site; the closest are Oxfam and
+Levi's. There is no incumbent to displace, and equally, Google does not read
+these queries as resale-shaped and the visitor behind them is not a seller.
+
+So the gate clears on authority and the entire risk moves onto the dilution axis
+already described under "The risk Path 1 carries" below. Revised sequencing
+inside Path 1:
+
+- **US-9015 (containment) moves ahead of US-9013 and US-9014.** Build the
+  `/care/` boundary before the volume. It is cheap now and expensive after a
+  hundred care pages exist.
+- **Enter on `how to fix a snag in a sweater` and `how to unshrink clothes`,**
+  not the two 50,000/mo terms. Weakest incumbents, and both are condition
+  defects with a resale consequence, which is the only bridge from repair intent
+  back to the product.
+- **Do not write the button page.** 50,000/mo of the purest non-adjacent intent
+  in the set, held by craft blogs that do it better than we would.
 
 ## Sequencing: why Path 3 goes first
 
@@ -473,6 +501,12 @@ customer acquisition channel, and planning it as one would be a mistake.
    (`/care/…`) rather than mixed into the reseller spine.
 
 ### The risk Path 1 carries
+
+**Confirmed by the US-9011 SERP check, not just reasoned about.** Every one of
+the 39 results in that check is a craft blog, a brand blog, a UGC thread or a
+charity shop. That is the neighbourhood Google would file this content in, and
+it is the neighbourhood the entity would drift toward.
+
 
 At 295,750 a month against a seller surface of roughly 157,000, care content
 would become the majority of the site. Google's understanding of the entity
