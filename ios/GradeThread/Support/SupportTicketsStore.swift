@@ -45,12 +45,24 @@ final class SupportTicketsStore {
 
     /// Opens a ticket and refreshes the list. Returns the new ticket id so the
     /// caller can navigate straight into the thread, or nil on failure.
-    func create(subject: String, body: String) async -> String? {
+    func create(
+        subject: String,
+        body: String,
+        attachments: [SupportAttachmentUpload] = []
+    ) async -> String? {
         let trimmedSubject = subject.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBody = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        // US-2561: text is still required WITH attachments. The route trims the
+        // body and 400s on an empty one before it ever looks at the images, so
+        // an images-only ticket would fail after the user waited through the
+        // upload - the slowest possible way to be told something.
         guard !trimmedSubject.isEmpty, !trimmedBody.isEmpty else { return nil }
         do {
-            let id = try await service.create(subject: trimmedSubject, body: trimmedBody)
+            let id = try await service.create(
+                subject: trimmedSubject,
+                body: trimmedBody,
+                attachments: attachments
+            )
             await load()
             return id
         } catch {
@@ -76,6 +88,10 @@ final class SupportThreadStore {
     var phase: Phase = .loading
     private(set) var ticket: SupportTicket?
     private(set) var messages: [SupportTicketMessage] = []
+    /// US-2561 AC3: when the GET that produced the current signed URLs returned.
+    /// The URLs live 600s and nothing about the string says when it dies, so the
+    /// only way to know is to remember when it arrived.
+    private(set) var fetchedAt: Date = .distantPast
     var actionError: String?
     private var isLoading = false
 
@@ -93,6 +109,7 @@ final class SupportThreadStore {
             let thread = try await service.thread(id: ticketId)
             ticket = thread.ticket
             messages = thread.messages
+            fetchedAt = .now
             phase = .ready
         } catch {
             phase = .failed(message: friendlyMessage(error))
@@ -102,11 +119,32 @@ final class SupportThreadStore {
     /// Posts a reply (reopens a resolved/closed ticket server-side) and reloads
     /// the thread so the new message + status land. Returns whether it sent.
     @discardableResult
-    func reply(_ body: String) async -> Bool {
+    func reply(_ body: String, attachments: [SupportAttachmentUpload] = []) async -> Bool {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Same rule as create: the route requires text even when images ride
+        // along, so refusing here is faster and clearer than a 400 after upload.
         guard !trimmed.isEmpty else { return false }
         do {
-            try await service.reply(ticketId: ticketId, body: trimmed)
+            try await service.reply(
+                ticketId: ticketId,
+                body: trimmed,
+                attachments: attachments
+            )
+            await load()
+            return true
+        } catch {
+            actionError = friendlyMessage(error)
+            return false
+        }
+    }
+
+    /// US-2561 AC4. Reloads rather than setting the status locally: closing is
+    /// idempotent server-side and a reply reopens the ticket, so the server's
+    /// row is the only thing that knows the answer after either action.
+    @discardableResult
+    func close() async -> Bool {
+        do {
+            try await service.close(ticketId: ticketId)
             await load()
             return true
         } catch {

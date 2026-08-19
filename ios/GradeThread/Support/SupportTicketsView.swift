@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// Native support inbox (US-1136): a ticket list + threaded reply view backed by
@@ -182,6 +183,11 @@ private struct SupportTicketComposer: View {
     @State private var subject = ""
     @State private var messageBody = ""
     @State private var isSending = false
+    // US-2561: staged images. Held here rather than in the store because an
+    // abandoned composer must not leave attachments waiting for the next one.
+    @State private var attachments: [SupportAttachmentDraft] = []
+    @State private var picking = false
+    @State private var attachmentNote: String?
 
     private static let maxSubject = 200
     private static let maxBody = 4000
@@ -230,6 +236,7 @@ private struct SupportTicketComposer: View {
                 } footer: {
                     Text("Goes to the Pearson Media team. We'll reply right here in the app.")
                 }
+                attachmentSection
             }
             .navigationTitle("Contact support")
             .navigationBarTitleDisplayMode(.inline)
@@ -251,14 +258,62 @@ private struct SupportTicketComposer: View {
             .onAppear {
                 if let prefillBody, messageBody.isEmpty { messageBody = prefillBody }
             }
+            .sheet(isPresented: $picking) {
+                PhotoLibraryPicker(selectionLimit: room) { results in
+                    Task { await stage(results) }
+                }
+                .ignoresSafeArea()
+            }
         }
         .interactiveDismissDisabled(isSending)
+    }
+
+    private var room: Int {
+        max(0, SupportAttachmentContract.maxAttachments - attachments.count)
+    }
+
+    @ViewBuilder
+    private var attachmentSection: some View {
+        Section {
+            SupportAttachmentTray(drafts: $attachments, disabled: isSending)
+            Button {
+                picking = true
+            } label: {
+                Label("Add photo", systemImage: "photo.on.rectangle")
+            }
+            .disabled(isSending || room == 0)
+            .accessibilityLabel("Add photo")
+            if let attachmentNote {
+                Text(attachmentNote)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Photos")
+        } footer: {
+            Text("Up to \(SupportAttachmentContract.maxAttachments) images. Location data is stripped before they leave your phone.")
+        }
+    }
+
+    private func stage(_ results: [PHPickerResult]) async {
+        guard !results.isEmpty else { return }
+        let staged = await SupportAttachmentPicking.drafts(from: results, room: room)
+        attachments.append(contentsOf: staged.drafts)
+        // Saying so rather than dropping quietly: the skipped one is often the
+        // screenshot the whole ticket is about.
+        attachmentNote = staged.skipped > 0
+            ? "\(staged.skipped) image\(staged.skipped == 1 ? "" : "s") not added - the limit is \(SupportAttachmentContract.maxAttachments)."
+            : nil
     }
 
     private func submit() async {
         isSending = true
         defer { isSending = false }
-        if let id = await store.create(subject: subject, body: messageBody) {
+        if let id = await store.create(
+            subject: subject,
+            body: messageBody,
+            attachments: attachments.map(\.upload)
+        ) {
             HapticFeedback.success()
             dismiss()
             onOpened(id)
@@ -279,6 +334,10 @@ private struct SupportTicketThreadView: View {
     @State private var store: SupportThreadStore
     @State private var reply = ""
     @State private var isSending = false
+    // US-2561
+    @State private var attachments: [SupportAttachmentDraft] = []
+    @State private var picking = false
+    @State private var confirmingClose = false
 
     init(ticketId: String) {
         self.ticketId = ticketId
@@ -299,7 +358,38 @@ private struct SupportTicketThreadView: View {
         }
         .navigationTitle(store.ticket?.subject ?? "Ticket")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // US-2561 AC4. Hidden once closed rather than disabled: the endpoint
+            // is idempotent, so a greyed-out Close on a closed ticket would be
+            // an affordance for something already true.
+            if let status = store.ticket?.displayStatus, status != .closed {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        confirmingClose = true
+                    } label: {
+                        Label("Close ticket", systemImage: "checkmark.circle")
+                    }
+                    .accessibilityLabel("Close ticket")
+                }
+            }
+        }
+        .confirmationDialog(
+            "Close this ticket?",
+            isPresented: $confirmingClose,
+            titleVisibility: .visible
+        ) {
+            Button("Close ticket") { Task { await store.close() } }
+            Button("Keep it open", role: .cancel) {}
+        } message: {
+            Text("You can reply again any time - a new reply reopens it.")
+        }
         .task { await store.load() }
+        .sheet(isPresented: $picking) {
+            PhotoLibraryPicker(selectionLimit: room) { results in
+                Task { await stage(results) }
+            }
+            .ignoresSafeArea()
+        }
         .alert(
             "Couldn't send reply",
             isPresented: Binding(
@@ -362,6 +452,19 @@ private struct SupportTicketThreadView: View {
                 .font(.body)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
+            if !message.files.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(message.files) { file in
+                            SupportAttachmentImage(
+                                attachment: file,
+                                fetchedAt: store.fetchedAt,
+                                reload: { await store.load() }
+                            )
+                        }
+                    }
+                }
+            }
         }
         .padding(12)
         .background(
@@ -371,10 +474,30 @@ private struct SupportTicketThreadView: View {
         )
     }
 
+    private var room: Int {
+        max(0, SupportAttachmentContract.maxAttachments - attachments.count)
+    }
+
+    private func stage(_ results: [PHPickerResult]) async {
+        guard !results.isEmpty else { return }
+        let staged = await SupportAttachmentPicking.drafts(from: results, room: room)
+        attachments.append(contentsOf: staged.drafts)
+    }
+
     private var replyBar: some View {
         VStack(spacing: 8) {
             Divider()
+            SupportAttachmentTray(drafts: $attachments, disabled: isSending)
+                .padding(.horizontal, 12)
             HStack(alignment: .bottom, spacing: 8) {
+                Button {
+                    picking = true
+                } label: {
+                    Image(systemName: "photo.on.rectangle")
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSending || room == 0)
+                .accessibilityLabel("Attach photo")
                 TextField("Add a reply…", text: $reply, axis: .vertical)
                     .lineLimit(1...5)
                     .textFieldStyle(.roundedBorder)
@@ -402,9 +525,12 @@ private struct SupportTicketThreadView: View {
     private func send() async {
         isSending = true
         defer { isSending = false }
-        let sent = await store.reply(reply)
+        let sent = await store.reply(reply, attachments: attachments.map(\.upload))
         if sent {
             reply = ""
+            // Cleared ONLY on success. A failed send keeps the images staged so
+            // the user does not re-pick three photos after a dropped signal.
+            attachments = []
             HapticFeedback.success()
         } else {
             HapticFeedback.error()

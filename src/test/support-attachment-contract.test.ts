@@ -195,13 +195,92 @@ describe("the on-device downscale matches the web picker (AC5)", () => {
   });
 });
 
-describe("the gap this story exists to close (AC1)", () => {
-  it("the iOS view still sends body text only", () => {
-    // A BASELINE, not a permanent assertion. When the Swift half lands this
-    // should be updated to assert the opposite — the value until then is that
-    // nobody re-files the story believing it was already done.
-    const swift = read(SWIFT);
-    expect(swift).not.toContain("attachments");
-    expect(swift).not.toContain("/close");
+describe("the iOS half implements this contract (US-2561)", () => {
+  // This block used to assert the OPPOSITE - that the iOS view sent body text
+  // only - and said in its own comment that it was a baseline to be inverted
+  // when the Swift landed. It has.
+  //
+  // Swift is not compiled here; iOS CI on macOS runners is that gate. What a
+  // source scan CAN hold is that the three numbers agree with the three that
+  // already existed, and that the chain from picker to request is unbroken.
+
+  const SWIFT_CONTRACT = "ios/GradeThread/Support/SupportAttachment.swift";
+  const SWIFT_PICKING = "ios/GradeThread/Support/SupportAttachmentPicking.swift";
+  const SWIFT_SERVICE = "ios/GradeThread/Support/SupportTicketService.swift";
+
+  function swiftNumber(rel: string, name: string): number {
+    const m = new RegExp(`${name}[^=]*=\\s*(\\d+(?:\\.\\d+)?)`).exec(code(rel));
+    if (!m) throw new Error(`${name} not found in ${rel}`);
+    return Number(m[1]);
+  }
+
+  it("the Swift limit IS this limit", () => {
+    // Fourth copy of the number now. The guard is the only thing keeping four
+    // copies honest.
+    expect(swiftNumber(SWIFT_CONTRACT, "maxAttachments")).toBe(SUPPORT_MAX_ATTACHMENTS);
+  });
+
+  it("the Swift TTL and margin ARE these", () => {
+    expect(swiftNumber(SWIFT_CONTRACT, "urlTTLSeconds")).toBe(
+      SUPPORT_ATTACHMENT_URL_TTL_SEC,
+    );
+    expect(swiftNumber(SWIFT_CONTRACT, "urlExpiryMarginSeconds")).toBe(
+      SUPPORT_URL_EXPIRY_MARGIN_SEC,
+    );
+  });
+
+  it("the Swift downscale IS the web downscale", () => {
+    expect(swiftNumber(SWIFT_CONTRACT, "maxLongEdge")).toBe(SUPPORT_ATTACHMENT_MAX_WIDTH);
+    expect(swiftNumber(SWIFT_CONTRACT, "jpegQuality")).toBe(
+      SUPPORT_ATTACHMENT_JPEG_QUALITY,
+    );
+  });
+
+  it("it sends data_url, spelled out rather than left to the encoder", () => {
+    // The edge reads item?.data_url. A camelCase key decodes to null there and
+    // surfaces as "One attachment was not an image", which describes the bytes
+    // and not the actual fault.
+    expect(code(SWIFT_CONTRACT)).toContain('case dataURL = "data_url"');
+  });
+
+  it("images are downscaled BEFORE they are encoded (AC5)", () => {
+    // The order is the point: base64 of a 12MP photo is several megabytes of
+    // JSON body, which on a phone signal is a timeout rather than a reply.
+    const src = code(SWIFT_PICKING);
+    expect(src).toContain("PhotoCompressor.compressOffMain(");
+    expect(src).toContain("maxLongEdge: SupportAttachmentContract.maxLongEdge");
+    expect(src).toContain("jpegDataURL(output.imageData)");
+  });
+
+  it("the service reaches all three endpoints, and adds none (AC2, AC4)", () => {
+    const src = code(SWIFT_SERVICE);
+    expect(src).toContain('"/api/support-tickets"');
+    expect(src).toContain("/messages");
+    expect(src).toContain("/close");
+    expect(src).toContain("attachments: [SupportAttachmentUpload]");
+  });
+
+  it("a dead url renders a placeholder, not a broken image (AC3)", () => {
+    const src = code(SWIFT_PICKING);
+    expect(src).toContain("SupportAttachmentContract.isURLUsable(");
+    // The nil case alone is the trap: the common failure is a good string that
+    // rotted while the thread sat on screen, which only the age can catch.
+    expect(src).toContain("fetchedAt: fetchedAt");
+  });
+
+  it("the thread remembers WHEN its urls were signed", () => {
+    // Without this the expiry rule has nothing to measure against, and every
+    // url looks fresh forever.
+    const store = code("ios/GradeThread/Support/SupportTicketsStore.swift");
+    expect(store).toContain("fetchedAt = .now");
+  });
+
+  it("the close button is wired to the store, not to a local flag", () => {
+    const view = code(SWIFT);
+    expect(view).toContain("store.close()");
+    // AC4 also says replying reopens it. That is a SERVER rule and the client
+    // must not duplicate it - the reload after a reply is how the row gets its
+    // new status.
+    expect(view).not.toMatch(/status\s*=\s*\.open/);
   });
 });

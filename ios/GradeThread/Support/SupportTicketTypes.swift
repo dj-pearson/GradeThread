@@ -30,8 +30,15 @@ struct SupportTicketMessage: Identifiable, Decodable, Equatable, Sendable {
     let author: String
     let body: String
     let createdAt: String?
+    /// US-2561. OPTIONAL rather than defaulted-empty because a missing key is a
+    /// decode FAILURE in Swift, not a zero value - and this whole thread view
+    /// would go blank against an edge build that predates attachments, which is
+    /// a worse outcome than a message with no images.
+    let attachments: [SupportAttachmentView]?
 
     var isFromUser: Bool { author == "you" }
+
+    var files: [SupportAttachmentView] { attachments ?? [] }
 }
 
 /// `GET /api/support-tickets/:id` payload.
