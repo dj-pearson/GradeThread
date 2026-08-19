@@ -8,9 +8,9 @@ code_refs:
   - services/edge-functions/src/lib/email.ts
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
-reviewed: 2026-08-17
+reviewed: 2026-08-19
 tags: [legal, billing, subscriptions, compliance, counsel]
-summary: Every place GradeThread tells a customer about a recurring charge or its ending, who drafted the wording, and whether counsel has seen it.
+summary: Every place GradeThread tells a customer about a recurring charge, its ending, or where their data goes — who drafted the wording, and whether counsel has seen it.
 ---
 
 # Subscription copy review register
@@ -113,6 +113,34 @@ products — FlipDesk for sellers, GradeThread for buyers — through
 > disclosure and can drift from it independently. `subscription-ack-disclosure_test.ts`
 > pins its five requirements, including that its cancellation link reaches the
 > actual flow on **both** billing pages rather than merely a billing page.
+
+## Privacy — the Claude connector data flow (US-9127 AC4)
+
+> **Added 2026-08-19. Agent-drafted, counsel has NOT seen it, and it is on a
+> different page from everything above** — which is why it is here rather than
+> assumed to be covered by the subscription review.
+
+| Where | What it asserts | Status |
+|---|---|---|
+| `src/pages/legal/privacy.tsx` §5 "The Claude connector" | The seller connects their OWN Claude account; Anthropic is **not** our subprocessor for this flow; connector data is retained under Anthropic's standard policy because the MCP connector is not eligible for zero-data-retention; no photos cross this path; every call is audited for 400 days; the seller can grant read-only and revoke immediately | **agent-drafted 2026-08-19, pending review** |
+
+**The claim most worth a lawyer's eye** is the subprocessor distinction. Section
+4 says we send photos to Anthropic under our contract. Section 5 says the
+connector conversation is the seller's and is governed by *their* agreement with
+Anthropic. That distinction is factually right about how the code works — the
+seller's own Claude client calls us, we answer, and we hold no contract covering
+what happens in their conversation — but whether it is the right way to *frame*
+the responsibility is a determination, not an engineering fact.
+
+**The retention claim is sourced, not inferred.** Anthropic states the Messages
+API MCP connector is not eligible for zero-data-retention arrangements. If that
+changes, this paragraph is wrong in the direction that matters and should be the
+first thing re-read.
+
+**What was NOT changed, deliberately:** `subprocessors.tsx` still lists
+Anthropic once, for grading. Adding a second row for the connector would assert
+the subprocessor relationship section 5 says does not exist. If counsel decides
+it does, the row and the paragraph change together.
 
 ## Claim audit — 2026-08-10
 

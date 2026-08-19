@@ -260,6 +260,70 @@ status **draft** until the flags are on.
 > Every action it ever took is in your account's audit log; ask us if you want to
 > see it.
 
+## Directory policy re-check (US-9127 AC6)
+
+Run **2026-08-19**, against the 27 registered tools. Re-run it before submitting,
+because the answer is a property of the code and the code moves.
+
+```bash
+# The list this was run against:
+cd services/edge-functions && node -e "
+const fs=require('fs');
+const files=fs.readdirSync('src/lib').filter(f=>f.startsWith('mcp-')&&f.endsWith('.ts'));
+const all=[];
+for(const f of files){
+  const s=fs.readFileSync('src/lib/'+f,'utf8');
+  for(const m of s.matchAll(/name: \"(gradethread_[a-z_]+)\"/g)) all.push(m[1]);
+}
+console.log(all.sort().join('\n'));
+"
+```
+
+### "Transferring financial assets" — the named violation
+
+**No connector tool creates a charge, and none returns a payment URL.** Checked
+rather than assumed:
+
+- `grade-billing.ts`'s `runPaymentPrecedence` has three outcomes: included
+  monthly grade, credit debit, or `checkoutRequired`.
+- The connector's grading path handles that third outcome by **refusing** —
+  "Payment required for {tier} grade — not enough grading credits. Buy a credit
+  pack or upgrade your plan." It does not open a checkout and it does not charge.
+- That is **stronger than the shape US-9127 anticipated.** The story expected the
+  tool to return a Stripe checkout URL; it returns a refusal with instructions
+  instead, which leaves the payment entirely outside the conversation.
+
+The only value that moves is a debit against a pre-purchased credit balance
+inside our own system — ordinary metered usage, the same shape as an API call
+consuming quota, not a transfer between parties.
+
+> **What must stay true.** If a tool is ever given a checkout URL to return, that
+> is a change to re-check against the policy before it ships, not a convenience.
+> If one is ever given the ability to charge directly, the connector is no longer
+> submittable.
+
+### The rest of the surface
+
+- **No tool sends email, SMS or any outbound message.** Nothing in the registry
+  reaches a messaging path.
+- **No tool reads or writes another tenant's data.** Every one is scoped on the
+  authenticated tenant, with a cross-tenant case in the isolation lane and a
+  guard that refuses to let a tool ship without one.
+- **No tool returns credentials.** The audit redactor drops anything
+  credential-shaped rather than summarising it, and tool results pass through
+  `sanitizeDeep` before they leave.
+- **The three sandbox tools touch no account data at all** — asserted by a test
+  that reads their import list as a whitelist, so a future edit cannot quietly
+  give them a database client.
+
+### For the reviewer account (AC5)
+
+An empty account and an account full of real customer records are both named
+rejection causes. Seed one with SAMPLE inventory: a handful of items with photos,
+one or two graded, one draft listing, no live listings and no real buyer data.
+The sandbox tools work on any plan, but a reviewer will want to see the real ones
+answer, so the account needs **Pro or Business**.
+
 ## What is NOT yet decided
 
 The copy above is written and reviewable. What US-9127 still owns is work that

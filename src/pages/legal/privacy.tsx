@@ -142,7 +142,7 @@ export function PrivacyPage() {
           is on, a Prospect scan sends your position once so we can work out
           which coarse area cell you are in; we keep the cell and discard the
           position. Nothing here applies while the switch is off. See{" "}
-          <a href="#radar">Section 7</a>.
+          <a href="#radar">Section 8</a>.
         </li>
       </ul>
 
@@ -343,12 +343,71 @@ export function PrivacyPage() {
         <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>{" "}
         — objecting does not affect your grades or certificates. QA access
         ends when your photos are deleted under the retention schedule in{" "}
-        <a href="#retention">Section 9</a> (or earlier on request); deleted
+        <a href="#retention">Section 10</a> (or earlier on request); deleted
         photos drop out of QA samples because reviewers always read the live
         stored photo, never a copy.
       </p>
 
-      <h2 id="certificates">5. Public grade certificates</h2>
+      {/* US-9127 AC4: a NEW data flow, and materially different from section 4.
+          There we are the controller sending photos to our subprocessor. Here
+          the seller holds the relationship with Anthropic and we answer their
+          client's requests, so the retention terms are Anthropic's rather than
+          ours. Stated before launch rather than after, because it is a change
+          in where a seller's data goes. */}
+      <h2 id="claude-connector">5. The Claude connector</h2>
+      <p>
+        If you connect GradeThread to Claude, you are linking{" "}
+        <strong>your own Claude account</strong> to your GradeThread account.
+        That is a different arrangement from the AI grading described above, and
+        the difference matters for where your data goes.
+      </p>
+      <ul>
+        <li>
+          <strong>What we send.</strong> Only what the tool you asked for
+          returns: item titles, brands, sizes, prices, grades, listing details,
+          sales figures and the like. It goes to Claude because you asked Claude
+          for it.
+        </li>
+        <li>
+          <strong>No photos cross this path.</strong> Every connector tool
+          returns text. Your garment images are not sent to Claude by the
+          connector, whatever you ask it.
+        </li>
+        <li>
+          <strong>Anthropic is not acting as our subprocessor here.</strong> In
+          grading, we send your photos to Anthropic under our contract with
+          them. In the connector, the conversation is yours, and what happens to
+          it is governed by <em>your</em> agreement with Anthropic rather than
+          ours.
+        </li>
+        <li>
+          <strong>Anthropic retains connector data under its standard policy.</strong>{" "}
+          Anthropic&rsquo;s Model Context Protocol connector is expressly not
+          eligible for zero-data-retention arrangements, so the tool definitions
+          we publish and the results we return are retained by Anthropic under
+          the terms of your Claude plan. We cannot shorten that on your behalf.
+        </li>
+        <li>
+          <strong>We record every call.</strong> Each connector action is written
+          to an audit log with the tool, the items it touched, whether it
+          succeeded and why it was refused if it was. We keep those for 400 days
+          so a disputed action can be reconstructed. The log stores the ids
+          acted on and a summary of the request, never image data and never
+          credentials.
+        </li>
+        <li>
+          <strong>You choose what it can do, and can revoke it.</strong> The
+          approval screen lets you grant read-only access if that is all you
+          want. Disconnecting from Settings &rarr; API keys stops it
+          immediately, including any access already issued.
+        </li>
+      </ul>
+      <p>
+        If you do not connect it, none of the above applies and nothing about
+        your account reaches Claude.
+      </p>
+
+      <h2 id="certificates">6. Public grade certificates</h2>
       <p>
         Grade certificates are designed to be shareable. When you publish a
         certificate or share its link, the certificate page (including the
@@ -365,7 +424,7 @@ export function PrivacyPage() {
           Until this section existed, that submission would have pointed at a
           policy silent about the extension. Every claim below is checked
           against the shipped code, not the marketing copy. */}
-      <h2 id="extension">6. The GradeThread browser extension</h2>
+      <h2 id="extension">7. The GradeThread browser extension</h2>
       <p>
         The extension is optional and separate from your account. Most of it
         works without signing in, and what it sends depends on what you ask it
@@ -469,7 +528,7 @@ export function PrivacyPage() {
           Location is a new kind of data, so it gets its own section rather than
           a line inside "Information we collect": folding it into an existing
           disclosure would change what an earlier consent meant. */}
-      <h2 id="radar">7. Thrift Radar and location</h2>
+      <h2 id="radar">8. Thrift Radar and location</h2>
       <p>
         Thrift Radar is a shared map of where secondhand supply turns up, built
         from the scans resellers run in the field. Contributing to it is{" "}
@@ -529,7 +588,7 @@ export function PrivacyPage() {
         we do not go back and gather what happened while it was off. Your own
         sourcing history stays yours either way &mdash; it is not part of the
         shared map and is covered by your ordinary rights in{" "}
-        <a href="#your-rights">Section 10</a>.
+        <a href="#your-rights">Section 11</a>.
       </p>
       {/* US-1864: the personal layer. Stated here rather than left to the
           sentence above, because it is a SECOND record written from the same
@@ -547,7 +606,7 @@ export function PrivacyPage() {
         with your account.
       </p>
 
-      <h2 id="sharing">8. How we share information</h2>
+      <h2 id="sharing">9. How we share information</h2>
       <p>
         We do not sell personal information. We share it only as follows. A
         complete, dated list of our subprocessors is on the{" "}
@@ -628,7 +687,7 @@ export function PrivacyPage() {
         </li>
       </ul>
 
-      <h2 id="retention">9. Data retention</h2>
+      <h2 id="retention">10. Data retention</h2>
       <p>
         We retain personal information for as long as your account is active
         and as needed to provide the Service, then delete or de-identify it
@@ -748,7 +807,7 @@ export function PrivacyPage() {
         <a href="#your-rights">Your rights</a>).
       </p>
 
-      <h2 id="your-rights">10. Your rights and choices</h2>
+      <h2 id="your-rights">11. Your rights and choices</h2>
       <p>
         Depending on where you live, you may have rights to access, correct,
         delete, restrict, or port your personal information, and to object to
@@ -801,7 +860,7 @@ export function PrivacyPage() {
         for residents of these states as well.
       </p>
 
-      <h2 id="security">11. Security</h2>
+      <h2 id="security">12. Security</h2>
       <p>
         We use industry-standard administrative, technical, and physical
         safeguards to protect your information &mdash; including encryption in
@@ -811,7 +870,7 @@ export function PrivacyPage() {
         guarantee absolute security.
       </p>
 
-      <h2 id="international">12. International transfers</h2>
+      <h2 id="international">13. International transfers</h2>
       <p>
         Pearson Media LLC is based in the United States. If you access the
         Service from outside the U.S., your information will be transferred
@@ -820,7 +879,7 @@ export function PrivacyPage() {
         mechanisms such as the Standard Contractual Clauses.
       </p>
 
-      <h2 id="children">13. Children</h2>
+      <h2 id="children">14. Children</h2>
       <p>
         The Service is intended for adults. You must be at least 18 years old to
         use it (see our <Link to="/terms">Terms of Service</Link>). The Service
@@ -831,7 +890,7 @@ export function PrivacyPage() {
         we will delete it.
       </p>
 
-      <h2 id="changes">14. Changes to this policy</h2>
+      <h2 id="changes">15. Changes to this policy</h2>
       <p>
         We may update this Privacy Policy from time to time. When we make
         material changes, we will update the &ldquo;Effective date&rdquo;
@@ -840,7 +899,7 @@ export function PrivacyPage() {
         becomes effective constitutes acceptance of the updated policy.
       </p>
 
-      <h2 id="contact">15. Contact us</h2>
+      <h2 id="contact">16. Contact us</h2>
       <p>
         Pearson Media LLC
         <br />
