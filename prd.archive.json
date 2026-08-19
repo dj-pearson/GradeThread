@@ -38890,6 +38890,29 @@
       "priority": 12,
       "passes": true,
       "notes": "[DONE 2026-08-18] Traced from the reported item via the browser: garment_type 'tops', garment_category 'other', ebay_category_id 11554 (Women's Jeans), title naming jeans. garmentDescriptorFor now runs two passes over the same candidate list - specific first, coarse verticals after - so the ordering still expresses preference within each tier. ebay_leaf is a new first-ranked candidate fed from EbayCategoryPicker's displayCategoryPath through a new onResolvedCategoryPath prop, threaded via SpecificsSection; deliberately separate from onCategoryChange, which means 'the seller changed it' and makes a save cascade item_category. Promoting the title exposed four substring traps that were always there but rarely reached ('Baggies Shorts' -> bag, 'Capri Pants' -> headwear, 'Bootcut Jeans' -> shoes, 'Fleece Joggers' -> outerwear), so the matcher was rewritten: tokenize on non-alphanumerics, match whole tokens with an s/es plural tolerance, and take the match that ends last, tie-broken by length. One-word compounds no longer fall out of a substring match so they are listed explicitly (shirtdress, sundress, pantsuit, tracksuit, sweatsuit, bathrobe, tshirt). Also fixes cases nobody had listed: a mini skirt is a skirt. NOT DONE, deliberately: deriveGarmentDefaults still writes 'tops' for every unclassified clothing item and grading picks its rubric from that column - teaching it to read the title changes rubric selection, which is gated behind the grading eval. 43 tests on measurement-template-parity, edge 7167/0, web 5267/0."
+    },
+    {
+      "id": "US-2684",
+      "passes": true,
+      "title": "A cancelled eBay order leaves the listing live at quantity zero, and nothing in FlipDesk could see it or fix it",
+      "description": "As a FlipDesk seller whose eBay order was cancelled, I want FlipDesk to tell me the listing is out of stock and let me restock it in one click, so that a garment nobody can buy is not sitting there under a green banner saying buyers can purchase it now.",
+      "acceptanceCriteria": [
+        "resolveEbayListingState takes the offer's availableQuantity and resolves an explicit zero on a LIVE listing to reason out_of_stock, keeping status active and is_active true so a relist cannot mint a duplicate beside the listing still on eBay.",
+        "A missing or non-numeric quantity stays unknown rather than zero, and a state that is already not live (ENDED, INACTIVE) is never revived into out_of_stock.",
+        "The offers pull passes o.availableQuantity, so a cancelled order that left listingStatus reading ACTIVE is recognised.",
+        "The composer's Save & resubmit sends the quantity in the revise patch. It never did, so the one eBay-owned field that was wrong was the one field the seller could not push.",
+        "The composer's green 'buyers can purchase it now' banner is gated on not being out of stock, and an amber banner takes the same slot naming the state and carrying a one-click Restock on eBay.",
+        "Restock pushes the quantity ONLY: no photo sync and no resync_ebay_fields, so a listing that is unbuyable right now cannot have its fix blocked by eBay rejecting an unrelated item specific.",
+        "The out-of-stock derivation reads platform_fields.ebay_state, not listings.quantity alone, because the provenance merge keeps eBay's number off the column on a GradeThread-originated listing.",
+        "A successful revise that raises the quantity above zero clears the out_of_stock marker, so the banner does not stand for a full sync interval after the seller has fixed it. An inactive verdict is not cleared.",
+        "The orders pass stops writing listing_status ended over a listing the offers pull confirmed live in the same run; the completed-sale arm is unchanged and still marks the listing sold and inactive.",
+        "Pinned by ebay-listing-state_test.ts (both directions of the stock floor) and src/test/ebay-out-of-stock-restock.test.tsx, both verified to fail against the pre-fix code.",
+        "vault/30-platform/ebay-listing-lifecycle-reconciliation.md carries the contract in the same commit."
+      ],
+      "priority": 1,
+      "notes": [
+        "Done 2026-08-18. Reported live: ebay.com/itm/327293662366 sold, the order was cancelled, and the item page kept showing \"Listed & live on eBay / buyers can purchase it now\" while eBay showed out of stock. Three independent halves: the resolver could not name the state (eBay says ACTIVE with availableQuantity 0, not OUT_OF_STOCK), the composer never sent quantity on a revise, and the green banner was not gated on it. Contract in vault/30-platform/ebay-listing-lifecycle-reconciliation.md."
+      ]
     }
   ]
 }

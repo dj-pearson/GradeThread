@@ -10,7 +10,7 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-17
+reviewed: 2026-08-18
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -23,6 +23,12 @@ summary: Publish prefers the listings-row snapshot over the item, so any surface
 > about the DELETE and RELIST verbs; neither writes a title, description or
 > price on either side. The precedence rule — publish prefers the listings-row
 > snapshot over the item — is untouched.
+>
+> **Re-reviewed 2026-08-18.** Drift flagged the same two files for US-2684
+> (a cancelled eBay order left the listing live at quantity zero). That change
+> adds a QUANTITY to the revise patch and an out-of-stock banner; it touches
+> neither buildListingFields nor the publish-time resolution order. The
+> precedence rule still holds.
 
 ## The precedence
 

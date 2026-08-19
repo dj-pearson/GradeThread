@@ -41,6 +41,52 @@ Deno.test("OUT_OF_STOCK stays ACTIVE — the listing is still on eBay", () => {
   assertEquals(typeof s.message, "string");
 });
 
+// US-2684: eBay reaches out-of-stock two ways and only said the word one of
+// them. A cancelled order takes availableQuantity to 0 and leaves listingStatus
+// reading ACTIVE, which resolved to a plain live listing — so the app showed a
+// green "buyers can purchase it now" banner over something nobody could buy.
+
+Deno.test("quantity 0 on an ACTIVE listing is out of stock", () => {
+  // The state a cancelled eBay order leaves behind. eBay decrements the
+  // quantity when the order is placed and never restores it on cancel.
+  const s = resolveEbayListingState("ACTIVE", 0);
+  assertEquals(s.reason, "out_of_stock");
+  assertEquals(s.status, "active");
+  assertEquals(s.isActive, true);
+  // eBay's own word survives — the override changes the MEANING, not the record
+  // of what eBay actually said.
+  assertEquals(s.ebayStatus, "ACTIVE");
+});
+
+Deno.test("a missing quantity is unknown, never zero", () => {
+  // An offer eBay returned without the field must not be reported unbuyable:
+  // that would put a stop-everything banner over a perfectly healthy listing,
+  // which is how a seller learns to ignore the banner.
+  assertEquals(resolveEbayListingState("ACTIVE", null).reason, "active");
+  assertEquals(resolveEbayListingState("ACTIVE", undefined).reason, "active");
+  assertEquals(resolveEbayListingState("ACTIVE", NaN).reason, "active");
+  assertEquals(resolveEbayListingState("ACTIVE", 1).reason, "active");
+});
+
+Deno.test("the stock floor never revives a listing that is not live", () => {
+  // An ENDED listing at quantity 0 is ended. Calling it out-of-stock would say
+  // it is still on eBay and restockable, and it is neither.
+  const ended = resolveEbayListingState("ENDED", 0);
+  assertEquals(ended.reason, "ended");
+  assertEquals(ended.isActive, false);
+  const inactive = resolveEbayListingState("INACTIVE", 0);
+  assertEquals(inactive.reason, "inactive");
+  assertEquals(inactive.isActive, false);
+});
+
+Deno.test("a listing eBay already calls OUT_OF_STOCK is unchanged by the floor", () => {
+  const withQty = resolveEbayListingState("OUT_OF_STOCK", 0);
+  const withoutQty = resolveEbayListingState("OUT_OF_STOCK");
+  assertEquals(withQty.reason, withoutQty.reason);
+  assertEquals(withQty.message, withoutQty.message);
+  assertEquals(withQty.ebayStatus, "OUT_OF_STOCK");
+});
+
 Deno.test("INACTIVE is eBay taking it down, and says so", () => {
   const s = resolveEbayListingState("INACTIVE");
   assertEquals(s.status, "ended");

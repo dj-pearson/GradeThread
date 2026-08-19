@@ -15,7 +15,7 @@ code_refs:
   - services/edge-functions/src/lib/ebay-webhook-topics.ts
   - services/edge-functions/src/lib/ebay-notification-subscriptions.ts
   - services/edge-functions/src/routes/flipdesk-webhooks.ts
-reviewed: 2026-08-17
+reviewed: 2026-08-18
 tags: [ebay, listings, sync, gotcha]
 summary: A listing eBay ended or removed used to stay "active" locally with End and Relist as silent no-ops; the fix is to treat "already not live" as success, not as an error - and to keep WHICH of those it was, since ended and removed-by-eBay need opposite actions.
 ---
@@ -331,6 +331,92 @@ The `listing_status` enum has `draft | active | ended | sold | relisted` and no
 migration with its own caveats — the reason surfaces on
 `listings.publish_error`, and is cleared on the next successful publish. The web
 Drafts row renders an amber **"eBay inactive — review & relist"** badge from it.
+
+## Quantity is the other pulse (2026-08-18, US-2684)
+
+Everything above asks eBay for a *word* and decides what it means. The listing
+also carries a *number*, and for a whole class of dead listing the number is the
+only place the truth shows up.
+
+eBay decrements `availableQuantity` when an order is placed. It does **not**
+restore it when that order is cancelled. Under out-of-stock control the listing
+then sits at zero indefinitely: still up, still holding its item id, its
+watchers and its search standing, and unbuyable. eBay's own answer for it is
+frequently `listingStatus: "ACTIVE"` rather than `OUT_OF_STOCK` -- so
+`resolveEbayListingState` resolved it to a plain healthy listing, and every
+surface downstream agreed.
+
+`applyStockFloor` now overrules a live state when eBay reported an explicit
+quantity at or below zero. Its asymmetries are the same family as
+[[#A listingId is not a pulse]] and point the same way:
+
+- The row stays `active` / `is_active`. Only the **reason** moves to
+  `out_of_stock`. Calling it ended would send the seller to relist and mint a
+  duplicate beside the listing still sitting there.
+- A **missing** quantity is unknown, never zero. A stop-everything banner over
+  a healthy listing is how a seller learns to ignore the banner.
+- A state that is already not live is untouched. An ENDED listing at quantity 0
+  is ended, not restockable.
+
+### The two halves that made it cost an afternoon
+
+Naming the state was the smaller half. The seller in the report could see the
+listing was out of stock on eBay; what they could not do was anything about it.
+
+**The composer's revise never sent the quantity.** `handleResubmitClick` pushed
+the title, description, price, photos, category, condition and every item
+specific, and omitted the one eBay-owned field that was wrong. The box was on
+the form and saved to `listings.quantity`; it just never reached the offer. So
+"Save & resubmit to eBay" -- the only verb the screen offered -- reported
+success and changed nothing that mattered, indefinitely. It sends
+`resolveQuantity(...)` now, which floors at 1, so an ordinary resubmit restocks.
+
+**And the green banner said the opposite of the truth.** `isLiveListing` is true
+for an out-of-stock listing, so the page rendered "buyers can purchase it now"
+over one nobody could buy. It is gated on `!ebayOutOfStock` now, with an amber
+banner in the same slot carrying a one-click **Restock on eBay**. That action is
+deliberately narrower than resubmit -- quantity only, no photo sync, no
+`resync_ebay_fields` -- because a listing that is unbuyable right now must not
+have its fix blocked by eBay rejecting an unrelated item specific.
+
+> [!warning] `listings.quantity` is not the signal on a GT-origin listing
+> The provenance merge writes eBay's `availableQuantity` to the column only
+> while `origin='ebay'` (`EBAY_OWNED_LISTING_FIELDS`). On a
+> GradeThread-originated listing eBay's number is recorded as **drift** instead,
+> so the column keeps reading 1 for the entire time the listing is dead. The
+> `ebay_state` marker is what the UI must key on; the column is a fallback that
+> only an eBay-origin mirror gets right.
+
+### A reversal stopped overwriting the pull
+
+Same story, one layer down. The orders pass wrote `listing_status: 'ended',
+is_active: false` for **any** reversal, unconditionally. The offers pull runs
+earlier in the same sync and flushes before it -- so on a cancelled order that
+left the listing up, the sales pass undid a verdict taken from eBay minutes
+earlier, and the next run wrote it back. The row alternated between `ended` and
+`active` every 30 minutes and neither word was the true one, which is
+"live, but nobody can buy it".
+
+It consults `ebayStateByItem` now and keeps the pull's verdict when the pull
+actually saw the listing, falling back to `ended` when it did not (no eBay
+connection, a partial pull, an offer genuinely absent from the feed). The
+**completed** arm is unchanged on purpose: a sale that stands must still mark
+the listing sold and inactive, or the item holds an `activeListings` slot it no
+longer occupies.
+
+### Clearing the marker
+
+`ebay_state` is written by the pull and **only on a change**, which is right for
+dating a transition and wrong for a marker the seller has just acted on: after a
+successful restock nothing would have rewritten it until eBay's next differing
+answer, leaving the "nobody can buy this" banner standing for up to a full sync
+interval. `clearReviseDrift(listingId, { restocked })` drops it on a revise that
+raised the quantity above zero. Only the `out_of_stock` reason -- an `inactive`
+verdict is not something a quantity push resolves.
+
+Pinned by `ebay-listing-state_test.ts` (the floor, both directions) and
+`src/test/ebay-out-of-stock-restock.test.tsx` (the composer and sync shapes,
+verified to fail against the pre-fix code).
 
 ## Related
 

@@ -56,6 +56,29 @@ export interface EbayListingState {
   message: string | null;
 }
 
+// US-2684: the shape a live-but-unbuyable listing takes, hoisted out of the map
+// because eBay reaches it two ways. It SOMETIMES says OUT_OF_STOCK in
+// listingStatus; it also, routinely, keeps saying ACTIVE and simply reports
+// availableQuantity: 0 — which is what a cancelled order leaves behind, since
+// eBay decrements the quantity when the order is placed and never puts it back
+// when the order is cancelled. Only the first of those was ever recognised, so a
+// seller whose order fell through had a listing nobody could buy and an app
+// showing a green "buyers can purchase it now" banner over it.
+const OUT_OF_STOCK_STATE: {
+  status: LocalListingStatus;
+  isActive: boolean;
+  reason: ListingStateReason;
+  message: string;
+} = {
+  status: "active",
+  isActive: true,
+  reason: "out_of_stock",
+  message:
+    "eBay shows this listing as out of stock, so buyers can't buy it right now. " +
+    "It is still your listing — set the quantity above zero to bring it back, " +
+    "rather than relisting (a relist would create a second listing).",
+};
+
 // eBay's ListingStatus vocabulary as we understand it today. Deliberately a map
 // rather than a set of if-statements: adding a value eBay introduces is a
 // one-line change here and nowhere else, and the test file reads the same map.
@@ -67,15 +90,7 @@ const KNOWN_STATUSES: Record<
   // Live, not buyable. eBay keeps the listing and its item id; restocking brings
   // it straight back. Reporting this as ended is what made a relist mint a
   // duplicate of a listing that was still there.
-  OUT_OF_STOCK: {
-    status: "active",
-    isActive: true,
-    reason: "out_of_stock",
-    message:
-      "eBay shows this listing as out of stock, so buyers can't buy it right now. " +
-      "It is still your listing — set the quantity above zero to bring it back, " +
-      "rather than relisting (a relist would create a second listing).",
-  },
+  OUT_OF_STOCK: { ...OUT_OF_STOCK_STATE },
   ENDED: {
     status: "ended",
     isActive: false,
@@ -109,8 +124,50 @@ const KNOWN_STATUSES: Record<
  *
  * `listingStatus` is eBay's `offer.listing.listingStatus`. Pass `null` for an
  * offer that has no live listing at all.
+ *
+ * `availableQuantity` is eBay's `offer.availableQuantity`, and it OVERRULES a
+ * live status when it is zero (US-2684). See {@link applyStockFloor} — the
+ * status word and the quantity are two different questions and eBay answers the
+ * second one more reliably than the first.
  */
 export function resolveEbayListingState(
+  listingStatus: string | null | undefined,
+  availableQuantity?: number | null,
+): EbayListingState {
+  return applyStockFloor(resolveFromStatus(listingStatus), availableQuantity);
+}
+
+/**
+ * Overrule a LIVE state with the quantity, when eBay reported one and it is zero.
+ *
+ * The asymmetry is the point, and it runs the opposite way to
+ * `livePublishedListingId`'s "unknown adopts" rule for a reason:
+ *
+ *  • The listing stays `active`/`isActive`. It IS still on eBay, holding its
+ *    item id, its watchers and its search standing. Calling it ended would send
+ *    the seller to relist and mint a duplicate beside the one still sitting
+ *    there — the same failure this module was written to stop.
+ *  • Only the REASON changes, from `active` to `out_of_stock`, which is what
+ *    the seller-facing banner reads. Nothing about slot accounting moves.
+ *
+ * A missing/undefined quantity is "unknown", never "zero" — an offer eBay
+ * returned without the field must not be reported unbuyable. Only an explicit
+ * number at or below zero triggers it, and a state that is already not live is
+ * left exactly as it was (an ENDED listing at qty 0 is ended, not out of stock).
+ */
+function applyStockFloor(
+  state: EbayListingState,
+  availableQuantity?: number | null,
+): EbayListingState {
+  if (!state.isActive) return state;
+  if (typeof availableQuantity !== "number" || !Number.isFinite(availableQuantity)) {
+    return state;
+  }
+  if (availableQuantity > 0) return state;
+  return { ...state, ...OUT_OF_STOCK_STATE, ebayStatus: state.ebayStatus };
+}
+
+function resolveFromStatus(
   listingStatus: string | null | undefined,
 ): EbayListingState {
   const raw = (listingStatus ?? "").trim();

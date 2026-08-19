@@ -2673,7 +2673,12 @@ async function doListingsPull(
       // resolver keeps eBay's own word and what it means; OUT_OF_STOCK in
       // particular resolves to ACTIVE, because that listing is still on eBay and
       // relisting it would mint a duplicate.
-      const ebayState = resolveEbayListingState(o.listingStatus);
+      // US-2684: the quantity rides along because eBay answers "is this
+      // buyable" there far more reliably than it does in listingStatus. A
+      // cancelled order leaves availableQuantity at 0 with the status still
+      // reading ACTIVE, and that listing is live, holding its item id, and
+      // unbuyable — which is exactly the state nothing here could name.
+      const ebayState = resolveEbayListingState(o.listingStatus, o.availableQuantity);
       const isActive = ebayState.isActive;
 
       if (itemId) {
@@ -3313,10 +3318,25 @@ async function doListingsPull(
             // insisting it is for sale, and nothing to reconcile them. `ended` is
             // the honest word for both reversal kinds: the listing is not live
             // (the sale took it down) and it did not sell.
+            //
+            // US-2684: "ended" is only honest when the listing really is gone.
+            // Under eBay's out-of-stock control a cancelled order leaves the
+            // listing UP at quantity 0, and the offers pull earlier in this same
+            // run already read it back as live — so writing ended here undid a
+            // verdict taken from eBay minutes ago, and the next sync wrote it
+            // back. The row flipped between "ended" and "active" every 30
+            // minutes and neither word was the true one, which is
+            // "live, but nobody can buy it". Trust the pull when it saw the
+            // listing; fall back to ended when it did not (no eBay connection,
+            // a partial pull, or an offer genuinely absent from the feed).
+            const pulledState = ebayStateByItem.get(itemId) ?? null;
+            const stillLiveOnEbay = pulledState?.isActive === true;
             const lifecyclePatch =
               saleStatus === "completed"
                 ? { listing_status: "sold", is_active: false }
-                : { listing_status: "ended", is_active: false };
+                : stillLiveOnEbay
+                  ? { listing_status: pulledState!.status, is_active: true }
+                  : { listing_status: "ended", is_active: false };
             if (listingId) {
               await supabaseAdmin
                 .from("listings")
@@ -5697,7 +5717,19 @@ async function persistReviseFailure(
 // state. A revise that succeeded through one mechanism and left the drift marker
 // standing because it took the other branch would show "eBay differs" on a
 // listing that no longer does.
-async function clearReviseDrift(listingId: string): Promise<void> {
+//
+// US-2684: `restocked` clears the out-of-stock marker too. The marker is written
+// by the inbound pull and only ON A CHANGE, so nothing would have rewritten it
+// until eBay's next differing answer — leaving the "nobody can buy this" banner
+// standing over a listing the seller had just put back in stock, for up to the
+// full sync interval. The banner is the whole mechanism here; one that lies
+// after the fix is worse than no banner, because the seller stops believing the
+// next one. Only the out-of-stock reason is cleared: an `inactive` verdict
+// (eBay took the listing down) is not something a quantity push resolves.
+async function clearReviseDrift(
+  listingId: string,
+  opts: { restocked?: boolean } = {},
+): Promise<void> {
   const { data: cur } = await supabaseAdmin
     .from("listings")
     .select("platform_fields")
@@ -5711,6 +5743,11 @@ async function clearReviseDrift(listingId: string): Promise<void> {
   };
   if ((pf as { sync_drift?: unknown }).sync_drift) {
     delete (pf as { sync_drift?: unknown }).sync_drift;
+    update.platform_fields = pf;
+  }
+  const state = (pf as { ebay_state?: { reason?: string } }).ebay_state;
+  if (opts.restocked && state?.reason === "out_of_stock") {
+    delete (pf as { ebay_state?: unknown }).ebay_state;
     update.platform_fields = pf;
   }
   await supabaseAdmin
@@ -6534,7 +6571,9 @@ async function reviseOneListing(
     }
   }
 
-  await clearReviseDrift(listingId);
+  await clearReviseDrift(listingId, {
+    restocked: hasQty && (nextQty as number) > 0,
+  });
 
   return jsonResult({
     ok: true,

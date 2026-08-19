@@ -13,6 +13,7 @@ import {
   BadgeCheck,
   AlertTriangle,
   CalendarClock,
+  PackageX,
 } from "lucide-react";
 import {
   Card,
@@ -90,7 +91,7 @@ import {
   stampAspectsSaved,
   type AspectDirtyState,
 } from "@/lib/composer-dirty";
-import { deriveListingOrigin } from "@/lib/listing-origin";
+import { deriveListingOrigin, type EbayStateMarker } from "@/lib/listing-origin";
 import { ebayPathToItemCategory } from "@/lib/ebay-category-map";
 import { previewGradingReadiness } from "@/lib/grading-readiness";
 import { garmentPatchForCategoryChange } from "@/lib/garment-mapping";
@@ -1240,6 +1241,29 @@ export function FlipdeskComposerPage({
     (!!listing.platform_offer_id ||
       (!!listing.variations && !!listing.platform_listing_id));
 
+  // US-2684: live on eBay, and nobody can buy it.
+  //
+  // eBay decrements availableQuantity the moment an order is placed and never
+  // restores it when that order is CANCELLED. Under out-of-stock control the
+  // listing then just sits there at zero: still up, still holding its item id,
+  // its watchers and its search standing, and permanently unbuyable. isLiveListing
+  // is true for it — which is how a seller came to be reading a green "buyers can
+  // purchase it now" banner over a listing eBay was showing as out of stock,
+  // pressing Save & resubmit, and watching nothing change.
+  //
+  // The MARKER is the signal, not listings.quantity. On a GradeThread-originated
+  // listing eBay's number is recorded as drift rather than written to the column
+  // (EBAY_OWNED_LISTING_FIELDS applies only while origin='ebay'), so the local
+  // quantity keeps reading 1 the entire time the listing is dead. The column is
+  // checked as well, because an eBay-origin mirror does have it right.
+  const ebayStateMarker = (listing?.platform_fields ?? null) as {
+    ebay_state?: EbayStateMarker;
+  } | null;
+  const ebayOutOfStock =
+    isLiveListing &&
+    (ebayStateMarker?.ebay_state?.reason === "out_of_stock" ||
+      listing?.quantity === 0);
+
   // US-2657: a row that REACHED the marketplace, whatever its local status says.
   //
   // This is deliberately wider than isLiveListing, and only the End action uses
@@ -2377,6 +2401,13 @@ export function FlipdeskComposerPage({
           title: title.trim(),
           description: description.trim() || undefined,
           listing_price: resolvedPrice > 0 ? resolvedPrice : undefined,
+          // US-2684: the quantity was the one eBay-owned field this never sent.
+          // The box was on the form, it saved to listings.quantity, and it never
+          // reached the offer — so the seller whose listing eBay had left at
+          // zero after a cancelled order could resubmit as many times as they
+          // liked and it stayed unbuyable. resolveQuantity floors at 1, so this
+          // is also what makes Save & resubmit restock on its own.
+          quantity: resolveQuantity({ quantity, listingFormat }),
           photos: true,
           resync_ebay_fields: true,
         },
@@ -2392,6 +2423,37 @@ export function FlipdeskComposerPage({
         `eBay rejected the update: ${e.message}. Your changes are saved — fix the issue and resubmit.`,
         { duration: 12_000 },
       );
+    }
+  }
+
+  // US-2684: put the quantity back, and nothing else.
+  //
+  // Save & resubmit now carries the quantity too, so this is not the only way
+  // out — but it is deliberately the NARROW one. A full resubmit re-asserts the
+  // category, the condition, every item specific and the whole photo set, and
+  // any one of those can make eBay refuse the call. A seller whose listing is
+  // sitting unbuyable does not need the fix for that blocked on a missing
+  // Department specific; restocking is one field and should be able to fail for
+  // one reason. It also skips the ~5-8s photo round-trip.
+  async function handleRestockClick() {
+    const listingId = await saveLiveListing();
+    if (!listingId) return;
+    const nextQty = resolveQuantity({ quantity, listingFormat });
+    try {
+      await reviseListing.mutateAsync({
+        listingId,
+        patch: { quantity: nextQty },
+      });
+      await qc.invalidateQueries({ queryKey: ["items_full"] });
+      await qc.invalidateQueries({ queryKey: ["listing", listing?.id] });
+      toast.success(
+        `Back in stock on eBay — quantity set to ${nextQty}. Buyers can purchase it again.`,
+      );
+    } catch (err) {
+      const e = err as Error & { status?: number };
+      toast.error(`eBay wouldn't restock this listing: ${e.message}`, {
+        duration: 12_000,
+      });
     }
   }
 
@@ -2768,7 +2830,7 @@ export function FlipdeskComposerPage({
           listing (active status + a real eBay offer id) so it never claims
           "listed" for a draft or a publish that didn't complete — the absence of
           the banner is itself the signal that the item isn't live yet. */}
-      {isLiveListing && (
+      {isLiveListing && !ebayOutOfStock && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 dark:border-emerald-500/40 dark:bg-emerald-500/10">
           <BadgeCheck className="h-5 w-5 shrink-0 text-emerald-600 dark:text-emerald-400" />
           <div className="min-w-0 flex-1">
@@ -2792,6 +2854,57 @@ export function FlipdeskComposerPage({
               View on eBay ↗
             </a>
           )}
+        </div>
+      )}
+
+      {/* US-2684: the same slot, for the state the green banner used to call
+          fine. This one carries the FIX, not just the news — the seller's next
+          move is a quantity push and it is one click away, because what cost a
+          seller their afternoon here is that the app said LIVE and offered no
+          verb that changed anything. */}
+      {ebayOutOfStock && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10">
+          <PackageX className="h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+              Live on eBay, but out of stock — nobody can buy it
+            </p>
+            <p className="text-xs text-amber-800 dark:text-amber-300/90">
+              eBay set the quantity to zero and left it there. A cancelled order
+              does this: eBay takes the quantity down when the order is placed
+              and never puts it back. The listing itself is fine, so don't relist
+              it — that would create a second one. Restock it instead.
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              onClick={() => void handleRestockClick()}
+              disabled={saving || reviseListing.isPending || !ebayConnection}
+              title={
+                !ebayConnection
+                  ? "Connect eBay first on the Marketplaces page."
+                  : "Pushes the quantity above back to the live eBay listing."
+              }
+            >
+              {saving || reviseListing.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <PackageX className="mr-2 h-4 w-4" />
+              )}
+              Restock on eBay
+            </Button>
+            {ebayItemUrl && (
+              <a
+                href={ebayItemUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md border border-amber-400 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 dark:bg-transparent dark:text-amber-200 dark:hover:bg-amber-500/10"
+              >
+                View on eBay ↗
+              </a>
+            )}
+          </div>
         </div>
       )}
 
