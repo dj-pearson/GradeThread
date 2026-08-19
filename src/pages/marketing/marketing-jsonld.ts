@@ -181,6 +181,13 @@ export const PRICING_FAQS = [
     q: "Can I cancel or pause a FlipDesk subscription?",
     a: "Yes. You can cancel anytime, and you can pause a paid plan for up to 3 months while keeping your data and credits; your caps fall back to Free while paused.",
   },
+  // US-9127 AC1. Interpolated rather than typed: this answer is emitted as
+  // FAQPage JSON-LD, so a stale number here becomes an allowance a search
+  // result advertises and the edge refuses.
+  {
+    q: "Which plans include the Claude connector?",
+    a: `Pro and Business. Pro includes ${FLIPDESK_PLANS.pro.connectorActionsPerMonth.toLocaleString()} connector actions a month and Business includes ${FLIPDESK_PLANS.business.connectorActionsPerMonth.toLocaleString()}. Only actions that change something are counted; reading is free and so are refused calls. The sandbox tools work on every plan, including Free.`,
+  },
 ];
 
 /**

@@ -256,6 +256,28 @@ export function PricingPage() {
                       {plan.activeListingCap === -1 ? "" : " at a time"}
                     </span>
                   </p>
+                  {/* US-9127 AC1: the Claude connector, named on the tiers the
+                      US-9101 decision opened, with its cap stated rather than
+                      hidden in a features bullet.
+
+                      BOTH values are read, not typed. `connectorAccess` is the
+                      gate the edge checks and `connectorActionsPerMonth` is the
+                      number connector-allowance.ts counts against, so this line
+                      cannot promise a tier or an allowance the server refuses.
+                      A features[] bullet would have been a hand-typed copy of
+                      the same number, which is how "750 AI actions" and
+                      aiActionsPerMonth get to disagree. */}
+                  {plan.gateFlags.connectorAccess && (
+                    <p className="mt-3 text-sm">
+                      <span className="font-semibold text-foreground">
+                        Claude connector
+                      </span>{" "}
+                      <span className="text-muted-foreground">
+                        {plan.connectorActionsPerMonth.toLocaleString()} actions
+                        a month
+                      </span>
+                    </p>
+                  )}
                   {/* US-1110: render the full feature list (sourced from
                       FLIPDESK_PLANS — the single source of truth) so Pro vs
                       Business differentiators (AutoLister, AI comp pulls,
@@ -316,7 +338,31 @@ export function PricingPage() {
               );
             })}
           </div>
+          {/* US-9127 AC1: what the number on the Pro and Business tiles counts,
+              stated where a prospect is deciding rather than only on
+              /developers. Two things are worth saying here and nowhere else on
+              this page: reads are free, and the sandbox works before you pay. */}
           <p className="mt-8 text-sm text-muted-foreground">
+            <span className="font-medium text-foreground">
+              About the Claude connector.
+            </span>{" "}
+            Pro and Business connect GradeThread to Claude, so you can run the
+            pipeline from a conversation: ask what is unlisted, get drafts
+            written, publish, reprice, end listings. Only actions that change
+            something count against the monthly figure. Reading costs nothing
+            and is not counted, and refused calls cost nothing either. Nothing
+            that spends money or reaches a marketplace happens on a single
+            call. The sandbox tools work on every plan, Free included, so you
+            can see what it does before paying for it.{" "}
+            <Link
+              to="/developers"
+              className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            >
+              The full tool list, the caps and the safety rules
+            </Link>{" "}
+            are on the developers page.
+          </p>
+          <p className="mt-4 text-sm text-muted-foreground">
             New to grading? Start with{" "}
             <Link
               to="/how-it-works"

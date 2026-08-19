@@ -574,7 +574,7 @@ export function DevelopersPage() {
           to show you the new one.
         </p>
         <p>
-          On Claude clients that support it, you are also asked directly \u2014 a
+          On Claude clients that support it, you are also asked directly: a
           prompt with a yes-or-no, not a message from Claude saying it asked you.
         </p>
         <p>
@@ -587,7 +587,7 @@ export function DevelopersPage() {
           <strong>The caps, which apply even when you confirm.</strong> Per hour:
           20 publishes, 50 price changes, 20 listings ended. Per day: 200 grades.
           Per month: your plan's connector actions. And a price move over 25%, or
-          below an item's cost basis, is refused outright \u2014 a confirmation is
+          below an item's cost basis, is refused outright. A confirmation is
           not a safety net for an arithmetic error.
         </p>
         <p>
@@ -599,13 +599,13 @@ export function DevelopersPage() {
             Settings → API keys
           </Link>{" "}
           lists every connected application. Disconnecting one stops it
-          immediately \u2014 not at the end of an hour, and not at the end of a
+          immediately, not at the end of an hour and not at the end of a
           session.
         </p>
         <p>
           <strong>Every call is recorded.</strong> Each tool call is written to an
           audit log with the tool, the items it touched, whether it succeeded and
-          why it was refused if it was \u2014 kept for 400 days. Ask support for
+          why it was refused if it was. The log is kept for 400 days. Ask support for
           your account's log if you ever need to reconstruct what happened.
         </p>
       </Section>

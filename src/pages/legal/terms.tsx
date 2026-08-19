@@ -7,7 +7,7 @@ export function TermsPage() {
       title="Terms of Service"
       description="The terms that govern your use of GradeThread and FlipDesk."
       canonicalPath="/terms"
-      effectiveDate="April 1, 2026"
+      effectiveDate="August 19, 2026"
     >
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) form a binding agreement
@@ -170,7 +170,7 @@ export function TermsPage() {
         </li>
       </ul>
 
-      <h2 id="api">7. API access</h2>
+      <h2 id="api">7. API and connector access</h2>
       <p>
         Eligible plans include access to the GradeThread API. Your use of the
         API is subject to these Terms, our{" "}
@@ -186,6 +186,59 @@ export function TermsPage() {
       <p>
         We may suspend or revoke API access for violation of these Terms,
         suspected abuse, or security risk.
+      </p>
+
+      {/* US-9127 AC4. A SUBSECTION of API access rather than a section of its
+          own: the connector is a credentialed programmatic surface and every
+          obligation above already applies to it. What it needs on top is the
+          three things that are specific to a model acting on your behalf: you
+          own what it does, the confirmations are a term rather than a courtesy,
+          and Anthropic is your counterparty in that conversation, not ours. */}
+      <h3 id="connector">7.1 The Claude connector</h3>
+      <p>
+        Eligible plans may connect GradeThread to Claude and to other clients
+        that speak the Model Context Protocol. Connecting is optional and you
+        choose which permissions to grant.
+      </p>
+      <ul>
+        <li>
+          <strong>You are responsible for what you approve.</strong> Actions
+          taken through a connection you authorized are your actions: listings
+          published, prices changed, listings ended, and grading credits spent.
+          A grade submitted through the connector is charged like any other and
+          is not refundable on the grounds that a model asked for it.
+        </li>
+        <li>
+          <strong>The confirmations are part of the deal.</strong> Anything that
+          spends money or reaches a marketplace requires a second, confirmed
+          call bound to the exact figures you were shown. Attempting to defeat
+          that flow, or to drive the connector past its published caps, is a
+          breach of these Terms and of our{" "}
+          <Link to="/acceptable-use">Acceptable Use Policy</Link>.
+        </li>
+        <li>
+          <strong>Your Claude client is your relationship, not ours.</strong>{" "}
+          What we return to your client becomes part of your conversation with
+          that provider and is governed by your agreement with them. We do not
+          control that conversation and are not responsible for it. See{" "}
+          <Link to="/privacy">Privacy Policy</Link>, section 7, for what an
+          answer can contain and what is retained where.
+        </li>
+        <li>
+          <strong>Connector allowances are per plan and per month.</strong>{" "}
+          Published caps apply in addition to any per-hour or per-day limits,
+          and a downgrade, pause or lapse takes effect on the connector at once.
+        </li>
+        <li>
+          <strong>Revocation is immediate.</strong> You can disconnect any
+          connected application at any time. We may suspend a connection on the
+          same grounds as API access above.
+        </li>
+      </ul>
+      <p>
+        Outputs a model produces through the connector are AI-generated and
+        section 5 applies to them unchanged: you are responsible for reviewing
+        listing text, prices and condition statements before they reach a buyer.
       </p>
 
       <h2 id="marketplaces">8. Marketplace and third-party integrations</h2>

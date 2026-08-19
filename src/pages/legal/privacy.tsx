@@ -7,7 +7,7 @@ export function PrivacyPage() {
       title="Privacy Policy"
       description="How GradeThread collects, uses, and protects your information."
       canonicalPath="/privacy"
-      effectiveDate="August 7, 2026"
+      effectiveDate="August 19, 2026"
     >
       <p>
         This Privacy Policy explains how Pearson Media LLC (&ldquo;Pearson
@@ -142,7 +142,7 @@ export function PrivacyPage() {
           is on, a Prospect scan sends your position once so we can work out
           which coarse area cell you are in; we keep the cell and discard the
           position. Nothing here applies while the switch is off. See{" "}
-          <a href="#radar">Section 7</a>.
+          <a href="#radar">Section 8</a>.
         </li>
       </ul>
 
@@ -298,6 +298,14 @@ export function PrivacyPage() {
         </li>
       </ul>
 
+      <p>
+        This section is about photos <em>we</em> send to Anthropic to produce a
+        grade, where Anthropic acts as our subprocessor. Data that leaves through
+        the Claude connector travels the other way and is governed by your own
+        agreement with Anthropic rather than ours; see{" "}
+        <a href="#connector">Section 7</a>.
+      </p>
+
       <h3 id="human-qa">4.1 Human quality-assurance review</h3>
       <p>
         To keep grades accurate and consistent, a small number of trained
@@ -343,7 +351,7 @@ export function PrivacyPage() {
         <a href="mailto:privacy@gradethread.com">privacy@gradethread.com</a>{" "}
         — objecting does not affect your grades or certificates. QA access
         ends when your photos are deleted under the retention schedule in{" "}
-        <a href="#retention">Section 9</a> (or earlier on request); deleted
+        <a href="#retention">Section 10</a> (or earlier on request); deleted
         photos drop out of QA samples because reviewers always read the live
         stored photo, never a copy.
       </p>
@@ -463,13 +471,88 @@ export function PrivacyPage() {
         <code>cookies</code> permission.
       </p>
 
+      {/* US-9127 AC4: the Claude connector. A NEW SECTION rather than a
+          paragraph inside "AI grading and your photos", because the direction
+          of travel is the opposite one and folding them together would blur the
+          only fact that matters here.
+
+          Section 4 is GradeThread sending photos to Anthropic under our own
+          enterprise API agreement, where Anthropic is our subprocessor. The
+          connector is the reverse: the seller's own Claude client asks us for
+          data and we answer it. In that direction Anthropic is not our
+          subprocessor and we are not the controller of the conversation the
+          answer lands in.
+
+          The zero-data-retention line is checked rather than assumed: Anthropic
+          documents the Messages API MCP connector as not eligible for ZDR, so a
+          seller reaching us that way has tool definitions and results retained
+          under Anthropic's standard policy. A sentence promising otherwise
+          would be a promise about somebody else's product. */}
+      <h2 id="connector">7. The Claude connector</h2>
+      <p>
+        The connector is optional. Connecting it lets Claude read and act on
+        your GradeThread account on your behalf, and nothing about it runs until
+        you add it and approve what it may do.
+      </p>
+      <p>
+        <strong>Which way the data goes.</strong> This is the part worth being
+        precise about. GradeThread does not send your account data to Anthropic
+        here. Your Claude client asks GradeThread for something and we answer
+        it, and the answer becomes part of <em>your</em> conversation with
+        Claude. What happens to it after that is governed by your own agreement
+        with Anthropic, not by ours. We are not the controller of that
+        conversation and we cannot read it.
+      </p>
+      <p>
+        <strong>What an answer can contain.</strong> Whatever the tool you asked
+        for covers: your inventory items and their descriptions, measurements,
+        purchase and target prices, your grades and certificate links, your
+        listings, sales and payout figures, comparable sold prices, and
+        time-limited links to your own item photos. It never contains your
+        password, your API key, your card details, another seller&rsquo;s data,
+        or the credentials for any marketplace you have connected.
+      </p>
+      <p>
+        <strong>Retention on Anthropic&rsquo;s side.</strong> If you reach us
+        through Anthropic&rsquo;s Messages API connector, Anthropic states that
+        this connector is <strong>not</strong> eligible for zero-data-retention
+        arrangements, so the tool definitions and the tool results are retained
+        under their standard policy. That is their retention, on their systems,
+        under your agreement with them. We cannot shorten it and we do not
+        control it. If that matters for the data in your account, do not connect
+        the account through that route.
+      </p>
+      <p>
+        <strong>Drafting is still our own AI call.</strong> Asking Claude to
+        write a listing runs the same generation GradeThread runs everywhere
+        else: we send the item&rsquo;s photos and details to Anthropic under our
+        own API agreement, as described in{" "}
+        <a href="#ai-and-photos">Section 4</a>, and the same terms there apply.
+        That call is ours and is separate from the conversation you are having.
+      </p>
+      <p>
+        <strong>What we record on our side.</strong> Approving a connection
+        stores which application you approved, the scopes you allowed and the
+        tokens that keep it working. Every tool call is written to an audit log
+        with the tool name, the ids it acted on, whether it succeeded, and why it
+        was refused if it was. Arguments are redacted before storage: no image
+        bytes, no full descriptions, no credentials. The log is kept for 400 days
+        so a disputed action can be reconstructed, then deleted automatically.
+      </p>
+      <p>
+        <strong>Turning it off.</strong> Disconnect it under Settings, API keys.
+        Revocation takes effect immediately rather than at the end of a session,
+        and tokens already issued stop working at once. Revoking does not delete
+        the audit log, which is the record of what was already done.
+      </p>
+
       {/* US-1861: Thrift Radar. This section is the consent, not a summary of
           it — the toggle in Settings and the one on iOS both point here, and a
           reader has to be able to check every claim against what the code does.
           Location is a new kind of data, so it gets its own section rather than
           a line inside "Information we collect": folding it into an existing
           disclosure would change what an earlier consent meant. */}
-      <h2 id="radar">7. Thrift Radar and location</h2>
+      <h2 id="radar">8. Thrift Radar and location</h2>
       <p>
         Thrift Radar is a shared map of where secondhand supply turns up, built
         from the scans resellers run in the field. Contributing to it is{" "}
@@ -529,7 +612,7 @@ export function PrivacyPage() {
         we do not go back and gather what happened while it was off. Your own
         sourcing history stays yours either way &mdash; it is not part of the
         shared map and is covered by your ordinary rights in{" "}
-        <a href="#your-rights">Section 10</a>.
+        <a href="#your-rights">Section 11</a>.
       </p>
       {/* US-1864: the personal layer. Stated here rather than left to the
           sentence above, because it is a SECOND record written from the same
@@ -547,7 +630,7 @@ export function PrivacyPage() {
         with your account.
       </p>
 
-      <h2 id="sharing">8. How we share information</h2>
+      <h2 id="sharing">9. How we share information</h2>
       <p>
         We do not sell personal information. We share it only as follows. A
         complete, dated list of our subprocessors is on the{" "}
@@ -628,7 +711,7 @@ export function PrivacyPage() {
         </li>
       </ul>
 
-      <h2 id="retention">9. Data retention</h2>
+      <h2 id="retention">10. Data retention</h2>
       <p>
         We retain personal information for as long as your account is active
         and as needed to provide the Service, then delete or de-identify it
@@ -726,6 +809,18 @@ export function PrivacyPage() {
               those providers&rsquo; schedules rather than ours.
             </td>
           </tr>
+          {/* US-9127 AC4. 400 days is not a round number chosen for the page:
+              it is the default on sweep_mcp_tool_calls (00619), which is what
+              actually deletes the rows. */}
+          <tr>
+            <td>Claude connector activity (the tool-call audit log)</td>
+            <td>
+              400 days, then deleted automatically. Long enough to cover a year
+              of disputes and the chargeback tail behind it. Disconnecting the
+              connector does not delete this log; it is the record of what was
+              already done.
+            </td>
+          </tr>
           <tr>
             <td>Security audit trail (admin actions, access records)</td>
             <td>
@@ -748,7 +843,7 @@ export function PrivacyPage() {
         <a href="#your-rights">Your rights</a>).
       </p>
 
-      <h2 id="your-rights">10. Your rights and choices</h2>
+      <h2 id="your-rights">11. Your rights and choices</h2>
       <p>
         Depending on where you live, you may have rights to access, correct,
         delete, restrict, or port your personal information, and to object to
@@ -801,7 +896,7 @@ export function PrivacyPage() {
         for residents of these states as well.
       </p>
 
-      <h2 id="security">11. Security</h2>
+      <h2 id="security">12. Security</h2>
       <p>
         We use industry-standard administrative, technical, and physical
         safeguards to protect your information &mdash; including encryption in
@@ -811,7 +906,7 @@ export function PrivacyPage() {
         guarantee absolute security.
       </p>
 
-      <h2 id="international">12. International transfers</h2>
+      <h2 id="international">13. International transfers</h2>
       <p>
         Pearson Media LLC is based in the United States. If you access the
         Service from outside the U.S., your information will be transferred
@@ -820,7 +915,7 @@ export function PrivacyPage() {
         mechanisms such as the Standard Contractual Clauses.
       </p>
 
-      <h2 id="children">13. Children</h2>
+      <h2 id="children">14. Children</h2>
       <p>
         The Service is intended for adults. You must be at least 18 years old to
         use it (see our <Link to="/terms">Terms of Service</Link>). The Service
@@ -831,7 +926,7 @@ export function PrivacyPage() {
         we will delete it.
       </p>
 
-      <h2 id="changes">14. Changes to this policy</h2>
+      <h2 id="changes">15. Changes to this policy</h2>
       <p>
         We may update this Privacy Policy from time to time. When we make
         material changes, we will update the &ldquo;Effective date&rdquo;
@@ -840,7 +935,7 @@ export function PrivacyPage() {
         becomes effective constitutes acceptance of the updated policy.
       </p>
 
-      <h2 id="contact">15. Contact us</h2>
+      <h2 id="contact">16. Contact us</h2>
       <p>
         Pearson Media LLC
         <br />

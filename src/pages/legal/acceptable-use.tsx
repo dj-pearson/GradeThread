@@ -7,7 +7,7 @@ export function AcceptableUsePage() {
       title="Acceptable Use Policy"
       description="What you can and cannot do on GradeThread and FlipDesk."
       canonicalPath="/acceptable-use"
-      effectiveDate="April 1, 2026"
+      effectiveDate="August 19, 2026"
     >
       <p>
         This Acceptable Use Policy (&ldquo;AUP&rdquo;) governs how you may use
@@ -98,6 +98,17 @@ export function AcceptableUsePage() {
           Do not share API keys, sell account credentials, or use one account
           on behalf of multiple unaffiliated parties to evade plan limits.
         </li>
+        {/* US-9127 AC4. The connector's whole safety design is the two-call
+            preview-then-confirm flow and the caps that hold even when you do
+            confirm. Both are enforced in code; this makes working around them a
+            policy breach as well, which is what lets us act on an account that
+            keeps trying. */}
+        <li>
+          Do not defeat or work around the connector&rsquo;s confirmation flow,
+          its per-hour and per-day caps, or its monthly allowance, including by
+          replaying confirmations, splitting an action across credentials, or
+          driving it from an automated loop with no person in it.
+        </li>
       </ul>
 
       <h2 id="ai-misuse">4. AI misuse</h2>
@@ -122,7 +133,12 @@ export function AcceptableUsePage() {
         </li>
         <li>
           Do not represent AI-generated Outputs as the work of a human expert
-          or as a formal certification by a regulated body.
+          or as a formal certification by a regulated body;
+        </li>
+        <li>
+          Do not craft item titles, descriptions, notes or other stored content
+          in order to steer a model connected to your account, or anyone
+          else&rsquo;s, into taking an action its owner did not ask for.
         </li>
       </ul>
 
