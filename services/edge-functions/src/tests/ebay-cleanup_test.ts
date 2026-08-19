@@ -211,15 +211,21 @@ Deno.test("US-2166: every delist call site passes variations AND the item SKU", 
   // Dropping either one silently degrades a group listing back to the
   // no-offer-id dead end, so both must ride along on EVERY call — the single
   // end and the bulk end alike.
-  const callSites = listingsRoute.split("adapter.delist({").length - 1;
+  //
+  // US-9129: the single end moved into lib/listing-lifecycle.ts, so counting
+  // call sites in the route alone would have quietly dropped to one and kept
+  // agreeing with itself. The scan is now over BOTH files, and the >= 2 floor is
+  // what makes a third move fail here rather than pass on a smaller set.
+  const sources = listingsRoute + "\n" + lifecycleSrc;
+  const callSites = sources.split("adapter.delist({").length - 1;
   assert(callSites >= 2, `expected the single + bulk end call sites, saw ${callSites}`);
   assertEquals(
-    listingsRoute.split("variations: row.variations,").length - 1,
+    sources.split("variations: row.variations,").length - 1,
     callSites,
     "every adapter.delist call must pass variations",
   );
   assertEquals(
-    listingsRoute.split("itemSku: row.item_sku,").length - 1,
+    sources.split("itemSku: row.item_sku,").length - 1,
     callSites,
     "every adapter.delist call must pass itemSku",
   );

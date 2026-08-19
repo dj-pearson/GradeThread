@@ -25,9 +25,14 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { ebayOriginWriteLock } from "./sync-precedence.ts";
-import { updateOfferPrice } from "./ebay-client.ts";
+import {
+  isNoEbayConnectionError,
+  isOfferAlreadyEndedError,
+  updateOfferPrice,
+} from "./ebay-client.ts";
 import { resolveAdapter } from "./marketplace-adapters/index.ts";
 import { resyncItemListedStatus } from "./active-listings.ts";
+import { delistMethodFor } from "./cross-listing-sale.ts";
 
 export interface OwnedListingRow {
   id: string;
@@ -385,4 +390,166 @@ export async function applyListingPrice(
   }
 
   return { ok: true, price, pushed: true };
+}
+
+/**
+ * Ending a listing, as a result rather than a response (US-9129).
+ *
+ * The contract that matters, and the reason this is not a one-liner: the local
+ * row is marked ended ONLY when the listing is genuinely not live any more. A
+ * failed delist returns an error and leaves the row active, because telling a
+ * seller an item is ended while buyers can still buy it is worse than telling
+ * them the end failed.
+ *
+ * Moved out of POST /api/flipdesk/listings/:id/end so the connector's end tool
+ * calls the same path instead of writing a second one. The status/body pair is
+ * exactly what that route returned, so its responses are unchanged.
+ */
+export interface EndListingOutcome {
+  status: number;
+  body: Record<string, unknown>;
+}
+
+const json = (
+  body: Record<string, unknown>,
+  status = 200,
+): EndListingOutcome => ({ status, body });
+
+export async function endOwnedListing(
+  ownerId: string,
+  listingId: string,
+): Promise<EndListingOutcome> {
+  const row = await loadOwnedListing(listingId, ownerId);
+  if (!row) return json({ error: "Listing not found." }, 404);
+
+  if (row.listing_status === "ended" || row.listing_status === "sold") {
+    return json({ ok: true, listing_id: listingId, already_ended: true });
+  }
+
+  // Nothing was ever published — end it locally and move the item back to a
+  // draft so it can be relisted.
+  if (!wasPublishedUpstream(row)) {
+    await endLocally(listingId, row.inventory_item_id, ownerId);
+    return json({ ok: true, listing_id: listingId, ended_upstream: false });
+  }
+
+  // US-2162 (AC3): dispatch on the same planner autoEndCrossListings uses, so
+  // the manual End and the sale-triggered auto-end can't disagree about how a
+  // marketplace is delisted. Before this, a Poshmark/Mercari/Grailed listing —
+  // which has no server-side delist API — got a flat 501 here while the auto-end
+  // path queued it for the Lister extension. Same listing, same marketplace, two
+  // different answers, and the manual one left the seller with nothing to do.
+  const method = delistMethodFor(row.platform ?? "");
+
+  if (method === "extension") {
+    // No API exists for these. Stamp delist_requested_at so the extension ends
+    // it in the seller's own tab next time they're in the app (the writeback
+    // clears the stamp), exactly as the auto-end path does.
+    const { error: stampErr } = await supabaseAdmin
+      .from("listings")
+      .update({ delist_requested_at: new Date().toISOString() })
+      .eq("id", listingId)
+      .eq("user_id", ownerId); // US-268
+    if (stampErr) {
+      console.error(
+        "[flipdesk-listings] delist queue stamp failed:",
+        stampErr.message,
+      );
+      return json(
+        {
+          error:
+            `We couldn't queue this ${platformName(row.platform)} listing to be ended. ` +
+            "It's still live — try again in a moment.",
+          code: "delist_failed",
+        },
+        502,
+      );
+    }
+    await endLocally(listingId, row.inventory_item_id, ownerId);
+    // `ended_upstream: false` is the truth: it is NOT yet ended on the
+    // marketplace. The queued flag is what tells the client to say so.
+    return json({
+      ok: true,
+      listing_id: listingId,
+      ended_upstream: false,
+      queued: true,
+      note:
+        `${platformName(row.platform)} has no end-listing API, so the GradeThread ` +
+        "Lister extension will end it in your browser next time you open FlipDesk. " +
+        "It stays live until then.",
+    });
+  }
+
+  const adapter = method === "unsupported"
+    ? null
+    : resolveAdapter(row.platform ?? "");
+  if (!adapter) {
+    return json(
+      {
+        error:
+          `${platformName(row.platform)} listings can't be ended from GradeThread. ` +
+          "End it on that marketplace, then mark it ended here.",
+        code: "unsupported_platform",
+      },
+      501,
+    );
+  }
+
+  try {
+    const res = await adapter.delist({
+      ownerId,
+      listingRowId: row.id,
+      platformOfferId: row.platform_offer_id,
+      platformListingId: row.platform_listing_id,
+      // US-2166: without these an eBay variation listing cannot be ended.
+      variations: row.variations,
+      itemSku: row.item_sku,
+      // US-1507: end through the account that published it.
+      connectionId: row.marketplace_connection_id,
+    });
+    if (!res.ok) {
+      return json(
+        { error: res.error, code: "delist_failed" },
+        adapterStatus(res.status),
+      );
+    }
+  } catch (err) {
+    // eBay's adapter delist throws rather than returning a typed failure, so the
+    // same three-way classification the manual eBay end route uses (US-1506 /
+    // US-1978) applies here.
+    if (isOfferAlreadyEndedError(err)) {
+      // Already not live upstream — reconciling locally is correct, not a lie.
+      await endLocally(listingId, row.inventory_item_id, ownerId);
+      return json({
+        ok: true,
+        listing_id: listingId,
+        ended_upstream: false,
+        note: "The listing was already not live on the marketplace.",
+      });
+    }
+    if (isNoEbayConnectionError(err)) {
+      return json(
+        {
+          error:
+            "Your eBay account isn't connected, so we couldn't end this live listing " +
+            "on eBay. Reconnect eBay in Marketplaces, then end it again.",
+          code: "not_connected",
+        },
+        409,
+      );
+    }
+    console.error("[flipdesk-listings] delist threw:", err);
+    return json(
+      {
+        error:
+          `${platformName(row.platform)} couldn't end this listing just now. ` +
+          "It's still live — try again in a moment.",
+        code: "delist_failed",
+      },
+      502,
+    );
+  }
+
+  await endLocally(listingId, row.inventory_item_id, ownerId);
+  return json({ ok: true, listing_id: listingId, ended_upstream: true });
 }
