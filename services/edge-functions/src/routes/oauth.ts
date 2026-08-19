@@ -17,11 +17,16 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { logEvent } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
-import { isOAuthEnabled, resourceIdentifier } from "../lib/oauth-metadata.ts";
+import {
+  invalidRedirectUris,
+  isOAuthEnabled,
+  resourceIdentifier,
+} from "../lib/oauth-metadata.ts";
 import { createOAuthStore } from "../lib/oauth-store.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   generateOpaqueToken,
+  generateOpaqueToken as generateClientId,
   hashSecret,
   redeemAuthorizationCode,
   REFRESH_TOKEN_TTL_MS,
@@ -329,4 +334,78 @@ oauthRoutes.post("/revoke", async (c) => {
 
   c.header("Cache-Control", "no-store");
   return c.body(null, 200);
+});
+
+// ---------------------------------------------------------------------------
+// POST /oauth/register (RFC 7591) — the DEPRECATED fallback
+// ---------------------------------------------------------------------------
+//
+// The MCP authorization spec deprecates dynamic registration in favour of
+// Client ID Metadata Documents, where the client_id IS an https URL we fetch
+// from. This exists for clients that cannot do that, and for no other reason.
+//
+// AN OPEN REGISTRATION ENDPOINT IS AN OPEN WRITE ENDPOINT. Anyone can create
+// rows here, so what it accepts is deliberately narrow: a redirect_uri set that
+// passes the same validation the authorize step applies, a name, and nothing
+// else. No client secret is issued — a public client with PKCE does not need
+// one, and issuing secrets to anonymous registrants creates credentials nobody
+// is accountable for.
+
+oauthRoutes.post("/register", async (c) => {
+  if (!isOAuthEnabled()) return notFound(c);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return oauthError(c, 400, "invalid_client_metadata", "the body must be JSON");
+  }
+
+  const redirectUris = Array.isArray(body.redirect_uris)
+    ? body.redirect_uris.filter((u): u is string => typeof u === "string")
+    : [];
+  if (redirectUris.length === 0) {
+    return oauthError(c, 400, "invalid_redirect_uri", "redirect_uris is required");
+  }
+  if (redirectUris.length > 10) {
+    // A registrant with more than ten callbacks is not a client, it is a list.
+    return oauthError(c, 400, "invalid_redirect_uri", "too many redirect_uris");
+  }
+
+  const bad = invalidRedirectUris(redirectUris);
+  if (bad.length > 0) {
+    // Rejected here AND at authorize. A wildcard accepted at registration is
+    // one somebody has to notice later.
+    return oauthError(
+      c,
+      400,
+      "invalid_redirect_uri",
+      `these redirect_uris are not acceptable: ${bad.join(", ")}`,
+    );
+  }
+
+  const clientName = typeof body.client_name === "string" ? body.client_name.slice(0, 200) : null;
+  const clientId = generateClientId("gtc");
+
+  const { error } = await supabaseAdmin.from("oauth_clients").insert({
+    client_id: clientId,
+    client_name: clientName,
+    redirect_uris: redirectUris,
+    registration_source: "dynamic",
+  });
+  if (error) {
+    logEvent("error", "oauth.register_failed", { error: redactError(error) });
+    return oauthError(c, 500, "server_error", "could not register the client");
+  }
+
+  logEvent("info", "oauth.client_registered", { source: "dynamic" });
+  c.header("Cache-Control", "no-store");
+  return c.json({
+    client_id: clientId,
+    client_name: clientName,
+    redirect_uris: redirectUris,
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  }, 201);
 });
