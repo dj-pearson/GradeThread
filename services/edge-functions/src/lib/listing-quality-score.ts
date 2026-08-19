@@ -6,18 +6,28 @@
 // judgement call — but the ORDERING is not, and each weight cites the section it
 // comes from. If the playbook is revised, revise these with it.
 //
-//   aspects      30  §1 "complete Required + Recommended aspects is the single
+//   aspects      27  §1 "complete Required + Recommended aspects is the single
 //                       highest-confidence lever"; a missing aspect "silently
 //                       removes the listing from every filtered result"
-//   photos       25  §6 first photo is the search thumbnail, "biggest CTR lever";
+//   photos       23  §6 first photo is the search thumbnail, "biggest CTR lever";
 //                       500px hard floor, 1600px for zoom
-//   title        15  §1/§2 policy-clean and genuinely searchable (see the lore
+//   title        13  §1/§2 policy-clean and genuinely searchable (see the lore
 //                       caveat below — this is NOT a character-count target)
-//   category     12  §1 wrong/non-leaf category loses the filtered results
+//   category     11  §1 wrong/non-leaf category loses the filtered results
 //                       entirely; leaf + agreement with eBay's own suggestion
-//   fulfillment  10  §4 eBay-CONFIRMED: returns accepted, ≤1-day handling, free
+//   price        10  §4 eBay-CONFIRMED: competitive TOTAL price (item plus
+//                       postage) is a Best Match factor. US-2678.
+//   fulfillment   9  §4 eBay-CONFIRMED: returns accepted, ≤1-day handling, free
 //                       shipping ("can give your fixed price listing a boost")
-//   condition     8  §4/US-1894 tier/description consistency
+//   condition     7  §4/US-1894 tier/description consistency
+//
+// US-2678 REBALANCED THE OTHER SIX rather than letting the total drift past 100,
+// because the score is read as a percentage and a 110-point total would quietly
+// make every listing look worse. Each existing weight was cut by a tenth and
+// rounded, which preserves the ORDERING the playbook does justify while leaving
+// room for a signal eBay actually confirms. Price sits below category (a wrong
+// category removes the listing from filtered results outright, which no price
+// can) and above fulfillment (both §4-confirmed; price moves more).
 //
 // ── WHAT THIS SCORE REFUSES TO MEASURE (AC3) ──────────────────────────────
 // The playbook's §10 lists things sellers believe are ranking factors and are
@@ -26,6 +36,13 @@
 //   • relist freshness / "new listing boost" farming
 //   • the "first 35 characters weigh more" positional rule
 //   • keyword stemming tricks, HTML templates
+//
+// The price component has its own version of this trap: it scores against what
+// comparable items actually SOLD for, never against what other sellers are
+// currently ASKING. Active asking prices skew high (they are, by definition, the
+// ones nobody has bought), so scoring against them would reward a seller for
+// pricing alongside unsold inventory — the same direction error US-2675 fixed in
+// demand-term mining, in a different place.
 //
 // The subtle one is TITLE LENGTH. AC1 asks for "title … utilization", and the
 // obvious reading — reward titles near 80 chars — is precisely the vendor lore
@@ -119,15 +136,31 @@ export interface QualityScoreInput {
     warnings: readonly string[];
   };
   fulfillment: FulfillmentSignals;
+  /**
+   * US-2678. The listing's own price, and the REALIZED comp band to judge it
+   * against — getRealizedComps (lib/sold-comps.ts), which is sold data or
+   * nothing. Null realized comps is the common case (Marketplace Insights is a
+   * gated scope) and produces an unknown component, never a guess.
+   */
+  price: {
+    listingCents: number | null;
+    realized: {
+      lowCents: number | null;
+      medianCents: number | null;
+      highCents: number | null;
+      count: number;
+    } | null;
+  };
 }
 
 export const QUALITY_WEIGHTS = {
-  aspects: 30,
-  photos: 25,
-  title: 15,
-  category: 12,
-  fulfillment: 10,
-  condition: 8,
+  aspects: 27,
+  photos: 23,
+  title: 13,
+  category: 11,
+  price: 10,
+  fulfillment: 9,
+  condition: 7,
 } as const;
 
 /** Titles shorter than this cannot carry enough terms to match many queries. */
@@ -353,6 +386,94 @@ function scoreFulfillment(f: FulfillmentSignals): QualityComponent {
 }
 
 /**
+ * How far above the realized p75 a price can go before the component is worth
+ * nothing at all. 25% over the top quartile of what things actually SOLD for.
+ *
+ * Expressed as a RATIO of the band top rather than a fixed amount, because a
+ * $12 tee and a $400 jacket are not over-priced by the same number of dollars.
+ */
+const PRICE_OVER_BAND_ZERO_AT = 0.25;
+
+function scorePrice(p: QualityScoreInput["price"]): QualityComponent {
+  const w = QUALITY_WEIGHTS.price;
+  const base = {
+    key: "price",
+    label: "Price vs sold comps",
+    weight: w,
+    // AC4: the composer's price card, so this joins topFixes with a place to go.
+    fixSurface: "composer.price",
+  };
+
+  const realized = p.realized;
+  const high = realized?.highCents ?? null;
+  const low = realized?.lowCents ?? null;
+
+  // AC3. Marketplace Insights is a gated eBay scope, so "no realized comps" is
+  // the ORDINARY case, not an error. Unknown drops the component from both the
+  // numerator and the denominator; scoring it zero would tell sellers to fix a
+  // price that may already be right, and would make the score move with our
+  // eBay access rather than with their listing.
+  if (!realized || high === null || low === null) {
+    return {
+      ...base,
+      earned: 0,
+      status: "unknown",
+      detail: "No sold comparables for this item yet.",
+    };
+  }
+  if (p.listingCents === null || !(p.listingCents > 0)) {
+    // A missing price is a publish blocker elsewhere; here it is simply not
+    // scoreable. Reporting it as a bad PRICE would be the wrong sentence.
+    return { ...base, earned: 0, status: "unknown", detail: "No price set yet." };
+  }
+
+  const money = (cents: number) => `${(cents / 100).toFixed(2)}`;
+  const band = `${money(low)}–${money(high)}`;
+  const n = realized.count;
+
+  if (p.listingCents < low) {
+    // FULL POINTS, deliberately, and the detail says the other half.
+    //
+    // This score measures RANKING, and under-pricing does not hurt ranking --
+    // it helps. Docking points here would be smuggling a margin opinion into a
+    // search-visibility number, and the seller would have no way to tell which
+    // one the score was complaining about. They are still told, because a
+    // seller reading "priced to sell" should also read "for less than these
+    // sold for".
+    return {
+      ...base,
+      earned: w,
+      status: "ok",
+      detail: `Under the ${band} band ${n} sold in — ranks well, but you may be ` +
+        `leaving money on the table.`,
+    };
+  }
+
+  if (p.listingCents <= high) {
+    return {
+      ...base,
+      earned: w,
+      status: "ok",
+      detail: `In the ${band} band ${n} comparable items sold in.`,
+    };
+  }
+
+  // AC6: above p75 is a "fix". The POINTS still grade, so a listing a dollar
+  // over the band is not treated like one at double it, but the status does not
+  // soften -- a price above what anything actually sold for is the single
+  // easiest thing on this list to change.
+  const overRatio = (p.listingCents - high) / high;
+  const earned = clamp(w * (0.5 - (overRatio / PRICE_OVER_BAND_ZERO_AT) * 0.5), 0, w);
+  return {
+    ...base,
+    earned,
+    status: "fix",
+    detail: `${money(p.listingCents)} is above the ${band} band ${n} comparable ` +
+      `items sold in (${Math.round(overRatio * 100)}% over).`,
+  };
+}
+
+/**
  * Compute the 0–100 Listing Quality Score and its breakdown.
  * Pure: every input is supplied by the caller (assemblePublishContext already
  * computes all of it in one pass).
@@ -363,6 +484,7 @@ export function computeListingQualityScore(input: QualityScoreInput): ListingQua
     scorePhotos(input.photos),
     scoreTitle(input.title),
     scoreCategory(input.category),
+    scorePrice(input.price),
     scoreFulfillment(input.fulfillment),
     scoreCondition(input.condition),
   ];

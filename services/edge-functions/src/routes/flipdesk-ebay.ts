@@ -7,6 +7,9 @@ import { lintTitle } from "../lib/title-lint.ts";
 // WARNING and never a blocker -- two genuinely different garments can carry
 // similar titles, and only the seller can tell.
 import { duplicateTitleWarningsFor } from "../lib/title-similarity.ts";
+// US-2678: the price component scores against REALIZED sales, never against
+// active asking prices, which are by definition the ones nobody bought.
+import { getRealizedComps } from "../lib/sold-comps.ts";
 import { captureException } from "../lib/observability.ts";
 import { planComplianceSync } from "../lib/ebay-compliance-plan.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
@@ -7244,7 +7247,55 @@ async function buildQualityScore(
       warnings: condition ? condition.warnings : [],
     },
     fulfillment: await loadFulfillmentSignals(ownerId),
+    // US-2678: judged against what comparable items actually SOLD for, which is
+    // what getRealizedComps returns and what active Browse comps are not.
+    // Marketplace Insights is a gated scope, so null here is ordinary and makes
+    // the component "unknown" rather than a guess.
+    price: {
+      // summary.priceValue is the resolved publish price as a fixed-2 STRING
+      // (resolvePublishPrice -> toFixed), so it is parsed rather than read as a
+      // number. "0.00" is the no-price sentinel and must not score as free.
+      listingCents: (() => {
+        const dollars = Number.parseFloat(ctx.summary.priceValue);
+        return Number.isFinite(dollars) && dollars > 0 ? Math.round(dollars * 100) : null;
+      })(),
+      realized: await loadRealizedBand(ownerId, ctx),
+    },
   });
+}
+
+/**
+ * US-2678: the realized comp band for the quality score's price component.
+ *
+ * NON-THROWING. A quality SCORE must never be the reason a seller cannot see
+ * their publish blockers, so every failure returns null, which the component
+ * reads as "unknown" and drops from the score entirely.
+ */
+async function loadRealizedBand(
+  ownerId: string,
+  ctx: PublishContextOk,
+): Promise<{ lowCents: number | null; medianCents: number | null; highCents: number | null; count: number } | null> {
+  const categoryId = ctx.listing?.platform_category_id ?? ctx.item.ebay_category_id ?? null;
+  if (!categoryId) return null;
+  try {
+    const realized = await getRealizedComps({
+      ownerId,
+      categoryId,
+      brand: ctx.item.brand ?? undefined,
+      q: ctx.summary.title || undefined,
+      size: ctx.item.size ?? undefined,
+    });
+    if (!realized) return null;
+    return {
+      lowCents: realized.lowCents,
+      medianCents: realized.medianCents,
+      highCents: realized.highCents,
+      count: realized.count,
+    };
+  } catch (err) {
+    console.error("[flipdesk-ebay] realized band for quality score:", err);
+    return null;
+  }
 }
 
 // US-1895: bulk recommended-aspect coverage for the AutoLister drafts list, so a

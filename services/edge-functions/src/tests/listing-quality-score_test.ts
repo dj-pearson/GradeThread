@@ -23,6 +23,11 @@ function perfect(): QualityScoreInput {
     category: { leafStatus: "leaf", matchesSuggestion: true },
     condition: { consistent: true, warnings: [] },
     fulfillment: { returnsAccepted: true, handlingDays: 1, freeShipping: true },
+    // US-2678: priced inside the band comparable items actually sold in.
+    price: {
+      listingCents: 8_900,
+      realized: { lowCents: 7_500, medianCents: 9_000, highCents: 11_000, count: 14 },
+    },
   };
 }
 
@@ -49,6 +54,11 @@ Deno.test("a listing that does nothing right scores 0", () => {
     category: { leafStatus: "non_leaf", matchesSuggestion: false },
     condition: { consistent: false, warnings: ["Says 'like new' but tier is Pre-owned - Fair"] },
     fulfillment: { returnsAccepted: false, handlingDays: 5, freeShipping: false },
+    // Priced well above what anything comparable sold for.
+    price: {
+      listingCents: 30_000,
+      realized: { lowCents: 7_500, medianCents: 9_000, highCents: 11_000, count: 14 },
+    },
   });
   assert(out.score <= 5, `expected ~0, got ${out.score}`);
 });
@@ -167,6 +177,8 @@ Deno.test("no readable signal at all reports 0 with weightCounted 0", () => {
     category: { leafStatus: "unverified", matchesSuggestion: null },
     condition: { consistent: null, warnings: [] },
     fulfillment: UNKNOWN_FULFILLMENT,
+    // No sold comparables either, so this is now FOUR unknown components.
+    price: { listingCents: 8_900, realized: null },
   });
   // Three of six unknown, but the rest are readable ⇒ still a real score.
   assert(out.weightCounted > 0);
@@ -339,4 +351,117 @@ Deno.test("blocked ranks below every publishable listing", () => {
     `an unlistable listing (${b.score}) must sort below the worst listable one (${w.score}) — ` +
       "that ordering is the whole point of the cap",
   );
+});
+
+// ---------------------------------------------------------------------------
+// US-2678: the price component
+//
+// eBay confirms competitive total price as a Best Match factor (playbook §4), so
+// a score that omitted it could read green on a listing nobody clicks.
+//
+// The trap this component has to avoid is the one US-2675 found in demand-term
+// mining: scoring against ACTIVE asking prices would reward a seller for pricing
+// alongside inventory that has not sold. It scores against realized sales only,
+// and having none is an ordinary state rather than an error.
+// ---------------------------------------------------------------------------
+
+Deno.test("AC6: a price inside the sold band scores ok and loses nothing", () => {
+  const out = computeListingQualityScore(perfect());
+  const price = out.components.find((c) => c.key === "price")!;
+  assertEquals(price.status, "ok");
+  assertEquals(price.earned, QUALITY_WEIGHTS.price);
+});
+
+Deno.test("AC6: a price above p75 scores fix", () => {
+  const input = perfect();
+  input.price.listingCents = 12_000; // band tops out at 11_000
+  const out = computeListingQualityScore(input);
+  const price = out.components.find((c) => c.key === "price")!;
+  assertEquals(price.status, "fix");
+  assert(price.earned < QUALITY_WEIGHTS.price, "an over-band price kept full points");
+  assert(price.detail.includes("above"), price.detail);
+});
+
+Deno.test("the further over the band, the fewer points, down to zero", () => {
+  const at = (cents: number) => {
+    const input = perfect();
+    input.price.listingCents = cents;
+    return computeListingQualityScore(input).components.find((c) => c.key === "price")!.earned;
+  };
+  const justOver = at(11_100);
+  const wayOver = at(14_000); // 27% over, past the zero point
+  assert(justOver > wayOver, "a dollar over scored the same as 27% over");
+  assertEquals(wayOver, 0);
+});
+
+Deno.test("a price UNDER the band keeps full points, and says why anyway", () => {
+  // This score measures RANKING, and under-pricing does not hurt ranking.
+  // Docking points would smuggle a margin opinion into a search-visibility
+  // number, and the seller could not tell which one was complaining.
+  const input = perfect();
+  input.price.listingCents = 5_000;
+  const out = computeListingQualityScore(input);
+  const price = out.components.find((c) => c.key === "price")!;
+  assertEquals(price.status, "ok");
+  assertEquals(price.earned, QUALITY_WEIGHTS.price);
+  assert(price.detail.includes("leaving money"), price.detail);
+});
+
+Deno.test("AC3: no realized comps reports unknown and rescales the rest", () => {
+  const input = perfect();
+  input.price.realized = null;
+  const out = computeListingQualityScore(input);
+
+  const price = out.components.find((c) => c.key === "price")!;
+  assertEquals(price.status, "unknown");
+  assertEquals(price.earned, 0);
+
+  // Dropped from BOTH sides: the remaining components are all perfect, so the
+  // score must still be 100 rather than 100 minus the price weight.
+  assertEquals(out.weightCounted, 100 - QUALITY_WEIGHTS.price);
+  assertEquals(out.score, 100, "an unknown signal was penalised instead of excluded");
+  assert(
+    !out.topFixes.some((f) => f.key === "price"),
+    "an unknown component was offered as a fix",
+  );
+});
+
+Deno.test("AC3: a listing with no price set is unknown, not badly priced", () => {
+  // A missing price is a publish blocker elsewhere. Calling it a bad PRICE here
+  // would be the wrong sentence to show the seller.
+  const input = perfect();
+  input.price.listingCents = null;
+  const out = computeListingQualityScore(input);
+  const price = out.components.find((c) => c.key === "price")!;
+  assertEquals(price.status, "unknown");
+  assertEquals(out.score, 100);
+});
+
+Deno.test("AC4: an over-band price appears in topFixes pointing at the price card", () => {
+  const input = perfect();
+  input.price.listingCents = 20_000;
+  const out = computeListingQualityScore(input);
+  const fix = out.topFixes.find((f) => f.key === "price");
+  assert(fix, "the price component did not participate in topFixes");
+  assertEquals(fix.fixSurface, "composer.price");
+  assert(fix.pointsAvailable > 0);
+});
+
+Deno.test("AC1: price is weighted below category and above fulfillment", () => {
+  // The ordering is the part the playbook justifies. A wrong category removes
+  // the listing from filtered results outright, which no price can; price and
+  // fulfillment are both §4-confirmed and price moves more.
+  assert(QUALITY_WEIGHTS.category > QUALITY_WEIGHTS.price);
+  assert(QUALITY_WEIGHTS.price > QUALITY_WEIGHTS.fulfillment);
+});
+
+Deno.test("AC1: adding price did not push the nominal total off 100", () => {
+  // Asserted separately from the existing sum test because THIS is the property
+  // the rebalance existed to preserve: the score is read as a percentage, and a
+  // 110-point total would quietly make every listing look worse.
+  assertEquals(
+    Object.values(QUALITY_WEIGHTS).reduce((a, b) => a + b, 0),
+    100,
+  );
+  assert(QUALITY_WEIGHTS.price > 0, "the price component carries no weight at all");
 });

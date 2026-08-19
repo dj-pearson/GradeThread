@@ -8,7 +8,7 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-08-14
+reviewed: 2026-08-19
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
@@ -32,10 +32,18 @@ Three things, and the first two contradict what the story assumed.
 
 **Ninety-one columns, not the ~52 the story estimated.** The estimate counted
 11 base plus 41 `ALTER TABLE` statements; several of those statements add more
-than one column. It is **93 as of 2026-08-12** — `category_candidates` (00540)
-and `aspect_coverage` (00541) both landed on 2026-08-07 — and that direction is
-the only one it moves in, which is why the count belongs in the script's output
-and not in this sentence.
+than one column. It is **94 as of 2026-08-19** — `category_candidates` (00540)
+and `aspect_coverage` (00541) landed on 2026-08-07, and `demand_terms_detail`
+(00621, US-2678's sibling US-2675) on 2026-08-19 — and that direction is the only
+one it moves in, which is why the count belongs in the script's output and not in
+this sentence.
+
+`demand_terms_detail` is worth one line here because it is the second column
+holding the same list: `demand_terms` (text[], 00154) keeps the flat words for
+the listing prompt and the title meter, and the jsonb one adds each term's
+provenance. That is deliberate rather than an oversight — every existing reader
+wants the flat array, and NULL in the new column means "the source was never
+recorded", which is not the same claim as "these came from active listings".
 
 **Nothing is provably dead.** The script reports zero columns with no reference
 at all, and that is not the same as every column being read. `search_vec` is
