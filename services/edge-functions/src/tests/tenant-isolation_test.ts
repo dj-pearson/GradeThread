@@ -5844,6 +5844,41 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "MCP gradethread_publish_listing cannot preview or publish A's item as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // The preview half matters as much as the publish half. A preview that
+    // resolved another tenant's item would hand B the title, price and category
+    // of A's garment AND a token to put it live.
+    //
+    // ⚠ THIS CASE CANNOT DISCRIMINATE ON THIS FIXTURE, and that is recorded
+    // rather than papered over. assemblePublishContext checks the eBay
+    // connection BEFORE ownership, and neither fixture tenant has one, so A and
+    // B get the byte-identical "Connect your eBay account first" — verified by
+    // hand. The case is kept because it is free and it becomes real the day the
+    // fixture seeds a connection. What actually pins the ownership rule today is
+    // mcp-publish-tool_test.ts's "the caller's tenant is the owner, never an
+    // argument", plus assemblePublishContext's own `user_id !== userId` 404.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_publish_listing", {
+      item_id: itemId,
+      mode: "preview",
+    });
+    assert(
+      !body.includes("confirm_token"),
+      `gradethread_publish_listing issued a publish token for another tenant's item: ${
+        body.slice(0, 300)
+      }`,
+    );
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_publish_listing",
+    );
+  },
+});
+
 // ── Sandbox tools (US-9124) ────────────────────────────────────────
 //
 // A DIFFERENT PROPERTY from the tools above, and the difference is the point.

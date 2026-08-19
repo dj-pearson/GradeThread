@@ -288,6 +288,7 @@ import {
 import { validateImageUpload } from "../lib/upload-validation.ts";
 import { stripImageMetadata } from "../lib/image-metadata.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
+import { registerEbayPublisher } from "../lib/ebay-publish-port.ts";
 import { pushTokenExpiring } from "../lib/transactional-push.ts";
 import {
   notifyListingEnded,
@@ -10496,6 +10497,55 @@ export function stripCertLinks(description: string): string {
 // Exported so the AutoLister auto-publish path (US-955) can run the SAME publish
 // pre-flight (blockers + policies) the manual /listings/validate + publish use,
 // to decide which green drafts are clean enough to auto-publish.
+// ── US-9116: hand the publish path to lib/ebay-publish-port.ts ─────────────
+//
+// The connector's publish tool cannot import a route, so the route registers.
+// The ADAPTING happens here, next to the context definition, so a new blocker
+// or a renamed field is a compile error where someone is already looking rather
+// than a silently-missing line in a preview a seller is about to approve.
+//
+// Registered at module load; main.ts imports this module, so any request that
+// can reach the tool has already run it.
+registerEbayPublisher({
+  preview: async (ownerId, itemId) => {
+    const ctx = await assemblePublishContext(ownerId, itemId);
+    if (!ctx.ok) {
+      return {
+        ready: false,
+        blockers: [String((ctx.error as { error?: unknown }).error ?? "Cannot publish this item.")],
+        warnings: [],
+        title: "",
+        price: null,
+        quantity: 0,
+        categoryId: null,
+        policiesReady: false,
+        photoCount: 0,
+        condition: null,
+      };
+    }
+    return {
+      // Mirrors publishItemForOwner's own gate exactly: it refuses when there
+      // are blockers OR no policies, so a preview that called itself ready on
+      // one of those would be a preview that lies.
+      ready: ctx.blockers.length === 0 && ctx.policies !== null,
+      blockers: ctx.blockers,
+      warnings: ctx.warnings,
+      title: ctx.listing?.listing_title ?? ctx.item.title ?? "",
+      price: resolvePublishPrice(
+        ctx.listing?.listing_price ?? null,
+        ctx.listing?.price_is_estimated === true,
+        ctx.item.target_price ?? null,
+      ),
+      quantity: Math.max(1, ctx.listing?.quantity ?? 1),
+      categoryId: ctx.listing?.platform_category_id ?? ctx.item.ebay_category_id ?? null,
+      policiesReady: ctx.policies !== null,
+      photoCount: ctx.photos.length,
+      condition: ctx.listing?.ebay_condition ?? null,
+    };
+  },
+  publish: (ownerId, itemId, opts) => publishItemForOwner(ownerId, itemId, opts ?? {}),
+});
+
 export async function assemblePublishContext(
   userId: string,
   itemId: string

@@ -71,6 +71,8 @@ import { gradeBatchTool, gradeItemTool } from "./mcp-grade-tools.ts";
 // US-9115: the draft write tools. Same reason as above - a preview protocol
 // and a marketplace-shaped payload do not belong in the registry file.
 import { createDraftTool, updateDraftTool } from "./mcp-draft-tools.ts";
+// US-9116: the publish tool. The one that puts a garment in front of buyers.
+import { publishListingTool } from "./mcp-publish-tool.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1261,6 +1263,7 @@ export const TOOLS: McpToolDefinition[] = [
   gradeBatchTool,
   createDraftTool,
   updateDraftTool,
+  publishListingTool,
   sandboxGradeTool,
   sandboxPublishTool,
   sandboxPriceGuideTool,
