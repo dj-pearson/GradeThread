@@ -112,12 +112,46 @@ the edge boot guard will expect 00621 on its next Coolify deploy.
 > `0 → 999` exploit); confirming prod needs a service-role session, not a probe.
 
 ---
+## 🟠 PENDING: 00623 — seed the `claude_connector` kill-switch row (US-9127 AC7)
+
+**Risk: NONE that I can find.** One INSERT of one row into `public.feature_flags`,
+`on conflict (key) do nothing`. No schema change, no existing row touched.
+
+**Behaviour-neutral by construction.** The flag is read fail-open and a missing
+row already resolves to enabled, so seeding `enabled = true` changes nothing at
+runtime. What it changes is REACHABILITY: the admin console lists rows, and the
+toggle endpoint answers 404 "Unknown feature flag" when there is none — so
+without this row the connector's kill switch exists in the type system and
+nowhere an operator can press it during an incident. That is exactly what 00607
+was written to fix for four other flags.
+
+**`NOTIFY pgrst, 'reload schema';` is NOT required.** No new table, no new
+column, no new function signature. Nothing about what PostgREST exposes changes.
+
+**The frontend deploy is harmless.** Nothing in `src/` reads this row.
+
+**Apply order:** anywhere after 00622. It depends on nothing.
+
+**Verified on the local stack, not assumed.** Applied twice (the second run
+inserts 0 rows, so it is idempotent), then the switch was driven end to end:
+authenticated `tools/list` returned **200**, the flag was set to false, and
+within the 30-second cache TTL the same call returned **404**; setting it back
+returned **200**. That is the rollback plan working, not described.
+
+⚠ **Do not test it with an unauthenticated call.** Those return 401 whether the
+connector is on or off, because the auth middleware runs before the gate. I made
+that mistake first and briefly concluded the switch was broken.
+
+**Rollback:** `delete from public.feature_flags where key = 'claude_connector';`
+The flag then resolves to its fail-open default, which is where it was before.
+
+---
 During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
-**As of 2026-08-19 there are no 🟠 entries.** Everything through 00620 is
-applied and the deployed edge expects 00620.
+**One 🟠 entry as of 2026-08-19:** 00623 below. Everything through 00622 is
+applied.
 
 ## ✅ APPLIED (measured 2026-08-19): 00620 — OAuth authorization server storage (US-9122)
 

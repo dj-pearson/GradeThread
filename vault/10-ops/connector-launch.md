@@ -140,6 +140,25 @@ takes effect "eventually" is not revocation.
 
 ## Rolling back
 
+### The stop button: the `claude_connector` feature flag
+
+**Admin → Feature flags → `claude_connector` → off.** Every replica closes
+`/mcp` within the 30-second flag cache TTL, with no deploy. That is the
+rollback plan; the env var below is the slower one.
+
+Verified end to end on 2026-08-19 against a seeded stack: an authenticated
+`tools/list` went **200 → 404 → 200** across a flag toggle and back, inside
+the TTL each way.
+
+> ⚠ **Do not test it the way I first did.** An UNAUTHENTICATED probe returns
+> **401**, not 404, whether the connector is on or off — the auth middleware
+> runs before the gate, so an anonymous caller gets a credential challenge
+> either way. This is pre-existing and shared with `MCP_ENABLED`. Test with a
+> real API key, or you will conclude the switch is broken when it is working.
+
+### The slower one: the env vars
+
+
 Set either flag to `false` and redeploy. Nothing is left half-open: both gates
 return 404 rather than an error, tokens already issued stop resolving the moment
 `/mcp` is closed, and no data is written that needs unwinding. Existing grants

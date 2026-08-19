@@ -103,7 +103,17 @@ export type FeatureKey =
   // froze everyone's quest progress would do more damage than one that kept
   // paying it. Individual quests carry their own `enabled` column — retire one
   // quest with that, not the whole program with this.
-  | "rewards_quests";
+  | "rewards_quests"
+  // US-9127: the Claude connector's runtime kill switch, on top of the
+  // MCP_ENABLED env var. The env var is the deploy-time default; this is the
+  // stop button, because changing an env var means a redeploy and a rollback
+  // plan that takes minutes is not one for a surface that publishes listings.
+  //
+  // Fail-OPEN (defaultEnabled: true) like every other ops kill switch here: an
+  // outage in the flag store must not take the connector down with it. The
+  // thing that must fail CLOSED on this surface is the ALLOWANCE, and that one
+  // does.
+  | "claude_connector";
 
 // US-2406: the flags whose EVERY call site can name the user it is acting for,
 // and therefore the only ones where plan targeting can mean anything.

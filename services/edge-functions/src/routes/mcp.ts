@@ -24,6 +24,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { isAllowedOrigin } from "../lib/allowed-origins.ts";
 import { isProduction } from "../lib/env.ts";
+import { isFeatureEnabled } from "../lib/feature-flags.ts";
 import { logEvent } from "../lib/observability.ts";
 import { redactError } from "../lib/log-redact.ts";
 import { releaseSha } from "../lib/observability.ts";
@@ -103,6 +104,28 @@ function isMcpEnabled(): boolean {
   return !isProduction();
 }
 
+/**
+ * US-9127 AC7: the runtime kill switch, checked alongside the env var.
+ *
+ * MCP_ENABLED is the deploy-time default and changing it means a redeploy —
+ * minutes during which the thing you are trying to stop keeps running. The
+ * `claude_connector` feature flag stops every replica within the flag cache TTL
+ * with no deploy at all, which is what a rollback plan has to mean for a
+ * surface that publishes listings.
+ *
+ * EITHER being off closes the endpoint. That asymmetry is deliberate: a stop
+ * button should need one thing to say stop, not two things to agree.
+ *
+ * Fail-OPEN on a flag-store outage, like every other ops kill switch — an
+ * unreachable flag table must not take the connector down. The thing that fails
+ * CLOSED here is the allowance (lib/connector-allowance.ts), which is the one
+ * that gates spending.
+ */
+async function isConnectorLive(): Promise<boolean> {
+  if (!isMcpEnabled()) return false;
+  return await isFeatureEnabled("claude_connector");
+}
+
 // ---------------------------------------------------------------------------
 // Legacy sessions
 // ---------------------------------------------------------------------------
@@ -168,7 +191,7 @@ function notFound(c: Context): Response {
 // ---------------------------------------------------------------------------
 
 mcpRoutes.post("/", async (c) => {
-  if (!isMcpEnabled()) return notFound(c);
+  if (!(await isConnectorLive())) return notFound(c);
   const rejected = originRejection(c);
   if (rejected) return rejected;
 
@@ -271,8 +294,8 @@ mcpRoutes.post("/", async (c) => {
 // dual-era, so these exist for legacy clients and 405 for everyone else. A GET
 // without a known session is indistinguishable from a modern client probing, so
 // it gets the 405 the spec asks for.
-mcpRoutes.get("/", (c) => {
-  if (!isMcpEnabled()) return notFound(c);
+mcpRoutes.get("/", async (c) => {
+  if (!(await isConnectorLive())) return notFound(c);
   const rejected = originRejection(c);
   if (rejected) return rejected;
 
@@ -326,8 +349,8 @@ mcpRoutes.get("/", (c) => {
   });
 });
 
-mcpRoutes.delete("/", (c) => {
-  if (!isMcpEnabled()) return notFound(c);
+mcpRoutes.delete("/", async (c) => {
+  if (!(await isConnectorLive())) return notFound(c);
   const rejected = originRejection(c);
   if (rejected) return rejected;
 
