@@ -1,7 +1,8 @@
 -- US-9122: storage for the connector's OAuth 2.1 authorization server.
 --
--- Three tables, one per lifetime: a registered client, a short-lived
--- authorization code, and a long-lived grant with its rotating refresh tokens.
+-- Five tables, one per lifetime: a registered client, a short-lived
+-- authorization code, a long-lived grant, its rotating refresh tokens, and the
+-- short-lived access tokens those mint.
 --
 -- EVERY SECRET IS STORED HASHED. Codes and refresh tokens are held as a
 -- hex SHA-256 (HMAC-with-pepper when API_KEY_PEPPER is set), the same way
@@ -106,11 +107,35 @@ CREATE INDEX IF NOT EXISTS idx_oauth_refresh_grant
 CREATE INDEX IF NOT EXISTS idx_oauth_refresh_expires
   ON public.oauth_refresh_tokens (expires_at);
 
+-- ── Access tokens ───────────────────────────────────────────────────
+--
+-- Opaque and STORED, not signed and stateless. A signed token would save this
+-- table and save nothing else: every request has to load the grant anyway, to
+-- learn the tenant and the scopes and to check the grant is not revoked. So the
+-- stateless version buys no read, costs a signing-key rotation story, and makes
+-- "revoke this now" mean "revoke this within the token lifetime".
+--
+-- Short-lived (1 hour). Revoking the grant kills these immediately because the
+-- request path checks the grant, not just the token.
+CREATE TABLE IF NOT EXISTS public.oauth_access_tokens (
+  token_hash text PRIMARY KEY,
+  grant_id   uuid NOT NULL REFERENCES public.oauth_grants(id) ON DELETE CASCADE,
+  scopes     text[] NOT NULL DEFAULT '{}',
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_access_grant
+  ON public.oauth_access_tokens (grant_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_access_expires
+  ON public.oauth_access_tokens (expires_at);
+
+ALTER TABLE public.oauth_access_tokens ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.oauth_clients ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.oauth_grants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.oauth_authorization_codes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.oauth_refresh_tokens ENABLE ROW LEVEL SECURITY;
--- No policies on any of the four: deny-all for anon and authenticated. A seller
+-- No policies on any of the five: deny-all for anon and authenticated. A seller
 -- sees and revokes their connected clients through an authenticated endpoint
 -- that filters for them, never by reading these tables.
 
@@ -154,6 +179,7 @@ AS $$
 DECLARE
   v_codes integer;
   v_tokens integer;
+  v_access integer;
 BEGIN
   IF auth.role() IS NOT NULL AND auth.role() <> 'service_role' THEN
     RAISE EXCEPTION 'sweep_oauth_expired: service role required' USING ERRCODE = '42501';
@@ -165,7 +191,12 @@ BEGIN
   DELETE FROM public.oauth_refresh_tokens WHERE expires_at < now() - interval '30 days';
   GET DIAGNOSTICS v_tokens = ROW_COUNT;
 
-  RETURN v_codes + v_tokens;
+  -- Kept a day past expiry so a support question about a request from this
+  -- morning still has a row to point at.
+  DELETE FROM public.oauth_access_tokens WHERE expires_at < now() - interval '1 day';
+  GET DIAGNOSTICS v_access = ROW_COUNT;
+
+  RETURN v_codes + v_tokens + v_access;
 END;
 $$;
 

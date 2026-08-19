@@ -15,6 +15,7 @@ import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
+import { oauthRoutes } from "./routes/oauth.ts";
 import { OPENAPI_SPEC } from "./lib/openapi-spec.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { pushRoutes } from "./routes/push.ts";
@@ -1185,6 +1186,12 @@ app.route("/api/v1", apiV1Routes);
 // US-9103: the MCP endpoint for the Claude connector. Top-level /mcp because
 // that is the URL a seller pastes into a client. Auth lands in US-9104; until
 // then MCP_ENABLED is off in production and tools/list is empty.
+// US-9122: the token and revoke endpoints. PUBLIC and unauthenticated, like
+// every token endpoint - the credential IS the request body - and mounted
+// before the MCP auth middleware for that reason. They 404 until
+// MCP_OAUTH_ENABLED is set, same as the discovery documents below.
+app.route("/oauth", oauthRoutes);
+
 // US-9120: OAuth discovery. BOTH documents are public and mounted BEFORE the
 // MCP auth middleware — they contain no secrets (endpoint URLs and supported
 // parameters), and requiring a credential to discover how to get a credential

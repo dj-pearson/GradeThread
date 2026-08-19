@@ -45,11 +45,11 @@ entry is on origin and NOT yet in the production database.
 > both before the next edge deploy. The boot guard expects 00620 once the new
 > container ships, and it will refuse to start on a database at 00618.
 
-**Risk: LOW.** Four new tables, six indexes, two CHECK constraints and one
+**Risk: LOW.** Five new tables, eight indexes, two CHECK constraints and one
 operator function. Nothing existing is altered and no row is rewritten. All
-four tables start empty and only the edge writes to them.
+five tables start empty and only the edge writes to them.
 
-**`NOTIFY pgrst, 'reload schema';` IS required.** Four new tables and a new
+**`NOTIFY pgrst, 'reload schema';` IS required.** Five new tables and a new
 function signature change what PostgREST exposes, and the edge reads and
 writes these through it.
 
@@ -57,10 +57,10 @@ writes these through it.
 these tables, and the OAuth flow itself is behind `MCP_OAUTH_ENABLED`, which
 is off. Applying this migration does not turn anything on.
 
-**Deny-all RLS on all four, deliberately.** No policies at all: readable,
+**Deny-all RLS on all five, deliberately.** No policies at all: readable,
 they are a map of which sellers connected what and when; writable, a caller
 could mint their own grant and skip the consent screen, which is the one
-thing an authorization server must not allow. All four are registered in
+thing an authorization server must not allow. All five are registered in
 `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`, and the owner columns are named
 `owner_user_id` per the rls-guard discovery convention.
 
@@ -80,7 +80,7 @@ zero policies. The store's reads and writes were then exercised against these
 tables for real — code redemption, refresh rotation, and reuse detection
 revoking the grant with a reason — 4 passed / 0 failed.
 
-**Rollback is clean:** drop the four tables (codes and refresh tokens cascade
+**Rollback is clean:** drop the five tables (codes, refresh and access tokens cascade
 from grants; grants and codes cascade from clients) and
 `DROP FUNCTION public.sweep_oauth_expired();`. Nothing else references them,
 and no seller has authorized anything yet because the flow is off.

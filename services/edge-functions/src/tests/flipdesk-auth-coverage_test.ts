@@ -192,6 +192,13 @@ const NON_API_ROUTER_POSTURE = new Map<string, string>([
   // Liveness/readiness probes. Deliberately unauthenticated: an auth dependency
   // in a restart probe crash-loops a healthy container during an auth outage.
   ["/health", "public"],
+  // US-9122: the OAuth token and revoke endpoints. PUBLIC, and necessarily so:
+  // the credential IS the request body, and a token endpoint behind auth is a
+  // loop. What protects them is the grant material itself - a code that must
+  // match its PKCE challenge, a refresh token that must be the live generation
+  // - plus MCP_OAUTH_ENABLED, which 404s the whole prefix until the flow is
+  // real. Revoke deliberately answers 200 for an unknown token (RFC 7009).
+  ["/oauth", "public"],
   // US-9104: the MCP endpoint authenticates with an API key (Bearer or
   // X-API-Key) through mcpAuthMiddleware, and gates on the connector plan flag.
   ["/mcp", "authed"],
