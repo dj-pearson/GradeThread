@@ -24,7 +24,6 @@ import {
 } from "./api-key-auth.ts";
 import { featureAllowedForUser } from "../lib/plan-gate.ts";
 import { JSON_RPC_ERROR, jsonRpcError } from "../lib/mcp-jsonrpc.ts";
-import { logEvent } from "../lib/observability.ts";
 
 type McpAuthEnv = {
   Variables: {
@@ -71,9 +70,28 @@ function challenge(params: Record<string, string>): string {
  * this middleware's — so it is ONE call in ONE place. Widening the connector to
  * pro+ is then either a plan-matrix row change (no deploy: getPlanMatrix reads
  * the DB) or a one-line swap to a new flag here.
+ *
+ * US-9124: called by the TOOL DISPATCHER, not by this middleware. Auth does not
+ * know which tool is being called, so gating here refused the whole endpoint —
+ * including tools/list, and including the sandbox tools whose entire purpose is
+ * to be usable before you pay.
  */
-async function connectorPlanAllows(userId: string): Promise<boolean> {
-  return await featureAllowedForUser(userId, "apiAccess");
+let planCheck: (userId: string) => Promise<boolean> = (userId) =>
+  featureAllowedForUser(userId, "apiAccess");
+
+export function connectorPlanAllows(userId: string): Promise<boolean> {
+  return planCheck(userId);
+}
+
+/**
+ * Test seam. The dispatcher tests exercise scope checks, argument validation and
+ * tenant resolution, none of which are about billing - without this they all
+ * stop at the plan gate and assert nothing about what they were written for.
+ */
+export function __setConnectorPlanCheckForTest(
+  fn: ((userId: string) => Promise<boolean>) | null,
+): void {
+  planCheck = fn ?? ((userId) => featureAllowedForUser(userId, "apiAccess"));
 }
 
 export const mcpAuthMiddleware = createMiddleware<McpAuthEnv>(async (c, next) => {
@@ -116,22 +134,8 @@ export const mcpAuthMiddleware = createMiddleware<McpAuthEnv>(async (c, next) =>
     }
   }
 
-  const { identity } = resolution;
-
-  if (!(await connectorPlanAllows(identity.userId))) {
-    logEvent("info", "mcp.plan_gate_blocked", { plan: identity.apiKeyPlan });
-    return c.json(
-      jsonRpcError(null, {
-        code: JSON_RPC_ERROR.INVALID_REQUEST,
-        message:
-          "The GradeThread connector is not included in this plan. See https://gradethread.com/pricing to upgrade.",
-        data: { reason: "plan_required", plan: identity.apiKeyPlan },
-      }),
-      403,
-    );
-  }
-
-  applyApiKeyIdentity(c, identity);
+  // The plan gate deliberately does NOT run here — see connectorPlanAllows.
+  applyApiKeyIdentity(c, resolution.identity);
   await next();
 });
 

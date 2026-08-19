@@ -8,17 +8,22 @@
 //
 // So the class is derived from the JSON-RPC method instead, once, before the
 // limiters run:
-//   • tools/call            → WRITE budget (it is the only method that acts)
-//   • everything else       → READ budget
+//   • tools/call on a tool annotated readOnlyHint  → READ budget
+//   • tools/call on anything else                  → WRITE budget
+//   • every other method                           → READ budget
 //
-// When the tool registry lands (US-9106) a tool annotated readOnlyHint moves to
-// the read budget; until then every tools/call is treated as a write, which errs
-// toward the tighter limit rather than the looser one.
+// The registry lookup is what makes the first line possible, and it matters more
+// than it looks. The write budget is deliberately the TIGHT one, so treating
+// every tools/call as a write meant a connector doing ordinary read work —
+// listing items, checking a grade — exhausted the budget a publish needs. An
+// UNKNOWN tool name still counts as a write: erring toward the tighter limit is
+// the right default for something we cannot classify.
 
 import { createMiddleware } from "hono/factory";
 import type { Context } from "hono";
 import { apiV1Tier } from "./api-v1-rate.ts";
 import { recordApiUsage } from "../lib/api-usage-log.ts";
+import { findTool } from "../lib/mcp-tools.ts";
 import { redactError } from "../lib/log-redact.ts";
 import {
   HEADER_METHOD,
@@ -34,7 +39,7 @@ const CLASS_VAR = "mcpRateClass";
 const METHOD_VAR = "mcpRpcMethod";
 const TOOL_VAR = "mcpToolName";
 
-/** JSON-RPC methods that act on something rather than describe it. */
+/** JSON-RPC methods that can act on something rather than describe it. */
 const WRITE_METHODS = new Set(["tools/call"]);
 
 /**
@@ -116,7 +121,7 @@ function toolNameOf(body: Record<string, unknown> | undefined): string | undefin
  */
 export const mcpClassifyMiddleware = createMiddleware(async (c, next) => {
   const { method, tool } = await readMethod(c);
-  const rateClass: McpRateClass = method && WRITE_METHODS.has(method) ? "write" : "read";
+  const rateClass = classifyRpcMethod(method, tool);
   c.set(CLASS_VAR, rateClass);
   if (method) c.set(METHOD_VAR, method);
   if (tool) c.set(TOOL_VAR, tool);
@@ -190,9 +195,21 @@ export const mcpUsageMiddleware = createMiddleware(async (c, next) => {
   }
 });
 
-/** Exported for tests: the classification rule, without the HTTP plumbing. */
-export function classifyRpcMethod(method: string | undefined): McpRateClass {
-  return method && WRITE_METHODS.has(method) ? "write" : "read";
+/**
+ * The classification rule, without the HTTP plumbing.
+ *
+ * A tools/call is a write UNLESS the named tool is annotated read-only. An
+ * unknown name stays a write: erring toward the tighter budget is the right
+ * default for something we cannot classify, and it is also what a caller
+ * probing for tool names would hit.
+ */
+export function classifyRpcMethod(
+  method: string | undefined,
+  toolName?: string,
+): McpRateClass {
+  if (!method || !WRITE_METHODS.has(method)) return "read";
+  if (!toolName) return "write";
+  return findTool(toolName)?.annotations.readOnlyHint === true ? "read" : "write";
 }
 
 /** Exported for tests: whether a method creates a usage-ledger row. */

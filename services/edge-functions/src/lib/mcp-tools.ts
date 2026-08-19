@@ -59,6 +59,13 @@ import { featureAllowedForUser } from "./plan-gate.ts";
 // second answer to a question the seller asks once, and they would get whichever
 // one they happened to ask. Relocate both together when the submit half lands.
 import { buildValidation } from "../routes/flipdesk-grading.ts";
+import {
+  SANDBOX_NOTICE,
+  sandboxCatalog,
+  sandboxEntry,
+  sandboxGrade,
+  sandboxPublish,
+} from "./mcp-sandbox.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,6 +122,12 @@ export interface McpToolDefinition {
   inputSchema: JsonSchema;
   outputSchema?: JsonSchema;
   requiredScope: ApiKeyScope;
+  /**
+   * US-9124: a sandbox tool is EXEMPT FROM THE PLAN GATE. It reads nothing from
+   * the seller's account and changes nothing anywhere, so being usable before
+   * you pay is the entire point of it. Nothing else may set this.
+   */
+  sandbox?: true;
   annotations: McpToolAnnotations;
   handler: McpToolHandler;
 }
@@ -1103,6 +1116,130 @@ const gradingReadinessTool: McpToolDefinition = {
   },
 };
 
+// ── Sandbox (US-9124) ──────────────────────────────────────────────
+//
+// Available on EVERY plan, including free, regardless of the US-9101 gating
+// decision. That is the whole point: a seller who cannot see what the
+// connector does has no reason to pay for it, and an empty tool list is not an
+// answer to 'should I upgrade'. These carry sandbox: true, which exempts them
+// from the plan gate in the dispatcher and nothing else.
+
+const sandboxGradeTool: McpToolDefinition = {
+  name: "gradethread_sandbox_grade",
+  title: "Try grading on sample data",
+  description:
+    "Return a realistic SAMPLE condition grade for a garment description, so a seller can see " +
+    "what GradeThread produces before connecting an account or spending a grade. Call this when " +
+    "someone asks what a grade looks like, or is evaluating the connector. It reads nothing from " +
+    "any account and grades nothing real - the result is sample data and must be described as such.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "A garment description, e.g. \"Carhartt Detroit jacket\"." },
+      brand: { type: "string", description: "Optional brand." },
+    },
+    required: ["title"],
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  sandbox: true,
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: (args, _ctx) => {
+    const grade = sandboxGrade(String(args.title ?? ""), args.brand as string | undefined);
+    const text = [
+      SANDBOX_NOTICE,
+      `${grade.title}: ${grade.overall_score} (${grade.grade_tier}), confidence ${grade.confidence_score}.`,
+      `Fabric ${grade.fabric_condition_score} · Structural ${grade.structural_integrity_score} · ` +
+        `Cosmetic ${grade.cosmetic_appearance_score} · Functional ${grade.functional_elements_score} · ` +
+        `Odor ${grade.odor_cleanliness_score}`,
+      grade.ai_summary,
+    ].join("\n");
+    return Promise.resolve({
+      content: [{ type: "text", text }],
+      structuredContent: grade as unknown as Record<string, unknown>,
+    });
+  },
+};
+
+const sandboxPublishTool: McpToolDefinition = {
+  name: "gradethread_sandbox_publish",
+  title: "Preview a publish on sample data",
+  description:
+    "Show what publishing a listing WOULD produce, using sample data. Nothing is sent to any " +
+    "marketplace and no listing is created. Call this when someone wants to see the listing flow " +
+    "before connecting a marketplace account. The result is sample data and must never be " +
+    "described as a live listing.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      title: { type: "string", description: "The garment to pretend to list." },
+      marketplace: { type: "string", description: "Marketplace name. Defaults to ebay." },
+      price_cents: { type: "integer", minimum: 0, description: "Asking price in cents." },
+    },
+    required: ["title"],
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  sandbox: true,
+  // readOnlyHint, and it is not a lie: this writes nothing anywhere. Marking it
+  // destructive to look cautious would make the annotation mean less on the
+  // tools that really are.
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: (args, _ctx) => {
+    const listing = sandboxPublish(
+      String(args.title ?? ""),
+      (args.marketplace as string | undefined) ?? "ebay",
+      (args.price_cents as number | undefined) ?? 4999,
+    );
+    const text = [
+      SANDBOX_NOTICE,
+      `Would list "${listing.title}" on ${listing.marketplace} at ${money(listing.price_cents)}.`,
+      "No listing was created and no marketplace was contacted.",
+    ].join("\n");
+    return Promise.resolve({
+      content: [{ type: "text", text }],
+      structuredContent: listing as unknown as Record<string, unknown>,
+    });
+  },
+};
+
+const sandboxPriceGuideTool: McpToolDefinition = {
+  name: "gradethread_sandbox_price_guide",
+  title: "Try the price guide on sample data",
+  description:
+    "Return a SAMPLE price guide entry or catalog, so a seller can see the shape of the value " +
+    "and sell-through data before subscribing. Call this when evaluating the connector. The " +
+    "numbers are illustrative sample data, not a real valuation.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      slug: { type: "string", description: "A sample entry slug. Omit to list the sample catalog." },
+    },
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  sandbox: true,
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: (args, _ctx) => {
+    const slug = args.slug as string | undefined;
+    if (!slug) {
+      const catalog = sandboxCatalog();
+      const body = catalog
+        .map((e) => `${e.slug} - ${e.brand} ${e.label}, median ${money(e.headlineMedianCents)}`)
+        .join("\n");
+      return Promise.resolve({
+        content: [{ type: "text", text: `${SANDBOX_NOTICE}\n${body}` }],
+        structuredContent: { sandbox: true, entries: catalog as unknown as Record<string, unknown>[] },
+      });
+    }
+    const entry = sandboxEntry(slug);
+    return Promise.resolve({
+      content: [{ type: "text", text: `${SANDBOX_NOTICE}\n${JSON.stringify(entry)}` }],
+      structuredContent: { sandbox: true, entry: entry as unknown as Record<string, unknown> },
+    });
+  },
+};
+
 export const TOOLS: McpToolDefinition[] = [
   usageTool,
   listItemsTool,
@@ -1115,6 +1252,9 @@ export const TOOLS: McpToolDefinition[] = [
   priceGuideTool,
   compsTool,
   gradingReadinessTool,
+  sandboxGradeTool,
+  sandboxPublishTool,
+  sandboxPriceGuideTool,
 ];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));

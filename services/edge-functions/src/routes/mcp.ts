@@ -37,6 +37,8 @@ import {
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { sanitizeDeep } from "../lib/mcp-untrusted.ts";
 import { recordToolCall, type ToolCallStatus } from "../lib/mcp-audit.ts";
+import { budgetKindForTool, checkBudget } from "../lib/mcp-budget.ts";
+import { connectorPlanAllows } from "../middleware/mcp-auth.ts";
 import {
   bodyProtocolVersion,
   clientInfoOf,
@@ -384,9 +386,14 @@ async function handleRequest(
       // empty result object and some clients type it strictly.
       return { result: {} };
 
-    case "tools/list":
+    case "tools/list": {
       // Filtered by scope: a credential never SEES a tool it cannot call.
+      //
+      // NOT filtered by plan. A free account is shown the whole set with the
+      // sandbox tools among them, because "here is what this does, try these
+      // two" is the answer to "should I upgrade" and an empty list is not.
       return { result: { tools: listToolsFor(callerScopes(c)) } };
+    }
 
     case "tools/call":
       return await callTool(c, message);
@@ -524,6 +531,25 @@ async function callTool(
     return { error: { code: JSON_RPC_ERROR.INVALID_PARAMS, message: `Unknown tool: ${name}` } };
   }
 
+  // US-9124: the PLAN gate, here rather than in auth, because only here do we
+  // know which tool was asked for. A sandbox tool is exempt on purpose - it
+  // reads nothing, changes nothing, and being usable before you pay is the
+  // entire point of it.
+  if (ctx && !tool.sandbox) {
+    if (!(await connectorPlanAllows(ctx.tenantId))) {
+      audit("denied", "plan_required");
+      return {
+        error: {
+          code: JSON_RPC_ERROR.INVALID_REQUEST,
+          message:
+            `The GradeThread connector is not included in this plan. ` +
+            `Try the sandbox tools, or see https://gradethread.com/pricing to upgrade.`,
+          data: { reason: "plan_required" },
+        },
+      };
+    }
+  }
+
   // Re-checked here even though tools/list already filtered: a filter is a
   // display decision, and this is the authorization decision.
   const scopes = callerScopes(c);
@@ -536,6 +562,34 @@ async function callTool(
         data: { reason: "insufficient_scope", required_scopes: [tool.requiredScope] },
       },
     };
+  }
+
+  // US-9119: the action ceiling, checked in the DISPATCHER.
+  //
+  // Rate limits stop a flood; they do not stop a well-paced mistake. Forty
+  // publishes over forty minutes is inside every per-minute budget and is still
+  // a seller's whole store live at the wrong price. A per-handler version of
+  // this is a cap the next tool forgets, and the next tool is the one nobody
+  // reviewed as carefully.
+  const budgetKind = ctx ? budgetKindForTool(name) : null;
+  if (ctx && budgetKind) {
+    const verdict = await checkBudget({ subject: ctx.apiKeyId, kind: budgetKind });
+    if (!verdict.allowed) {
+      audit("denied", "budget_exceeded");
+      return {
+        error: {
+          code: JSON_RPC_ERROR.INVALID_REQUEST,
+          message: verdict.message ?? "Connector action limit reached.",
+          data: {
+            reason: "budget_exceeded",
+            budget: verdict.kind,
+            used: verdict.used,
+            max: verdict.max,
+            resets_at: verdict.resetsAt,
+          },
+        },
+      };
+    }
   }
 
   const violation = validateAgainstSchema(tool.inputSchema, args);

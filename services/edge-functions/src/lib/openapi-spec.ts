@@ -320,6 +320,75 @@ export const OPENAPI_SPEC = {
         },
       },
     },
+    "/api/v1/listings": {
+      get: {
+        tags: ["Inventory"],
+        summary: "List listings (one row per item, most recent listing)",
+        security: [{ ApiKeyAuth: ["read"] }],
+        parameters: [
+          { name: "marketplace", in: "query", schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string" } },
+          { name: "min_price_cents", in: "query", schema: { type: "integer" } },
+          { name: "max_price_cents", in: "query", schema: { type: "integer" } },
+          { name: "min_days_live", in: "query", schema: { type: "integer" } },
+          { name: "min_watchers", in: "query", schema: { type: "integer" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { name: "cursor", in: "query", schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "A page of listings",
+            content: {
+              "application/json": {
+                schema: envelope({
+                  type: "object",
+                  properties: {
+                    listings: { type: "array", items: { $ref: "#/components/schemas/ListingSummary" } },
+                  },
+                }),
+              },
+            },
+          },
+          "400": errorResponse,
+          "403": errorResponse,
+        },
+      },
+    },
+    "/api/v1/sales": {
+      get: {
+        tags: ["Inventory"],
+        summary: "List completed sales",
+        description:
+          "Defaults to status=completed; cancelled and refunded sales are not revenue. " +
+          "meta.totals rolls up the RETURNED page and says so via totals.page_only.",
+        security: [{ ApiKeyAuth: ["read"] }],
+        parameters: [
+          { name: "sold_after", in: "query", schema: { type: "string", format: "date-time" } },
+          { name: "sold_before", in: "query", schema: { type: "string", format: "date-time" } },
+          { name: "marketplace", in: "query", schema: { type: "string" } },
+          { name: "status", in: "query", schema: { type: "string" } },
+          { name: "limit", in: "query", schema: { type: "integer", minimum: 1, maximum: 100 } },
+          { name: "cursor", in: "query", schema: { type: "string" } },
+        ],
+        responses: {
+          "200": {
+            description: "A page of sales",
+            content: {
+              "application/json": {
+                schema: envelope({
+                  type: "object",
+                  properties: {
+                    sales: { type: "array", items: { $ref: "#/components/schemas/SaleSummary" } },
+                  },
+                }),
+              },
+            },
+          },
+          "400": errorResponse,
+          "403": errorResponse,
+        },
+      },
+    },
     "/api/v1/usage": {
       get: {
         tags: ["Account"],
@@ -554,6 +623,9 @@ export const OPENAPI_SPEC = {
           payment_method: { type: "string", enum: ["included", "credits"] },
         },
       },
+      // US-9108: needs_human_review is what the grading pipeline decided using
+      // its calibrated per-category threshold; pending_review is that flag AND
+      // not yet reviewed. Additive fields — nothing existing changed shape.
       GradeReport: {
         type: "object",
         properties: {
@@ -696,6 +768,45 @@ export const OPENAPI_SPEC = {
           },
         },
       ],
+    },
+    ListingSummary: {
+      type: "object",
+      description: "One item and its most recent listing. Money is integer cents.",
+      properties: {
+        listing_id: { type: "string", nullable: true },
+        item_id: { type: "string", format: "uuid" },
+        title: { type: "string" },
+        brand: { type: "string", nullable: true },
+        size: { type: "string", nullable: true },
+        marketplace: { type: "string", nullable: true },
+        status: { type: "string", nullable: true },
+        price_cents: { type: "integer", nullable: true },
+        url: { type: "string", nullable: true },
+        listed_at: { type: "string", format: "date-time", nullable: true },
+        days_live: { type: "integer", nullable: true },
+        watchers: { type: "integer", nullable: true },
+        views: { type: "integer", nullable: true },
+        grade: { type: "number", nullable: true },
+      },
+    },
+    SaleSummary: {
+      type: "object",
+      description: "One completed sale. Money is integer cents.",
+      properties: {
+        item_id: { type: "string", format: "uuid" },
+        title: { type: "string" },
+        brand: { type: "string", nullable: true },
+        marketplace: { type: "string", nullable: true },
+        status: { type: "string", nullable: true },
+        sale_price_cents: { type: "integer", nullable: true },
+        fees_cents: { type: "integer", nullable: true },
+        tax_cents: { type: "integer", nullable: true },
+        shipping_cost_cents: { type: "integer", nullable: true },
+        net_profit_cents: { type: "integer", nullable: true },
+        purchase_price_cents: { type: "integer", nullable: true },
+        sold_at: { type: "string", format: "date-time", nullable: true },
+        days_to_sell: { type: "integer", nullable: true },
+      },
     },
     QuotaState: {
         type: "object",

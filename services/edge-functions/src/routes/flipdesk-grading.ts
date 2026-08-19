@@ -418,6 +418,22 @@ export async function buildValidation(
       missingPhotos.push(...computed.missingPhotos);
     }
 
+    // US-9112/US-9114: echo the item's fields ONLY when the caller owns it.
+    //
+    // These used to read `item?.title` straight off the row, which the query
+    // above fetches by id with no tenant filter — so validating another
+    // tenant's item id returned "Item not found" in `blockers` AND that item's
+    // title, garment_type and garment_category in the same object. The blocker
+    // made it look handled. Found by the connector's readiness tool hitting the
+    // tenant-isolation lane, but the hole is on POST
+    // /api/flipdesk/grading/validate too and is reachable by any authenticated
+    // user with a guessed id.
+    //
+    // The ownership test is repeated rather than hoisted into a flag on
+    // purpose: this is the line that leaked, and it should be obvious at the
+    // point of use what makes it safe.
+    const owned = item !== undefined && item.user_id === ownerId;
+
     return {
       inventory_item_id: input.inventory_item_id,
       tier: input.tier,
@@ -425,9 +441,9 @@ export async function buildValidation(
       ready: blockers.length === 0,
       blockers,
       warnings,
-      title: item?.title ?? null,
-      garment_type: item?.garment_type ?? null,
-      garment_category: item?.garment_category ?? null,
+      title: owned ? item.title : null,
+      garment_type: owned ? item.garment_type : null,
+      garment_category: owned ? item.garment_category : null,
       required_photo_types_missing: missingPhotos,
     };
   });

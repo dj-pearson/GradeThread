@@ -37,6 +37,12 @@ import {
   ItemQueryError,
   listItems,
 } from "../lib/api-items.ts";
+import { getGrade, listGrades } from "../lib/api-grades.ts";
+import {
+  ListingQueryError,
+  listListings,
+  listSales,
+} from "../lib/api-listings.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -655,161 +661,73 @@ apiV1Routes.get("/grades/batch/:id", async (c) => {
 });
 
 // --- GET /api/v1/grades/:id — Get a specific grade report ---
+//
+// US-9108: the query moved to lib/api-grades.ts so the connector's
+// gradethread_get_grade tool runs exactly this read. The response shape is
+// unchanged apart from two ADDED fields on grade_report: needs_human_review
+// (what the pipeline decided, using its calibrated threshold) and
+// pending_review (flagged AND not yet reviewed).
 apiV1Routes.get("/grades/:id", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "read")) {
     return c.json(scopeDenied("read"), 403);
   }
-  const userId = c.get("userId");
-  const id = c.req.param("id");
-
-  const { data: submission, error } = await supabaseAdmin
-    .from("submissions")
-    .select("id, status, garment_type, garment_category, title, brand, description, created_at, updated_at")
-    .eq("id", id)
-    .eq("user_id", userId)
-    .single();
-
-  if (error || !submission) {
+  try {
+    const grade = await getGrade(c.get("userId"), c.req.param("id"));
+    if (!grade) {
+      return c.json({
+        data: null,
+        error: { message: "Submission not found", details: [] },
+        meta: null,
+      }, 404);
+    }
+    return c.json({ data: grade, error: null, meta: null });
+  } catch (err) {
+    console.error("[API v1] grade detail:", redactError(err));
     return c.json({
       data: null,
-      error: { message: "Submission not found", details: [] },
+      error: { message: "Failed to load grade", details: [] },
       meta: null,
-    }, 404);
+    }, 500);
   }
-
-  // Fetch grade report if completed
-  let gradeReport = null;
-  if (submission.status === "completed" || submission.status === "disputed") {
-    const { data: report } = await supabaseAdmin
-      .from("grade_reports")
-      .select("id, overall_score, grade_tier, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score, confidence_score, ai_summary, detailed_notes, model_version, certificate_id, created_at")
-      .eq("submission_id", id)
-      // US-479: a regraded submission keeps superseded history — return only the
-      // active report.
-      .is("superseded_at", null)
-      .maybeSingle();
-
-    gradeReport = report || null;
-  }
-
-  return c.json({
-    data: {
-      id: submission.id,
-      status: submission.status,
-      garment_type: submission.garment_type,
-      garment_category: submission.garment_category,
-      title: submission.title,
-      brand: submission.brand,
-      description: submission.description,
-      grade_report: gradeReport,
-      created_at: submission.created_at,
-      updated_at: submission.updated_at,
-    },
-    error: null,
-    meta: null,
-  });
 });
 
 // --- GET /api/v1/grades — List user's grades with pagination ---
+//
+// US-9108: shares lib/api-grades.ts with the connector's gradethread_list_grades
+// tool. Page/limit/status semantics and the meta envelope are unchanged.
 apiV1Routes.get("/grades", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "read")) {
     return c.json(scopeDenied("read"), 403);
   }
-  const userId = c.get("userId");
-
-  // Parse pagination params
-  const pageParam = c.req.query("page");
-  const limitParam = c.req.query("limit");
-  const statusParam = c.req.query("status");
-
-  const page = Math.max(1, parseInt(pageParam || "1", 10) || 1);
-  const limit = Math.min(100, Math.max(1, parseInt(limitParam || "20", 10) || 20));
-  const offset = (page - 1) * limit;
-
-  // Build query
-  let query = supabaseAdmin
-    .from("submissions")
-    .select("id, status, garment_type, garment_category, title, brand, created_at, updated_at", { count: "exact" })
-    .eq("user_id", userId);
-
-  // Optional status filter
-  if (statusParam) {
-    query = query.eq("status", statusParam);
-  }
-
-  query = query
-    .order("created_at", { ascending: false })
-    .range(offset, offset + limit - 1);
-
-  const { data: submissions, count, error } = await query;
-
-  if (error) {
-    console.error("[API v1] Failed to list grades:", redactError(error));
+  try {
+    const page = await listGrades(c.get("userId"), {
+      status: c.req.query("status"),
+      page: parseInt(c.req.query("page") ?? "1", 10) || 1,
+      limit: parseInt(c.req.query("limit") ?? "20", 10) || 20,
+    });
+    // The envelope is preserved EXACTLY: `data` is the bare array (not
+    // { items }), and meta carries has_next / has_prev. A partner's pagination
+    // loop reads those; changing either would be a silent public-API break.
+    return c.json({
+      data: page.items,
+      error: null,
+      meta: {
+        page: page.page,
+        limit: page.limit,
+        total: page.total,
+        total_pages: page.total_pages,
+        has_next: page.page < page.total_pages,
+        has_prev: page.page > 1,
+      },
+    });
+  } catch (err) {
+    console.error("[API v1] Failed to list grades:", redactError(err));
     return c.json({
       data: null,
       error: { message: "Failed to list grades", details: [] },
       meta: null,
     }, 500);
   }
-
-  // Fetch grade reports for completed submissions
-  const completedIds = (submissions || [])
-    .filter((s) => s.status === "completed" || s.status === "disputed")
-    .map((s) => s.id);
-
-  const gradeReports: Record<string, {
-    overall_score: number;
-    grade_tier: string;
-    confidence_score: number;
-    certificate_id: string | null;
-  }> = {};
-
-  if (completedIds.length > 0) {
-    const { data: reports } = await supabaseAdmin
-      .from("grade_reports")
-      .select("submission_id, overall_score, grade_tier, confidence_score, certificate_id")
-      .in("submission_id", completedIds);
-
-    if (reports) {
-      for (const report of reports) {
-        gradeReports[report.submission_id] = {
-          overall_score: report.overall_score,
-          grade_tier: report.grade_tier,
-          confidence_score: report.confidence_score,
-          certificate_id: report.certificate_id,
-        };
-      }
-    }
-  }
-
-  // Build response items
-  const items = (submissions || []).map((s) => ({
-    id: s.id,
-    status: s.status,
-    garment_type: s.garment_type,
-    garment_category: s.garment_category,
-    title: s.title,
-    brand: s.brand,
-    grade: gradeReports[s.id] || null,
-    created_at: s.created_at,
-    updated_at: s.updated_at,
-  }));
-
-  const totalCount = count ?? 0;
-  const totalPages = Math.ceil(totalCount / limit);
-
-  return c.json({
-    data: items,
-    error: null,
-    meta: {
-      page,
-      limit,
-      total: totalCount,
-      total_pages: totalPages,
-      has_next: page < totalPages,
-      has_prev: page > 1,
-    },
-  });
 });
 
 // --- Sandbox (US-596) ------------------------------------------------------
@@ -1007,6 +925,86 @@ apiV1Routes.get("/items/:id", async (c) => {
     return c.json({
       data: null,
       error: { message: "Failed to load item", details: [] },
+      meta: null,
+    }, 500);
+  }
+});
+
+// --- GET /api/v1/listings — live and past listings (US-9109) ---
+//
+// Item-centric: one row per item, showing its most recent listing. That is
+// what a seller means by 'what is live' and what the dashboard shows.
+apiV1Routes.get("/listings", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const q = c.req.query();
+  try {
+    const page = await listListings(c.get("userId"), {
+      marketplace: q.marketplace,
+      status: q.status,
+      minPriceCents: q.min_price_cents ? Number(q.min_price_cents) : undefined,
+      maxPriceCents: q.max_price_cents ? Number(q.max_price_cents) : undefined,
+      minDaysLive: q.min_days_live ? Number(q.min_days_live) : undefined,
+      minWatchers: q.min_watchers ? Number(q.min_watchers) : undefined,
+      limit: q.limit ? Number(q.limit) : undefined,
+      cursor: q.cursor,
+    });
+    return c.json({
+      data: { listings: page.items },
+      error: null,
+      meta: { total: page.total, next_cursor: page.next_cursor, count: page.items.length },
+    });
+  } catch (err) {
+    if (err instanceof ListingQueryError) {
+      return c.json({ data: null, error: { message: err.message, details: [] }, meta: null }, 400);
+    }
+    console.error("[API v1] listings:", redactError(err));
+    return c.json({
+      data: null,
+      error: { message: "Failed to load listings", details: [] },
+      meta: null,
+    }, 500);
+  }
+});
+
+// --- GET /api/v1/sales — completed sales (US-9109) ---
+//
+// Defaults to status=completed. A cancelled or refunded row inside a revenue
+// total is the difference between a real number and a flattering one, so the
+// filter is explicit rather than 'everything'.
+apiV1Routes.get("/sales", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const q = c.req.query();
+  try {
+    const page = await listSales(c.get("userId"), {
+      soldAfter: q.sold_after,
+      soldBefore: q.sold_before,
+      marketplace: q.marketplace,
+      status: q.status,
+      limit: q.limit ? Number(q.limit) : undefined,
+      cursor: q.cursor,
+    });
+    return c.json({
+      data: { sales: page.items },
+      error: null,
+      meta: {
+        total: page.total,
+        next_cursor: page.next_cursor,
+        count: page.items.length,
+        totals: page.totals,
+      },
+    });
+  } catch (err) {
+    if (err instanceof ListingQueryError) {
+      return c.json({ data: null, error: { message: err.message, details: [] }, meta: null }, 400);
+    }
+    console.error("[API v1] sales:", redactError(err));
+    return c.json({
+      data: null,
+      error: { message: "Failed to load sales", details: [] },
       meta: null,
     }, 500);
   }

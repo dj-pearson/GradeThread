@@ -5712,10 +5712,107 @@ Deno.test({
     const { body } = await callMcpTool(B_API_KEY!, "gradethread_grading_readiness", {
       item_ids: [itemId],
     });
-    assertToolDeniedById(
-      body,
-      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
-      "gradethread_grading_readiness",
+
+    // A THIRD shape, and it is why the assertion here is not assertToolDeniedById.
+    // Readiness is a per-item report: given a mixed batch it says which items are
+    // ready and which are blocked, so a foreign id correctly comes back as a
+    // BLOCKED row rather than as a refusal. The call succeeding is right. What
+    // must not happen is any of A's data appearing in that row — which is exactly
+    // what this caught: the row said "Item not found" AND carried A's title,
+    // garment_type and garment_category, and the blocker made it look handled.
+    const title = Deno.env.get("TEST_USER_A_ITEM_TITLE");
+    if (title) {
+      assert(
+        !body.includes(title),
+        `gradethread_grading_readiness leaked another tenant's item title: ${
+          body.slice(0, 300)
+        }`,
+      );
+    }
+  },
+});
+
+// ── Sandbox tools (US-9124) ────────────────────────────────────────
+//
+// A DIFFERENT PROPERTY from the tools above, and the difference is the point.
+// These hold no tenant data, so 'B cannot read A's row' is not the assertion.
+// The assertion is that they hold no tenant data AT ALL: a sandbox tool that
+// started reading the caller's account would be a leak into the one surface we
+// hand to people who have not paid, and it would look exactly like a feature.
+
+Deno.test({
+  name: "MCP gradethread_sandbox_grade returns sample data, never account data",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+  fn: async () => {
+    const aTitle = Deno.env.get("TEST_USER_A_ITEM_TITLE")!;
+    // Ask for A's actual item title. A sandbox tool that looked anything up
+    // would find it; one that only hashes the string cannot.
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_sandbox_grade", {
+      title: aTitle,
+    });
+    assert(body.includes("SANDBOX"), `sandbox grade did not label itself: ${body.slice(0, 200)}`);
+    const ownerId = Deno.env.get("TEST_WORKSPACE_OWNER_ID");
+    if (ownerId) assertListExcludes(body, ownerId, "gradethread_sandbox_grade");
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID");
+    if (itemId) assertListExcludes(body, itemId, "gradethread_sandbox_grade");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_sandbox_publish contacts no marketplace and returns no live URL",
+  ignore: !CONFIGURED || !B_API_KEY,
+  fn: async () => {
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_sandbox_publish", {
+      title: "Sample jacket",
+      marketplace: "ebay",
+      price_cents: 4999,
+    });
+    assert(body.includes("SANDBOX"));
+    // A plausible listing URL is what a model hands to a seller as a live
+    // listing, after which they go looking for it.
+    assert(
+      !body.includes("https://www.ebay.com/itm"),
+      "the sandbox publish returned something that reads as a live listing URL",
     );
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID");
+    if (listingId) assertListExcludes(body, listingId, "gradethread_sandbox_publish");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_sandbox_price_guide is sample data with no tenant rows",
+  ignore: !CONFIGURED || !B_API_KEY,
+  fn: async () => {
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_sandbox_price_guide", {});
+    assert(body.includes("SANDBOX"));
+    const ownerId = Deno.env.get("TEST_WORKSPACE_OWNER_ID");
+    if (ownerId) assertListExcludes(body, ownerId, "gradethread_sandbox_price_guide");
+  },
+});
+
+Deno.test({
+  name: "B cannot learn A's item details from grading /validate (US-9114 leak)",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // The ROUTE has the same hole the connector's readiness tool exposed.
+    // buildValidation fetched items by id with NO tenant filter and echoed
+    // title, garment_type and garment_category back alongside an "Item not
+    // found" blocker — the blocker made it look handled. Reachable by any
+    // authenticated user with a guessed id, so it is asserted on the route as
+    // well as on the tool.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/grading/validate`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({ items: [{ inventory_item_id: itemId, tier: "standard" }] }),
+    });
+    const body = await res.text();
+    const title = Deno.env.get("TEST_USER_A_ITEM_TITLE");
+    if (title) {
+      assert(
+        !body.includes(title),
+        `grading /validate leaked another tenant's item title: ${body.slice(0, 300)}`,
+      );
+    }
   },
 });

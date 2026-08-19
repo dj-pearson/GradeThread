@@ -46,7 +46,9 @@ function ctx(vars: Record<string, string | undefined>): Context {
 // Classification
 // ---------------------------------------------------------------------------
 
-Deno.test("classifyRpcMethod: only tools/call is a write; everything else reads", () => {
+Deno.test("classifyRpcMethod: a tools/call with no tool name is a write", () => {
+  // Erring toward the tighter budget is the right default for something we
+  // cannot classify, and it is also what a caller probing for names would hit.
   assertEquals(classifyRpcMethod("tools/call"), "write");
   assertEquals(classifyRpcMethod("tools/list"), "read");
   assertEquals(classifyRpcMethod("server/discover"), "read");
@@ -54,6 +56,22 @@ Deno.test("classifyRpcMethod: only tools/call is a write; everything else reads"
   assertEquals(classifyRpcMethod("initialize"), "read");
   // An unreadable body must not fall into the looser bucket.
   assertEquals(classifyRpcMethod(undefined), "read");
+});
+
+Deno.test("a READ-ONLY tool uses the read budget, not the tight write one", async () => {
+  // US-9105 shipped classifying every tools/call as a write, because the
+  // registry did not exist yet. The cost showed up as soon as it did: the write
+  // budget is deliberately the tight one, so a connector listing items and
+  // checking grades exhausted the budget a publish needs. The isolation suite
+  // hit it first, doing what a real conversation would do.
+  const { TOOLS } = await import("../lib/mcp-tools.ts");
+  const readOnly = TOOLS.find((t) => t.annotations.readOnlyHint === true);
+  assert(readOnly, "expected at least one read-only tool");
+  assertEquals(classifyRpcMethod("tools/call", readOnly.name), "read");
+});
+
+Deno.test("an unknown tool name still counts as a write", () => {
+  assertEquals(classifyRpcMethod("tools/call", "gradethread_not_a_real_tool"), "write");
 });
 
 Deno.test("isBillableRpcMethod: protocol overhead never creates a ledger row", () => {

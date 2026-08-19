@@ -203,6 +203,20 @@ async function main(): Promise<void> {
   const bId = await ensureUser(B_EMAIL);
   const vId = await ensureUser(V_EMAIL);
 
+  // US-9112: both tenants need a plan whose gateFlags include apiAccess,
+  // or every /api/v1 and /mcp case in the suite is answered by the PLAN
+  // GATE rather than by the handler - and a cross-tenant assertion against
+  // a 403 passes without proving anything. This bit exactly that way: ten
+  // MCP tool cases reported green against a surface they never reached.
+  for (const id of [aId, bId]) {
+    const { error } = await admin.from("users").update({
+      flipdesk_plan: "business",
+      subscription_status: "active",
+    }).eq("id", id);
+    if (error) die(`plan setup for ${id} failed: ${error.message}`);
+  }
+  log("plan: A and B set to business (apiAccess) so the API surface is reachable");
+
   out.TEST_USER_A_JWT = await mintJwt(A_EMAIL);
   out.TEST_USER_B_JWT = await mintJwt(B_EMAIL);
 
@@ -226,10 +240,18 @@ async function main(): Promise<void> {
   // ── Resources OWNED BY A ────────────────────────────────────────────
   const itemId = await insert("inventory_items", {
     user_id: aId,
-    title: "Tenant-A fixture jacket",
+    title: "Tenant-A-fixture-jacket",
     brand: "FixtureBrand",
   });
   out.TEST_USER_A_ITEM_ID = itemId;
+  // NOTE: no spaces in the value. The script prints bare KEY=VALUE lines for
+  // $GITHUB_ENV, which takes them raw - so quoting here would put literal quotes
+  // in the value in CI, while NOT quoting makes a local `. seed.env` split the
+  // line and silently leave the variable unset. A space-free value works in both.
+  // US-9112: a denial case cannot assert on the id, because a handler that
+  // correctly refuses still echoes the id the CALLER supplied. A's data is
+  // what must not appear, so the title is exported to match against.
+  out.TEST_USER_A_ITEM_TITLE = "Tenant-A-fixture-jacket";
 
   const listingId = await insert("listings", {
     inventory_item_id: itemId,

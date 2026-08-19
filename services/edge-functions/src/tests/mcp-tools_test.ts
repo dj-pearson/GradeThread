@@ -26,6 +26,14 @@ const {
 } = await import("../lib/mcp-tools.ts");
 const { API_KEY_SCOPES } = await import("../lib/api-key.ts");
 const { mcpRoutes } = await import("../routes/mcp.ts");
+const { __setConnectorPlanCheckForTest } = await import("../middleware/mcp-auth.ts");
+
+// US-9124: the connector plan gate moved into the dispatcher, so it now runs
+// before every non-sandbox tool. These cases are about scope checks, argument
+// validation and tenant resolution - none of which is about billing - so the
+// gate is opened here. Without this they all stop at the gate and assert
+// nothing about what they were written for.
+__setConnectorPlanCheckForTest(() => Promise.resolve(true));
 
 // ---------------------------------------------------------------------------
 // Registry invariants — enumerated, so new tools are covered automatically
