@@ -128,6 +128,7 @@ import {
   type ListingFormatValue,
 } from "@/components/flipdesk/listing-format-controls";
 import {
+  useListingQuality,
   useEbayCategoryAspects,
   useEbayCategoryConditions,
   useEbayConnection,
@@ -161,6 +162,7 @@ import { MeasurementsCard } from "@/components/flipdesk/composer/measurements-ca
 import { TitleCard } from "@/components/flipdesk/composer/title-card";
 import type { TitleChip } from "@/components/flipdesk/composer/title-card";
 import { useTitleConflicts } from "@/hooks/use-title-conflicts";
+import { QualityCard } from "@/components/flipdesk/composer/quality-card";
 import { SpecificsSection } from "@/components/flipdesk/composer/specifics-section";
 import { PriceCard } from "@/components/flipdesk/composer/price-card";
 import { CostMarginCard } from "@/components/flipdesk/composer/cost-margin-card";
@@ -2575,6 +2577,10 @@ export function FlipdeskComposerPage({
   // extends the chips rather than duplicating them (AC2).
   // US-2677: does this draft read like one of the seller's own live listings?
   const titleConflicts = useTitleConflicts(item?.id);
+  // US-2679: the quality score, at the top of the surface that can act on it.
+  // Keyed on the item id alone, so typing in the title does not re-run a
+  // preflight that talks to eBay.
+  const listingQuality = useListingQuality(item?.id);
   const titleChips = useMemo<TitleChip[]>(() => {
     const present = new Set(
       title
@@ -3041,6 +3047,24 @@ export function FlipdeskComposerPage({
             busy={saving}
           />
 
+          <QualityCard
+            score={listingQuality.data ?? null}
+            onFocusSurface={(anchorId) => {
+              const el = document.getElementById(anchorId);
+              if (!el) return;
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              // Focus as well as scroll, so a keyboard user lands IN the field
+              // rather than merely looking at it.
+              if (
+                el instanceof HTMLInputElement ||
+                el instanceof HTMLSelectElement ||
+                el instanceof HTMLTextAreaElement ||
+                el instanceof HTMLButtonElement
+              ) {
+                el.focus({ preventScroll: true });
+              }
+            }}
+          />
           <PhotosCard
             item={item}
             liveListingId={isLiveListing ? (listing?.id ?? null) : null}

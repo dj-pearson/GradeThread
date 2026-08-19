@@ -1446,12 +1446,35 @@ export function useRecommendedCoverage(itemId: string | null | undefined) {
  * Returns null rather than throwing when preflight can't run — an item with no
  * eBay category yet has no score, and that is a normal state, not an error.
  */
+/**
+ * US-2679: the query key, exported so it can be ASSERTED rather than described.
+ *
+ * The property that matters is what is NOT in it. Scoring runs the full publish
+ * preflight, which resolves business policies, probes the category tree and
+ * talks to eBay — putting the title (or any other edited field) in this key
+ * would fire that on every keystroke. The key is the item id and nothing else,
+ * so the score refreshes when the seller changes ITEM, never while they type.
+ */
+export function listingQualityQueryKey(itemId: string | null | undefined) {
+  return ["listing-quality", itemId] as const;
+}
+
+/**
+ * The rest of the same guarantee. `refetchOnWindowFocus` is off explicitly
+ * rather than left at TanStack's default of true: alt-tabbing away and back is
+ * not a change to the listing, and it would cost a preflight every time.
+ */
+export const LISTING_QUALITY_QUERY_OPTIONS = {
+  staleTime: 60_000,
+  retry: 1,
+  refetchOnWindowFocus: false,
+} as const;
+
 export function useListingQuality(itemId: string | null | undefined) {
   return useQuery({
-    queryKey: ["listing-quality", itemId],
+    queryKey: listingQualityQueryKey(itemId),
     enabled: !!itemId,
-    staleTime: 60_000,
-    retry: 1,
+    ...LISTING_QUALITY_QUERY_OPTIONS,
     queryFn: async (): Promise<ListingQualityScore | null> => {
       const res = await fetch(
         `${edgeApiUrl()}/api/flipdesk/ebay/listings/validate`,

@@ -91,3 +91,38 @@ export const COMPOSER_FOCUS_ANCHORS: Record<string, string> = {
   // and could not be reached.
   measurements: "composer-measurements",
 };
+
+/**
+ * US-2679: the Listing Quality Score's `fixSurface` values, mapped to the same
+ * anchors above.
+ *
+ * A SECOND map rather than reusing the first, because they are keyed on
+ * different vocabularies and merging them would mean one of the two callers
+ * silently accepting keys meant for the other. The score speaks
+ * "composer.aspects"; the publish-blocker deep link speaks "specifics". Both
+ * land on the same element, and that is the only thing they share.
+ *
+ * Returns null for a surface the composer cannot scroll to. `settings.` is the
+ * live one: business policies are configured in eBay Seller Hub and in account
+ * settings, not in an item editor, so that fix is shown and NOT made clickable
+ * rather than being wired to a button that scrolls nowhere.
+ */
+export function anchorForFixSurface(fixSurface: string): string | null {
+  switch (fixSurface) {
+    case "composer.title":
+      return "composer-title";
+    case "composer.photos":
+      return "composer-photos";
+    // Item specifics live inside the category section, which is where a seller
+    // fills them; there is no separate specifics card to scroll to.
+    case "composer.aspects":
+    case "composer.category":
+      return "composer-category";
+    case "composer.price":
+      return "listing-price";
+    case "composer.condition":
+      return "ebay-condition";
+    default:
+      return null;
+  }
+}
