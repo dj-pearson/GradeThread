@@ -32,6 +32,15 @@ export interface GateFlags {
   autoRelist: boolean;
   subAccounts: boolean;
   apiAccess: boolean;
+  /**
+   * US-9101: the Claude connector, on its OWN flag rather than apiAccess.
+   *
+   * apiAccess means raw /api/v1 access and stays business-only. The connector
+   * opens at pro, where it is the reason to move up from starter; business
+   * keeps the higher action ceiling. Sandbox tools are exempt in the dispatcher
+   * and work on every plan, free included.
+   */
+  connectorAccess: boolean;
   reconciliation: boolean;
   prioritySupport: boolean;
   /** AI AutoLister — bulk photos → generated eBay listings (US-323). Premium. */
@@ -42,6 +51,13 @@ export interface PlanConfig {
   /** -1 = unlimited */
   activeListingCap: number;
   aiActionsPerMonth: number;
+  /**
+   * US-9101: connector write actions per month, counted separately from
+   * aiActionsPerMonth. Its own number so the connector can be priced as an
+   * upsell later, and so an AutoLister batch cannot eat the allowance a
+   * seller's connector needs. 0 on plans without connectorAccess.
+   */
+  connectorActionsPerMonth: number;
   /** -1 = all */
   marketplacesCap: number;
   includedStandardGradesPerMonth: number;
@@ -57,6 +73,7 @@ export const GATE_FLAG_KEYS: (keyof GateFlags)[] = [
   "autoRelist",
   "subAccounts",
   "apiAccess",
+  "connectorAccess",
   "reconciliation",
   "prioritySupport",
   "autolister",
@@ -70,48 +87,56 @@ export const FALLBACK_MATRIX: Record<FlipdeskPlan, PlanConfig> = {
   free: {
     activeListingCap: 25,
     aiActionsPerMonth: 25,
+    connectorActionsPerMonth: 0,
     marketplacesCap: 1,
     includedStandardGradesPerMonth: 3,
     teamSeatCap: 0,
     gateFlags: {
       bulkActions: false, scheduledActions: false, compPulls: false,
       autoRelist: false, subAccounts: false, apiAccess: false,
+      connectorAccess: false,
       reconciliation: false, prioritySupport: false, autolister: false,
     },
   },
   starter: {
     activeListingCap: 250,
     aiActionsPerMonth: 200,
+    connectorActionsPerMonth: 0,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 10,
     teamSeatCap: 0,
     gateFlags: {
       bulkActions: false, scheduledActions: false, compPulls: false,
       autoRelist: false, subAccounts: false, apiAccess: false,
+      connectorAccess: false,
       reconciliation: false, prioritySupport: false, autolister: false,
     },
   },
   pro: {
     activeListingCap: 1000,
     aiActionsPerMonth: 750,
+    connectorActionsPerMonth: 500,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 30,
     teamSeatCap: 0,
     gateFlags: {
       bulkActions: true, scheduledActions: true, compPulls: true,
       autoRelist: true, subAccounts: false, apiAccess: false,
+      connectorAccess: true,
       reconciliation: false, prioritySupport: false, autolister: true,
     },
   },
   business: {
     activeListingCap: -1,
     aiActionsPerMonth: 2000,
+    connectorActionsPerMonth: 2000,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 75,
     teamSeatCap: 10,
     gateFlags: {
       bulkActions: true, scheduledActions: true, compPulls: true,
       autoRelist: true, subAccounts: true, apiAccess: true,
+      connectorAccess: true,
       reconciliation: true, prioritySupport: true, autolister: true,
     },
   },
@@ -167,6 +192,12 @@ function rowToConfig(row: PricingPlanRow): PlanConfig {
   return {
     activeListingCap: row.active_listing_cap,
     aiActionsPerMonth: row.ai_actions_per_month,
+    // US-9101: NOT a pricing_plans column, deliberately. Adding one would mean a
+    // migration, and a held migration to make a number operator-editable before
+    // anyone has asked to edit it is the wrong trade. The compiled value is the
+    // single definition until it needs tuning; add the column then, and this
+    // line becomes `row.connector_actions_per_month ?? fallback`.
+    connectorActionsPerMonth: FALLBACK_MATRIX[row.key]?.connectorActionsPerMonth ?? 0,
     marketplacesCap: row.marketplaces_cap,
     includedStandardGradesPerMonth: row.included_standard_grades_per_month,
     teamSeatCap: row.team_seat_cap,

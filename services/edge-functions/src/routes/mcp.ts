@@ -33,6 +33,7 @@ import {
   listToolsFor,
   type McpToolContext,
   validateAgainstSchema,
+  WRITE_TOOL_NAMES,
 } from "../lib/mcp-tools.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
 import { sanitizeDeep } from "../lib/mcp-untrusted.ts";
@@ -41,6 +42,8 @@ import { budgetKindForTool, checkBudget } from "../lib/mcp-budget.ts";
 // US-9131: Multi Round-Trip Requests, so a person is asked rather than a model
 // reporting that it asked one.
 import { confirmationRequired, readConfirmation } from "../lib/mcp-elicit.ts";
+// US-9101: the monthly plan allowance, alongside the per-action budgets.
+import { checkConnectorAllowance } from "../lib/connector-allowance.ts";
 import { connectorPlanAllows } from "../middleware/mcp-auth.ts";
 import {
   bodyProtocolVersion,
@@ -595,6 +598,48 @@ async function callTool(
             budget: verdict.kind,
             used: verdict.used,
             max: verdict.max,
+            resets_at: verdict.resetsAt,
+          },
+        },
+      };
+    }
+  }
+
+  // US-9101: the MONTHLY plan allowance, which is a different question from the
+  // per-action budgets above.
+  //
+  // The budgets bound a burst — twenty publishes an hour. This bounds the month,
+  // and it is the number a plan is sold on. Checked only for tools that CHANGE
+  // something: charging for a preview would teach a model to ask less, which is
+  // the opposite of what the preview protocol wants.
+  //
+  // Fails CLOSED, like the budgets: an allowance we cannot read must not read as
+  // unlimited for something that publishes listings.
+  if (ctx && !tool.sandbox && tool.annotations.destructiveHint === true) {
+    let verdict;
+    try {
+      verdict = await checkConnectorAllowance(ctx.tenantId, WRITE_TOOL_NAMES);
+    } catch (err) {
+      logEvent("error", "mcp.allowance_unavailable", { error: redactError(err) });
+      verdict = {
+        allowed: false,
+        used: 0,
+        limit: 0,
+        resetsAt: "",
+        message: "We could not check your connector allowance, so this was not run. " +
+          "Try again shortly.",
+      };
+    }
+    if (!verdict.allowed) {
+      audit("denied", "allowance_exceeded");
+      return {
+        error: {
+          code: JSON_RPC_ERROR.INVALID_REQUEST,
+          message: verdict.message ?? "Connector allowance reached.",
+          data: {
+            reason: "allowance_exceeded",
+            used: verdict.used,
+            limit: verdict.limit,
             resets_at: verdict.resetsAt,
           },
         },

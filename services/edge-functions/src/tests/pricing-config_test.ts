@@ -63,5 +63,36 @@ Deno.test("FALLBACK_MATRIX covers all four tiers with the full gate-flag shape",
       assertEquals(typeof cfg.gateFlags[k], "boolean", `${plan}.${k} missing`);
     }
   }
-  assertEquals(GATE_FLAG_KEYS.length, 9);
+  // US-9101 added connectorAccess as the tenth. The count is pinned rather than
+  // derived on purpose: a flag added to the type and forgotten in
+  // GATE_FLAG_KEYS would silently never be read from the DB row, which reads as
+  // "that plan does not have the feature" rather than as a bug.
+  assertEquals(GATE_FLAG_KEYS.length, 10);
+});
+
+Deno.test("US-9101: connectorAccess is pro and business, and apiAccess is unchanged", () => {
+  // Two flags, two products. apiAccess means raw /api/v1 and stays business-only;
+  // widening the connector must not widen the API, which is exactly what sharing
+  // one flag would have done.
+  assertEquals(FALLBACK_MATRIX.free.gateFlags.connectorAccess, false);
+  assertEquals(FALLBACK_MATRIX.starter.gateFlags.connectorAccess, false);
+  assertEquals(FALLBACK_MATRIX.pro.gateFlags.connectorAccess, true);
+  assertEquals(FALLBACK_MATRIX.business.gateFlags.connectorAccess, true);
+
+  assertEquals(FALLBACK_MATRIX.pro.gateFlags.apiAccess, false);
+  assertEquals(FALLBACK_MATRIX.business.gateFlags.apiAccess, true);
+});
+
+Deno.test("US-9101: a plan without connectorAccess has a zero monthly allowance", () => {
+  // The two must agree. A plan with the flag off and an allowance above zero
+  // would be a plan where the gate is the only thing stopping it, and gates get
+  // re-pointed.
+  for (const plan of ["free", "starter", "pro", "business"] as const) {
+    const cfg = FALLBACK_MATRIX[plan];
+    if (!cfg.gateFlags.connectorAccess) {
+      assertEquals(cfg.connectorActionsPerMonth, 0, `${plan} has an allowance but no access`);
+    } else {
+      assert(cfg.connectorActionsPerMonth > 0, `${plan} has access but no allowance`);
+    }
+  }
 });

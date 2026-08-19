@@ -1317,6 +1317,20 @@ export const TOOLS: McpToolDefinition[] = [
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
 
+/**
+ * US-9101: the tools that count against a seller's monthly connector allowance.
+ *
+ * DERIVED from the registry rather than hand-listed, so a write tool added
+ * later is counted without its author remembering — the hand-listed version of
+ * this would be a list that is right on the day it is written.
+ *
+ * Sandbox tools are excluded: they change nothing and are usable before you pay,
+ * so charging an allowance for them would defeat what they are for.
+ */
+export const WRITE_TOOL_NAMES: string[] = TOOLS
+  .filter((t) => t.annotations.destructiveHint === true && !t.sandbox)
+  .map((t) => t.name);
+
 export function findTool(name: string): McpToolDefinition | undefined {
   return TOOLS_BY_NAME.get(name);
 }

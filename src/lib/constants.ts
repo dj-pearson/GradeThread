@@ -158,6 +158,20 @@ export interface FlipdeskGateFlags {
   subAccounts: boolean;
   /** Programmatic API key access. */
   apiAccess: boolean;
+  /**
+   * US-9101: the Claude connector. Its OWN flag, not apiAccess.
+   *
+   * apiAccess means raw /api/v1 access and stays business-only. The connector
+   * is a different product decision: it is the strongest reason to pay for
+   * GradeThread, and gating it at the top tier means almost nobody sees it. So
+   * it opens at pro, where it becomes the reason to move up from starter, and
+   * business keeps the higher action ceiling.
+   *
+   * The SANDBOX tools are exempt from this in the dispatcher and work on every
+   * plan including free, deliberately — a seller who cannot see what the
+   * connector does has no reason to pay for it.
+   */
+  connectorAccess: boolean;
   /** Payout-import reconciliation (CSV + API). */
   reconciliation: boolean;
   /** Priority support SLA. */
@@ -173,6 +187,13 @@ export interface FlipdeskPlanConfig {
   /** -1 = unlimited (soft-capped). */
   activeListingCap: number;
   aiActionsPerMonth: number;
+  /**
+   * US-9101: connector write actions per month, counted separately from
+   * aiActionsPerMonth. Its own number so the connector can be priced as an
+   * upsell later, and so an AutoLister batch cannot eat the allowance a
+   * seller's connector needs. 0 on plans without connectorAccess.
+   */
+  connectorActionsPerMonth: number;
   /** -1 = all marketplaces. */
   marketplacesCap: number;
   includedStandardGradesPerMonth: number;
@@ -187,6 +208,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 0,
     activeListingCap: 25,
     aiActionsPerMonth: 25,
+    connectorActionsPerMonth: 0,
     marketplacesCap: 1,
     includedStandardGradesPerMonth: 3,
     features: [
@@ -202,6 +224,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       autoRelist: false,
       subAccounts: false,
       apiAccess: false,
+      connectorAccess: false,
       reconciliation: false,
       prioritySupport: false,
       autolister: false,
@@ -213,6 +236,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 29000,
     activeListingCap: 250,
     aiActionsPerMonth: 200,
+    connectorActionsPerMonth: 0,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 10,
     features: [
@@ -230,6 +254,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       autoRelist: false,
       subAccounts: false,
       apiAccess: false,
+      connectorAccess: false,
       reconciliation: false,
       prioritySupport: false,
       autolister: false,
@@ -241,6 +266,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 59000,
     activeListingCap: 1000,
     aiActionsPerMonth: 750,
+    connectorActionsPerMonth: 500,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 30,
     features: [
@@ -261,6 +287,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       autoRelist: true,
       subAccounts: false,
       apiAccess: false,
+      connectorAccess: true,
       reconciliation: false,
       prioritySupport: false,
       autolister: true,
@@ -272,6 +299,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     priceYearlyCents: 99000,
     activeListingCap: -1,
     aiActionsPerMonth: 2000,
+    connectorActionsPerMonth: 2000,
     marketplacesCap: -1,
     includedStandardGradesPerMonth: 75,
     features: [
@@ -293,6 +321,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
       autoRelist: true,
       subAccounts: true,
       apiAccess: true,
+      connectorAccess: true,
       reconciliation: true,
       prioritySupport: true,
       autolister: true,

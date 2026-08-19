@@ -73,11 +73,13 @@ function challenge(params: Record<string, string>): string {
 /**
  * The plan gate for the connector.
  *
- * Reads the existing `apiAccess` gate flag, which today is true only on
- * `business`. That is a real product decision and it is US-9101's to make, not
- * this middleware's — so it is ONE call in ONE place. Widening the connector to
- * pro+ is then either a plan-matrix row change (no deploy: getPlanMatrix reads
- * the DB) or a one-line swap to a new flag here.
+ * US-9101 (owner's decision, 2026-08-19): its OWN flag, `connectorAccess`, open
+ * to pro and business. It used to read `apiAccess`, which is business-only and
+ * still means raw /api/v1 access — two different products sharing one flag would
+ * have meant widening the connector also widened the API.
+ *
+ * ONE call in ONE place, so re-gating stays a plan-matrix row change
+ * (getPlanMatrix reads the DB, no deploy) rather than a code hunt.
  *
  * US-9124: called by the TOOL DISPATCHER, not by this middleware. Auth does not
  * know which tool is being called, so gating here refused the whole endpoint —
@@ -85,7 +87,7 @@ function challenge(params: Record<string, string>): string {
  * to be usable before you pay.
  */
 let planCheck: (userId: string) => Promise<boolean> = (userId) =>
-  featureAllowedForUser(userId, "apiAccess");
+  featureAllowedForUser(userId, "connectorAccess");
 
 export function connectorPlanAllows(userId: string): Promise<boolean> {
   return planCheck(userId);
@@ -99,7 +101,7 @@ export function connectorPlanAllows(userId: string): Promise<boolean> {
 export function __setConnectorPlanCheckForTest(
   fn: ((userId: string) => Promise<boolean>) | null,
 ): void {
-  planCheck = fn ?? ((userId) => featureAllowedForUser(userId, "apiAccess"));
+  planCheck = fn ?? ((userId) => featureAllowedForUser(userId, "connectorAccess"));
 }
 
 export const mcpAuthMiddleware = createMiddleware<McpAuthEnv>(async (c, next) => {

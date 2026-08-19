@@ -31,6 +31,10 @@ function rowToConfig(key: FlipdeskPlanKey, row: PricingPlanRow): FlipdeskPlanCon
     priceYearlyCents: row.price_yearly_cents,
     activeListingCap: row.active_listing_cap,
     aiActionsPerMonth: row.ai_actions_per_month,
+    // US-9101: not a pricing_plans column, so it comes from the compiled value
+    // like `features` does when the row omits it. Add the column and read it
+    // here if the number ever needs to be operator-tunable.
+    connectorActionsPerMonth: base.connectorActionsPerMonth,
     marketplacesCap: row.marketplaces_cap,
     includedStandardGradesPerMonth: row.included_standard_grades_per_month,
     features: Array.isArray(row.features) ? row.features : base.features,
