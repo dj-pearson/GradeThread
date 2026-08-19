@@ -39,6 +39,53 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
+## 🟠 PENDING: 00620 — OAuth authorization server storage (US-9122)
+
+> [!warning] TWO MIGRATIONS ARE NOW HELD. Apply **00619 first, then 00620**,
+> both before the next edge deploy. The boot guard expects 00620 once the new
+> container ships, and it will refuse to start on a database at 00618.
+
+**Risk: LOW.** Four new tables, six indexes, two CHECK constraints and one
+operator function. Nothing existing is altered and no row is rewritten. All
+four tables start empty and only the edge writes to them.
+
+**`NOTIFY pgrst, 'reload schema';` IS required.** Four new tables and a new
+function signature change what PostgREST exposes, and the edge reads and
+writes these through it.
+
+**The frontend deploy is harmless on its own.** Nothing in `src/` touches
+these tables, and the OAuth flow itself is behind `MCP_OAUTH_ENABLED`, which
+is off. Applying this migration does not turn anything on.
+
+**Deny-all RLS on all four, deliberately.** No policies at all: readable,
+they are a map of which sellers connected what and when; writable, a caller
+could mint their own grant and skip the consent screen, which is the one
+thing an authorization server must not allow. All four are registered in
+`SERVICE_ROLE_ONLY` in `rls-guard_test.ts`, and the owner columns are named
+`owner_user_id` per the rls-guard discovery convention.
+
+**Every secret is stored hashed** — authorization codes and refresh tokens as
+a hex SHA-256 (HMAC-with-pepper when `API_KEY_PEPPER` is set), the same way
+`api_keys.key_hash` works. No code path needs the plaintext back.
+
+**NO REVOKE in this file**, for the reason 00527 is permanently blocked
+(US-2403). `sweep_oauth_expired()` guards in its body with an `auth.role()`
+check raising 42501, as 00615, 00617 and 00619 do. Verified on the live local
+stack: calling it as `anon` raises `sweep_oauth_expired: service role
+required`.
+
+**Verified locally, not assumed.** Applied twice (idempotent: the second run
+inserts 0 rows). All four tables confirmed with `relrowsecurity = true` and
+zero policies. The store's reads and writes were then exercised against these
+tables for real — code redemption, refresh rotation, and reuse detection
+revoking the grant with a reason — 4 passed / 0 failed.
+
+**Rollback is clean:** drop the four tables (codes and refresh tokens cascade
+from grants; grants and codes cascade from clients) and
+`DROP FUNCTION public.sweep_oauth_expired();`. Nothing else references them,
+and no seller has authorized anything yet because the flow is off.
+
+---
 ## 🟠 PENDING: 00619 — MCP connector tool-call audit log (US-9113)
 
 **Risk: LOW.** One new table, three indexes, one CHECK constraint and one

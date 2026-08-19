@@ -55,6 +55,17 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-9122: the connector's OAuth authorization server. All four are deny-all
+  // in both directions. Readable, they are a map of which sellers connected
+  // what and when, plus the material to impersonate them; writable, a caller
+  // could mint their own grant and skip the consent screen entirely — which is
+  // the one thing an authorization server must not allow. Secrets are stored
+  // hashed, so even a read is not a read of credentials, but it is still a read
+  // of who authorized whom.
+  "oauth_clients",
+  "oauth_grants",
+  "oauth_authorization_codes",
+  "oauth_refresh_tokens",
   // US-9113: the MCP connector tool-call audit log. Deny-all in both
   // directions. Readable, it is a map of every seller's connector activity -
   // which items they touched, when, and how often; writable, a caller could
