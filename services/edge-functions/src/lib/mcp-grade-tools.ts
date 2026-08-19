@@ -310,6 +310,9 @@ export const gradeItemTool: McpToolDefinition = {
     additionalProperties: false,
   },
   requiredScope: "submit",
+  // US-9131: it spends the seller's grading allowance.
+  humanConfirmation: (args) =>
+    args.mode === "confirm" ? "Send this item for grading? It uses a grade." : null,
   annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
   handler: (args, ctx) => run("gradethread_grade_item", args, ctx, "item_id"),
 };
@@ -340,6 +343,13 @@ export const gradeBatchTool: McpToolDefinition = {
     additionalProperties: false,
   },
   requiredScope: "submit",
+  // US-9131. The count is in the question on purpose: "send these for grading"
+  // and "send 34 items for grading" are different things to agree to.
+  humanConfirmation: (args) => {
+    if (args.mode !== "confirm") return null;
+    const n = Array.isArray(args.item_ids) ? args.item_ids.length : 1;
+    return `Send ${n} item(s) for grading? That uses ${n} grade(s).`;
+  },
   annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: false },
   handler: (args, ctx) => run("gradethread_grade_batch", args, ctx, "item_ids"),
 };

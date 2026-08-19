@@ -108,3 +108,98 @@ Deno.test("null and undefined survive as null rather than disappearing", () => {
 Deno.test("redactArguments tolerates a missing argument object", () => {
   assertEquals(redactArguments({}), {});
 });
+
+// ---------------------------------------------------------------------------
+// US-9117: the money exception to "an array is a count"
+//
+// A reprice is asked for as an array of {listing_id, price_cents}. Summarising
+// that as {"type":"array","length":12} throws away the entire answer to "which
+// listings, and to what", which is the one question a pricing dispute asks. So
+// an array whose elements are ONLY ids and named numbers is kept, and anything
+// with a free-text field in it still collapses.
+// ---------------------------------------------------------------------------
+
+Deno.test("an array of listing ids and prices is kept, because it IS the row", () => {
+  const out = redactArguments({
+    items: [
+      { listing_id: "l-1", price_cents: 4200 },
+      { listing_id: "l-2", price_cents: 1899 },
+    ],
+  });
+  assertEquals(out.items, {
+    type: "array",
+    length: 2,
+    items: [
+      { listing_id: "l-1", price_cents: 4200 },
+      { listing_id: "l-2", price_cents: 1899 },
+    ],
+  });
+});
+
+Deno.test("one free-text field and the whole array goes back to being a count", () => {
+  const out = redactArguments({
+    items: [
+      { listing_id: "l-1", price_cents: 4200 },
+      { listing_id: "l-2", price_cents: 1899, note: "buyer said it smells of smoke" },
+    ],
+  });
+  assertEquals(out.items, { type: "array", length: 2 });
+  assert(!JSON.stringify(out).includes("smoke"), "free text reached the audit row");
+});
+
+Deno.test("a bare string array is still a count, not its contents", () => {
+  const out = redactArguments({ reasons: ["stale", "undercut", "seasonal"] });
+  assertEquals(out.reasons, { type: "array", length: 3 });
+});
+
+Deno.test("an unnamed number in an element does not buy the element in", () => {
+  // `weight` is not money, a count or a quantity, so it is not on the list and
+  // the element is refused. The list is an allowlist on purpose.
+  const out = redactArguments({ items: [{ listing_id: "l-1", weight: 3 }] });
+  assertEquals(out.items, { type: "array", length: 1 });
+});
+
+Deno.test("a huge array is capped and SAYS it was capped", () => {
+  const items = Array.from({ length: 120 }, (_, i) => ({
+    listing_id: `l-${i}`,
+    price_cents: 1000 + i,
+  }));
+  const out = redactArguments({ items }) as {
+    items: { length: number; items: unknown[]; items_truncated?: boolean };
+  };
+  assertEquals(out.items.length, 120);
+  assertEquals(out.items.items.length, 50);
+  assertEquals(out.items.items_truncated, true);
+});
+
+Deno.test("a credential-shaped key inside an element disqualifies the element", () => {
+  const out = redactArguments({
+    items: [{ listing_id: "l-1", price_cents: 100, api_key: "sk-live-abc" }],
+  });
+  assertEquals(out.items, { type: "array", length: 1 });
+  assert(!JSON.stringify(out).includes("sk-live"), "a credential reached the audit row");
+});
+
+Deno.test("handler-supplied _detail is recursed into, so its prices survive", () => {
+  const out = redactArguments({
+    confirm_token: "ct_secret",
+    _detail: {
+      changes: [
+        { listing_id: "l-1", from_price_cents: 5000, to_price_cents: 4200, changed: true },
+      ],
+    },
+  }) as { _detail: { changes: { items: unknown[] } }; confirm_token: unknown };
+
+  assertEquals(out._detail.changes.items, [
+    { listing_id: "l-1", from_price_cents: 5000, to_price_cents: 4200, changed: true },
+  ]);
+  // The token is still dropped: being inside a detail block buys nothing.
+  assertEquals(out.confirm_token, { type: "redacted" });
+});
+
+Deno.test("an ordinary nested object is still a key count, not a copy", () => {
+  const out = redactArguments({
+    _detail: { filters: { brand: "Carhartt", size: "L" } },
+  }) as { _detail: { filters: unknown } };
+  assertEquals(out._detail.filters, { type: "object", keys: 2 });
+});

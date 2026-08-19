@@ -38,6 +38,9 @@ import type { ApiKeyScope } from "../lib/api-key.ts";
 import { sanitizeDeep } from "../lib/mcp-untrusted.ts";
 import { recordToolCall, type ToolCallStatus } from "../lib/mcp-audit.ts";
 import { budgetKindForTool, checkBudget } from "../lib/mcp-budget.ts";
+// US-9131: Multi Round-Trip Requests, so a person is asked rather than a model
+// reporting that it asked one.
+import { confirmationRequired, readConfirmation } from "../lib/mcp-elicit.ts";
 import { connectorPlanAllows } from "../middleware/mcp-auth.ts";
 import {
   bodyProtocolVersion,
@@ -396,7 +399,7 @@ async function handleRequest(
     }
 
     case "tools/call":
-      return await callTool(c, message);
+      return await callTool(c, message, era);
 
     default:
       void era;
@@ -494,6 +497,7 @@ function toolContext(c: Context): McpToolContext | null {
 async function callTool(
   c: Context,
   message: { params?: Record<string, unknown> },
+  era: McpEra,
 ): Promise<RequestOutcome> {
   const startedAt = Date.now();
   const name = typeof message.params?.name === "string" ? message.params.name : undefined;
@@ -507,13 +511,19 @@ async function callTool(
   // the more interesting row, because it is what a probe looks like. Skipped
   // only when there is no tenant to attribute it to, which is unreachable
   // behind mcpAuthMiddleware.
-  const audit = (status: ToolCallStatus, errorCode?: string) => {
+  const audit = (
+    status: ToolCallStatus,
+    errorCode?: string,
+    detail?: Record<string, unknown>,
+  ) => {
     if (!ctx) return;
     recordToolCall({
       tenantId: ctx.tenantId,
       apiKeyId: ctx.apiKeyId,
       toolName: name ?? "(unnamed)",
-      args,
+      // US-9117: a handler may add what the arguments could not say. Merged
+      // under one key so it can never collide with a real argument name.
+      args: detail ? { ...args, _detail: detail } : args,
       status,
       errorCode: errorCode ?? null,
       durationMs: Date.now() - startedAt,
@@ -611,9 +621,38 @@ async function callTool(
     return { error: { code: JSON_RPC_ERROR.INTERNAL_ERROR, message: "Internal error" } };
   }
 
+  // US-9131: ask a HUMAN, via MRTR (SEP-2322), before the acting call runs.
+  //
+  // MODERN ONLY. An InputRequiredResult is a 2026-07-28 shape; a legacy client
+  // would read it as a malformed result and the tool would look broken. Those
+  // clients keep the two-call preview/confirm flow, which still cannot act
+  // without a token — which is why this is an improvement and not a dependency.
+  //
+  // It runs AFTER every gate above and BEFORE the handler, deliberately: there
+  // is no point asking a person to approve something the plan, the scope or the
+  // budget was going to refuse anyway.
+  if (era === "modern" && tool.humanConfirmation) {
+    const question = tool.humanConfirmation(args);
+    if (question) {
+      const verdict = readConfirmation(message.params, name);
+      if (verdict.state === "not_asked") {
+        // Not audited as a refusal: nothing was decided yet. The row is written
+        // when the retry lands, so one seller decision is one audit row rather
+        // than two.
+        return { result: confirmationRequired(name, question) };
+      }
+      if (verdict.state === "refused") {
+        audit("refused", "human_declined");
+        return {
+          result: { content: [{ type: "text", text: verdict.message }], isError: true },
+        };
+      }
+    }
+  }
+
   try {
-    const result = await tool.handler(args, ctx);
-    audit(result.isError ? "error" : "ok");
+    const { auditDetail, ...result } = await tool.handler(args, ctx);
+    audit(result.isError ? "error" : "ok", undefined, auditDetail);
 
     // US-9111: EVERY tool result passes through here, so a tool added later is
     // covered without its author remembering. Cleaning (invisible characters,

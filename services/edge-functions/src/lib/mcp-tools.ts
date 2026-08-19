@@ -160,6 +160,19 @@ export interface McpToolDefinition {
    * you pay is the entire point of it. Nothing else may set this.
    */
   sandbox?: true;
+  /**
+   * US-9131: ask a HUMAN before running this, on clients that support MRTR.
+   *
+   * Returns the question, or null when these particular arguments do not need
+   * one — a preview asks nothing, so only the acting call prompts. The
+   * dispatcher turns a non-null answer into an InputRequiredResult; a client on
+   * an older revision never sees it and falls back to the two-call flow.
+   *
+   * This does NOT replace the confirm token. Elicitation asks a person; the
+   * token proves the payload did not change between the question and the
+   * action. A tool that wants a human should have both.
+   */
+  humanConfirmation?: (args: Record<string, unknown>) => string | null;
   annotations: McpToolAnnotations;
   handler: McpToolHandler;
 }

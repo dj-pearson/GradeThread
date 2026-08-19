@@ -425,3 +425,85 @@ Deno.test("with no repricer registered every tool refuses", async () => {
   }
   stub();
 });
+
+// ---------------------------------------------------------------------------
+// AC6: the audit row
+//
+// The arguments say "listing X, 4200 cents". The old price is the half a
+// pricing dispute actually turns on, and by the time anyone reads the row the
+// listing already carries the new one. So the handler hands it to the audit
+// explicitly rather than hoping it can be reconstructed.
+// ---------------------------------------------------------------------------
+
+Deno.test("a reprice records each listing and BOTH prices", async () => {
+  __resetConfirmTokensForTest();
+  stub();
+  const token = await tokenFor();
+  const result = await repriceApplyTool.handler(
+    { items: [{ listing_id: L1, price_cents: 11_000 }], confirm_token: token },
+    ctx,
+  );
+  assert(!result.isError, textOf(result));
+  assertEquals(result.auditDetail, {
+    changes: [{
+      listing_id: L1,
+      from_price_cents: 10_000,
+      to_price_cents: 11_000,
+      changed: true,
+    }],
+  });
+});
+
+Deno.test("a listing the engine skipped is recorded as NOT changed", async () => {
+  __resetConfirmTokensForTest();
+  stub({
+    apply: (items) => ({
+      applied: 0,
+      ebay_synced: 0,
+      skipped: [{ listing_id: items[0]!.listing_id, reason: "no live offer" }],
+      errors: [],
+    }),
+  });
+  const token = await tokenFor();
+  const result = await repriceApplyTool.handler(
+    { items: [{ listing_id: L1, price_cents: 11_000 }], confirm_token: token },
+    ctx,
+  );
+  const changes = (result.auditDetail as { changes: Array<{ changed: boolean }> }).changes;
+  assertEquals(changes[0]!.changed, false, "a skipped listing was logged as repriced");
+});
+
+Deno.test("taking one suggestion records both prices too", async () => {
+  stub();
+  port.registerRepricer({
+    preview: () => Promise.resolve({ items: [row()], capped: false }),
+    apply: (_o, items) =>
+      Promise.resolve({ applied: items.length, ebay_synced: 0, skipped: [], errors: [] }),
+    applySuggestion: () =>
+      Promise.resolve({
+        status: 200,
+        body: { applied: true, old_price: 50, new_price: 42, ebay_synced: true },
+      }),
+    dismissSuggestion: () => Promise.resolve({ status: 200, body: { dismissed: true } }),
+  });
+
+  const result = await applySuggestionTool.handler({ suggestion_id: "sug-1" }, ctx);
+  assert(!result.isError, textOf(result));
+  assertEquals(result.auditDetail, {
+    changes: [{
+      suggestion_id: "sug-1",
+      from_price_cents: 5_000,
+      to_price_cents: 4_200,
+      changed: true,
+    }],
+  });
+  // The seller is told both numbers as well, not just the new one.
+  assert(textOf(result).includes("Was $50.00, now $42.00"), textOf(result));
+});
+
+Deno.test("dismissing a suggestion writes no price detail, because no price moved", async () => {
+  stub();
+  const result = await dismissSuggestionTool.handler({ suggestion_id: "sug-1" }, ctx);
+  assert(!result.isError, textOf(result));
+  assertEquals(result.auditDetail, undefined);
+});

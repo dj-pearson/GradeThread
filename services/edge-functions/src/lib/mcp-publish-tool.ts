@@ -27,12 +27,16 @@
 //
 // ── Elicitation ───────────────────────────────────────────────────────────
 //
-// AC3 wants an MRTR elicitation on modern clients so a human is asked directly.
-// That belongs in the DISPATCHER, not here: an InputRequiredResult is a
-// protocol-level response shape and a tool handler returning McpToolResult
-// cannot express one. The token is the half that does not depend on client
-// support, and it is what makes the two-call flow safe on every client. Filed
-// as its own story rather than half-built here -- see the completion note.
+// US-9131 landed it, in the DISPATCHER rather than here: an InputRequiredResult
+// is a protocol-level response shape and a tool handler returning McpToolResult
+// cannot express one. This tool declares `humanConfirmation` and the dispatcher
+// turns that into the MRTR round trip on 2026-07-28 clients.
+//
+// It does not replace the token, and the two answer different questions.
+// Elicitation asks a PERSON; the token proves the PAYLOAD did not change between
+// the question and the action. Elicitation alone would let a model ask "publish
+// at $48?", get a yes, and publish at $95. A client on an older revision sees no
+// prompt and still cannot publish without a token.
 
 import {
   ebayPublisher,
@@ -247,6 +251,11 @@ export const publishListingTool: McpToolDefinition = {
     additionalProperties: false,
   },
   requiredScope: "submit",
+  // US-9131: the only tool here that puts a garment in front of buyers at a
+  // price, so it is the one that most wants a person rather than a model's
+  // account of a person.
+  humanConfirmation: (args) =>
+    args.mode === "confirm" ? "Put this item live on eBay now?" : null,
   // openWorldHint: this one reaches a system we do not control, and its answer
   // is the thing that decides whether the listing exists.
   annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },

@@ -272,6 +272,11 @@ export const repriceApplyTool: McpToolDefinition = {
     additionalProperties: false,
   },
   requiredScope: "submit",
+  // US-9131: no mode here — this tool only ever applies, so it always asks.
+  humanConfirmation: (args) => {
+    const n = Array.isArray(args.items) ? args.items.length : 1;
+    return `Change the price on ${n} live listing(s) now?`;
+  },
   annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },
   handler: async (args, ctx) => {
     const requested = readItems(args.items);
@@ -343,12 +348,28 @@ export const repriceApplyTool: McpToolDefinition = {
         ? "The failed ones kept their old price on both sides, so nothing is out of step."
         : "";
 
+      // AC6: the audit row names each listing and BOTH prices. The old one is
+      // only ever known here -- the caller sends the new price, and by the time
+      // anyone reads the row the listing already carries it.
+      const skippedIds = new Set([
+        ...result.skipped.map((s) => s.listing_id),
+        ...result.errors.map((e) => e.listing_id),
+      ]);
+
       return {
         content: [{
           type: "text",
           text: [header, failedNote, ...lines].filter(Boolean).join("\n"),
         }],
         structuredContent: result as unknown as Record<string, unknown>,
+        auditDetail: {
+          changes: requested.map((r) => ({
+            listing_id: r.listing_id,
+            from_price_cents: currentById.get(r.listing_id)?.current_price_cents ?? -1,
+            to_price_cents: r.price_cents,
+            changed: !skippedIds.has(r.listing_id),
+          })),
+        },
       };
     } catch (err) {
       console.error("[mcp] reprice apply:", redactError(err));
@@ -447,15 +468,36 @@ async function suggestionVerb(
     // US-467 again: a failed eBay push leaves the suggestion PENDING and the
     // price unchanged. Reporting the flag rather than assuming, because
     // "applied" with ebay_synced false on a live listing would be a lie.
-    const body = outcome.body as { new_price?: unknown; ebay_synced?: unknown };
+    const body = outcome.body as {
+      old_price?: unknown;
+      new_price?: unknown;
+      ebay_synced?: unknown;
+      listing_id?: unknown;
+    };
+    const oldPrice = typeof body.old_price === "number" ? body.old_price : null;
     const text = verb === "apply"
-      ? `Applied. New price $${Number(body.new_price ?? 0).toFixed(2)}` +
+      ? `Applied. ${oldPrice === null ? "New price" : `Was $${oldPrice.toFixed(2)}, now`} ` +
+        `$${Number(body.new_price ?? 0).toFixed(2)}` +
         (body.ebay_synced === true ? ", pushed to eBay." : ". No live eBay offer to push to.")
       : "Dismissed. It will not come back in the suggestions list.";
 
     return {
       content: [{ type: "text", text }],
       structuredContent: outcome.body,
+      // AC6: one suggestion is still a price change, so its row names the same
+      // three things a bulk reprice row does.
+      ...(verb === "apply"
+        ? {
+          auditDetail: {
+            changes: [{
+              suggestion_id: suggestionId,
+              from_price_cents: oldPrice === null ? -1 : Math.round(oldPrice * 100),
+              to_price_cents: Math.round(Number(body.new_price ?? 0) * 100),
+              changed: true,
+            }],
+          },
+        }
+        : {}),
     };
   } catch (err) {
     console.error(`[mcp] suggestion ${verb}:`, redactError(err));

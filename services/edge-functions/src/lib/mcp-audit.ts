@@ -41,6 +41,7 @@ const ID_KEYS = new Set([
   "batch_id",
   "listing_id",
   "sale_id",
+  "suggestion_id",
   "confirm_token_id",
   "slug",
   "marketplace",
@@ -56,6 +57,44 @@ const SECRET_HINTS = ["token", "secret", "key", "password", "authorization", "cr
 
 const MAX_STRING = 120;
 const MAX_KEYS = 20;
+
+/**
+ * US-9117: how many elements of an id-and-number array are kept verbatim.
+ *
+ * A reprice call carries `[{listing_id, price_cents}, ...]`, and summarising
+ * that as {"type":"array","length":12} throws away the only part of the row an
+ * investigation wants. Kept only for elements that are flat objects of ids and
+ * numbers -- anything with a free-text field in it falls back to the summary,
+ * so this cannot become a copy of a description.
+ */
+const MAX_ARRAY_ITEMS = 50;
+
+/** Keys whose numeric value is worth keeping: money, counts, quantities. */
+const NUMERIC_SUFFIXES = ["_cents", "_price", "_count", "_qty", "_percent", "_bps"];
+
+function isKeepableNumberKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  return NUMERIC_SUFFIXES.some((suffix) => lower.endsWith(suffix));
+}
+
+/**
+ * True when every entry is an id we already keep or a number we name above.
+ * Deliberately strict: one unrecognised key and the whole element is dropped,
+ * because the failure mode to avoid is a description landing in the audit table.
+ */
+function isIdAndNumberRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0 || entries.length > 8) return false;
+  return entries.every(([key, entry]) => {
+    if (looksSecret(key)) return false;
+    // A boolean carries no free text, so its NAME does not have to be on a list.
+    if (typeof entry === "boolean") return true;
+    if (typeof entry === "number") return isKeepableNumberKey(key);
+    if (typeof entry === "string") return ID_KEYS.has(key) && entry.length <= MAX_STRING;
+    return false;
+  });
+}
 
 function looksSecret(key: string): boolean {
   const lower = key.toLowerCase();
@@ -99,9 +138,21 @@ export function redactArguments(args: Record<string, unknown>): Record<string, u
         ? value
         : { type: "string", length: value.length };
     } else if (Array.isArray(value)) {
-      out[key] = { type: "array", length: value.length };
+      // US-9117: keep the rows when they are ids and money, summarise otherwise.
+      out[key] = value.length > 0 && value.every(isIdAndNumberRecord)
+        ? {
+          type: "array",
+          length: value.length,
+          items: value.slice(0, MAX_ARRAY_ITEMS),
+          ...(value.length > MAX_ARRAY_ITEMS ? { items_truncated: true } : {}),
+        }
+        : { type: "array", length: value.length };
     } else if (typeof value === "object") {
-      out[key] = { type: "object", keys: Object.keys(value as object).length };
+      // The handler-supplied detail is recursed into so its arrays get the
+      // treatment above; anything else stays a shape summary as before.
+      out[key] = key === "_detail"
+        ? redactArguments(value as Record<string, unknown>)
+        : { type: "object", keys: Object.keys(value as object).length };
     } else {
       out[key] = { type: typeof value };
     }

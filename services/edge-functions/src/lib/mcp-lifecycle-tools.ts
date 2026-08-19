@@ -239,6 +239,9 @@ export const endListingTool: McpToolDefinition = {
     additionalProperties: false,
   },
   requiredScope: "submit",
+  // US-9131: taking an item off sale is not undoable by a second tool call.
+  humanConfirmation: (args) =>
+    args.mode === "confirm" ? "Take this listing off sale now?" : null,
   annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: true },
   handler: async (args, ctx) => {
     const id = typeof args.listing_id === "string" ? args.listing_id : "";
@@ -278,6 +281,13 @@ export const endListingsBulkTool: McpToolDefinition = {
     additionalProperties: false,
   },
   requiredScope: "submit",
+  // US-9131. The count is in the question, for the same reason the preview
+  // lists names: a number is the one thing a seller can check at a glance.
+  humanConfirmation: (args) => {
+    if (args.mode !== "confirm") return null;
+    const n = Array.isArray(args.listing_ids) ? args.listing_ids.length : 1;
+    return `Take ${n} listing(s) off sale now?`;
+  },
   annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: true },
   handler: async (args, ctx) => {
     const ids = Array.isArray(args.listing_ids)
@@ -336,6 +346,9 @@ export const relistTool: McpToolDefinition = {
     additionalProperties: false,
   },
   requiredScope: "submit",
+  // US-9131: it puts the item back in front of buyers and takes a listing slot.
+  humanConfirmation: (args) =>
+    args.mode === "confirm" ? "Put this listing back on eBay now?" : null,
   annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },
   handler: async (args, ctx) => {
     const id = typeof args.listing_id === "string" ? args.listing_id : "";
