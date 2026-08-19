@@ -23,42 +23,87 @@ type ApiKeyAuthEnv = {
 };
 
 /**
- * Middleware that validates API keys from the X-API-Key header.
- * Hashes the provided key with SHA-256 and matches against stored key_hash.
- * Checks expiration, updates last_used_at, and sets user context.
+ * US-9104: read the key from either transport.
+ *
+ * `X-API-Key` is the historical header and every existing /api/v1 partner sends
+ * it, so it stays first and stays working. `Authorization: Bearer` is added
+ * because MCP clients have no other way to send a credential — Claude Code's
+ * custom-header config and the Messages API connector's `authorization_token`
+ * both land there — and OAuth 2.1 mandates that header for resource requests
+ * (US-9122 will resolve OAuth tokens through the same slot).
+ *
+ * A bearer token is only claimed when it carries the `gt_sk_` prefix. That
+ * restraint is deliberate: /api/v1 callers may already send `Authorization` for
+ * something else, and claiming any bearer would turn today's "Missing
+ * X-API-Key header" into "Invalid API key format" for them. Anything else in
+ * that header is left alone — an OAuth access token is US-9122's to resolve,
+ * and /mcp reports the difference itself.
  */
-export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, next) => {
-  const apiKey = c.req.header("X-API-Key");
+export const API_KEY_PREFIX = "gt_sk_";
 
-  if (!apiKey) {
-    return c.json({ error: "Missing X-API-Key header" }, 401);
-  }
+export function extractApiKey(headerOf: (name: string) => string | undefined): string | undefined {
+  const direct = headerOf("X-API-Key");
+  if (direct) return direct;
+  const bearer = extractBearerToken(headerOf);
+  return bearer?.startsWith(API_KEY_PREFIX) ? bearer : undefined;
+}
 
-  // Validate key format (gt_sk_ prefix + 64 hex chars)
-  if (!isWellFormedApiKey(apiKey)) {
-    return c.json({ error: "Invalid API key format" }, 401);
-  }
+/** The raw `Authorization: Bearer` value, whatever it is. */
+export function extractBearerToken(
+  headerOf: (name: string) => string | undefined,
+): string | undefined {
+  const authorization = headerOf("Authorization");
+  if (!authorization) return undefined;
+  const match = /^Bearer\s+(.+)$/i.exec(authorization.trim());
+  return match ? match[1].trim() : undefined;
+}
+
+/** Why an API key could not be turned into a caller identity. */
+export type ApiKeyAuthFailure =
+  | { kind: "missing" }
+  | { kind: "malformed" }
+  | { kind: "unknown" }
+  | { kind: "expired" }
+  | { kind: "quota_exceeded"; quota: number; resetsAt: string };
+
+export interface ApiKeyIdentity {
+  userId: string;
+  apiKeyId: string;
+  apiKeyPlan: string;
+  scopes: ApiKeyScope[];
+}
+
+export type ApiKeyResolution =
+  | { ok: true; identity: ApiKeyIdentity }
+  | { ok: false; failure: ApiKeyAuthFailure };
+
+/**
+ * Turn a raw key into a caller identity, or say why it cannot.
+ *
+ * Split out of the middleware (US-9104) so /api/v1 and /mcp share one
+ * definition of key validity, plan tiering and quota. They must NOT share an
+ * error shape: /api/v1's `{ error: string }` 401 predates the envelope and
+ * partners parse it, while an MCP client can only read JSON-RPC. Two
+ * middlewares, one resolver.
+ */
+export async function resolveApiKeyIdentity(rawKey: string | undefined): Promise<ApiKeyResolution> {
+  if (!rawKey) return { ok: false, failure: { kind: "missing" } };
+  if (!isWellFormedApiKey(rawKey)) return { ok: false, failure: { kind: "malformed" } };
 
   // Hash the provided key (HMAC-with-pepper when configured) to match storage.
-  const keyHash = await hashApiKey(apiKey);
+  const keyHash = await hashApiKey(rawKey);
 
-  // Look up the key by hash
   const { data: keyRecord, error: lookupError } = await supabaseAdmin
     .from("api_keys")
     .select("id, user_id, expires_at, scopes, monthly_quota, rate_tier")
     .eq("key_hash", keyHash)
     .single();
 
-  if (lookupError || !keyRecord) {
-    return c.json({ error: "Invalid API key" }, 401);
-  }
+  if (lookupError || !keyRecord) return { ok: false, failure: { kind: "unknown" } };
 
-  // Check if key is expired
   if (keyRecord.expires_at) {
     const expiresAt = new Date(keyRecord.expires_at);
-    if (expiresAt <= new Date()) {
-      return c.json({ error: "API key has expired" }, 401);
-    }
+    if (expiresAt <= new Date()) return { ok: false, failure: { kind: "expired" } };
   }
 
   // Update last_used_at (fire-and-forget, don't block the request)
@@ -121,29 +166,78 @@ export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, ne
       });
       const covered = !debitErr && typeof newBalance === "number" && newBalance >= 0;
       if (!covered) {
-        return c.json(
-          {
-            error:
-              `Monthly API quota of ${monthlyQuota} calls reached. Buy an overage pack or wait — resets ${state.resets_at}.`,
-            code: "quota_exceeded",
-            resets_at: state.resets_at,
-          },
-          429,
-        );
+        return {
+          ok: false,
+          failure: { kind: "quota_exceeded", quota: monthlyQuota, resetsAt: state.resets_at },
+        };
       }
     }
   }
 
-  // Set user context from the key's user_id + the key's scopes (US-356). A row
-  // predating the scopes column reads back null → fall back to the full set.
-  c.set("user", { id: keyRecord.user_id });
-  c.set("userId", keyRecord.user_id);
-  c.set("apiKeyId", keyRecord.id);
-  c.set("apiKeyPlan", apiKeyPlan);
-  c.set(
-    "apiKeyScopes",
-    ((keyRecord as { scopes?: ApiKeyScope[] }).scopes) ?? [...DEFAULT_API_KEY_SCOPES],
-  );
+  return {
+    ok: true,
+    identity: {
+      userId: keyRecord.user_id,
+      apiKeyId: keyRecord.id,
+      apiKeyPlan,
+      // A row predating the scopes column reads back null → fall back to the
+      // full set (US-356), so adding scopes never breaks an existing key.
+      scopes: ((keyRecord as { scopes?: ApiKeyScope[] }).scopes) ?? [...DEFAULT_API_KEY_SCOPES],
+    },
+  };
+}
 
+/** Put a resolved identity on the request context. */
+export function applyApiKeyIdentity(
+  c: {
+    set: (key: string, value: unknown) => void;
+  },
+  identity: ApiKeyIdentity,
+): void {
+  c.set("user", { id: identity.userId });
+  c.set("userId", identity.userId);
+  c.set("apiKeyId", identity.apiKeyId);
+  c.set("apiKeyPlan", identity.apiKeyPlan);
+  c.set("apiKeyScopes", identity.scopes);
+}
+
+/**
+ * Middleware that validates API keys from the X-API-Key header, or from
+ * `Authorization: Bearer` since US-9104.
+ * Hashes the provided key with SHA-256 and matches against stored key_hash.
+ * Checks expiration, updates last_used_at, and sets user context.
+ *
+ * The response bodies here are deliberately unchanged: /api/v1's 401 is a bare
+ * `{ error: string }` and its 429 carries `code: "quota_exceeded"`, both of
+ * which predate the envelope and are documented in the public OpenAPI spec.
+ * /mcp needs different shapes and gets them from middleware/mcp-auth.ts.
+ */
+export const apiKeyAuthMiddleware = createMiddleware<ApiKeyAuthEnv>(async (c, next) => {
+  const resolution = await resolveApiKeyIdentity(extractApiKey((name) => c.req.header(name)));
+
+  if (!resolution.ok) {
+    switch (resolution.failure.kind) {
+      case "missing":
+        return c.json({ error: "Missing X-API-Key header" }, 401);
+      case "malformed":
+        return c.json({ error: "Invalid API key format" }, 401);
+      case "unknown":
+        return c.json({ error: "Invalid API key" }, 401);
+      case "expired":
+        return c.json({ error: "API key has expired" }, 401);
+      case "quota_exceeded":
+        return c.json(
+          {
+            error:
+              `Monthly API quota of ${resolution.failure.quota} calls reached. Buy an overage pack or wait — resets ${resolution.failure.resetsAt}.`,
+            code: "quota_exceeded",
+            resets_at: resolution.failure.resetsAt,
+          },
+          429,
+        );
+    }
+  }
+
+  applyApiKeyIdentity(c, resolution.identity);
   await next();
 });

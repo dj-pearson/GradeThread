@@ -138,7 +138,7 @@ const PUBLIC_API_ROUTERS = new Set<string>([
 ]);
 
 const AUTH_MW =
-  "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware|ebayAuthMiddleware)";
+  "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware|ebayAuthMiddleware|mcpAuthMiddleware)";
 
 const apiMounts = [
   ...new Set(
@@ -178,5 +178,67 @@ Deno.test("every /api router mount has an auth posture (authed or explicitly pub
       `prefix — a forgotten auth line ships an unauthenticated tenant endpoint. Add ` +
       `app.use("<prefix>/*", authMiddleware) in main.ts, or add to PUBLIC_API_ROUTERS ` +
       `if genuinely public: ${uncovered.join(", ")}`,
+  );
+});
+
+// US-9103: the guard above only reads mounts under /api, so a router mounted at
+// a top-level path is invisible to it — it reports green for a prefix it never
+// looked at. /mcp is the first such router (the connector URL a seller pastes
+// cannot live under /api), so the gap is closed here rather than after the next
+// one. Every non-/api mount must appear below with a stated posture, and an
+// entry that stops matching a real mount fails too, so the list can only track
+// reality.
+const NON_API_ROUTER_POSTURE = new Map<string, string>([
+  // Liveness/readiness probes. Deliberately unauthenticated: an auth dependency
+  // in a restart probe crash-loops a healthy container during an auth outage.
+  ["/health", "public"],
+  // US-9104: the MCP endpoint authenticates with an API key (Bearer or
+  // X-API-Key) through mcpAuthMiddleware, and gates on the connector plan flag.
+  ["/mcp", "authed"],
+]);
+
+const nonApiMounts = [
+  ...new Set(
+    matchAll(mainSrc, /app\.route\(\s*"(\/[^"]+)"/g)
+      .filter((p) => !p.startsWith("/api"))
+      .map((p) => p.replace(/\/$/, "")),
+  ),
+];
+
+const nonApiAuthPrefixes = matchAll(
+  mainSrc,
+  new RegExp(`app\\.use\\(\\s*"(\\/[^"]+)"\\s*,\\s*${AUTH_MW}\\s*\\)`, "g"),
+)
+  .filter((p) => !p.startsWith("/api"))
+  .map((p) => p.replace(/\/\*$/, "").replace(/\/$/, ""));
+
+Deno.test("every non-/api router mount has a DECLARED auth posture — US-9103", () => {
+  const undeclared = nonApiMounts.filter((m) => !NON_API_ROUTER_POSTURE.has(m));
+  assert(
+    undeclared.length === 0,
+    `These routers are mounted outside /api and are invisible to the US-1639 guard, ` +
+      `so their posture is unreviewed. Add each to NON_API_ROUTER_POSTURE with "authed" ` +
+      `or "public" and a reason: ${undeclared.join(", ")}`,
+  );
+
+  const stale = [...NON_API_ROUTER_POSTURE.keys()].filter((m) => !nonApiMounts.includes(m));
+  assert(
+    stale.length === 0,
+    `NON_API_ROUTER_POSTURE names mounts that no longer exist in main.ts, so those ` +
+      `entries assert nothing. Remove them: ${stale.join(", ")}`,
+  );
+
+  const missingAuth = [...NON_API_ROUTER_POSTURE.entries()]
+    .filter(([, posture]) => posture === "authed")
+    .map(([mount]) => mount)
+    .filter((mount) =>
+      !nonApiAuthPrefixes.some(
+        (p) => p === mount || p.startsWith(mount + "/") || mount.startsWith(p + "/"),
+      )
+    );
+  assert(
+    missingAuth.length === 0,
+    `These mounts are declared "authed" but main.ts has no auth middleware line for ` +
+      `their prefix: ${missingAuth.join(", ")}`,
   );
 });

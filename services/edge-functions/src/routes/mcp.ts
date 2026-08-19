@@ -1,0 +1,543 @@
+// The GradeThread MCP endpoint (US-9103) — a remote Model Context Protocol
+// server so a Claude client can drive the FlipDesk pipeline from a chat.
+//
+// Mounted at /mcp on the EDGE service (functions.gradethread.com). It cannot go
+// on api.gradethread.com: that host is Kong and serves Supabase routes only, so
+// an MCP URL published there 404s with no obvious cause.
+//
+// DUAL-ERA, deliberately. See lib/mcp-jsonrpc.ts for the era model and
+// vault/30-platform/claude-connector.md for why both are required: the current
+// revision (2026-07-28) is stateless and header-mirrored, but Anthropic's own
+// Messages API connector still speaks the 2025-11-25 handshake, so a
+// modern-only server would be spec-correct and unable to talk to the product
+// this exists for.
+//
+// WHAT IS NOT HERE YET, and where it lands:
+//   US-9104  authentication (Bearer API key / OAuth token) + the 401/403
+//            WWW-Authenticate challenges. Until it ships this endpoint is
+//            unauthenticated, which is why MCP_ENABLED defaults OFF in
+//            production and why tools/list is empty — it exposes nothing.
+//   US-9105  rate limits, usage ledger, quota, maintenance guard.
+//   US-9120  the OAuth 2.1 authorization-server surface.
+
+import { Hono } from "hono";
+import type { Context } from "hono";
+import { isAllowedOrigin } from "../lib/allowed-origins.ts";
+import { isProduction } from "../lib/env.ts";
+import { logEvent } from "../lib/observability.ts";
+import { redactError } from "../lib/log-redact.ts";
+import { releaseSha } from "../lib/observability.ts";
+import {
+  findTool,
+  hasScope,
+  listToolsFor,
+  type McpToolContext,
+  validateAgainstSchema,
+} from "../lib/mcp-tools.ts";
+import type { ApiKeyScope } from "../lib/api-key.ts";
+import {
+  bodyProtocolVersion,
+  clientInfoOf,
+  detectEra,
+  HEADER_PROTOCOL_VERSION,
+  HEADER_SESSION_ID,
+  isSupportedVersion,
+  JSON_RPC_ERROR,
+  type JsonRpcErrorObject,
+  type JsonRpcId,
+  jsonRpcError,
+  type JsonRpcMessage,
+  jsonRpcResult,
+  MCP_PREFERRED_LEGACY_VERSION,
+  MCP_SUPPORTED_VERSIONS,
+  META_SERVER_INFO,
+  type McpEra,
+  methodNotFoundError,
+  parseJsonRpcMessage,
+  unsupportedVersionError,
+  validateModernHeaders,
+} from "../lib/mcp-jsonrpc.ts";
+
+export const mcpRoutes = new Hono();
+
+const SERVER_NAME = "gradethread";
+
+/**
+ * Self-reported and explicitly NOT a security signal (the spec says clients
+ * should not change behaviour based on it), so the release sha is fine here and
+ * is what makes a bug report actionable.
+ */
+function serverInfo(): { name: string; version: string } {
+  return { name: SERVER_NAME, version: releaseSha() };
+}
+
+const INSTRUCTIONS =
+  "GradeThread grades pre-owned clothing condition and manages reseller listings. " +
+  "Use these tools to read inventory, grades and listings, and to draft, price and " +
+  "publish listings on connected marketplaces. Actions that publish, reprice or end " +
+  "a listing always require an explicit confirmation step.";
+
+/**
+ * Kill switch. Off in production until authentication (US-9104) lands, so the
+ * unauthenticated window never exists on a real deployment. Off returns 404
+ * rather than 503: an endpoint that is not open yet should not advertise that
+ * it is coming.
+ *
+ * US-9127 replaces this with a real feature flag so it can be flipped without a
+ * redeploy; an env var needs no migration and is enough to ship behind.
+ */
+function isMcpEnabled(): boolean {
+  const raw = (Deno.env.get("MCP_ENABLED") ?? "").trim().toLowerCase();
+  if (raw === "true" || raw === "1") return true;
+  if (raw === "false" || raw === "0") return false;
+  return !isProduction();
+}
+
+// ---------------------------------------------------------------------------
+// Legacy sessions
+// ---------------------------------------------------------------------------
+
+interface LegacySession {
+  protocolVersion: string;
+  clientName?: string;
+  lastSeenMs: number;
+}
+
+const LEGACY_SESSION_TTL_MS = 30 * 60_000;
+
+/**
+ * In-memory and therefore per-container. A restart or a rolling deploy makes
+ * every legacy session unknown, and the client re-initializes — which is the
+ * documented recovery path, not an error. Nothing durable belongs here: a
+ * session holds no authority (US-9104's credential does) and no state a tool
+ * call depends on.
+ */
+const legacySessions = new Map<string, LegacySession>();
+
+function sweepLegacySessions(now: number): void {
+  for (const [id, session] of legacySessions) {
+    if (now - session.lastSeenMs > LEGACY_SESSION_TTL_MS) legacySessions.delete(id);
+  }
+}
+
+function touchLegacySession(id: string, now: number): LegacySession | undefined {
+  const session = legacySessions.get(id);
+  if (!session) return undefined;
+  if (now - session.lastSeenMs > LEGACY_SESSION_TTL_MS) {
+    legacySessions.delete(id);
+    return undefined;
+  }
+  session.lastSeenMs = now;
+  return session;
+}
+
+// ---------------------------------------------------------------------------
+// Guards shared by every HTTP method on the endpoint
+// ---------------------------------------------------------------------------
+
+/**
+ * DNS-rebinding defence. A spec MUST and a named connector-review rejection
+ * cause: validate Origin when it is PRESENT, reject with 403 when it is
+ * invalid. An absent Origin is the normal case here — MCP clients are servers,
+ * not browsers — and is not by itself suspicious.
+ */
+function originRejection(c: Context): Response | null {
+  const origin = c.req.header("Origin");
+  if (!origin) return null;
+  if (isAllowedOrigin(origin)) return null;
+  logEvent("warn", "mcp.origin_rejected", { origin });
+  return c.json(jsonRpcError(null, { code: JSON_RPC_ERROR.INVALID_REQUEST, message: "Origin not allowed" }), 403);
+}
+
+function notFound(c: Context): Response {
+  return c.json({ error: "Not found" }, 404);
+}
+
+// ---------------------------------------------------------------------------
+// POST — the whole modern transport, and every legacy request
+// ---------------------------------------------------------------------------
+
+mcpRoutes.post("/", async (c) => {
+  if (!isMcpEnabled()) return notFound(c);
+  const rejected = originRejection(c);
+  if (rejected) return rejected;
+
+  let raw: unknown;
+  try {
+    raw = await c.req.json();
+  } catch {
+    return c.json(
+      jsonRpcError(null, { code: JSON_RPC_ERROR.PARSE_ERROR, message: "Invalid JSON" }),
+      400,
+    );
+  }
+
+  const parsed = parseJsonRpcMessage(raw);
+  if (parsed.kind === "invalid") {
+    return c.json(jsonRpcError(parsed.id, parsed.error), 400);
+  }
+
+  const message = parsed.message;
+  const isNotification = parsed.kind === "notification";
+  const id: JsonRpcId | null = isNotification ? null : (message as { id: JsonRpcId }).id;
+  const headerVersion = c.req.header(HEADER_PROTOCOL_VERSION);
+  const era = detectEra(message, headerVersion);
+
+  // Version support is checked before anything else that could act, so an
+  // unsupported client is told what we speak instead of getting a method error
+  // it cannot interpret.
+  const claimed = bodyProtocolVersion(message) ?? headerVersion;
+  if (claimed && !isSupportedVersion(claimed) && message.method !== "initialize") {
+    return c.json(jsonRpcError(id, unsupportedVersionError(claimed)), 400);
+  }
+
+  // The modern header/body contract. Skipped for notifications: the spec does
+  // not define header requirements for a notification POST in this revision.
+  if (era === "modern" && !isNotification) {
+    const mismatch = validateModernHeaders(message, (name) => c.req.header(name));
+    if (mismatch) {
+      logEvent("warn", "mcp.header_mismatch", { method: message.method });
+      return c.json(jsonRpcError(id, mismatch), 400);
+    }
+  }
+
+  const now = Date.now();
+  sweepLegacySessions(now);
+
+  // Legacy session enforcement. `initialize` is what mints the session, so it is
+  // the one method that may arrive without one. An unknown or expired id gets
+  // 404 so the client re-initializes rather than retrying forever.
+  let sessionId: string | undefined;
+  if (era === "legacy" && message.method !== "initialize") {
+    sessionId = c.req.header(HEADER_SESSION_ID);
+    if (sessionId && !touchLegacySession(sessionId, now)) {
+      return c.json(
+        jsonRpcError(id, { code: JSON_RPC_ERROR.INVALID_REQUEST, message: "Unknown or expired session; re-initialize" }),
+        404,
+      );
+    }
+  }
+
+  if (isNotification) {
+    const accepted = handleNotification(message);
+    return accepted
+      ? new Response(null, { status: 202 })
+      : c.json(
+        jsonRpcError(null, methodNotFoundError(message.method)),
+        400,
+      );
+  }
+
+  try {
+    const outcome = await handleRequest(
+      c,
+      message as { id: JsonRpcId; method: string; params?: Record<string, unknown> },
+      era,
+      now,
+    );
+    if (outcome.error) {
+      // Method-not-found is 404 in the modern binding — the JSON-RPC body is
+      // what distinguishes it from a legacy server's 404 at the same path.
+      const status = outcome.error.code === JSON_RPC_ERROR.METHOD_NOT_FOUND ? 404 : 400;
+      return c.json(jsonRpcError(id, outcome.error), status);
+    }
+    if (outcome.sessionId) c.header(HEADER_SESSION_ID, outcome.sessionId);
+    return c.json(jsonRpcResult(id as JsonRpcId, outcome.result));
+  } catch (err) {
+    logEvent("error", "mcp.request_failed", { method: message.method, error: redactError(err) });
+    return c.json(
+      jsonRpcError(id, { code: JSON_RPC_ERROR.INTERNAL_ERROR, message: "Internal error" }),
+      500,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET / DELETE — legacy only
+// ---------------------------------------------------------------------------
+
+// The modern revision removed the standalone GET stream and the DELETE
+// terminate, and tells a modern-only server to answer both with 405. We are
+// dual-era, so these exist for legacy clients and 405 for everyone else. A GET
+// without a known session is indistinguishable from a modern client probing, so
+// it gets the 405 the spec asks for.
+mcpRoutes.get("/", (c) => {
+  if (!isMcpEnabled()) return notFound(c);
+  const rejected = originRejection(c);
+  if (rejected) return rejected;
+
+  const sessionId = c.req.header(HEADER_SESSION_ID);
+  if (!sessionId || !touchLegacySession(sessionId, Date.now())) {
+    return c.json(
+      jsonRpcError(null, {
+        code: JSON_RPC_ERROR.INVALID_REQUEST,
+        message: "The standalone SSE stream requires a legacy session; this revision has no GET stream",
+      }),
+      405,
+    );
+  }
+
+  // A legacy client opens this to receive server-initiated messages. We send
+  // none: every tool result comes back on its own POST response, and the change
+  // notifications a client could subscribe to do not exist yet. Holding the
+  // stream open with keep-alives is correct and cheap; closing it immediately
+  // would make well-behaved clients reconnect in a loop.
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      controller.enqueue(encoder.encode(": connected\n\n"));
+      const timer = setInterval(() => {
+        try {
+          controller.enqueue(encoder.encode(":\n\n"));
+        } catch {
+          clearInterval(timer);
+        }
+      }, 25_000);
+      c.req.raw.signal.addEventListener("abort", () => {
+        clearInterval(timer);
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the client going away; nothing to do.
+        }
+      });
+    },
+  });
+
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      // Without this, nginx/Traefik buffers the stream and the client sees
+      // nothing until the buffer fills.
+      "X-Accel-Buffering": "no",
+    },
+  });
+});
+
+mcpRoutes.delete("/", (c) => {
+  if (!isMcpEnabled()) return notFound(c);
+  const rejected = originRejection(c);
+  if (rejected) return rejected;
+
+  const sessionId = c.req.header(HEADER_SESSION_ID);
+  if (!sessionId || !legacySessions.has(sessionId)) {
+    return c.json(
+      jsonRpcError(null, {
+        code: JSON_RPC_ERROR.INVALID_REQUEST,
+        message: "No such session; this revision has no session to terminate",
+      }),
+      405,
+    );
+  }
+  legacySessions.delete(sessionId);
+  return new Response(null, { status: 204 });
+});
+
+// ---------------------------------------------------------------------------
+// Method dispatch
+// ---------------------------------------------------------------------------
+
+interface RequestOutcome {
+  result?: unknown;
+  error?: JsonRpcErrorObject;
+  /** Set only by `initialize`, to be echoed as the Mcp-Session-Id header. */
+  sessionId?: string;
+}
+
+/** Returns true when the notification is one we recognise and accept. */
+function handleNotification(message: JsonRpcMessage): boolean {
+  switch (message.method) {
+    // Legacy clients send this after initialize. There is nothing to do with
+    // it, but accepting it is required — a 400 here makes a client think the
+    // handshake failed.
+    case "notifications/initialized":
+      return true;
+    // On HTTP, closing the response stream IS the cancellation signal, so this
+    // should never arrive. Accept it rather than erroring: a client that sends
+    // it belt-and-braces is not wrong, just redundant.
+    case "notifications/cancelled":
+      return true;
+    default:
+      return false;
+  }
+}
+
+async function handleRequest(
+  c: Context,
+  message: { id: JsonRpcId; method: string; params?: Record<string, unknown> },
+  era: McpEra,
+  now: number,
+): Promise<RequestOutcome> {
+  switch (message.method) {
+    case "server/discover":
+      return { result: discoverResult() };
+
+    case "initialize":
+      return initialize(message, now);
+
+    case "ping":
+      // Deliberately an empty object, not null: the spec's ping result is an
+      // empty result object and some clients type it strictly.
+      return { result: {} };
+
+    case "tools/list":
+      // Filtered by scope: a credential never SEES a tool it cannot call.
+      return { result: { tools: listToolsFor(callerScopes(c)) } };
+
+    case "tools/call":
+      return await callTool(c, message);
+
+    default:
+      void era;
+      return { error: methodNotFoundError(message.method) };
+  }
+}
+
+function discoverResult(): Record<string, unknown> {
+  return {
+    resultType: "complete",
+    supportedVersions: MCP_SUPPORTED_VERSIONS,
+    capabilities: { tools: {} },
+    instructions: INSTRUCTIONS,
+    _meta: { [META_SERVER_INFO]: serverInfo() },
+  };
+}
+
+function initialize(
+  message: { params?: Record<string, unknown> },
+  now: number,
+): RequestOutcome {
+  const requested = typeof message.params?.protocolVersion === "string"
+    ? message.params.protocolVersion
+    : undefined;
+
+  // A legacy client has no fall-forward mechanism, so when we cannot serve what
+  // it asked for we still answer with a version we DO serve rather than an
+  // error it cannot act on. That is the handshake's own negotiation rule.
+  const agreed = requested && isSupportedVersion(requested)
+    ? requested
+    : MCP_PREFERRED_LEGACY_VERSION;
+
+  const sessionId = crypto.randomUUID();
+  const info = clientInfoOf({ jsonrpc: "2.0", method: "initialize", params: message.params });
+  legacySessions.set(sessionId, {
+    protocolVersion: agreed,
+    clientName: typeof (message.params?.clientInfo as { name?: string } | undefined)?.name === "string"
+      ? (message.params?.clientInfo as { name: string }).name
+      : info?.name,
+    lastSeenMs: now,
+  });
+
+  return {
+    sessionId,
+    result: {
+      protocolVersion: agreed,
+      capabilities: { tools: {} },
+      serverInfo: serverInfo(),
+      instructions: INSTRUCTIONS,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Tool dispatch
+// ---------------------------------------------------------------------------
+
+function ctxStr(c: Context, key: string): string | undefined {
+  try {
+    const value = (c.get as (k: string) => unknown)(key);
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function callerScopes(c: Context): ApiKeyScope[] {
+  try {
+    const value = (c.get as (k: string) => unknown)("apiKeyScopes");
+    return Array.isArray(value) ? value as ApiKeyScope[] : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve the tenant a tool may act for.
+ *
+ * `workspaceOwnerId ?? userId` is the US-268 rule: a workspace member acts on
+ * the OWNER's data, not their own. Returning null rather than falling back to
+ * anything means a tool cannot run untenanted even if auth were misconfigured.
+ */
+function toolContext(c: Context): McpToolContext | null {
+  const userId = ctxStr(c, "userId");
+  const apiKeyId = ctxStr(c, "apiKeyId");
+  if (!userId || !apiKeyId) return null;
+  return {
+    tenantId: ctxStr(c, "workspaceOwnerId") ?? userId,
+    userId,
+    apiKeyId,
+    scopes: callerScopes(c),
+  };
+}
+
+async function callTool(
+  c: Context,
+  message: { params?: Record<string, unknown> },
+): Promise<RequestOutcome> {
+  const name = typeof message.params?.name === "string" ? message.params.name : undefined;
+  if (!name) {
+    return { error: { code: JSON_RPC_ERROR.INVALID_PARAMS, message: "params.name is required" } };
+  }
+
+  const tool = findTool(name);
+  if (!tool) {
+    return { error: { code: JSON_RPC_ERROR.INVALID_PARAMS, message: `Unknown tool: ${name}` } };
+  }
+
+  // Re-checked here even though tools/list already filtered: a filter is a
+  // display decision, and this is the authorization decision.
+  const scopes = callerScopes(c);
+  if (!hasScope(scopes, tool.requiredScope)) {
+    return {
+      error: {
+        code: JSON_RPC_ERROR.INVALID_PARAMS,
+        message: `This credential lacks the '${tool.requiredScope}' scope required by ${name}`,
+        data: { reason: "insufficient_scope", required_scopes: [tool.requiredScope] },
+      },
+    };
+  }
+
+  const rawArgs = message.params?.arguments;
+  const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+    ? rawArgs as Record<string, unknown>
+    : {};
+
+  const violation = validateAgainstSchema(tool.inputSchema, args);
+  if (violation) {
+    return {
+      error: {
+        code: JSON_RPC_ERROR.INVALID_PARAMS,
+        message: `Invalid arguments: ${violation.path} ${violation.message}`,
+        data: { field: violation.path },
+      },
+    };
+  }
+
+  const ctx = toolContext(c);
+  if (!ctx) {
+    // Unreachable behind mcpAuthMiddleware. Failing closed here means a future
+    // mount that forgets the middleware breaks loudly instead of leaking.
+    logEvent("error", "mcp.tool_missing_tenant", { tool: name });
+    return { error: { code: JSON_RPC_ERROR.INTERNAL_ERROR, message: "Internal error" } };
+  }
+
+  const result = await tool.handler(args, ctx);
+  return { result };
+}
+
+/** Test seam: legacy sessions are process-local, so a suite must be able to reset them. */
+export function __resetLegacySessionsForTest(): void {
+  legacySessions.clear();
+}

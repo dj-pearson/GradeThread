@@ -14,6 +14,7 @@ import { googlePlayRtdnRoutes } from "./routes/google-play-rtdn.ts";
 import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
+import { mcpRoutes } from "./routes/mcp.ts";
 import { OPENAPI_SPEC } from "./lib/openapi-spec.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { pushRoutes } from "./routes/push.ts";
@@ -241,6 +242,16 @@ import { ebayAuthMiddleware } from "./middleware/ebay-auth.ts";
 import { adminAuthMiddleware } from "./middleware/admin-auth.ts";
 import { maintenanceGuard } from "./middleware/maintenance.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
+import { mcpAuthMiddleware } from "./middleware/mcp-auth.ts";
+import {
+  bypassUnlessRead,
+  bypassUnlessWrite,
+  mcpClassifyMiddleware,
+  mcpRateLimitBody,
+  mcpReadLimit,
+  mcpUsageMiddleware,
+  mcpWriteLimit,
+} from "./middleware/mcp-traffic.ts";
 import { apiIdempotencyMiddleware } from "./middleware/api-idempotency.ts";
 import { rateLimiter, pagesOriginBypass } from "./middleware/rate-limit.ts";
 import { getSetting, getSettingSync } from "./lib/system-settings.ts";
@@ -259,56 +270,20 @@ import {
   assertAdminMfaConfig,
   assertKnownEdgeEnv,
   assertNoProdDebugFlags,
-  isProduction,
 } from "./lib/env.ts";
 import { assertRequiredEnv, warnDeliverability, warnMissingFeatureGroups } from "./lib/env-validation.ts";
 import { assertSchemaVersion, checkSchemaCompleteness } from "./lib/schema-version.ts";
 import { redactError } from "./lib/log-redact.ts";
 import { captureException, logEvent, readCtxVar, releaseSha } from "./lib/observability.ts";
 import { featureGate } from "./lib/feature-flags.ts";
+// US-9103: the origin allowlist moved to its own module so the MCP endpoint's
+// DNS-rebinding guard and CORS share one definition of a trusted origin.
+import { isAllowedOrigin } from "./lib/allowed-origins.ts";
 
 const app = new Hono();
 
-// Allowed CORS origins. Function form is more reliable than the array form
-// across Hono versions and gives clearer logs when a request is rejected.
-// US-363: localhost is a dev-only origin and is dropped in production builds so
-// a prod deploy never trusts a loopback origin. The remaining origins are
-// first-party GradeThread / FlipDesk brand domains.
-const ALLOWED_ORIGINS = new Set<string>([
-  "https://gradethread.com",
-  "https://www.gradethread.com",
-  "https://flipdesk.com",
-  "https://www.flipdesk.com",
-  ...(isProduction() ? [] : ["http://localhost:5173"]),
-]);
-
-// US-520: staging frontend + Cloudflare Pages PR-preview origins
-// (https://<hash>.<project>.pages.dev). Honored ONLY off-production — the prod
-// deploy (EDGE_ENV=production) never trusts a staging or preview origin.
-const STAGING_ORIGIN = "https://staging.gradethread.com";
-const PAGES_PREVIEW_ORIGIN_RE = /^https:\/\/[a-z0-9-]+\.gradethread\.pages\.dev$/;
-
-// US-1754: the browser extension (US-1755) calls the public grade-from-url
-// endpoint cross-origin. Its origin is chrome-extension://<id> /
-// moz-extension://<id>, which can't be hardcoded because the id is assigned at
-// store-publish time — so it is configured via EXTENSION_ALLOWED_ORIGINS
-// (comma-separated). Empty ⇒ no extension origin is trusted (the public
-// endpoints then remain same-origin / server-to-server only). CORS is not the
-// security boundary here — the per-IP/per-instance quotas + the AI daily ceiling
-// are — so trusting our own extension's origin globally is safe and simpler.
-const EXTENSION_ALLOWED_ORIGINS = new Set<string>(
-  (Deno.env.get("EXTENSION_ALLOWED_ORIGINS") ?? "")
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean),
-);
-
-function isAllowedOrigin(origin: string): boolean {
-  if (ALLOWED_ORIGINS.has(origin)) return true;
-  if (EXTENSION_ALLOWED_ORIGINS.has(origin)) return true;
-  if (isProduction()) return false;
-  return origin === STAGING_ORIGIN || PAGES_PREVIEW_ORIGIN_RE.test(origin);
-}
+// The origin allowlist itself lives in lib/allowed-origins.ts so CORS here and
+// the MCP endpoint's DNS-rebinding guard (US-9103) share one definition.
 
 const ALLOWED_HEADERS = [
   "Content-Type",
@@ -1165,6 +1140,9 @@ app.use("/api/v1/*", apiUsageMiddleware);
 // user-facing action surfaces. Under an effective 'blocked'/'read_only' window
 // it 503s non-admin traffic; a no-op (one cached read) when nothing is active.
 // /api/admin is intentionally NOT guarded — admins are never locked out (AC#6).
+// US-9105: a maintenance window must stop connector traffic as well.
+app.use("/mcp", maintenanceGuard);
+app.use("/mcp/*", maintenanceGuard);
 app.use("/api/grade/*", maintenanceGuard);
 app.use("/api/flipdesk/*", maintenanceGuard);
 app.use("/api/payments/*", maintenanceGuard);
@@ -1199,6 +1177,44 @@ app.route("/api/keys", apiKeyRoutes);
 app.route("/api/passport", passportRoutes);
 app.route("/api/passport-identity", passportIdentityRoutes);
 app.route("/api/v1", apiV1Routes);
+// US-9103: the MCP endpoint for the Claude connector. Top-level /mcp because
+// that is the URL a seller pastes into a client. Auth lands in US-9104; until
+// then MCP_ENABLED is off in production and tools/list is empty.
+// US-9104: the connector authenticates with an API key in Authorization: Bearer
+// (or X-API-Key). Applied to the whole prefix so the legacy GET/SSE and DELETE
+// paths are covered too, not just POST.
+app.use("/mcp/*", mcpAuthMiddleware);
+app.use("/mcp", mcpAuthMiddleware);
+// US-9105: classify read-vs-write from the JSON-RPC method BEFORE the limiters,
+// because every MCP message is a POST and the /api/v1 method split cannot work
+// here — a tools/list poll must not be able to drain the publish budget.
+app.use("/mcp/*", mcpClassifyMiddleware);
+app.use("/mcp", mcpClassifyMiddleware);
+for (const path of ["/mcp", "/mcp/*"]) {
+  app.use(
+    path,
+    rateLimiter(mcpReadLimit, 60_000, "mcp-read", undefined, {
+      subject: apiV1Subject,
+      bypass: bypassUnlessRead,
+      failClosed: true,
+      errorBody: mcpRateLimitBody,
+    }),
+  );
+  app.use(
+    path,
+    rateLimiter(mcpWriteLimit, 60_000, "mcp-write", undefined, {
+      subject: apiV1Subject,
+      bypass: bypassUnlessWrite,
+      failClosed: true,
+      errorBody: mcpRateLimitBody,
+    }),
+  );
+}
+// US-596 equivalent for the connector: one ledger row per BILLABLE call,
+// broken out by tool. Handshake, ping, discovery and tools/list create none.
+app.use("/mcp/*", mcpUsageMiddleware);
+app.use("/mcp", mcpUsageMiddleware);
+app.route("/mcp", mcpRoutes);
 app.route("/api/notifications", notificationRoutes);
 app.route("/api/push", pushRoutes);
 app.route("/api/flipdesk/ebay", flipdeskEbayRoutes);
