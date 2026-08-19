@@ -106,7 +106,7 @@ export const CALCULATORS: readonly Calculator[] = [
   },
   {
     slug: "ebay-shipping-calculator",
-    status: "planned",
+    status: "live",
     story: "US-9004",
     audience: "seller",
     title: "eBay Shipping Calculator for Clothing Sellers",
@@ -115,6 +115,36 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "eBay shipping calculator",
     cardBlurb: "Weight, box size and service compared, with dimensional weight shown separately.",
     primaryKeyword: "ebay shipping calculator",
+    secondaryKeywords: [
+      "cheapest way to ship clothes",
+      "usps shipping calculator by weight and zip code",
+      "dimensional weight calculator",
+      "flat rate vs ground advantage",
+    ],
+    intro:
+      "Postage is the second largest cost on a clothing sale and the easiest one to get wrong, because three of the rules that decide it are invisible on the label. Under a pound is its own price, and it is CHEAPER than the one pound price, so a package that creeps from 15 to 17 ounces costs more to send. Past one cubic foot USPS stops weighing your parcel and starts measuring it, which is how a two pound puffer jacket gets billed as nineteen pounds. And flat rate is a bad deal on most single garments and a very good one on a heavy box going coast to coast. Enter what you are actually sending and this compares the services against each other rather than quoting one.",
+    faqs: [
+      {
+        q: "What is the cheapest way to ship clothes?",
+        a: "For a single garment under a pound, USPS Ground Advantage in a poly mailer, which starts at $6.93 and never passes $8.40 no matter how far it goes. That is cheaper than every flat rate option and cheaper than the one pound Ground Advantage rate. Above about ten pounds, or for anything travelling to Zone 7 or 8, a Priority Mail Flat Rate box usually wins because it ignores both weight and distance.",
+      },
+      {
+        q: "Why did my package cost more than the scale said?",
+        a: "Dimensional weight. Once a parcel is bigger than one cubic foot, USPS charges on length times width times height divided by 139, if that number is larger than the actual weight. A puffer jacket in an 18 by 14 by 10 box is 2 pounds on the scale and 19 pounds on the invoice. USPS also rounds every fractional dimension up to the next whole inch before it does the arithmetic, so a 10.2 inch box is an 11 inch box.",
+      },
+      {
+        q: "Is Priority Mail Flat Rate worth it for clothing?",
+        a: "Sometimes, and the crossover is sharper than sellers expect. A Padded Flat Rate Envelope is $11.99 to anywhere, so it beats weight-based pricing on a heavy sweater going across the country and loses badly on a t-shirt going across town, where Ground Advantage is $6.93. The rule of thumb: flat rate wins when the package is heavy, far, or both, and loses on everything light and local.",
+      },
+      {
+        q: "What are USPS zones and which one am I in?",
+        a: "A zone is the distance between the sending and receiving ZIP codes, from Zone 1 at under 50 miles to Zone 8 at over 1,800. Ground Advantage and Priority Mail both price by zone, so the same package costs different amounts depending on where the buyer lives. Flat rate does not, which is the whole point of it. This calculator estimates the zone from the two ZIP codes you enter.",
+      },
+      {
+        q: "Are these the rates eBay charges me?",
+        a: "These are USPS commercial prices, which is the tier you pay when you buy a label online rather than at a Post Office counter. eBay label rates are at or below this tier, so treat a result here as a ceiling rather than a quote. Counter prices are roughly 30 to 40 percent higher than what you see here, which is why buying the label through eBay is worth doing even when the postage looks the same.",
+      },
+    ],
   },
   {
     slug: "poshmark-fee-calculator",

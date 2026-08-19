@@ -1,0 +1,50 @@
+# Working record for src/lib/usps-rate-schedule.ts (US-9004).
+# Every number in the module traces to a row here, and every row was read from
+# a published rate sheet and confirmed against a second, independent source
+# before it was allowed into the code.
+#
+# SOURCE A: PirateShip-August-8-2026-USPS-Rates.xlsx, downloaded 2026-08-18 from
+#   https://d9fq664bu2chm.cloudfront.net/pirateship/sheets/PirateShip-August-8-2026-USPS-Rates.xlsx
+#   Sheets used: "Ground Advantage Weight-Based", "Priority Mail Weight-Based",
+#   "Priority Mail Flat Rate", "Extra Services & Nonstandard Fees".
+#   Sheet header states: "USPS August 2026 Rates - Effective August 8th 2026".
+# SOURCE B: USPS Notice 123 (Price List), pe.usps.com/text/dmm300/Notice123.htm,
+#   read 2026-08-18.
+#
+# RESULT: A and B agree to the cent on every value checked. No discrepancies.
+#
+item,source_a,source_b,agree,note
+ground_advantage_1lb_zone1,7.61,7.61,yes,commercial
+ground_advantage_1lb_zone2,7.68,7.68,yes,commercial
+ground_advantage_1lb_zone3,8.00,8.00,yes,commercial
+ground_advantage_1lb_zone4,8.15,8.15,yes,commercial
+ground_advantage_1lb_zone5,8.74,8.74,yes,commercial
+ground_advantage_1lb_zone6,9.63,9.63,yes,commercial
+ground_advantage_1lb_zone7,9.98,9.98,yes,commercial
+ground_advantage_1lb_zone8,10.67,10.67,yes,commercial
+ground_advantage_2lb_zone1,7.99,7.99,yes,commercial
+ground_advantage_2lb_zone8,12.87,12.87,yes,commercial
+ground_advantage_3lb_zone1,8.64,8.64,yes,commercial
+ground_advantage_3lb_zone8,15.75,15.75,yes,commercial
+ground_advantage_4lb_zone4,10.65,10.65,yes,commercial
+ground_advantage_5lb_zone8,19.19,19.19,yes,commercial
+flat_rate_envelope,11.12,11.12,yes,commercial
+flat_rate_legal_envelope,11.66,11.66,yes,commercial
+flat_rate_padded_envelope,11.99,11.99,yes,commercial
+flat_rate_small_box,12.10,12.10,yes,commercial
+flat_rate_medium_box,21.17,21.17,yes,commercial
+flat_rate_large_box,31.00,31.00,yes,commercial
+#
+# RULES, not prices. Each confirmed on both sources plus Pirate Ship's
+# "July 2026 USPS Rate and Rule Changes" support article.
+rule_dim_divisor,139,139,yes,lowered from 166 on 2026-07-12
+rule_dim_threshold,1 cubic foot,1 cubic foot,yes,dim weight ignored below 1728 cu in
+rule_dimension_rounding,round up to next whole inch,round up to next whole inch,yes,new on 2026-07-12
+rule_sub_pound_tiers,one price per zone under 1 lb,one price per zone under 1 lb,yes,4 oz and 8 oz commercial tiers eliminated 2026-07-12
+#
+# THE ONE THING WORTH FLAGGING: the sub-pound Ground Advantage price is LOWER
+# than the 1 lb price in every zone (6.93 vs 7.61 in Zone 1). That is not a
+# transcription error. It is a real cliff at 16 oz, and it is the most useful
+# single fact on the page for a clothing seller.
+sub_pound_zone1,6.93,6.93,yes,cheaper than the 1 lb rate
+sub_pound_zone8,8.40,8.40,yes,cheaper than the 1 lb rate

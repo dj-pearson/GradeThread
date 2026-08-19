@@ -84,15 +84,18 @@
     },
     {
       "id": "US-9004",
-      "passes": false,
+      "passes": true,
       "title": "eBay shipping calculator at /tools/ebay-shipping-calculator",
       "description": "As a seller pricing a listing, I want to compare shipping cost by weight, dimensions and service, so that I do not lose margin by guessing postage.",
       "acceptanceCriteria": [
-        "Takes weight, package dimensions, origin and destination ZIP, and returns a compared table of the services a clothing seller actually uses, including a flat-rate versus weight-based recommendation.",
-        "Rate data is a dated static table with an `effectiveFrom` field, not a live carrier API call, so the page prerenders and cannot break on a third-party outage.",
-        "Dimensional weight is applied and shown as its own line when it exceeds actual weight, since that is the case sellers get wrong.",
-        "Targets `ebay shipping calculator` (50,000/mo, Low) as primary and `cheapest way to ship clothes` (500/mo) as secondary, both registered in keyword-targets.ts.",
-        "A unit test covers a dimensional-weight case and a flat-rate-cheaper case."
+        "Takes weight, package dimensions, origin and destination ZIP, and returns a compared table of the services a clothing seller actually uses, including a flat-rate versus weight-based recommendation. DONE. Ground Advantage, Priority Mail and the six Priority Mail Flat Rate containers, sorted by price, with a line stating which side wins and by how much.",
+        "Rate data is a dated static table with an `effectiveFrom` field, not a live carrier API call, so the page prerenders and cannot break on a third-party outage. DONE. USPS_RATES_EFFECTIVE_FROM is 2026-08-08 and is printed on the page. Zone comes from a packed table of 896 ZIP-prefix centroids built from the Census 2020 ZCTA gazetteer, so even the zone lookup makes no network call.",
+        "Dimensional weight is applied and shown as its own line when it exceeds actual weight, since that is the case sellers get wrong. DONE, with the three 2026-07-12 rule changes modelled: divisor 139 (was 166), dimensions rounded up to the whole inch before anything is measured, and the one-cubic-foot floor below which dimensions are ignored entirely.",
+        "Targets `ebay shipping calculator` (50,000/mo, Low) as primary and `cheapest way to ship clothes` (500/mo) as secondary, both registered in keyword-targets.ts. DONE, plus two more secondaries and four question targets.",
+        "A unit test covers a dimensional-weight case and a flat-rate-cheaper case. DONE, 16 tests in src/lib/__tests__/usps-rate-schedule.test.ts, including the puffer-jacket dim case (2 lb on the scale, billed at 19 lb) and both directions of the flat-rate comparison.",
+        "SOURCING, which is the part that took the time: every number was read off a published rate sheet and confirmed against a second independent source before it was allowed into the code. Source A is Pirate Ship's August 8 2026 USPS rate workbook, source B is USPS Notice 123 at pe.usps.com. They agree to the cent on all 20 values checked. The working is in docs/seo/usps-rate-schedule-CONFIRMED.csv, following the rule US-9003 produced after its first draft had 13.25% for apparel.",
+        "PRICE TIER IS STATED, not implied. These are USPS commercial prices, the tier an online label buys. eBay's own rates are at or below it, so the page says a result is a ceiling rather than a quote, and says counter prices run 30-40% higher.",
+        "THE FINDING WORTH KEEPING: Ground Advantage charges ONE price per zone under a pound and it is LOWER than the 1 lb price ($6.93 vs $7.61 in Zone 1). A package crossing 16 oz costs more. That cliff got its own table on the page and its own test, because it is the cheapest thing a clothing seller can act on."
       ],
       "priority": 6,
       "dependsOn": [

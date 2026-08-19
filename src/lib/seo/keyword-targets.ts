@@ -253,6 +253,24 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    path: "/tools/ebay-shipping-calculator",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "ebay shipping calculator",
+    secondary: [
+      "cheapest way to ship clothes",
+      "usps shipping calculator by weight and zip code",
+      "dimensional weight calculator",
+      "flat rate vs ground advantage",
+    ],
+    questions: [
+      "what is the cheapest way to ship clothes",
+      "why did my package cost more than the scale said",
+      "is priority mail flat rate worth it for clothing",
+      "what usps zone am i in",
+    ],
+  },
+  {
     path: "/tools/measurement-converter",
     cluster: "reseller-tools",
     intent: "informational",

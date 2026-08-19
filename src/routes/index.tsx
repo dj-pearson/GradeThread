@@ -119,6 +119,7 @@ const FitCheckerPage = lazy(() => import("@/pages/tools/fit-checker").then(m => 
 const CalculatorHubPage = lazy(() => import("@/pages/tools/calculators").then(m => ({ default: m.CalculatorHubPage })));
 const MeasurementConverterPage = lazy(() => import("@/pages/tools/measurement-converter").then(m => ({ default: m.MeasurementConverterPage })));
 const EbayFeeCalculatorPage = lazy(() => import("@/pages/tools/ebay-fee-calculator").then(m => ({ default: m.EbayFeeCalculatorPage })));
+const EbayShippingCalculatorPage = lazy(() => import("@/pages/tools/ebay-shipping-calculator").then(m => ({ default: m.EbayShippingCalculatorPage })));
 const ForBrandsPage = lazy(() => import("@/pages/marketing/for-brands").then(m => ({ default: m.ForBrandsPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
@@ -424,6 +425,7 @@ export const router = createBrowserRouter([
       { path: "/tools/calculators", element: <SuspenseWrapper><CalculatorHubPage /></SuspenseWrapper> },
       { path: "/tools/measurement-converter", element: <SuspenseWrapper><MeasurementConverterPage /></SuspenseWrapper> },
       { path: "/tools/ebay-fee-calculator", element: <SuspenseWrapper><EbayFeeCalculatorPage /></SuspenseWrapper> },
+      { path: "/tools/ebay-shipping-calculator", element: <SuspenseWrapper><EbayShippingCalculatorPage /></SuspenseWrapper> },
       { path: "/for-brands", element: <SuspenseWrapper><ForBrandsPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in
