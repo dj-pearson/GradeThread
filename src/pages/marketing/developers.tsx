@@ -3,13 +3,91 @@
 // tier — the "beyond internal plumbing" product surface. Prerendered + indexable
 // (registered in PUBLIC_ROUTES + entry-server).
 import { Link } from "react-router";
-import { Code, FlaskConical, Gauge, KeyRound, Package, Layout, LineChart, Layers, Webhook, FileJson, ListChecks } from "lucide-react";
+import { Bot, Code, FlaskConical, Gauge, KeyRound, Package, Layout, LineChart, Layers, ShieldCheck, Webhook, FileJson, ListChecks } from "lucide-react";
 import {
   MarketingLayout,
   MarketingCTA,
 } from "@/components/marketing/marketing-layout";
 import { HelpCategoryLink } from "@/components/marketing/help-category-link";
 import { FLIPDESK_PLANS } from "@/lib/constants";
+
+// US-9126: the Claude connector.
+//
+// Written for a seller deciding whether to let an AI touch their store, not for
+// an integrator reading a reference. So every row says what the tool WILL do and
+// what it WILL NOT, and the confirm step is stated rather than implied — the
+// question a reader actually has is "can it publish something without asking me".
+const CONNECTOR_TOOLS: Array<{
+  name: string;
+  prompt: string;
+  does: string;
+  wont: string;
+}> = [
+  {
+    name: "gradethread_list_items",
+    prompt: "\u201cWhat is still unlisted from last week?\u201d",
+    does: "Lists inventory with filters for brand, category, status and date.",
+    wont: "Change anything. Read-only.",
+  },
+  {
+    name: "gradethread_grading_readiness",
+    prompt: "\u201cWhy can I not grade the Carhartt jacket yet?\u201d",
+    does: "Names the missing photos and fields per item, the cost, and whether your credits cover the batch.",
+    wont: "Submit anything or spend a credit.",
+  },
+  {
+    name: "gradethread_grade_item / _batch",
+    prompt: "\u201cSend these six for grading.\u201d",
+    does: "Previews the exact items and cost, then submits once you confirm. Uses your grading credits.",
+    wont: "Grade anything on the first call. Preview always comes first, and the token it returns expires in ten minutes.",
+  },
+  {
+    name: "gradethread_create_draft",
+    prompt: "\u201cWrite listings for everything I graded today.\u201d",
+    does: "Generates title, description, category, item specifics and a suggested price from the item's photos.",
+    wont: "Publish. It writes a draft and tells you when the batch is done.",
+  },
+  {
+    name: "gradethread_update_draft",
+    prompt: "\u201cShorten that title and set it to $48.\u201d",
+    does: "Edits title, description, price, quantity, condition and item specifics on an unpublished draft.",
+    wont: "Touch a listing that is already live. It refuses those and points at the reprice tool.",
+  },
+  {
+    name: "gradethread_publish_listing",
+    prompt: "\u201cPut the denim jacket live.\u201d",
+    does: "Shows exactly what buyers will see, what eBay takes, and anything blocking it \u2014 then publishes on a second, confirmed call.",
+    wont: "Publish in one call, publish at a price that changed after you agreed, or tell you it worked when eBay did not confirm it.",
+  },
+  {
+    name: "gradethread_reprice_preview / _apply",
+    prompt: "\u201cWhat should the Levi\u2019s be priced at?\u201d",
+    does: "Prices from live sold comparables and shows before-and-after per listing before changing anything.",
+    wont: "Move a price more than 25%, or below an item's cost floor \u2014 even if you confirm it. Do those in FlipDesk, looking at the listing.",
+  },
+  {
+    name: "gradethread_end_listing / _listings",
+    prompt: "\u201cPull everything from that thrift haul.\u201d",
+    does: "Lists every affected item BY NAME, then ends them once confirmed, and reports which actually came down.",
+    wont: "Act on a count alone, or claim a listing ended when the marketplace has not taken it down yet.",
+  },
+  {
+    name: "gradethread_comps / _price_guide",
+    prompt: "\u201cWhat do these usually sell for?\u201d",
+    does: "Returns sold comparables and the published Resale Condition Index bands.",
+    wont: "Change anything. Read-only.",
+  },
+];
+
+const CONNECTOR_SCOPES: Array<{ scope: string; grants: string }> = [
+  { scope: "read", grants: "See inventory, grades, listings and sales. Cannot change anything." },
+  {
+    scope: "submit",
+    grants:
+      "Grade items, write and edit drafts, publish, reprice and end listings. This is the one that spends money.",
+  },
+  { scope: "webhook_manage", grants: "Create and remove webhook subscriptions." },
+];
 
 const ENDPOINTS = [
   { method: "POST", path: "/api/v1/grades", scope: "submit", desc: "Submit a garment (photos) for grading." },
@@ -112,6 +190,9 @@ const job = await gt.grades.create({
 });
 const result = await gt.grades.get(job.id);`;
 
+const CONNECTOR_ADD_COMMAND =
+  "claude mcp add --transport http gradethread https://functions.gradethread.com/mcp";
+
 function Section({
   icon: Icon,
   title,
@@ -136,6 +217,12 @@ function Section({
 
 export function DevelopersPage() {
   const businessPrice = (FLIPDESK_PLANS.business.priceMonthlyCents / 100).toFixed(0);
+  // US-9126: read from the plan matrix rather than typed into the copy. A price
+  // or an allowance that lives in two places is one that disagrees with itself
+  // the first time either moves, and this is the page a prospect decides on.
+  const proPrice = (FLIPDESK_PLANS.pro.priceMonthlyCents / 100).toFixed(0);
+  const proConnectorActions = FLIPDESK_PLANS.pro.connectorActionsPerMonth;
+  const businessConnectorActions = FLIPDESK_PLANS.business.connectorActionsPerMonth;
 
   return (
     <MarketingLayout
@@ -381,6 +468,145 @@ export function DevelopersPage() {
           generated <code className="rounded bg-muted px-1.5 py-0.5">&lt;iframe&gt;</code>{" "}
           snippet — buyers see the grade in your brand with a small
           &quot;Verified by GradeThread&quot; trust mark.
+        </p>
+      </Section>
+
+      <Section icon={Bot} title="Claude connector">
+        <p>
+          Connect GradeThread to Claude and run your pipeline from a conversation:
+          ask what is unlisted, get drafts written, publish, reprice, end listings.
+          It is a{" "}
+          <a
+            href="https://modelcontextprotocol.io"
+            className="font-medium text-brand-navy hover:underline dark:text-foreground"
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            Model Context Protocol
+          </a>{" "}
+          server, so it works in Claude Code, the Claude desktop and web apps, and
+          anything else that speaks MCP.
+        </p>
+        <p>
+          Included on <strong>Pro</strong> (${proPrice}/mo) and{" "}
+          <strong>Business</strong> (${businessPrice}/mo). Pro includes{" "}
+          {proConnectorActions.toLocaleString()} connector actions a month and
+          Business {businessConnectorActions.toLocaleString()}; reading costs
+          nothing and is not counted. The sandbox tools work on every plan,
+          including Free, so you can see what it does before paying for it.
+        </p>
+
+        <h3 className="pt-2 font-semibold text-foreground">Adding it</h3>
+        <p>In Claude Code:</p>
+        <pre className="overflow-x-auto rounded-lg bg-slate-900 p-4 text-xs text-slate-100">
+          <code>{CONNECTOR_ADD_COMMAND}</code>
+        </pre>
+        <p>
+          In the Claude web or desktop app: <strong>Settings → Connectors → Add
+          custom connector</strong>, then paste{" "}
+          <code className="rounded bg-muted px-1.5 py-0.5">
+            https://functions.gradethread.com/mcp
+          </code>
+          . Either way you will be sent to GradeThread to sign in and choose what
+          to allow.
+        </p>
+
+        <h3 className="pt-2 font-semibold text-foreground">What you are asked to allow</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b">
+                <th className="py-2 pr-4 font-semibold text-foreground">Scope</th>
+                <th className="py-2 font-semibold text-foreground">What it lets Claude do</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CONNECTOR_SCOPES.map((s) => (
+                <tr key={s.scope} className="border-b last:border-0">
+                  <td className="py-2 pr-4 align-top">
+                    <code className="rounded bg-muted px-1.5 py-0.5">{s.scope}</code>
+                  </td>
+                  <td className="py-2 align-top">{s.grants}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p>
+          You can turn any of these off on the consent screen and still connect.
+          A read-only connection is a normal thing to want.
+        </p>
+
+        <h3 className="pt-2 font-semibold text-foreground">The tools</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead>
+              <tr className="border-b">
+                <th className="py-2 pr-4 font-semibold text-foreground">Tool</th>
+                <th className="py-2 pr-4 font-semibold text-foreground">Ask for it like this</th>
+                <th className="py-2 pr-4 font-semibold text-foreground">What it does</th>
+                <th className="py-2 font-semibold text-foreground">What it will not do</th>
+              </tr>
+            </thead>
+            <tbody>
+              {CONNECTOR_TOOLS.map((t) => (
+                <tr key={t.name} className="border-b last:border-0">
+                  <td className="py-2 pr-4 align-top">
+                    <code className="rounded bg-muted px-1.5 py-0.5">{t.name}</code>
+                  </td>
+                  <td className="py-2 pr-4 align-top italic">{t.prompt}</td>
+                  <td className="py-2 pr-4 align-top">{t.does}</td>
+                  <td className="py-2 align-top">{t.wont}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
+
+      <Section icon={ShieldCheck} title="Connector safety">
+        <p>
+          <strong>Nothing that costs money or reaches a marketplace happens on
+          one call.</strong> Grading, publishing, repricing, ending and relisting
+          all preview first and then need a confirmation that is tied to the exact
+          items and prices you were shown. If the price moves between the preview
+          and the confirmation, the confirmation stops being valid and Claude has
+          to show you the new one.
+        </p>
+        <p>
+          On Claude clients that support it, you are also asked directly \u2014 a
+          prompt with a yes-or-no, not a message from Claude saying it asked you.
+        </p>
+        <p>
+          <strong>What it can spend.</strong> Grading uses your grading credits.
+          Writing drafts uses one AI action per item. Publishing and repricing cost
+          nothing themselves, but they change what buyers pay. Everything else is
+          free to run.
+        </p>
+        <p>
+          <strong>The caps, which apply even when you confirm.</strong> Per hour:
+          20 publishes, 50 price changes, 20 listings ended. Per day: 200 grades.
+          Per month: your plan's connector actions. And a price move over 25%, or
+          below an item's cost basis, is refused outright \u2014 a confirmation is
+          not a safety net for an arithmetic error.
+        </p>
+        <p>
+          <strong>Turning it off.</strong>{" "}
+          <Link
+            to="/dashboard/api-keys"
+            className="font-medium text-brand-navy hover:underline dark:text-foreground"
+          >
+            Settings → API keys
+          </Link>{" "}
+          lists every connected application. Disconnecting one stops it
+          immediately \u2014 not at the end of an hour, and not at the end of a
+          session.
+        </p>
+        <p>
+          <strong>Every call is recorded.</strong> Each tool call is written to an
+          audit log with the tool, the items it touched, whether it succeeded and
+          why it was refused if it was \u2014 kept for 400 days. Ask support for
+          your account's log if you ever need to reconstruct what happened.
         </p>
       </Section>
 
