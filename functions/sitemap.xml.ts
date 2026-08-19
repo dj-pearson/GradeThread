@@ -149,6 +149,12 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
           // marketingUrls/gradingUrls partition exactly that set.
           { name: "sitemap-marketing.xml", lastmod: newestLastmod(statics) },
           { name: "sitemap-grading.xml", lastmod: newestLastmod(statics) },
+          // US-9015: the care cluster is its own segment, listed AFTER the two
+          // commercial ones. It is deliberately not folded into marketing: a
+          // segment is a statement about what a group of pages is, and the
+          // containment decision says 32 laundry-repair pages are not the same
+          // kind of thing as the pricing page.
+          { name: "sitemap-care.xml", lastmod: newestLastmod(statics) },
           { name: "sitemap-blog.xml", lastmod: newestLastmod(blog) },
           { name: "sitemap-certs.xml", lastmod: newestLastmod(certs) },
           { name: "sitemap-passports.xml", lastmod: newestLastmod(passports) },

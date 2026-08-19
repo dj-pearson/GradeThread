@@ -316,15 +316,18 @@
     },
     {
       "id": "US-9015",
-      "passes": false,
+      "passes": true,
       "title": "Containment guards so the care cluster cannot dilute the reseller entity",
       "description": "As the operator, I want the care content structurally separated from the reseller surface, so that Google's read of what GradeThread is does not drift toward laundry advice.",
       "acceptanceCriteria": [
-        "A test asserts no /care/ URL appears in the primary navigation, the homepage, or the top tier of functions/sitemap.xml.ts.",
-        "A test asserts the interlink rules in src/lib/seo/interlink-rules.ts allow /care/ pages to link INTO the reseller spine but not the reverse, so link equity flows toward the commercial pages and the entity signal does not invert.",
-        "Care content stays on the main domain in a subdirectory, NOT a subdomain: a subdomain would split the authority this cluster exists to build.",
-        "The ratio of care URLs to reseller URLs is reported by the sitemap build; the rationale for the chosen ceiling is recorded in vault/40-growth/seo-strategy-options-2026-08.md.",
-        "Path 1 is documented in the vault note as an authority and link engine, not an acquisition channel: it is 0.5% seller intent (1,550 of 295,750) and planning it as a customer channel is the failure mode this guard prevents."
+        "A test asserts no /care/ URL appears in the primary navigation, the homepage, or the top tier of the sitemap. DONE, 12 tests in src/test/care-containment.test.ts. The care cluster now has its OWN sitemap segment, functions/sitemap-care.xml.ts, listed after the two commercial segments rather than folded into sitemap-marketing.xml.",
+        "NOTE ON THAT TEST: the homepage assertion first read src/pages/home.tsx, which does not exist. It would have passed by accident forever. The homepage is src/pages/landing.tsx. A containment guard that cannot fail is worse than no guard, because it is also a claim that the containment holds.",
+        "A test asserts the interlink rules allow /care/ pages to link INTO the reseller spine but not the reverse. DONE. /care is its own hub in interlink-rules.ts, checked FIRST in hubForPath (a care page talks about grading and would otherwise fall into the grading hub on a keyword). isCrossHubLinkAllowed refuses every link INTO care, including from the otherwise-unconstrained non-hub pages such as the homepage and the legal pages, and lets care pages link out freely.",
+        "HUB_PILLARS is typed Record<Exclude<Hub, \"care\">, string>, so giving care a pillar that cross-hub links could legally reach is a COMPILE ERROR rather than a quiet hole in the containment.",
+        "Care content stays on the main domain in a subdirectory, NOT a subdomain. DONE and asserted: a subdomain would split the authority this cluster exists to build, which is the only thing it is for.",
+        "The ratio of care URLs to reseller URLs is reported by the sitemap build; the rationale for the chosen ceiling is recorded in the vault. DONE. careRatio() in functions/_shared/sitemap.ts returns care URLs as a share of all static URLs, and a test asserts we are under the ceiling today (33 of ~226, about 15%).",
+        "THE CEILING IS 40% AND THE REASONING IS WRITTEN DOWN, because it is a decision rather than a measurement. The full Path 1 build roughly doubles today's 15%. 40% is the last point at which the commercial and grading segments together are still clearly the majority, and it leaves room for US-9014 to land without renegotiating the boundary. Recorded so the next person argues with the reasoning instead of the number.",
+        "Path 1 is documented in the vault note as an authority and link engine, not an acquisition channel. DONE, in its own section. 295,750/mo of volume, of which 1,550 carries seller intent: 0.5%. Judged as acquisition it will look like a failure at every review and somebody will correctly kill it for missing a target it was never built to hit."
       ],
       "priority": 15,
       "dependsOn": [

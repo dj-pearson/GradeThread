@@ -211,6 +211,20 @@ function isGradingRoute(path: string): boolean {
   return path === "/grading" || path.startsWith("/grading/");
 }
 
+/**
+ * US-9015: the care cluster gets its OWN sitemap segment rather than sitting in
+ * the marketing one.
+ *
+ * A sitemap segment is a statement about what a group of pages is. 32 care
+ * pages listed beside the pricing page, the comparisons and the calculators
+ * says they are the same kind of thing, and the whole containment decision is
+ * that they are not. Its own segment also makes the ratio below measurable in
+ * one place instead of by grepping.
+ */
+function isCareRoute(path: string): boolean {
+  return path === "/care" || path.startsWith("/care/");
+}
+
 function manifestRouteToUrl(base: string, r: ManifestRoute, generatedAt: string): SitemapUrl {
   return {
     loc: r.path === "/" ? `${base}/` : `${base}${r.path}`,
@@ -271,7 +285,7 @@ async function indexableConditionalPaths(env: PagesEnv): Promise<Set<string>> {
 /** US-1679: partition the manifest routes into marketing vs grading pSEO. */
 async function partitionedStaticUrls(
   env: PagesEnv,
-): Promise<{ marketing: SitemapUrl[]; grading: SitemapUrl[] }> {
+): Promise<{ marketing: SitemapUrl[]; grading: SitemapUrl[]; care: SitemapUrl[] }> {
   const base = siteUrl(env);
   const manifest = await fetchManifest(env);
   if (!manifest) {
@@ -279,20 +293,24 @@ async function partitionedStaticUrls(
     return {
       marketing: [{ loc: `${base}/`, lastmod: today(), changefreq: "weekly", priority: 1.0 }],
       grading: [],
+      care: [],
     };
   }
   const indexable = await indexableConditionalPaths(env);
   const marketing: SitemapUrl[] = [];
   const grading: SitemapUrl[] = [];
+  const care: SitemapUrl[] = [];
   for (const r of manifest.routes) {
     if (r.path in CONDITIONALLY_INDEXED && !indexable.has(r.path)) continue;
     // US-9008: a route whose canonical points elsewhere stays live and linked,
     // but advertising it here would contradict the canonical we just served.
     if (r.canonicalPath && r.canonicalPath !== r.path) continue;
     const url = manifestRouteToUrl(base, r, manifest.generatedAt);
-    (isGradingRoute(r.path) ? grading : marketing).push(url);
+    if (isCareRoute(r.path)) care.push(url);
+    else if (isGradingRoute(r.path)) grading.push(url);
+    else marketing.push(url);
   }
-  return { marketing, grading };
+  return { marketing, grading, care };
 }
 
 /** US-1679: marketing (non-grading) static routes → sitemap-marketing.xml. */
@@ -300,9 +318,35 @@ export async function marketingUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   return (await partitionedStaticUrls(env)).marketing;
 }
 
-/** US-1679: grading pSEO routes (/grading/*) → sitemap-grading.xml. */
+/** US-1679: grading pSEO routes (/grading/*) -> sitemap-grading.xml. */
 export async function gradingUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   return (await partitionedStaticUrls(env)).grading;
+}
+
+/** US-9015: the care cluster (/care/*) -> sitemap-care.xml, on its own. */
+export async function careUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  return (await partitionedStaticUrls(env)).care;
+}
+
+/**
+ * US-9015 AC4: care URLs as a share of all static URLs.
+ *
+ * THE CEILING IS 40% and the reasoning is in
+ * vault/40-growth/seo-strategy-options-2026-08.md. Past that share, the care
+ * cluster is the majority of what the domain is about, and Google's read of the
+ * entity follows the content. This function is what makes the ceiling
+ * checkable instead of aspirational.
+ */
+export async function careRatio(
+  env: PagesEnv,
+): Promise<{ care: number; total: number; pct: number }> {
+  const { marketing, grading, care } = await partitionedStaticUrls(env);
+  const total = marketing.length + grading.length + care.length;
+  return {
+    care: care.length,
+    total,
+    pct: total === 0 ? 0 : Math.round((care.length / total) * 1000) / 10,
+  };
 }
 
 /**
@@ -311,8 +355,8 @@ export async function gradingUrls(env: PagesEnv): Promise<SitemapUrl[]> {
  * links the marketing/grading split instead (US-1679).
  */
 export async function staticUrls(env: PagesEnv): Promise<SitemapUrl[]> {
-  const { marketing, grading } = await partitionedStaticUrls(env);
-  return [...marketing, ...grading];
+  const { marketing, grading, care } = await partitionedStaticUrls(env);
+  return [...marketing, ...grading, ...care];
 }
 
 export async function blogUrls(env: PagesEnv): Promise<SitemapUrl[]> {

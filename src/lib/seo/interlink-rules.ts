@@ -21,8 +21,37 @@
 //
 // PURE DATA + pure functions. No Date/Math.random (deterministic rotation).
 
-/** The topical hubs. Cross-hub authority is constrained (see isCrossHubLinkAllowed). */
-export type Hub = "grading" | "reselling" | "flipdesk";
+/**
+ * The topical hubs. Cross-hub authority is constrained (see
+ * isCrossHubLinkAllowed).
+ *
+ * US-9015 added "care". It is not a peer of the other three: it is the only hub
+ * authority may leave but not enter. See CARE_HUB_PATH below.
+ */
+export type Hub = "grading" | "reselling" | "flipdesk" | "care";
+
+/**
+ * The care cluster (US-9012), served under /care.
+ *
+ * THE RULE IS ONE-WAY AND THAT IS THE WHOLE POINT. A care page may link into
+ * the reseller spine; nothing in the reseller spine may link back. Two reasons,
+ * and the second is the one that costs money if it is ignored:
+ *
+ *   1. Link equity. Care terms are 295,750/mo against a seller surface of about
+ *      157,000, so if links ran both ways the care cluster would become the
+ *      centre of the internal graph by sheer page count.
+ *   2. The entity signal. The US-9011 SERP check found all 39 results for these
+ *      terms are craft blogs, brand blogs, UGC and charity shops, and not one is
+ *      a resale or grading site. Google reads what a site links to. Pointing the
+ *      commercial pages at laundry advice tells it we are a laundry site, and a
+ *      domain that reads as laundry advice is a weaker match for
+ *      `clothing inventory management software`.
+ *
+ * Path 1 is an AUTHORITY AND LINK ENGINE, not an acquisition channel. Only
+ * 1,550 of its 295,750 monthly searches carry seller intent, which is 0.5%.
+ * Planning it as a customer channel is the failure mode this guard prevents.
+ */
+export const CARE_HUB_PATH = "/care";
 
 /** The canonical scale page — the PageRank sink every certificate/glossary page ladders up to. */
 export const CANONICAL_SCALE_PATH = "/grading/scale";
@@ -36,8 +65,17 @@ export const CERTIFICATE_UPLINK_PATH = CANONICAL_SCALE_PATH;
 /** A cluster page must link its pillar within this many words of the start. */
 export const UPLINK_MAX_WORD_OFFSET = 100;
 
-/** Each hub's pillar page — the only non-spine targets a cross-hub link may point at. */
-export const HUB_PILLARS: Record<Hub, string> = {
+/**
+ * Each hub's pillar page - the only non-spine targets a cross-hub link may
+ * point at.
+ *
+ * US-9015: care is EXCLUDED from this map by its type, not by omission. Every
+ * other hub has a pillar that cross-hub links are allowed to reach; care has
+ * none, because no cross-hub link may reach care at all. Typing it as
+ * Exclude<Hub, "care"> makes adding one a compile error rather than a quiet
+ * hole in the containment.
+ */
+export const HUB_PILLARS: Record<Exclude<Hub, "care">, string> = {
   grading: CANONICAL_SCALE_PATH,
   reselling: "/reselling",
   flipdesk: "/flipdesk",
@@ -51,6 +89,11 @@ export const HUB_PILLARS: Record<Hub, string> = {
  */
 export function hubForPath(path: string): Hub | null {
   const p = path.replace(/\/+$/, "") || "/";
+  // US-9015: care is checked FIRST. It has to be, because a care page is
+  // allowed to talk about grading and would otherwise fall through into the
+  // grading hub on a keyword, which is exactly the classification that lets the
+  // two become one graph.
+  if (p === CARE_HUB_PATH || p.startsWith(`${CARE_HUB_PATH}/`)) return "care";
   // The spine lives under /reselling but is the crossover — classify by its own hub.
   if (p === "/flipdesk" || p.startsWith("/flipdesk/")) return "flipdesk";
   if (
@@ -222,8 +265,15 @@ export function pickAnchor(url: string, seed: number): string | null {
 export function isCrossHubLinkAllowed(fromPath: string, toPath: string): boolean {
   const fromHub = hubForPath(fromPath);
   const toHub = hubForPath(toPath);
-  if (fromHub === null || toHub === null) return true;
   if (fromHub === toHub) return true;
+  // US-9015: nothing may link INTO care from anywhere else, including the
+  // otherwise-unconstrained non-hub pages (home, legal). Checked before the
+  // null-hub escape below, or the homepage would be free to link at it.
+  if (toHub === "care") return false;
+  // A care page linking OUT is deliberately unconstrained: the whole design is
+  // that equity flows one way, down into the commercial pages.
+  if (fromHub === "care") return true;
+  if (fromHub === null || toHub === null) return true;
   const to = toPath.replace(/\/+$/, "") || "/";
   if (to === SPINE_PATH) return true;
   return (Object.values(HUB_PILLARS) as string[]).includes(to);

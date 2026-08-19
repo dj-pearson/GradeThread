@@ -519,6 +519,55 @@ reseller spine but not the reverse, and do not let it onto the homepage or the
 primary navigation. Do not use a subdomain, which would split the authority
 Path 1 exists to build in the first place.
 
+### The containment, as built (US-9015, 2026-08-18)
+
+The risk above stopped being a warning and became four mechanisms. Guarded by
+`src/test/care-containment.test.ts`.
+
+**A subdirectory, never a subdomain.** `/care`, on the main domain. A subdomain
+would split the authority this cluster exists to build, which is the only thing
+it is for.
+
+**Links run one way.** `/care` is its own hub in `interlink-rules.ts` and
+`isCrossHubLinkAllowed` refuses every link INTO it, including from the otherwise
+unconstrained non-hub pages like the homepage. Care pages may link out freely.
+`HUB_PILLARS` is typed `Record<Exclude<Hub, "care">, string>`, so giving care a
+pillar that cross-hub links could reach is a compile error rather than a quiet
+hole.
+
+**Its own sitemap segment.** `sitemap-care.xml`, listed after the two commercial
+segments rather than folded into `sitemap-marketing.xml`. A segment is a
+statement about what a group of pages is, and 32 laundry-repair pages are not
+the same kind of thing as the pricing page. It also makes the cluster's
+indexation and impressions readable as one line in GSC, which is what US-9016's
+kill criteria need to be answerable at all.
+
+**A ceiling of 40%, reported rather than hoped for.** `careRatio()` in
+`functions/_shared/sitemap.ts` returns care URLs as a share of all static URLs.
+
+*Why 40% and not 25% or 60%.* The cluster is 33 of about 226 static routes
+today, which is 15%. The full Path 1 build would roughly double that. The
+number that matters is not the page count but which way a reader of the sitemap
+would describe the site, and past a plurality the honest description changes.
+40% is the last point at which the commercial and grading segments together are
+still clearly the majority, and it leaves room for the flaw-crossed-with-fabric
+matrix (US-9014) to land without a rewrite of the boundary. It is a decision,
+not a measurement, and it is written down so the next person argues with the
+reasoning instead of the number.
+
+### Path 1 is an authority engine, not an acquisition channel
+
+Worth stating flatly, because the volume invites the opposite conclusion and the
+opposite conclusion is the failure mode every guard above exists to prevent.
+
+Path 1 is 295,750/mo. **1,550 of that carries seller intent. That is 0.5%.**
+
+So it is not a customer channel and must never be planned as one. What it is
+worth is links, topical breadth around garment condition, and a reason for
+somebody outside the resale world to cite the domain at all. Those are real and
+slow. Judged as acquisition it will look like a failure at every review, and
+somebody will correctly kill it for missing a target it was never built to hit.
+
 ### The differentiator that keeps Path 3 from being a commodity
 
 Fee calculators are commoditized and rank largely on domain strength, which is
