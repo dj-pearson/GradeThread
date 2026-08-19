@@ -8,6 +8,7 @@ import { textChanged } from "@/lib/listing-ai-diff";
 import { suggestTitle } from "@/lib/listing-templates";
 import { cn } from "@/lib/utils";
 import { TITLE_MAX } from "@/lib/composer-save";
+import { TERM_GREEN_MIN } from "@/lib/title-quality";
 import type { ItemFullRow, ListingAiSnapshot } from "@/types/database";
 import type { RewriteAction } from "@/hooks/use-ai-extract";
 import type { titleQuality } from "@/lib/title-quality";
@@ -66,9 +67,12 @@ const SAVE_STATE_TEXT: Record<FieldSaveState, string> = {
   saved: "Title saved",
   error: "Title not saved yet — use Save draft",
 };
-// Title, with the US-1892 quality meter: utilization band, brand-first check,
-// policy/quality lint, and pack-to-80 chips from the listing's mined demand terms
-// and high-value filled aspects.
+// Title, with the US-1892 quality meter: brand-first check, policy/quality lint,
+// and keyword chips from the listing's mined demand terms and high-value filled
+// aspects.
+//
+// US-2680: the meter counts DISTINCT SEARCHABLE TERMS, not characters. The
+// character readout beside the input is a hard-limit counter and nothing more.
 export function TitleCard({
   title,
   setTitle,
@@ -94,11 +98,16 @@ export function TitleCard({
     <Card>
       <CardHeader>
         <CardTitle>Title</CardTitle>
+        {/* US-2680: this used to say "fill the space". That is advice the
+            quality score refuses to give, and the playbook lists 70-80
+            characters as vendor lore rather than an eBay statement. What a
+            title can actually add is vocabulary the structured fields do not
+            already carry, so that is what it asks for now. */}
         <CardDescription>
-          eBay caps titles at {TITLE_MAX} characters and every word is
-          searchable — front-load the brand for click-through, fill the
-          space with real keywords, and don't repeat words (duplicates add
-          no ranking benefit). Filled item specifics are also searchable.
+          eBay caps titles at {TITLE_MAX} characters. Front-load the brand for
+          click-through, then spend the room on words nothing else carries. Your
+          filled item specifics are already searchable, so repeating them here
+          costs characters and adds no reach. There is no length to aim for.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -116,14 +125,16 @@ export function TitleCard({
                 : undefined
             }
           />
+{/* US-2680: a HARD-LIMIT counter, not a score. It goes red at 80 because
+              eBay truncates there, and it is otherwise plain — colouring 70-80
+              green is what taught sellers to pad, and the playbook §2 lists
+              "70-80 characters" as vendor lore rather than an eBay statement. */}
           <span
             className={cn(
               "absolute right-2 top-1/2 -translate-y-1/2 text-[10px] tabular-nums",
               titleMeter.utilization.band === "full"
                 ? "font-semibold text-destructive"
-                : titleMeter.utilization.band === "good"
-                  ? "text-emerald-600 dark:text-emerald-400"
-                  : "text-muted-foreground",
+                : "text-muted-foreground",
             )}
           >
             {titleLen}/{TITLE_MAX}
@@ -144,27 +155,42 @@ export function TitleCard({
             {SAVE_STATE_TEXT[saveState]}
           </p>
         )}
-        {/* US-1892: utilization bar — green in the 70–80 sweet spot. */}
+{/* US-2680: the bar measures DISTINCT SEARCHABLE TERMS, not characters.
+            A word already sitting in a filled item specific does not move it:
+            eBay indexes the aspect, so repeating it in the title buys nothing
+            and spends characters that could have carried something new. */}
         <div
           className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
           role="progressbar"
-          aria-valuenow={titleMeter.utilization.pct}
+          aria-valuenow={titleMeter.terms.count}
           aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label="Title length utilization"
+          aria-valuemax={TERM_GREEN_MIN}
+          aria-label="Distinct searchable terms in the title"
         >
           <div
             className={cn(
               "h-full rounded-full transition-all",
-              titleMeter.utilization.band === "good"
-                ? "bg-emerald-500"
-                : titleMeter.utilization.band === "full"
-                  ? "bg-destructive"
-                  : "bg-amber-500",
+              titleMeter.terms.band === "good" ? "bg-emerald-500" : "bg-amber-500",
             )}
-            style={{ width: `${titleMeter.utilization.pct}%` }}
+            style={{
+              width: `${Math.min(100, Math.round((titleMeter.terms.count / TERM_GREEN_MIN) * 100))}%`,
+            }}
           />
         </div>
+        <p className="text-xs text-muted-foreground">
+          {titleMeter.terms.count} searchable{" "}
+          {titleMeter.terms.count === 1 ? "term" : "terms"}
+          {titleMeter.terms.redundant.length > 0 && (
+            <>
+              {" · "}
+              {titleMeter.terms.redundant.length} already in your item specifics
+              {": "}
+              <span className="text-foreground">
+                {titleMeter.terms.redundant.slice(0, 4).join(", ")}
+              </span>
+            </>
+          )}
+        </p>
         {(!titleMeter.brandFirst ||
           titleMeter.lint.warnings.length > 0 ||
           titleMeter.lint.policyViolations.length > 0) && (

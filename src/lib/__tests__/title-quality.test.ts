@@ -7,28 +7,35 @@ import {
   TITLE_MAX,
   titleQuality,
   titleUtilization,
+  titleTerms,
+  TERM_GREEN_MIN,
+  TERM_WEAK_BELOW,
 } from "../title-quality";
 
-describe("titleUtilization", () => {
-  it("reports the green band at 70–80 chars", () => {
-    expect(titleUtilization("x".repeat(75)).band).toBe("good");
-    expect(titleUtilization("x".repeat(70)).band).toBe("good");
+// US-2680 REWROTE THIS BLOCK. It used to assert that 70 and 75 characters were
+// "good" and a short title was "low" — a length target the ranking playbook
+// lists as vendor lore and listing-quality-score.ts already refused to score.
+// The character readout is now a hard-limit counter and nothing more.
+describe("titleUtilization is a hard limit, not a target", () => {
+  it("reports characters used without judging the number", () => {
+    expect(titleUtilization("x".repeat(62)).band).toBe("within");
+    expect(titleUtilization("x".repeat(75)).band).toBe("within");
+    // 62 and 75 are the SAME band on purpose: neither is better than the other.
   });
-  it("flags a short title as low", () => {
-    expect(titleUtilization("Nike tee").band).toBe("low");
+
+  it("goes full at the cap, because eBay truncates there", () => {
+    expect(titleUtilization("x".repeat(80)).band).toBe("full");
+    expect(titleUtilization("x".repeat(90)).band).toBe("full");
   });
-  it("flags an empty title", () => {
+
+  it("an empty title is empty", () => {
     expect(titleUtilization("").band).toBe("empty");
     expect(titleUtilization("   ").used).toBe(0);
   });
-  it("caps at the max and reports 100% when full", () => {
-    const u = titleUtilization("y".repeat(90));
-    expect(u.pct).toBe(100);
-    expect(u.band).toBe("full");
-  });
-  it("computes pct against the 80 default", () => {
-    expect(titleUtilization("z".repeat(40)).pct).toBe(50);
-    expect(titleUtilization("z".repeat(40)).max).toBe(TITLE_MAX);
+
+  it("pct still tracks fill, for the counter", () => {
+    expect(titleUtilization("x".repeat(40)).pct).toBe(50);
+    expect(titleUtilization("x".repeat(120)).pct).toBe(100);
   });
 });
 
@@ -136,11 +143,15 @@ describe("packTitleSuggestions", () => {
 });
 
 describe("titleQuality", () => {
-  it("marks a short title weak", () => {
+  it("marks a thin title weak", () => {
     const q = titleQuality({ title: "Nike tee", brand: "Nike" });
     expect(q.weak).toBe(true);
     expect(q.brandFirst).toBe(true);
-    expect(q.utilization.band).toBe("low");
+    // US-2680: weak now means too few distinct searchable terms. The length
+    // band says only that the title is inside the 80-character cap, which is
+    // true of every title that is not empty or over it.
+    expect(q.terms.count).toBeLessThan(TERM_WEAK_BELOW);
+    expect(q.utilization.band).toBe("within");
   });
 
   it("marks a lint-flagged title weak even when long enough", () => {
@@ -226,3 +237,121 @@ function packTitleSuggestionsFor(
 ) {
   return titleQuality({ title, brand: "Patagonia", demandTerms });
 }
+
+// ---------------------------------------------------------------------------
+// US-2680: the meter counts distinct searchable terms
+//
+// The bug was that the composer and the quality score disagreed, and the
+// composer won because it is the one a seller reads while typing. It painted
+// 70-80 characters green; listing-quality-score.ts explicitly refuses to score
+// length because the playbook §2 lists that band as vendor lore. So the meter
+// was teaching sellers to pad, and what padding usually carries is a word the
+// item specifics already hold — which eBay indexes from the structured field
+// anyway.
+// ---------------------------------------------------------------------------
+
+describe("titleTerms", () => {
+  it("counts words the item specifics do not already carry", () => {
+    const out = titleTerms("Patagonia Synchilla Snap T Fleece Pullover Navy Medium", {
+      Brand: "Patagonia",
+      Size: "Medium",
+      Color: "Navy",
+    });
+    expect(out.redundant).toEqual(expect.arrayContaining(["patagonia", "medium", "navy"]));
+    expect(out.distinct).toEqual(expect.arrayContaining(["synchilla", "snap", "fleece", "pullover"]));
+    expect(out.redundant).not.toContain("synchilla");
+  });
+
+  it("with no aspects supplied, nothing is redundant", () => {
+    const out = titleTerms("Patagonia Synchilla Snap Fleece Navy");
+    expect(out.redundant).toEqual([]);
+    expect(out.count).toBe(out.distinct.length);
+  });
+
+  it("a repeated word counts once", () => {
+    const out = titleTerms("Fleece Fleece Fleece Pullover");
+    expect(out.distinct).toEqual(["fleece", "pullover"]);
+  });
+
+  it("filler words are not searchable terms", () => {
+    const out = titleTerms("Great Fleece for Men with Free Shipping Size Medium");
+    expect(out.distinct).not.toContain("great");
+    expect(out.distinct).not.toContain("free");
+    expect(out.distinct).not.toContain("shipping");
+    expect(out.distinct).not.toContain("size");
+    expect(out.distinct).toContain("fleece");
+  });
+
+  it("the green band is on the term count", () => {
+    const thin = titleTerms("Patagonia Fleece Jacket");
+    expect(thin.band).toBe("thin");
+    const good = titleTerms(
+      "Patagonia Synchilla Snap Fleece Pullover Navy Deep Pile Retro",
+    );
+    expect(good.count).toBeGreaterThanOrEqual(TERM_GREEN_MIN);
+    expect(good.band).toBe("good");
+  });
+
+  it("an empty title is empty, not thin", () => {
+    expect(titleTerms("").band).toBe("empty");
+    expect(titleTerms("").count).toBe(0);
+  });
+});
+
+describe("AC5: a padded long title scores below a shorter distinct one", () => {
+  // The headline case, and the exact shape the old character meter got wrong.
+  const aspects = { Brand: "Patagonia", Size: "Medium", Color: "Navy", Department: "Men" };
+
+  // 78 characters, and most of them restate Brand, Size and Color.
+  const padded = "Patagonia Patagonia Navy Navy Medium Medium Men Mens Fleece Great Nice Jacket";
+  // 62 characters, carrying model, construction and era terms nothing else has.
+  const distinct = "Patagonia Synchilla Snap T Deep Pile Retro Fleece Pullover";
+
+  it("the padded title is genuinely longer", () => {
+    // If this ever stops being true the comparison below proves nothing.
+    expect(padded.length).toBeGreaterThan(distinct.length);
+    expect(padded.length).toBeGreaterThan(70);
+    expect(distinct.length).toBeLessThan(70);
+  });
+
+  it("the OLD meter would have preferred the padded one", () => {
+    // Documenting the bug: on characters alone, padded wins outright.
+    expect(titleUtilization(padded).used).toBeGreaterThan(titleUtilization(distinct).used);
+  });
+
+  it("the new meter counts more searchable terms in the SHORTER title", () => {
+    const paddedTerms = titleTerms(padded, aspects);
+    const distinctTerms = titleTerms(distinct, aspects);
+    expect(distinctTerms.count).toBeGreaterThan(paddedTerms.count);
+  });
+
+  it("and the padded title is the one flagged weak", () => {
+    const paddedQuality = titleQuality({ title: padded, brand: "Patagonia", aspects });
+    const distinctQuality = titleQuality({ title: distinct, brand: "Patagonia", aspects });
+    expect(distinctQuality.terms.count).toBeGreaterThan(paddedQuality.terms.count);
+    expect(paddedQuality.terms.redundant.length).toBeGreaterThan(
+      distinctQuality.terms.redundant.length,
+    );
+  });
+});
+
+describe("AC2: no character threshold survives", () => {
+  it("weakness is decided on terms, not length", () => {
+    // A short title with plenty of distinct terms is NOT weak; a long one with
+    // few is. That inversion is the whole story.
+    const shortRich = titleQuality({
+      title: "Synchilla Snap Deep Pile Retro Fleece Pullover",
+      brand: null,
+    });
+    expect(shortRich.terms.count).toBeGreaterThanOrEqual(TERM_WEAK_BELOW);
+    expect(shortRich.weak).toBe(false);
+
+    const longThin = titleQuality({
+      title: "Great Nice Item for Men with Free Fast Shipping and All the Extras Here",
+      brand: null,
+    });
+    expect(longThin.utilization.used).toBeGreaterThan(shortRich.utilization.used);
+    expect(longThin.terms.count).toBeLessThan(TERM_WEAK_BELOW);
+    expect(longThin.weak).toBe(true);
+  });
+});

@@ -12,11 +12,31 @@
 // IMAGE_TYPES / STYLE_ATTRIBUTES mirrors).
 
 export const TITLE_MAX = 80;
-// eBay guidance + EBAY_RANKING_PLAYBOOK: aim to use most of the 80-char surface.
-// 70–80 is the "green" band; below wastes retrieval reach, 80 is the hard cap.
-const TITLE_GREEN_MIN = 70;
-// Bulk autolister flags anything below this as too thin to publish confidently.
-const TITLE_WEAK_BELOW = 60;
+
+// US-2680 REMOVED TITLE_GREEN_MIN, and the reason is worth keeping.
+//
+// This file used to paint 70–80 characters green, citing the ranking playbook.
+// The playbook §2 says the opposite: "70-80 characters" is listed there as
+// VENDOR LORE, not an eBay statement, and listing-quality-score.ts had already
+// refused to score length for exactly that reason. So the two surfaces
+// disagreed, and the composer — the one a seller actually reads while typing —
+// was the one teaching the wrong lesson: pad until the bar goes green.
+//
+// Padding is not free. The characters go somewhere, and what they usually carry
+// is a word the item specifics already hold, which eBay indexes from the
+// structured field anyway. A seller following the old meter spent their 80
+// characters restating Brand and Size instead of adding a term nothing else
+// carries.
+//
+// What the meter counts now is DISTINCT SEARCHABLE TERMS: words in the title
+// that are not already carried by a filled item specific. That is defensible
+// against the playbook, and it moves the seller toward the only thing a title
+// can add — vocabulary the structured fields do not have.
+
+/** Distinct searchable terms at or above which the meter reads green. */
+export const TERM_GREEN_MIN = 6;
+/** Below this a title is too thin to match many queries at all. */
+export const TERM_WEAK_BELOW = 4;
 
 // ── lint (LOCKSTEP mirror of edge title-lint.ts) ────────────────────────────
 
@@ -121,12 +141,20 @@ export function lintTitle(rawTitle: string): TitleLintResult {
 
 // ── utilization + brand-first ───────────────────────────────────────────────
 
-export type UtilizationBand = "empty" | "low" | "good" | "full";
+/**
+ * US-2680: there is no "good" length any more.
+ *
+ * The band says only whether the title is empty, within the 80-character cap,
+ * or at/over it — a hard limit, which is a real eBay constraint, rather than a
+ * target, which is not. A seller at 62 characters is not doing worse than one
+ * at 74 and this type no longer implies they are.
+ */
+export type UtilizationBand = "empty" | "within" | "full";
 
 export interface TitleUtilization {
   used: number;
   max: number;
-  /** 0–100, capped at 100. */
+  /** 0–100, capped at 100. A fill indicator, NOT a score. */
   pct: number;
   band: UtilizationBand;
 }
@@ -137,12 +165,70 @@ export function titleUtilization(
 ): TitleUtilization {
   const used = (title ?? "").trim().length;
   const pct = max > 0 ? Math.min(100, Math.round((used / max) * 100)) : 0;
-  let band: UtilizationBand;
-  if (used === 0) band = "empty";
-  else if (used >= max) band = "full";
-  else if (used >= TITLE_GREEN_MIN) band = "good";
-  else band = "low";
+  const band: UtilizationBand = used === 0 ? "empty" : used >= max ? "full" : "within";
   return { used, max, pct, band };
+}
+
+// ── US-2680: distinct searchable terms ─────────────────────────────────────
+
+export type TermBand = "empty" | "thin" | "good";
+
+export interface TitleTerms {
+  /** Title words not already carried by a filled item specific. */
+  distinct: string[];
+  /** Title words a filled item specific already carries. Padding, in effect. */
+  redundant: string[];
+  count: number;
+  band: TermBand;
+}
+
+/**
+ * Words that occupy characters and add no retrievable meaning. Smaller than a
+ * search stopword list on purpose: this one only needs to catch what a seller
+ * types to fill space.
+ */
+const NON_SEARCHABLE = new Set<string>([
+  "the", "and", "for", "with", "your", "you", "this", "that", "all",
+  "in", "of", "to", "a", "an", "or", "by", "on", "at", "is", "it", "from",
+  "size", "mens", "womens", "men", "women", "kids", "unisex",
+  "great", "good", "excellent", "nice", "perfect", "look", "looks",
+  "free", "shipping", "fast", "ship", "item", "items", "brand",
+]);
+
+/**
+ * Count what the title adds that the structured fields do not.
+ *
+ * A word already sitting in a filled item specific is REDUNDANT here, not
+ * wrong: eBay indexes the aspect, so repeating it in the title buys nothing and
+ * costs characters. That is the whole mechanism by which the old
+ * pad-to-70 advice made listings worse.
+ */
+export function titleTerms(
+  title: string,
+  aspects?: Record<string, string | string[] | null | undefined>,
+): TitleTerms {
+  const inAspects = new Set<string>();
+  for (const value of Object.values(aspects ?? {})) {
+    const values = Array.isArray(value) ? value : value == null ? [] : [value];
+    for (const v of values) {
+      for (const token of tokenize(String(v))) inAspects.add(token);
+    }
+  }
+
+  const seen = new Set<string>();
+  const distinct: string[] = [];
+  const redundant: string[] = [];
+  for (const token of tokenize(title ?? "")) {
+    if (token.length < 2 || NON_SEARCHABLE.has(token)) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    if (inAspects.has(token)) redundant.push(token);
+    else distinct.push(token);
+  }
+
+  const count = distinct.length;
+  const band: TermBand = count === 0 ? "empty" : count >= TERM_GREEN_MIN ? "good" : "thin";
+  return { distinct, redundant, count, band };
 }
 
 /**
@@ -297,11 +383,14 @@ export function packTitleSuggestions(
 // ── combined meter model ────────────────────────────────────────────────────
 
 export interface TitleQuality {
+  /** Characters used against the 80 cap. A hard limit, never a target (US-2680). */
   utilization: TitleUtilization;
+  /** US-2680: what the title adds that the item specifics do not. */
+  terms: TitleTerms;
   brandFirst: boolean;
   lint: TitleLintResult;
   suggestions: PackSuggestion[];
-  /** Weak = too short OR any lint finding — drives the bulk-drafts flag. */
+  /** Weak = too few distinct terms OR any lint finding — drives the bulk flag. */
   weak: boolean;
 }
 
@@ -315,8 +404,12 @@ export function titleQuality(input: TitleQualityInput): TitleQuality {
   const lint = lintTitle(title);
   const brandFirst = isBrandFirst(title, input.brand);
   const suggestions = packTitleSuggestions(input);
-  const weak = utilization.used < TITLE_WEAK_BELOW ||
+  const terms = titleTerms(title, input.aspects);
+  // US-2680: weakness is now about TERMS, not characters. An 78-character title
+  // restating Brand and Size carries less than a 62-character one that does not,
+  // and the old character threshold called the padded one stronger.
+  const weak = terms.count < TERM_WEAK_BELOW ||
     lint.policyViolations.length > 0 ||
     lint.warnings.length > 0;
-  return { utilization, brandFirst, lint, suggestions, weak };
+  return { utilization, terms, brandFirst, lint, suggestions, weak };
 }
