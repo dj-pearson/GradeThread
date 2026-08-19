@@ -2,8 +2,8 @@
 //
 // WHY A SCRIPT. Eleven of the nineteen URLs in docs/seo/ctr-rewrite-worklist.csv
 // are registry routes, so their titles are code and ship with the build. The
-// other eight are /blog/ posts, whose SERP copy is `blog_posts.seo_title` and
-// `blog_posts.seo_description` — rows an admin can also edit in the UI. A
+// other seven are /blog/ posts, whose SERP copy is `blog_posts.seo_title` and
+// `blog_posts.seo_description` - rows an admin can also edit in the UI. A
 // migration cannot own those columns without fighting the editor for them, so
 // the CSV is the drafting surface and this is the one-way import.
 //
@@ -31,7 +31,7 @@ const BLOG_PREFIX = "/blog/";
 
 // Blog titles get no " | GradeThread" suffix (functions/blog/[[path]].ts builds
 // the <title> from seo_title verbatim), so the whole 60-char SERP cap is
-// available — unlike the 46 the registry routes have to fit into.
+// available - unlike the 46 the registry routes have to fit into.
 const TITLE_MAX = 60;
 const DESC_MIN = 70;
 const DESC_MAX = 160;
@@ -100,6 +100,34 @@ export function validate(rewrite) {
   return problems;
 }
 
+/**
+ * Has this row been edited by a human since the worklist was captured?
+ *
+ * The worklist's current_title is what the SERP showed at capture. The DB
+ * produces that SERP title one of two ways: seo_title holds it, or seo_title is
+ * NULL and it falls back to title. A row already carrying the PROPOSED title is
+ * a part-written earlier run, which is resumable rather than edited. Anything
+ * else is somebody's edit and must not be clobbered.
+ *
+ * WARNING: THIS USED TO CONTAIN `|| post.title === rewrite.currentTitle`, and that
+ * clause defeated the guard in the commonest case. Five of the seven rows had
+ * seo_title NULL at capture, so current_title WAS title; once an admin set
+ * seo_title in the UI, title still matched current_title, the clause fired, and
+ * the script overwrote the edit while reporting "wrote" - the one thing the
+ * header of this file promises never happens.
+ *
+ * Caught 2026-08-18 by running --apply against the throwaway local stack with a
+ * seeded fixture. It could not have been caught any other way: the dry run
+ * never reads the database, so it exercises none of this.
+ */
+export function isUntouched(post, rewrite) {
+  return (
+    post.seo_title === null ||
+    post.seo_title === rewrite.currentTitle ||
+    post.seo_title === rewrite.title
+  );
+}
+
 async function main() {
   const apply = process.argv.includes("--apply");
   const force = process.argv.includes("--force");
@@ -115,7 +143,7 @@ async function main() {
     }
   }
   if (invalid) {
-    console.error(`[ctr] ${invalid} row(s) fail the SERP budget — fix the CSV first`);
+    console.error(`[ctr] ${invalid} row(s) fail the SERP budget - fix the CSV first`);
     process.exit(1);
   }
 
@@ -126,7 +154,7 @@ async function main() {
       console.log(`     now  ${r.title}`);
       console.log(`     ${r.impressions} impressions at ${r.ctr}% CTR`);
     }
-    console.log("[ctr] dry run — nothing written. Pass --apply to write.");
+    console.log("[ctr] dry run - nothing written. Pass --apply to write.");
     return;
   }
 
@@ -160,7 +188,7 @@ async function main() {
   for (const r of rewrites) {
     const post = live.get(r.slug);
     if (!post) {
-      console.error(`  missing ${r.slug} — no blog_posts row with that slug`);
+      console.error(`  missing ${r.slug} - no blog_posts row with that slug`);
       missing++;
       continue;
     }
@@ -169,16 +197,9 @@ async function main() {
       skipped++;
       continue;
     }
-    // The worklist's current_title is what the SERP showed when it was
-    // captured; the DB shows either that (via seo_title) or nothing (falling
-    // back to title). Anything else means a human edited the row since.
-    const untouched =
-      post.seo_title === null ||
-      post.seo_title === r.currentTitle ||
-      post.title === r.currentTitle;
-    if (!untouched && !force) {
+    if (!isUntouched(post, r) && !force) {
       console.log(
-        `  edited ${r.slug} — seo_title is "${post.seo_title}", not the "${r.currentTitle}" the worklist captured. Skipped; pass --force to overwrite.`,
+        `  edited ${r.slug} - seo_title is "${post.seo_title}", not the "${r.currentTitle}" the worklist captured. Skipped; pass --force to overwrite.`,
       );
       skipped++;
       continue;

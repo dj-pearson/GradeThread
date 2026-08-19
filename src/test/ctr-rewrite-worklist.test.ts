@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   parseCsv,
   blogRewrites,
+  isUntouched,
   validate,
 } from "../../scripts/apply-blog-ctr-rewrites.mjs";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";
@@ -89,5 +90,58 @@ describe("value item titles stay inside the SERP cap (US-9017)", () => {
       expect(valueItemTitle(label).length, label).toBeLessThanOrEqual(60);
     }
     expect(valueItemTitle("A".repeat(120))).toBe(`${"A".repeat(120)} Resale Value`);
+  });
+});
+
+// US-9017. The clobber guard, extracted so it can be tested without a database.
+//
+// It was BROKEN when this test was written, and the break was invisible to
+// every check that existed: the dry run never reads the database, so it
+// exercises none of this. It was caught by running --apply against the
+// throwaway local stack with a seeded fixture on 2026-08-18, which found the
+// script silently overwriting an admin's edit while reporting "wrote" — the one
+// thing the script's own header promises it never does.
+describe("the CTR script never clobbers an admin edit (US-9017)", () => {
+  const rewrite = {
+    slug: "a-post",
+    currentTitle: "The Title The Worklist Captured",
+    title: "The Proposed New Title",
+    description: "The proposed new description.",
+  };
+
+  it("treats a NULL seo_title as untouched: the SERP was showing `title`", () => {
+    expect(isUntouched({ title: rewrite.currentTitle, seo_title: null }, rewrite)).toBe(true);
+  });
+
+  it("treats seo_title equal to the captured title as untouched", () => {
+    expect(
+      isUntouched({ title: "Something Else", seo_title: rewrite.currentTitle }, rewrite),
+    ).toBe(true);
+  });
+
+  it("treats seo_title equal to the PROPOSED title as untouched, not edited", () => {
+    // A part-written earlier run: title applied, description not. Resumable.
+    expect(isUntouched({ title: "Something Else", seo_title: rewrite.title }, rewrite)).toBe(
+      true,
+    );
+  });
+
+  it("treats any other seo_title as an edit to be protected", () => {
+    expect(
+      isUntouched({ title: "Something Else", seo_title: "Admin wrote this" }, rewrite),
+    ).toBe(false);
+  });
+
+  it("THE REGRESSION: a matching `title` must not excuse an edited seo_title", () => {
+    // This is the exact shape that was being clobbered. seo_title was NULL when
+    // the worklist was captured, so current_title == title; an admin then set
+    // seo_title. The old guard had `|| post.title === currentTitle`, which
+    // fired here and overwrote the admin.
+    expect(
+      isUntouched(
+        { title: rewrite.currentTitle, seo_title: "Admin Edited This In The UI Last Week" },
+        rewrite,
+      ),
+    ).toBe(false);
   });
 });

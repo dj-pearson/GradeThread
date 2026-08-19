@@ -48,3 +48,26 @@ export function blogRewrites(csvText: string): BlogRewrite[];
 
 /** Reasons a rewrite must not ship. Empty array means it is good to write. */
 export function validate(rewrite: BlogRewrite): string[];
+
+/** The live blog_posts columns the clobber guard reads. */
+export interface LivePost {
+  title: string;
+  seo_title: string | null;
+}
+
+/**
+ * Has this row NOT been edited by a human since the worklist was captured?
+ *
+ * WARNING: this returned true for an edited row until 2026-08-18. The guard
+ * carried a third clause, `post.title === rewrite.currentTitle`, which fired in
+ * the commonest case (seo_title NULL at capture, so current_title WAS title)
+ * and let the script overwrite an admin's edit while reporting "wrote".
+ *
+ * It was caught by running --apply against the throwaway local stack with a
+ * seeded fixture, and it could not have been caught any other way: the dry run
+ * never reads the database. Declared here so the regression test can hold it.
+ */
+export function isUntouched(
+  post: LivePost,
+  rewrite: Pick<BlogRewrite, "currentTitle" | "title">,
+): boolean;
