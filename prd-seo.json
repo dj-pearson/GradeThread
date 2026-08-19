@@ -124,15 +124,20 @@
     },
     {
       "id": "US-9006",
-      "passes": false,
+      "passes": true,
       "title": "Reseller profit calculator that takes CONDITION as an input",
       "description": "As a reseller deciding whether an item is worth listing, I want a profit calculator that factors the item's condition into the estimated sale price, so that I get a realistic number rather than one based on a mint-condition comp.",
       "acceptanceCriteria": [
-        "Inputs cost of goods, marketplace, sale price, shipping, and a condition grade on the 1.0-10.0 scale; outputs gross, fees, net profit, margin and ROI.",
-        "The condition input adjusts the estimated sale price using the same tier definitions the grading engine uses, and the page states the adjustment applied rather than hiding it. This is the differentiator that keeps the calculator off the commodity pile: no competing fee calculator has a condition axis.",
-        "A 'grade this item' call to action links to the grading flow, and the link carries a UTM or PostHog property so the calculator-to-grading path is measurable.",
-        "Targets `reseller profit calculator` (50/mo), `ebay profit calculator` (5,000/mo) and `resale profit margin calculator`, registered in keyword-targets.ts.",
-        "A unit test asserts that two identical items differing only in condition grade produce different estimated sale prices, and that a 10.0 grade applies no downward adjustment."
+        "Inputs cost of goods, marketplace, sale price, shipping, and a condition grade on the 1.0-10.0 scale; outputs gross, fees, net profit, margin and ROI. DONE. The marketplace selector reuses the US-9005 fee schedules, so all five platforms are priced by the same code the fee calculators use.",
+        "The condition input adjusts the estimated sale price using the same tier definitions the grading engine uses, and the page states the adjustment applied rather than hiding it. DONE, and the tier function is now SHARED rather than duplicated: tierLabelForGrade moved out of whats-it-worth.tsx into src/lib/condition-value-curve.ts and both surfaces import it.",
+        "TWO grades, not one. The calculator asks what condition the COMP was in as well as the item, because a comp taken from a mint listing overstates a worn item and a comp from a beaten one understates a clean one. Every competing calculator assumes the comp is mint and can only adjust downward, which is why sellers using them under-price good stock.",
+        "A 'grade this item' call to action links to the grading flow, and the link carries a PostHog property so the calculator-to-grading path is measurable. DONE. New registry event calculator_grading_cta_click with the {source, destination} property shape already used by comparison_crosslist_cta_click, so US-9010 can read both funnels off one shape.",
+        "Targets `reseller profit calculator`, `ebay profit calculator` and `resale profit margin calculator`, registered in keyword-targets.ts. DONE.",
+        "A unit test asserts that two identical items differing only in condition grade produce different estimated sale prices, and that a 10.0 grade applies no downward adjustment. DONE, 12 tests in src/lib/__tests__/condition-value-curve.test.ts.",
+        "THE MULTIPLIERS ARE MEASURED, NOT INVENTED, which was the real work in this story. They are derived from GradeThread's own public Condition Index: 53 published curves resting on 3,811 eBay sold comps, each grade's median divided by that curve's grade-10 median, then the median of those 53 ratios. scripts/seo/derive-condition-value-curve.mjs re-runs it against live data and reproduces the committed table exactly.",
+        "WHAT THE NUMBERS ARE NOT is stated in the module and on the page: each Index curve is anchored on three measured bands of up to 25 comps, and the grades between anchors are the Index's own interpolation. So it summarises 159 measured bands, not 3,811 independent observations of ten grades.",
+        "THE SPREAD IS PUBLISHED NEXT TO THE AVERAGE. At grade 9.0 the ratio runs 0.527 to 1.000 across the 53 items, so the page prints the range beside every median and tells the reader to look at it first. When the seller picks a specific Condition Index item, the calculator uses that item's own measured curve and says which of the two it used.",
+        "FOLLOW-UP: US-2280 (regress realized FlipDesk outcomes against assigned grades) would replace this derived curve with an outcome-grounded one. The module names it."
       ],
       "priority": 8,
       "dependsOn": [

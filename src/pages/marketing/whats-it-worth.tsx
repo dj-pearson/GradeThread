@@ -29,6 +29,7 @@ import {
   formatCurveCents,
   type ConditionCurvePoint,
 } from "@/hooks/use-condition-index";
+import { tierLabelForGrade } from "@/lib/condition-value-curve";
 
 // US-849: public "what's my item worth?" condition-value tool. A high-intent,
 // top-of-funnel page: a visitor picks a Condition Index item + a condition
@@ -37,24 +38,6 @@ import {
 // published grades (points the lib deemed sufficient with a real median), show
 // the comp count + freshness so we never imply false precision, and pair every
 // estimate with a CTA to get a real, verifiable GradeThread grade.
-
-/**
- * Human tier label for a (possibly half-step) grade, on the PUBLISHED seven-tier
- * scale (US-1947). Bands by integer floor, so NWT is only 10 (not a rounded 9.5)
- * and grades 1–4 collapse to the single "Poor" tier — the old mapping rounded
- * half-steps up (9.5 → NWT) and surfaced non-tier labels like "Below Average"
- * that don't exist on the published scale.
- */
-function tierLabelForGrade(grade: number): string {
-  const g = Math.min(10, Math.max(1, grade));
-  if (g >= 10) return "New with Tags (NWT)";
-  if (g >= 9) return "New without Tags (NWOT)";
-  if (g >= 8) return "Excellent";
-  if (g >= 7) return "Very Good";
-  if (g >= 6) return "Good";
-  if (g >= 5) return "Fair";
-  return "Poor";
-}
 
 /** Format a YYYY-...-ISO timestamp as a short, stable "Mon D, YYYY" date. */
 function formatRefreshed(iso: string): string {

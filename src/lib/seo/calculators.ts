@@ -296,7 +296,7 @@ export const CALCULATORS: readonly Calculator[] = [
   },
   {
     slug: "reseller-profit-calculator",
-    status: "planned",
+    status: "live",
     story: "US-9006",
     audience: "seller",
     title: "Reseller Profit Calculator With Condition",
@@ -306,6 +306,35 @@ export const CALCULATORS: readonly Calculator[] = [
     cardBlurb:
       "The only one that adjusts the sale price for what condition the item is actually in.",
     primaryKeyword: "reseller profit calculator",
+    secondaryKeywords: [
+      "ebay profit calculator",
+      "resale profit margin calculator",
+      "flipping profit calculator",
+    ],
+    intro:
+      "Every other profit calculator asks what the item will sell for. That is the number you do not know, and the one you get wrong, because you took it from a comp of an item in better condition than yours. This one asks for the comp AND what condition that comp was in, then moves the price to the condition your item is actually in. The adjustment comes from GradeThread's own Condition Index: 53 items, 3,811 eBay sold comps, and a spread wide enough that it is printed next to the average rather than hidden behind it.",
+    faqs: [
+      {
+        q: "How do I work out resale profit?",
+        a: "Sale price plus any shipping you charge, minus the marketplace's fees, minus what the item cost you, minus the postage you pay. The arithmetic is easy. The hard part is the sale price, which is why this calculator spends most of its inputs on getting that number honest rather than on the subtraction.",
+      },
+      {
+        q: "Why does condition change the price so much?",
+        a: "Because it is the largest single lever on a used garment, larger than the brand for anything below the designer tier. Across 53 items in the Condition Index, a 7.0 sells for a median 65% of what a mint example makes and a 5.0 for 44%. Price a 7.0 off a mint comp and you have overpriced it by a third before you started.",
+      },
+      {
+        q: "What condition is a typical sold comp in?",
+        a: "Better than yours, usually. Listings that sell well are the ones photographed carefully and described fully, which correlates with the item being in good shape. Assuming a comp is a 9 rather than a 10 is a safer default, and the calculator defaults to that.",
+      },
+      {
+        q: "Is the condition adjustment the same for every item?",
+        a: "No, and that is the most useful thing on this page. At grade 9.0 the share of mint price ranges from 53% to 100% across the 53 items measured. Carhartt double knee pants sell for the same at 8.0 as at 10.0; a Lululemon Scuba hoodie loses 20% over the same drop. If your item is in the Condition Index, pick it and the calculator uses its own measured curve instead of the average.",
+      },
+      {
+        q: "What margin should a reseller aim for?",
+        a: "There is no universal number, but the shape of the answer is: your margin has to survive a return, and roughly one sale in ten comes back on most clothing platforms. A 15% margin does not survive that; a 40% one does. Run the calculator at the grade you think the item is and again a full point lower, and see whether the worse case still clears.",
+      },
+    ],
   },
   {
     slug: "measurement-converter",

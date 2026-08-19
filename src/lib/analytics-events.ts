@@ -68,6 +68,17 @@ export const ANALYTICS_EVENTS = {
   "comparison_crosslist_cta_click":
     "A comparison page handed off to the FlipDesk crosslisting page.",
 
+  // ── Calculator handoff (US-9006, extended by US-9010) ─────────────────────
+  // The profit calculator is the only one of the family with a condition axis,
+  // which makes "grade this item" its natural next step rather than an advert
+  // bolted on. This records the CLICK on that step, not a grade being bought;
+  // the grade itself is already recorded server-side by `grade.paid`.
+  // Properties are `source` (the calculator slug) and `destination`, the same
+  // pair `comparison_crosslist_cta_click` uses, so the two funnels read off one
+  // property shape.
+  "calculator_grading_cta_click":
+    "A calculator handed off to the grading flow.",
+
   // ── Garment passport ──────────────────────────────────────────────────────
   "passport_scan_lookup": "A passport code was scanned or looked up.",
   "passport_view_cta_clicked": "The view control on a passport was pressed.",

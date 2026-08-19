@@ -124,6 +124,7 @@ const PoshmarkFeeCalculatorPage = lazy(() => import("@/pages/tools/marketplace-f
 const MercariFeeCalculatorPage = lazy(() => import("@/pages/tools/marketplace-fee-calculator").then(m => ({ default: m.MercariFeeCalculatorPage })));
 const DepopFeeCalculatorPage = lazy(() => import("@/pages/tools/marketplace-fee-calculator").then(m => ({ default: m.DepopFeeCalculatorPage })));
 const EtsyFeeCalculatorPage = lazy(() => import("@/pages/tools/marketplace-fee-calculator").then(m => ({ default: m.EtsyFeeCalculatorPage })));
+const ResellerProfitCalculatorPage = lazy(() => import("@/pages/tools/reseller-profit-calculator").then(m => ({ default: m.ResellerProfitCalculatorPage })));
 const ForBrandsPage = lazy(() => import("@/pages/marketing/for-brands").then(m => ({ default: m.ForBrandsPage })));
 const FlawLibraryHubPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawLibraryHubPage })));
 const FlawPage = lazy(() => import("@/pages/marketing/flaw-library").then(m => ({ default: m.FlawPage })));
@@ -434,6 +435,7 @@ export const router = createBrowserRouter([
       { path: "/tools/mercari-fee-calculator", element: <SuspenseWrapper><MercariFeeCalculatorPage /></SuspenseWrapper> },
       { path: "/tools/depop-fee-calculator", element: <SuspenseWrapper><DepopFeeCalculatorPage /></SuspenseWrapper> },
       { path: "/tools/etsy-fee-calculator", element: <SuspenseWrapper><EtsyFeeCalculatorPage /></SuspenseWrapper> },
+      { path: "/tools/reseller-profit-calculator", element: <SuspenseWrapper><ResellerProfitCalculatorPage /></SuspenseWrapper> },
       { path: "/for-brands", element: <SuspenseWrapper><ForBrandsPage /></SuspenseWrapper> },
       // Glossary hub spokes (US-303): one page per grade tier + factor, served
       // by a single dynamic route. The indexable set is registered in

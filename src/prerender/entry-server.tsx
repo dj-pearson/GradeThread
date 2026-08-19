@@ -153,6 +153,7 @@ import {
   DepopFeeCalculatorPage,
   EtsyFeeCalculatorPage,
 } from "@/pages/tools/marketplace-fee-calculator";
+import { ResellerProfitCalculatorPage } from "@/pages/tools/reseller-profit-calculator";
 import { FOR_BRANDS_PATH } from "@/lib/seo/for-brands";
 import { ForBrandsPage } from "@/pages/marketing/for-brands";
 
@@ -169,6 +170,7 @@ const CALCULATOR_PAGES: Record<string, React.ReactNode> = {
   "mercari-fee-calculator": <MercariFeeCalculatorPage />,
   "depop-fee-calculator": <DepopFeeCalculatorPage />,
   "etsy-fee-calculator": <EtsyFeeCalculatorPage />,
+  "reseller-profit-calculator": <ResellerProfitCalculatorPage />,
 };
 
 const PAGES: Record<string, React.ReactNode> = {

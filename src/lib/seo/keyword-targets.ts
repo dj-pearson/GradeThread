@@ -335,6 +335,22 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
     ],
   },
   {
+    path: "/tools/reseller-profit-calculator",
+    cluster: "reseller-tools",
+    intent: "informational",
+    primary: "reseller profit calculator",
+    secondary: [
+      "ebay profit calculator",
+      "resale profit margin calculator",
+      "flipping profit calculator",
+    ],
+    questions: [
+      "how do i work out resale profit",
+      "why does condition change resale price",
+      "what margin should a reseller aim for",
+    ],
+  },
+  {
     path: "/tools/measurement-converter",
     cluster: "reseller-tools",
     intent: "informational",
