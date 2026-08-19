@@ -283,6 +283,39 @@ Deno.test("US-2642: the window is imported, not restated", () => {
   );
 });
 
+Deno.test("US-9113/US-9122: the connector's two sweeps are actually CALLED", () => {
+  // Both SQL functions shipped with headers describing a cron that calls them,
+  // and for two commits nothing did. A retention policy with no caller is a
+  // comment. The OAuth one matters more than storage does: spent authorization
+  // codes and revoked refresh tokens are credentials, and keeping them forever
+  // keeps every one of them available to whatever replay bug turns up next.
+  for (const fn of ["sweep_mcp_tool_calls", "sweep_oauth_expired"]) {
+    assert(
+      new RegExp(`["']${fn}["']`).test(CRON),
+      `the retention cron never calls ${fn}, so the retention window that ` +
+        `migration promises is not enforced anywhere`,
+    );
+  }
+  // Called through .rpc, not merely named in a comment or a log string.
+  assert(
+    /supabaseAdmin\.rpc\(fn, \{\}\)/.test(CRON),
+    "the sweep names appear without an rpc call behind them",
+  );
+});
+
+Deno.test("US-9113/US-9122: neither sweep may fail the PII purge", () => {
+  // Every prune in this handler is best-effort for the same reason: the job's
+  // reason to exist is the grading-photo purge, and a connector table must
+  // never be what stops it.
+  const at = CRON.indexOf("sweep_mcp_tool_calls");
+  assert(at > -1, "the connector sweeps were renamed or removed");
+  const window = CRON.slice(at, at + 900);
+  assert(
+    /try \{[\s\S]*?catch \(err\) \{[\s\S]*?captureException/.test(window),
+    "the sweeps must be wrapped so a failure is captured and swallowed",
+  );
+});
+
 Deno.test("US-2642: the inline write-path prune is still there", () => {
   // The backstop is an ADDITION. Removing the inline prune would mean an active
   // buyer's own stale rows wait for a nightly job, which is exactly what that

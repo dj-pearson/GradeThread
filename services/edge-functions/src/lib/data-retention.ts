@@ -166,6 +166,9 @@ export async function handleDataRetentionCron(c: {
   let idempotencyRecordsPruned = 0;
   // US-2642: ingested_listings rows past the published 90-day window.
   let ingestedListingsPurged = 0;
+  // US-9113 / US-9122: connector audit rows and spent OAuth credentials.
+  let mcpToolCallsPurged = 0;
+  let oauthRecordsPurged = 0;
   try {
     const result = await purgeExpiredGradingPii();
     // US-584: keep the cron-run ledger bounded (30-day window). Best-effort —
@@ -394,10 +397,40 @@ export async function handleDataRetentionCron(c: {
       captureException(err, { route: "data-retention.api_idempotency" });
     }
 
+    // US-9113 / US-9122: the connector's two sweeps.
+    //
+    // Both SQL functions shipped with their migrations describing a cron that
+    // calls them, and until this ran nothing did — a stated 400-day retention
+    // with no caller is a comment, not a policy, and the OAuth one is worse
+    // than storage: spent authorization codes and revoked refresh tokens are
+    // credentials, and keeping them forever keeps every one of them replayable
+    // against whatever bug turns up next.
+    //
+    // No version guard is needed. The edge boot guard refuses to start below
+    // EXPECTED_SCHEMA_VERSION, so by the time this handler can run in prod both
+    // functions exist. Best-effort anyway, like every other prune here: neither
+    // may be the reason the PII purge reports failure.
+    for (
+      const [fn, assign] of [
+        ["sweep_mcp_tool_calls", (n: number) => mcpToolCallsPurged = n],
+        ["sweep_oauth_expired", (n: number) => oauthRecordsPurged = n],
+      ] as const
+    ) {
+      try {
+        const { data: swept, error: sweepErr } = await supabaseAdmin.rpc(fn, {});
+        if (sweepErr) captureException(sweepErr, { route: `data-retention.${fn}` });
+        else assign(typeof swept === "number" ? swept : 0);
+      } catch (err) {
+        captureException(err, { route: `data-retention.${fn}` });
+      }
+    }
+
     return c.json({
       ok: true,
       ...result,
       api_idempotency_records_pruned: idempotencyRecordsPruned,
+      mcp_tool_calls_purged: mcpToolCallsPurged,
+      oauth_records_purged: oauthRecordsPurged,
       retention_stalled: stall?.alert ?? false,
       retention_stall_consecutive: stall?.consecutive ?? 0,
       // US-2021: report what the sweep actually did. A capped run that reports
