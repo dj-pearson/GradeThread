@@ -1,6 +1,18 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## HELD: 00622 — ebay_search_terms (US-2683)
+## ✅ APPLIED (owner-confirmed 2026-08-19): 00622 — ebay_search_terms (US-2683)
+
+> **Applied by the operator on 2026-08-19**, together with 00621. Not measured
+> from here: this session's network policy refuses `functions.gradethread.com`,
+> so `/health/ready` could not be read. Owner-confirmed is the status, and it
+> is the weaker of the two on purpose.
+>
+> **Two things the SQL does not do by itself.** `NOTIFY pgrst, 'reload schema';`
+> is required — a new table PostgREST has not reloaded answers 404 on every
+> read. And the daily `ebay-search-terms` Coolify task (06:25 UTC, POST to
+> `/api/jobs/ebay-search-terms` with the job secret) has to be created; the
+> block is in `services/edge-functions/CRON_SETUP.md`. Confirm both before
+> treating the feed as live.
 
 **Risk: low.** One new table, its unique key, one index, an updated_at trigger
 and one RLS SELECT policy. Nothing existing is altered and nothing is dropped.
@@ -33,7 +45,15 @@ showed before.
 **One new Coolify task**: `ebay-search-terms`, daily at 06:25 UTC, POST to
 `/api/jobs/ebay-search-terms` with the shared job secret. The regenerated block
 is in `services/edge-functions/CRON_SETUP.md`.
-## HELD: 00621 — listings.demand_terms_detail (US-2675)
+## ✅ APPLIED (owner-confirmed 2026-08-19): 00621 — listings.demand_terms_detail (US-2675)
+
+> **Applied by the operator on 2026-08-19**, together with 00622. Owner-confirmed
+> rather than measured, for the reason under 00622.
+>
+> `NOTIFY pgrst, 'reload schema';` is required here too. This one is a COLUMN,
+> and PostgREST rejects the whole listing insert with PGRST204 if its cache has
+> not seen it — draft generation fails outright, not partially. If drafts start
+> failing after this apply, the reload is the first thing to check, not the SQL.
 
 **Risk: low to apply, but the edge REQUIRES it.** The SQL itself is one
 nullable `jsonb` column on `public.listings` plus a column comment: no backfill,
@@ -155,25 +175,18 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
-**⚠ 00621 AND 00622 ARE HELD, and this line used to say otherwise.** It
-was written when 00623 was the newest entry and it was true then. Two HELD
-entries were added ABOVE it afterwards, and a reader who stopped here would
-have taken "everything through 00623 is applied" as current. 00623 IS applied;
-00621 and 00622 are not.
+**No held entries as of 2026-08-19.** 00621, 00622 and 00623 are all applied.
+The first two are owner-confirmed rather than measured; see their entries.
 
-**The boot guard cannot catch this, by design.** `compareSchemaVersion` reads
-the HIGHEST applied version, so an applied 00623 reports `status: "match"`
-while two lower numbers are missing. The check that does see it is
-`checkSchemaCompleteness`, published on `/health/ready` as `schema.missing` —
-expect `["00621", "00622"]` there today. It is advisory rather than fatal
-(US-2009), so nothing stops a deploy over the gap.
-
-**00621 is the one with teeth.** `ai-listing.ts` writes `demand_terms_detail`
-into the listing insert unconditionally, so an edge carrying that code against a
-database without the column fails the insert. Apply 00621 before or with the
-edge deploy that includes it, not after.
-
-Read the two entries at the top of this file for the SQL and the risk notes.
+**Keep this even when the count is zero.** The line that used to sit here said
+"everything through 00623 is applied", which was true when written and became
+false the moment two HELD entries were added above it. A status line dated at
+the top of a file people trust is worth re-reading before every apply, because
+`compareSchemaVersion` will not catch a stale one: it reads the HIGHEST applied
+version, so an applied 00623 reports `status: "match"` while lower numbers are
+missing. The check that sees a gap is `checkSchemaCompleteness`, published on
+`/health/ready` as `schema.missing`, and it is advisory rather than fatal
+(US-2009). Read that field, not the status.
 
 ## ✅ APPLIED (measured 2026-08-19): 00620 — OAuth authorization server storage (US-9122)
 
