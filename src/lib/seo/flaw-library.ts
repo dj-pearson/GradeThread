@@ -17,7 +17,31 @@
 
 import type { PublicRoute } from "./public-routes";
 
-export const FLAW_LIBRARY_HUB_PATH = "/grading/flaws";
+// US-9012: moved from /grading/flaws to /care on 2026-08-18.
+//
+// TWO REASONS, and the second is the load-bearing one. The pages were written
+// disclosure-first, for a seller deciding how to word a listing; they are now
+// removal-first, for the person holding the stained garment, and /grading/ is
+// the wrong promise to make that reader.
+//
+// The containment reason: the US-9011 SERP check found every one of the 39
+// results for the repair terms is a craft blog, a brand blog, a UGC thread or a
+// charity shop, and NOT ONE is a resale or grading site. That is the
+// neighbourhood this content gets filed in. Keeping it under /grading/ invites
+// Google to read the grading spine as part of that neighbourhood. Its own
+// prefix is the cheap version of the fix; US-9015 adds the guards.
+//
+// Old URLs 301 here from public/_redirects, covered by
+// src/test/care-redirects.test.ts so a rename cannot silently orphan them.
+export const FLAW_LIBRARY_HUB_PATH = "/care";
+
+/** Where the flaw library used to live. Kept for the redirect map. */
+export const FLAW_LIBRARY_LEGACY_HUB_PATH = "/grading/flaws";
+
+/** The legacy URL for a slug, for the redirect map and its test. */
+export function legacyFlawPath(slug: string): string {
+  return `${FLAW_LIBRARY_LEGACY_HUB_PATH}/${slug}`;
+}
 
 export interface FlawPhoto {
   url: string;
@@ -39,8 +63,24 @@ export interface FlawEntry {
   howToDetect: string[];
   /** How it affects / caps the GradeThread 1.0–10.0 grade. */
   gradeImpact: string;
-  /** Whether and how it can be fixed. */
+  /** Whether and how it can be fixed. One sentence; the detail is in `removal`. */
   fixability: string;
+  /**
+   * US-9012. The honest verdict, which drives the order of the page and the
+   * hinge at the bottom of it.
+   *
+   * "no" is used for 11 of the 32 and that is the point: a laundry blog has to
+   * promise a fix to justify its page. We do not, so the page that says "this
+   * is permanent, here is what it costs you" is the one that can lead somewhere
+   * useful instead of wasting the reader's afternoon.
+   */
+  comesOut: "yes" | "sometimes" | "no";
+  /** H2 for the removal block. Written as the reader's question, not ours. */
+  removalHeading: string;
+  /** Ordered steps. For a "no" entry, why not, and what to do instead. */
+  removal: string[];
+  /** One paragraph on stopping it happening again. */
+  prevention: string;
   /** How to disclose it honestly in a listing. */
   disclosure: string;
   /** 2–3 related flaw slugs. */
@@ -59,9 +99,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "pilling",
     name: "Pilling",
     alternateNames: ["bobbling", "fuzzballs"],
-    title: "Pilling on Clothes: Grade Impact",
+    title: "How to Remove Pilling From Clothes",
     description:
-      "Pilling is the little fabric bobbles that form where a garment rubs. How to spot it, how much it lowers a condition grade, and whether it's fixable.",
+      "Pills are abrasion, not dirt. How to shave them off without cutting the knit, why they form where they do, and what is left underneath when they are gone.",
     h1: "Pilling",
     definition:
       "Pilling is the small balls of tangled fibers that form on a fabric's surface where it rubs against itself or other surfaces — common on knits, under the arms, and at the cuffs. It's one of the most frequent signs of wear on used clothing and a key input to the fabric-condition grade.",
@@ -76,6 +116,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Often improvable: a fabric shaver or sweater comb removes surface pills, though it can't restore fibers already thinned by abrasion. De-pilling before photographing can legitimately raise the grade.",
     disclosure:
       "Note it plainly ('light pilling at the cuffs') and show a close-up. Disclosed pilling rarely causes a return; undisclosed pilling in a 'like new' listing does.",
+    comesOut: "yes",
+    removalHeading: "How to get pills off a garment",
+    removal: [
+      "Lay the garment flat on a hard surface. Doing this on your lap stretches the knit and the shaver will cut it.",
+      "Go over the pilled area with a fabric shaver on its lowest setting, or a sweater comb for anything loosely knitted or cashmere.",
+      "Work in one direction, short strokes, and empty the shaver often. A full chamber presses pills back into the fabric.",
+      "Stop when the surface reads smooth from a low angle. Chasing the last few pills is how people shave a hole in a sleeve.",
+    ],
+    prevention: "Pilling is abrasion, so it comes from friction rather than dirt. Turn knitwear inside out to wash, use a mesh bag, wash cold on a gentle cycle, and skip the dryer. The underarm and the side where you carry a bag will always go first.",
     relatedSlugs: ["fabric-thinning", "sun-fading"],
     faqs: [
       {
@@ -88,9 +137,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "sun-fading",
     name: "Sun fading",
     alternateNames: ["color fading", "UV fading"],
-    title: "Sun Fading on Clothes: Grade Impact",
+    title: "Sun-Faded Clothes: Can It Be Fixed?",
     description:
-      "Sun fading is uneven color loss from UV exposure. How to spot it, how it affects a condition grade, whether it's fixable, and how to disclose it.",
+      "Sun fading is dye that has been destroyed, so nothing lifts it. What dyeing can and cannot do, and how to stop the shoulder of a garment fading first.",
     h1: "Sun fading",
     definition:
       "Sun fading is the loss of color caused by prolonged UV exposure — often uneven, showing up on shoulders, folds, or one side of a garment that hung in light. Unlike intentional acid or bleach washes, it's incidental damage the maker never designed, so it counts against the grade.",
@@ -105,6 +154,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Rarely reversible. Dye or color-restore products are inconsistent on blends and can worsen unevenness. Usually best disclosed rather than treated.",
     disclosure:
       "Call it out and photograph the faded area next to an unfaded one. Buyers accept honest fading; a surprise faded panel triggers 'not as described'.",
+    comesOut: "no",
+    removalHeading: "Sun fading does not come out",
+    removal: [
+      "Nothing removes it. UV has broken the dye molecules; there is no dye left to lift or redistribute.",
+      "Dyeing the whole garment can even it out, but it changes the colour for good and rarely matches the original.",
+      "For a black garment gone brown, a black dye bath is the only honest option, and it will not restore the original shade.",
+    ],
+    prevention: "Dry clothes in shade or inside out, and never store anything on a windowsill or in a car. A single summer in a sunlit wardrobe will fade the shoulder of a hanging garment while the rest stays true, which is the pattern that makes fading obvious.",
     relatedSlugs: ["pilling", "crocking"],
     faqs: [
       {
@@ -117,9 +174,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "moth-holes",
     name: "Moth holes",
     alternateNames: ["moth damage"],
-    title: "Moth Holes in Clothing: Grade Impact",
+    title: "Moth Holes: Kill, Clean, Then Mend",
     description:
-      "Moth holes are small chewed holes in wool and natural fibers. How to spot them, how much they cut a condition grade, and how to disclose them honestly.",
+      "Moth holes cannot be removed, only mended. Kill what is still in the fibres first, then darn small holes yourself and price the rest honestly.",
     h1: "Moth holes",
     definition:
       "Moth holes are small, irregular holes chewed by clothes-moth larvae, most common in wool, cashmere, and other animal fibers. They're often clustered and can be tiny, so they're easy to miss — and because they're structural damage, they weigh heavily on the grade.",
@@ -134,6 +191,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Small holes can be professionally reweaved or discreetly darned, which can recover some grade, but the repair itself must then be disclosed. Untreated, they tend to spread.",
     disclosure:
       "Always disclose and photograph every hole with a scale reference. Moth holes are the classic hidden flaw that drives wool-resale disputes.",
+    comesOut: "no",
+    removalHeading: "Moth holes cannot be removed, only mended",
+    removal: [
+      "First, kill whatever is still in the fibres: 72 hours in a sealed bag in the freezer, or a hot tumble if the fabric allows.",
+      "Wash or dry-clean before mending, because larvae feed on the body oils in the fabric, not the wool itself.",
+      "For a hole under about 5mm, darn it with matching yarn pulled from an inside seam allowance.",
+      "For anything larger, invisible mending by a specialist is the only result that does not read as a repair, and it costs more than most garments are worth.",
+    ],
+    prevention: "Moths eat protein fibres and are drawn to sweat and food traces, so store wool clean and never store it dirty for a season. Cedar and lavender deter, they do not kill. Airtight containers work; a full wardrobe with airflow does not.",
     relatedSlugs: ["fabric-thinning", "seam-stress"],
     faqs: [
       {
@@ -146,9 +212,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "pit-stains",
     name: "Pit stains",
     alternateNames: ["armpit stains", "sweat stains", "yellow underarm stains"],
-    title: "Pit Stains: Grade Impact & Disclosure",
+    title: "How to Get Underarm Stains Out",
     description:
-      "Pit stains are the yellow, crusty underarm buildup from sweat and antiperspirant. How to spot them, how they hit a condition grade, and how to disclose.",
+      "Yellow underarm marks are aluminium bonded to protein, not sweat. The enzyme-then-oxygen sequence that shifts them, and the dryer step that sets them forever.",
     h1: "Pit stains",
     definition:
       "Pit stains are the yellow, crusty discoloration under the arms of shirts, formed when sweat reacts with antiperspirant aluminum and body oils. Over months they stiffen the fabric, resist ordinary washing, and often spread to the collar — counting against both odor-and-cleanliness and fabric-condition on the grade.",
@@ -163,6 +229,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Sometimes improvable. Fresh marks respond to oxygen soaks or enzyme presoaks; set-in aluminum staining that has stiffened the weave is usually permanent. Treat before photographing, and never bleach — chlorine locks the yellow in.",
     disclosure:
       "State it directly ('light underarm shadowing, does not lift fully') and show an inside-out close-up. It's the number-one hidden shirt flaw, so a surprise pit stain almost always triggers a return.",
+    comesOut: "sometimes",
+    removalHeading: "How to get underarm staining out",
+    removal: [
+      "Work out which problem you have. A yellow crust is aluminium from antiperspirant bonded to protein; a dulled, stiff patch is fabric damage underneath it.",
+      "Soak the area in an enzyme detergent solution for at least an hour, longer for old marks.",
+      "For yellowing, make a paste of oxygen bleach and warm water, work it in, and leave it 30 minutes before washing.",
+      "Wash on the hottest setting the label allows, and air dry. Heat from a dryer sets anything left behind permanently.",
+      "Repeat once. If two rounds have not shifted it, the fibres are stained through and it will not move.",
+    ],
+    prevention: "The yellowing is aluminium, so it is the antiperspirant rather than the sweat. Let it dry fully before dressing, wash shirts after every wear rather than airing them, and never put an unwashed shirt through a hot dryer.",
     relatedSlugs: ["deodorant-marks", "stains-general", "collar-wear"],
     faqs: [
       {
@@ -175,9 +251,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "crocking",
     name: "Crocking",
     alternateNames: ["dye transfer", "color rub-off", "dye crocking"],
-    title: "Crocking: Dye Transfer Grade Impact",
+    title: "Crocking: Dye That Rubs Off",
     description:
-      "Crocking is dye rubbing off a garment onto skin or other fabric, common on raw denim. How to test for it, its grade impact, and honest disclosure.",
+      "Crocking is unfixed dye leaving the garment, so there is nothing to remove. How to stop it marking everything else, and how to treat what it already stained.",
     h1: "Crocking (dye transfer)",
     definition:
       "Crocking is the rubbing-off of dye from one fabric onto another or onto skin, typical of raw denim, dark dyes, and cheaply finished garments. It shows as color transfer at pockets, cuffs, and collars, and because it signals unstable dye it lowers both cosmetic and fabric-condition grades.",
@@ -192,6 +268,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Partly manageable, not curable. Repeated cold washes with a dye fixative or vinegar rinse reduce loose surface dye, but the tendency stays. It's a property of the dye, so it can be lessened, never fully removed.",
     disclosure:
       "Warn buyers explicitly ('raw denim, will crock onto light surfaces until washed'). Crocking that ruins a buyer's couch or shirt is a classic dispute, and the warning shifts responsibility fairly.",
+    comesOut: "no",
+    removalHeading: "Crocking cannot be reversed: the dye has already gone",
+    removal: [
+      "Nothing brings it back. Crocking is unfixed dye rubbing off onto something else, so the damage is a loss from the garment, not a deposit on it.",
+      "Washing a crocking garment removes the loose surface dye, which stops it marking other things but leaves the faded look.",
+      "The dye it deposited on other garments is a separate problem: treat that as a colour-bleed stain, quickly, before it sets.",
+    ],
+    prevention: "Wash new dark denim and anything raw or overdyed on its own, cold, inside out, before the first wear. A cup of white vinegar in the first wash is folklore for setting dye and does very little; washing separately does the work.",
     relatedSlugs: ["color-bleeding", "sun-fading"],
     faqs: [
       {
@@ -204,9 +288,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "seam-stress",
     name: "Seam stress",
     alternateNames: ["seam slippage", "blown seams", "open seams"],
-    title: "Seam Stress & Blown Seams: Grade Impact",
+    title: "How to Fix a Split or Stressed Seam",
     description:
-      "Seam stress is strain or bursting at a garment's stitched joins. How to spot slippage and blown seams, their grade impact, fixability, and disclosure.",
+      "Where a seam failed decides whether it resews. The interfacing step that stops a repair tearing again, and the allowance that means it will not hold.",
     h1: "Seam stress and blown seams",
     definition:
       "Seam stress is the strain, slippage, or bursting of a garment's stitched joins, where threads pull open and let daylight show through the seam. It appears at shoulders, side seams, crotches, and armholes, and because it undermines how the piece holds together it weighs on structural integrity.",
@@ -221,6 +305,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Usually repairable. A restitch or serge closes an open seam and can recover grade, and slippage-prone loose weaves can be reinforced. Any repair must then be disclosed, since restitched seams change the original construction.",
     disclosure:
       "Say where and how bad ('side seam starting to slip near the hem'). Photograph the gap against light. Seam failures spread under wear, so understating them reliably leads to returns.",
+    comesOut: "sometimes",
+    removalHeading: "How to deal with a stressed or split seam",
+    removal: [
+      "Turn the garment inside out and find where the stitching has actually gone. Puckering usually starts before the thread breaks.",
+      "A split seam on a straight run resews easily: backstitch by hand or run it through a machine 3mm outside the original line.",
+      "Where the fabric itself has pulled away from the stitch line, add a strip of fusible interfacing behind it first. Sewing straight back into torn fibres tears again.",
+      "Seams under real tension (crotch, armhole, waistband on a fitted garment) need the seam allowance checked. If there is under 6mm to work with, a repair will not hold.",
+    ],
+    prevention: "Most seam stress is a sizing problem rather than a quality one. Buy for the widest part, do not force a fastening, and hang trousers rather than folding them at the hip.",
     relatedSlugs: ["holes-tears", "fraying", "lining-tears"],
     faqs: [
       {
@@ -233,9 +326,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "cracked-graphics",
     name: "Cracked graphics",
     alternateNames: ["cracked print", "peeling print", "distressed graphic"],
-    title: "Cracked & Peeling Prints: Grade Impact",
+    title: "Cracked Print on a Shirt: Any Fix?",
     description:
-      "Cracked graphics are splitting, flaking screen prints on tees and hoodies. How to judge patina versus defect, the grade impact, and how to disclose it.",
+      "A cracked screen print cannot be repaired, and ironing it makes it worse. Why some cracking raises the price instead, and how to stop the rest from spreading.",
     h1: "Cracked and peeling graphics",
     definition:
       "Cracked graphics are the splits, flaking, and peeling of a screen-printed or heat-pressed design, where the plastisol ink hardens and breaks along fold lines. Common on vintage tees and logo hoodies, it can be an authentic patina or a defect, and it counts under cosmetic appearance.",
@@ -250,6 +343,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Essentially permanent. There's no reliable way to re-bond flaked plastisol at home, and heat can worsen it. For vintage buyers the cracking is often the appeal, so it's disclosed as patina rather than repaired.",
     disclosure:
       "Describe the print state ('graphic has authentic vintage cracking, no flaking loss') and photograph it close. Distinguish stable patina from active flaking, since buyers price those very differently.",
+    comesOut: "no",
+    removalHeading: "Cracked prints do not come back",
+    removal: [
+      "There is no repair. A screen print cracks because the plastisol has aged and gone brittle, and the missing pieces are gone.",
+      "Do not iron it to flatten the cracks. Direct heat melts what is left and welds it to the plate or the iron.",
+      "Some cracking is desirable and prices upward. Vintage tees are often bought FOR the cracked print, so check the comps before you treat it as damage at all.",
+    ],
+    prevention: "Wash inside out, cold, and never tumble dry a printed tee. Heat and abrasion are what crack a print, and the dryer supplies both at once.",
     relatedSlugs: ["patch-loss", "button-fading"],
     faqs: [
       {
@@ -262,9 +363,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "missing-buttons",
     name: "Missing buttons",
     alternateNames: ["lost buttons", "absent fasteners"],
-    title: "Missing Buttons: Grade Impact",
+    title: "How to Replace a Missing Button",
     description:
-      "Missing buttons leave a shirt, coat, or cardigan unable to close as designed. How to inventory them, their grade impact, fixability, and how to disclose.",
+      "Where the spare is hidden, why you take the replacement from the bottom of the shirt, and the shank wrap that stops the next button falling off.",
     h1: "Missing buttons",
     definition:
       "Missing buttons are fasteners that have fallen off a shirt, coat, or cardigan, leaving empty thread shanks or bare holes where they belong. They interrupt closure, are easy to overlook on a spare cuff button, and count under functional elements because they affect whether the garment can be worn as designed.",
@@ -279,6 +380,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Easily fixed and often worth it. A matching replacement, or moving a spare from an inside seam, restores function and grade. Mismatched replacements should themselves be disclosed as non-original.",
     disclosure:
       "State which button is gone ('missing second-from-top front button') and whether a spare is included. Buyers forgive a disclosed missing button; a photo that hides the gap does not.",
+    comesOut: "yes",
+    removalHeading: "How to replace a missing button properly",
+    removal: [
+      "Check the inside seam first. Most shirts and coats carry a spare stitched into the placket or the lining.",
+      "If there is no spare, take a button from the lowest point of the shirt, where it tucks in and is never seen, and put the odd one there.",
+      "Sew with doubled thread, and put a matchstick across the button as you stitch so it ends with a shank. A button sewn flat against the fabric will not sit or fasten properly.",
+      "Wrap the thread six times around the shank before you finish. That wrap is what stops the next one falling off.",
+    ],
+    prevention: "Buttons go because the thread abrades, not because the button fails. When one starts to loosen, resew all of them; the rest are the same age.",
     relatedSlugs: ["broken-zipper", "button-fading"],
     faqs: [
       {
@@ -291,9 +401,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "broken-zipper",
     name: "Broken zipper",
     alternateNames: ["stuck zipper", "separated zipper", "faulty zip"],
-    title: "Broken Zipper: Grade Impact",
+    title: "How to Fix a Broken Zipper",
     description:
-      "A broken zipper — stuck, separated, or missing teeth — blocks how a garment is worn. How to test it, the grade impact, fixability, and disclosure.",
+      "Nine times in ten it is the slider, not the teeth. How to tell which you have, how to crimp it safely, and the one failure that means the zip is finished.",
     h1: "Broken zipper",
     definition:
       "Broken zippers are fasteners that no longer function — a separated slider, missing teeth, a stuck pull, or a zip that splits open after closing. Found on jackets, jeans, and boots, they directly block how a garment is worn and are judged under functional elements on the grade.",
@@ -308,6 +418,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Frequently repairable. A new slider, stops, or a full zipper replacement by a tailor restores function, though it's a paid repair. A replaced zipper is non-original and should be disclosed as such.",
     disclosure:
       "Describe the exact failure ('zipper separates at the base when closed'). A broken main closure is a grade-defining flaw, so buyers must know before they pay, not discover it at home.",
+    comesOut: "sometimes",
+    removalHeading: "How to fix a zipper that is not closing",
+    removal: [
+      "Work out which part failed. Nine times in ten it is the slider, not the teeth.",
+      "If the teeth separate behind the slider as you zip, the slider has worn open. Squeeze it very gently with pliers, a fraction at a time, and test between squeezes.",
+      "If a tooth is bent, straighten it with needle-nose pliers before touching the slider. A bent tooth destroys a new slider immediately.",
+      "If the slider has come off entirely, pry off the metal stop at the bottom, feed both sides back through, and crimp the stop back on.",
+      "If teeth are missing, the zip is finished. Replacement is the only fix and on most garments it costs more than the garment.",
+    ],
+    prevention: "Zip a garment up before washing it. An open zip in a machine is what bends teeth, and it also snags everything else in the drum.",
     relatedSlugs: ["missing-buttons", "elastic-degradation"],
     faqs: [
       {
@@ -320,9 +440,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "fabric-thinning",
     name: "Fabric thinning",
     alternateNames: ["worn-thin fabric", "sheer wear", "threadbare"],
-    title: "Fabric Thinning: Grade Impact",
+    title: "Thin, Worn Fabric: What Can Be Done",
     description:
-      "Fabric thinning is worn-through material that's gone sheer at elbows, knees, or seats. How to spot it before a hole forms, its grade impact, and disclosure.",
+      "Thinning cannot be reversed because the fibres are gone. How to stop it becoming a hole, and the wash habits that cause most of it.",
     h1: "Fabric thinning",
     definition:
       "Fabric thinning is the loss of material where a textile has been abraded so much that it grows sheer, weak, and close to wearing through. It appears at elbows, knees, seats, and collar folds, often before an actual hole forms, and it weighs heavily on the fabric-condition factor.",
@@ -337,6 +457,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Not truly fixable. Iron-on backing or reinforcement patches can delay a blowout but can't restore lost fibers, and they change the garment. It's best treated as a disclosed, terminal-stage wear flaw.",
     disclosure:
       "Call it out honestly ('fabric worn thin at the seat, near see-through'). Thinning that photographs fine but tears on first wear is a top return driver, so a light-through photo is worth including.",
+    comesOut: "no",
+    removalHeading: "Thin fabric cannot be thickened",
+    removal: [
+      "Nothing restores it. The fibres have abraded away and what is left is what you have.",
+      "Fusible interfacing on the back stops it becoming a hole and stiffens the area visibly. On a garment worth keeping, that trade is often worth it.",
+      "Do not press a thin area with a hot iron. It will go through.",
+    ],
+    prevention: "Thinning is friction plus washing. Wash less, wash cold, skip the dryer, and rotate what you wear. A garment worn twice a week thins about three times as fast as the same garment worn weekly.",
     relatedSlugs: ["pilling", "holes-tears", "collar-wear"],
     faqs: [
       {
@@ -349,9 +477,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "snags-pulls",
     name: "Snags and pulls",
     alternateNames: ["pulled threads", "snagged yarn", "loops"],
-    title: "Snags & Pulls: Grade Impact",
+    title: "How to Fix a Snag in a Sweater",
     description:
-      "Snags and pulls are yarn loops dragged out of a knit or weave without a hole. How to spot them, whether they're fixable, and their condition-grade impact.",
+      "Never cut a snag. Pull the loop through to the inside and spread the slack along the row, and the knit closes back over it as if nothing happened.",
     h1: "Snags and pulls",
     definition:
       "Snags and pulls are loops of yarn dragged out of a weave or knit by a sharp object, leaving raised threads or puckered dimples without an actual hole. Common on sweaters, tights, and silky fabrics, they read as cosmetic when few but signal fragile fabric-condition when widespread across a piece.",
@@ -366,6 +494,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Often improvable. A snag tool or crochet hook can draw a pulled loop back to the wrong side, smoothing the surface, though a pull that has already puckered the weave may not fully relax.",
     disclosure:
       "Note quantity and location ('a few small snags on the left sleeve'). Snags photograph poorly, so a raking-light close-up prevents the 'more than expected' complaint on delicate knits.",
+    comesOut: "yes",
+    removalHeading: "How to fix a snag without making a hole",
+    removal: [
+      "Never cut it. A cut loop unravels along the row and turns a snag into a hole.",
+      "Gently stretch the fabric across the snag in both directions. Some of the pulled yarn retracts on its own.",
+      "Push a snag needle or fine crochet hook through from the inside, catch the loop, and pull it through to the wrong side.",
+      "Work the remaining slack outward along the row a stitch at a time, in both directions, so no single stitch carries the excess.",
+      "Steam the area and let it dry flat. Most snags become invisible at this point.",
+    ],
+    prevention: "Snags come from jewellery, velcro, rough nails and zips in the same wash load. Rings and watches off before dressing, knitwear in a mesh bag, and fasten every zip in the drum.",
     relatedSlugs: ["pilling", "fabric-thinning"],
     faqs: [
       {
@@ -378,9 +516,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "stains-general",
     name: "Stains",
     alternateNames: ["spots", "marks", "discoloration"],
-    title: "Stains on Clothing: Grade Impact",
+    title: "How to Get a Stain Out of Clothing",
     description:
-      "Stains are set-in discolorations from food, grease, or cosmetics that resist washing. How to inspect for them, their grade impact, and honest disclosure.",
+      "Blot, cold water, outside-in, and never the dryer. The order that decides whether a stain comes out, and why how long it sat matters more than the product.",
     h1: "Stains on clothing",
     definition:
       "Stains are localized discolorations left by food, drink, grease, cosmetics, or bodily fluids that soak into fibers and resist casual washing. They range from a faint water ring to a set-in grease mark, appear anywhere on a garment, and count against both cleanliness and cosmetic appearance depending on size and visibility.",
@@ -395,6 +533,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Depends on the stain. Fresh water-based marks often wash out; set-in grease, ink, and protein stains resist and may be permanent. Always attempt cleaning before grading, since a lifted stain can meaningfully raise the result.",
     disclosure:
       "Pinpoint it ('quarter-sized faint stain on lower front'), give a size reference, and photograph it. A disclosed stain is priced accordingly; a hidden one that shows up in daylight drives 'not as described' claims.",
+    comesOut: "sometimes",
+    removalHeading: "How to approach a stain you cannot identify",
+    removal: [
+      "Blot, never rub. Rubbing drives the stain into the fibre and abrades the surface around it, which shows even after the stain goes.",
+      "Start with cold water. Heat sets protein stains, which is most of the ones on clothing, and once set they never come out.",
+      "Work from the outside of the mark inward, or you will spread it into a larger, fainter ring.",
+      "If cold water alone does nothing, use an enzyme detergent and give it an hour, not five minutes.",
+      "Air dry and check in daylight before it goes anywhere near a dryer. A dryer is the step that makes a nearly-gone stain permanent.",
+    ],
+    prevention: "The single biggest factor is how long it sat. A fresh stain rinsed in cold water usually goes; the same stain found six months later usually does not, whatever you put on it.",
     relatedSlugs: ["ink-stains", "rust-spots", "bleach-spots"],
     faqs: [
       {
@@ -407,9 +555,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "holes-tears",
     name: "Holes and tears",
     alternateNames: ["rips", "punctures", "splits"],
-    title: "Holes & Tears: Grade Impact",
+    title: "How to Fix a Hole in Jeans or Anything",
     description:
-      "Holes and tears are open breaks in the fabric, from pinholes to long rips. How to find them, why they cap the grade, and how to disclose them honestly.",
+      "Stabilise the edges first, then pick ladder stitch, a backing patch, or machine darning by what kind of opening you actually have.",
     h1: "Holes and tears",
     definition:
       "Holes and tears are breaks in the fabric where fibers have been severed or ripped apart, from a small puncture to a long split along a seam or panel. Unlike thinning, the material is already open, so they are structural damage that caps the grade well below the Excellent tiers.",
@@ -424,6 +572,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Repairable but rarely invisible. Darning, patching, or reweaving closes a hole and can lift a Poor piece to a sellable repaired grade; the mend itself must then be disclosed as a repair.",
     disclosure:
       "Measure and locate each one ('1 cm hole near left pocket') and photograph with a scale. A hole is the flaw buyers least tolerate as a surprise, so precise disclosure is essential.",
+    comesOut: "sometimes",
+    removalHeading: "How to mend a hole or a tear",
+    removal: [
+      "Stabilise the edges before anything else. A few drops of fray stopper or a running stitch around the opening stops it growing while you work.",
+      "For a clean tear along the grain, close it with a ladder stitch from the right side; it disappears into the weave.",
+      "For a hole with missing fabric, back it with a patch cut 25mm larger than the hole on every side and secure from the inside.",
+      "On denim, darn across the hole with a machine in matching thread over a backing patch. That is what every commercial repair does.",
+      "Accept that a mend shows. The goal is a repair that reads as deliberate, not one that reads as hidden.",
+    ],
+    prevention: "Most holes on used clothing start as thinning or a snag, both of which are visible months earlier. Catching them at that stage is the whole game.",
     relatedSlugs: ["moth-holes", "fabric-thinning", "seam-stress"],
     faqs: [
       {
@@ -436,9 +594,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "fraying",
     name: "Fraying",
     alternateNames: ["frayed edges", "unraveling", "worn edges"],
-    title: "Fraying on Clothes: Grade Impact",
+    title: "How to Stop a Frayed Edge Spreading",
     description:
-      "Fraying is loose, unraveling threads at hems, cuffs, and collars. How to tell wear from intended distressing, its grade impact, and how to disclose it.",
+      "Trim flush, never pull. Fray stopper, when to turn and restitch instead, and when a frayed denim hem is worth more left alone.",
     h1: "Fraying",
     definition:
       "Fraying is the unraveling of fabric edges where threads work loose and hang free, most often along hems, cuffs, collars, and unfinished seams. It can be incidental wear or an intended distressed look; when unintended it signals declining construction and weighs on both structural integrity and cosmetic appearance.",
@@ -453,6 +611,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Often stabilized rather than reversed. A tailor can re-hem or overlock a fraying edge, and fray-check sealant halts unraveling, but lost threads don't return. Any re-hem shortens or alters the garment and should be noted.",
     disclosure:
       "Distinguish designed from damaged ('hem fraying from wear, not distressing'). Buyers accept honest edge wear, but selling worn fraying as an intended raw hem invites disputes.",
+    comesOut: "sometimes",
+    removalHeading: "How to stop a frayed edge getting worse",
+    removal: [
+      "Trim the loose threads flush. Do not pull them, which drags more thread out of the weave.",
+      "Run a thin line of fray stopper along the edge and let it dry fully. It stiffens slightly and darkens light fabrics, so test somewhere hidden.",
+      "For a frayed hem or cuff, the durable fix is to turn and restitch it, which shortens the garment by the amount you turn.",
+      "On denim, a light fray at the hem is often desirable and sells well. Check before you fix it.",
+    ],
+    prevention: "Fraying starts where a cut edge was never finished or where the finishing has worn through. Wash cold, skip the dryer, and repair a hem the first time it lets go rather than the third.",
     relatedSlugs: ["hemline-damage", "seam-stress", "collar-wear"],
     faqs: [
       {
@@ -465,9 +632,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "shrinkage",
     name: "Shrinkage",
     alternateNames: ["shrunk garment", "size loss"],
-    title: "Shrinkage: Grade Impact & Sizing",
+    title: "How to Unshrink Clothes",
     description:
-      "Shrinkage is permanent size loss after hot washing or drying, common in cotton and wool. How to detect it, why it misrepresents size, and how to disclose.",
+      "Conditioner relaxes the fibres and detergent does not. The 30-minute soak and flat-stretch that recovers most of the size, and the point where it stops working.",
     h1: "Shrinkage",
     definition:
       "Shrinkage is the permanent reduction in a garment's dimensions after hot washing or drying, most severe in untreated cotton, wool, and rayon. It shows as short sleeves, a cropped body, or tight fit versus the labeled size, and while not damage exactly, it misrepresents size and affects fit-driven grading.",
@@ -482,6 +649,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Occasionally partly reversible. Soaking wool in hair conditioner and gently stretching can recover some size; cotton and synthetics rarely bounce back. Most shrinkage is treated as permanent and handled by re-measuring.",
     disclosure:
       "Sell by measurement, not tag ('labeled L but shrunk to fit like M — see measurements'). Shrinkage that isn't disclosed produces a fit complaint even when the item is otherwise flawless.",
+    comesOut: "sometimes",
+    removalHeading: "How to unshrink a garment",
+    removal: [
+      "Fill a basin with lukewarm water and add a capful of hair conditioner or baby shampoo. The conditioner relaxes the fibres; detergent will not.",
+      "Soak for up to 30 minutes. Wool and cotton both need the full time.",
+      "Squeeze the water out without rinsing, then roll the garment in a towel and press to get it damp rather than wet.",
+      "Lay it flat and stretch it gently back to size a section at a time, working outward from the middle. Pin it to shape on a towel if it will not hold.",
+      "Let it dry flat, fully, before you move it. Most of the recovery is lost if you hang it wet.",
+    ],
+    prevention: "Cotton shrinks from heat, wool shrinks from agitation plus heat, and both are irreversible once felting has started. Wash cold, and air dry anything you care about.",
     relatedSlugs: ["felting", "stretching"],
     faqs: [
       {
@@ -494,9 +671,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "stretching",
     name: "Stretching",
     alternateNames: ["bagging", "misshapen", "stretched out"],
-    title: "Stretching & Bagging: Grade Impact",
+    title: "How to Shrink Stretched Clothes Back",
     description:
-      "Stretching is permanent loss of shape where collars, cuffs, and knees bag out. How to spot it, whether it recovers, and its condition-grade impact.",
+      "Cotton comes back with heat, wool with careful felting, and anything with failed elastane does not come back at all. Which one you have decides everything.",
     h1: "Stretching and bagging",
     definition:
       "Stretching is the permanent loss of a garment's original shape, where knit collars, cuffs, waistbands, and knees bag out and no longer recover. Caused by wear, hanging, or blown-out elastic, it leaves the piece misshapen and loose, and it weighs on structural integrity and how the item reads cosmetically.",
@@ -511,6 +688,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Sometimes partly recoverable. Steaming and reshaping tightens mildly stretched knits, and a tailor can take in a bagged waist; badly stretched ribbing and elbows usually stay misshapen for good.",
     disclosure:
       "Describe where it's lost shape ('collar stretched and no longer sits flat'). Stretching is subtle in flat-lay photos, so mention it and show the garment on a form if you can.",
+    comesOut: "sometimes",
+    removalHeading: "How to shrink a stretched garment back",
+    removal: [
+      "Identify the fibre first. Cotton and wool can be brought back; anything with elastane that has gone slack is finished, because the elastic itself has failed.",
+      "For cotton, wash hot and tumble dry. That is the exact process everyone else is trying to avoid, and here it is the fix.",
+      "For wool, wet the stretched area with warm water, work it gently between your hands, and lay it flat to reshape. Stop early; this is felting under control and it does not reverse.",
+      "For a stretched neckline or cuff specifically, steam it and let it dry flat, which recovers more than washing does.",
+    ],
+    prevention: "Hanging is what stretches knitwear, at the shoulders and down the body. Fold anything knitted. Hang anything woven.",
     relatedSlugs: ["elastic-degradation", "shrinkage"],
     faqs: [
       {
@@ -523,9 +709,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "color-bleeding",
     name: "Color bleeding",
     alternateNames: ["dye run", "color run", "wash bleeding"],
-    title: "Color Bleeding: Grade Impact",
+    title: "How to Get Bled Dye Out of Clothing",
     description:
-      "Color bleeding is dye running in the wash and staining other areas or garments. How it differs from crocking, its grade impact, and how to disclose it.",
+      "Do not dry it. Rewash cold immediately, then colour-run remover on the exact packet timing, because these strip the garment's own colour too.",
     h1: "Color bleeding",
     definition:
       "Color bleeding is the migration of dye from one area or garment into another during washing, leaving pink-tinged whites or muddied panels. Distinct from crocking's dry rub, it happens wet and often ruins a light section permanently, so it counts against cosmetic appearance and, when severe, fabric-condition.",
@@ -540,6 +726,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Occasionally rescued if caught fast. Re-washing immediately with a color-run remover can lift fresh bleeding; once the dye has set through a dryer cycle it's usually permanent, and bleaching risks new damage.",
     disclosure:
       "State it plainly ('white stripe has picked up a faint pink cast'). Bleeding onto light areas is obvious to buyers in person, so disclosing it up front keeps a transaction from turning into a return.",
+    comesOut: "sometimes",
+    removalHeading: "How to get bled dye out of a garment",
+    removal: [
+      "Do not dry it. Every attempt below stops working once the garment has been through heat.",
+      "Rewash immediately, cold, on its own, with detergent and no other garments to bleed onto.",
+      "If that fails, soak in a colour-run remover following the packet timing exactly. These are reducing agents and they will strip the garment's own colour if left too long.",
+      "For white cotton only, oxygen bleach and a long soak is the safer second attempt.",
+      "Check in daylight while damp. Dye looks lighter wet than it will dry.",
+    ],
+    prevention: "Separate by colour and wash anything new on its own the first time. A colour catcher sheet works and costs pennies against the garment it saves.",
     relatedSlugs: ["crocking", "bleach-spots"],
     faqs: [
       {
@@ -552,9 +748,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "deodorant-marks",
     name: "Deodorant marks",
     alternateNames: ["antiperspirant buildup", "white marks", "deodorant residue"],
-    title: "Deodorant Marks: Grade Impact",
+    title: "How to Remove Deodorant Marks",
     description:
-      "Deodorant marks are white, waxy streaks or stiff buildup at the underarms. How to tell fresh residue from set-in buildup, and their condition-grade impact.",
+      "A fresh smear rubs straight off with a dry sponge. Built-up crust needs a vinegar soak, and the yellowing underneath is a different problem entirely.",
     h1: "Deodorant marks",
     definition:
       "Deodorant marks are the white, waxy streaks or stiff buildup left by antiperspirant on the inside and underarms of tops. Often mistaken for staining, fresh marks brush off while long-term buildup sets into the weave, and they count under odor-and-cleanliness and, if crusted in, fabric-condition.",
@@ -569,6 +765,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Usually removable. A white-vinegar soak, an old nylon rubbed over the streak, or an enzyme wash lifts most buildup. Clean it before photographing, since residue reads as a permanent stain to buyers otherwise.",
     disclosure:
       "If it fully cleans, no note is needed; if buildup has stiffened the fabric, disclose that ('slight underarm residue that did not fully release'). Don't let removable residue photograph as a stain.",
+    comesOut: "yes",
+    removalHeading: "How to get deodorant build-up out",
+    removal: [
+      "For a fresh white smear, rub the fabric against itself, or use a dry sponge or a pair of tights. It lifts straight off.",
+      "For built-up crust, soak the area in white vinegar for an hour, then work it with a soft brush.",
+      "Follow with an enzyme detergent wash on the warmest setting the label allows.",
+      "For yellowing underneath, treat it as a pit stain instead: this is aluminium bonded to protein and vinegar alone will not shift it.",
+    ],
+    prevention: "Apply less than feels necessary and let it dry completely before dressing. Most build-up comes from putting a shirt on over wet product.",
     relatedSlugs: ["pit-stains", "stains-general"],
     faqs: [
       {
@@ -581,9 +786,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "smoke-odor",
     name: "Smoke odor",
     alternateNames: ["cigarette smell", "smoke smell", "tobacco odor"],
-    title: "Smoke Odor: Grade Impact",
+    title: "How to Get Smoke Smell Out of Clothes",
     description:
-      "Smoke odor is stale cigarette or fire smell absorbed deep into fibers. Why it's invisible in photos, how it hits the grade, and how to disclose it honestly.",
+      "Airing outdoors removes more than any product. Then vinegar in the drum, baking soda in a bag, and never the dryer between attempts.",
     h1: "Smoke odor",
     definition:
       "Smoke odor is the stale, clinging smell of cigarette or fire smoke absorbed deep into fibers, padding, and linings. Invisible in photos but obvious on arrival, it is a leading cause of resale returns, resists a single wash, and is graded strictly under the odor-and-cleanliness factor.",
@@ -598,6 +803,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Often treatable, sometimes stubborn. Airing out, vinegar or baking-soda washes, and ozone treatment reduce or remove it; heavily saturated padding and linings can hold smoke through multiple attempts.",
     disclosure:
       "Always disclose ('comes from a smoke-free home' or 'faint smoke odor remains after washing'). Odor is the single most common invisible-flaw complaint, and no photo can substitute for the warning.",
+    comesOut: "sometimes",
+    removalHeading: "How to get smoke smell out of clothing",
+    removal: [
+      "Air it outdoors first, ideally in moving air, for a full day. This alone removes more than any product.",
+      "Wash with an ordinary detergent plus a cup of white vinegar in the drum. Vinegar neutralises rather than masks.",
+      "If it persists, seal the garment in a bag with an open box of baking soda for 48 hours, then rewash.",
+      "Do not tumble dry between attempts. Heat bakes smoke residue into the fibres and after that nothing works.",
+      "Accept that heavy, long-term smoke exposure in wool or a lined coat often does not come out at all.",
+    ],
+    prevention: "Smoke binds to oils in the fabric, so a clean garment holds less of it. Store clean, and never bag a garment that smells; enclosed air concentrates it.",
     relatedSlugs: ["mildew-odor", "stains-general"],
     faqs: [
       {
@@ -610,9 +825,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "mildew-odor",
     name: "Mildew odor",
     alternateNames: ["musty smell", "mold smell", "damp odor"],
-    title: "Mildew & Musty Odor: Grade Impact",
+    title: "How to Get Mildew Smell Out of Clothes",
     description:
-      "Mildew odor is the damp, musty smell of mold from wet or humid storage. How to detect it and any spotting, its grade impact, and how to disclose it.",
+      "Sunlight kills what is producing the smell and it is the step people skip. Then a vinegar soak and the hottest wash the label allows.",
     h1: "Mildew and musty odor",
     definition:
       "Mildew odor is the damp, musty smell of mold that grows when fabric is stored wet or humid, sometimes with grey or black speckling. It penetrates fibers and can spread to nearby garments, signals possible staining and fiber weakening, and is judged under odor-and-cleanliness with a cosmetic penalty if spotting shows.",
@@ -627,6 +842,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Sometimes removable. A vinegar soak, sunlight, and thorough drying kill light mildew and clear the smell; deep-set mold spotting can permanently discolor fibers and may return in humidity.",
     disclosure:
       "Disclose both smell and any marks ('musty odor with light grey speckling at the hem'). Mildew hints at how the piece was stored, and buyers who receive an undisclosed musty item almost always return it.",
+    comesOut: "sometimes",
+    removalHeading: "How to get mildew smell out",
+    removal: [
+      "Get it dry and get it into sunlight. UV kills the mould that is producing the smell, and this is the step people skip.",
+      "Brush off any visible growth outdoors, not over a laundry basket.",
+      "Soak in a solution of one part white vinegar to four parts water for an hour.",
+      "Wash on the hottest setting the label allows, with detergent, and dry fully in the sun.",
+      "If the smell returns as the garment warms, the growth is still in the fibres. Repeat once, then stop; a third round will not work either.",
+    ],
+    prevention: "Mildew needs damp and darkness. Never store anything even slightly damp, never leave a wash in the drum overnight, and do not store clothing in a sealed plastic tub in an unheated space.",
     relatedSlugs: ["smoke-odor", "rust-spots"],
     faqs: [
       {
@@ -639,9 +864,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "rust-spots",
     name: "Rust spots",
     alternateNames: ["rust stains", "iron marks", "metal transfer"],
-    title: "Rust Spots: Grade Impact",
+    title: "How to Get Rust Stains Out of Fabric",
     description:
-      "Rust spots are orange-brown marks transferred from corroding metal onto fabric. How to find them, whether they lift, and their condition-grade impact.",
+      "Never use chlorine bleach on rust; it sets the mark permanently and darker. Lemon and salt in sun for whites, oxalic acid for everything else.",
     h1: "Rust spots",
     definition:
       "Rust spots are orange-brown stains transferred from corroding metal — hangers, snaps, zippers, or pins — onto fabric where moisture let the iron oxide migrate. Small and easy to miss on prints, they often set permanently into fibers, so they weigh against cosmetic appearance and cleanliness on the grade.",
@@ -656,6 +881,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Sometimes removable, never with bleach. Acidic treatments like lemon juice and salt or a dedicated rust remover can lift fresh spots; chlorine sets rust permanently, and old spots may resist all treatment.",
     disclosure:
       "Locate and photograph them ('two small rust spots near the zipper'). Rust is easy to overlook when listing, so a deliberate hardware-area inspection prevents an 'undisclosed staining' complaint.",
+    comesOut: "sometimes",
+    removalHeading: "How to get rust marks out of fabric",
+    removal: [
+      "Do not use chlorine bleach. It reacts with iron and sets the stain permanently, darker than it started. This is the single most common mistake on rust.",
+      "For white cotton, cover the mark with lemon juice and salt and put it in direct sun until it dries.",
+      "Rinse and repeat rather than leaving it on for hours; lemon juice in strong sun will weaken the fibre.",
+      "For coloured fabric or anything delicate, use a commercial oxalic-acid rust remover and follow the timing exactly.",
+      "Rust that has come from a corroding metal fastening on the garment itself will come back. Replace the fastening or the mark returns.",
+    ],
+    prevention: "Rust marks on stored clothing almost always come from the hanger, the zip or a stud, plus damp. Dry storage and plastic or wooden hangers remove the cause.",
     relatedSlugs: ["stains-general", "ink-stains"],
     faqs: [
       {
@@ -668,9 +903,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "ink-stains",
     name: "Ink stains",
     alternateNames: ["pen marks", "marker stains", "ink marks"],
-    title: "Ink Stains: Grade Impact",
+    title: "How to Get Ink Out of Clothes",
     description:
-      "Ink stains are stubborn pen or marker marks soaked into fibers. Where they hide, how hard they are to remove, and how they affect a condition grade.",
+      "Put a cloth underneath first, or the ink goes through to the other side. Alcohol, blot, move to clean cloth, repeat. Ballpoint goes; marker does not.",
     h1: "Ink stains",
     definition:
       "Ink stains are dark marks from pens, markers, or laundry mishaps that soak into fibers and are among the hardest stains to remove. Usually found on shirt pockets, cuffs, and hems, they range from a faint dot to a spreading blot and count against cosmetic appearance and cleanliness.",
@@ -685,6 +920,16 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Hit or miss. Alcohol, hairspray, or a dedicated ink remover lift some fresh ballpoint marks; permanent marker and laundry-ink stains usually stay. Attempt removal before grading, but expect many to be permanent.",
     disclosure:
       "Be specific ('small blue ink dot on the shirt pocket'). Ink is a stain buyers scrutinize closely, so a clear close-up and location note keep an honest listing from reading as concealment.",
+    comesOut: "sometimes",
+    removalHeading: "How to get ink out of clothing",
+    removal: [
+      "Put an absorbent cloth underneath the stain. Everything you dissolve has to go somewhere, and without a backing it goes through to the other side of the garment.",
+      "Dab isopropyl alcohol or hand sanitiser onto the mark from above and let it sit 30 seconds.",
+      "Blot with the backing cloth, moving to a clean part of it constantly. Reusing the same spot puts the ink straight back.",
+      "Repeat until no more ink transfers, then wash cold with detergent.",
+      "Ballpoint usually goes. Permanent marker and gel ink usually do not, and printer toner never does.",
+    ],
+    prevention: "Pens in a shirt pocket nib-up, and check pockets before every wash. One pen through a hot wash marks an entire load.",
     relatedSlugs: ["stains-general", "bleach-spots"],
     faqs: [
       {
@@ -697,9 +942,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "bleach-spots",
     name: "Bleach spots",
     alternateNames: ["bleach stains", "discoloration spots", "chemical spots"],
-    title: "Bleach Spots: Grade Impact",
+    title: "Bleach Stains: Why They Never Come Out",
     description:
-      "Bleach spots are pale, sharp-edged patches where the dye was stripped by chemicals. Why they're permanent, how they differ from fading, and disclosure.",
+      "There is nothing to remove; the dye is destroyed and the fabric is fine. Dye pens, over-dyeing, and where most bleach spots actually come from.",
     h1: "Bleach spots",
     definition:
       "Bleach spots are lightened or discolored patches where chlorine, cleaning products, or acne medication stripped the dye, leaving pale orange or white marks. Unlike fading, they are sharp-edged and localized, cannot be washed back in, and count against cosmetic appearance as permanent, irreversible damage on the grade.",
@@ -714,6 +959,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Not removable, only disguised. Fabric markers or a careful re-dye can mask small spots but rarely match perfectly. Most bleach damage is disclosed as permanent rather than treated.",
     disclosure:
       "State it clearly ('small bleach spot on the left cuff, color loss is permanent'). Because bleach marks look like they might wash out, spelling out that they're permanent avoids a disappointed buyer.",
+    comesOut: "no",
+    removalHeading: "Bleach spots are permanent",
+    removal: [
+      "There is nothing to remove. Bleach has destroyed the dye in that spot; the fabric is undamaged and simply has no colour left.",
+      "A fabric marker or dye pen matched to the garment will disguise a small spot and will not survive many washes.",
+      "Dyeing the whole garment a darker shade is the only durable option, and it changes everything including the stitching, which usually takes dye differently and ends up a different colour.",
+      "On a garment with several spots, over-dyeing to black is the realistic answer.",
+    ],
+    prevention: "Most bleach spots come from splashback while cleaning, or from an acne or whitening product on a towel or pillowcase, not from laundry bleach. Change before you clean, and keep pale bathroom textiles away from those products.",
     relatedSlugs: ["color-bleeding", "stains-general"],
     faqs: [
       {
@@ -726,9 +980,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "hemline-damage",
     name: "Hemline damage",
     alternateNames: ["fallen hem", "worn hem", "hem wear"],
-    title: "Hemline Damage: Grade Impact",
+    title: "How to Repair a Hem That Came Down",
     description:
-      "Hemline damage is wear along a garment's bottom edge — dropped hems, scuffs, and unraveling. How to inspect it, its grade impact, and how to disclose it.",
+      "An unpicked hem resews; a worn-through edge does not. Press the original crease back first, because it shows you exactly where the hem sat.",
     h1: "Hemline damage",
     definition:
       "Hemline damage is wear along a garment's bottom edge — dropped stitches, unraveling, dragging scuffs, or a fallen hem hanging loose. Common on long jeans, coats, and dresses that brush the ground, it reads as both a structural and cosmetic flaw and pulls the grade toward the Good and Fair tiers.",
@@ -743,6 +997,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Usually repairable. A tailor can re-hem a dropped or worn edge, and fusible hem tape is a quick fix; a re-hem may slightly shorten the garment and should be disclosed as an alteration.",
     disclosure:
       "Describe the hem state ('back hem scuffed from dragging, one section dropped'). Hems are easy to skip when photographing, so a dedicated hem shot heads off the 'didn't see that' complaint.",
+    comesOut: "sometimes",
+    removalHeading: "How to repair a hem",
+    removal: [
+      "Look at whether the hem is unpicked or the fabric is worn through. Unpicked resews; worn through does not.",
+      "For an unpicked hem, press the fold back into place first. The crease line tells you exactly where the original hem sat.",
+      "Slip stitch by hand for anything visible, or use hemming tape for a temporary fix that survives a handful of washes.",
+      "For a worn edge, the fix is to take the hem up, which shortens the garment. On trousers that is often fine; on a dress it changes the proportion.",
+    ],
+    prevention: "Trouser hems wear from the ground, so length is the variable. A pair worn with flat shoes when it was hemmed for heels will destroy its own hem in a season.",
     relatedSlugs: ["fraying", "seam-stress"],
     faqs: [
       {
@@ -755,9 +1018,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "elastic-degradation",
     name: "Elastic degradation",
     alternateNames: ["dead elastic", "worn elastic", "shot elastic"],
-    title: "Stretched Elastic: Fixable, or a Grade Hit?",
+    title: "Perished Elastic: Replace, Not Revive",
     description:
-      "Slack, crumbly or wavy elastic in waistbands and cuffs. How to test the rebound, whether it is recoverable, what it does to the grade, and how to disclose it.",
+      "Stretched-out elastane never recovers. How to replace elastic in a casing, and why leggings and swimwear are finished when the fabric itself goes.",
     h1: "Elastic degradation",
     definition:
       "Elastic degradation is the breakdown of stretch fibers in waistbands, cuffs, and straps, where the elastic goes slack, crumbly, or wavy and no longer rebounds. Age, heat, and washing accelerate it, leaving the garment loose and unsupportive, and it weighs on functional elements and structural integrity.",
@@ -772,6 +1035,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Repairable on many garments. A tailor can replace elastic in a casing to restore function; on bonded or knit-in elastic it's often impractical, and the piece stays permanently slack.",
     disclosure:
       "State the function loss ('waistband elastic is shot and no longer holds'). Dead elastic is invisible in a flat photo but obvious in wear, so disclosing it is essential to avoid a fit-based return.",
+    comesOut: "no",
+    removalHeading: "Perished elastic cannot be revived",
+    removal: [
+      "Nothing restores it. The elastane has broken down chemically and stretched-out elastic never recovers.",
+      "The fix is replacement: unpick one end of the casing, pull the old elastic out, feed new elastic through on a safety pin, overlap and stitch.",
+      "On a waistband with the elastic sewn directly to the fabric rather than in a casing, replacement means rebuilding the whole waistband.",
+      "Leggings and swimwear with degraded elastane through the body of the fabric are finished. There is no casing to replace.",
+    ],
+    prevention: "Heat, chlorine and body oils all break down elastane. Wash cold, never tumble dry anything stretchy, and rinse swimwear immediately after use.",
     relatedSlugs: ["stretching", "broken-zipper"],
     faqs: [
       {
@@ -784,9 +1056,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "felting",
     name: "Wool felting",
     alternateNames: ["felted wool", "matted knit", "wool matting"],
-    title: "Wool Felting: Grade Impact",
+    title: "Felted Wool: Why It Cannot Be Undone",
     description:
-      "Wool felting is the irreversible matting and shrinking of wool knits after hot agitation. How to spot it, why it's permanent, and its condition-grade impact.",
+      "Felting is wool scales locked together, a physical change rather than a stain. What a conditioner soak recovers, and what to do with the rest.",
     h1: "Wool felting",
     definition:
       "Wool felting is the matting of animal-fiber knits into a dense, fuzzy, shrunken surface after agitation in heat and water. Irreversible, it stiffens the fabric, blurs the stitch definition, and shrinks the piece all at once, so it weighs on both fabric-condition and the garment's fit-driven grade.",
@@ -801,6 +1073,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Not reversible. Felting permanently fuses the fibers, so no soak or stretch fully undoes it. A lightly felted piece can sometimes be repurposed as craft wool, but it can't be restored to its knit state.",
     disclosure:
       "Disclose it as permanent ('wool has felted — matted texture and shrunk from tag size'). Because felting shrinks and stiffens at once, pair the note with actual measurements so buyers know the true size.",
+    comesOut: "no",
+    removalHeading: "Felting is not reversible",
+    removal: [
+      "It cannot be undone. Felting is the wool scales interlocking permanently, which is a physical change rather than a stain.",
+      "A conditioner soak and gentle stretching recovers a little size on a lightly felted garment, and it will not restore the texture.",
+      "Heavily felted knitwear is best repurposed. Felted wool does not fray, which makes it good material for something else.",
+    ],
+    prevention: "Agitation plus heat plus moisture is what felts wool, and all three have to be present. Hand wash cool, do not wring, dry flat. A machine's gentle cycle still agitates.",
     relatedSlugs: ["shrinkage", "pilling"],
     faqs: [
       {
@@ -813,9 +1093,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "watch-wear",
     name: "Cuff and watch wear",
     alternateNames: ["cuff abrasion", "wristwatch wear", "sleeve cuff wear"],
-    title: "Cuff & Watch Wear: Grade Impact",
+    title: "Worn Cuffs: Turning Them, and the Cost",
     description:
-      "Cuff and watch wear is asymmetric abrasion on one sleeve cuff from a watch or bracelet. How to spot the one-sided thinning and its condition-grade impact.",
+      "Cuff wear is abrasion, so washing changes nothing. What turning a cuff involves, what it costs, and the habit that wears one side first.",
     h1: "Cuff and watch wear",
     definition:
       "Cuff and watch wear is the localized abrasion on a left or right sleeve cuff where a watch, bracelet, or desk edge rubs it thin and frays the fabric. Subtle but asymmetric, it appears on one cuff more than the other and weighs on fabric-condition and cosmetic appearance.",
@@ -830,6 +1110,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Sometimes patchable. A tailor can turn or reinforce a worn cuff, and de-fuzzing helps lightly abraded fabric; a cuff worn through to thinness usually can't be fully restored.",
     disclosure:
       "Point to the asymmetry ('right cuff worn from watch, left is clean'). Because the wear is one-sided, a photo of both cuffs together makes the honest condition obvious at a glance.",
+    comesOut: "no",
+    removalHeading: "Cuff wear does not come out",
+    removal: [
+      "The fabric has abraded, so there is nothing to lift. Washing changes nothing.",
+      "On a shirt, a tailor can turn the cuffs, which puts the worn edge inside. It is a real repair and costs about as much as a cheap shirt.",
+      "Fusible interfacing behind a thin cuff stops it becoming a hole without improving how it looks.",
+    ],
+    prevention: "It is friction from a watch or a desk, always on the same side. Rotate which wrist carries the watch, and roll sleeves rather than resting cuffs on a desk edge.",
     relatedSlugs: ["fabric-thinning", "collar-wear"],
     faqs: [
       {
@@ -842,9 +1130,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "belt-loop-damage",
     name: "Belt loop damage",
     alternateNames: ["torn belt loop", "missing belt loop", "broken loop"],
-    title: "Belt Loop Damage: Grade Impact",
+    title: "How to Reattach a Torn Belt Loop",
     description:
-      "Belt loop damage is torn, stretched, or missing loops at a trouser waistband. How to inspect them, their grade impact, fixability, and disclosure.",
+      "The original stitch holes show you where it belongs. Bar tack both ends, or it pulls out again on the first tug.",
     h1: "Belt loop damage",
     definition:
       "Belt loop damage is the tearing, stretching, or complete loss of the loops that hold a belt at a trouser or jean waistband. Caused by yanking a snug belt, it leaves a frayed stub or a bare waistband, interrupts intended function, and is graded under functional elements with a cosmetic note.",
@@ -859,6 +1147,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Easily repaired. A tailor can re-tack a loose loop or sew on a replacement cut from a hidden seam, restoring function and grade. A replacement loop from other fabric should be noted as non-original.",
     disclosure:
       "Say which loop and how bad ('rear belt loop torn at one end'). It's a small flaw, but on jeans that need a belt it affects wearability, so buyers should know.",
+    comesOut: "yes",
+    removalHeading: "How to reattach a belt loop",
+    removal: [
+      "Find both original stitch points; the holes are still there and they are where the loop belongs.",
+      "Fold the raw ends under, position the loop, and sew through all layers with a heavy-duty or topstitch thread.",
+      "Bar tack each end: eight to ten close stitches across the width, backstitched. A single row of stitching pulls out again on the first tug.",
+      "If the loop itself has torn through, cut a new one from the inside of a hem or a pocket bag on the same garment so the fabric matches.",
+    ],
+    prevention: "Belt loops fail from being pulled to hoist trousers up. Lift by the waistband, and if you are lifting often the trousers are the wrong size.",
     relatedSlugs: ["seam-stress", "missing-buttons"],
     faqs: [
       {
@@ -871,9 +1168,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "lining-tears",
     name: "Lining tears",
     alternateNames: ["torn lining", "ripped lining", "lining damage"],
-    title: "Lining Tears: Grade Impact",
+    title: "How to Repair a Torn Jacket Lining",
     description:
-      "Lining tears are rips in the inner fabric of jackets, coats, and skirts. Where they hide, why they still lower the grade, and how to disclose them.",
+      "Turn the garment through the lining's own opening. Ladder stitch a panel tear, interface behind it, and know when replacement costs more than the coat.",
     h1: "Lining tears",
     definition:
       "Lining tears are rips and separations in the inner fabric of jackets, coats, and skirts, often hidden until the garment is turned inside out. They form at armholes, vents, and pockets under stress, and while less visible than shell damage, they still weigh on structural integrity and functional wear.",
@@ -888,6 +1185,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Repairable, sometimes cheaply. A tailor can restitch a torn lining seam or replace a pocket bag; a fully deteriorated lining may need full replacement, which is costlier but restores the piece.",
     disclosure:
       "Photograph the inside ('lining torn at the right armhole, shell is clean'). Because linings hide from a standard photo, an inside-out shot is what keeps a lining tear from being a surprise.",
+    comesOut: "sometimes",
+    removalHeading: "How to repair a torn lining",
+    removal: [
+      "Turn the garment inside out through the lining's own opening, usually a gap left in a sleeve or the hem.",
+      "For a split seam, restitch along the original line; lining fabric is slippery, so pin more than feels necessary.",
+      "For a tear in the middle of a panel, back it with lightweight fusible interfacing and close it with a small ladder stitch.",
+      "Where the lining has shredded across an armhole or seat, replacement is the only real answer, and a tailor charges more for it than most secondhand garments are worth.",
+    ],
+    prevention: "Linings wear faster than shells because they take the friction. Do not carry heavy things in a lined pocket, and get a small tear fixed before it runs along the seam.",
     relatedSlugs: ["seam-stress", "holes-tears"],
     faqs: [
       {
@@ -900,9 +1206,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "button-fading",
     name: "Button fading",
     alternateNames: ["worn buttons", "faded buttons", "dulled buttons"],
-    title: "Button Fading: Grade Impact",
+    title: "Faded Buttons: Replace the Whole Set",
     description:
-      "Button fading is dulled, chipped, or color-worn buttons that are still attached. How it differs from missing buttons, and its minor condition-grade impact.",
+      "Colour cannot be restored to a faded button. Why one new button looks worse than eight old ones, and why keeping the originals protects the value.",
     h1: "Button fading",
     definition:
       "Button fading is the dulling, chipping, or color loss of a garment's buttons themselves — brass gone dull, painted logos worn off, or dyed buttons sun-bleached. Distinct from missing buttons, the fastener is present but tired, so it reads as a minor cosmetic flaw that nudges the grade down a notch.",
@@ -917,6 +1223,14 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Cheaply improved. Swapping in matching replacement buttons or polishing metal ones refreshes the look and can recover the small grade loss; non-original replacements should be disclosed.",
     disclosure:
       "Mention it only if visible ('front buttons show some wear to the finish'). It's a minor point, but on branded or dress garments buyers notice tired buttons, so a quick note keeps expectations honest.",
+    comesOut: "no",
+    removalHeading: "Faded buttons are replaced, not restored",
+    removal: [
+      "Colour cannot be brought back to a plastic or dyed-shell button. The fix is replacement.",
+      "Replace the whole set rather than one. A single new button next to seven old ones is more obvious than eight faded ones.",
+      "Keep the originals. On a branded garment the buttons are part of what a buyer authenticates against, and a replaced set lowers value even when it looks better.",
+    ],
+    prevention: "Buttons fade from UV and from dry-cleaning solvent. Wash inside out, dry in shade, and ask a cleaner to foil branded buttons.",
     relatedSlugs: ["missing-buttons", "cracked-graphics"],
     faqs: [
       {
@@ -929,9 +1243,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "collar-wear",
     name: "Collar wear",
     alternateNames: ["worn collar", "collar fraying", "ring around the collar"],
-    title: "Collar Wear: Grade Impact",
+    title: "How to Clean and Fix a Worn Collar",
     description:
-      "Collar wear is fraying, graying, and thinning where a collar rubs the neck. How to inspect it, why it's an early age sign, and its condition-grade impact.",
+      "A grey collar is oil and comes out; a frayed edge is abrasion and does not. Shampoo works on the first because collar grime is mostly skin and hair oil.",
     h1: "Collar wear",
     definition:
       "Collar wear is the fraying, graying, and thinning along a shirt or jacket collar where it rubs the neck and jaw all day. Often paired with a stubborn ring of grime, it is one of the first places a dress shirt shows age and weighs on both fabric-condition and cleanliness.",
@@ -946,6 +1260,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Partly fixable. A grime ring often washes out with a pretreat, and dress-shirt collars can sometimes be turned by a tailor to hide fraying; thinned or frayed fabric itself doesn't recover.",
     disclosure:
       "Describe the collar honestly ('collar edge lightly frayed with a faint grime line'). The collar is the first thing a buyer inspects on a shirt, so glossing over its wear invites disappointment.",
+    comesOut: "sometimes",
+    removalHeading: "How to clean and repair a worn collar",
+    removal: [
+      "Separate the two problems: a grey collar is soil and comes out, a frayed collar edge is abrasion and does not.",
+      "For soiling, work an enzyme detergent or a little shampoo directly into the fold, leave it 30 minutes, then wash warm. Shampoo works because collar grime is mostly hair and skin oil.",
+      "For light fraying, trim the loose fibres flush and press. It buys time and does not fix anything.",
+      "For a worn collar on a shirt worth keeping, a tailor can turn it, the same operation as turning cuffs.",
+    ],
+    prevention: "Wash shirts after every wear rather than airing them. Collar soil is oil, oil oxidises, and an oxidised collar mark is significantly harder to remove than a fresh one.",
     relatedSlugs: ["fabric-thinning", "pit-stains"],
     faqs: [
       {
@@ -958,9 +1281,9 @@ export const FLAW_ENTRIES: FlawEntry[] = [
     slug: "patch-loss",
     name: "Patch loss",
     alternateNames: ["missing patch", "peeling patch", "lost logo"],
-    title: "Patch Loss & Missing Logos: Grade Impact",
+    title: "Lost Patch: The Shadow It Leaves",
     description:
-      "Patch loss is missing, peeling, or torn-off patches and logos that leave residue or outlines. How it affects identity, value, and the condition grade.",
+      "The fabric under a patch did not fade with the rest, so the outline usually stays. Adhesive removal, sizing a replacement, and what the loss does to value.",
     h1: "Patch loss and missing logos",
     definition:
       "Patch loss is the missing, peeling, or torn-off patches, appliqués, and woven logos that a garment originally carried, leaving glue residue, stitch holes, or a shadow outline. Common on workwear, varsity jackets, and branded caps, it changes the piece's identity and value and counts under cosmetic appearance.",
@@ -975,6 +1298,15 @@ export const FLAW_ENTRIES: FlawEntry[] = [
       "Sometimes replaceable. A loose patch can be restitched and a reproduction sewn back on, but original-patch collectors treat replacements as a value hit, so a non-original patch must be disclosed.",
     disclosure:
       "State exactly what's gone ('chest logo patch missing, leaves a faint outline'). On branded and vintage pieces the patch is much of the value, so its absence is a material fact buyers must know.",
+    comesOut: "no",
+    removalHeading: "A lost patch is gone, and the mark it leaves is not",
+    removal: [
+      "The patch itself cannot be recovered, and the outline usually can not either: the fabric under it did not fade with the rest of the garment.",
+      "Remove any remaining adhesive with a little isopropyl alcohol on a cloth before doing anything else.",
+      "A replacement patch of the same size covers the shadow. A smaller one makes it more obvious, not less.",
+      "On a garment where the patch was the brand marker, its absence changes what the item is and what it is worth, regardless of how the fabric looks.",
+    ],
+    prevention: "Iron-on patches fail in the wash and in the dryer. Anything you want to keep should be stitched around its edge, whether or not it also has adhesive.",
     relatedSlugs: ["cracked-graphics", "missing-buttons"],
     faqs: [
       {

@@ -256,16 +256,21 @@
     },
     {
       "id": "US-9012",
-      "passes": false,
+      "passes": true,
       "title": "Reframe the flaw library from disclosure-first to removal-first under /care/",
       "description": "As someone who just found a stain on a garment, I want a page that tells me how to get it out, so that I land on GradeThread for the question I actually asked rather than one about listing terminology.",
       "acceptanceCriteria": [
-        "The 35 entries in src/lib/seo/flaw-library.ts each gain a removal-and-prevention section that comes BEFORE the existing disclosure-and-grading section, and titles are rewritten from grading language to removal language.",
-        "Pages are served under a /care/ path prefix, separate from the reseller spine, per the containment decision in the strategy note.",
-        "Existing flaw-library URLs 301 to their /care/ equivalents, and the redirect map is covered by a test so a rename cannot silently orphan them.",
-        "Each page ends on the honest hinge that some damage does not come out, linking down into pricing and grading. That link runs one way only, per the containment guard story.",
-        "keyword-targets.ts entries are updated from disclosure keywords to removal keywords; keyword-targets.test.ts passes.",
-        "`npm run ui:check` still reports zero for src/."
+        "The entries each gain a removal-and-prevention section that comes BEFORE the existing disclosure-and-grading section, and titles are rewritten from grading language to removal language. DONE for all of them. NOTE THE COUNT: the story says 35 and there are 32. The removal block sits directly under the definition, above 'How to spot it'; grade impact, fixability and disclosure now sit below it, because those are our questions and not the reader's.",
+        "EVERY ENTRY DECLARES WHETHER IT COMES OUT, and 11 of the 32 say no. That is the differentiator and it is enforced by a test: a laundry blog has to promise a fix to justify the page, and we do not, so a 'no' entry says so in a banner in the first line rather than selling the reader an afternoon of scrubbing. 5 are yes, 16 are sometimes, 11 are no.",
+        "Pages are served under a /care/ path prefix, separate from the reseller spine, per the containment decision in the strategy note. DONE. FLAW_LIBRARY_HUB_PATH moved from /grading/flaws to /care, and because every consumer went through that constant and flawPath(), the router, prerender, head-builder, JSON-LD and sitemap all followed.",
+        "Existing flaw-library URLs 301 to their /care/ equivalents, and the redirect map is covered by a test so a rename cannot silently orphan them. DONE, two rules in public/_redirects, and 9 tests in src/test/care-redirects.test.ts.",
+        "THE REDIRECTS WERE WRITTEN BELOW THE /* CATCH-ALL FIRST, which would have 404'd all 32 old URLs while looking correct in the diff. public/_redirects is first-match-wins. A test now asserts the ordering, not just the presence, because presence is the easy half.",
+        "Each page ends on the honest hinge that some damage does not come out, linking down into pricing and grading. DONE, and the copy changes with the verdict: a permanent flaw gets 'It is staying, so the question is what it costs'. The three links out go to /resale-value-by-condition, /condition-grading and /tools/reseller-profit-calculator. One way only; US-9015 guards that nothing points back up.",
+        "keyword-targets.ts entries are updated from disclosure keywords to removal keywords; keyword-targets.test.ts passes. DONE, four entries under a NEW `care` cluster. The cluster is separate on purpose: the containment decision only means something if this content can be measured apart from the reseller spine, and US-9016's kill criteria read it as its own line.",
+        "THE FOUR TARGETS ARE THE ONES US-9011 CLEARED, not the highest-volume ones: unshrink clothes, snag in a sweater, broken zipper, hole in jeans. `how to sew on a button` is 50,000/mo and deliberately absent, because the gate found it is the purest non-adjacent intent in the set.",
+        "`npm run ui:check` still reports zero for src/. DONE, 0 blocking.",
+        "COLLATERAL, RECONCILED RATHER THAN HIDDEN: /grading/flaws/elastic-degradation had its SERP copy rewritten under US-9017 earlier the same day. The worklist CSV now records the /care URL and the title that is actually live, marked yes-superseded-by-us-9012, and docs/seo/ctr-rewrite-pass.md explains it. The 301 carries the CTR baseline across; the 2026-10-17 follow-up should read the new URL.",
+        "The public-routes router guard needed a /care clause. The 32 concrete paths are served by one dynamic /care/:flaw route; under /grading/ they were covered by the glossary clause, so the move made the guard report all 32 as missing from the router."
       ],
       "priority": 14,
       "dependsOn": [

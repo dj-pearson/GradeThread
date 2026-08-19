@@ -116,9 +116,20 @@ describe("public-routes registry guard (US-291)", () => {
     // indexable paths served by the single dynamic /compare/:slug route. The
     // hub (/compare) is a literal router path and is checked normally below.
     const hasCompareDynamicRoute = allRouterPaths.includes("/compare/:slug");
+    // US-9012: the flaw library moved from /grading/flaws to /care, where its 32
+    // concrete indexable paths are served by the single dynamic /care/:flaw
+    // route. Under /grading/ they were covered by the glossary clause above, so
+    // the move needed its own; without it the guard reported all 32 as missing
+    // from the router. The hub (/care) is a literal router path and is checked
+    // normally below.
+    const hasCareDynamicRoute = allRouterPaths.includes("/care/:flaw");
     for (const r of PUBLIC_ROUTES) {
       if (r.path.startsWith("/grading/")) {
         expect(hasGlossaryDynamicRoute).toBe(true);
+        continue;
+      }
+      if (r.path.startsWith("/care/")) {
+        expect(hasCareDynamicRoute).toBe(true);
         continue;
       }
       if (r.path.startsWith("/reselling/")) {

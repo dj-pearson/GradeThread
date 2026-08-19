@@ -16,7 +16,13 @@ export type KeywordCluster =
   | "condition-value" // resale value by condition / what's it worth
   | "reseller-tools" // FlipDesk / eBay reseller management
   | "selling-guide" // how to sell used clothes (marketplace guides)
-  | "trust-verify"; // certificates, verification, buyer guarantee
+  | "trust-verify" // certificates, verification, buyer guarantee
+  // US-9012: garment care and repair, served under /care. Deliberately its own
+  // cluster rather than folded into an existing one, because the whole point of
+  // the containment decision is that this content is NOT part of the reseller
+  // spine and must be measurable separately. US-9016's kill criteria read it as
+  // its own line.
+  | "care";
 
 export type SearchIntent = "informational" | "commercial" | "transactional";
 
@@ -348,6 +354,60 @@ export const KEYWORD_TARGETS: readonly KeywordTarget[] = [
       "what is the best crosslisting app for clothing",
       "which marketplaces can flipdesk crosslist to",
       "how is flipdesk different from vendoo",
+    ],
+  },
+  // US-9012: the flaw library moved to /care and was reframed from disclosure
+  // language to removal language, so its targets moved with it. These are the
+  // four entries the US-9011 SERP check identified as winnable: weak incumbents
+  // AND a condition consequence that bridges back to the product. The two
+  // 50,000/mo terms it warned off (`how to sew on a button` especially) are
+  // deliberately absent.
+  {
+    path: "/care/shrinkage",
+    cluster: "care",
+    intent: "informational",
+    primary: "how to unshrink clothes",
+    secondary: ["unshrink a shirt", "fix shrunken clothes", "clothes shrank in the dryer"],
+    questions: [
+      "how do you unshrink clothes",
+      "can you unshrink a wool sweater",
+      "does hair conditioner unshrink clothes",
+    ],
+  },
+  {
+    path: "/care/snags-pulls",
+    cluster: "care",
+    intent: "informational",
+    primary: "how to fix a snag in a sweater",
+    secondary: ["pulled thread in a sweater", "snag repair", "fix a pull in knitwear"],
+    questions: [
+      "how do you fix a snag in a sweater",
+      "should you cut a snag off a sweater",
+      "what tool fixes a snag in knitwear",
+    ],
+  },
+  {
+    path: "/care/broken-zipper",
+    cluster: "care",
+    intent: "informational",
+    primary: "how to fix a broken zipper",
+    secondary: ["zipper will not close", "zipper separates behind the slider", "fix a zip"],
+    questions: [
+      "how do you fix a zipper that separates",
+      "can you fix a zipper without replacing it",
+      "why does my zipper keep coming undone",
+    ],
+  },
+  {
+    path: "/care/holes-tears",
+    cluster: "care",
+    intent: "informational",
+    primary: "how to fix a hole in jeans",
+    secondary: ["mend a hole in clothes", "repair torn jeans", "darn a hole"],
+    questions: [
+      "how do you fix a hole in jeans",
+      "what is the strongest way to mend a hole",
+      "can you fix a hole without a sewing machine",
     ],
   },
   {

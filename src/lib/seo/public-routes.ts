@@ -637,7 +637,7 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   ...flipdeskLandingRoutes(),
   // Reselling pillar + TOFU guides (US-1688): /reselling + /reselling/<slug>.
   ...resellingRoutes(),
-  // Flaw library pSEO (US-1683): /grading/flaws hub + /grading/flaws/<flaw>.
+  // Flaw library pSEO (US-1683), moved to /care by US-9012: hub + /care/<flaw>.
   ...flawLibraryRoutes(),
   // Garment-type grading guides pSEO (US-1682): /grading/guides hub + per garment.
   ...garmentGuideRoutes(),

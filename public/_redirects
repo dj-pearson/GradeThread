@@ -18,4 +18,20 @@
 # a compact link without splitting link equity across two indexable URLs.
 /c/:id          /cert/:id     301
 
+# US-9012: the flaw library moved from /grading/flaws to /care when it was
+# reframed from disclosure-first to removal-first. Both rules are needed: the
+# splat catches the 32 entry pages, the exact rule catches the hub, and a splat
+# alone does not match the bare prefix.
+#
+# THESE MUST STAY ABOVE THE /* CATCH-ALL. This file is first-match-wins, so a
+# rule placed after the 404 rule never runs. Written below it first, which would
+# have 404'd every old flaw URL instead of redirecting it.
+#
+# 301 not 302: the move is permanent and the pages have ten weeks of history to
+# carry across. src/test/care-redirects.test.ts asserts every live /care route
+# has a rule pointing at it, so renaming a slug cannot silently orphan the old
+# URL, and that the rules sit above the catch-all.
+/grading/flaws          /care         301
+/grading/flaws/*        /care/:splat  301
+
 /*              /404.html     404

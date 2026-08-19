@@ -407,10 +407,12 @@ export const router = createBrowserRouter([
       // /grading/:slug spoke route below. Registered in PUBLIC_ROUTES + prerendered.
       { path: "/grading/glossary", element: <SuspenseWrapper><ResellerGlossaryHubPage /></SuspenseWrapper> },
       { path: "/grading/glossary/:term", element: <SuspenseWrapper><ResellerGlossaryTermPage /></SuspenseWrapper> },
-      // Flaw library (US-1683): hub + per-flaw pages. Static /grading/flaws + the
+      // Flaw library (US-1683, moved to /care by US-9012): hub + per-flaw pages. Static /care + the
       // 2-segment flaw route outrank /grading/:slug below.
-      { path: "/grading/flaws", element: <SuspenseWrapper><FlawLibraryHubPage /></SuspenseWrapper> },
-      { path: "/grading/flaws/:flaw", element: <SuspenseWrapper><FlawPage /></SuspenseWrapper> },
+      // US-9012 moved these from /grading/flaws to /care. Old URLs 301 from
+      // public/_redirects; the router does not need to know about them.
+      { path: "/care", element: <SuspenseWrapper><FlawLibraryHubPage /></SuspenseWrapper> },
+      { path: "/care/:flaw", element: <SuspenseWrapper><FlawPage /></SuspenseWrapper> },
       // Garment-type grading guides (US-1682): hub + per-garment pages.
       { path: "/grading/guides", element: <SuspenseWrapper><GarmentGuidesHubPage /></SuspenseWrapper> },
       { path: "/grading/guides/:garment", element: <SuspenseWrapper><GarmentGuidePage /></SuspenseWrapper> },

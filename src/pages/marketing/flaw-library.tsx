@@ -122,6 +122,41 @@ export function FlawPage({ slug: slugProp }: { slug?: string }) {
         </div>
       </section>
 
+      {/* US-9012: removal comes FIRST. The reader has the garment in their hand
+          and wants the mark gone; detection, grading and disclosure are our
+          questions, not theirs, and they now sit below the answer. */}
+      <section className="border-t bg-card px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-2xl font-bold sm:text-3xl">{flaw.removalHeading}</h2>
+          {flaw.comesOut === "no" && (
+            <p className="mt-4 rounded-lg border px-4 py-3 text-sm">
+              <strong>Short answer: it does not come out.</strong> Everything
+              below is about what to do instead. We would rather tell you that
+              in the first line than sell you an afternoon of scrubbing.
+            </p>
+          )}
+          {flaw.comesOut === "sometimes" && (
+            <p className="mt-4 rounded-lg border px-4 py-3 text-sm">
+              <strong>Short answer: sometimes.</strong> It depends on what
+              exactly you have and how long it has been there. The steps below
+              say where it stops working rather than pretending it always does.
+            </p>
+          )}
+          <ol className="mt-6 space-y-3">
+            {flaw.removal.map((step, i) => (
+              <li key={step} className="flex gap-3 rounded-lg border bg-background p-4 text-sm">
+                <span className="font-semibold tabular-nums text-muted-foreground">
+                  {i + 1}
+                </span>
+                <span>{step}</span>
+              </li>
+            ))}
+          </ol>
+          <h3 className="mt-10 text-lg font-bold">Stopping it happening again</h3>
+          <p className="mt-2 text-muted-foreground">{flaw.prevention}</p>
+        </div>
+      </section>
+
       {/* Photos — rendered only when the graded corpus supplies them */}
       {flaw.photos?.length ? (
         <section className="border-t px-6 py-12">
@@ -141,9 +176,9 @@ export function FlawPage({ slug: slugProp }: { slug?: string }) {
         </section>
       ) : null}
 
-      <section className="border-t bg-card px-6 py-16">
+      <section className="border-t px-6 py-16">
         <div className="mx-auto max-w-3xl">
-          <h2 className="text-2xl font-bold sm:text-3xl">How to detect it</h2>
+          <h2 className="text-2xl font-bold sm:text-3xl">How to spot it</h2>
           <ul className="mt-6 space-y-3">
             {flaw.howToDetect.map((item) => (
               <li
@@ -195,6 +230,36 @@ export function FlawPage({ slug: slugProp }: { slug?: string }) {
           </div>
         </section>
       )}
+
+      {/* US-9012 AC4: the honest hinge. Whatever the removal section managed,
+          some of it stays, and what stays has a price. This is the ONE-WAY link
+          down into the reseller spine — care pages point at grading and pricing,
+          and those pages do not point back up here (US-9015 guards that). */}
+      <section className="border-t px-6 py-16">
+        <div className="mx-auto max-w-3xl">
+          <h2 className="text-2xl font-bold sm:text-3xl">
+            {flaw.comesOut === "no"
+              ? "It is staying, so the question is what it costs"
+              : "What if it does not all come out?"}
+          </h2>
+          <p className="mt-4 text-muted-foreground">
+            {flaw.comesOut === "no"
+              ? `${flaw.name} is permanent, which means the garment is worth what a garment with ${flaw.name.toLowerCase()} is worth. That is a smaller number than the same piece without it, and it is not zero. The gap between those two numbers is what a condition grade measures.`
+              : `Most of the time some of it stays, and the leftover is what a buyer sees. A garment is worth what its condition says it is worth, so the sensible next question is how much this particular flaw moves the number.`}
+          </p>
+          <div className="mt-5 flex flex-wrap gap-4 text-sm font-medium">
+            <Link to="/resale-value-by-condition" className="text-brand-red-text hover:underline">
+              What each condition grade is worth
+            </Link>
+            <Link to="/condition-grading" className="text-brand-red-text hover:underline">
+              How condition grading works
+            </Link>
+            <Link to="/tools/reseller-profit-calculator" className="text-brand-red-text hover:underline">
+              Price it with the condition built in
+            </Link>
+          </div>
+        </div>
+      </section>
 
       <section className="px-6 py-16">
         <div className="mx-auto max-w-3xl">

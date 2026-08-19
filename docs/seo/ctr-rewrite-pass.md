@@ -84,3 +84,16 @@ figures on 16 comparison pages and the where-to-sell guide.
 Recorded here because it is the same failure mode this whole SEO pass keeps
 hitting: a plausible number, written down once, never checked against the
 source.
+
+## One row superseded by US-9012 (2026-08-18)
+
+`/grading/flaws/elastic-degradation` was rewritten under this story and then
+moved and rewritten again the same day, when US-9012 relocated the flaw library
+to `/care` and reframed all 32 entries from disclosure language to removal
+language.
+
+The worklist row now records the /care URL and the title that is actually live,
+with `shipped=yes-superseded-by-us-9012`, because the record has to say what is
+true rather than what this pass decided. The CTR baseline captured against the
+old URL still applies: the 301 carries the history across, and the 60-day
+follow-up on 2026-10-17 should read the new URL.
