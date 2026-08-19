@@ -142,9 +142,9 @@ unless a story is blocked; if blocked, note why and move to the next.
 - [x] US-2530 (1946) No password reveal / strength — DONE 3b589dff. Shared PasswordField
       in components/AUTH (components/ui is hook-blocked as shadcn-generated), all 4
       inputs, meter on signup+reset only, persistent role=alert sign-in error.
-- [~] US-2531 (1948) Shopify web-only — SLICE SHIPPED `f6bfbb77` (still OPEN). **Premise mostly STALE**: the iOS screen ALREADY badges Shopify "Live · manage on web" and the paywall never mentions marketplaces, so AC3 was already satisfied. Real gap is only the "and links there" half. Guard `src/test/ios-marketplace-capability-parity.test.ts`; verified to BITE.
-- [~] US-2532 (1950) Workspace 2FA policy web-only — SLICE SHIPPED `6b19b3ca` (still OPEN). **Found a real WEB bug**: the edge sends the blocked-member explanation and `edge-fetch.ts` threw it away for a hardcoded near-duplicate that had ALREADY drifted — making AC3 impossible. Fixed. iOS half verified PURELY UI. Guard `src/test/workspace-mfa-policy-parity.test.ts`.
-- [~] US-2533 (1952) Return analytics web-only — SLICE SHIPPED `fb8995fd` (still OPEN). AC2 needs NO protocol work (RPC is SECURITY INVOKER, granted to `authenticated`). **The risk is the CLAIM**: the RPC returns raw counts and the honesty rules (sample floor 10; never a multiplier when graded is equal/worse/zero-divisor) live in TS. Guard `src/test/return-analytics-claim-rules.test.ts`; verified to BITE twice.
+- [x] US-2531 (1948) Shopify web-only - CLOSED 2026-08-19. The 2026-08-14 slice narrowed it correctly and the remaining gap was one link: the screen said "connect it on the web" and gave no way to get there. MarketplacesView now renders a "Connect on the web" action on any `.api`-tier row, opening the FlipDesk marketplaces page in an in-app SafariView. Anchored on the TIER, not on the string "Shopify". Destination is the dashboard page and NOT a Shopify OAuth URL - the web app owns the redirect target, so a more direct link would strand the seller on a callback the app cannot receive. Guard `src/test/ios-marketplace-capability-parity.test.ts` swapped its absence block for four presence cases; 3 sabotages reddened. NOT COMPILED - iOS CI is the gate.
+- [~] US-2532 (1950) Workspace 2FA policy web-only — SLICE SHIPPED `6b19b3ca` (still OPEN). **Found a real WEB bug**: the edge sends the blocked-member explanation and `edge-fetch.ts` threw it away for a hardcoded near-duplicate that had ALREADY drifted — making AC3 impossible. Fixed. iOS half verified PURELY UI. Guard `src/test/workspace-mfa-policy-parity.test.ts`. **US-2671 closed the follow-on 2026-08-19**: iOS now has TOTP enrollment (Settings > Two-factor authentication), and this notice opens it instead of sending a phone-only member to a browser.
+- [x] US-2533 (1952) Return analytics web-only - CLOSED 2026-08-19. iOS Analytics gains a "Returns by grade" card driven by the SAME `flipdesk_return_reduction` RPC (SECURITY INVOKER, granted to `authenticated`, so no new endpoint), keyed on the existing range picker (AC3). The honesty rules are PORTED into `ReturnClaimRules` rather than re-decided: sample floor 10, no multiplier when graded is equal/worse/zero-divisor, low-n bands shown and marked rather than hidden. The guard swapped its absence block for eight cases that read the FLOOR out of the Swift and compare it to `MIN_RETURN_SAMPLE`, so the two numbers cannot drift. NOT COMPILED - iOS CI is the gate.
 - [~] US-2534 (1954) iOS a11y labels missing — SLICE SHIPPED `d7b69221` (still OPEN). Premise VERIFIED (all 8 screens at zero) with a path CORRECTION: AIExtractView.swift is in `AIExtract/`, not `Analytics/`. Guard `src/test/ios-accessibility-ratchet.test.ts` makes the debt measurable and protects the 68 files that DO carry labels. Baseline 171 real call sites, not the 185 a bare grep reports. Verified to BITE. AC2 still needs Swift.
 - [~] US-2535 (1956) Onboarding taxonomies diverge — **DECISION MADE** (owner,
       2026-08-14): option A, all three iOS answers map to `seller`, volume stays
@@ -367,9 +367,9 @@ Verified by reading each story's own STILL-OPEN marker, not assumed:
 | US-2503 | four buyer screens, the entitlement test, the plan screen | macOS |
 | US-2504 | the AVCapture recorder, the iOS progress UI | macOS |
 | US-2528 | the Terms copy itself | counsel sign-off |
-| US-2531 | one link on the Marketplaces screen | macOS |
-| US-2532 | the 2FA control | macOS |
-| US-2533 | the analytics section + range wiring | macOS |
+| ~~US-2531~~ | ~~one link on the Marketplaces screen~~ | DONE 2026-08-19 (written here, compiled on iOS CI) |
+| US-2532 | the 2FA control | macOS - and US-2671 shipped the ENROLLMENT screen 2026-08-19 |
+| ~~US-2533~~ | ~~the analytics section + range wiring~~ | DONE 2026-08-19 (written here, compiled on iOS CI) |
 | US-2534 | labels + move actions on eight screens | macOS |
 | US-2535 | the `users.use_case` write, telemetry retention | macOS |
 | US-2557 | the TabView badge, `setBadgeCount` | macOS |

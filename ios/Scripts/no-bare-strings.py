@@ -197,6 +197,31 @@ BASELINE = frozenset({
     "Your own numbers, on every plan. They are not part of the shared map.",
     "Your store · nothing shared about this place yet",
     "Your stores that are not on the map",
+    # US-2671 two-factor enrollment (TwoFactorSheet). Added rather than
+    # localized because iOS ships English-only today (US-2499 holds the
+    # decision); these move into the catalog with the rest of Settings.
+    "Add a one-time code from an authenticator app (Google Authenticator, "
+    "1Password, Authy) as a second factor when you sign in. If your workspace "
+    "owner requires it, you need this to keep working in their workspace.",
+    "Cancel setup",
+    "Codes change every 30 seconds. Enter the one showing now.",
+    "Confirm this session",
+    "Confirm this session with a code before you can turn it off.",
+    "Open your authenticator app and scan the code. Can't scan? Enter the key "
+    "below by hand.",
+    "Signing in with your password alone doesn't satisfy a workspace that "
+    "requires two-factor authentication. Enter a code once per sign-in to "
+    "unlock it, and to change this setting.",
+    "Step 1: scan this",
+    "Step 2: confirm",
+    "Turn off two-factor authentication",
+    "Two-factor authentication is off.",
+    "Two-factor authentication is on.",
+    "You'll be asked for a code from your authenticator app. Recovery codes "
+    "are managed on gradethread.com. Keep them somewhere other than this phone.",
+    "Your account goes back to a password only. If your workspace owner "
+    "requires two-factor authentication, you'll be locked out of their "
+    "workspace.",
 })
 
 

@@ -48,6 +48,11 @@ struct MarketplacesView: View {
     // and confirm before disconnecting from the main card.
     @State private var isSyncing = false
     @State private var confirmingDisconnect = false
+    // US-2531: the web page where a .api channel is actually connected. An
+    // Identifiable wrapper drives one .sheet(item:) - the same shape the
+    // Settings legal links use - so a second web-managed channel needs no new
+    // state.
+    @State private var webManagedChannel: WebManagedChannel?
 
     // US-186 reconciliation count badge — refreshed alongside connection
     // state so the link only shows up when there's actually orphan work.
@@ -146,6 +151,11 @@ struct MarketplacesView: View {
             // fired, so this subscription catches the wake signal.
             consumeReconnectRequest()
         }
+        // US-2531: opened in-app rather than kicked out to Safari, so the
+        // seller comes back to where they were instead of to a cold app launch.
+        .sheet(item: $webManagedChannel) { channel in
+            SafariView(url: channel.url).ignoresSafeArea()
+        }
         .sheet(isPresented: $showingSyncModal, onDismiss: { cancelSync() }) {
             EbaySyncModal(
                 store: syncStore,
@@ -198,6 +208,25 @@ struct MarketplacesView: View {
         let systemImage: String
         let tier: ChannelTier
     }
+
+    /// US-2531: a channel that is real, paid for, and connected somewhere this
+    /// app is not. The screen already SAID so in prose; saying it without a way
+    /// to get there left an iPhone-only subscriber reading an instruction they
+    /// could not follow.
+    ///
+    /// The destination is the FlipDesk marketplaces page rather than a Shopify
+    /// OAuth URL. The OAuth handshake belongs to the web app, which owns the
+    /// redirect target and the session that completes it; deep-linking past it
+    /// would strand the seller on a callback nothing here can receive.
+    struct WebManagedChannel: Identifiable {
+        let id: String
+        let label: String
+        let url: URL
+    }
+
+    private static let webMarketplacesURL = URL(
+        string: "https://gradethread.com/dashboard/flipdesk/marketplaces"
+    )
 
     // US-2475: per-channel automation risk disclosure.
     //
@@ -524,6 +553,30 @@ struct MarketplacesView: View {
                             .padding(.vertical, 3)
                             .background(Color.brandNavy.opacity(0.12))
                             .clipShape(Capsule())
+                    }
+                    // US-2531: a web-managed channel gets a way THERE, not
+                    // just a badge saying it lives elsewhere. Only .api
+                    // channels render it, so a Listing Kit row cannot pick up
+                    // a link to a connection page it has no place on.
+                    if case .api = channel.tier, let url = Self.webMarketplacesURL {
+                        Button {
+                            webManagedChannel = WebManagedChannel(
+                                id: channel.id,
+                                label: channel.label,
+                                url: url
+                            )
+                        } label: {
+                            Label(
+                                "Connect \(channel.label) on the web",
+                                systemImage: "arrow.up.forward.app"
+                            )
+                            .font(.caption.weight(.semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .tint(Color.brandNavy)
+                        .foregroundStyle(Color.brandNavy)
+                        .accessibilityLabel("Connect \(channel.label) on the web")
+                        .accessibilityHint("Opens the GradeThread dashboard, where \(channel.label) is connected.")
                     }
                     // US-2475: the risk statement is on the screen, not in a
                     // README. Collapsed by default so the list stays readable,

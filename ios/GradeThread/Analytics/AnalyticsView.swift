@@ -17,6 +17,11 @@ struct AnalyticsView: View {
     @Query private var sources: [LocalSource]
 
     @State private var range: AnalyticsRange = .days90
+    // US-2533: return-reduction rollup. Server-side (the flipdesk_return_reduction
+    // RPC) rather than derived from the local SwiftData mirror like the cards
+    // around it, because a return is a REFUND on a sale and the phone's copy of
+    // sales is a sync of what it has seen, not the ledger.
+    @State private var returns = ReturnReductionStore()
 
     // US-1026: pull-to-refresh fires a real sync; the engine dedupes concurrent
     // pulls, and a transient banner surfaces failures.
@@ -139,6 +144,7 @@ struct AnalyticsView: View {
                 sourceROICard
                 brandProfitCard
                 sellThroughCard
+                returnsCard
                 gradeDistributionCard
                 inventoryValueCard
             }
@@ -149,6 +155,10 @@ struct AnalyticsView: View {
         // US-1169: the narrative describes a specific window, so drop it when the
         // range changes rather than showing a stale summary.
         .onChange(of: range) { _, _ in narrative = nil; narrativeError = nil }
+        // US-2533 AC3: the range picker applies to this section like the others.
+        // Keyed on the range so switching windows re-reads the rollup instead of
+        // leaving a 90-day number under a 30-day heading.
+        .task(id: range) { await returns.refresh(periodStart: range.start(now: .now)) }
         .alert("Monthly sourcing budget", isPresented: $showingBudgetEditor) {
             TextField("Amount", text: $budgetDraft)
                 .keyboardType(.decimalPad)
@@ -486,6 +496,123 @@ struct AnalyticsView: View {
                 .frame(height: categoryHeight(sellThrough.count))
             }
         }
+    }
+
+    // US-2533: does a lower grade come back more often? The web tab
+    // (/dashboard/flipdesk/analytics/returns) has asked this since US-595 and
+    // the phone did not, so a seller paying the same price was missing a
+    // section.
+    //
+    // EVERY HEADLINE GOES THROUGH ReturnClaimRules, which is a port of
+    // src/lib/flipdesk-returns-analytics.ts rather than a second opinion. The
+    // rules refuse a claim below the sample floor, refuse to dress a worse
+    // number as a win, and refuse a zero divisor. Rendering a multiplier
+    // straight from the counts here would be the whole bug this section can
+    // have: a confident sentence about our own product, wrong, shown to the
+    // person paying for it.
+    private var returnsCard: some View {
+        card(
+            "Returns by grade",
+            subtitle: "Refunded of shipped · past \(range.label.lowercased())"
+        ) {
+            switch returns.phase {
+            case .loading:
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 8)
+            case let .failed(message):
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            case let .ready(summary):
+                if summary.overall.sold == 0 {
+                    Text("No shipped sales in this range yet. Once you have completed and refunded sales, this shows how returns track with grade.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 8)
+                } else {
+                    returnsBody(summary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func returnsBody(_ summary: ReturnReductionSummary) -> some View {
+        let lowVsHigh = ReturnClaimRules.lowVsHigh(summary)
+        let advantage = ReturnClaimRules.gradedAdvantage(summary)
+        VStack(alignment: .leading, spacing: 10) {
+            if let lowVsHigh {
+                Text("\(lowVsHigh.low.label) items come back \(Self.multiplierLabel(lowVsHigh.multiplier)) more often than your \(lowVsHigh.high.label) items (\(Self.percentLabel(lowVsHigh.low.returnRate)) vs \(Self.percentLabel(lowVsHigh.high.returnRate))).")
+                    .font(.footnote)
+                    .foregroundStyle(Color.brandRed)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if let advantage {
+                Text("Your graded items return \(Self.multiplierLabel(advantage)) less often than ungraded (\(Self.percentLabel(summary.graded.returnRate)) vs \(Self.percentLabel(summary.ungraded.returnRate))).")
+                    .font(.footnote)
+                    .foregroundStyle(Color.brandEmerald)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if lowVsHigh == nil && advantage == nil {
+                // Says WHY there is no headline. "Not enough data yet" here
+                // would read as "we have no sales", which is false whenever the
+                // band rows below it are populated.
+                Text("Not enough shipped sales yet to call a reliable difference. Need \(ReturnClaimRules.minReturnSample)+ on each side being compared.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            // Bands with too few sales are SHOWN and marked, never dropped:
+            // hiding one leaves the seller wondering where a grade band went.
+            ForEach(summary.bands) { band in
+                HStack(spacing: 8) {
+                    Text(band.label)
+                        .font(.footnote)
+                        .foregroundStyle(band.sold == 0 ? Color.secondary : Color.primary)
+                    if ReturnClaimRules.isLowSample(band) {
+                        Text("low n")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.secondary.opacity(0.12))
+                            .clipShape(Capsule())
+                    }
+                    Spacer()
+                    Text("\(band.returns)/\(band.sold)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                    Text(Self.percentLabel(band.returnRate))
+                        .font(.footnote.weight(.medium))
+                        .monospacedDigit()
+                }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(band.label)
+                .accessibilityValue(Self.bandAccessibilityValue(band))
+            }
+        }
+    }
+
+    /// One decimal, matching the web tab's toFixed(1).
+    private static func multiplierLabel(_ value: Double) -> String {
+        String(format: "%.1fx", value)
+    }
+
+    private static func percentLabel(_ rate: Double?) -> String {
+        guard let rate else { return "n/a" }
+        return "\(Int((rate * 100).rounded()))%"
+    }
+
+    private static func bandAccessibilityValue(_ band: ReturnBandRow) -> String {
+        let base = "\(percentLabel(band.returnRate)) return rate, \(band.returns) of \(band.sold) shipped"
+        return ReturnClaimRules.isLowSample(band)
+            ? base + ", too few sales to be reliable"
+            : base
     }
 
     // Grade tier distribution.

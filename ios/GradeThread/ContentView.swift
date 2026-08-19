@@ -577,6 +577,11 @@ private struct WorkspaceNotice: Identifiable {
     /// Where the user can actually fix it, when that is somewhere. nil for a
     /// revoked membership, which has already been recovered from.
     let fixURL: URL?
+    /// US-2671: the fix is now a screen in THIS app. Kept separate from
+    /// `fixURL` rather than replacing it, because "open the website" and
+    /// "open a sheet" are different buttons and a notice may legitimately
+    /// have neither.
+    var fixesInApp: Bool = false
 }
 
 struct MainShell: View {
@@ -602,6 +607,8 @@ struct MainShell: View {
     /// whichever request happened to be in flight, and neither is about the
     /// screen the user is looking at.
     @State private var workspaceNotice: WorkspaceNotice?
+    /// US-2671: the 2FA notice opens enrollment here rather than in a browser.
+    @State private var showingTwoFactorFromNotice = false
 
     /// US-1157: per-scene state restoration for iPad multi-window. `@SceneStorage`
     /// is scoped to THIS scene (window) and survives teardown/relaunch, so two
@@ -691,9 +698,9 @@ struct MainShell: View {
             Text("Where would you like to start?")
         }
         // US-2532: the workspace 2FA policy blocked this member. One notice,
-        // carrying the EDGE's sentence, with the only route that actually
-        // fixes it: this app has no 2FA enrollment screen (US-2671), so
-        // "enable it in Settings" would point at nothing.
+        // carrying the EDGE's sentence, with the route that actually fixes it.
+        // US-2671 built that route ON DEVICE, so the notice now opens the
+        // enrollment sheet instead of sending a phone-only member to a browser.
         .onReceive(
             NotificationCenter.default.publisher(for: .workspaceMfaRequired)
         ) { notification in
@@ -702,7 +709,8 @@ struct MainShell: View {
             workspaceNotice = WorkspaceNotice(
                 title: "Two-factor authentication required",
                 message: sent ?? fallback ?? "",
-                fixURL: URL(string: "https://gradethread.com/dashboard/account?tab=settings")
+                fixURL: nil,
+                fixesInApp: true
             )
         }
         // US-794: this notification has been posted since June and nothing
@@ -729,9 +737,18 @@ struct MainShell: View {
             if let url = workspaceNotice?.fixURL {
                 Button("Open gradethread.com") { openURL(url) }
             }
+            if workspaceNotice?.fixesInApp == true {
+                // Dismissing the alert and presenting in the same tick loses
+                // the sheet on iOS, so the flag is set and the alert's own
+                // dismissal drives the presentation.
+                Button("Set up two-factor") { showingTwoFactorFromNotice = true }
+            }
             Button("OK", role: .cancel) {}
         } message: {
             Text(workspaceNotice?.message ?? "")
+        }
+        .sheet(isPresented: $showingTwoFactorFromNotice) {
+            TwoFactorSheet()
         }
         .onReceive(
             NotificationCenter.default.publisher(for: .applyDeepLink)
@@ -1652,6 +1669,9 @@ struct SettingsView: View {
     @State private var showingImport = false   // US-667 CSV / Sheets import
     // US-818 account/info surfaces
     @State private var showingChangePassword = false
+    // US-2671 in-app TOTP enrollment (the workspace 2FA policy blocks a member
+    // on every request, and there was nowhere on-device to fix it).
+    @State private var showingTwoFactor = false
     @State private var showingGradingGuide = false
     // US-1201: confirm sign-out — it wipes local SwiftData + the offline
     // mutation queue, so an accidental tap shouldn't discard unsynced work.
@@ -1713,6 +1733,15 @@ struct SettingsView: View {
                     Label("Change password", systemImage: "key")
                 }
                 .accessibilityLabel("Change password")
+                // US-2671: TOTP enrollment on-device. Before this the app told a
+                // member blocked by their workspace's 2FA policy to go to
+                // gradethread.com, because this row did not exist.
+                Button {
+                    showingTwoFactor = true
+                } label: {
+                    Label("Two-factor authentication", systemImage: "lock.shield")
+                }
+                .accessibilityLabel("Two-factor authentication")
                 Button(role: .destructive) {
                     confirmingSignOut = true
                 } label: {
@@ -1897,6 +1926,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showingChangePassword) {
             ChangePasswordSheet()
+        }
+        .sheet(isPresented: $showingTwoFactor) {
+            TwoFactorSheet()
         }
         .sheet(isPresented: $showingGradingGuide) {
             GradingGuideSheet()

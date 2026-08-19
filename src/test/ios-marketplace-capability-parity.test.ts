@@ -93,12 +93,40 @@ describe("the iOS paywall advertises no marketplace it cannot deliver (US-2531 A
   });
 });
 
-describe("what this slice does NOT claim (US-2531)", () => {
-  it("no in-app Shopify connection is asserted to exist", () => {
-    // AC2's FIRST branch (ship the connection flow) and the "and links there"
-    // half of the second are Swift edits that cannot be compiled or run from
-    // this checkout. This guard locks the honesty that is already true and
-    // fails if it regresses; it does not pretend the link exists.
+describe("the screen now LINKS to where the connection happens (US-2531 AC2)", () => {
+  // This block used to assert the opposite, and its own comment said the link
+  // did not exist. Saying "connect it on the web" without a way to get there
+  // left an iPhone-only subscriber reading an instruction they could not
+  // follow, which is the narrower gap the earlier pass identified and left.
+
+  it("a web-managed channel renders a link, and only a web-managed one", () => {
+    const s = read(MARKETPLACES);
+    // Anchored on the tier test rather than on the label: a link offered to
+    // every row would point Poshmark at a connection page it has no place on.
+    expect(s).toContain("if case .api = channel.tier");
+    const start = s.indexOf("if case .api = channel.tier");
+    const block = s.slice(start, start + 900);
+    expect(block).toContain("WebManagedChannel(");
+    expect(block).toMatch(/Connect .*on the web/);
+  });
+
+  it("it opens the dashboard page that owns the handshake", () => {
+    // NOT a Shopify OAuth URL. The web app owns the redirect target and the
+    // session that completes the handshake; deep-linking past it strands the
+    // seller on a callback nothing in the app can receive.
+    const s = read(MARKETPLACES);
+    expect(s).toContain("https://gradethread.com/dashboard/flipdesk/marketplaces");
+    expect(s).toContain(".sheet(item: $webManagedChannel)");
+  });
+
+  it("and it still is not an in-app connect flow", () => {
+    // The link satisfies AC2's second branch. It must not be mistaken for the
+    // first: nothing here performs the OAuth.
+    const s = read(MARKETPLACES);
+    expect(/connect(Shopify|_shopify)|shopifyOAuth|startShopify/i.test(s)).toBe(false);
+  });
+
+  it("still tracks the story", () => {
     const tracker = read("docs/reviews/full-surface-2026-08/FIX-PROGRESS.md");
     expect(tracker).toContain("US-2531");
   });

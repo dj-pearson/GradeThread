@@ -137,17 +137,96 @@ describe("the rollup is reachable by a second client (US-2533 AC2)", () => {
   });
 });
 
-describe("what this slice does NOT claim (US-2533)", () => {
-  it("no iOS return-analytics section is asserted to exist", () => {
-    // AC2's section and AC3's range wiring are Swift. When they land they must
-    // satisfy the rules above rather than restate them: a Swift copy of
-    // MIN_RETURN_SAMPLE is a number that can drift from this one.
-    const metrics = read("ios/GradeThread/Analytics/AnalyticsMetrics.swift");
-    expect(
-      /return.?rate|returnReduction|MIN_RETURN_SAMPLE/i.test(metrics),
-      "an iOS return-analytics path appeared — extend this guard to assert it " +
-        "honours the sample floor and the never-spin-a-worse-number rule",
-    ).toBe(false);
+describe("the iOS port satisfies these rules rather than restating them (US-2533 AC2)", () => {
+  // This block used to assert that NO iOS return-analytics path existed, and
+  // its failure message told the next author to extend it rather than delete
+  // it when one appeared. One has.
+  //
+  // The rules are ported, not called - Swift cannot import TypeScript - so what
+  // this can hold is that the two agree on every number and every refusal. The
+  // FLOOR is the one most likely to drift, so it is read out of the Swift
+  // source and compared against the constant above rather than trusted.
+
+  const STORE = "ios/GradeThread/Analytics/ReturnReductionStore.swift";
+  const VIEW = "ios/GradeThread/Analytics/AnalyticsView.swift";
+
+  const swift = () =>
+    read(STORE)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+  it("the Swift floor IS this floor", () => {
+    const declared = /static let minReturnSample = (\d+)/.exec(swift())?.[1];
+    expect(declared, "minReturnSample vanished from the Swift").toBeTruthy();
+    expect(Number(declared)).toBe(MIN_RETURN_SAMPLE);
+  });
+
+  it("both sides must clear it before any claim", () => {
+    const src = swift();
+    expect(src).toContain("graded.sold >= minReturnSample");
+    expect(src).toContain("ungraded.sold >= minReturnSample");
+    expect(src).toContain("low.sold >= minReturnSample");
+    expect(src).toContain("high.sold >= minReturnSample");
+  });
+
+  it("a worse or equal number is refused, in BOTH comparisons", () => {
+    // The strict > is the rule. Flipping either to >= would render a tie, and
+    // flipping the direction would render a loss, as a win.
+    const src = swift();
+    expect(src).toContain("gradedRate > 0, ungradedRate > gradedRate");
+    expect(src).toContain("highRate > 0, lowRate > highRate");
+  });
+
+  it("the section renders through the rules, never off raw counts", () => {
+    // The rules existing in a file nothing calls would be the shipped-but-
+    // unwired shape, so the CARD is checked for its call into the body and the
+    // body for its call into the rules. Checking only the second left this
+    // green when the card stopped rendering the body at all - the whole chain
+    // has to be pinned, not its far end.
+    const view = read(VIEW);
+    const cardStart = view.indexOf("private var returnsCard: some View {");
+    expect(cardStart, "the returns card vanished").toBeGreaterThan(-1);
+    const card = view.slice(cardStart, view.indexOf("@ViewBuilder", cardStart));
+    expect(card).toContain("returnsBody(summary)");
+    // And that the card is actually ON the screen. Deleting one line from the
+    // content stack leaves the card, the body and the rules all present and
+    // renders none of them - a section that exists in the file and nowhere in
+    // the app, which is the failure this repo keeps re-finding.
+    const contentStart = view.indexOf("private var content: some View {");
+    expect(contentStart, "the analytics content stack vanished").toBeGreaterThan(-1);
+    const stack = view.slice(contentStart, view.indexOf(".padding(16)", contentStart));
+    expect(stack).toContain("returnsCard");
+    expect(view).toContain("ReturnClaimRules.lowVsHigh(summary)");
+    expect(view).toContain("ReturnClaimRules.gradedAdvantage(summary)");
+    expect(view).not.toMatch(/summary\.ungraded\.returnRate\s*\/\s*summary\.graded\.returnRate/);
+  });
+
+  it("it reads the shared RPC, not a phone-side reimplementation", () => {
+    // Not whitespace-anchored: a formatter run should not redden a guard about
+    // which function is called.
+    const src = swift();
+    expect(src).toContain('"flipdesk_return_reduction"');
+    expect(src).toContain(".rpc(");
+    // The counts come from the server. A phone that summed its own local sales
+    // mirror would answer a different question - the phone knows what it has
+    // synced, not what the ledger holds.
+    expect(src).not.toMatch(/LocalInventoryItem|modelContext/);
+  });
+
+  it("the range picker drives it (AC3)", () => {
+    // Without this the section shows a 90-day number under a 30-day heading.
+    const view = read(VIEW);
+    expect(view).toContain("task(id: range) { await returns.refresh(periodStart: range.start(now: .now)) }");
+  });
+
+  it("low-sample bands are shown and marked, not hidden", () => {
+    // Dropping a band would satisfy "no unreliable claim" by leaving the seller
+    // wondering where a grade band went.
+    expect(swift()).toContain("band.sold > 0 && band.sold < minReturnSample");
+    expect(read(VIEW)).toContain("ForEach(summary.bands)");
+  });
+
+  it("still tracks the story", () => {
     const tracker = read("docs/reviews/full-surface-2026-08/FIX-PROGRESS.md");
     expect(tracker).toContain("US-2533");
   });

@@ -45,9 +45,9 @@ public enum EdgeAPIError: LocalizedError, Equatable {
     /// whichever screen happened to ask first, repeatedly, with no way to tell
     /// it apart from a genuine role limit.
     ///
-    /// And the fix is off-device. This app has no 2FA enrollment screen
-    /// (US-2671), so the notice sends them to the web app rather than to a
-    /// Settings row that does not exist here.
+    /// And the fix used to be off-device: with no 2FA enrollment screen here,
+    /// the notice sent them to the web app. US-2671 built the screen, so the
+    /// notice now opens it (Settings → Two-factor authentication).
     case workspaceMfaRequired(detail: String?)
     /// US-1510: the server declared this capability unavailable on the current
     /// eBay connection (501 `{ code: "feature_unavailable" }`) — e.g. send-offer
