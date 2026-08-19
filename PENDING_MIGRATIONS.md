@@ -1,5 +1,54 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🟠 PENDING: 00624 — disputes INSERT must own the grade report (US-2670)
+
+**Risk: LOW.** Adds one SECURITY DEFINER helper (`grade_report_belongs_to`) and
+re-creates the two `disputes` INSERT policies with an extra AND. No table, no
+column, no data rewrite, no backfill. Both policies are dropped with `IF EXISTS`
+first, so re-running the directory is safe.
+
+**What it closes.** Both INSERT policies gated on the `user_id` column alone, so
+an authenticated caller who set `user_id` to their OWN id could file a dispute
+against ANY grade report id that exists, including another seller's.
+`routes/grade.ts` has always loaded the submission scoped to the owner before
+filing, so every client going through the route was already safe. This closes
+the direct-PostgREST path, which is what iOS was using when it was found.
+
+**No urgency in the apply order, and nothing breaks if it lands late.** No code
+in this commit depends on the new function existing.
+
+**`NOTIFY pgrst, 'reload schema';` not required.** The new function is only ever
+called from inside the two RLS policies, which Postgres evaluates itself. Nothing
+calls it as an RPC, so PostgREST's schema cache is not in the path. Running the
+NOTIFY anyway is harmless.
+
+**No REVOKE, deliberately.** The helper is an RLS predicate, so it runs as the
+QUERYING role and must stay executable by `anon` and `authenticated`, exactly like
+`is_workspace_member_with_role`. Revoking it would both break RLS and arm the
+US-2403 segfault. The explicit GRANT states the `CREATE FUNCTION` default rather
+than widening anything; it is there because the US-2282 AC4 guard requires every
+SECURITY DEFINER function to name its callers.
+
+**Workspace filing still works.** The check is on the ROW's `user_id`, not on
+`auth.uid()`, so a member filing for the workspace owner passes as long as the
+report belongs to that owner.
+
+**After applying, run this read-only census (US-2670 AC4).** A non-zero count
+means the hole was actually used and those disputes need looking at:
+
+```sql
+select d.id, d.user_id as filer, s.user_id as report_owner, d.created_at
+from public.disputes d
+join public.grade_reports gr on gr.id = d.grade_report_id
+join public.submissions s on s.id = gr.submission_id
+where s.user_id <> d.user_id;
+```
+
+**Rollback is clean.** Re-create the two policies without the
+`grade_report_belongs_to(...)` conjunct; the helper can be left in place.
+
+---
+
 ## ✅ APPLIED (owner-confirmed 2026-08-19): 00622 — ebay_search_terms (US-2683)
 
 > **Applied by the operator on 2026-08-19**, together with 00621. Not measured

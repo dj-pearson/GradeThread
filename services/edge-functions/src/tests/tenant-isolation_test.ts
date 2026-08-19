@@ -3422,6 +3422,58 @@ Deno.test({
   },
 });
 
+// US-2670: both disputes INSERT policies gated on the user_id COLUMN and
+// nothing else, so an authenticated caller who set user_id to their OWN id could
+// file a dispute against ANY grade report that exists, including another
+// seller's. 00619 adds the grade_report_id ownership check.
+//
+// This one goes DIRECTLY at PostgREST rather than through the edge route, and
+// that is the point: routes/grade.ts has always loaded the submission scoped to
+// the owner, so the route was never the hole. The policy is what a direct client
+// write lands on — which is exactly what iOS was doing when this was found.
+Deno.test({
+  name: "US-2670: B cannot file a dispute against A's grade report (RLS)",
+  ignore:
+    !CONFIGURED ||
+    !Deno.env.get("SUPABASE_URL") ||
+    !Deno.env.get("TEST_USER_A_GRADE_REPORT_ID"),
+  fn: async () => {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anon = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+    const reportId = Deno.env.get("TEST_USER_A_GRADE_REPORT_ID")!;
+
+    // B's own id, off their JWT: the row is honest about who is filing, which is
+    // what makes this a test of the REPORT check rather than of the user_id one.
+    const rawPayload = B_JWT!.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    const payload = rawPayload + "=".repeat((4 - (rawPayload.length % 4)) % 4);
+    const bId = (JSON.parse(atob(payload)) as { sub: string }).sub;
+
+    const res = await fetch(`${supabaseUrl}/rest/v1/disputes`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${B_JWT!}`,
+        apikey: anon,
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+      },
+      body: JSON.stringify({
+        grade_report_id: reportId,
+        user_id: bId,
+        reason: "US-2670 cross-tenant dispute probe",
+      }),
+    });
+    const body = await res.text();
+    assert(
+      res.status === 401 || res.status === 403,
+      `B filing a dispute on A's report must be refused by RLS, got ${res.status}: ${body}`,
+    );
+    assert(
+      !body.includes('"id"'),
+      "RLS returned a dispute row for a foreign grade report — the INSERT policy is not checking grade_report_id",
+    );
+  },
+});
+
 // ── US-2557: the unread badge count ───────────────────────────────────────────
 //
 // The count is derived from the SESSION and the route accepts no user id at

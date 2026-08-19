@@ -389,6 +389,23 @@ async function main(): Promise<void> {
     title: "Tenant-A fixture grading submission",
   });
 
+  // US-2670: a grade report owned by A, so the disputes RLS case has a real
+  // foreign report id to aim at. Without it that case skips and the policy this
+  // story tightened would go unproven on every run.
+  out.TEST_USER_A_GRADE_REPORT_ID = await insert("grade_reports", {
+    submission_id: out.TEST_USER_A_GRADE_SUBMISSION_ID,
+    overall_score: 8.0,
+    grade_tier: "Very Good",
+    fabric_condition_score: 8.0,
+    structural_integrity_score: 8.0,
+    cosmetic_appearance_score: 8.0,
+    functional_elements_score: 8.0,
+    odor_cleanliness_score: 8.0,
+    ai_summary: "Tenant-A fixture grade report",
+    confidence_score: 0.9,
+    model_version: "fixture",
+  });
+
   // US-600: consignment mode.
   out.TEST_USER_A_CONSIGNOR_ID = await insert("consignors", {
     user_id: aId,
