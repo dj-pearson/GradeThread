@@ -271,6 +271,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     includedStandardGradesPerMonth: 30,
     features: [
       "1,000 active listings",
+      "Claude connector — run your store from a chat (500 actions / month)",
       "eBay + Shopify listings & sync (live API)",
       "Cross-list to Poshmark, Mercari & Grailed via the GradeThread Lister extension",
       "750 AI actions / month",
@@ -304,6 +305,7 @@ export const FLIPDESK_PLANS: Record<FlipdeskPlanKey, FlipdeskPlanConfig> = {
     includedStandardGradesPerMonth: 75,
     features: [
       "Unlimited active listings",
+      "Claude connector — run your store from a chat (2,000 actions / month)",
       "eBay + Shopify listings & sync (live API)",
       "Cross-list to Poshmark, Mercari & Grailed via the GradeThread Lister extension",
       "2,000 AI actions / month",

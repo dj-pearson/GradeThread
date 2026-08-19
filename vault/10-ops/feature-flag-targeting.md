@@ -8,7 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/feature-flags.ts
   - services/edge-functions/src/routes/admin-flags.ts
   - supabase/migrations/00210_feature_flag_rules.sql
-reviewed: 2026-08-07
+reviewed: 2026-08-19
 tags: [ops, config, admin, contract, flags]
 summary: A flag rule is resolved against the caller's EFFECTIVE plan, resolved inside isFeatureEnabled rather than supplied by the caller — and only the flags whose every call site can name a user may be plan-targeted at all.
 ---
@@ -85,6 +85,12 @@ once for the whole fleet, with nobody to resolve a plan for:
 - `inventory_equity` — `handleEquitySnapshotCron`, same shape.
 - `newsletter`, `lifecycle_journeys`, `trial_conversion_drip` — cron senders.
 - `support_assistant` — a launch check, not a per-user gate.
+- `claude_connector` (US-9127) — `isConnectorLive()` in routes/mcp.ts runs it
+  once per request BEFORE authentication resolves anyone, so there is no user
+  to resolve a plan for. Which plans get the connector is a PLAN GATE
+  (`connectorAccess`, checked in the dispatcher against the caller), not a flag
+  target — see [[connector-plan-gating]]. This flag is the fleet-wide stop
+  button and nothing else.
 
 `PUT /api/admin/feature-flags/:key/rule` **400s** on `plan_targets` for any of
 those, and the editor greys the control out (`plan_targetable` on the list
