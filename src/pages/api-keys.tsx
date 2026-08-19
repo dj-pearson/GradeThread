@@ -37,6 +37,7 @@ import { edgeFetch } from "@/lib/edge-fetch";
 import { ApiUsagePanel } from "@/components/api/api-usage-panel";
 import { ApiOverageCard } from "@/components/api/api-overage-card";
 import { WhiteLabelPanel } from "@/components/api/white-label-panel";
+import { ConnectedAppsPanel } from "@/components/api/connected-apps-panel";
 import { HelpLink } from "@/components/help/help-link";
 
 interface ApiKeyItem {
@@ -609,6 +610,12 @@ export function ApiKeysPage() {
           </Link>
         </CardContent>
       </Card>
+
+      {/* US-9122: apps a seller has allowed to act on their account. Here
+          rather than on a page of its own, because "what can reach my
+          account" is one question and answering it twice means one answer
+          gets forgotten. Renders nothing when nothing is connected. */}
+      <ConnectedAppsPanel />
 
       {/* Usage / billing dashboard (US-596). */}
       <ApiUsagePanel />

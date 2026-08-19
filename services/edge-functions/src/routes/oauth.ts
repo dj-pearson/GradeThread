@@ -566,3 +566,87 @@ export async function handleOAuthConsent(c: Context): Promise<Response> {
   c.header("Cache-Control", "no-store");
   return c.json({ redirect_to: issued.redirectTo });
 }
+
+// ---------------------------------------------------------------------------
+// Connected applications (US-9122 AC9)
+// ---------------------------------------------------------------------------
+//
+// A seller can only disconnect something they can SEE. These two endpoints are
+// what the API-keys page reads and writes; they live beside the OAuth flow
+// rather than on the keys route because a grant is not a key, and merging them
+// would mean one surface with two revocation semantics.
+//
+// Both are mounted under the JWT auth middleware and filter on the SESSION
+// user. The grant tables are deny-all with no policies, so this endpoint is the
+// only way a seller ever reads them.
+
+export async function handleListOAuthConnections(c: Context): Promise<Response> {
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) return c.json({ error: "UNAUTHENTICATED" }, 401);
+
+  const { data, error } = await supabaseAdmin
+    .from("oauth_grants")
+    .select("id, client_id, scopes, created_at, revoked_at, oauth_clients(client_name)")
+    .eq("owner_user_id", userId)
+    .is("revoked_at", null)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) {
+    logEvent("error", "oauth.connections_list_failed", { error: redactError(error) });
+    return c.json({ error: "Could not load your connected applications." }, 500);
+  }
+
+  type Row = {
+    id: string;
+    client_id: string;
+    scopes: string[] | null;
+    created_at: string;
+    oauth_clients: { client_name: string | null } | null;
+  };
+
+  return c.json({
+    connections: ((data ?? []) as unknown as Row[]).map((r) => ({
+      id: r.id,
+      client_id: r.client_id,
+      // The client's own name is shown NEXT TO its id, never instead of it. A
+      // self-declared display name is not evidence of who is connected.
+      client_name: r.oauth_clients?.client_name ?? null,
+      scopes: r.scopes ?? [],
+      connected_at: r.created_at,
+    })),
+  });
+}
+
+export async function handleRevokeOAuthConnection(c: Context): Promise<Response> {
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) return c.json({ error: "UNAUTHENTICATED" }, 401);
+
+  const id = c.req.param("id");
+  if (!id) return c.json({ error: "A connection id is required." }, 400);
+
+  // Scoped by owner_user_id in the UPDATE itself, not by a read-then-write:
+  // between those two a caller could not change the owner, but making the
+  // filter part of the write is what makes that obvious rather than argued.
+  const { data, error } = await supabaseAdmin
+    .from("oauth_grants")
+    .update({ revoked_at: new Date().toISOString(), revoked_reason: "user" })
+    .eq("id", id)
+    .eq("owner_user_id", userId)
+    .is("revoked_at", null)
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    logEvent("error", "oauth.connection_revoke_failed", { error: redactError(error) });
+    return c.json({ error: "Could not disconnect that application." }, 500);
+  }
+  // Already revoked, or not this seller's. Both answer the same way: a seller
+  // pressing disconnect twice should not see an error, and someone guessing
+  // grant ids should not learn which exist.
+  if (!data) return c.json({ revoked: true, already: true });
+
+  // Revoking the GRANT is what stops the tokens. lib/oauth-access.ts checks
+  // revoked_at on every request, so the access tokens already issued stop
+  // working immediately rather than at their next expiry.
+  logEvent("info", "oauth.connection_revoked", { reason: "user" });
+  return c.json({ revoked: true });
+}

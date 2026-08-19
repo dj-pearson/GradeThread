@@ -15,7 +15,12 @@ import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
-import { handleOAuthConsent, oauthRoutes } from "./routes/oauth.ts";
+import {
+  handleListOAuthConnections,
+  handleOAuthConsent,
+  handleRevokeOAuthConnection,
+  oauthRoutes,
+} from "./routes/oauth.ts";
 import { OPENAPI_SPEC } from "./lib/openapi-spec.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { pushRoutes } from "./routes/push.ts";
@@ -1198,6 +1203,14 @@ app.route("/oauth", oauthRoutes);
 // took a user id from its caller would let anyone mint a grant for anyone.
 app.use("/api/oauth/consent", authMiddleware);
 app.post("/api/oauth/consent", (c) => handleOAuthConsent(c));
+
+// US-9122 AC9: what a seller sees and revokes on the API-keys page. The grant
+// tables are deny-all with no policies, so these are the only way a seller ever
+// reads or changes them. Authenticated and filtered on the SESSION user.
+app.use("/api/oauth/connections", authMiddleware);
+app.use("/api/oauth/connections/*", authMiddleware);
+app.get("/api/oauth/connections", (c) => handleListOAuthConnections(c));
+app.post("/api/oauth/connections/:id/revoke", (c) => handleRevokeOAuthConnection(c));
 
 // US-9120: OAuth discovery. BOTH documents are public and mounted BEFORE the
 // MCP auth middleware — they contain no secrets (endpoint URLs and supported

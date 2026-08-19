@@ -23,6 +23,11 @@ import {
   resolveApiKeyIdentity,
 } from "./api-key-auth.ts";
 import { featureAllowedForUser } from "../lib/plan-gate.ts";
+import {
+  looksLikeOAuthAccessToken,
+  type OAuthIdentity,
+  resolveOAuthAccessToken,
+} from "../lib/oauth-access.ts";
 import { JSON_RPC_ERROR, jsonRpcError } from "../lib/mcp-jsonrpc.ts";
 import { issuerOrigin, isOAuthEnabled, resourceIdentifier } from "../lib/oauth-metadata.ts";
 
@@ -102,9 +107,27 @@ export const mcpAuthMiddleware = createMiddleware<McpAuthEnv>(async (c, next) =>
   const rawKey = extractApiKey(headerOf);
   const bearer = extractBearerToken(headerOf);
 
-  // A bearer token that is not one of our API keys is either an OAuth access
-  // token (US-9122 resolves those) or a stale credential. Either way the caller
-  // needs the discovery pointer, not "missing credential" — they clearly tried.
+  // US-9122 AC10: an OAuth access token lands in the SAME tenant context an API
+  // key does. Tools that behaved differently depending on how the caller signed
+  // in would be the worst kind of difference — one that only shows up for one
+  // class of user.
+  //
+  // Tried BEFORE the API-key path and only for tokens carrying our access-token
+  // prefix, so a malformed API key still gets the API-key error rather than a
+  // confusing OAuth one.
+  if (!rawKey && bearer && looksLikeOAuthAccessToken(bearer)) {
+    const oauth = await resolveOAuthAccessToken(bearer);
+    if (!oauth.ok) {
+      return unauthorized(c, "invalid_token", "The presented token is not valid for this resource");
+    }
+    applyOAuthIdentity(c, oauth.identity);
+    await next();
+    return;
+  }
+
+  // A bearer token that is not one of our API keys and not an access token is a
+  // stale credential. The caller needs the discovery pointer, not "missing
+  // credential" — they clearly tried.
   if (!rawKey && bearer && !isWellFormedApiKey(bearer)) {
     return unauthorized(c, "invalid_token", "The presented token is not valid for this resource");
   }
@@ -141,6 +164,30 @@ export const mcpAuthMiddleware = createMiddleware<McpAuthEnv>(async (c, next) =>
   applyApiKeyIdentity(c, resolution.identity);
   await next();
 });
+
+/**
+ * Put an OAuth identity into the same Variables the API-key path sets.
+ *
+ * `apiKeyId` carries the GRANT id. Every downstream subject — the audit row, the
+ * budget counter, the confirm-token binding — keys off that variable, and a
+ * grant is the right unit: one seller's one connection to one client, revocable
+ * as a whole. Inventing a parallel subject would mean every one of those had to
+ * learn about a second kind of caller.
+ *
+ * `apiKeyPlan` is left as the free tier because the plan gate resolves the real
+ * one from the USER (connectorPlanAllows), which is where it belongs — a grant
+ * has no plan of its own.
+ */
+function applyOAuthIdentity(
+  c: { set: (key: string, value: unknown) => void },
+  identity: OAuthIdentity,
+): void {
+  c.set("user", { id: identity.userId });
+  c.set("userId", identity.userId);
+  c.set("apiKeyId", identity.grantId);
+  c.set("apiKeyPlan", "free");
+  c.set("apiKeyScopes", identity.scopes as ApiKeyScope[]);
+}
 
 function unauthorized(
   c: { header: (k: string, v: string) => void; json: (b: unknown, s?: number) => Response },
