@@ -234,20 +234,38 @@ Deno.test("an unknown opaque client_id is refused without saying more", async ()
 // The wiring this module is waiting on
 // ---------------------------------------------------------------------------
 
-Deno.test("an /authorize endpoint must resolve its client through this module", async () => {
-  // resolveClient has no caller yet: the authorize endpoint is US-9121. That is
-  // the whole risk. An authorize handler that reads client_id straight off the
-  // query string accepts any client_id anyone sends, and it would look like a
-  // working flow while doing it. This scans the route file rather than the
-  // handler, so it cannot be satisfied by a comment in this test.
-  const source = await Deno.readTextFile(new URL("../routes/oauth.ts", import.meta.url));
-  const hasAuthorize = /oauthRoutes\.(get|post)\(\s*["']\/authorize["']/.test(source);
-  if (!hasAuthorize) return; // nothing to check until US-9121 lands
+Deno.test("the /authorize endpoint resolves its client through this module", async () => {
+  // The risk: an authorize handler that reads client_id straight off the query
+  // string accepts any client_id anyone sends, and looks like a working flow
+  // while doing it.
+  //
+  // US-9121 landed /authorize and resolution moved one level down — the route
+  // calls validateAuthorizeRequest, which calls resolveClient. So the guard
+  // follows the CHAIN rather than insisting on a direct import, and checks both
+  // links: a route that stopped validating, or a validator that stopped
+  // resolving, each fails here.
+  const route = await Deno.readTextFile(new URL("../routes/oauth.ts", import.meta.url));
+  const hasAuthorize = /oauthRoutes\.(get|post)\(\s*["']\/authorize["']/.test(route);
+  if (!hasAuthorize) return; // nothing to check if the endpoint is removed
+
+  const direct = /import\s[^;]*from\s+["']\.\.\/lib\/oauth-clients\.ts["']/.test(route);
+  const viaValidator = /validateAuthorizeRequest\(/.test(route);
   assert(
-    /import\s[^;]*from\s+["']\.\.\/lib\/oauth-clients\.ts["']/.test(source),
-    "routes/oauth.ts serves /authorize without importing lib/oauth-clients.ts, " +
-      "so client_id is not being resolved against a registered client",
+    direct || viaValidator,
+    "routes/oauth.ts serves /authorize without resolving client_id against a " +
+      "registered client — any client_id would be accepted",
   );
+
+  if (viaValidator && !direct) {
+    const validator = await Deno.readTextFile(
+      new URL("../lib/oauth-authorize.ts", import.meta.url),
+    );
+    assert(
+      /resolveClient\(/.test(validator),
+      "lib/oauth-authorize.ts no longer calls resolveClient, so the route's " +
+        "validation step accepts any client_id",
+    );
+  }
 });
 
 Deno.test("an http (not https) client_id is treated as opaque, so it is never fetched", async () => {

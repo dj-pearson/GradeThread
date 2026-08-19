@@ -53,6 +53,7 @@ const AccountPage = lazy(() => import("@/pages/account").then(m => ({ default: m
 const ApiKeysPage = lazy(() => import("@/pages/api-keys").then(m => ({ default: m.ApiKeysPage })));
 const AcceptInvitePage = lazy(() => import("@/pages/accept-invite").then(m => ({ default: m.AcceptInvitePage })));
 const ConnectExtensionPage = lazy(() => import("@/pages/connect-extension").then(m => ({ default: m.ConnectExtensionPage })));
+const ConnectClaudePage = lazy(() => import("@/pages/connect-claude").then(m => ({ default: m.ConnectClaudePage })));
 const CertificatePage = lazy(() => import("@/pages/certificate").then(m => ({ default: m.CertificatePage })));
 const PassportPage = lazy(() => import("@/pages/passport").then(m => ({ default: m.PassportPage })));
 const PassportClaimPage = lazy(() => import("@/pages/passport-claim").then(m => ({ default: m.PassportClaimPage })));
@@ -504,6 +505,16 @@ export const router = createBrowserRouter([
       {
         element: <SuspenseWrapper><ProtectedRoute /></SuspenseWrapper>,
         children: [
+          // US-9121: the OAuth consent screen. Inside ProtectedRoute so an
+          // unauthenticated visit routes through login and comes back with the
+          // request intact (ProtectedRoute preserves pathname AND search), and
+          // OUTSIDE DashboardLayout because a sidebar on a decision this size is
+          // an invitation to click something else.
+          //
+          // NOT in PUBLIC_ROUTES and NOT prerendered, deliberately: this page
+          // only means anything with a live authorization request in its query
+          // string, so an indexed copy would be a permanently broken result.
+          { path: "/connect/claude", element: <SuspenseWrapper><ConnectClaudePage /></SuspenseWrapper> },
           {
             element: <SuspenseWrapper><DashboardLayout /></SuspenseWrapper>,
             children: [

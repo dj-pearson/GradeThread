@@ -15,7 +15,7 @@ import { googlePlayVerifyRoutes } from "./routes/google-play.ts";
 import { apiKeyRoutes } from "./routes/api-keys.ts";
 import { apiV1Routes } from "./routes/api-v1.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
-import { oauthRoutes } from "./routes/oauth.ts";
+import { handleOAuthConsent, oauthRoutes } from "./routes/oauth.ts";
 import { OPENAPI_SPEC } from "./lib/openapi-spec.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { pushRoutes } from "./routes/push.ts";
@@ -1191,6 +1191,13 @@ app.route("/api/v1", apiV1Routes);
 // before the MCP auth middleware for that reason. They 404 until
 // MCP_OAUTH_ENABLED is set, same as the discovery documents below.
 app.route("/oauth", oauthRoutes);
+
+// US-9121: the consent callback the /connect/claude page posts to. AUTHENTICATED,
+// unlike everything above it: the grant is written against the SESSION user, so
+// the identity can never come from the request body. A consent endpoint that
+// took a user id from its caller would let anyone mint a grant for anyone.
+app.use("/api/oauth/consent", authMiddleware);
+app.post("/api/oauth/consent", (c) => handleOAuthConsent(c));
 
 // US-9120: OAuth discovery. BOTH documents are public and mounted BEFORE the
 // MCP auth middleware — they contain no secrets (endpoint URLs and supported

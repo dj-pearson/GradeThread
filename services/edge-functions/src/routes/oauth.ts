@@ -23,6 +23,13 @@ import {
   resourceIdentifier,
 } from "../lib/oauth-metadata.ts";
 import { createOAuthStore } from "../lib/oauth-store.ts";
+import {
+  authorizeRedirect,
+  issueAuthorizationCode,
+  validateAuthorizeRequest,
+  type ValidatedAuthorize,
+} from "../lib/oauth-authorize.ts";
+import { consentOrigin } from "../lib/oauth-metadata.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   generateOpaqueToken,
@@ -409,3 +416,153 @@ oauthRoutes.post("/register", async (c) => {
     token_endpoint_auth_method: "none",
   }, 201);
 });
+
+// ---------------------------------------------------------------------------
+// GET /oauth/authorize  (US-9121)
+// ---------------------------------------------------------------------------
+//
+// This endpoint renders nothing. It validates, then sends the browser to the
+// consent page in the React app, where a signed-in seller sees who is asking
+// and decides. The parameters ride in the query string; nothing is stored yet,
+// because nothing has been agreed yet.
+//
+// THE TWO ERROR PATHS ARE NOT THE SAME. A bad client_id or an unregistered
+// redirect_uri is answered HERE, on our own origin — redirecting an error to an
+// unverified address is what makes an authorization endpoint an open
+// redirector. Everything else goes back to the client's verified uri with
+// error=, because by then we know where it lives.
+
+oauthRoutes.get("/authorize", async (c) => {
+  if (!isOAuthEnabled()) return notFound(c);
+
+  const q = c.req.query();
+  const validation = await validateAuthorizeRequest({
+    clientId: q.client_id,
+    redirectUri: q.redirect_uri,
+    responseType: q.response_type,
+    codeChallenge: q.code_challenge,
+    codeChallengeMethod: q.code_challenge_method,
+    scope: q.scope,
+    state: q.state,
+    resource: q.resource,
+  });
+
+  if (!validation.ok) {
+    if (validation.kind === "fatal") {
+      // Our own page, never a redirect. Plain text rather than HTML: this is
+      // reached by a misconfigured client far more often than by a person, and
+      // a styled page would invite someone to treat it as a login screen.
+      c.header("Cache-Control", "no-store");
+      return c.text(
+        `${validation.error}: ${validation.description}`,
+        400,
+      );
+    }
+    return c.redirect(
+      authorizeRedirect(validation.redirectUri, {
+        error: validation.error,
+        error_description: validation.description,
+        state: validation.state,
+      }),
+      302,
+    );
+  }
+
+  // Straight to the consent page. It carries the request VERBATIM because the
+  // approving call re-validates all of it — the browser is not trusted with any
+  // of these values, it is only carrying them.
+  const consent = new URL("/connect/claude", consentOrigin());
+  const r = validation.request;
+  consent.searchParams.set("client_id", r.clientId);
+  consent.searchParams.set("redirect_uri", r.redirectUri);
+  consent.searchParams.set("response_type", "code");
+  consent.searchParams.set("code_challenge", r.codeChallenge);
+  consent.searchParams.set("code_challenge_method", "S256");
+  consent.searchParams.set("scope", r.scopes.join(" "));
+  consent.searchParams.set("resource", r.resource);
+  if (r.state) consent.searchParams.set("state", r.state);
+
+  c.header("Cache-Control", "no-store");
+  return c.redirect(consent.toString(), 302);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/oauth/consent  (US-9121)
+// ---------------------------------------------------------------------------
+//
+// Called by the consent page once a signed-in seller approves. Mounted under
+// the JWT auth middleware, so the identity on the grant is the SESSION's, never
+// anything the page sent — a consent endpoint that took a user id from its body
+// would let anyone mint a grant for anyone.
+//
+// It re-validates the whole request. The page is a browser page and its
+// parameters are exactly as untrusted as the ones that reached /authorize.
+// Narrowing scopes here is the point (AC4); widening them, or swapping the
+// redirect for one the client never registered, is refused by the same code
+// that refused it the first time.
+
+export async function handleOAuthConsent(c: Context): Promise<Response> {
+  if (!isOAuthEnabled()) return notFound(c);
+
+  const userId = c.get("userId") as string | undefined;
+  if (!userId) return c.json({ error: "UNAUTHENTICATED" }, 401);
+
+  let body: Record<string, unknown>;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid_request", error_description: "the body must be JSON" }, 400);
+  }
+
+  const str = (key: string) => {
+    const v = body[key];
+    return typeof v === "string" ? v : undefined;
+  };
+
+  const validation = await validateAuthorizeRequest({
+    clientId: str("client_id"),
+    redirectUri: str("redirect_uri"),
+    responseType: str("response_type") ?? "code",
+    codeChallenge: str("code_challenge"),
+    codeChallengeMethod: str("code_challenge_method"),
+    scope: str("scope"),
+    state: str("state"),
+    resource: str("resource"),
+  });
+  if (!validation.ok) {
+    return c.json(
+      { error: validation.error, error_description: validation.description },
+      400,
+    );
+  }
+
+  // DENIED is not an error. The spec has a name for it and the client is
+  // entitled to hear it, so the page gets a redirect to hand back rather than a
+  // dead end (AC6).
+  if (body.approved !== true) {
+    return c.json({
+      redirect_to: authorizeRedirect(validation.request.redirectUri, {
+        error: "access_denied",
+        error_description: "The seller declined this connection.",
+        state: validation.request.state,
+      }),
+    });
+  }
+
+  const requested: ValidatedAuthorize = validation.request;
+  const granted = Array.isArray(body.scopes)
+    ? body.scopes.filter((x): x is string => typeof x === "string")
+    : requested.scopes;
+
+  const issued = await issueAuthorizationCode({
+    ownerUserId: userId,
+    request: requested,
+    grantedScopes: granted,
+  });
+  if (!issued.ok) {
+    return c.json({ error: issued.error, error_description: issued.description }, 400);
+  }
+
+  c.header("Cache-Control", "no-store");
+  return c.json({ redirect_to: issued.redirectTo });
+}
