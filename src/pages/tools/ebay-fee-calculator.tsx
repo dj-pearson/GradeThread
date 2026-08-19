@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
+import { CalculatorHandoff } from "@/components/marketing/calculator-funnel";
+import { useCalculatorFunnel } from "@/lib/calculator-funnel";
 import { ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +58,8 @@ export function EbayFeeCalculatorPage() {
   const [international, setInternational] = useState(false);
   const [eis, setEis] = useState(false);
   const [standing, setStanding] = useState<SellerStanding>("good");
+
+  useCalculatorFunnel(CALC?.slug ?? "", price.raw);
 
   const result = useMemo(
     () =>
@@ -407,6 +411,8 @@ export function EbayFeeCalculatorPage() {
           </div>
         </div>
       </section>
+
+      {CALC && <CalculatorHandoff calc={CALC} />}
 
       <section className="px-6 py-16">
         <div className="mx-auto max-w-2xl">

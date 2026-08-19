@@ -1,6 +1,7 @@
 import { useEffect } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { track } from "@/lib/analytics";
+import { TOOL_SOURCE_PARAM } from "@/lib/calculator-funnel";
 import { ArrowRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -26,10 +27,16 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
   // US-9009 step two of the funnel: calculator view -> landing view -> signup
   // start. Fired on mount rather than on the CTA, because the number that
   // matters is what SHARE of arrivals convert, and that needs the denominator.
+  //
+  // US-9010: `?from=<calculator-slug>` carries the originating tool across the
+  // hop. Without it a signup is credited to this landing page and the
+  // calculator that produced the visit disappears from the funnel.
   const slug = landing?.slug;
+  const [searchParams] = useSearchParams();
+  const fromTool = searchParams.get(TOOL_SOURCE_PARAM);
   useEffect(() => {
-    if (slug) track("commercial_landing_view", { landing: slug });
-  }, [slug]);
+    if (slug) track("commercial_landing_view", { landing: slug, from_tool: fromTool });
+  }, [slug, fromTool]);
 
   if (!landing) return <NotFoundPage />;
 
@@ -54,9 +61,22 @@ export function FlipdeskLandingPage({ slug: slugProp }: { slug?: string }) {
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
               to="/signup"
-              onClick={() =>
-                track("commercial_landing_signup_start", { landing: landing.slug })
-              }
+              onClick={() => {
+                track("commercial_landing_signup_start", {
+                  landing: landing.slug,
+                  from_tool: fromTool,
+                });
+                // The tool-attributed step of the calculator funnel. Fired only
+                // when the visit really came from one, so the event means what
+                // its name says rather than "a signup that happened to be on a
+                // FlipDesk page".
+                if (fromTool) {
+                  track("signup_started_from_tool", {
+                    calculator: fromTool,
+                    landing: landing.slug,
+                  });
+                }
+              }}
             >
               <Button
                 size="lg"

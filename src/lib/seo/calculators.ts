@@ -42,6 +42,25 @@ export interface Calculator {
   cardBlurb: string;
   /** The head keyword this page owns, mirrored into keyword-targets.ts. */
   primaryKeyword: string;
+  /**
+   * The FlipDesk landing slug this calculator hands off to (US-9010), and the
+   * one line of prose that earns the click.
+   *
+   * MATCHED, not generic: a seller who has just worked out eBay's fees wants
+   * the thing that tracks fees, not a general product tour. The handoff is
+   * rendered AFTER the result, because before it the visitor has not got what
+   * they came for and an advert is just in the way.
+   */
+  handoff?: {
+    /** A slug from flipdesk-landing.ts. */
+    surface: string;
+    /** The heading on the handoff block. */
+    heading: string;
+    /** Two or three sentences. Say what it does, not how good it is. */
+    body: string;
+    /** The link text. */
+    cta: string;
+  };
   /** Supporting keywords, woven into copy and headings. */
   secondaryKeywords?: string[];
   /**
@@ -83,6 +102,12 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "eBay fee calculator",
     cardBlurb: "Every eBay fee on one sale, itemised, including the ones sellers forget.",
     primaryKeyword: "ebay fee calculator",
+    handoff: {
+      surface: "bookkeeping",
+      heading: "You will do this again on every sale",
+      body: "This page works out one sale. A month of them is a spreadsheet you have to keep current, with the fee rates changing under it. FlipDesk records the fees against each item as it sells, so the profit number is already there at tax time instead of being reconstructed from payout emails.",
+      cta: "See how FlipDesk tracks fees",
+    },
     secondaryKeywords: [
       "ebay final value fee calculator",
       "how much does ebay take from a sale",
@@ -124,6 +149,12 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "eBay shipping calculator",
     cardBlurb: "Weight, box size and service compared, with dimensional weight shown separately.",
     primaryKeyword: "ebay shipping calculator",
+    handoff: {
+      surface: "bookkeeping",
+      heading: "The postage you actually paid, against the item you sold",
+      body: "An estimate before you list is useful. What decides your margin is the label you really bought, matched to the item it went out with. FlipDesk keeps that pairing, so the shipping cost in your profit number is the one on the receipt.",
+      cta: "See how FlipDesk tracks shipping cost",
+    },
     secondaryKeywords: [
       "cheapest way to ship clothes",
       "usps shipping calculator by weight and zip code",
@@ -167,6 +198,12 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Poshmark fee calculator",
     cardBlurb: "The flat fee, the commission, and where the cutoff between them falls.",
     primaryKeyword: "how much does poshmark take",
+    handoff: {
+      surface: "crosslisting",
+      heading: "You compared five platforms. You can list on all of them",
+      body: "The spread between the best and worst platform on one item is real money, and the answer changes item by item. FlipDesk builds the listing once and publishes it to eBay and Shopify by API, and to Poshmark, Mercari and Grailed through the browser extension.",
+      cta: "See how FlipDesk crosslists",
+    },
     secondaryKeywords: [
       "how much does poshmark take",
       "poshmark fees",
@@ -205,6 +242,12 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Mercari fee calculator",
     cardBlurb: "Selling fee, processing cut, and who ends up paying the postage.",
     primaryKeyword: "mercari fee calculator",
+    handoff: {
+      surface: "crosslisting",
+      heading: "You compared five platforms. You can list on all of them",
+      body: "The spread between the best and worst platform on one item is real money, and the answer changes item by item. FlipDesk builds the listing once and publishes it to eBay and Shopify by API, and to Poshmark, Mercari and Grailed through the browser extension.",
+      cta: "See how FlipDesk crosslists",
+    },
     secondaryKeywords: [
       "mercari fees",
       "how much does mercari take",
@@ -243,6 +286,12 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Depop fee calculator",
     cardBlurb: "Depop's cut, next to what the same item nets on four other platforms.",
     primaryKeyword: "depop fee calculator",
+    handoff: {
+      surface: "crosslisting",
+      heading: "You compared five platforms. You can list on all of them",
+      body: "The spread between the best and worst platform on one item is real money, and the answer changes item by item. FlipDesk builds the listing once and publishes it to eBay and Shopify by API, and to Poshmark, Mercari and Grailed through the browser extension.",
+      cta: "See how FlipDesk crosslists",
+    },
     secondaryKeywords: [
       "depop fees",
       "does depop charge selling fees",
@@ -281,6 +330,12 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Etsy fee calculator",
     cardBlurb: "Listing, transaction, processing and offsite ads on one vintage listing.",
     primaryKeyword: "etsy fee calculator",
+    handoff: {
+      surface: "crosslisting",
+      heading: "You compared five platforms. You can list on all of them",
+      body: "The spread between the best and worst platform on one item is real money, and the answer changes item by item. FlipDesk builds the listing once and publishes it to eBay and Shopify by API, and to Poshmark, Mercari and Grailed through the browser extension.",
+      cta: "See how FlipDesk crosslists",
+    },
     secondaryKeywords: [
       "etsy fees",
       "how much does etsy take",
@@ -319,6 +374,12 @@ export const CALCULATORS: readonly Calculator[] = [
     cardBlurb:
       "The only one that adjusts the sale price for what condition the item is actually in.",
     primaryKeyword: "reseller profit calculator",
+    handoff: {
+      surface: "comps",
+      heading: "The comp you typed in was the hard part",
+      body: "Everything on this page rests on one number you had to go and find, for one item. FlipDesk pulls eBay sold comparables per item and keeps them condition-aware, so you are pricing an Excellent piece against real Excellent sales rather than against an average of mint and worn.",
+      cta: "See how FlipDesk prices by condition",
+    },
     secondaryKeywords: [
       "ebay profit calculator",
       "resale profit margin calculator",
@@ -360,6 +421,12 @@ export const CALCULATORS: readonly Calculator[] = [
     h1: "Measurement and size converter",
     cardBlurb: "US, UK, EU and JP sizing, plus where on the garment each measurement is taken.",
     primaryKeyword: "clothing measurement converter",
+    handoff: {
+      surface: "inventory-management",
+      heading: "Measure once, and have it on every listing",
+      body: "Converting a measurement is quick. Typing the same nine measurements into four marketplace forms is not. FlipDesk keeps them on the item in your catalog, so they travel to every listing you publish from it.",
+      cta: "See how FlipDesk stores measurements",
+    },
     secondaryKeywords: [
       "international size conversion chart",
       "pit to pit measurement chart",
@@ -419,6 +486,18 @@ export const CALCULATOR_HUB_META = {
 /** The page module backing a calculator, defaulting to one file per slug. */
 export function calculatorPageModule(calc: Calculator): string {
   return calc.pageModule ?? `tools/${calc.slug}`;
+}
+
+/**
+ * A live calculator's FlipDesk handoff, or a throw. Optional on the type so a
+ * planned entry can be registered before its copy exists, required in practice
+ * once the calculator is live — same guard shape as calculatorContent().
+ */
+export function calculatorHandoff(calc: Calculator): NonNullable<Calculator["handoff"]> {
+  if (!calc.handoff) {
+    throw new Error(`[calculators] "${calc.slug}" is live but has no FlipDesk handoff`);
+  }
+  return calc.handoff;
 }
 
 /** Only calculators whose compute has shipped. */

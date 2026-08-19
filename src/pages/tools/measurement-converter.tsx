@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
+import { CalculatorHandoff } from "@/components/marketing/calculator-funnel";
+import { useCalculatorFunnel } from "@/lib/calculator-funnel";
 import { ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -54,6 +56,8 @@ function useConverter() {
 
 export function MeasurementConverterPage() {
   const { raw, setRaw, unit, setUnit, key, setKey, result } = useConverter();
+
+  useCalculatorFunnel(CALC?.slug ?? "", raw);
 
   if (!CALC) throw new Error("[measurement-converter] not in the calculator registry");
   const { intro, faqs } = calculatorContent(CALC);
@@ -294,6 +298,8 @@ export function MeasurementConverterPage() {
           </div>
         </div>
       </section>
+
+      {CALC && <CalculatorHandoff calc={CALC} />}
 
       <section className="px-6 py-16">
         <div className="mx-auto max-w-3xl">

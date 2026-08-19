@@ -79,6 +79,25 @@ export const ANALYTICS_EVENTS = {
   "calculator_grading_cta_click":
     "A calculator handed off to the grading flow.",
 
+  // ── Calculator funnel (US-9010) ───────────────────────────────────────────
+  // Four steps, and the first is the denominator. A funnel built only from
+  // clicks answers "how many clicked" and never "out of how many", which is
+  // the question the story actually asks: acquisition channel, or just traffic.
+  //
+  // `calculator_used` is deliberately NOT the same as a view. It fires once, on
+  // the first input change, so "landed and read the tables" can be told apart
+  // from "landed and computed something". Every event carries `calculator`.
+  //
+  // signup_started_from_tool exists because the handoff does not go straight to
+  // signup — it goes to the matching FlipDesk surface, and without carrying the
+  // slug across that hop the signup is attributed to the landing page and the
+  // calculator that produced it disappears.
+  "calculator_view": "A calculator page was loaded. Property `calculator` is the slug.",
+  "calculator_used": "A calculator input was changed for the first time this visit.",
+  "calculator_cta_clicked": "A calculator handed off to its matching FlipDesk surface.",
+  "signup_started_from_tool":
+    "Signup was started from a FlipDesk page the visitor reached from a calculator.",
+
   // ── Commercial landing funnel (US-9009) ───────────────────────────────────
   // The funnel is: calculator view -> landing page view -> signup start.
   // `calculator_grading_cta_click` (US-9006) is the other exit from step one.

@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
+import { CalculatorHandoff } from "@/components/marketing/calculator-funnel";
+import { useCalculatorFunnel } from "@/lib/calculator-funnel";
 import { ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -56,6 +58,8 @@ export function ResellerProfitCalculatorPage() {
   const [itemGrade, setItemGrade] = useState(7);
   const [platform, setPlatform] = useState<MarketplaceKey>("ebay");
   const [indexSlug, setIndexSlug] = useState("");
+
+  useCalculatorFunnel(CALC?.slug ?? "", comp.raw);
 
   const hub = useConditionIndexHub();
   const curve = useConditionIndexCurve(indexSlug || null);
@@ -422,6 +426,8 @@ export function ResellerProfitCalculatorPage() {
           </p>
         </div>
       </section>
+
+      {CALC && <CalculatorHandoff calc={CALC} />}
 
       <section className="px-6 py-16">
         <div className="mx-auto max-w-2xl">

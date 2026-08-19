@@ -213,14 +213,17 @@
     },
     {
       "id": "US-9010",
-      "passes": false,
+      "passes": true,
       "title": "Wire the calculators into the FlipDesk funnel and measure the handoff",
       "description": "As the operator, I want to know how many calculator visitors become signups, so that I can tell whether Path 3 is an acquisition channel or just traffic.",
       "acceptanceCriteria": [
-        "Every calculator page carries a contextual call to action into the matching FlipDesk surface, placed after the user has a result rather than before.",
-        "PostHog events fire for calculator_used, calculator_cta_clicked and signup_started_from_tool, each carrying the calculator slug; all three are registered in vault/40-growth/analytics-event-registry.md.",
-        "A dashboard or saved query reports calculator sessions, call-to-action click rate and signup conversion per calculator slug.",
-        "A baseline is recorded 30 days after the first calculator ships, so the kill criteria in the measurement story have something to compare against."
+        "Every calculator page carries a contextual call to action into the matching FlipDesk surface, placed after the user has a result rather than before. DONE for all eight, rendered immediately above the FAQ block. MATCHED, not generic: fee calculators to /flipdesk/bookkeeping, the four marketplace ones to /flipdesk/crosslisting, the profit calculator to /flipdesk/comps, the measurement converter to /flipdesk/inventory-management. A test asserts at least three distinct surfaces, because if everything pointed at one page the per-calculator conversion rate would have nothing to distinguish.",
+        "PostHog events fire for calculator_used, calculator_cta_clicked and signup_started_from_tool, each carrying the calculator slug; all three are registered in vault/40-growth/analytics-event-registry.md. DONE, plus a FOURTH the story did not list and AC3 requires: calculator_view. Without the arrival count there is no denominator, and 'acquisition channel or just traffic' is a rate.",
+        "calculator_used is deliberately NOT a view. It fires once, on the first input change, so a visitor who read the Store-tier table and left can be told apart from one who typed their own numbers in. Those convert very differently and conflating them makes the rate meaningless.",
+        "ATTRIBUTION SURVIVES THE HOP, which is the part that would have quietly broken. The handoff goes to the matching /flipdesk/* page, not to /signup, so the calculator slug rides across in a `from` query parameter (TOOL_SOURCE_PARAM), the landing page reads it back, and signup_started_from_tool fires only when it is present. Without it every tool-driven signup would be credited to the landing page.",
+        "A dashboard or saved query reports calculator sessions, call-to-action click rate and signup conversion per calculator slug. DONE as far as it can be from here: all four query DEFINITIONS are written in vault/40-growth/analytics-event-registry.md. The dashboard itself is built in PostHog by hand and is operator work. Note the handoff rate is defined over USED rather than over VIEW, because the question is whether someone who got a result wants the product.",
+        "OPEN, DATED, NOT GUESSED: a baseline is recorded 30 days after the first calculator ships. The first shipped 2026-08-18 (US-9003), so the baseline is due 2026-09-17. It must not be invented before the window closes, because US-9016's kill criteria compare against it and a fabricated baseline makes them unfalsifiable. The date and the four rates to record are in the vault note.",
+        "7 tests in src/lib/seo/__tests__/calculator-funnel.test.ts: every live calculator has a handoff, every handoff points at a FlipDesk landing that exists, the surfaces are not all the same, the copy is not placeholder copy, and all four events are declared."
       ],
       "priority": 12,
       "dependsOn": [

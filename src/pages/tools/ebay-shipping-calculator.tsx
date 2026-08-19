@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
+import { CalculatorHandoff } from "@/components/marketing/calculator-funnel";
+import { useCalculatorFunnel } from "@/lib/calculator-funnel";
 import { ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,6 +65,8 @@ export function EbayShippingCalculatorPage() {
     }),
     [weight.value, length.value, width.value, height.value],
   );
+
+  useCalculatorFunnel(CALC?.slug ?? "", weight.raw);
 
   const estimated = useMemo(
     () => estimateZone(originZip, destZip, zip3Centroid),
@@ -415,6 +419,8 @@ export function EbayShippingCalculatorPage() {
           </div>
         </div>
       </section>
+
+      {CALC && <CalculatorHandoff calc={CALC} />}
 
       <section className="border-t px-6 py-16">
         <div className="mx-auto max-w-2xl">

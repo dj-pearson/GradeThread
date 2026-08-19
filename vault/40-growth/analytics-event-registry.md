@@ -128,6 +128,59 @@ FlipDesk" across every surface, instead of one query per surface plus a manual
 union. `comparison_crosslist_cta_click` is the first to use it. US-9010's
 calculator handoff is the second and must match.
 
+## The calculator funnel (US-9010, 2026-08-18)
+
+Four steps, and the question it exists to answer is the story's own: is the
+calculator family an acquisition channel, or just traffic.
+
+| Step | Event | Fires | Key property |
+|---|---|---|---|
+| 1 | `calculator_view` | on mount of any `/tools/*` calculator | `calculator` = slug |
+| 2 | `calculator_used` | ONCE, on the first input change this visit | `calculator` |
+| 3 | `calculator_cta_clicked` | on the handoff into the matching FlipDesk surface | `calculator`, plus `{source, destination}` |
+| 4 | `signup_started_from_tool` | on the FlipDesk signup control, only when the visit came from a calculator | `calculator`, `landing` |
+
+**Step 2 is not step 1.** A visitor who lands on the eBay fee calculator, reads
+the Store-tier table and leaves is a different animal from one who typed their
+own numbers in. Both are useful; conflating them makes the conversion rate
+meaningless, because the denominator would be dominated by readers who never
+intended to use the tool.
+
+**Attribution survives the hop.** The handoff does not go to `/signup`, it goes
+to the matching `/flipdesk/*` page, which is where the product is explained. The
+calculator slug rides across in a `from` query parameter
+(`TOOL_SOURCE_PARAM` in `src/components/marketing/calculator-funnel.tsx`), the
+landing page reads it back, and `signup_started_from_tool` fires only when it is
+present. Without that, every tool-driven signup would be credited to the landing
+page and the calculator that caused it would vanish.
+
+### The four saved queries (AC3)
+
+These are the definitions, not a dashboard — the dashboard is built in PostHog
+by hand and this is what it has to compute.
+
+1. **Sessions per calculator.** `calculator_view` counted by `calculator`,
+   unique by session. The denominator for everything below.
+2. **Use rate.** `calculator_used` / `calculator_view`, by `calculator`. How
+   many arrivals actually compute something. A low number here means the page
+   ranks for a question it answers in prose before the tool is reached.
+3. **Handoff rate.** `calculator_cta_clicked` / `calculator_used`, by
+   `calculator`. Deliberately over USED, not over VIEW: the question is whether
+   someone who got a result wants the product, and dividing by readers who never
+   touched an input buries that.
+4. **Signup conversion.** `signup_started_from_tool` / `calculator_cta_clicked`,
+   by `calculator`. The last hop, and the one where a mismatched handoff shows
+   up: a calculator whose click rate is fine and whose signup rate is not is
+   pointing at the wrong FlipDesk surface.
+
+### The baseline (AC4)
+
+The first calculator shipped **2026-08-18** (US-9003), so the 30-day baseline is
+due **2026-09-17**. It is not recorded here yet and must not be guessed: the
+kill criteria in US-9016 compare against it, and a baseline invented before the
+window closed would make those criteria unfalsifiable. Record all four rates
+per calculator on that date.
+
 ## The commercial landing funnel (US-9009, 2026-08-18)
 
 Three events, in order, and the reason they exist is that this segment cannot be
