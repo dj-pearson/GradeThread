@@ -58,7 +58,7 @@ import { featureAllowedForUser } from "./plan-gate.ts";
 // recomputing "is this item ready and can they afford it" here would be a
 // second answer to a question the seller asks once, and they would get whichever
 // one they happened to ask. Relocate both together when the submit half lands.
-import { buildValidation } from "../routes/flipdesk-grading.ts";
+import { buildValidation } from "./grading-submit.ts";
 import {
   SANDBOX_NOTICE,
   sandboxCatalog,

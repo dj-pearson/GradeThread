@@ -127,7 +127,7 @@ const UNVALIDATED_UPLOADS = new Map<string, string>([
   ["src/routes/content-public.ts", "SERVER-RENDERED: an OG card PNG we compose; no user bytes involved."],
   ["src/routes/flipdesk-measure.ts", "SERVER-RENDERED: the measurement overlay JPEG, drawn from measurement math."],
   ["src/routes/flipdesk-images.ts", "DERIVED: the background-removal provider's output for a photo already validated on upload. Bytes are third-party rather than user-supplied; re-validating would be defensible and is worth revisiting if that provider is ever swapped."],
-  ["src/routes/flipdesk-grading.ts", "COPY: re-stores an existing item photo into the grading submission. The bytes passed validateImageUpload on their original upload, and no path admits HEIC (guarded above), so the private bucket's stricter allowlist cannot be bypassed by this copy."],
+  ["src/lib/grading-submit.ts", "COPY: re-stores an existing item photo into the grading submission. The bytes passed validateImageUpload on their original upload, and no path admits HEIC (guarded above), so the private bucket's stricter allowlist cannot be bypassed by this copy. Moved here from routes/flipdesk-grading.ts by US-9129; the copy itself is unchanged."],
   ["src/routes/jobs-thumbnail-backfill.ts", "DERIVED: thumbnails generated from already-stored, already-validated originals."],
 ]);
 

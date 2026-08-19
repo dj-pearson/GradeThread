@@ -156,18 +156,31 @@ Deno.test("a DIFFERENT batch of the same items still charges", async () => {
   assertEquals(wallet.ledger.length, 2);
 });
 
-Deno.test("the route passes the key — and passes null when none was sent", async () => {
-  const src = await Deno.readTextFile(
+Deno.test("the submit path passes the key — and passes null when none was sent", async () => {
+  // US-9129: the charge moved to lib/grading-submit.ts and the request schema
+  // stayed in the route, so this checks both halves where they now live. The
+  // route also has to keep FORWARDING the parsed key: a schema that accepts
+  // batch_key and a handler that drops it looks exactly like a working feature
+  // and charges twice on every retry.
+  const lib = await Deno.readTextFile(
+    new URL("../lib/grading-submit.ts", import.meta.url),
+  );
+  const route = await Deno.readTextFile(
     new URL("../routes/flipdesk-grading.ts", import.meta.url),
   );
   assert(
-    /runPaymentPrecedence\(\s*ownerId,\s*submissionId,\s*tier,\s*bulkChargeKey\(/.test(src),
+    /runPaymentPrecedence\(\s*ownerId,\s*submissionId,\s*tier,\s*bulkChargeKey\(/.test(lib),
     "the bulk charge must pass bulkChargeKey(...) as runPaymentPrecedence's 4th " +
       "argument — without it the batch is keyless and a retry charges again",
   );
   assert(
-    src.includes("batch_key: z.string()"),
+    route.includes("batch_key: z.string()"),
     "submitBodySchema is .strict(), so batch_key must be declared or every " +
       "client sending it gets a 400",
+  );
+  assert(
+    /submitItemsForGrading\([\s\S]{0,200}?parsed\.data\.batch_key/.test(route),
+    "the route parses batch_key and must hand it to submitItemsForGrading; " +
+      "dropping it there is invisible and re-charges every retried batch",
   );
 });

@@ -20,7 +20,14 @@
 
 import { assert } from "@std/assert";
 
+// US-9129: the submit loop moved to lib/grading-submit.ts. The scan follows
+// it, because a negative assertion here ("the loop must NOT re-query per item")
+// passes trivially against a file that no longer contains the loop.
 const SRC = await Deno.readTextFile(
+  new URL("../lib/grading-submit.ts", import.meta.url),
+);
+// The batch cap lives with the request schema, which stayed in the route.
+const ROUTE_SRC = await Deno.readTextFile(
   new URL("../routes/flipdesk-grading.ts", import.meta.url),
 );
 
@@ -109,7 +116,7 @@ Deno.test("the batch size cap still exists", () => {
   // not — this cap has been here all along, and the story was corrected. Pin it
   // so the claim can't drift in either direction.
   assert(
-    /\.max\(200,/.test(SRC),
+    /\.max\(200,/.test(ROUTE_SRC),
     "submitBodySchema must cap the batch; without it the N+1 fix only reduces " +
       "a constant factor on an unbounded loop",
   );

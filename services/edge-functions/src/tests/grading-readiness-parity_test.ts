@@ -21,7 +21,7 @@ const {
   gradingImageTypeToPhotoType,
   mapPhotoTypeForGrading: mapPhotoTypeForGradingForTest,
   REQUIRED_GRADING_PHOTO_TYPES,
-} = await import("../routes/flipdesk-grading.ts");
+} = await import("../lib/grading-submit.ts");
 const { REQUIRED_IMAGE_TYPES } = await import("../lib/image-quality.ts");
 
 const fixture = JSON.parse(

@@ -98,8 +98,11 @@ const MODEL_LIBS = [
   "quick-grade",
   "support-assistant-engine",
 ];
+// Matches the import from a route (`../lib/x.ts`) AND from a delegated lib,
+// which sits in the same directory and writes `./x.ts`. Anchoring on the route
+// spelling alone would make every DELEGATED_LIBS entry read as stale.
 const MODEL_IMPORT = new RegExp(
-  `from "\\.\\./lib/(${MODEL_LIBS.join("|")})\\.ts"`,
+  `from "(\\.\\./lib/|\\./)(${MODEL_LIBS.join("|")})\\.ts"`,
 );
 
 // Deliberately UNMETERED route modules — every entry needs a rationale.
@@ -114,7 +117,7 @@ const ALLOWLIST: Record<string, string> = {
     "an 8 MB body cap in the route, plus the global daily Vision ceiling in the " +
     "shared Anthropic client (ai-limiter.ts) that bounds quickGrade's spend.",
   "api-v1.ts": "public API grading — billed per-grade via API key credits",
-  "flipdesk-grading.ts": "FlipDesk grading submissions — billed per-grade",
+  "grading-submit.ts": "FlipDesk grading submissions — billed per-grade. Moved out of routes/flipdesk-grading.ts by US-9129; see DELEGATED_LIBS.",
   "webhooks.ts": "payment webhooks re-enter the grading pipeline (per-grade billing)",
   "support-assistant.ts": "support assistant is an operator cost, not user AI spend",
   "jobs-grading-self-consistency.ts":
@@ -139,6 +142,19 @@ const ALLOWLIST: Record<string, string> = {
 
 const METER_MARKER = /withAiAction|reserveAiAction|reserve_ai_action/;
 
+/**
+ * Libs that hold a route handler's BODY rather than a shared helper.
+ *
+ * US-9129 moved the FlipDesk grading submit path into lib/grading-submit.ts so
+ * the connector's write tools could call the same money path as the route. This
+ * scan only ever walked src/routes/, so that move would have quietly dropped a
+ * per-grade billing path out of a coverage guard — the refactor would have
+ * looked clean and the guard would have kept passing on a smaller set.
+ *
+ * An extraction that carries an AI call out of a route belongs here.
+ */
+const DELEGATED_LIBS = ["grading-submit.ts"];
+
 async function routeFiles(): Promise<Array<{ name: string; text: string }>> {
   const dir = new URL("../routes/", import.meta.url);
   const out: Array<{ name: string; text: string }> = [];
@@ -149,6 +165,10 @@ async function routeFiles(): Promise<Array<{ name: string; text: string }>> {
         text: await Deno.readTextFile(new URL(e.name, dir)),
       });
     }
+  }
+  const libDir = new URL("../lib/", import.meta.url);
+  for (const name of DELEGATED_LIBS) {
+    out.push({ name, text: await Deno.readTextFile(new URL(name, libDir)) });
   }
   return out;
 }
