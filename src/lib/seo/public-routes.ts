@@ -80,6 +80,16 @@ export interface PublicRoute {
   priority: number;
   /** Primary JSON-LD type rendered on the page (for documentation/audit). */
   jsonLdType?: string;
+  /**
+   * Points the canonical somewhere OTHER than this route's own path, for the
+   * case where two URLs serve one intent and we have decided which one wins.
+   *
+   * A route with this set is deliberately kept live and reachable — it is not
+   * a redirect and not a 404 — but it is dropped from the sitemap, because
+   * listing a URL you have just told Google to ignore is a contradictory
+   * signal. US-9008 is the first and so far only use.
+   */
+  canonicalPath?: string;
 }
 
 // US-429: per-route content-change date (YYYY-MM-DD) for the sitemap <lastmod>.

@@ -443,6 +443,24 @@ export function isCompareHubPath(path: string): boolean {
 }
 
 /** Public routes: the hub index + one page per comparison. */
+/**
+ * Comparison slugs whose canonical points at a DIFFERENT URL (US-9008).
+ *
+ * depop-vs-poshmark: two GradeThread URLs target this query and neither wins
+ * it. /blog/depop-vs-poshmark-which-should-you-use has 168 impressions at
+ * position 16.45; this page has never had a single impression in ten weeks
+ * (Search Console, 6 months to 2026-08-16). Consolidating on one URL per
+ * intent is right, and the direction is not close — one side has ranking
+ * history and the other has none. Working in
+ * docs/seo/compare-family-diagnosis.md.
+ *
+ * The page stays LIVE and stays linked from the hub. Only the canonical and
+ * the sitemap entry change.
+ */
+export const COMPARISON_CANONICAL_OVERRIDES: Readonly<Record<string, string>> = {
+  "depop-vs-poshmark": "/blog/depop-vs-poshmark-which-should-you-use",
+};
+
 export function comparisonRoutes(): PublicRoute[] {
   const hub: PublicRoute = {
     path: COMPARE_HUB_PATH,
@@ -460,13 +478,18 @@ export function comparisonRoutes(): PublicRoute[] {
     // test enforce that the markup keeps being prerendered.
     jsonLdType: "CollectionPage",
   };
-  const pages: PublicRoute[] = COMPARISONS.map((c) => ({
-    path: comparePath(c.slug),
-    title: c.title,
-    description: c.description,
-    changefreq: "monthly",
-    priority: 0.7,
-    jsonLdType: "Article",
-  }));
+  const pages: PublicRoute[] = COMPARISONS.map((c) => {
+    const route: PublicRoute = {
+      path: comparePath(c.slug),
+      title: c.title,
+      description: c.description,
+      changefreq: "monthly",
+      priority: 0.7,
+      jsonLdType: "Article",
+    };
+    const canonical = COMPARISON_CANONICAL_OVERRIDES[c.slug];
+    if (canonical) route.canonicalPath = canonical;
+    return route;
+  });
   return [hub, ...pages];
 }

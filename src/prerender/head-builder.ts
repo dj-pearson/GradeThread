@@ -476,7 +476,10 @@ function reportIsUnpublishable(path: string): boolean {
 }
 
 export function buildHeadTags(route: PublicRoute): string {
-  const canonical = absoluteUrl(route.path);
+  // US-9008: a route may point its canonical at a different URL when two
+  // pages serve one intent. Falls back to its own path, which is every other
+  // route in the registry.
+  const canonical = absoluteUrl(route.canonicalPath ?? route.path);
   const fullTitle =
     route.path === "/"
       ? "GradeThread - The Standard for Clothing Condition Grading"

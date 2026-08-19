@@ -54,6 +54,12 @@ interface ManifestRoute {
    * predates this field must still parse.
    */
   image?: { file: string; alt: string };
+  /**
+   * US-9008: set when this route's canonical points at a DIFFERENT URL. Such a
+   * route is skipped here. Optional because almost no route has one, and
+   * because a manifest from a build that predates the field must still parse.
+   */
+  canonicalPath?: string;
 }
 interface SeoManifest {
   siteUrl: string;
@@ -280,6 +286,9 @@ async function partitionedStaticUrls(
   const grading: SitemapUrl[] = [];
   for (const r of manifest.routes) {
     if (r.path in CONDITIONALLY_INDEXED && !indexable.has(r.path)) continue;
+    // US-9008: a route whose canonical points elsewhere stays live and linked,
+    // but advertising it here would contradict the canonical we just served.
+    if (r.canonicalPath && r.canonicalPath !== r.path) continue;
     const url = manifestRouteToUrl(base, r, manifest.generatedAt);
     (isGradingRoute(r.path) ? grading : marketing).push(url);
   }

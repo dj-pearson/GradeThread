@@ -153,7 +153,7 @@ export const CALCULATORS: readonly Calculator[] = [
     audience: "seller",
     title: "Poshmark Fee Calculator: What Poshmark Takes",
     description:
-      "What Poshmark keeps from a sale and what lands in your account, with the flat fee on small orders and the commission above it applied to the number you enter.",
+      "How much does Poshmark take? The 20% commission, the flat $2.95 that replaces it under $15, and what lands in your account, on your own numbers.",
     h1: "Poshmark fee calculator",
     cardBlurb: "The flat fee, the commission, and where the cutoff between them falls.",
     primaryKeyword: "how much does poshmark take",

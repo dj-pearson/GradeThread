@@ -8,6 +8,7 @@ import {
 } from "@/components/marketing/marketing-layout";
 import { NotFoundPage } from "@/pages/not-found";
 import {
+  COMPARISON_CANONICAL_OVERRIDES,
   COMPARE_HUB_PATH,
   COMPARISONS,
   COMPARISON_VERIFIED,
@@ -86,7 +87,7 @@ export function ComparisonPage({ slug: slugProp }: { slug?: string }) {
     <MarketingLayout
       title={cmp.title}
       description={cmp.description}
-      canonicalPath={comparePath(cmp.slug)}
+      canonicalPath={COMPARISON_CANONICAL_OVERRIDES[cmp.slug] ?? comparePath(cmp.slug)}
       breadcrumbs={comparisonBreadcrumbItems(cmp)}
       jsonLd={comparisonJsonLd(cmp)}
     >

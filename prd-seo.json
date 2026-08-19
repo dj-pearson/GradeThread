@@ -168,7 +168,7 @@
     },
     {
       "id": "US-9008",
-      "passes": false,
+      "passes": true,
       "title": "Fix the two underperforming comparison pages: poshmark-vs-mercari and depop-vs-poshmark",
       "description": "As a seller choosing where to list, I want a comparison that covers how each marketplace handles condition disputes and returns, so that I can pick on the terms that actually cost me money. CORRECTED 2026-08-18: this story originally asked to CREATE these two pages, on the claim that the comparison family held only mercari-vs-ebay. That claim came from grepping the COMPARISONS array in comparison-guides.ts, which holds one entry; the other 15 comparison routes are registered in public-routes.ts. Both pages have been live since 2026-07-06 with ~1,400 words each. The work is to fix them, not build them.",
       "acceptanceCriteria": [
@@ -176,9 +176,10 @@
         "Two alternatives ruled out rather than assumed. More words did not help: /compare/mercari-vs-ebay is the hand-written flagship and ranks 39th on 2 impressions, worse than 13 template pages. More internal links did not help: the only two pages carrying named anchor sets in interlink-rules.ts were poshmark-vs-mercari (44.8) and mercari-vs-ebay (39), so the confound runs backwards from the fix-the-page hypothesis.",
         "DONE: the interlink anchor budget moved to /compare/vinted-vs-mercari (position 8.5) and /compare/grailed-vs-poshmark (position 11.0). Internal authority is worth spending where a page can cross a threshold into the top five, not on a page at 44.8.",
         "DONE under US-9017: titles and meta descriptions rewritten for the four comparison pages that earn impressions. The other twelve keep the template, because there is nothing to learn from rewriting a page nobody sees.",
-        "OPEN DECISION for the operator: /blog/depop-vs-poshmark-which-should-you-use has 168 impressions at position 16.45; /compare/depop-vs-poshmark has never had an impression. Consolidation is correct on the merits and the direction is not close, but de-indexing a page is not a call to make unasked. Recommendation and the one-line change are in the diagnosis note.",
+        "RESOLVED 2026-08-18, operator said yes. /compare/depop-vs-poshmark now canonicalises to /blog/depop-vs-poshmark-which-should-you-use. The page stays live and stays linked from the hub; only the canonical and the sitemap entry changed. PublicRoute gained an optional canonicalPath, head-builder and the SPA both honour it, and functions/_shared/sitemap.ts skips any route carrying one, because advertising a URL you have just told Google to ignore is a contradictory signal. 6 tests in src/test/canonical-overrides.test.ts lock the target, the carry-through, and the absence of canonical chains.",
         "Do NOT expand the competitor-alternative family: all three pages (Vendoo, List Perfectly, Crosslist) already exist, vendoo alternative is 500/mo and list perfectly alternative returned blank.",
-        "Do NOT build more head-term comparison pages. The family covers all 16 pairs, and the ceiling on the incumbent pairs is set by competition a ten-week-old site cannot outspend. The pages that rank are the pairs nobody else bothered to write."
+        "Do NOT build more head-term comparison pages. The family covers all 16 pairs, and the ceiling on the incumbent pairs is set by competition a ten-week-old site cannot outspend. The pages that rank are the pairs nobody else bothered to write.",
+        "VERIFIED IN CODE, not taken on trust from the note: the interlink anchor sets are on /compare/vinted-vs-mercari and /compare/grailed-vs-poshmark in interlink-rules.ts; the US-9017 rewrite for vinted-vs-mercari is in the worklist marked shipped; and the returns/condition-dispute row the story's description asks for already exists for all seven platforms in comparison-guides.ts, feeding a wedge row on every one of the 16 pages."
       ],
       "priority": 10,
       "dependsOn": [
