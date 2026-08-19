@@ -6122,3 +6122,65 @@ Deno.test({
     }
   },
 });
+
+// -- US-2676: title-variant click-through --------------------------------
+//
+// GET /api/flipdesk/listings/title-variants pools listing_metrics, a table
+// whose rows carry a user_id and whose parent listings do too. The route takes
+// NO id from the caller, so as with pending-delists "denied" is the wrong
+// assertion: the property is that B's readout is computed from B's traffic
+// only, and never sees A's.
+//
+// The failure this guards against is quiet rather than loud. A missing
+// .eq("user_id") would not error and would not obviously look wrong -- B would
+// just get a readout with more impressions in it, which is exactly what a
+// seller wants to see and has no way to question.
+
+Deno.test({
+  name: "B's title-variant readout is computed from B's traffic only",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const url = `${BASE}/api/flipdesk/listings/title-variants`;
+    const res = await fetch(url, { headers: authHeaders(B_JWT!) });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "GET title-variants as B");
+      return;
+    }
+    const asB = (await res.json()).readout;
+    assert(asB && typeof asB.state === "string", "title-variants returned no readout state");
+
+    // The same call as A. If the route were unscoped both callers would be
+    // reading one global pool, so the two readouts would agree on every total.
+    const resA = await fetch(url, { headers: authHeaders(A_JWT!) });
+    if (resA.status !== 200) {
+      await resA.body?.cancel();
+      return;
+    }
+    const asA = (await resA.json()).readout;
+
+    const totals = (r: { variants?: Array<{ impressions: number; listings: number }> }) =>
+      (r.variants ?? []).reduce(
+        (acc, v) => ({
+          impressions: acc.impressions + v.impressions,
+          listings: acc.listings + v.listings,
+        }),
+        { impressions: 0, listings: 0 },
+      );
+
+    const ta = totals(asA);
+    const tb = totals(asB);
+
+    // Two empty readouts are equal and prove nothing, so that case returns
+    // rather than passing: an unscoped read of an empty metrics table also
+    // gives zeroes, and a test that goes green on no data goes green forever.
+    if (ta.listings === 0 && tb.listings === 0) return;
+
+    assert(
+      !(ta.listings === tb.listings && ta.impressions === tb.impressions &&
+        ta.impressions > 0),
+      "A and B got byte-identical variant totals over non-zero traffic, which is " +
+        "what an unscoped listing_metrics read looks like",
+    );
+  },
+});

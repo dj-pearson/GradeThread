@@ -2,9 +2,19 @@
 
 ## HELD: 00621 — listings.demand_terms_detail (US-2675)
 
-**Risk: low.** One nullable `jsonb` column added to `public.listings`, plus a
-column comment. No backfill, no constraint, no index, nothing dropped. Every
-existing row reads NULL and every existing query is unaffected.
+**Risk: low to apply, but the edge REQUIRES it.** The SQL itself is one
+nullable `jsonb` column on `public.listings` plus a column comment: no backfill,
+no constraint, no index, nothing dropped, every existing row reads NULL.
+`ADD COLUMN IF NOT EXISTS`, run twice against the local stack to prove it.
+
+⚠️ **The hard dependency is the edge write, not the frontend read.**
+`services/edge-functions/src/lib/ai-listing.ts` puts `demand_terms_detail` into
+the listing insert payload unconditionally. Against a database without the
+column PostgREST rejects the WHOLE write (PGRST204), so draft generation fails
+outright rather than merely losing the provenance. The boot guard covers this in
+practice (an edge image expecting 00621 refuses to start behind that version),
+but apply the SQL before the edge deploys and do not treat the write as
+optional.
 
 **What it is for.** The demand-term miner now reads titles of items that SOLD,
 not only active listings, and ranks by how much more common a term is among the

@@ -16,6 +16,15 @@
 
 import { supabaseAdmin } from "./supabase.ts";
 import { activatePromptVersion } from "./grading-eval.ts";
+// US-2676: click-through, which moves in days, beside sell-through, which on
+// one-of-a-kind clothing takes months to say anything.
+import {
+  MIN_CTR_LIFT,
+  MIN_VARIANT_IMPRESSIONS,
+  type PromptCtr,
+  summarizeCtrByPromptVersion,
+  type VariantMetricRow,
+} from "./title-variant-ctr.ts";
 
 // The listing fields whose keep/change we track. Each maps the AI snapshot key
 // (ai_generated_snapshot.*) to the live listings column holding the seller's
@@ -212,6 +221,13 @@ export interface ListingPromptStats {
   // Combined acceptance + sell-through score used for promotion decisions.
   score: number;
   perField: Record<string, { kept: number; total: number; keepRate: number }>;
+  // US-2676 (AC4): traffic for the listings this version wrote. Pooled views
+  // over impressions, NOT an average of per-listing rates. Null impressions
+  // means no traffic report has landed for any of them yet, which is the normal
+  // state for a version that went live this week -- and is NOT zero clicks.
+  impressions: number;
+  views: number;
+  clickThroughRate: number | null;
 }
 
 const PROMOTE_WEIGHT_KEEP = 0.5;
@@ -235,6 +251,74 @@ interface AcceptanceRow {
  * sell-through. Labels each version active / in-trial / eval status from
  * ai_prompt_versions so the dashboard can show champion vs challenger.
  */
+/**
+ * US-2676: traffic per listing_gen prompt version, ACROSS EVERY TENANT.
+ *
+ * Deliberately unscoped, and named so that is impossible to miss. A prompt
+ * version is a property of the platform, not of a seller, so its readout has to
+ * pool everyone's listings the same way summarizeListingPromptPerformance
+ * already pools everyone's acceptance rows. This is an operator rollup and the
+ * only caller is the super-admin surface.
+ *
+ * US-268 is not violated by this and is not weakened by it either: nothing here
+ * returns a listing id, a user id or anything traceable to one seller, only
+ * counts summed over all of them. Anything SELLER-facing must instead go
+ * through fetchVariantMetricRows(ownerId), which scopes on user_id.
+ */
+async function ctrByPromptVersionAllTenants(): Promise<Map<string, PromptCtr>> {
+  const { data: metricsRaw, error } = await supabaseAdmin
+    .from("listing_metrics")
+    .select("listing_id, metric_date, impressions, views")
+    .order("metric_date", { ascending: false });
+  // Traffic is a nice-to-have on this readout; the keep-rate is the point of it.
+  // A metrics failure must not blank the whole prompt dashboard.
+  if (error) {
+    console.error("[listing-acceptance] CTR rollup skipped:", error.message);
+    return new Map();
+  }
+
+  const metrics = (metricsRaw ?? []) as Array<{
+    listing_id: string;
+    impressions: number | null;
+    views: number | null;
+  }>;
+
+  // Newest first, so the FIRST row per listing is its latest. Never summed
+  // across dates: the sync writes eBay's rolling-window totals, so consecutive
+  // snapshots overlap and adding them counts one impression up to seven times.
+  const latest = new Map<string, { impressions: number | null; views: number | null }>();
+  for (const row of metrics) {
+    if (!latest.has(row.listing_id)) latest.set(row.listing_id, row);
+  }
+  if (latest.size === 0) return new Map();
+
+  const { data: listingsRaw } = await supabaseAdmin
+    .from("listings")
+    .select("id, ai_prompt_version")
+    .in("id", [...latest.keys()]);
+  const listings = (listingsRaw ?? []) as Array<{
+    id: string;
+    ai_prompt_version: string | null;
+  }>;
+
+  const rows: VariantMetricRow[] = [];
+  for (const listing of listings) {
+    const m = latest.get(listing.id);
+    if (!m) continue;
+    rows.push({
+      listingId: listing.id,
+      activeLabel: "A",
+      impressions: m.impressions ?? 0,
+      views: m.views ?? 0,
+      clickThroughRate: null,
+      sold: false,
+      promptVersion: listing.ai_prompt_version,
+    });
+  }
+
+  return new Map(summarizeCtrByPromptVersion(rows).map((r) => [r.promptVersion, r]));
+}
+
 export async function summarizeListingPromptPerformance(): Promise<ListingPromptStats[]> {
   const { data: rowsRaw, error } = await supabaseAdmin
     .from("listing_prompt_acceptance")
@@ -300,9 +384,13 @@ export async function summarizeListingPromptPerformance(): Promise<ListingPrompt
     }
   }
 
+  // US-2676 (AC4): one traffic rollup for every version, fetched once.
+  const ctr = await ctrByPromptVersionAllTenants();
+
   const out: ListingPromptStats[] = [];
   for (const [promptVersion, agg] of byVersion) {
     const meta = versionMeta.get(promptVersion);
+    const traffic = ctr.get(promptVersion);
     const sellThrough = agg.listings > 0 ? agg.sold / agg.listings : 0;
     const keepRate = agg.totalFields > 0 ? agg.keptFields / agg.totalFields : 0;
     const perField: Record<string, { kept: number; total: number; keepRate: number }> = {};
@@ -326,6 +414,12 @@ export async function summarizeListingPromptPerformance(): Promise<ListingPrompt
       keepRate,
       score: combinedScore(keepRate, sellThrough),
       perField,
+      impressions: traffic?.impressions ?? 0,
+      views: traffic?.views ?? 0,
+      // Null, not zero. No traffic report yet is not "nobody clicked", and a
+      // promotion rule reading 0 as a measured rate would fail a new version
+      // for the crime of being new.
+      clickThroughRate: traffic?.clickThroughRate ?? null,
     });
   }
 
@@ -404,6 +498,41 @@ export async function autoPromoteListingPrompt(): Promise<AutoPromoteDecision> {
   // No active champion row → the code default is the incumbent; treat its score
   // as 0 so an eval-passed challenger that cleared the sample bar can win.
   const championScore = championStat?.score ?? 0;
+
+  // US-2676 (AC2): the combined keep-rate + sell-through score is no longer the
+  // only input. On one-of-a-kind clothing sell-through barely moves, so a
+  // challenger can clear the margin on keep-rate alone while quietly costing
+  // clicks -- and clicks are the half that shows up first. When BOTH versions
+  // have real traffic and the challenger's click-through is materially worse,
+  // the trial ends instead of promoting. Missing traffic on either side is not
+  // evidence and does not block: a version nobody has seen yet is held on the
+  // existing sample rule above, not failed by an absent number.
+  const ctrVeto = (() => {
+    const cCtr = challengerStat?.clickThroughRate ?? null;
+    const chCtr = championStat?.clickThroughRate ?? null;
+    if (cCtr === null || chCtr === null || chCtr <= 0) return false;
+    if ((challengerStat?.impressions ?? 0) < MIN_VARIANT_IMPRESSIONS) return false;
+    if ((championStat?.impressions ?? 0) < MIN_VARIANT_IMPRESSIONS) return false;
+    return cCtr / chCtr < 1 / MIN_CTR_LIFT;
+  })();
+
+  if (ctrVeto) {
+    await supabaseAdmin
+      .from("ai_prompt_versions")
+      .update({ in_trial: false })
+      .eq("id", challenger.id);
+    return {
+      action: "trial_ended",
+      reason:
+        "Challenger scored well on kept fields but its click-through is materially " +
+        "worse than the champion's; ending the trial rather than promoting it.",
+      challenger: challenger.version_name,
+      champion: championStat?.promptVersion,
+      challengerScore,
+      championScore,
+      sample,
+    };
+  }
 
   if (challenger.eval_passed === true && challengerScore >= championScore + promoteMargin()) {
     const result = await activatePromptVersion(challenger.id);

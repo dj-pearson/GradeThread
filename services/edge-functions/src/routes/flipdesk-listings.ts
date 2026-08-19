@@ -22,6 +22,7 @@ import {
 } from "../lib/cross-push.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { readVariantWinnerForOwner } from "../lib/title-variant-ctr.ts";
 import {
   isNoEbayConnectionError,
   isOfferAlreadyEndedError,
@@ -552,6 +553,32 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
 // copies would eventually disagree about `auto_delistable`, and the failure is
 // silent: one surface offers a one-click end for a listing the other knows it
 // cannot end, so the seller is told it was handled while it stays live.
+// GET /title-variants — US-2676. Which title wording is winning the click.
+//
+// Tenant-scoped through readVariantWinnerForOwner, which filters BOTH
+// listing_metrics and listings on the resolved owner id (US-268). The route
+// takes no id from the caller at all: there is nothing here to point at
+// somebody else's data with.
+//
+// Returns a STATE rather than a nullable winner. For most sellers most of the
+// time the honest answer is "not enough exposure yet", and a null would make
+// that indistinguishable from a tie.
+flipdeskListingsRoutes.get("/title-variants", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  try {
+    const readout = await readVariantWinnerForOwner(ownerId);
+    return c.json({ ok: true, readout });
+  } catch (err) {
+    return failSafe(
+      c,
+      500,
+      "Could not load title variant performance.",
+      err,
+      "flipdesk.title-variants",
+    );
+  }
+});
+
 flipdeskListingsRoutes.get("/pending-delists", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   const { pending, error } = await loadPendingDelists(ownerId);

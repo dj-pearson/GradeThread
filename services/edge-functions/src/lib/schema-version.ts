@@ -37,7 +37,7 @@ import { edgeEnv, isProductionEnv } from "./env.ts";
 import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 
 // Bump this in the SAME commit that adds a migration. = highest NNNNN in
-// supabase/migrations/. (00620_oauth_authorization_server.sql)
+// supabase/migrations/. (00621_listing_demand_terms_detail.sql)
 //
 // ⚠ 00527 IS SKIPPED HERE ON PURPOSE. 00527_revoke_public_function_execute.sql
 // carries a .BLOCKED suffix (US-2403: denying a function to a supautils hint
