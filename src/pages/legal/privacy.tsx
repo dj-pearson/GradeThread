@@ -7,7 +7,7 @@ export function PrivacyPage() {
       title="Privacy Policy"
       description="How GradeThread collects, uses, and protects your information."
       canonicalPath="/privacy"
-      effectiveDate="August 7, 2026"
+      effectiveDate="August 19, 2026"
     >
       <p>
         This Privacy Policy explains how Pearson Media LLC (&ldquo;Pearson

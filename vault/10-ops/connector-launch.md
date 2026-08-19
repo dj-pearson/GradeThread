@@ -327,21 +327,32 @@ answer, so the account needs **Pro or Business**.
 ## What is NOT yet decided
 
 The copy above is written and reviewable. What US-9127 still owns is work that
-needs a person with production access or an Anthropic org:
+needs a person with production access, an Anthropic org, or a lawyer:
 
 - **Publishing** the changelog entry and loading the macros (both are admin-UI
   data, both are above, ready to paste).
-- **Privacy policy and ToS** (AC4) — a real data-flow change that has to be
-  stated before launch, not after. Note for whoever writes it: the Messages API
-  MCP connector is explicitly NOT eligible for zero-data-retention, so tool
-  definitions and results are retained under standard policy.
+- **Counsel review of the legal copy** (AC4). The documents themselves are
+  written and shipped: `privacy.tsx` §5 covers where connector data goes,
+  `terms.tsx` §8 covers who is answerable for what the connector does, and the
+  AUP gained one bullet against scripting a client to approve its own
+  confirmations. All three are **agent-drafted and nobody has reviewed them**,
+  which is recorded with the claims most worth a lawyer's eye in
+  [[subscription-copy-review-register]]. The sourced claim to re-read first if
+  Anthropic's terms move: the Messages API MCP connector is not eligible for
+  zero-data-retention, so tool definitions and results are retained under
+  standard policy.
+- **One open drafting decision:** the OAuth consent screen links to neither the
+  Terms nor the AUP. The browser extension's clickwrap does link out, and that
+  link is why the AUP has a section about it at all. Whether an approval screen
+  granting write access to a seller's store needs the same is a call, not a bug.
 - **Directory submission** (AC5) — needs a Team or Enterprise org, an Owner
   role, a production HTTPS URL, and a test account holding SAMPLE data and no
   production records. An empty or real-data reviewer account is a named
   rejection cause.
-- **The policy re-check** (AC6) before submitting: "transferring financial
-  assets" is a listed violation, and the grading tool returning a Stripe
-  checkout URL rather than charging is the correct shape. It must stay that way.
+
+AC6, the policy re-check, is **done** and its result is the section above:
+no connector tool creates a charge and none returns a payment URL. That is a
+thing to keep true, not a thing to decide.
 
 ## Related
 
