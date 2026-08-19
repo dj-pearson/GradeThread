@@ -110,6 +110,15 @@ import {
   resolveStyleCode,
   type StyleResolution,
 } from "./brand-normalize.ts";
+// US-2682: the machine-readable facts block. Emitted last and exactly once, so
+// a revise replaces it rather than stacking a second copy.
+import {
+  disclosedFlawsToFacts,
+  factorScoresToFacts,
+  type FactsGradeFactor,
+  measurementsToFacts,
+  upsertListingFactsBlock,
+} from "./listing-facts-block.ts";
 
 // US-542: where a draft's suggested price came from. Only the sold-backed
 // sources (private_sales, ebay_sold) justify price_is_estimated=false.
@@ -2100,6 +2109,11 @@ export async function generateListing(
     { calibrated: calibratedMeasurements },
   );
   let conditionDescription = listing.condition_description;
+
+  // US-2682: the facts a summariser and an agent buyer need, collected as the
+  // description is assembled and emitted once at the end.
+  let factsGrade: number | null = null;
+  let factsFactors: FactsGradeFactor[] = [];
   if (gradeReportId) {
     // US-1124: guarantee the passport exists BEFORE we read garment_id — closes
     // the race/failure window where the grading pipeline's seed didn't persist
@@ -2110,12 +2124,17 @@ export async function generateListing(
     const { data: report } = await supabaseAdmin
       .from("grade_reports")
       .select(
-        "overall_score, grade_tier, defects_found, detected_style_attributes, per_image_analysis, detailed_notes, certificate_id, garment_id",
+        "overall_score, grade_tier, defects_found, detected_style_attributes, per_image_analysis, detailed_notes, certificate_id, garment_id, fabric_condition_score, structural_integrity_score, cosmetic_appearance_score, functional_elements_score, odor_cleanliness_score",
       )
       .eq("id", gradeReportId)
       .maybeSingle();
     if (report) {
       const r = report as Record<string, unknown>;
+      // US-2682: keep the grade and its factor breakdown for the facts block.
+      // Read here because this is where the report row is in scope; the block
+      // itself is built once, at the end, so it can never be written twice.
+      factsGrade = Number.isFinite(Number(r.overall_score)) ? Number(r.overall_score) : null;
+      factsFactors = factorScoresToFacts(r);
       // US-1095: when the grade's garment has a passport, carry its public slug
       // into the listing description so the next buyer can claim + continue the
       // chain. Best-effort — a missing/failed lookup just omits the passport link.
@@ -2163,6 +2182,20 @@ export async function generateListing(
     listingDescription =
       `${listingDescription}\n<!--gradethread-seller-credentials-->${sellerCredential.html}`;
   }
+
+  // US-2682: the machine-readable facts block, LAST and exactly once.
+  //
+  // Last because it is a reference a buyer consults rather than an opening they
+  // read past, and exactly once because upsertListingFactsBlock replaces any
+  // block already present — which is also what makes a revise pick it up on a
+  // listing that already exists rather than accumulating a second copy.
+  listingDescription = upsertListingFactsBlock(listingDescription, {
+    grade: factsGrade,
+    factors: factsFactors,
+    measurements: measurementsToFacts(measurements),
+    fibreContent: typeof item.material === "string" ? item.material : null,
+    flaws: disclosedFlawsToFacts(listing.condition_description),
+  });
 
   // US-541: route low-confidence drafts to review.
   // US-828: also flag the draft when reconciliation left aspects unmatched —
