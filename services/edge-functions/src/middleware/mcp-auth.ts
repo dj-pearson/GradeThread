@@ -24,6 +24,7 @@ import {
 } from "./api-key-auth.ts";
 import { featureAllowedForUser } from "../lib/plan-gate.ts";
 import { JSON_RPC_ERROR, jsonRpcError } from "../lib/mcp-jsonrpc.ts";
+import { issuerOrigin, isOAuthEnabled, resourceIdentifier } from "../lib/oauth-metadata.ts";
 
 type McpAuthEnv = {
   Variables: {
@@ -35,17 +36,19 @@ type McpAuthEnv = {
   };
 };
 
-/** The canonical resource identifier a token must be audience-bound to (RFC 8707). */
+/**
+ * The canonical resource identifier a token must be audience-bound to
+ * (RFC 8707). One definition, in lib/oauth-metadata.ts, because the value in
+ * the challenge and the value in the published document disagreeing is a token
+ * that validates on one side and not the other.
+ */
 export function mcpResourceUri(): string {
-  const base = (Deno.env.get("MCP_PUBLIC_BASE_URL") ?? "https://functions.gradethread.com")
-    .replace(/\/+$/, "");
-  return `${base}/mcp`;
+  return resourceIdentifier();
 }
 
-/** Where a client discovers the authorization server (RFC 9728). Built in US-9120. */
+/** Where a client discovers the authorization server (RFC 9728). */
 function resourceMetadataUrl(): string {
-  const uri = new URL(mcpResourceUri());
-  return `${uri.origin}/.well-known/oauth-protected-resource`;
+  return `${issuerOrigin()}/.well-known/oauth-protected-resource`;
 }
 
 /**
@@ -144,10 +147,11 @@ function unauthorized(
   error: string | null,
   description: string | null,
 ): Response {
-  const params: Record<string, string> = {
-    resource_metadata: resourceMetadataUrl(),
-    scope: CHALLENGE_SCOPES,
-  };
+  const params: Record<string, string> = { scope: CHALLENGE_SCOPES };
+  // Only point at the discovery document when it is actually served. A
+  // resource_metadata URL that 404s sends a client down a dead end instead of
+  // to the static-credential path that works.
+  if (isOAuthEnabled()) params.resource_metadata = resourceMetadataUrl();
   if (error) params.error = error;
   if (description) params.error_description = description;
 

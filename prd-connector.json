@@ -319,7 +319,7 @@
     {
       "id": "US-9120",
       "passes": false,
-      "title": "OAuth 2.1: protected-resource metadata, AS metadata, and Client ID Metadata Documents",
+      "title": "OAuth 2.1: protected-resource metadata, AS metadata, and Client ID Metadata Documents [discovery + redirect rules done; register/authorize with US-9122]",
       "description": "As a seller, I want to add GradeThread in claude.ai by pasting a URL and signing in, so that I do not have to generate and paste an API key.",
       "acceptanceCriteria": [
         "GET /.well-known/oauth-protected-resource (RFC 9728) served from the edge service, naming the authorization server and the resource identifier for /mcp. This is a MUST for an MCP server; clients use it for authorization-server discovery.",
@@ -331,7 +331,7 @@
         "An unauthenticated request to /mcp returns 401 with WWW-Authenticate pointing at the protected-resource metadata, which is how an MCP client discovers where to log in."
       ],
       "priority": 20,
-      "notes": "[REWRITTEN 2026-08-18 after US-9102] The original story made RFC 7591 dynamic client registration the primary mechanism. It is deprecated. Client ID Metadata Documents (draft-ietf-oauth-client-id-metadata-document-00) are the replacement and both servers and clients SHOULD support them. The loopback port-agnostic rule is what makes Claude Code work at all - exact-string redirect matching rejects it every time. GradeThread has never been an OAuth authorization SERVER; the eBay and Google integrations make us a client. This is genuinely new surface, which is why it sits after the tools rather than before them."
+      "notes": "[REWRITTEN 2026-08-18 after US-9102] The original story made RFC 7591 dynamic client registration the primary mechanism. It is deprecated. Client ID Metadata Documents (draft-ietf-oauth-client-id-metadata-document-00) are the replacement and both servers and clients SHOULD support them. The loopback port-agnostic rule is what makes Claude Code work at all - exact-string redirect matching rejects it every time. GradeThread has never been an OAuth authorization SERVER; the eBay and Google integrations make us a client. This is genuinely new surface, which is why it sits after the tools rather than before them. [PARTIAL 2026-08-18] SHIPPED: services/edge-functions/src/lib/oauth-metadata.ts (both discovery documents, the redirect-URI rules, and the resource identifier), mounted in main.ts, with the 401 challenge pointing at the real document. Tests: src/tests/oauth-metadata_test.ts, 21 passed / 0 failed. THE DOCUMENTS ARE NOT SERVED YET, and that is the decision worth recording. Publishing RFC 9728 and RFC 8414 metadata before /oauth/authorize and /oauth/token exist would make the connector broken in a NEW way: a client reads the metadata, starts an authorization flow, and 404s at the authorize endpoint. TODAY the same client sees no discovery, falls back to a static credential, and works. Advertising a capability we do not have takes the working path away too. So both routes 404 and the challenge omits resource_metadata unless MCP_OAUTH_ENABLED is set; the flag flips on in the same change that lands the endpoints. Verified live with the flag off: both documents 404 and the challenge is `Bearer scope=\"read submit\"` with no dead pointer. The documents themselves are complete regardless of the flag, and a test says so - anything the flag also gated would be untested until the day it flipped. THE REDIRECT RULE IS THE PART THAT DECIDES WHETHER CLAUDE CODE CAN CONNECT AT ALL. It redirects to http://localhost:<port> with a port chosen at run time, so exact-string matching rejects it every single time and the failure reads as 'the connector cannot be added from a terminal'. OAuth 2.1 permits loopback with a variable port for exactly this reason. The exemption is scoped to the PORT and to loopback hosts: the path still has to match (a registered /callback must not accept /steal), a fragment is refused because it smuggles a second destination, and every non-loopback host is compared whole - so claude.ai.evil.com and a /extra suffix are both refused. Each of those is a test. STILL TO DO, all needing the oauth_clients table and therefore the US-9122 migration: POST /oauth/register (the DEPRECATED DCR fallback), and Client ID Metadata Document fetching at authorize time, which is the path the spec now prefers. The metadata already advertises client_id_metadata_document_supported: true, which is why the flag matters - it is advertised but not yet honoured."
     },
     {
       "id": "US-9121",
@@ -349,7 +349,7 @@
         "The page passes npm run ui:check with zero findings in src/ and follows the brand rules - no gradient text, no colored side tab, no nested cards."
       ],
       "priority": 21,
-      "notes": "The consent screen is the highest-trust page in the product. It is the one place a seller decides whether an AI can spend their money."
+      "notes": "The consent screen is the highest-trust page in the product. It is the one place a seller decides whether an AI can spend their money. [BLOCKED 2026-08-18] Needs the consent screen in the React app (a new route under src/), which is where the concurrent SEO agent is working - and needs the authorize endpoint from US-9122, which needs its migration. Not started rather than half-started: a consent screen is the highest-trust page in the product, the one place a seller decides whether an AI can spend their money, and it is not a page to build against an endpoint that does not exist yet."
     },
     {
       "id": "US-9122",
@@ -369,7 +369,7 @@
         "/mcp accepts an OAuth access token in Authorization: Bearer alongside the API key path from US-9104, resolving to the same tenant context. The token's granted scopes gate tools/list and tools/call exactly as key scopes do, and scope hierarchies are honoured (a broader scope satisfies a narrower one)."
       ],
       "priority": 22,
-      "notes": "[UPDATED 2026-08-18 after US-9102] Added the RFC 8707 audience-binding MUST, the RFC 9207 iss requirement and the form-urlencoded token endpoint - all three are spec or review requirements the original story did not name. Load the migrations skill. Two migrations now exist in this epic (US-9113 and this one); check the apply order and the numbers against the live 00618 baseline before writing either."
+      "notes": "[UPDATED 2026-08-18 after US-9102] Added the RFC 8707 audience-binding MUST, the RFC 9207 iss requirement and the form-urlencoded token endpoint - all three are spec or review requirements the original story did not name. Load the migrations skill. Two migrations now exist in this epic (US-9113 and this one); check the apply order and the numbers against the live 00618 baseline before writing either. [NOT STARTED 2026-08-18] The discovery documents it completes are built and tested (US-9120) and deliberately not served until this lands. What remains here is genuinely security-critical and self-contained: authorization codes with PKCE S256 verification, token rotation with reuse detection, RFC 8707 audience binding, RFC 7009 revocation, and the oauth_clients / oauth_authorization_codes / oauth_grants tables - a SECOND held migration. Sequenced after US-9121 rather than before it because a token endpoint with no authorize endpoint and no consent screen cannot be exercised end to end, and 'it compiles' is not verification for this one."
     },
     {
       "id": "US-9123",
@@ -387,7 +387,7 @@
         "Write the results, including anything that did not work, into vault/30-platform/claude-connector.md and bump its reviewed date. A verification story whose note says only 'verified' has not been done."
       ],
       "priority": 23,
-      "notes": "[UPDATED 2026-08-18 after US-9102] Added the MCP Inspector and Messages API connector cases. Use a test eBay account - publishing to a real store during verification is how a test becomes an incident."
+      "notes": "[UPDATED 2026-08-18 after US-9102] Added the MCP Inspector and Messages API connector cases. Use a test eBay account - publishing to a real store during verification is how a test becomes an incident. [BLOCKED 2026-08-18] Verification against real clients needs the OAuth flow (US-9121, US-9122) and a TEST eBay account. The Claude Code half is already exercisable today with an API key in Authorization: Bearer - the transport, tools/list and every read tool were driven against a live local stack during US-9112 and US-9124 (209 isolation cases passing, all ten tools listed). What is untested is the hosted claude.ai path, which is the half that needs OAuth."
     },
     {
       "id": "US-9124",
@@ -406,7 +406,7 @@
     },
     {
       "id": "US-9125",
-      "passes": false,
+      "passes": true,
       "title": "Conformance suite and a golden tools/list snapshot",
       "description": "As a developer, I want the connector's public shape pinned by a test, so that a refactor cannot silently rename a tool that a seller's saved prompt depends on.",
       "acceptanceCriteria": [
@@ -417,7 +417,7 @@
         "Report actual counts in the completion note."
       ],
       "priority": 25,
-      "notes": "The tool names are a public interface the moment one seller writes a prompt that uses them."
+      "notes": "The tool names are a public interface the moment one seller writes a prompt that uses them. [DONE 2026-08-18] Shipped: services/edge-functions/src/tests/mcp-conformance_test.ts, 12 passed / 0 failed. TWO SNAPSHOTS, not one. Names are pinned separately from schemas because they break differently: a RENAME breaks every saved prompt silently (the model stops finding the tool, nothing errors, nothing logs, and the seller concludes the product got worse), while an added REQUIRED argument breaks every existing call loudly. Both were sabotage-verified - renaming gradethread_list_items fails the first, adding an argument fails the second. The schema snapshot is a FINGERPRINT (name, scope, read-vs-destructive, sorted argument names, sorted required names), not the full schema text. Pinning the text would fail on a comment reflow, which teaches people to update the snapshot without reading it - and a snapshot nobody reads is worse than none. A third case guards the guards: the golden list must be at least ten entries and must match the registry length, because an assertion against an empty or truncated registry passes forever. TRANSPORT CONFORMANCE asserts the contract a client depends on rather than the implementation: server/discover reports every version we serve (and a client retrying from that list lands on one we accept), -32022 for an unsupported version, 404 + -32601 for an unknown method, -32020 for a mirrored header that disagrees with the body, -32700 with no id for malformed JSON, 405 for GET and DELETE, 202 with an empty body for a notification. One case asserts every error body is well-formed JSON-RPC AND leaks nothing - no stack frame, no 'supabase', no 'relation \"'. A client parses these, so an HTML error page surfaces to a seller as 'the connector stopped working'. NOTHING TO WIRE for CI: the edge lane in scripts/verify.mjs runs `deno test` with no path filter, so this file was in npm run verify the moment it existed. The openapi-coverage guard the AC also asks for landed in US-9107, derived from the route source rather than a hardcoded list."
     },
     {
       "id": "US-9126",
@@ -433,7 +433,7 @@
         "npm run ui:check passes with zero findings in src/."
       ],
       "priority": 26,
-      "notes": "/developers is already a registered public route (src/lib/seo/public-routes.ts:114,492) and is already prerendered, so this may need no new route at all - check before adding one."
+      "notes": "/developers is already a registered public route (src/lib/seo/public-routes.ts:114,492) and is already prerendered, so this may need no new route at all - check before adding one. [BLOCKED 2026-08-18 on US-9101, and the reason is not scheduling] The page has to state WHICH PLANS get the connector - that is the first thing a developer looks for and the AC asks for it explicitly. US-9101 has not been answered, so writing it now means documenting a plan gate that may change, and a wrong plan on the developer page is worse than no page: it is the number a prospect decides on. Secondary, and the same shape as the OAuth-discovery decision in US-9120: /mcp is behind MCP_ENABLED, off in production. Publishing 'paste this URL into Claude' before the endpoint answers means a seller pastes it and gets nothing. The docs belong in the launch change (US-9127) where the URL, the plans and the enable flag all land together. The page itself is ready to take the section: src/pages/marketing/developers.tsx already has a Section component the connector block would reuse, so this is content, not design."
     },
     {
       "id": "US-9127",

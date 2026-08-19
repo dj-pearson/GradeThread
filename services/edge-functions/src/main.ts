@@ -244,6 +244,11 @@ import { maintenanceGuard } from "./middleware/maintenance.ts";
 import { apiKeyAuthMiddleware } from "./middleware/api-key-auth.ts";
 import { mcpAuthMiddleware } from "./middleware/mcp-auth.ts";
 import {
+  authorizationServerMetadata,
+  isOAuthEnabled,
+  protectedResourceMetadata,
+} from "./lib/oauth-metadata.ts";
+import {
   bypassUnlessRead,
   bypassUnlessWrite,
   mcpClassifyMiddleware,
@@ -1180,6 +1185,32 @@ app.route("/api/v1", apiV1Routes);
 // US-9103: the MCP endpoint for the Claude connector. Top-level /mcp because
 // that is the URL a seller pastes into a client. Auth lands in US-9104; until
 // then MCP_ENABLED is off in production and tools/list is empty.
+// US-9120: OAuth discovery. BOTH documents are public and mounted BEFORE the
+// MCP auth middleware — they contain no secrets (endpoint URLs and supported
+// parameters), and requiring a credential to discover how to get a credential
+// is a loop. A client that gets a 401 from /mcp follows the WWW-Authenticate
+// header here, then to the authorization server's own metadata.
+//
+// Cached at the edge and CORS-open, the same as /api/v1/openapi.json: a client
+// may fetch these from a browser context during an interactive add.
+for (
+  const [path, body] of [
+    ["/.well-known/oauth-protected-resource", protectedResourceMetadata],
+    ["/.well-known/oauth-authorization-server", authorizationServerMetadata],
+  ] as const
+) {
+  app.get(path, (c) => {
+    // 404 until the endpoints these documents point at exist. A client that
+    // cannot discover an authorization server falls back to a static
+    // credential and works; one that discovers a server whose authorize
+    // endpoint 404s does not.
+    if (!isOAuthEnabled()) return c.json({ error: "Not found" }, 404);
+    c.header("Cache-Control", "public, max-age=3600");
+    c.header("Access-Control-Allow-Origin", "*");
+    return c.json(body());
+  });
+}
+
 // US-9104: the connector authenticates with an API key in Authorization: Bearer
 // (or X-API-Key). Applied to the whole prefix so the legacy GET/SSE and DELETE
 // paths are covered too, not just POST.

@@ -130,15 +130,12 @@ Deno.test("an expired-or-unknown key fails the same way through both transports"
 // Challenge shapes
 // ---------------------------------------------------------------------------
 
-Deno.test("no credential returns 401 with a discoverable WWW-Authenticate challenge", async () => {
+Deno.test("no credential returns 401 with a well-formed WWW-Authenticate challenge", async () => {
   const { status, challenge, json } = await authPost({});
   assertEquals(status, 401);
   assertExists(challenge);
 
   const params = parseChallenge(challenge);
-  // resource_metadata is how an MCP client finds the authorization server.
-  assertExists(params.resource_metadata);
-  assert(params.resource_metadata.endsWith("/.well-known/oauth-protected-resource"));
   // The scopes needed are emitted together, not one challenge at a time.
   assertExists(params.scope);
   assert(params.scope.split(" ").length >= 1);
@@ -148,6 +145,30 @@ Deno.test("no credential returns 401 with a discoverable WWW-Authenticate challe
   // The body an MCP client can actually parse.
   assertEquals(json.jsonrpc, "2.0");
   assertExists(json.error);
+});
+
+Deno.test("the challenge points at the discovery document ONLY when it is served", async () => {
+  // This test used to assert resource_metadata was always present, and it broke
+  // when the OAuth discovery documents were gated behind MCP_OAUTH_ENABLED
+  // (US-9120). It was right to break: a pointer to a document that 404s sends a
+  // client down a dead end instead of to the static-credential path that works,
+  // and that is precisely what the gate exists to prevent. Nothing was
+  // asserting it, so both states are covered now.
+  const previous = Deno.env.get("MCP_OAUTH_ENABLED");
+  try {
+    Deno.env.set("MCP_OAUTH_ENABLED", "false");
+    const off = await authPost({});
+    assertEquals(parseChallenge(off.challenge!).resource_metadata, undefined);
+
+    Deno.env.set("MCP_OAUTH_ENABLED", "true");
+    const on = await authPost({});
+    const pointer = parseChallenge(on.challenge!).resource_metadata;
+    assertExists(pointer);
+    assert(pointer.endsWith("/.well-known/oauth-protected-resource"), pointer);
+  } finally {
+    if (previous === undefined) Deno.env.delete("MCP_OAUTH_ENABLED");
+    else Deno.env.set("MCP_OAUTH_ENABLED", previous);
+  }
 });
 
 Deno.test("a malformed credential is 401 invalid_token, not a generic failure", async () => {
