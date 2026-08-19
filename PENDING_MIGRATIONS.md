@@ -112,7 +112,12 @@ the edge boot guard will expect 00621 on its next Coolify deploy.
 > `0 → 999` exploit); confirming prod needs a service-role session, not a probe.
 
 ---
-## 🟠 PENDING: 00623 — seed the `claude_connector` kill-switch row (US-9127 AC7)
+## ✅ APPLIED (measured 2026-08-19): 00623 — seed the `claude_connector` kill-switch row (US-9127 AC7)
+
+> Applied the same day it was written. `/health/ready` reports
+> `expected: "00623", applied: "00623", status: "match"`, so the SQL landed and
+> the edge that expects it is running. The flag row is in the same file as the
+> self-record, so a recorded 00623 means the row exists.
 
 **Risk: NONE that I can find.** One INSERT of one row into `public.feature_flags`,
 `on conflict (key) do nothing`. No schema change, no existing row touched.
@@ -150,8 +155,8 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
-**One 🟠 entry as of 2026-08-19:** 00623, above. Everything through 00622 is
-applied.
+**No 🟠 entries as of 2026-08-19.** Everything through 00623 is applied and
+the deployed edge expects 00623.
 
 ## ✅ APPLIED (measured 2026-08-19): 00620 — OAuth authorization server storage (US-9122)
 
