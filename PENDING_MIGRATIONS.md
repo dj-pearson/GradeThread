@@ -150,7 +150,7 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
-**One 🟠 entry as of 2026-08-19:** 00623 below. Everything through 00622 is
+**One 🟠 entry as of 2026-08-19:** 00623, above. Everything through 00622 is
 applied.
 
 ## ✅ APPLIED (measured 2026-08-19): 00620 — OAuth authorization server storage (US-9122)
