@@ -187,4 +187,12 @@ prd.archive.json.bak
 keyword-pull-2026-08.csv
 Saved Keywords Stats 2026-08-18 at 14_37_11.csv
 assets/*
+# US-2685 sweep 2026-08-19: `assets/*` was added while every file under it was
+# already TRACKED, so the ignore did nothing (gitignore only applies to
+# untracked paths) and all 67 read as modified in every working tree. The
+# marketing media is now untracked; these are NOT, because they are product
+# artifacts rather than raw footage and src/lib/__tests__/measure-card.test.ts
+# READS geometry-v1.json - untracking it passes locally and fails on a fresh
+# CI clone, which is the worst shape a fix can have.
+!assets/measure-card/
 gradethread.com-Performance-on-Search-2026-08-18.zip
