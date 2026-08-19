@@ -7,7 +7,7 @@ export function TermsPage() {
       title="Terms of Service"
       description="The terms that govern your use of GradeThread and FlipDesk."
       canonicalPath="/terms"
-      effectiveDate="April 1, 2026"
+      effectiveDate="August 19, 2026"
     >
       <p>
         These Terms of Service (&ldquo;Terms&rdquo;) form a binding agreement
@@ -188,7 +188,64 @@ export function TermsPage() {
         suspected abuse, or security risk.
       </p>
 
-      <h2 id="marketplaces">8. Marketplace and third-party integrations</h2>
+      {/* US-9127 AC4, the Terms half. The Privacy Policy says where connector
+          data goes; this says who is answerable for what it does. The two facts
+          a seller needs from a contract rather than a privacy notice: an action
+          Claude takes is the seller's own action, and a confirmation prompt is
+          a safeguard rather than a review of whether the action is wise. */}
+      <h2 id="claude-connector">8. The Claude connector</h2>
+      <p>
+        On eligible plans you may connect your own Claude account to
+        GradeThread, so that Claude can read your workspace and act in it on
+        your instruction. Connecting is optional. You choose what to grant when
+        you approve the connection, and you may revoke it at any time from
+        Settings &rarr; API keys.
+      </p>
+      <ul>
+        <li>
+          <strong>Actions taken through the connector are your actions.</strong>{" "}
+          A listing published, a price changed, or an item ended through Claude
+          is treated exactly as if you had done it yourself in FlipDesk. It is
+          subject to these Terms, our{" "}
+          <Link to="/acceptable-use">Acceptable Use Policy</Link>, and the terms
+          of any marketplace it reaches.
+        </li>
+        <li>
+          <strong>Claude is not our agent, and we are not yours.</strong> Your
+          Claude subscription is an agreement between you and Anthropic. We do
+          not control what the model asks us to do, and we do not review your
+          conversation. Anything the model produces is an Output under Section
+          5, including the parts of it you never see.
+        </li>
+        <li>
+          <strong>
+            Confirmation prompts are a safeguard, not a review.
+          </strong>{" "}
+          Anything that spends money or reaches a marketplace asks you to
+          confirm the exact change first, and we refuse some requests outright
+          when the numbers look like a mistake. Neither is a judgment about
+          whether the action is right for your business. Read what you confirm.
+        </li>
+        <li>
+          <strong>Connector actions are metered and capped.</strong> Your plan
+          states a monthly allowance of connector actions, and we additionally
+          apply hourly and daily ceilings to publishing, repricing, ending
+          listings and grading. We may change any of these on notice under
+          Section 19.
+        </li>
+        <li>
+          <strong>We may suspend or revoke it.</strong> We may withdraw
+          connector access for violation of these Terms, suspected abuse, or
+          security risk, on the same basis as API access under Section 7.
+        </li>
+      </ul>
+      <p>
+        What the connector sends to Anthropic, what it does not send, and how
+        long each call is retained are described in Section 5 of our{" "}
+        <Link to="/privacy">Privacy Policy</Link>.
+      </p>
+
+      <h2 id="marketplaces">9. Marketplace and third-party integrations</h2>
       <p>
         FlipDesk lets you connect third-party services such as eBay, Poshmark,
         and Mercari. Your use of those services remains governed by their own
@@ -197,7 +254,7 @@ export function TermsPage() {
         third party may impair related FlipDesk features.
       </p>
 
-      <h2 id="acceptable-use">9. Acceptable use</h2>
+      <h2 id="acceptable-use">10. Acceptable use</h2>
       <p>
         You agree to comply with our{" "}
         <Link to="/acceptable-use">Acceptable Use Policy</Link>, which
@@ -206,7 +263,7 @@ export function TermsPage() {
         infringing activity.
       </p>
 
-      <h2 id="ip">10. Our intellectual property</h2>
+      <h2 id="ip">11. Our intellectual property</h2>
       <p>
         The Service, including the GradeThread and FlipDesk brands, logos,
         designs, software, models, prompts, evaluation rubrics, and
@@ -223,14 +280,14 @@ export function TermsPage() {
         Service to build a competing product.
       </p>
 
-      <h2 id="feedback">11. Feedback</h2>
+      <h2 id="feedback">12. Feedback</h2>
       <p>
         If you send us suggestions or feedback, you grant us a perpetual,
         irrevocable, royalty-free license to use it without restriction or
         compensation.
       </p>
 
-      <h2 id="copyright">12. Copyright complaints</h2>
+      <h2 id="copyright">13. Copyright complaints</h2>
       <p>
         We respond to notices of alleged copyright infringement under the
         Digital Millennium Copyright Act (DMCA). Send takedown notices and
@@ -239,7 +296,7 @@ export function TermsPage() {
         suspend or terminate the accounts of repeat infringers.
       </p>
 
-      <h2 id="termination">13. Suspension and termination</h2>
+      <h2 id="termination">14. Suspension and termination</h2>
       <p>
         We may suspend or terminate your access to the Service at any time, with
         or without notice, if you violate these Terms, create risk or legal
@@ -250,7 +307,7 @@ export function TermsPage() {
         <Link to="/privacy">Privacy Policy</Link>.
       </p>
 
-      <h2 id="warranties">14. Disclaimer of warranties</h2>
+      <h2 id="warranties">15. Disclaimer of warranties</h2>
       <p>
         THE SERVICE AND ALL OUTPUTS ARE PROVIDED &ldquo;AS IS&rdquo; AND
         &ldquo;AS AVAILABLE,&rdquo; WITHOUT WARRANTIES OF ANY KIND, WHETHER
@@ -261,7 +318,7 @@ export function TermsPage() {
         MEET YOUR REQUIREMENTS OR PRODUCE ANY PARTICULAR FINANCIAL OUTCOME.
       </p>
 
-      <h2 id="liability">15. Limitation of liability</h2>
+      <h2 id="liability">16. Limitation of liability</h2>
       <p>
         TO THE MAXIMUM EXTENT PERMITTED BY LAW, PEARSON MEDIA AND ITS
         AFFILIATES, OFFICERS, EMPLOYEES, AGENTS, AND LICENSORS WILL NOT BE
@@ -281,7 +338,7 @@ export function TermsPage() {
         this section may not apply to you.
       </p>
 
-      <h2 id="indemnity">16. Indemnification</h2>
+      <h2 id="indemnity">17. Indemnification</h2>
       <p>
         You will defend, indemnify, and hold harmless Pearson Media and its
         affiliates from any claims, damages, liabilities, and expenses
@@ -291,7 +348,7 @@ export function TermsPage() {
         of any third party&rsquo;s rights.
       </p>
 
-      <h2 id="law">17. Governing law and disputes</h2>
+      <h2 id="law">18. Governing law and disputes</h2>
       <p>
         These Terms are governed by the laws of the State of Iowa, USA,
         without regard to its conflict-of-laws principles. Subject to the
@@ -311,7 +368,7 @@ export function TermsPage() {
         within 30 days of first accepting these Terms.
       </p>
 
-      <h2 id="changes">18. Changes to the Service or these Terms</h2>
+      <h2 id="changes">19. Changes to the Service or these Terms</h2>
       <p>
         We may modify the Service or these Terms at any time. If we make
         material changes to the Terms, we will provide notice (for example, by
@@ -320,7 +377,7 @@ export function TermsPage() {
         effective constitutes acceptance of the updated Terms.
       </p>
 
-      <h2 id="misc">19. Miscellaneous</h2>
+      <h2 id="misc">20. Miscellaneous</h2>
       <ul>
         <li>
           <strong>Entire agreement.</strong> These Terms, together with the

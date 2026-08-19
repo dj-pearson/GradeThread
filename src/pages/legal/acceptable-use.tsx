@@ -7,7 +7,7 @@ export function AcceptableUsePage() {
       title="Acceptable Use Policy"
       description="What you can and cannot do on GradeThread and FlipDesk."
       canonicalPath="/acceptable-use"
-      effectiveDate="April 1, 2026"
+      effectiveDate="August 19, 2026"
     >
       <p>
         This Acceptable Use Policy (&ldquo;AUP&rdquo;) governs how you may use
@@ -93,6 +93,11 @@ export function AcceptableUsePage() {
         <li>
           Do not attempt to reverse engineer, decompile, or extract our
           models, prompts, weights, or proprietary algorithms;
+        </li>
+        <li>
+          Do not defeat a confirmation step we place in front of an action that
+          spends money or reaches a marketplace, including by scripting a Claude
+          connector client to approve its own requests;
         </li>
         <li>
           Do not share API keys, sell account credentials, or use one account
@@ -186,7 +191,7 @@ export function AcceptableUsePage() {
         account &mdash; including suspension &mdash; sit with you, not with
         GradeThread. If a marketplace tells you not to use assisted listing,
         that instruction takes precedence over anything the extension makes
-        possible. Data handling for the extension is described in Section 6 of
+        possible. Data handling for the extension is described in Section 7 of
         our <Link to="/privacy">Privacy Policy</Link>.
       </p>
 

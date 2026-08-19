@@ -8,6 +8,7 @@ code_refs:
   - services/edge-functions/src/lib/email.ts
   - services/edge-functions/src/tests/subscription-copy-register_test.ts
   - src/test/subscription-disclosure-coverage.test.ts
+  - src/test/legal-page-dates-and-crossrefs.test.ts
 reviewed: 2026-08-19
 tags: [legal, billing, subscriptions, compliance, counsel]
 summary: Every place GradeThread tells a customer about a recurring charge, its ending, or where their data goes — who drafted the wording, and whether counsel has seen it.
@@ -141,6 +142,53 @@ first thing re-read.
 Anthropic once, for grading. Adding a second row for the connector would assert
 the subprocessor relationship section 5 says does not exist. If counsel decides
 it does, the row and the paragraph change together.
+
+## Terms and the AUP — the connector half (US-9127 AC4)
+
+> **Added 2026-08-19. Agent-drafted, counsel has NOT seen it.** AC4 asks for the
+> privacy policy **and** the ToS. Only the privacy half shipped in the first
+> pass; this is the other half, plus the AUP, which is dated in lockstep with
+> the Terms by `legal-extension-disclosure-parity.test.ts`.
+
+| Where | What it asserts | Status |
+|---|---|---|
+| `src/pages/legal/terms.tsx` §8 "The Claude connector" | An action taken through the connector is the seller's own action, on the same footing as doing it in FlipDesk; Claude is not our agent and we do not review the conversation; model output is an Output under §5 including the parts the seller never sees; a confirmation prompt is a safeguard rather than a judgment about the action; actions are metered monthly and additionally capped hourly and daily; access can be withdrawn on the same grounds as the API | **agent-drafted 2026-08-19, pending review** |
+| `src/pages/legal/acceptable-use.tsx` §3, one added bullet | Do not defeat a confirmation step in front of an action that spends money or reaches a marketplace, including by scripting a connector client to approve its own requests | **agent-drafted 2026-08-19, pending review** |
+
+**The claim most worth a lawyer's eye** is "actions taken through the connector
+are your actions." It is the sentence the whole safety design rests on, and it
+is doing work the privacy policy cannot do: the privacy page says where data
+goes, this says who is answerable when a listing goes live at the wrong price.
+The engineering facts behind it are solid — a confirm token proves the payload
+did not change, >25% price moves are refused even when confirmed, and every call
+is audited — but whether that allocation of responsibility survives a consumer
+claim is a determination.
+
+**The safeguard sentence is deliberately weak.** "Confirmation prompts are a
+safeguard, not a review" exists so the confirm step cannot be read as a promise
+that we checked the action. Strengthening it into a promise would be the drafting
+mistake here, not the cautious wording.
+
+**What was NOT changed, deliberately:**
+
+- **The OAuth consent screen carries no link to the Terms or the AUP.** It is
+  server-rendered from the edge and links to neither. The extension's clickwrap
+  does link out, and that link is the reason AUP §6 exists at all. Whether the
+  connector's approval screen needs the same is a decision, not a typo, so it is
+  recorded here rather than changed.
+- **AUP §6 stayed about the browser extension**, and the connector got a bullet
+  in §3 rather than a section of its own. The extension needed its own section
+  because a consent gate pointed at it. Until the connector's consent screen does
+  the same, one precise prohibition beats a second section restating the Terms.
+
+**A cross-reference was broken and is now fixed.** Inserting privacy §5 shifted
+every later section by one, and AUP §6 still said "Section 6 of our Privacy
+Policy" for extension data handling — which had become "Public grade
+certificates". `src/test/legal-page-dates-and-crossrefs.test.ts` now resolves
+every cross-page "Section N" reference against the target page's real headings,
+and pins each legal page's rendered effective date to the `<lastmod>` the sitemap
+advertises for it. Both halves were proved to FAIL against the un-fixed files
+before being trusted.
 
 ## Claim audit — 2026-08-10
 

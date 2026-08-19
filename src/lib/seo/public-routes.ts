@@ -185,14 +185,14 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/for-brands": "2026-07-09",
   // Legal pages mirror their rendered effectiveDate. Keep each entry in sync
   // with the `effectiveDate` prop on the corresponding page in src/pages/legal/.
-  "/privacy": "2026-06-12",
-  "/terms": "2026-04-01",
+  "/privacy": "2026-08-19",
+  "/terms": "2026-08-19",
   "/cookies": "2026-04-01",
-  "/acceptable-use": "2026-04-01",
+  "/acceptable-use": "2026-08-19",
   "/refund": "2026-07-02",
   "/imprint": "2026-07-02",
   "/dpa": "2026-06-12",
-  "/subprocessors": "2026-04-01",
+  "/subprocessors": "2026-08-14",
   "/dmca": "2026-04-01",
   "/trademarks": "2026-08-10",
   "/accessibility": "2026-04-01",
