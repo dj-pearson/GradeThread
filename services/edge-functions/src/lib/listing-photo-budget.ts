@@ -30,6 +30,14 @@ export interface BudgetPhoto {
   // flipdesk_photo_type hint, e.g. front | back | tag | tag_2 | detail |
   // detail_2..4 | interior | defect | flatlay | on_model | measurement_*
   type?: string;
+  /**
+   * US-2681: true when photo QA found a §11 cover-photo problem with THIS shot
+   * (garment too small, more than one garment, busy ground, a prop in frame).
+   *
+   * Undefined means nobody looked, which is not the same as clean and is
+   * treated as neither — see the slot-1 preference below.
+   */
+  coverIssue?: boolean;
 }
 
 // Cap on photos forwarded to a vision pass. eBay shows up to 24 in the gallery,
@@ -120,7 +128,39 @@ export function selectListingPhotos(
 
   // 5. Restore original capture order for a natural gallery sequence.
   chosen.sort((a, b) => a.index - b.index);
-  return chosen.map((c) => c.photo);
+
+  // 6. US-2681 (AC4): slot 1 is the retrieval key for eBay image search, so it
+  //    goes to a photo with no known cover problem when one is available.
+  //
+  //    ONLY a photo already ELIGIBLE for slot 1 is considered. Promoting a tag
+  //    close-up because it happens to carry no cover_ flag would be worse than
+  //    the problem: the flags are only ever set against slot 1, so a tag shot's
+  //    silence means nothing was ever checked, not that it is a good cover.
+  //
+  //    Falls through to the existing role ordering when every candidate is
+  //    flagged, or when none was ever assessed. Reordering on the strength of a
+  //    check that did not run is the failure this whole story is about.
+  const ordered = chosen.map((c) => c.photo);
+  const firstCleanCover = ordered.findIndex(
+    (p, i) => i > 0 && p.coverIssue === false && isCoverEligible(p.type),
+  );
+  if (firstCleanCover > 0 && ordered[0]!.coverIssue === true) {
+    const [promoted] = ordered.splice(firstCleanCover, 1);
+    ordered.unshift(promoted!);
+  }
+  return ordered;
+}
+
+/**
+ * Roles that can legitimately BE a cover photo: a whole-garment view.
+ *
+ * A tag, detail, defect, interior or measurement shot is a fragment by design.
+ * The reorder nudge already tells a seller when one of those ended up first;
+ * this list stops the cover-issue preference from creating that situation.
+ */
+function isCoverEligible(type?: string): boolean {
+  const role = basePhotoRole(type);
+  return role === "front" || role === "flatlay" || role === "on_model" || role === "back";
 }
 
 // Category text that warrants the full vision model on the aspect-refine pass:

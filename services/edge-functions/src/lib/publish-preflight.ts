@@ -11,6 +11,17 @@
 // takes an injected fetcher) so it's fully unit-testable without live calls.
 
 import type { EbayCondition } from "./ai-listing.ts";
+// US-2681: the section-11 cover-photo verdict, from the PURE spec module rather
+// than from ai-photo-qa.ts. Importing the assessor here would pull the Anthropic
+// SDK and the Supabase client into a module whose whole contract is that it has
+// neither, and the test-env-isolation guard caught exactly that. One source of
+// truth for what counts as a cover issue, no dependency.
+import {
+  type CoverIssueLike,
+  coverPhotoAssessment,
+  type CoverPhotoAssessment,
+  coverPhotoWarnings,
+} from "./cover-photo-spec.ts";
 
 // eBay raised the Inventory-API picture cap to 24 (the old 12-image gallery cap
 // was Trading-API-era). We honour the real, current limit. Sending more returns
@@ -108,6 +119,15 @@ export interface PhotoStandardsResult {
   warnings: string[];
   /** First-photo reorder nudge (thumbnail is a tag/detail/defect shot), or null. */
   nudge: string | null;
+  /**
+   * US-2681: the §11 image-search verdict on the cover photo.
+   *
+   * "unknown" when the photos were never QA-assessed, which is most of them and
+   * is NOT the same as clean — see coverPhotoAssessment. Never a blocker: this
+   * is a retrieval-quality opinion, and refusing to publish over one would stop
+   * a seller listing a garment that is perfectly sellable by text search.
+   */
+  coverPhoto: CoverPhotoAssessment;
 }
 
 /** Longest side of a photo, or null when either dimension is unknown. */
@@ -126,11 +146,18 @@ function longestSide(p: { width: number | null; height: number | null }): number
  */
 export function photoStandardsPreflight(
   photos: readonly PhotoStandardsPhoto[],
+  /**
+   * US-2681: the stored photo-QA result for this item, when there is one. Null
+   * or omitted yields a cover verdict of "unknown", which is the honest answer
+   * for an item nothing has looked at.
+   */
+  qa?: { issues: CoverIssueLike[] } | null,
 ): PhotoStandardsResult {
   const blockers: string[] = [];
   const warnings: string[] = [];
   let nudge: string | null = null;
-  if (photos.length === 0) return { blockers, warnings, nudge };
+  const coverPhoto = coverPhotoAssessment(qa);
+  if (photos.length === 0) return { blockers, warnings, nudge, coverPhoto };
 
   // Count photos whose KNOWN longest side is below the 500px hard minimum.
   let tooSmall = 0;
@@ -168,7 +195,24 @@ export function photoStandardsPreflight(
       `front or flat-lay view first so buyers see the whole item in search results.`;
   }
 
-  return { blockers, warnings, nudge };
+  // US-2681 (AC3): warnings, never blockers. eBay image search is a second
+  // index, so a cover photo that segments badly costs a seller the buyers who
+  // search by picture — real, and not a reason to refuse a listing that will
+  // still be found by text.
+  if (coverPhoto.status === "issues") {
+    warnings.push(...coverPhotoWarnings(coverPhoto));
+    // The reorder nudge wins if it is already set: "your thumbnail is a tag
+    // shot" is the bigger problem and has a one-drag fix, and stacking a second
+    // nudge under it would split the seller's attention between two.
+    if (!nudge) {
+      nudge =
+        "Buyers who search by picture may not find this. Your main photo should " +
+        "be one garment filling the frame on a plain background, with nothing " +
+        "else in shot.";
+    }
+  }
+
+  return { blockers, warnings, nudge, coverPhoto };
 }
 
 /** Friendly noun for a photo_type in the reorder nudge. */

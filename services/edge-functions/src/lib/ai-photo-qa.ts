@@ -12,6 +12,21 @@ import { getAnthropicClient, getDefaultModel } from "./ai-config.ts";
 import { enterAiFeature } from "./ai-feature-context.ts";
 import { withRetry } from "./retry.ts";
 
+// US-2681: the §11 cover-photo vocabulary lives in ./cover-photo-spec.ts, so
+// the PURE publish-preflight can read it without importing this module and
+// with it the Anthropic SDK. Re-exported here because callers of the assessor
+// reasonably expect the issue types beside the assessor.
+export {
+  type CoverIssueType,
+  COVER_ISSUE_TYPES,
+  coverPhotoAssessment,
+  type CoverPhotoAssessment,
+  type CoverPhotoStatus,
+  coverPhotoWarnings,
+  isCoverIssue,
+} from "./cover-photo-spec.ts";
+import { COVER_ISSUE_TYPES, isCoverIssue } from "./cover-photo-spec.ts";
+
 export const QA_ISSUE_TYPES = [
   "blurry",
   "dark",
@@ -22,9 +37,11 @@ export const QA_ISSUE_TYPES = [
   "glare",
   "tag_unreadable",
   "missing_angle",
+  ...COVER_ISSUE_TYPES,
   "other",
 ] as const;
 export type QaIssueType = (typeof QA_ISSUE_TYPES)[number];
+
 
 export const QA_SEVERITIES = ["low", "medium", "high"] as const;
 export type QaSeverity = (typeof QA_SEVERITIES)[number];
@@ -95,7 +112,16 @@ const SYSTEM =
   "a listing's photos are ready to publish and flag anything a buyer would dislike: " +
   "blur, poor lighting (too dark/bright), glare, tight crops, low resolution, busy " +
   "backgrounds, unreadable brand/size tags, and missing key angles (front, back, tag, " +
-  "a close detail). Be strict but fair, and make every issue an actionable fix.";
+  "a close detail). Be strict but fair, and make every issue an actionable fix.\n\n" +
+  // US-2681: the cover-photo half. Stated as a separate job with an explicit
+  // scope, because the failure mode is the model applying it to photo 3.
+  "SEPARATELY, judge PHOTO 1 ONLY against eBay image search, which matches a " +
+  "buyer's query picture against listing images. Photo 1 must be one garment " +
+  "filling the frame on a plain, high-contrast background, with no props, hands " +
+  "or other items in shot. Use cover_garment_small, cover_multiple_garments, " +
+  "cover_busy_background and cover_prop_in_frame for these, and use them ONLY for " +
+  "photo 1. A tag close-up or a detail shot is SUPPOSED to be a fragment of the " +
+  "garment — never report a cover_ issue against one.";
 
 function clampScore(v: unknown): number {
   const n = Math.round(Number(v));
@@ -136,6 +162,16 @@ export function normalizeQaResult(
       const idx = Number(o.photo_index);
       const photoIndex =
         Number.isInteger(idx) && idx >= 1 && idx <= photoCount ? idx : null;
+
+      // US-2681 (AC2): the slot-1 scope is ENFORCED here, not asked for in the
+      // prompt and hoped for. A cover_ issue against photo 3 is dropped
+      // outright: a detail shot is meant to be a fragment of the garment and a
+      // tag close-up is meant to fill the frame with a label, so reporting one
+      // against either is telling the seller to ruin a correct photo. The
+      // prompt says the same thing, but a prompt is a request and this is the
+      // guarantee.
+      if (isCoverIssue(type) && photoIndex !== 1) continue;
+
       issues.push({ type, severity, message, photoIndex });
     }
   }
