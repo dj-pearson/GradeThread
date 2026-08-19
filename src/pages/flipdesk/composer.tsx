@@ -160,6 +160,7 @@ import { PhotosCard } from "@/components/flipdesk/composer/photos-card";
 import { MeasurementsCard } from "@/components/flipdesk/composer/measurements-card";
 import { TitleCard } from "@/components/flipdesk/composer/title-card";
 import type { TitleChip } from "@/components/flipdesk/composer/title-card";
+import { useTitleConflicts } from "@/hooks/use-title-conflicts";
 import { SpecificsSection } from "@/components/flipdesk/composer/specifics-section";
 import { PriceCard } from "@/components/flipdesk/composer/price-card";
 import { CostMarginCard } from "@/components/flipdesk/composer/cost-margin-card";
@@ -1148,7 +1149,7 @@ export function FlipdeskComposerPage({
   // US-552: kick off a one-click AI rewrite of the title or description. The
   // result reuses AiFillPanel so the seller reviews, accepts, and the
   // acceptance is logged — nothing is applied silently.
-  async function runRewrite(action: RewriteAction) {
+  async function runRewrite(action: RewriteAction, conflictingTitles?: string[]) {
     if (!item) return;
     // US-2442: the two AI copy producers share one review panel, so running
     // both at once would let the slower answer replace the one the seller is
@@ -1159,6 +1160,9 @@ export function FlipdeskComposerPage({
       const res = await aiRewrite.mutateAsync({
         item_id: item.id,
         action,
+        // US-2677: the titles the seller was just shown, so the rewrite moves
+        // away from the same listings the warning named.
+        conflicting_titles: conflictingTitles,
         title,
         // Hide the appended GradeThread credentials block from the model so it
         // isn't rewritten into prose — it's re-appended verbatim on accept.
@@ -2569,6 +2573,8 @@ export function FlipdeskComposerPage({
   // Merge the existing titleKeywords() chips with the pack suggestions (demand
   // terms + aspects), dropping any token already in the title and de-duping —
   // extends the chips rather than duplicating them (AC2).
+  // US-2677: does this draft read like one of the seller's own live listings?
+  const titleConflicts = useTitleConflicts(item?.id);
   const titleChips = useMemo<TitleChip[]>(() => {
     const present = new Set(
       title
@@ -3063,6 +3069,8 @@ export function FlipdeskComposerPage({
             aiRewrite={aiRewrite}
             rewriteAction={rewriteAction}
             runRewrite={(a) => void runRewrite(a)}
+            titleConflicts={titleConflicts.data ?? []}
+            runDifferentiate={(titles) => void runRewrite("title_differentiate", titles)}
             listingCopy={listingCopy}
             runListingCopy={() => void runListingCopy()}
             isEbayOrigin={isEbayOrigin}

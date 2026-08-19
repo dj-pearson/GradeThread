@@ -23,6 +23,7 @@ import {
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
 import { readVariantWinnerForOwner } from "../lib/title-variant-ctr.ts";
+import { fetchComparableListings, findDuplicateTitles } from "../lib/title-similarity.ts";
 import {
   isNoEbayConnectionError,
   isOfferAlreadyEndedError,
@@ -553,6 +554,41 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
 // copies would eventually disagree about `auto_delistable`, and the failure is
 // silent: one surface offers a one-click end for a listing the other knows it
 // cannot end, so the seller is told it was handled while it stays live.
+// GET /title-conflicts/:itemId — US-2677 (AC3).
+//
+// The composer needs the duplicate finding while the seller is still WRITING
+// the title, and the full publish preflight is the wrong tool for that: it
+// resolves business policies, probes the category tree and talks to eBay, none
+// of which has anything to say about whether two of your own titles read alike.
+// This runs the one check.
+//
+// Tenant-scoped twice over: the listing is loaded by item id filtered on the
+// resolved owner, and fetchComparableListings filters again on the same id.
+flipdeskListingsRoutes.get("/title-conflicts/:itemId", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const itemId = c.req.param("itemId");
+  if (!itemId) return c.json({ error: "itemId is required" }, 400);
+
+  const { data: row, error } = await supabaseAdmin
+    .from("listings")
+    .select("id, listing_title, platform_category_id")
+    .eq("inventory_item_id", itemId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  if (error) {
+    return failSafe(c, 500, "Could not check for similar listings.", error, "flipdesk.title-conflicts");
+  }
+  // No draft yet, or no category chosen yet, means nothing defensible to
+  // compare against. An empty list, not an error: the composer asks for this on
+  // every item and most items have no conflict.
+  if (!row?.listing_title || !row.platform_category_id) {
+    return c.json({ ok: true, conflicts: [] });
+  }
+
+  const others = await fetchComparableListings(ownerId, row.platform_category_id, row.id);
+  return c.json({ ok: true, conflicts: findDuplicateTitles(row.listing_title, others) });
+});
+
 // GET /title-variants — US-2676. Which title wording is winning the click.
 //
 // Tenant-scoped through readVariantWinnerForOwner, which filters BOTH

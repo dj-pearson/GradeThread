@@ -12,6 +12,7 @@ import type { ItemFullRow, ListingAiSnapshot } from "@/types/database";
 import type { RewriteAction } from "@/hooks/use-ai-extract";
 import type { titleQuality } from "@/lib/title-quality";
 import type { FieldSaveState } from "@/lib/composer-autosave";
+import type { TitleConflict } from "@/hooks/use-title-conflicts";
 
 type TitleQuality = ReturnType<typeof titleQuality>;
 
@@ -35,6 +36,13 @@ export interface TitleCardProps {
   /** From src/lib/title-quality.ts — lockstep with the edge publish lint. */
   titleMeter: TitleQuality;
   titleChips: TitleChip[];
+  /**
+   * US-2677: the seller's own live listings this title reads like. Empty is the
+   * normal case and renders nothing.
+   */
+  titleConflicts?: TitleConflict[];
+  /** Regenerate the title away from the conflicting wording. */
+  runDifferentiate?: (conflictingTitles: string[]) => void;
   chipFits: (kw: string) => boolean;
   appendKeyword: (kw: string) => void;
   /** US-551: the AI's original draft, for the per-field diff chips. */
@@ -68,6 +76,8 @@ export function TitleCard({
   titleLen,
   titleMeter,
   titleChips,
+  titleConflicts,
+  runDifferentiate,
   chipFits,
   appendKeyword,
   aiSnapshot,
@@ -174,6 +184,45 @@ export function TitleCard({
               </li>
             ))}
           </ul>
+        )}
+        {/* US-2677: this title reads like one of the seller's OWN live
+            listings. eBay penalises the whole store for near-duplicates rather
+            than rejecting the listing, so without this the seller sees a slow
+            store and never learns why. Never a blocker: two genuinely different
+            garments can carry similar titles and only the seller can tell. */}
+        {titleConflicts && titleConflicts.length > 0 && (
+          <div className="space-y-2 rounded-xl bg-amber-50 p-3 text-xs dark:bg-amber-950/40">
+            <p className="font-medium text-amber-900 dark:text-amber-100">
+              This reads like {titleConflicts.length === 1 ? "another" : "other"}{" "}
+              live {titleConflicts.length === 1 ? "listing" : "listings"} of yours
+            </p>
+            <ul className="space-y-1 text-amber-800 dark:text-amber-200">
+              {titleConflicts.map((conflict) => (
+                <li key={conflict.listingId}>
+                  {Math.round(conflict.overlap * 100)}% the same as "{conflict.title}"
+                </li>
+              ))}
+            </ul>
+            <p className="text-amber-800 dark:text-amber-200">
+              eBay can bury a whole store for near-duplicate listings. Reword one
+              of them.
+            </p>
+            {runDifferentiate && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={isEbayOrigin || aiRewrite.isPending}
+                title={isEbayOrigin ? ebayOwnedHint : undefined}
+                onClick={() =>
+                  runDifferentiate(titleConflicts.map((conflict) => conflict.title))}
+              >
+                {rewriteAction === "title_differentiate"
+                  ? <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                  : <Wand2 className="mr-2 h-3 w-3" />}
+                Make it different
+              </Button>
+            )}
+          </div>
         )}
         {aiSnapshot && (
           <AiDiffChip

@@ -1268,6 +1268,8 @@ flipdeskAiRoutes.post("/rewrite", async (c) => {
     action?: unknown;
     title?: unknown;
     description?: unknown;
+    // US-2677: the near-duplicate titles the rewrite should move away from.
+    conflicting_titles?: unknown;
   };
   try {
     body = await c.req.json();
@@ -1327,6 +1329,14 @@ flipdeskAiRoutes.post("/rewrite", async (c) => {
       action,
       title,
       description,
+      // US-2677. Taken from the request rather than re-derived here on purpose:
+      // the composer already holds the findings from /listings/validate, and a
+      // second lookup would let the two disagree about which listing is the
+      // conflict. Bounded and sanitized downstream, and there is no id in it to
+      // act on -- it can only influence wording.
+      conflictingTitles: Array.isArray(body.conflicting_titles)
+        ? body.conflicting_titles.filter((t): t is string => typeof t === "string")
+        : undefined,
       attributes: {
         title: item.title,
         brand: item.brand,

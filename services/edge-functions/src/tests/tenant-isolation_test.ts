@@ -6184,3 +6184,54 @@ Deno.test({
     );
   },
 });
+
+// -- US-2677: near-duplicate title warnings ------------------------------
+//
+// The duplicate check compares a candidate title against the seller's OTHER
+// live listings, so an unscoped lookup would put A's listing TITLES into a
+// warning shown to B. That is a content leak with a plausible cover story: the
+// warning reads like a normal product message, so nobody would report it.
+//
+// Both doors go through fetchComparableListings, which filters on the resolved
+// owner. The route below is the one that takes an ID from the caller, so it is
+// the one an attacker can point somewhere; the validate path derives its item
+// from the same parameter and reaches the same helper.
+//
+// Gated only on ids the seed script actually emits. An earlier draft of these
+// cases invented TEST_USER_A_LISTING_TITLE and TEST_USER_B_ITEM_ID, and the
+// no-silent-skips guard above failed the build for it, which is exactly what
+// that guard is for.
+
+Deno.test({
+  name: "B cannot read title conflicts for A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/listings/title-conflicts/${itemId}`, { headers: authHeaders(B_JWT!) });
+    if (res.status !== 200) {
+      await res.body?.cancel();
+      assertDenied(res.status, "GET title-conflicts on A's item");
+      return;
+    }
+    // A 200 is acceptable ONLY if it carries nothing: the route resolves the
+    // listing by item id AND owner, so a foreign item simply finds no row.
+    // What must never happen is A's titles coming back.
+    const json = await res.json();
+    assertEquals(
+      json.conflicts ?? [],
+      [],
+      "title-conflicts returned data for an item owned by A to user B",
+    );
+  },
+});
+
+Deno.test({
+  name: "B cannot poll A's AutoLister batch for its duplicate-title report",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_BATCH_ID"),
+  fn: async () => {
+    const batchId = Deno.env.get("TEST_USER_A_BATCH_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/autolister/batch/${batchId}`, { headers: authHeaders(B_JWT!) });
+    await res.body?.cancel();
+    assertDenied(res.status, "GET autolister batch owned by A");
+  },
+});

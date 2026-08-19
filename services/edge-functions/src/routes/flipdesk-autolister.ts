@@ -1,6 +1,9 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+// US-2677: a batch of nine template-written titles is only visible as a problem
+// when the whole batch is looked at at once.
+import { findDuplicatesWithinBatch } from "../lib/title-similarity.ts";
 import { generateListing, generatePlatformVariants } from "../lib/ai-listing.ts";
 import { assemblePublishContext, publishItemForOwner } from "./flipdesk-ebay.ts";
 import { notifyUser } from "../lib/notify.ts";
@@ -2094,7 +2097,48 @@ flipdeskAutolisterRoutes.get("/batch/:id", async (c) => {
     .eq("batch_id", batchId)
     .order("created_at", { ascending: true });
 
-  return c.json({ batch, jobs: jobs ?? [] });
+  const jobRows = (jobs ?? []) as Array<{ id: string; listing_id: string | null }>;
+
+  // US-2677 (AC6): near-duplicate titles WITHIN this batch.
+  //
+  // The per-listing check at publish cannot catch these. Nine tees generated
+  // together are nine drafts, none of them live, so each one compares against
+  // an empty set of active listings and passes -- they only become each other's
+  // duplicates after publish, by which point the seller has already approved
+  // nine titles one at a time. Checking the batch against itself is the only
+  // moment the whole set is visible at once.
+  const duplicateTitles = await (async () => {
+    const listingIds = jobRows
+      .map((j) => j.listing_id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    if (listingIds.length < 2) return [];
+
+    // Scoped on the owner as well as by id: the jobs came through an owned
+    // batch, and this is the second filter rather than a substitute for it.
+    const { data: drafts, error: draftErr } = await supabaseAdmin
+      .from("listings")
+      .select("id, listing_title")
+      .eq("user_id", ownerId)
+      .in("id", listingIds);
+    if (draftErr) {
+      console.error("[flipdesk-autolister] batch duplicate scan:", draftErr.message);
+      return [];
+    }
+
+    const rows = ((drafts ?? []) as Array<{ id: string; listing_title: string | null }>)
+      .filter((d) => (d.listing_title ?? "").trim().length > 0);
+    const titleById = new Map(rows.map((d) => [d.id, d.listing_title!]));
+
+    return findDuplicatesWithinBatch(
+      rows.map((d) => ({ id: d.id, title: d.listing_title! })),
+    ).map((pair) => ({
+      ...pair,
+      a_title: titleById.get(pair.a) ?? null,
+      b_title: titleById.get(pair.b) ?? null,
+    }));
+  })();
+
+  return c.json({ batch, jobs: jobs ?? [], duplicateTitles });
 });
 
 // US-525: reclaim sweeper. A cron hits POST /api/jobs/autolister-reclaim (job-

@@ -3,6 +3,10 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { trimTitleToLimit, trimTitleWithReport } from "../lib/title-trim.ts";
 import { lintTitle } from "../lib/title-lint.ts";
+// US-2677: near-duplicate titles across the seller's own live listings. A
+// WARNING and never a blocker -- two genuinely different garments can carry
+// similar titles, and only the seller can tell.
+import { duplicateTitleWarningsFor } from "../lib/title-similarity.ts";
 import { captureException } from "../lib/observability.ts";
 import { planComplianceSync } from "../lib/ebay-compliance-plan.ts";
 import { roleAtLeast } from "../lib/workspace-roles.ts";
@@ -11173,6 +11177,25 @@ export async function assemblePublishContext(
     for (const v of lint.policyViolations) blockers.push(v);
     titleWarnings.push(...lint.warnings);
     qsTitlePolicyViolations = [...lint.policyViolations];
+  }
+
+  // US-2677 (AC2): does this read like one of the seller's OTHER live listings
+  // in the same category? Scoped to the resolved owner inside the helper
+  // (US-268), and excluding this listing's own row, which would otherwise match
+  // itself perfectly on every edit.
+  //
+  // Warnings, never blockers. eBay penalises the STORE for near-duplicates
+  // rather than rejecting the listing, so there is no publish-time error to
+  // pre-empt -- only a slow store the seller would never connect to a cause.
+  if (rawTitle && categoryId) {
+    try {
+      titleWarnings.push(
+        ...(await duplicateTitleWarningsFor(userId, rawTitle, categoryId, listing?.id ?? null)),
+      );
+    } catch (err) {
+      // A courtesy check must never be why a seller cannot see their blockers.
+      console.error("[flipdesk-ebay] duplicate-title check:", err);
+    }
   }
 
   // Look up policies last — only blocks if everything else is ready, but

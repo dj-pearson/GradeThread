@@ -267,6 +267,8 @@ export type RewriteAction =
   | "title_seo"
   | "title_shorten"
   | "title_keywords"
+  // US-2677: reword away from one of the seller's own near-duplicate listings.
+  | "title_differentiate"
   | "description_tighten"
   | "description_regen";
 
@@ -275,6 +277,14 @@ export interface RewriteInput {
   action: RewriteAction;
   title?: string;
   description?: string;
+  /**
+   * US-2677: the seller's own live titles this rewrite should move away from.
+   *
+   * Sent rather than re-derived server-side so the model is differentiating
+   * from the SAME listings the seller was just shown; two independent lookups
+   * could disagree about which one is the conflict.
+   */
+  conflicting_titles?: string[];
 }
 
 export function useAiRewrite() {
