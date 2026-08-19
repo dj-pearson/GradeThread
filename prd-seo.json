@@ -343,15 +343,19 @@
     },
     {
       "id": "US-9016",
-      "passes": false,
+      "passes": true,
       "title": "Kill criteria and cluster tracking for the rebuilt SEO paths",
       "description": "As the operator, I want each new cluster measured against a threshold set in advance, so that the next review reads the numbers instead of rationalising them.",
       "acceptanceCriteria": [
-        "A Search Console cluster view per path (tools, compare, care, flipdesk-landing), one row each, extending the existing views in vault/40-growth/seo-distribution-and-measurement.md.",
-        "Thresholds set BEFORE the data arrives: Path 3 is failing if the calculator segment is under 2,000 impressions/mo at month 4; Path 1 is failing if the /care/ segment is under 10,000 impressions/mo at month 6; Path 7 is judged on signup conversion from tool traffic, not on impressions.",
-        "The depth test is recorded as a RATIO, not a count. The original 'thirty terms above 50/mo' rule measured how many terms got submitted rather than how deep the market is, and Path 3 could never have hit it on 23 submitted terms despite clearing volume six times over.",
-        "A quarterly re-pull of docs/seo/keyword-pull-2026-08.csv is scheduled so the bucketed figures (50/500/5k/50k) can be replaced with real numbers once the Ads account has spend.",
-        "The July 2026 grading-cluster kill criterion is marked as FIRED in the measurement note, since that is what triggered this rebuild."
+        "A Search Console cluster view per path, one row each, extending the existing views. DONE, three rows added to vault/40-growth/seo-distribution-and-measurement.md: ^/tools/ (Path 3), ^/care/ (Path 1) and ^/care/[^/]+/[^/]+$ (the fabric matrix on its own). Compare and flipdesk already had rows.",
+        "THE MATRIX GETS ITS OWN ROW ON PURPOSE. US-9014 shipped 18 pages out of a possible 192 on the argument that only genuinely-different combinations earn a URL. If that argument is wrong, those 18 will show it by earning nothing while the parent pages earn something, and that is only visible if they are counted separately.",
+        "Thresholds set BEFORE the data arrives. DONE, with real DUE DATES rather than 'month 4': tools >= 2,000 impressions/mo by 2026-12-18; care >= 10,000 impressions/mo by 2027-02-18; FlipDesk landings explicitly NOT judged on impressions, on signup_started_from_tool / commercial_landing_view instead.",
+        "EACH THRESHOLD NAMES THE DIAGNOSTIC TO RUN WHEN IT MISSES, which is the lesson from the criterion that fired. Under 2,000 at position 30+ is competition; under 2,000 at position 5-15 is demand and the bucketed estimate was wrong. Those need different responses and an impressions number alone cannot tell them apart.",
+        "The depth test is recorded as a RATIO, not a count. DONE: at least 55% of a path's submitted terms above 50/mo, with a floor of 12 terms submitted so the ratio cannot be gamed by submitting four and clearing three. Recomputed against the 2026-08 pull for all five paths; Path 3 goes from failing on a technicality to passing at 61%.",
+        "A quarterly re-pull of the keyword CSV is scheduled. DONE: 2026-11-18, 2027-02-18, 2027-05-18, with the instruction that a change in path ordering is a finding for the strategy note rather than a silent edit to the table.",
+        "The July 2026 grading-cluster kill criterion is marked as FIRED. DONE, quoted verbatim and kept rather than replaced, because a kill criterion that gets deleted when it fires is not a kill criterion. Recorded with what it got right (more pages were not the answer) and what it got wrong (it assumed no demand or no indexation, and US-9001 found the site ranked fine at 0.85% CTR against a 3-10% baseline).",
+        "GUARD ADDED, not just a note: src/test/cluster-views.test.ts, 9 tests. Every documented regex must match a registered route, the thresholds must carry real dates, and the depth rule must still be a ratio. The failure mode is specific and it happened this week: US-9012 moved the flaw library to /care, and a saved view built on the old regex keeps working, reads zero and looks exactly like the cluster collapsing.",
+        "The certificate regex is a NAMED exception with its reason, not a loosened assertion: certificate URLs are edge-SSR'd and enter the sitemap via the edge API, so they are legitimately absent from the static registry."
       ],
       "priority": 18,
       "dependsOn": [

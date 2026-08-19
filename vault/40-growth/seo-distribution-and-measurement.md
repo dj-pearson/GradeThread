@@ -4,7 +4,7 @@ type: runbook
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-07-19
+reviewed: 2026-08-18
 tags: [seo, measurement, distribution, offpage]
 summary: How attention is earned off-page and on Reddit, and how to tell whether any of it worked.
 ---
@@ -20,14 +20,27 @@ decisions are driven from here (SEO 2.0 plan §8).
 Create a **Search results → regex filter** saved view per content cluster and
 watch **Impressions** (the demand-created gauge) and **indexation rate**:
 
-| Cluster | Page-path regex |
-|---|---|
-| Grading standard + glossary | `^/grading/` |
-| Reseller glossary | `^/grading/glossary/` |
-| Comparisons | `^/compare/` |
-| FlipDesk product | `^/flipdesk/` |
-| Reselling pillar | `^/reselling/` |
-| Certificates | `^/(cert\|c)/` |
+| Cluster | Page-path regex | Path |
+|---|---|---|
+| Grading standard + glossary | `^/grading/` | the moat |
+| Reseller glossary | `^/grading/glossary/` | the moat |
+| Comparisons | `^/compare/` | — |
+| FlipDesk product | `^/flipdesk/` | 7 |
+| Reselling pillar | `^/reselling/` | — |
+| Certificates | `^/(cert\|c)/` | — |
+| **Tools and calculators** | `^/tools/` | **3** |
+| **Care cluster** | `^/care/` | **1** |
+| **Care, fabric matrix only** | `^/care/[^/]+/[^/]+$` | 1 |
+
+The last three were added by US-9016 (2026-08-18). The fabric-matrix row is
+separate from the care row on purpose: US-9014 shipped 18 pages out of a
+possible 192 on the argument that only genuinely-different combinations earn a
+URL, and if that argument is wrong those 18 will show it by earning nothing
+while the parent pages earn something.
+
+Note `^/care/` and not `^/grading/flaws/`: the library moved on 2026-08-18
+(US-9012). The old URLs 301, so six months of history follows them across, but a
+saved view built on the old regex will read zero and look like a collapse.
 
 Track **indexation rate per sitemap segment** in GSC → Pages, one row per
 sitemap in the sitemap index (see `docs`/US-1679): submitted vs indexed. The
@@ -102,11 +115,82 @@ Crawler allow/deny policy the dashboard should reconcile against:
 
 ## 5. Kill / scale criteria (plan §8)
 
-- If after **6 months** grading-cluster impressions are still **< 1,000/mo** AND
-  the prompt panel shows **zero citations**, the definitional wedge needs a
-  *distribution* fix (more Reddit/YouTube), not more pages.
+### The July 2026 grading criterion: **FIRED**
+
+> If after 6 months grading-cluster impressions are still < 1,000/mo AND the
+> prompt panel shows zero citations, the definitional wedge needs a
+> *distribution* fix, not more pages.
+
+**It fired, and that is what triggered the 2026-08 rebuild.** Recording it
+rather than quietly replacing it, because a kill criterion that gets deleted
+when it fires is not a kill criterion.
+
+What it got right: more pages were not the answer. What it got wrong, per
+`US-9001-VERDICT.md`: the diagnosis assumed no demand or no indexation, and the
+Search Console export showed neither. 6,434 impressions in six months, 156 of
+270 URLs in the top ten, and a **0.85% CTR against a 3-10% baseline**. The site
+ranked and did not get clicked. That is a fourth cause nobody had listed, and
+the rule as written would have sent us to buy distribution for a page nobody was
+failing to find.
+
+The lesson carried into the thresholds below: **an impressions threshold cannot
+tell you why it missed.** Each one now names the diagnostic to run when it
+fires, not just the number.
+
 - If templated comparison/pSEO tail pages get **< 10 impressions/mo at month 4**,
-  prune them — don't accumulate index bloat.
+  prune them rather than accumulating index bloat. (Unchanged, still live.)
+
+### Thresholds for the rebuilt paths, set 2026-08-18, before the data
+
+Set in advance so the next review reads them instead of arguing with them. The
+clock starts at each path's first ship date, not at the review date.
+
+| Path | Segment | Threshold | Due | If it misses |
+|---|---|---|---|---|
+| **3 — tools** | `^/tools/` | ≥ 2,000 impressions/mo | month 4 → **2026-12-18** | Check position before pruning. Under 2,000 at position 30+ is a competition problem and the pages should go; under 2,000 at position 5-15 is a demand problem and the bucketed volume estimate was wrong. |
+| **1 — care** | `^/care/` | ≥ 10,000 impressions/mo | month 6 → **2027-02-18** | Do not prune first. Check the fabric-matrix row separately: if the parents earn and the 18 matrix pages do not, US-9014's premise is wrong and only those 18 go. |
+| **7 — FlipDesk landings** | `^/flipdesk/` | **not judged on impressions** | month 4 → **2026-12-18** | Judged on `signup_started_from_tool` ÷ `commercial_landing_view`. Combined volume on its five commercial terms is 2,200/mo against SERPs a vendor page structurally cannot win (see `crosslisting-cluster-diagnosis.md`), so an impressions target would fail a segment that is working. |
+
+Path 1's number deserves one line of defence, because 10,000 sounds low against
+295,750/mo of cluster volume. It is deliberately low: the cluster is
+[[seo-strategy-options-2026-08|an authority and link engine, not an acquisition
+channel]] — 1,550 of those searches carry seller intent, which is 0.5%. 10,000
+impressions is the level at which it is demonstrably *working as a link engine*.
+Setting it proportional to volume would be setting it as an acquisition target,
+which is the failure mode the whole containment design exists to prevent.
+
+### The depth test is a RATIO (AC3)
+
+The rule used to be **"30 terms above 50 a month"**, and it was mis-specified.
+It measures how many terms someone submitted to the Keyword Planner as much as
+how deep the market is. Path 3 cleared the volume bar six times over on **23
+submitted terms** and could never have reached 30 no matter how good it was.
+
+**The rule is now: at least 55% of a path's submitted terms above 50/mo, with a
+minimum of 12 terms submitted.** Recomputed against the 2026-08 pull:
+
+| Path | Above 50 | Submitted | Ratio | Old rule | New rule |
+|---|---|---|---|---|---|
+| 1 damage and care | 42 | 55 | 76% | passes | passes |
+| 3 calculators and tools | 14 | 23 | 61% | **fails on a technicality** | passes |
+| 7 repositioning | 9 | 16 | 56% | fails | passes |
+| 5 marketplace how-to | 10 | 22 | 45% | fails | fails |
+| 6 buyer side | 5 | 18 | 28% | fails | fails |
+
+The minimum of 12 exists so the ratio cannot be gamed by submitting four terms
+and clearing three.
+
+### Quarterly re-pull (AC4)
+
+`docs/seo/keyword-pull-2026-08.csv` holds **bucketed** figures (50, 500, 5,000,
+50,000) because the Ads account has no spend, and a bucket means "somewhere
+between a tenth and ten times this". Every threshold above is stated in
+impressions rather than in estimated volume for that reason.
+
+**Re-pull dates: 2026-11-18, 2027-02-18, 2027-05-18.** Replace the buckets with
+real numbers once there is spend, then re-run the ratio table above. If the
+ordering of the paths changes, that is a finding and belongs in the strategy
+note, not a silent edit to this table.
 
 ---
 
