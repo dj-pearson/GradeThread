@@ -255,6 +255,71 @@ export const OPENAPI_SPEC = {
         },
       },
     },
+    "/api/v1/items": {
+      get: {
+        tags: ["Inventory"],
+        summary: "List inventory items",
+        description:
+          "Keyset-paginated. Pass `meta.next_cursor` back as `cursor` for the next page; offset " +
+          "paging would skip rows when inventory changes mid-walk. Money is integer cents.",
+        security: [{ ApiKeyAuth: ["read"] }],
+        parameters: [
+          { name: "status", in: "query", schema: { type: "string" }, description: "Pipeline status." },
+          { name: "brand", in: "query", schema: { type: "string" } },
+          { name: "category", in: "query", schema: { type: "string" } },
+          { name: "search", in: "query", schema: { type: "string" }, description: "Text in the item title." },
+          { name: "listed", in: "query", schema: { type: "boolean" } },
+          { name: "created_after", in: "query", schema: { type: "string", format: "date-time" } },
+          { name: "created_before", in: "query", schema: { type: "string", format: "date-time" } },
+          {
+            name: "limit",
+            in: "query",
+            schema: { type: "integer", minimum: 1, maximum: 100, default: 25 },
+          },
+          { name: "cursor", in: "query", schema: { type: "string" }, description: "From a previous meta.next_cursor." },
+        ],
+        responses: {
+          "200": {
+            description: "A page of items",
+            content: {
+              "application/json": {
+                schema: envelope({
+                  type: "object",
+                  properties: {
+                    items: { type: "array", items: { $ref: "#/components/schemas/ItemSummary" } },
+                  },
+                }),
+              },
+            },
+          },
+          "400": errorResponse,
+          "403": errorResponse,
+        },
+      },
+    },
+    "/api/v1/items/{id}": {
+      get: {
+        tags: ["Inventory"],
+        summary: "One item, with photos",
+        description:
+          "Photo URLs are signed and short-lived for the private bucket. An item that does not exist " +
+          "and an item belonging to another account both return 404.",
+        security: [{ ApiKeyAuth: ["read"] }],
+        parameters: [
+          { name: "id", in: "path", required: true, schema: { type: "string", format: "uuid" } },
+        ],
+        responses: {
+          "200": {
+            description: "The item",
+            content: {
+              "application/json": { schema: envelope({ $ref: "#/components/schemas/ItemDetail" }) },
+            },
+          },
+          "403": errorResponse,
+          "404": errorResponse,
+        },
+      },
+    },
     "/api/v1/usage": {
       get: {
         tags: ["Account"],
@@ -577,7 +642,62 @@ export const OPENAPI_SPEC = {
           },
         },
       },
-      QuotaState: {
+      ItemSummary: {
+      type: "object",
+      description: "The compact projection a list returns. Money is integer cents.",
+      properties: {
+        id: { type: "string", format: "uuid" },
+        item_number: { type: "string", nullable: true },
+        title: { type: "string" },
+        brand: { type: "string", nullable: true },
+        size: { type: "string", nullable: true },
+        category: { type: "string", nullable: true },
+        status: { type: "string" },
+        list_price_cents: { type: "integer", nullable: true },
+        grade: { type: "number", nullable: true, description: "1.0-10.0 when graded." },
+        grade_label: { type: "string", nullable: true },
+        listed: { type: "boolean" },
+        photo_count: { type: "integer" },
+        created_at: { type: "string", format: "date-time" },
+      },
+    },
+    ItemPhoto: {
+      type: "object",
+      properties: {
+        id: { type: "string", format: "uuid" },
+        photo_type: { type: "string", nullable: true },
+        url: { type: "string", description: "Signed and short-lived for private photos." },
+        sort_order: { type: "integer", nullable: true },
+      },
+    },
+    ItemDetail: {
+      allOf: [
+        { $ref: "#/components/schemas/ItemSummary" },
+        {
+          type: "object",
+          properties: {
+            description: { type: "string", nullable: true },
+            color: { type: "string", nullable: true },
+            style: { type: "string", nullable: true },
+            notes: { type: "string", nullable: true },
+            container: { type: "string", nullable: true },
+            location_bin: { type: "string", nullable: true },
+            purchase_price_cents: { type: "integer", nullable: true },
+            purchase_date: { type: "string", format: "date-time", nullable: true },
+            source_name: { type: "string", nullable: true },
+            target_price_cents: { type: "integer", nullable: true },
+            measurements: { type: "object", nullable: true },
+            certificate_url: { type: "string", nullable: true },
+            has_required_photos: { type: "boolean" },
+            listing: { type: "object", nullable: true },
+            sale: { type: "object", nullable: true },
+            photos: { type: "array", items: { $ref: "#/components/schemas/ItemPhoto" } },
+            updated_at: { type: "string", format: "date-time" },
+          },
+        },
+      ],
+    },
+    QuotaState: {
         type: "object",
         properties: {
           quota: { type: "integer", nullable: true, description: "null = unlimited" },

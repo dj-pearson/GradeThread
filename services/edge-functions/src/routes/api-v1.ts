@@ -31,6 +31,12 @@ import {
   sandboxPriceGuideCatalog,
   sandboxPriceGuideEntry,
 } from "../lib/price-guide.ts";
+import {
+  getItem,
+  ITEMS_PAGE_MAX,
+  ItemQueryError,
+  listItems,
+} from "../lib/api-items.ts";
 
 type ApiV1Env = {
   Variables: {
@@ -929,6 +935,83 @@ apiV1Routes.get("/price-guide", async (c) => {
 });
 
 // GET /api/v1/usage — US-1791: this key's monthly usage vs its quota.
+// --- GET /api/v1/items — list inventory (US-9107) ---
+//
+// Added for the Claude connector's read tools, but public API surface in its own
+// right: partners asked for inventory read long before the connector existed.
+// The query itself lives in lib/api-items.ts so the connector and /api/v1 can
+// never drift, and so the tenant scope has one definition.
+apiV1Routes.get("/items", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const userId = c.get("userId");
+  const q = c.req.query();
+  const limitRaw = q.limit ? Number(q.limit) : undefined;
+  if (q.limit !== undefined && (!Number.isFinite(limitRaw) || (limitRaw as number) < 1)) {
+    return c.json({
+      data: null,
+      error: { message: `limit must be a positive integer up to ${ITEMS_PAGE_MAX}`, details: [] },
+      meta: null,
+    }, 400);
+  }
+
+  try {
+    const page = await listItems(userId, {
+      status: q.status,
+      brand: q.brand,
+      category: q.category,
+      search: q.search,
+      listed: q.listed === undefined ? undefined : q.listed === "true",
+      createdAfter: q.created_after,
+      createdBefore: q.created_before,
+      limit: limitRaw,
+      cursor: q.cursor,
+    });
+    return c.json({
+      data: { items: page.items },
+      error: null,
+      meta: { total: page.total, next_cursor: page.next_cursor, count: page.items.length },
+    });
+  } catch (err) {
+    if (err instanceof ItemQueryError) {
+      return c.json({ data: null, error: { message: err.message, details: [] }, meta: null }, 400);
+    }
+    console.error("[API v1] items list:", redactError(err));
+    return c.json({
+      data: null,
+      error: { message: "Failed to load inventory", details: [] },
+      meta: null,
+    }, 500);
+  }
+});
+
+// --- GET /api/v1/items/:id — one item with photos (US-9107) ---
+//
+// A missing item and someone else's item both return 404, deliberately: a
+// distinct "exists but not yours" is an existence oracle over every other
+// tenant's inventory.
+apiV1Routes.get("/items/:id", async (c) => {
+  if (!hasScope(c.get("apiKeyScopes"), "read")) {
+    return c.json(scopeDenied("read"), 403);
+  }
+  const userId = c.get("userId");
+  try {
+    const item = await getItem(userId, c.req.param("id"));
+    if (!item) {
+      return c.json({ data: null, error: { message: "Item not found", details: [] }, meta: null }, 404);
+    }
+    return c.json({ data: item, error: null, meta: null });
+  } catch (err) {
+    console.error("[API v1] item detail:", redactError(err));
+    return c.json({
+      data: null,
+      error: { message: "Failed to load item", details: [] },
+      meta: null,
+    }, 500);
+  }
+});
+
 apiV1Routes.get("/usage", async (c) => {
   if (!hasScope(c.get("apiKeyScopes"), "read")) {
     return c.json(scopeDenied("read"), 403);

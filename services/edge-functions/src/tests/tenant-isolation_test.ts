@@ -17,6 +17,8 @@
 //   TEST_USER_A_SUBMISSION_ID   a flipdesk_grading_submissions.id
 //   TEST_USER_A_LISTING_ID      a listings.id
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
+//   TEST_USER_A_API_KEY         A's RAW key (gt_sk_…) for /api/v1 (US-9107)
+//   TEST_USER_B_API_KEY         B's RAW key (gt_sk_…) for /api/v1 (US-9107)
 //   TEST_USER_A_TEMPLATE_ID     a listing_templates.id (US-674)
 //   TEST_USER_A_RULE_ID         a repricing_rules.id (US-672)
 //   TEST_USER_A_AUTOMATION_RULE_ID  a flipdesk_automation_rules.id (US-2156;
@@ -109,6 +111,11 @@ const REQUIRED_RESOURCE_IDS = [
   "TEST_USER_A_SUBMISSION_ID",
   "TEST_USER_A_LISTING_ID",
   "TEST_USER_A_API_KEY_ID",
+  // US-9107: the RAW keys. Without them nothing can authenticate against
+  // /api/v1, so every public-API cross-tenant path is unverified — which was
+  // the state until the seeder learned to mint real keys.
+  "TEST_USER_A_API_KEY",
+  "TEST_USER_B_API_KEY",
   "TEST_USER_A_TEMPLATE_ID",
   "TEST_USER_A_RULE_ID",
   "TEST_USER_A_ITEM_ID",
@@ -155,7 +162,6 @@ const KNOWN_UNSEEDED: Record<string, string> = {
   TEST_USER_A_BUYER_PURCHASE_ID: "needs a completed buyer purchase",
   TEST_USER_A_CERT_ID: "needs a certified grade report (published, certificate_id set)",
   TEST_PRIVATE_REPORT_ID: "needs an uncertified/private report",
-  TEST_USER_B_API_KEY: "needs a RAW api key (gt_sk_…) for tenant B — the row's key_hash must match the edge's hashing, not a plain insert",
   TEST_USER_B_HANDLE: "needs a storefront handle for tenant B",
   TEST_SELLER_NO_STOREFRONT_HANDLE: "needs a seller with storefront opt-in disabled",
 };
@@ -177,7 +183,16 @@ Deno.test({
       `${here}../../scripts/seed-tenant-isolation-fixture.ts`,
     );
 
-    const seeded = new Set([...seed.matchAll(/TEST_[A-Z_]+/g)].map((m) => m[0]));
+    // US-9107: match ASSIGNMENTS, not mentions.
+    //
+    // This was /TEST_[A-Z_]+/ over the whole seed file, so a name appearing in a
+    // COMMENT counted as seeded. Proven by sabotage while adding the /api/v1
+    // items cases: deleting the real "out.TEST_USER_B_API_KEY = ..." line left
+    // the guard green, because a comment two lines above still said the name.
+    // That is the guard satisfying itself with its own prose.
+    const seeded = new Set(
+      [...seed.matchAll(/out\.(TEST_[A-Z_]+)\s*=/g)].map((m) => m[1]!),
+    );
     // Supplied by the workflow, not the seed script.
     for (const k of ["TEST_EDGE_BASE_URL", "TEST_USER_A_JWT", "TEST_USER_B_JWT"]) {
       seeded.add(k);
@@ -5394,3 +5409,68 @@ Deno.test({
   },
 });
 
+// ── Public API v1: inventory reads (US-9107) ───────────────────────
+//
+// These authenticate with an API KEY rather than a JWT, which is what /api/v1
+// takes. They are the first cross-tenant cases on the public API surface at all:
+// until the seed script minted real keys, nothing could reach it.
+
+// B_API_KEY is already declared above for the US-1790 batch case; reuse it
+// rather than shadowing, so both blocks read the same fixture.
+const A_API_KEY = Deno.env.get("TEST_USER_A_API_KEY");
+
+function apiKeyHeaders(key: string): HeadersInit {
+  return { "X-API-Key": key, "Content-Type": "application/json" };
+}
+
+Deno.test({
+  name: "B's API key cannot read A's item by id (GET /api/v1/items/:id)",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/v1/items/${itemId}`, {
+      headers: apiKeyHeaders(B_API_KEY!),
+    });
+    const body = await res.text();
+    assertDenied(res.status, "GET /api/v1/items/:id as tenant B");
+    // Belt and braces: even a 200 with an empty envelope must not carry A's row.
+    assert(
+      !body.includes(itemId) || res.status !== 200,
+      "the response body leaked A's item id",
+    );
+  },
+});
+
+Deno.test({
+  name: "B's API key cannot see A's items in the list (GET /api/v1/items)",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/v1/items?limit=100`, {
+      headers: apiKeyHeaders(B_API_KEY!),
+    });
+    const body = await res.text();
+    // A LIST is different from a by-id read: it can legitimately return 200 with
+    // B's own rows. The failure is A's id appearing anywhere in it.
+    assert(
+      !body.includes(itemId),
+      `GET /api/v1/items as tenant B returned A's item ${itemId}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "A's own API key CAN read A's item — the isolation is not a blanket denial",
+  ignore: !CONFIGURED || !A_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // Without this, a handler that denies EVERYONE would pass the two cases
+    // above and the suite would report isolation working on a broken endpoint.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/v1/items/${itemId}`, {
+      headers: apiKeyHeaders(A_API_KEY!),
+    });
+    const body = await res.text();
+    assertEquals(res.status, 200, `owner read failed: ${body.slice(0, 200)}`);
+    assert(body.includes(itemId), "the owner's read did not return the item");
+  },
+});

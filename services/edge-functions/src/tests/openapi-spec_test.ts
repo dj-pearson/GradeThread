@@ -10,22 +10,59 @@ Deno.test("openapi: version + top-level shape", () => {
   assert(OPENAPI_SPEC.servers.length >= 1);
 });
 
-Deno.test("openapi: documents every published /api/v1 route", () => {
-  const paths = Object.keys(OPENAPI_SPEC.paths);
-  for (
-    const p of [
-      "/api/v1/grades",
-      "/api/v1/grades/{id}",
-      "/api/v1/grades/batch",
-      "/api/v1/grades/batch/{id}",
-      "/api/v1/usage",
-      "/api/v1/webhook",
-      "/api/v1/price-guide",
-      "/api/v1/price-guide/{slug}",
-    ]
-  ) {
-    assert(paths.includes(p), `missing path in spec: ${p}`);
+// US-9107: DERIVED from the route source, not a hardcoded list.
+//
+// This test used to enumerate eight path strings by hand. A route added without
+// a spec entry passed it, which is the failure the test exists to prevent - the
+// two /api/v1/items routes were added and it stayed green until this rewrite.
+// Both directions are checked now: an undocumented route AND a spec entry that
+// no longer matches a real route.
+const ROUTE_SOURCE = await Deno.readTextFile(
+  new URL("../routes/api-v1.ts", import.meta.url),
+);
+
+/** `get("/items/:id"` -> `{ method: "get", path: "/api/v1/items/{id}" }` */
+function declaredRoutes(): Array<{ method: string; path: string }> {
+  const out: Array<{ method: string; path: string }> = [];
+  const pattern = /apiV1Routes\.(get|post|patch|put|delete)\(\s*"([^"]+)"/g;
+  for (const match of ROUTE_SOURCE.matchAll(pattern)) {
+    const method = match[1];
+    const path = "/api/v1" + match[2].replace(/:([A-Za-z0-9_]+)/g, "{$1}");
+    out.push({ method, path });
   }
+  return out;
+}
+
+Deno.test("openapi: documents every published /api/v1 route, and no route it does not have", () => {
+  const routes = declaredRoutes();
+  assert(routes.length > 0, "no routes parsed from api-v1.ts; the pattern has drifted");
+
+  const spec = OPENAPI_SPEC.paths as Record<string, Record<string, unknown>>;
+
+  const undocumented = routes.filter(({ method, path }) => {
+    const entry = spec[path];
+    return !entry || entry[method] === undefined;
+  });
+  assertEquals(
+    undocumented.map((r) => `${r.method.toUpperCase()} ${r.path}`),
+    [],
+    "these /api/v1 routes are not in the published OpenAPI spec; the spec is hand-authored, " +
+      "so it must change in the same commit as the route",
+  );
+
+  const declared = new Set(routes.map((r) => `${r.method} ${r.path}`));
+  const stale: string[] = [];
+  for (const [path, entry] of Object.entries(spec)) {
+    if (!path.startsWith("/api/v1")) continue;
+    for (const method of Object.keys(entry)) {
+      if (!declared.has(`${method} ${path}`)) stale.push(`${method.toUpperCase()} ${path}`);
+    }
+  }
+  assertEquals(
+    stale,
+    [],
+    "these spec entries no longer match a route in api-v1.ts, so they document nothing",
+  );
 });
 
 Deno.test("openapi: X-API-Key security scheme is declared", () => {

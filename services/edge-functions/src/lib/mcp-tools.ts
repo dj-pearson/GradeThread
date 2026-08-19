@@ -25,6 +25,13 @@ import type { ApiKeyScope } from "./api-key.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { billingMonthStartIso, computeQuotaState } from "./api-quota.ts";
 import { redactError } from "./log-redact.ts";
+import {
+  getItem,
+  ITEMS_PAGE_MAX,
+  type ItemSummary,
+  ItemQueryError,
+  listItems,
+} from "./api-items.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -293,12 +300,187 @@ const usageTool: McpToolDefinition = {
   },
 };
 
+// ── Inventory reads (US-9107) ──────────────────────────────────────
+
+/** Money reaches the model as a formatted string ONLY here, in prose. */
+function money(cents: number | null): string {
+  return cents == null ? "no price" : `$${(cents / 100).toFixed(2)}`;
+}
+
+function summaryLine(item: ItemSummary): string {
+  const parts = [
+    item.item_number ? `#${item.item_number}` : item.id.slice(0, 8),
+    item.title || "(untitled)",
+    item.brand ?? "",
+    item.size ? `size ${item.size}` : "",
+    item.status,
+    money(item.list_price_cents),
+    item.grade != null ? `grade ${item.grade}` : "",
+  ].filter(Boolean);
+  return parts.join(" · ");
+}
+
+const listItemsTool: McpToolDefinition = {
+  name: "gradethread_list_items",
+  title: "List inventory items",
+  description:
+    "List the seller's inventory with optional filters on status, brand, category, title text, " +
+    "whether it is listed, and a created-date range. Returns a compact row per item plus a " +
+    "cursor for the next page. Call this when the seller asks what they have, what is unlisted, " +
+    "what is sitting in a status, or to find an item before acting on it. For full details on a " +
+    "single item, call gradethread_get_item with the id this returns.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        description:
+          "Pipeline status, e.g. sourced, cataloged, measured, photographed, comped, drafted, listed, sold, archived.",
+      },
+      brand: { type: "string", description: "Brand name; matched case-insensitively." },
+      category: { type: "string", description: "Garment category, matched case-insensitively." },
+      search: { type: "string", description: "Text to find in the item title." },
+      listed: { type: "boolean", description: "true for items with a live listing, false for those without." },
+      created_after: { type: "string", description: "ISO date; only items created on or after it." },
+      created_before: { type: "string", description: "ISO date; only items created on or before it." },
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: ITEMS_PAGE_MAX,
+        description: "Rows per page (default 25).",
+      },
+      cursor: { type: "string", description: "next_cursor from a previous call, to get the following page." },
+    },
+    additionalProperties: false,
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      items: { type: "array", items: { type: "object" } },
+      total: { type: "integer", description: "Total matching items, not just this page." },
+      next_cursor: { type: "string", description: "Absent when this is the last page." },
+    },
+    required: ["items", "total"],
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    try {
+      const page = await listItems(ctx.tenantId, {
+        status: args.status as string | undefined,
+        brand: args.brand as string | undefined,
+        category: args.category as string | undefined,
+        search: args.search as string | undefined,
+        listed: args.listed as boolean | undefined,
+        createdAfter: args.created_after as string | undefined,
+        createdBefore: args.created_before as string | undefined,
+        limit: args.limit as number | undefined,
+        cursor: args.cursor as string | undefined,
+      });
+
+      // The text is what the model reads, so it states the SHAPE of the answer
+      // as well as the rows: "12 of 340" stops a model concluding the seller
+      // owns twelve items.
+      const header = page.total === page.items.length
+        ? `${page.items.length} item(s).`
+        : `${page.items.length} of ${page.total} matching item(s)${
+          page.next_cursor ? "; more available, pass the cursor to continue." : "."
+        }`;
+      const body = page.items.length === 0
+        ? "No items matched those filters."
+        : page.items.map(summaryLine).join("\n");
+
+      return {
+        content: [{ type: "text", text: `${header}\n${body}` }],
+        structuredContent: {
+          items: page.items as unknown as Record<string, unknown>[],
+          total: page.total,
+          ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}),
+        },
+      };
+    } catch (err) {
+      if (err instanceof ItemQueryError) {
+        return {
+          content: [{ type: "text", text: err.message }],
+          isError: true,
+        };
+      }
+      console.error("[mcp] list items:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read inventory right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+const getItemTool: McpToolDefinition = {
+  name: "gradethread_get_item",
+  title: "Get one inventory item",
+  description:
+    "Fetch the full record for one inventory item: description, measurements, purchase and target " +
+    "prices, grade and certificate, its current listing and sale if any, and links to its photos. " +
+    "Call this when the seller asks about a specific item, or before drafting, pricing or listing " +
+    "it. Use gradethread_list_items first when you need to find the item id.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      item_id: { type: "string", description: "The item's id, as returned by gradethread_list_items." },
+    },
+    required: ["item_id"],
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const itemId = String(args.item_id);
+    try {
+      const item = await getItem(ctx.tenantId, itemId);
+      if (!item) {
+        // Not-found and not-yours are the SAME answer on purpose; distinguishing
+        // them would let a caller enumerate other tenants' item ids.
+        return {
+          content: [{ type: "text", text: `No item ${itemId} in this seller's inventory.` }],
+          isError: true,
+        };
+      }
+
+      const lines = [
+        summaryLine(item),
+        item.description ? `Description: ${item.description}` : "",
+        item.measurements ? `Measurements: ${JSON.stringify(item.measurements)}` : "",
+        item.purchase_price_cents != null ? `Paid ${money(item.purchase_price_cents)}` : "",
+        item.target_price_cents != null ? `Target ${money(item.target_price_cents)}` : "",
+        item.grade != null && item.certificate_url ? `Certificate: ${item.certificate_url}` : "",
+        item.listing
+          ? `Listing: ${item.listing.platform ?? "unknown"} ${item.listing.status ?? ""} at ${
+            money(item.listing.price_cents)
+          }${item.listing.watchers ? `, ${item.listing.watchers} watcher(s)` : ""}`
+          : "Not listed.",
+        item.sale ? `Sold ${money(item.sale.price_cents)} (${item.sale.status})` : "",
+        `${item.photos.length} photo(s)${item.has_required_photos ? "" : "; required set incomplete"}`,
+      ].filter(Boolean);
+
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        structuredContent: item as unknown as Record<string, unknown>,
+      };
+    } catch (err) {
+      console.error("[mcp] get item:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read that item right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
 /**
  * Every tool. Adding one here is the ONLY way a tool exists; the invariant test
  * enumerates this array, and US-9112's guard requires a matching
  * tenant-isolation case per entry.
  */
-export const TOOLS: McpToolDefinition[] = [usageTool];
+export const TOOLS: McpToolDefinition[] = [usageTool, listItemsTool, getItemTool];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
 

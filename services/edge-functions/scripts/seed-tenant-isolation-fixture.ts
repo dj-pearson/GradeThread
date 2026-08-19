@@ -27,6 +27,11 @@
 // Run:  deno run --allow-net --allow-env scripts/seed-tenant-isolation-fixture.ts
 
 import { createClient } from "@supabase/supabase-js";
+// US-9107: the SAME generator the product uses, so key_hash matches what the
+// edge computes on every request. NOTE: hashApiKey reads API_KEY_PEPPER at
+// call time, so the seeder and the edge service must run with the same value
+// (they do in the local recipe and in CI, where neither sets one).
+import { generateApiKey } from "../src/lib/api-key.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
@@ -304,12 +309,31 @@ async function main(): Promise<void> {
   // Per-run rather than an upsert on the hash: the tests only need A to OWN a
   // key, not a specific one, and a stable hash across runs would let a stale
   // row from an earlier run satisfy a later assertion.
+  // US-9107: REAL keys now, not a placeholder hash.
+  //
+  // The old row carried a fake hash, which was fine while the only assertion was
+  // "A owns an api_keys row" — but it meant no test could ever AUTHENTICATE as
+  // either tenant against /api/v1, so every public-API cross-tenant path was
+  // unverified and TEST_USER_B_API_KEY sat in KNOWN_UNSEEDED. generateApiKey()
+  // produces the plaintext, its hash and its prefix together, so the row and the
+  // emitted key cannot disagree.
+  const aKey = await generateApiKey();
   out.TEST_USER_A_API_KEY_ID = await insert("api_keys", {
     user_id: aId,
-    name: "fixture key",
-    key_hash: `fixture-hash-not-a-real-key-${crypto.randomUUID()}`,
-    key_prefix: "gt_fixt",
+    name: "fixture key A",
+    key_hash: aKey.keyHash,
+    key_prefix: aKey.keyPrefix,
   });
+  out.TEST_USER_A_API_KEY = aKey.fullKey;
+
+  const bKey = await generateApiKey();
+  out.TEST_USER_B_API_KEY_ID = await insert("api_keys", {
+    user_id: bId,
+    name: "fixture key B",
+    key_hash: bKey.keyHash,
+    key_prefix: bKey.keyPrefix,
+  });
+  out.TEST_USER_B_API_KEY = bKey.fullKey;
 
   out.TEST_USER_A_TEMPLATE_ID = await insert("listing_templates", {
     user_id: aId,
