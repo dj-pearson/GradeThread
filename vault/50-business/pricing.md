@@ -9,7 +9,7 @@ code_refs:
   - scripts/setup-stripe-pricing.mjs
   - src/pages/legal/refund.tsx
   - src/pages/legal/terms.tsx
-reviewed: 2026-08-14
+reviewed: 2026-08-19
 tags: [pricing, billing, stripe, contract]
 summary: The single source of truth for every price; src/lib/constants.ts is its machine-readable mirror and must change in the same commit.
 ---
@@ -99,8 +99,21 @@ a tier may open; it is not a count of every channel a seller can list to:
 | autolister | ✗ | ✗ | ✓ | ✓ |
 | subAccounts | ✗ | ✗ | ✗ | ✓ |
 | apiAccess | ✗ | ✗ | ✗ | ✓ |
+| connectorAccess | ✗ | ✗ | ✓ | ✓ |
 | reconciliation | ✗ | ✗ | ✗ | ✓ |
 | prioritySupport | ✗ | ✗ | ✗ | ✓ |
+
+> **`connectorAccess` is not `apiAccess`, and the difference is the point**
+> (US-9101, owner's decision 2026-08-19). `apiAccess` is raw `/api/v1` and stays
+> Business-only. The Claude connector opens at **Pro**, because it is the
+> strongest single reason to pay for GradeThread and gating it at $99 means
+> almost nobody encounters it. Two products sharing one flag would have meant
+> widening one silently widened the other.
+>
+> It carries its own monthly allowance too — `connectorActionsPerMonth`, Pro
+> **500** and Business **2000**, counted separately from `aiActionsPerMonth`.
+> The reasoning, and why there is no new database column, is in
+> [[connector-plan-gating]].
 
 ---
 
