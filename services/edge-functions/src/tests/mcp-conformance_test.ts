@@ -46,6 +46,7 @@ const {
  */
 const GOLDEN_TOOLS = [
   "gradethread_comps",
+  "gradethread_create_draft",
   "gradethread_get_batch",
   "gradethread_get_grade",
   "gradethread_get_item",
@@ -60,6 +61,7 @@ const GOLDEN_TOOLS = [
   "gradethread_sandbox_grade",
   "gradethread_sandbox_price_guide",
   "gradethread_sandbox_publish",
+  "gradethread_update_draft",
   "gradethread_usage",
 ];
 
@@ -88,6 +90,7 @@ function fingerprint(tool: typeof TOOLS[number]): string {
 
 const GOLDEN_FINGERPRINTS = [
   "gradethread_comps|scope=read|read|args=item_id|required=item_id",
+  "gradethread_create_draft|scope=submit|destructive|args=item_ids,template_id,use_comps|required=item_ids",
   "gradethread_get_batch|scope=read|read|args=batch_id|required=batch_id",
   "gradethread_get_grade|scope=read|read|args=submission_id|required=submission_id",
   "gradethread_get_item|scope=read|read|args=item_id|required=item_id",
@@ -102,6 +105,7 @@ const GOLDEN_FINGERPRINTS = [
   "gradethread_sandbox_grade|scope=read|read|args=brand,title|required=title",
   "gradethread_sandbox_price_guide|scope=read|read|args=slug|required=",
   "gradethread_sandbox_publish|scope=read|read|args=marketplace,price_cents,title|required=title",
+  "gradethread_update_draft|scope=submit|destructive|args=condition,condition_description,description,item_specifics,listing_id,price,quantity,title|required=listing_id",
   "gradethread_usage|scope=read|read|args=|required=",
 ];
 

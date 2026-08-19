@@ -5800,6 +5800,50 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "MCP gradethread_create_draft cannot enqueue generation for A's item",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // Enqueueing against a foreign id would spend B's AI allowance to write
+    // copy about A's garment, and the drafts would land on A's listings rows.
+    // The ownership check runs BEFORE the batch row is written, so the refusal
+    // costs nothing either.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_create_draft", {
+      item_ids: [itemId],
+    });
+    // The foreign DATA, not the id: a correct refusal is allowed to echo back
+    // the id the caller supplied, so asserting on that would pass for the
+    // wrong reason.
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_create_draft",
+    );
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_update_draft cannot edit A's listing as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    // The write this refuses is the dangerous one: loadOwnedListing verifies
+    // ownership through the parent item, so a foreign listing id resolves to
+    // null and nothing is written. A tool that skipped that check would edit
+    // another seller's copy and report success.
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_update_draft", {
+      listing_id: listingId,
+      title: "Rewritten by another tenant",
+    });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_update_draft",
+    );
+  },
+});
+
 // ── Sandbox tools (US-9124) ────────────────────────────────────────
 //
 // A DIFFERENT PROPERTY from the tools above, and the difference is the point.

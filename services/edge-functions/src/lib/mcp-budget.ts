@@ -25,6 +25,8 @@ export type BudgetKind =
   | "price_change"
   | "end_listing"
   | "grade"
+  | "draft_generation"
+  | "draft_edit"
   | "ai_spend_cents";
 
 export interface BudgetLimit {
@@ -53,6 +55,18 @@ export const DEFAULT_BUDGETS: Record<BudgetKind, BudgetLimit> = {
   price_change: { kind: "price_change", windowMs: HOUR, max: 50, label: "price changes" },
   end_listing: { kind: "end_listing", windowMs: HOUR, max: 20, label: "listings ended" },
   grade: { kind: "grade", windowMs: DAY, max: 200, label: "grades submitted" },
+  // US-9115. A generation call spends one AI action PER ITEM, but this counts
+  // CALLS -- the per-item atomic reservation (US-527) is the authoritative
+  // control on the allowance, and this is the runaway-loop ceiling above it.
+  draft_generation: {
+    kind: "draft_generation",
+    windowMs: DAY,
+    max: 100,
+    label: "draft generations",
+  },
+  // Editing a draft costs nothing and a model iterating on wording legitimately
+  // makes many edits, so this is loose. It exists to stop a loop, not to ration.
+  draft_edit: { kind: "draft_edit", windowMs: HOUR, max: 200, label: "draft edits" },
   ai_spend_cents: {
     kind: "ai_spend_cents",
     windowMs: DAY,
@@ -119,6 +133,8 @@ export const TOOLS_BY_KIND: Record<BudgetKind, string[]> = {
   price_change: ["gradethread_reprice_apply", "gradethread_set_price"],
   end_listing: ["gradethread_end_listing", "gradethread_relist"],
   grade: ["gradethread_grade_item", "gradethread_grade_batch"],
+  draft_generation: ["gradethread_create_draft"],
+  draft_edit: ["gradethread_update_draft"],
   ai_spend_cents: [],
 };
 

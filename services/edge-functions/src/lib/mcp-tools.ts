@@ -68,6 +68,9 @@ import {
 // registry -- a reader looking for "what tools exist" should not have to scroll
 // past one of them.
 import { gradeBatchTool, gradeItemTool } from "./mcp-grade-tools.ts";
+// US-9115: the draft write tools. Same reason as above - a preview protocol
+// and a marketplace-shaped payload do not belong in the registry file.
+import { createDraftTool, updateDraftTool } from "./mcp-draft-tools.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1256,6 +1259,8 @@ export const TOOLS: McpToolDefinition[] = [
   gradingReadinessTool,
   gradeItemTool,
   gradeBatchTool,
+  createDraftTool,
+  updateDraftTool,
   sandboxGradeTool,
   sandboxPublishTool,
   sandboxPriceGuideTool,

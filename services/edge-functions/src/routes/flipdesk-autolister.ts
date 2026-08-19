@@ -30,6 +30,10 @@ import {
 import { assessPhotoQuality } from "../lib/ai-photo-qa.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import {
+  enqueueGenerationBatch,
+  registerBatchRunner,
+} from "../lib/autolister-enqueue.ts";
+import {
   AiQuotaExhaustedError,
   QUOTA_EXHAUSTED_MESSAGE,
   refundAiAction,
@@ -42,7 +46,6 @@ import { roleAtLeast } from "../lib/workspace-roles.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { isBatchHeartbeatFresh } from "../lib/batch-heartbeat.ts";
-import { featureDisabledBody, isFeatureEnabled } from "../lib/feature-flags.ts";
 import {
   buildTemplateListingPatch,
   type ListingTemplateRow,
@@ -218,33 +221,10 @@ export function needsAiReservation(
   return job.ai_reserved !== true;
 }
 
-/**
- * US-1545: count-aware quota pre-check for batch enqueue. A batch reserves one
- * AI action per item; when the month's remainder can't cover the whole batch,
- * return the 402 body (with the numbers, so the UI can say "trim or upgrade")
- * — null means the batch fits (or the plan is unlimited). Pure + unit-tested;
- * the per-item atomic reservation (US-527) remains the authoritative gate.
- */
-export function insufficientAiActionsBody(
-  itemCount: number,
-  limit: number,
-  used: number,
-):
-  | { error: string; code: "INSUFFICIENT_AI_ACTIONS"; needed: number; remaining: number; cap: number }
-  | null {
-  if (limit === -1) return null;
-  const remaining = Math.max(0, limit - used);
-  if (itemCount <= remaining) return null;
-  return {
-    error:
-      `This batch needs ${itemCount} AI actions but only ${remaining} remain this month — ` +
-      `remove some groups or upgrade your plan.`,
-    code: "INSUFFICIENT_AI_ACTIONS",
-    needed: itemCount,
-    remaining,
-    cap: limit,
-  };
-}
+// US-9115: moved to lib/autolister-enqueue.ts with the enqueue guards it
+// belongs to, and re-exported here for the call sites and unit test that
+// already import it from this path.
+export { insufficientAiActionsBody } from "../lib/autolister-enqueue.ts";
 
 /** Reject with a clear error if `promise` doesn't settle within `ms` (US-526). */
 export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -368,6 +348,17 @@ async function loadBatchTemplate(
  * per-item timeout caps a hung generation (US-526); jobs are claimed so a
  * resumed/concurrent run can't double-process one (US-525).
  */
+// US-9115: wire the worker into lib/autolister-enqueue.ts.
+//
+// Registered rather than imported, because lib must never import a route. If
+// this ever stopped running, an enqueued batch would not be lost — it is
+// written as 'running' with pending jobs, which is the state the reclaim cron
+// resumes — but it would wait BATCH_STALE_MS first, and nothing would say so.
+// autolister-enqueue_test.ts asserts the registration happens.
+registerBatchRunner((batchId, ownerId, jobs, useComps, limit) =>
+  processBatch(batchId, ownerId, jobs, useComps, limit)
+);
+
 async function processBatch(
   batchId: string,
   ownerId: string,
@@ -1276,11 +1267,6 @@ flipdeskAutolisterRoutes.delete("/sessions/:id", async (c) => {
 // POST /batch  Body: { item_ids: string[], use_comps?: boolean }
 flipdeskAutolisterRoutes.post("/batch", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
-  // US-507: AutoLister kill-switch (heavy per-item AI cost).
-  // US-2406: owner-scoped so plan targeting / rollout is honoured.
-  if (!(await isFeatureEnabled("autolister", { userId: ownerId }))) {
-    return c.json(featureDisabledBody("autolister"), 503);
-  }
 
   let body: {
     item_ids?: unknown;
@@ -1295,132 +1281,28 @@ flipdeskAutolisterRoutes.post("/batch", async (c) => {
   }
 
   const itemIds = Array.isArray(body.item_ids)
-    ? Array.from(
-      new Set(body.item_ids.filter((x): x is string => typeof x === "string")),
-    )
+    ? body.item_ids.filter((x): x is string => typeof x === "string")
     : [];
-  const useComps = body.use_comps !== false; // default true
   // US-674: optional listing template applied to every generated draft.
   const templateId = typeof body.template_id === "string" && body.template_id.trim()
     ? body.template_id.trim()
     : null;
-  // US-955: opt-in fire-and-forget — auto-publish the green, clean drafts when
-  // this batch finishes generating. Defaults off.
-  const autoPublishGreen = body.auto_publish_green === true;
 
-  if (itemIds.length === 0) {
-    return c.json({ error: "item_ids must be a non-empty array" }, 400);
-  }
-  if (itemIds.length > MAX_BATCH_ITEMS) {
-    return c.json(
-      { error: `A batch can contain at most ${MAX_BATCH_ITEMS} items.` },
-      400,
-    );
-  }
+  // US-9115: the guards and the enqueue live in lib/autolister-enqueue.ts so
+  // the connector's create-draft tool runs the SAME ones. This route keeps its
+  // parsing and its exact 202 envelope.
+  const outcome = await enqueueGenerationBatch(ownerId, {
+    itemIds,
+    // US-955: opt-in fire-and-forget — auto-publish the green, clean drafts
+    // when this batch finishes generating. Defaults off.
+    autoPublishGreen: body.auto_publish_green === true,
+    useComps: body.use_comps !== false, // default true
+    templateId,
+    maxItems: MAX_BATCH_ITEMS,
+  });
+  if (!outcome.ok) return c.json(outcome.body, outcome.status as 400);
 
-  // Premium tier gate (US-323): AutoLister is a paid-tier feature. A blocked
-  // plan returns 402 FEATURE_LOCKED, which edgeFetch turns into the upgrade
-  // dialog on the client. Gate the workspace OWNER's plan (they pay).
-  const gated = await requireFlipdesk(c, { feature: "autolister", userId: ownerId });
-  if (gated) return gated;
-
-  // AI enablement + monthly cap. The per-item atomic reservation (US-527) is
-  // the real enforcement; this returns 402 early if AI is off or already capped.
-  const quota = await checkQuota(ownerId);
-  if (!quota.ok) return c.json(quota.body, quota.status);
-  const limit = quota.limit;
-
-  // US-1545: count-aware pre-check — this batch will reserve one AI action per
-  // item, so refuse UP FRONT with the numbers when the month's remainder can't
-  // cover it, instead of letting the batch die item-by-item mid-run. The
-  // per-item reservation stays authoritative (concurrent spenders may still
-  // shrink the remainder before the worker gets there).
-  const insufficient = insufficientAiActionsBody(itemIds.length, limit, quota.used);
-  if (insufficient) return c.json(insufficient, 402);
-
-  // Tenant isolation: every requested item MUST belong to this workspace.
-  const { data: ownedRows, error: ownErr } = await supabaseAdmin
-    .from("inventory_items")
-    .select("id")
-    .eq("user_id", ownerId)
-    .in("id", itemIds);
-  if (ownErr) {
-    return c.json({ error: "Could not verify item ownership." }, 500);
-  }
-  const ownedIds = new Set((ownedRows ?? []).map((r) => (r as { id: string }).id));
-  const notOwned = itemIds.filter((id) => !ownedIds.has(id));
-  if (notOwned.length > 0) {
-    return c.json(
-      { error: "One or more items do not belong to your workspace." },
-      403,
-    );
-  }
-
-  // US-674: a supplied template MUST belong to this workspace (US-268). Verify
-  // before we persist it on the batch; the worker re-reads it from the batch.
-  if (templateId) {
-    const { data: tpl, error: tplErr } = await supabaseAdmin
-      .from("listing_templates")
-      .select("id")
-      .eq("id", templateId)
-      .eq("user_id", ownerId)
-      .maybeSingle();
-    if (tplErr) {
-      return c.json({ error: "Could not verify the selected template." }, 500);
-    }
-    if (!tpl) {
-      return c.json({ error: "Template not found in your workspace." }, 404);
-    }
-  }
-
-  // Create the batch + one job per item.
-  const { data: batch, error: batchErr } = await supabaseAdmin
-    .from("listing_generation_batches")
-    .insert({
-      user_id: ownerId,
-      status: "running",
-      source: "autolister",
-      item_count: itemIds.length,
-      use_comps: useComps,
-      template_id: templateId,
-      auto_publish_green: autoPublishGreen,
-    })
-    .select("id")
-    .single();
-  if (batchErr || !batch) {
-    return c.json({ error: "Could not create generation batch." }, 500);
-  }
-  const batchId = (batch as { id: string }).id;
-
-  const { data: jobRows, error: jobsErr } = await supabaseAdmin
-    .from("listing_generation_jobs")
-    .insert(
-      itemIds.map((id) => ({
-        batch_id: batchId,
-        inventory_item_id: id,
-        status: "pending" as const,
-      })),
-    )
-    .select("id, inventory_item_id");
-  if (jobsErr || !jobRows) {
-    await supabaseAdmin
-      .from("listing_generation_batches")
-      .update({ status: "failed", error: "Failed to enqueue jobs." })
-      .eq("id", batchId);
-    return c.json({ error: "Could not enqueue generation jobs." }, 500);
-  }
-
-  const jobs = (jobRows as Array<{ id: string; inventory_item_id: string }>);
-
-  // Optimistic immediate processing for low latency — returning 202 closes the
-  // HTTP connection well under Cloudflare's proxy timeout. Durability does NOT
-  // depend on this promise surviving: if the container dies mid-run, the
-  // reclaim sweeper (US-525) resumes the batch from its persisted job rows.
-  void processBatch(batchId, ownerId, jobs, useComps, limit).catch((err) =>
-    console.error("[flipdesk-autolister] background batch crashed:", err)
-  );
-
-  return c.json({ batch_id: batchId, item_count: itemIds.length }, 202);
+  return c.json({ batch_id: outcome.batchId, item_count: outcome.itemCount }, 202);
 });
 
 // POST /batch/:id/retry-failed  —  re-runs ONLY the failed jobs in this batch
