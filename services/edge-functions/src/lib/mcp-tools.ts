@@ -50,14 +50,11 @@ import {
 import { compsForItem, CompsUnavailableError } from "./api-comps.ts";
 import { getPriceGuideCatalog, getPriceGuideEntry } from "./price-guide.ts";
 import { featureAllowedForUser } from "./plan-gate.ts";
-// NOTE: this is the only lib -> route import in the edge service, and it is
-// deliberate but temporary. buildValidation belongs in a lib; it lives in the
-// route today because it sits directly above the 360-line credit-charging
-// submit loop that US-9114's write half has to extract, and moving one without
-// the other means touching the grading module twice. The alternative was worse:
-// recomputing "is this item ready and can they afford it" here would be a
-// second answer to a question the seller asks once, and they would get whichever
-// one they happened to ask. Relocate both together when the submit half lands.
+// US-9129 moved buildValidation and the submit loop out of the route and into
+// this lib, which removed the only lib -> route import in the edge service. The
+// readiness tool and the grade tools answer with the SAME validation the submit
+// path runs -- a second opinion about readiness is a second answer to "can I
+// grade this", and the seller would get whichever one they happened to ask.
 import { buildValidation } from "./grading-submit.ts";
 import {
   SANDBOX_NOTICE,
@@ -66,6 +63,11 @@ import {
   sandboxGrade,
   sandboxPublish,
 } from "./mcp-sandbox.ts";
+// US-9114: the two grading WRITE tools. In their own module because they carry
+// a preview/confirm protocol and a money path, and because this file is the
+// registry -- a reader looking for "what tools exist" should not have to scroll
+// past one of them.
+import { gradeBatchTool, gradeItemTool } from "./mcp-grade-tools.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1252,6 +1254,8 @@ export const TOOLS: McpToolDefinition[] = [
   priceGuideTool,
   compsTool,
   gradingReadinessTool,
+  gradeItemTool,
+  gradeBatchTool,
   sandboxGradeTool,
   sandboxPublishTool,
   sandboxPriceGuideTool,

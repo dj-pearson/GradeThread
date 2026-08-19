@@ -5732,6 +5732,74 @@ Deno.test({
   },
 });
 
+Deno.test({
+  name: "MCP gradethread_grade_item will not issue B a confirm token for A's item",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // The token is the thing to protect here, not just the data. A preview that
+    // hands back a token for an item the caller does not own is a charge one
+    // call away, and the model has already told the seller it is going ahead.
+    // A foreign id is not READY (it reads as "Item not found"), the batch is
+    // therefore not submittable, and no token is minted for a batch that cannot
+    // be sent.
+    //
+    // ⚠ THE TITLE ASSERTION IS THE ONE THAT DISCRIMINATES. The fixture item is
+    // deliberately not grade-ready (no garment_type, no photos), so a preview of
+    // it never yields a token for ANYONE — which means the token check alone
+    // would also pass against a tool that issued no tokens at all. The title is
+    // the half with a positive control: A's own preview of this item does return
+    // it, so B's not returning it is a real difference.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_grade_item", {
+      item_id: itemId,
+      mode: "preview",
+    });
+
+    assert(
+      !body.includes("confirm_token"),
+      `gradethread_grade_item issued a confirm token for another tenant's item: ${
+        body.slice(0, 300)
+      }`,
+    );
+    const title = Deno.env.get("TEST_USER_A_ITEM_TITLE");
+    if (title) {
+      assert(
+        !body.includes(title),
+        `gradethread_grade_item leaked another tenant's item title: ${body.slice(0, 300)}`,
+      );
+    }
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_grade_batch refuses a batch containing A's item",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // Batch is where a foreign id hides best: mixed in with ids the caller does
+    // own, a partial accept would charge for the batch and quietly drop one row.
+    // Every item must be ready or the whole batch is refused, so a foreign id
+    // takes the batch down with it rather than being skipped.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_grade_batch", {
+      item_ids: [itemId, crypto.randomUUID()],
+      mode: "preview",
+    });
+
+    assert(
+      !body.includes("confirm_token"),
+      `gradethread_grade_batch issued a confirm token for a batch holding another ` +
+        `tenant's item: ${body.slice(0, 300)}`,
+    );
+    const title = Deno.env.get("TEST_USER_A_ITEM_TITLE");
+    if (title) {
+      assert(
+        !body.includes(title),
+        `gradethread_grade_batch leaked another tenant's item title: ${body.slice(0, 300)}`,
+      );
+    }
+  },
+});
+
 // ── Sandbox tools (US-9124) ────────────────────────────────────────
 //
 // A DIFFERENT PROPERTY from the tools above, and the difference is the point.
