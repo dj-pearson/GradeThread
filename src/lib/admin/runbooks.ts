@@ -60,6 +60,12 @@ export const RUNBOOKS: Runbook[] = [
   {
     slug: "deploy-order",
     sourceNote: "vault/10-ops/deploy.md",
+    // Re-read 2026-08-19. NOTHING to carry: the only change in deploy.md since
+    // the last check is the cron count moving 77 -> 78, and this copy names no
+    // count on purpose (it says Scheduled Tasks survive a redeploy and points at
+    // Background Jobs for the live list). A copy that quoted the number would
+    // turn every new job into a stale runbook.
+    //
     // Re-read 2026-08-17 against the vault note, and this time there WAS
     // something to edit — the first time in four checks.
     //
@@ -75,7 +81,7 @@ export const RUNBOOKS: Runbook[] = [
     // The three prior checks cost a date bump and no edit because this copy
     // names no counts and points at CRON_REGISTRY instead — that phrasing
     // working, not the check being noisy.
-    reviewed: "2026-08-17",
+    reviewed: "2026-08-19",
     title: "Production deploy order",
     category: "Deploy",
     summary:
@@ -386,7 +392,17 @@ export const RUNBOOKS: Runbook[] = [
     //
     // Third consecutive cron addition costing a date bump and no edit. If this
     // copy ever quotes the count, every new job turns it into a stale runbook.
-    reviewed: "2026-08-15",
+    //
+    // Re-read 2026-08-19, and this time there WAS something to carry. The vault
+    // note's migrations row now says to check status "match" AND that no
+    // "missing" key is present, because on 2026-08-15 prod really did answer
+    // applied 00606, status match, missing ["00594"] — a schema reporting itself
+    // fine while naming a migration absent from it. §4 here said only that
+    // /health/ready is ready, so an operator working from this copy alone would
+    // have cleared the gate on that database. Now it says what to look at.
+    // (The cron count moved again, 78 -> 77 -> 78; still not quoted here, and
+    // still on purpose.)
+    reviewed: "2026-08-19",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:
@@ -427,7 +443,7 @@ export const RUNBOOKS: Runbook[] = [
       "",
       "## 4. Smoke",
       "",
-      "- `GET /health/ready` is `ready`; a Stripe webhook trigger, a certificate render, and the SEO endpoints succeed.",
+      "- `GET /health/ready` is `ready`, its `schema` reads `status` `match`, and there is **no `missing` key** — a hole under the recorded maximum reports `incomplete`, and prod has answered `match` while naming a migration missing from it. A Stripe webhook trigger, a certificate render, and the SEO endpoints succeed.",
       "- Feature flags for the launch set are enabled at the intended rollout.",
       "",
       "If readiness reports `not_ready` or any feature shows missing, fix the env/migration and redeploy that layer — do not launch on a half-green gate.",

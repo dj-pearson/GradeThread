@@ -479,6 +479,19 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `POSTHOG_KEY` / `POSTHOG_HOST` | ⬜ Coolify edge | Server-side PostHog analytics (edge events). |
 | `SENTRY_DSN` | ⬜ Coolify edge | Read for the `observability` boot feature (the `[BOOT] observability not configured` warning). |
 
+### 3n. Connector / MCP (US-9104, US-9120)
+
+Four reads that all fall back to a value that looks like a working system, which
+is exactly the case this file exists for: nothing errors when they are unset, so
+the only way to know they are unset is to have written them down.
+
+| Variable | Where it goes | What it is |
+|---|---|---|
+| `MCP_ENABLED` | ⬜ Coolify edge | Serves the `/mcp` connector endpoint. **Defaults OFF in production and ON everywhere else** (`routes/mcp.ts` falls back to `!isProduction()`), so a staging deploy exposes it and prod does not without an explicit `true`. |
+| `MCP_OAUTH_ENABLED` | ⬜ Coolify edge | Serves the OAuth 2.1 authorization-server surface for the connector. Defaults OFF; only `true`/`1` turn it on. Unset means the discovery documents and the token endpoint are absent, not broken. |
+| `MCP_PUBLIC_BASE_URL` | ⬜ Coolify edge | Issuer origin stamped into the OAuth discovery documents and the resource identifier tokens are audience-bound to (RFC 8707). Defaults to `https://functions.gradethread.com`. A wrong value here mints tokens no client will accept and the error surfaces at the client, not here. |
+| `APP_PUBLIC_BASE_URL` | ⬜ Coolify edge | Where the seller is sent to sign in and approve a connector grant — the web app, not the edge. Defaults to `https://gradethread.com`. |
+
 ---
 
 ## 4. Supabase — GoTrue auth container (`GOTRUE_*`)
