@@ -55,6 +55,14 @@ const PARENT_SCOPED = [
 // service-role (which bypasses RLS) reads/writes them. This is the most
 // restrictive configuration, not a gap.
 const SERVICE_ROLE_ONLY = new Set([
+  // US-9113: the MCP connector tool-call audit log. Deny-all in both
+  // directions. Readable, it is a map of every seller's connector activity -
+  // which items they touched, when, and how often; writable, a caller could
+  // fabricate the record that would exonerate them, which is the one thing an
+  // audit log must not allow. Operators read it through the service-role
+  // client; a seller sees their own activity through an authenticated endpoint
+  // that filters for them.
+  "mcp_tool_calls",
   // US-2592: daily help article view counters. Deny-all in both directions.
   // Readable, it would publish which of our articles are struggling, which is a
   // map of what the product confuses people about; writable, it would let anyone

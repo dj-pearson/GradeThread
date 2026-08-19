@@ -35,6 +35,8 @@ import {
   validateAgainstSchema,
 } from "../lib/mcp-tools.ts";
 import type { ApiKeyScope } from "../lib/api-key.ts";
+import { sanitizeDeep } from "../lib/mcp-untrusted.ts";
+import { recordToolCall, type ToolCallStatus } from "../lib/mcp-audit.ts";
 import {
   bodyProtocolVersion,
   clientInfoOf,
@@ -486,13 +488,39 @@ async function callTool(
   c: Context,
   message: { params?: Record<string, unknown> },
 ): Promise<RequestOutcome> {
+  const startedAt = Date.now();
   const name = typeof message.params?.name === "string" ? message.params.name : undefined;
+  const rawArgs = message.params?.arguments;
+  const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
+    ? rawArgs as Record<string, unknown>
+    : {};
+  const ctx = toolContext(c);
+
+  // US-9113: one audit row per call, refusals INCLUDED. A denied call is often
+  // the more interesting row, because it is what a probe looks like. Skipped
+  // only when there is no tenant to attribute it to, which is unreachable
+  // behind mcpAuthMiddleware.
+  const audit = (status: ToolCallStatus, errorCode?: string) => {
+    if (!ctx) return;
+    recordToolCall({
+      tenantId: ctx.tenantId,
+      apiKeyId: ctx.apiKeyId,
+      toolName: name ?? "(unnamed)",
+      args,
+      status,
+      errorCode: errorCode ?? null,
+      durationMs: Date.now() - startedAt,
+    });
+  };
+
   if (!name) {
+    audit("refused", "missing_name");
     return { error: { code: JSON_RPC_ERROR.INVALID_PARAMS, message: "params.name is required" } };
   }
 
   const tool = findTool(name);
   if (!tool) {
+    audit("refused", "unknown_tool");
     return { error: { code: JSON_RPC_ERROR.INVALID_PARAMS, message: `Unknown tool: ${name}` } };
   }
 
@@ -500,6 +528,7 @@ async function callTool(
   // display decision, and this is the authorization decision.
   const scopes = callerScopes(c);
   if (!hasScope(scopes, tool.requiredScope)) {
+    audit("denied", "insufficient_scope");
     return {
       error: {
         code: JSON_RPC_ERROR.INVALID_PARAMS,
@@ -509,13 +538,9 @@ async function callTool(
     };
   }
 
-  const rawArgs = message.params?.arguments;
-  const args = rawArgs && typeof rawArgs === "object" && !Array.isArray(rawArgs)
-    ? rawArgs as Record<string, unknown>
-    : {};
-
   const violation = validateAgainstSchema(tool.inputSchema, args);
   if (violation) {
+    audit("refused", "invalid_arguments");
     return {
       error: {
         code: JSON_RPC_ERROR.INVALID_PARAMS,
@@ -525,7 +550,6 @@ async function callTool(
     };
   }
 
-  const ctx = toolContext(c);
   if (!ctx) {
     // Unreachable behind mcpAuthMiddleware. Failing closed here means a future
     // mount that forgets the middleware breaks loudly instead of leaking.
@@ -533,8 +557,21 @@ async function callTool(
     return { error: { code: JSON_RPC_ERROR.INTERNAL_ERROR, message: "Internal error" } };
   }
 
-  const result = await tool.handler(args, ctx);
-  return { result };
+  try {
+    const result = await tool.handler(args, ctx);
+    audit(result.isError ? "error" : "ok");
+
+    // US-9111: EVERY tool result passes through here, so a tool added later is
+    // covered without its author remembering. Cleaning (invisible characters,
+    // delimiter neutralisation) is unconditional; the declared untrusted fields
+    // are additionally wrapped with the do-not-follow preamble.
+    return { result: sanitizeDeep(result, { wrapUntrustedFields: true }) };
+  } catch (err) {
+    // The row is written BEFORE the throw propagates, so a handler that blows
+    // up still leaves a trace of having been called.
+    audit("error", "handler_threw");
+    throw err;
+  }
 }
 
 /** Test seam: legacy sessions are process-local, so a suite must be able to reset them. */

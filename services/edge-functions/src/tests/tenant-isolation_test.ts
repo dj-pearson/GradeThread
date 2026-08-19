@@ -5474,3 +5474,248 @@ Deno.test({
     assert(body.includes(itemId), "the owner's read did not return the item");
   },
 });
+
+// ── MCP connector tools (US-9112) ──────────────────────────────────
+//
+// Every tool in the registry is exercised here as tenant B against tenant A's
+// data. The guard in mcp-tenant-coverage_test.ts enumerates the registry and
+// FAILS when a tool has no case below, so adding a tool without an isolation
+// case breaks the build rather than relying on a reviewer noticing.
+//
+// Two shapes of assertion, because the tools have two shapes:
+//   • ID-TAKING tools (get_item, get_grade, get_batch, comps) must be DENIED
+//     when handed A's id.
+//   • LIST tools return B's own rows legitimately, so the failure is A's id
+//     appearing anywhere in the response.
+
+const MCP_URL = () => `${BASE}/mcp`;
+
+async function callMcpTool(
+  apiKey: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<{ status: number; body: string }> {
+  const res = await fetch(MCP_URL(), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
+      "MCP-Protocol-Version": "2026-07-28",
+      "Mcp-Method": "tools/call",
+      "Mcp-Name": toolName,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: toolName,
+        arguments: args,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "tenant-isolation-test", version: "1" },
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    }),
+  });
+  return { status: res.status, body: await res.text() };
+}
+
+/**
+ * For a LIST tool: B never supplied A's id, so A's id appearing anywhere in the
+ * response is a leak, full stop.
+ */
+function assertListExcludes(body: string, foreignId: string, label: string): void {
+  assert(
+    !body.includes(foreignId),
+    `${label}: the connector returned another tenant's id (${foreignId})`,
+  );
+}
+
+/**
+ * For an ID-TAKING tool: the call must not SUCCEED, and none of A's DATA may
+ * appear.
+ *
+ * Deliberately NOT asserted on the id. A handler that correctly refuses still
+ * says "No item <id> in this seller's inventory", echoing the id the caller
+ * supplied and already knew. Asserting on the id therefore fails a CORRECT
+ * denial, which is how the first version of these cases reported four leaks
+ * that were not leaks.
+ */
+function assertToolDeniedById(
+  body: string,
+  foreignData: string | undefined,
+  label: string,
+): void {
+  const parsed = JSON.parse(body) as {
+    error?: unknown;
+    result?: { isError?: boolean };
+  };
+  const refused = parsed.error !== undefined || parsed.result?.isError === true;
+  assert(refused, `${label}: the call SUCCEEDED for the wrong tenant: ${body.slice(0, 300)}`);
+
+  if (foreignData) {
+    assert(
+      !body.includes(foreignData),
+      `${label}: another tenant's data leaked into the response`,
+    );
+  }
+}
+
+Deno.test({
+  name: "MCP: A's own key CAN read A's item - the tool is reachable, not blanket-denied",
+  ignore: !CONFIGURED || !A_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // THE POSITIVE CONTROL, and it is not optional. Every MCP tool sits
+    // behind the connector plan gate; if the fixture tenants lack that plan,
+    // every call 403s and every negative case below passes without touching
+    // a handler. That is exactly what happened the first time these were
+    // run: ten green cases against a surface never reached.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { status, body } = await callMcpTool(A_API_KEY!, "gradethread_get_item", {
+      item_id: itemId,
+    });
+    assertEquals(status, 200, `owner tool call failed: ${body.slice(0, 300)}`);
+    assert(
+      body.includes(itemId),
+      `the owner's tool call did not return the item: ${body.slice(0, 300)}`,
+    );
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_get_item cannot read A's item as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_get_item", { item_id: itemId });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_get_item",
+    );
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_list_items shows B only B's inventory",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_list_items", { limit: 100 });
+    assertListExcludes(body, itemId, "gradethread_list_items");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_get_grade cannot read A's submission as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_SUBMISSION_ID"),
+  fn: async () => {
+    const submissionId = Deno.env.get("TEST_USER_A_SUBMISSION_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_get_grade", {
+      submission_id: submissionId,
+    });
+    assertToolDeniedById(body, undefined, "gradethread_get_grade");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_list_grades shows B only B's submissions",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_SUBMISSION_ID"),
+  fn: async () => {
+    const submissionId = Deno.env.get("TEST_USER_A_SUBMISSION_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_list_grades", { limit: 100 });
+    assertListExcludes(body, submissionId, "gradethread_list_grades");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_get_batch cannot read A's grading batch as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_GRADING_BATCH_ID"),
+  fn: async () => {
+    const batchId = Deno.env.get("TEST_USER_A_GRADING_BATCH_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_get_batch", { batch_id: batchId });
+    assertToolDeniedById(body, undefined, "gradethread_get_batch");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_list_listings shows B only B's listings",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_LISTING_ID"),
+  fn: async () => {
+    const listingId = Deno.env.get("TEST_USER_A_LISTING_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_list_listings", { limit: 100 });
+    assertListExcludes(body, listingId, "gradethread_list_listings");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_list_sales shows B only B's sales",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_SALE_ID"),
+  fn: async () => {
+    const saleId = Deno.env.get("TEST_USER_A_SALE_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_list_sales", { limit: 100 });
+    assertListExcludes(body, saleId, "gradethread_list_sales");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_comps cannot pull comps for A's item as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // Comps cost money to pull. B driving a comp lookup off A's item is both a
+    // read of A's category/brand/size and a charge against B's comp budget for
+    // data B is not entitled to.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_comps", { item_id: itemId });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_comps",
+    );
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_usage reports B's own key usage, never A's",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_API_KEY_ID"),
+  fn: async () => {
+    const aKeyId = Deno.env.get("TEST_USER_A_API_KEY_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_usage", {});
+    assertListExcludes(body, aKeyId, "gradethread_usage");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_price_guide is tenant-neutral published data",
+  ignore: !CONFIGURED || !B_API_KEY,
+  fn: async () => {
+    // Deliberately NOT a denial case: the price guide is GradeThread's own
+    // published data and carries no tenant rows at all. The property asserted is
+    // that it stays that way — a seller id appearing here would mean the guide
+    // had started leaking per-tenant data into a public surface.
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_price_guide", {});
+    const ownerId = Deno.env.get("TEST_WORKSPACE_OWNER_ID");
+    if (ownerId) assertListExcludes(body, ownerId, "gradethread_price_guide");
+  },
+});
+
+Deno.test({
+  name: "MCP gradethread_grading_readiness cannot inspect A's item as B",
+  ignore: !CONFIGURED || !B_API_KEY || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    // Readiness leaks more than it looks: blockers name the missing photo
+    // types and the item title, and the user block reports the caller's
+    // credit balance. B asking about A's item must learn nothing about it.
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const { body } = await callMcpTool(B_API_KEY!, "gradethread_grading_readiness", {
+      item_ids: [itemId],
+    });
+    assertToolDeniedById(
+      body,
+      Deno.env.get("TEST_USER_A_ITEM_TITLE"),
+      "gradethread_grading_readiness",
+    );
+  },
+});

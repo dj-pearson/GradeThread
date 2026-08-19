@@ -32,6 +32,33 @@ import {
   ItemQueryError,
   listItems,
 } from "./api-items.ts";
+import {
+  getBatch,
+  getGrade,
+  GRADES_PAGE_MAX,
+  type GradeSummary,
+  listGrades,
+} from "./api-grades.ts";
+import {
+  LISTINGS_PAGE_MAX,
+  type ListingSummary,
+  ListingQueryError,
+  listListings,
+  listSales,
+  type SaleSummary,
+} from "./api-listings.ts";
+import { compsForItem, CompsUnavailableError } from "./api-comps.ts";
+import { getPriceGuideCatalog, getPriceGuideEntry } from "./price-guide.ts";
+import { featureAllowedForUser } from "./plan-gate.ts";
+// NOTE: this is the only lib -> route import in the edge service, and it is
+// deliberate but temporary. buildValidation belongs in a lib; it lives in the
+// route today because it sits directly above the 360-line credit-charging
+// submit loop that US-9114's write half has to extract, and moving one without
+// the other means touching the grading module twice. The alternative was worse:
+// recomputing "is this item ready and can they afford it" here would be a
+// second answer to a question the seller asks once, and they would get whichever
+// one they happened to ask. Relocate both together when the submit half lands.
+import { buildValidation } from "../routes/flipdesk-grading.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -480,7 +507,615 @@ const getItemTool: McpToolDefinition = {
  * enumerates this array, and US-9112's guard requires a matching
  * tenant-isolation case per entry.
  */
-export const TOOLS: McpToolDefinition[] = [usageTool, listItemsTool, getItemTool];
+// ── Grade reads (US-9108) ──────────────────────────────────────────
+
+/**
+ * The sentence that stops a pending grade being quoted as final.
+ *
+ * A grade under human review is not wrong, it is UNCONFIRMED - and the failure
+ * this prevents is a seller's listing carrying a number that changes after a
+ * reviewer looks at it. Stated in the payload, not only in the tool
+ * description, because the description is read once and the payload every call.
+ */
+const PENDING_REVIEW_WARNING =
+  "PENDING HUMAN REVIEW - this grade is provisional and may change. Do not publish it or quote it as final.";
+
+function gradeLine(g: GradeSummary): string {
+  const grade = g.grade
+    ? `${g.grade.overall_score} (${g.grade.grade_tier})${g.grade.pending_review ? " [pending review]" : ""}`
+    : g.status;
+  return [
+    g.id.slice(0, 8),
+    g.title ?? g.garment_category ?? "(untitled)",
+    g.brand ?? "",
+    grade,
+  ].filter(Boolean).join(" · ");
+}
+
+const getGradeTool: McpToolDefinition = {
+  name: "gradethread_get_grade",
+  title: "Get a grade report",
+  description:
+    "Fetch one grading submission and its report: the overall 1.0-10.0 grade, the five factor " +
+    "scores (fabric, structural, cosmetic, functional, odor), the tier, confidence, the condition " +
+    "report text and the public certificate id when one exists. Call this when the seller asks how " +
+    "an item graded, or before writing listing copy that mentions condition, so the copy matches " +
+    "what was certified. A report marked pending_review is provisional and must not be quoted as final.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      submission_id: { type: "string", description: "The grading submission id." },
+    },
+    required: ["submission_id"],
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const id = String(args.submission_id);
+    try {
+      const grade = await getGrade(ctx.tenantId, id);
+      if (!grade) {
+        return {
+          content: [{ type: "text", text: `No grading submission ${id} for this seller.` }],
+          isError: true,
+        };
+      }
+
+      const report = grade.grade_report;
+      if (!report) {
+        return {
+          content: [{
+            type: "text",
+            text: `Submission ${id} is ${grade.status}; no grade report yet.`,
+          }],
+          structuredContent: grade as unknown as Record<string, unknown>,
+        };
+      }
+
+      const lines = [
+        report.pending_review ? PENDING_REVIEW_WARNING : "",
+        `Grade ${report.overall_score} (${report.grade_tier})${
+          report.confidence_score != null ? `, confidence ${report.confidence_score}` : ""
+        }`,
+        `Fabric ${report.fabric_condition_score ?? "n/a"} · Structural ${
+          report.structural_integrity_score ?? "n/a"
+        } · Cosmetic ${report.cosmetic_appearance_score ?? "n/a"} · Functional ${
+          report.functional_elements_score ?? "n/a"
+        } · Odor ${report.odor_cleanliness_score ?? "n/a"}`,
+        report.ai_summary ? `Summary: ${report.ai_summary}` : "",
+        report.certificate_id ? `Certificate: ${report.certificate_id}` : "",
+      ].filter(Boolean);
+
+      return {
+        content: [{ type: "text", text: lines.join("\n") }],
+        structuredContent: grade as unknown as Record<string, unknown>,
+      };
+    } catch (err) {
+      console.error("[mcp] get grade:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read that grade right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+const listGradesTool: McpToolDefinition = {
+  name: "gradethread_list_grades",
+  title: "List grading submissions",
+  description:
+    "List the seller's grading submissions, newest first, optionally filtered by status " +
+    "(pending, processing, completed, failed, disputed). Call this when the seller asks what has " +
+    "been graded, what is still processing, or to find a submission id before calling " +
+    "gradethread_get_grade. Grades marked pending review are provisional.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      status: {
+        type: "string",
+        enum: ["pending", "processing", "completed", "failed", "disputed"],
+        description: "Only submissions in this status.",
+      },
+      page: { type: "integer", minimum: 1, description: "1-based page number." },
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: GRADES_PAGE_MAX,
+        description: "Rows per page (default 20).",
+      },
+    },
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    try {
+      const page = await listGrades(ctx.tenantId, {
+        status: args.status as string | undefined,
+        page: args.page as number | undefined,
+        limit: args.limit as number | undefined,
+      });
+
+      const pendingCount = page.items.filter((g) => g.grade?.pending_review).length;
+      const header = `${page.items.length} of ${page.total} submission(s), page ${page.page} of ${
+        Math.max(page.total_pages, 1)
+      }.${pendingCount > 0 ? ` ${pendingCount} pending human review.` : ""}`;
+      const body = page.items.length === 0
+        ? "No submissions matched."
+        : page.items.map(gradeLine).join("\n");
+
+      return {
+        content: [{ type: "text", text: `${header}\n${body}` }],
+        structuredContent: {
+          items: page.items as unknown as Record<string, unknown>[],
+          page: page.page,
+          total: page.total,
+          total_pages: page.total_pages,
+        },
+      };
+    } catch (err) {
+      console.error("[mcp] list grades:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read grades right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+const getBatchTool: McpToolDefinition = {
+  name: "gradethread_get_batch",
+  title: "Check a grading batch",
+  description:
+    "Report the status of a bulk grading batch: how many garments are done, how many succeeded or " +
+    "failed, and the submission id or error for each. Call this when the seller asks whether a " +
+    "batch has finished, rather than polling the dashboard. Grading is asynchronous, so a batch " +
+    "that is still running is normal, not a failure.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      batch_id: { type: "string", description: "The grading batch id." },
+    },
+    required: ["batch_id"],
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const id = String(args.batch_id);
+    try {
+      const batch = await getBatch(ctx.tenantId, id);
+      if (!batch) {
+        return {
+          content: [{ type: "text", text: `No grading batch ${id} for this seller.` }],
+          isError: true,
+        };
+      }
+      const done = batch.succeeded_count + batch.failed_count;
+      const summary = `Batch ${batch.status}: ${done} of ${batch.item_count} processed, ` +
+        `${batch.succeeded_count} succeeded, ${batch.failed_count} failed.` +
+        (batch.error ? ` Batch error: ${batch.error}` : "");
+      const failures = batch.results
+        .filter((r) => r.error)
+        .map((r) => `  ${r.id.slice(0, 8)}: ${r.error}`)
+        .join("\n");
+      return {
+        content: [{ type: "text", text: failures ? `${summary}\n${failures}` : summary }],
+        structuredContent: batch as unknown as Record<string, unknown>,
+      };
+    } catch (err) {
+      console.error("[mcp] get batch:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read that batch right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+// ── Listings and sales (US-9109) ───────────────────────────────────
+
+function listingLine(l: ListingSummary): string {
+  return [
+    l.title || `(untitled)`,
+    l.brand ?? ``,
+    l.marketplace ?? ``,
+    money(l.price_cents),
+    l.days_live != null ? `live ${l.days_live}d` : ``,
+    l.watchers ? `${l.watchers} watching` : ``,
+  ].filter(Boolean).join(` · `);
+}
+
+function saleLine(s: SaleSummary): string {
+  return [
+    s.title || `(untitled)`,
+    s.marketplace ?? ``,
+    `sold ${money(s.sale_price_cents)}`,
+    s.net_profit_cents != null ? `net ${money(s.net_profit_cents)}` : ``,
+    s.sold_at ? s.sold_at.slice(0, 10) : ``,
+  ].filter(Boolean).join(` · `);
+}
+
+const listListingsTool: McpToolDefinition = {
+  name: "gradethread_list_listings",
+  title: "List marketplace listings",
+  description:
+    "List the seller's listings, one row per item showing its most recent listing, with filters " +
+    "for marketplace, listing status, price range, how many days it has been live and watcher " +
+    "count. Call this when the seller asks what is live, what is stale, what has watchers, or to " +
+    "find a listing before repricing or ending it.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      marketplace: { type: "string", description: "e.g. ebay, poshmark, depop, etsy, mercari." },
+      status: { type: "string", description: "Listing status, e.g. active, draft, ended, sold." },
+      min_price_cents: { type: "integer", minimum: 0, description: "Lowest listed price, in cents." },
+      max_price_cents: { type: "integer", minimum: 0, description: "Highest listed price, in cents." },
+      min_days_live: { type: "integer", minimum: 0, description: "Only listings live at least this many days." },
+      min_watchers: { type: "integer", minimum: 0, description: "Only listings with at least this many watchers." },
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: LISTINGS_PAGE_MAX,
+        description: "Rows per page (default 25).",
+      },
+      cursor: { type: "string", description: "next_cursor from a previous call." },
+    },
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    try {
+      const page = await listListings(ctx.tenantId, {
+        marketplace: args.marketplace as string | undefined,
+        status: args.status as string | undefined,
+        minPriceCents: args.min_price_cents as number | undefined,
+        maxPriceCents: args.max_price_cents as number | undefined,
+        minDaysLive: args.min_days_live as number | undefined,
+        minWatchers: args.min_watchers as number | undefined,
+        limit: args.limit as number | undefined,
+        cursor: args.cursor as string | undefined,
+      });
+      const header = `${page.items.length} of ${page.total} listing(s)${page.next_cursor ? "; more available, pass the cursor to continue." : "."}`;
+      const body = page.items.length === 0
+        ? "No listings matched those filters."
+        : page.items.map(listingLine).join(`\n`);
+      return {
+        content: [{ type: "text", text: `${header}\n${body}` }],
+        structuredContent: {
+          listings: page.items as unknown as Record<string, unknown>[],
+          total: page.total,
+          ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}),
+        },
+      };
+    } catch (err) {
+      if (err instanceof ListingQueryError) {
+        return { content: [{ type: "text", text: err.message }], isError: true };
+      }
+      console.error("[mcp] list listings:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read listings right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+const listSalesTool: McpToolDefinition = {
+  name: "gradethread_list_sales",
+  title: "List completed sales",
+  description:
+    "List the seller's completed sales over a date range, with sale price, fees, shipping cost " +
+    "and net profit per item, plus a roll-up of the rows returned. Call this when the seller asks " +
+    "what sold, how a period went, or which marketplace is performing. Cancelled and refunded " +
+    "sales are excluded by default because they are not revenue.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      sold_after: { type: "string", description: "ISO date; only sales on or after it." },
+      sold_before: { type: "string", description: "ISO date; only sales on or before it." },
+      marketplace: { type: "string", description: "Restrict to one marketplace." },
+      status: {
+        type: "string",
+        enum: ["completed", "cancelled", "refunded", "pending"],
+        description: "Defaults to completed. The others are NOT revenue.",
+      },
+      limit: {
+        type: "integer",
+        minimum: 1,
+        maximum: LISTINGS_PAGE_MAX,
+        description: "Rows per page (default 25).",
+      },
+      cursor: { type: "string", description: "next_cursor from a previous call." },
+    },
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    try {
+      const page = await listSales(ctx.tenantId, {
+        soldAfter: args.sold_after as string | undefined,
+        soldBefore: args.sold_before as string | undefined,
+        marketplace: args.marketplace as string | undefined,
+        status: args.status as string | undefined,
+        limit: args.limit as number | undefined,
+        cursor: args.cursor as string | undefined,
+      });
+      // page_only is stated in the TEXT, not just the payload: a model that
+      // reports a page roll-up as the period total understates the seller's
+      // revenue, and the text is what it reads.
+      const scope = page.totals.page_only
+        ? `these ${page.totals.count} row(s) only, of ${page.total} total`
+        : `all ${page.total} sale(s)`;
+      const header = `Gross ${money(page.totals.gross_cents)}, net ${money(page.totals.net_profit_cents)} across ${scope}.`;
+      const body = page.items.length === 0
+        ? "No sales matched those filters."
+        : page.items.map(saleLine).join(`\n`);
+      return {
+        content: [{ type: "text", text: `${header}\n${body}` }],
+        structuredContent: {
+          sales: page.items as unknown as Record<string, unknown>[],
+          total: page.total,
+          totals: page.totals as unknown as Record<string, unknown>,
+          ...(page.next_cursor ? { next_cursor: page.next_cursor } : {}),
+        },
+      };
+    } catch (err) {
+      if (err instanceof ListingQueryError) {
+        return { content: [{ type: "text", text: err.message }], isError: true };
+      }
+      console.error("[mcp] list sales:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read sales right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+// ── Price guide and comps (US-9110) ────────────────────────────────
+
+const priceGuideTool: McpToolDefinition = {
+  name: "gradethread_price_guide",
+  title: "Look up the GradeThread price guide",
+  description:
+    "Read GradeThread's published price guide: the catalog of covered items, or one entry with " +
+    "its value range and sell-through rate by grade band. Call this when the seller asks what a " +
+    "type of garment is generally worth, or how much a higher grade is worth on it. Omit the slug " +
+    "to list what the guide covers.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      slug: {
+        type: "string",
+        description: "A catalog entry slug. Omit to list the whole catalog.",
+      },
+    },
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, _ctx) => {
+    try {
+      const slug = args.slug as string | undefined;
+      if (!slug) {
+        const catalog = await getPriceGuideCatalog();
+        const body = catalog.length === 0
+          ? "The price guide has no published entries yet."
+          : catalog.map((e) =>
+            `${e.slug} - ${e.brand} ${e.label}, median ${money(e.headlineMedianCents)} ` +
+            `(${e.totalSampleSize} sale(s))`
+          ).join(`\n`);
+        return {
+          content: [{ type: "text", text: `${catalog.length} guide entry(ies).\n${body}` }],
+          structuredContent: { entries: catalog as unknown as Record<string, unknown>[] },
+        };
+      }
+      const entry = await getPriceGuideEntry(slug);
+      if (!entry) {
+        return {
+          content: [{ type: "text", text: `No published price guide entry for ${slug}.` }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: "text", text: JSON.stringify(entry) }],
+        structuredContent: entry as unknown as Record<string, unknown>,
+      };
+    } catch (err) {
+      console.error("[mcp] price guide:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not read the price guide right now." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+const compsTool: McpToolDefinition = {
+  name: "gradethread_comps",
+  title: "What has this actually sold for",
+  description:
+    "Report what comparable garments have ACTUALLY sold for, as a p25/median/p75 band with the " +
+    "sample size it is based on. Call this before pricing or repricing an item, or when the seller " +
+    "asks what something is worth. The answer is an aggregate only - individual listings are never " +
+    "returned. A small sample is reported as such and must not be quoted as a price.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      item_id: {
+        type: "string",
+        description: "The inventory item to price. Its category, brand and size drive the lookup.",
+      },
+    },
+    required: ["item_id"],
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: false, openWorldHint: true },
+  handler: async (args, ctx) => {
+    // Comp pulls are a PAID capability. A chat loop must not be a way around a
+    // plan limit the dashboard enforces, so the same gate applies here.
+    if (!(await featureAllowedForUser(ctx.tenantId, "compPulls"))) {
+      return {
+        content: [{
+          type: "text",
+          text: "Sold-comp lookups are not included in this plan. See https://gradethread.com/pricing.",
+        }],
+        isError: true,
+      };
+    }
+
+    const itemId = String(args.item_id);
+    try {
+      const result = await compsForItem(ctx.tenantId, itemId);
+      if (!result) {
+        return {
+          content: [{ type: "text", text: `No item ${itemId} in this seller's inventory.` }],
+          isError: true,
+        };
+      }
+      if (!result.comps) {
+        // Null is a REAL answer: sold-comps returns nothing below its minimum
+        // sample precisely so a price cannot be quoted off two data points.
+        return {
+          content: [{
+            type: "text",
+            text: `Not enough realized sales to price ${result.basis.title} honestly. No band is available; do not estimate one.`,
+          }],
+          structuredContent: { comps: null, basis: result.basis as unknown as Record<string, unknown> },
+        };
+      }
+      const c = result.comps;
+      const text = [
+        `Median ${money(c.median_cents)} (${money(c.low_cents)} to ${money(c.high_cents)}) for ${result.basis.title}.`,
+        c.caveat,
+      ].join(` `);
+      return {
+        content: [{ type: "text", text }],
+        structuredContent: c as unknown as Record<string, unknown>,
+      };
+    } catch (err) {
+      if (err instanceof CompsUnavailableError) {
+        return { content: [{ type: "text", text: err.message }], isError: true };
+      }
+      console.error("[mcp] comps:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not pull comps right now. Try again shortly." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+// ── Grading readiness (US-9114) ────────────────────────────────────
+
+const gradingReadinessTool: McpToolDefinition = {
+  name: "gradethread_grading_readiness",
+  title: "Check whether items can be graded",
+  description:
+    "Check whether one or more inventory items are ready to submit for grading: which required " +
+    "photos are missing, which fields are blank, what each grade would cost, and whether the " +
+    "seller has enough included grades or credits to cover the batch. Call this before telling a " +
+    "seller to submit, and to answer \"why can I not grade this yet\". It changes nothing.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      item_ids: {
+        type: "array",
+        items: { type: "string" },
+        description: "Inventory item ids to check.",
+      },
+      tier: {
+        type: "string",
+        enum: ["standard", "premium", "express"],
+        description: "Grade tier to price against. Defaults to standard.",
+      },
+    },
+    required: ["item_ids"],
+    additionalProperties: false,
+  },
+  requiredScope: "read",
+  annotations: { readOnlyHint: true, idempotentHint: true, openWorldHint: false },
+  handler: async (args, ctx) => {
+    const ids = (args.item_ids as unknown[] | undefined) ?? [];
+    if (ids.length === 0) {
+      return {
+        content: [{ type: "text", text: "No item ids given." }],
+        isError: true,
+      };
+    }
+    const tier = (args.tier as string | undefined) ?? "standard";
+
+    try {
+      // The SAME validation the submit path runs. A second opinion about
+      // readiness is a second answer to 'can I grade this', and the seller
+      // would get whichever one they happened to ask.
+      const validation = await buildValidation(
+        ctx.tenantId,
+        ids.map((id) => ({
+          inventory_item_id: String(id),
+          tier: tier as Parameters<typeof buildValidation>[1][number]["tier"],
+        })),
+      );
+
+      if (!validation.ok) {
+        return { content: [{ type: "text", text: validation.error }], isError: true };
+      }
+
+      const r = validation.result;
+      const lines = r.items.map((item) => {
+        const state = item.ready ? "READY" : "BLOCKED";
+        const detail = item.ready
+          ? (item.warnings.length > 0 ? item.warnings.join("; ") : "")
+          : item.blockers.join("; ");
+        return [
+          state,
+          item.title ?? item.inventory_item_id.slice(0, 8),
+          money(Math.round(item.cost * 100)),
+          detail,
+        ].filter(Boolean).join(" · ");
+      });
+
+      const header = r.can_submit
+        ? `All ${r.items.length} item(s) are ready. Total ${money(Math.round(r.total_cost * 100))}, ` +
+          `${r.credits_required} credit(s) needed; ${r.user.included_remaining} included grade(s) and ` +
+          `${r.user.credit_balance} credit(s) available.`
+        : r.limit_exceeded
+        ? `Not enough grading allowance: this batch needs ${r.credits_required} credit(s) and ` +
+          `${r.user.included_remaining} included grade(s) plus ${r.user.credit_balance} credit(s) are available.`
+        : `${r.items.filter((i) => !i.ready).length} of ${r.items.length} item(s) are not ready to grade.`;
+
+      return {
+        content: [{ type: "text", text: `${header}\n${lines.join("\n")}` }],
+        structuredContent: r as unknown as Record<string, unknown>,
+      };
+    } catch (err) {
+      console.error("[mcp] grading readiness:", redactError(err));
+      return {
+        content: [{ type: "text", text: "Could not check grading readiness right now." }],
+        isError: true,
+      };
+    }
+  },
+};
+
+export const TOOLS: McpToolDefinition[] = [
+  usageTool,
+  listItemsTool,
+  getItemTool,
+  getGradeTool,
+  listGradesTool,
+  getBatchTool,
+  listListingsTool,
+  listSalesTool,
+  priceGuideTool,
+  compsTool,
+  gradingReadinessTool,
+];
 
 const TOOLS_BY_NAME = new Map(TOOLS.map((tool) => [tool.name, tool]));
 

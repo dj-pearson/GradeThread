@@ -42,12 +42,12 @@ type GradingEnv = {
 
 export const flipdeskGradingRoutes = new Hono<GradingEnv>();
 
-interface SubmitItemInput {
+export interface SubmitItemInput {
   inventory_item_id: string;
   tier: GradingTier;
 }
 
-interface ValidatedItem {
+export interface ValidatedItem {
   inventory_item_id: string;
   tier: GradingTier;
   cost: number;
@@ -64,7 +64,7 @@ interface ValidatedItem {
   required_photo_types_missing: string[];
 }
 
-interface ValidationResult {
+export interface ValidationResult {
   user: {
     plan: string; // flipdesk_plan
     grades_used_this_month: number; // included-standard grades consumed
@@ -256,7 +256,11 @@ export function gradingReadinessBlockers(input: {
   return { blockers, warnings, missingPhotos };
 }
 
-async function buildValidation(
+// US-9114: exported so the connector's readiness tool answers with the SAME
+// validation the submit path uses - blockers, warnings, tier, cost and whether
+// credits cover the batch. A second opinion about readiness is a second answer
+// to "can I grade this", and the seller would get whichever one they asked.
+export async function buildValidation(
   ownerId: string,
   inputs: SubmitItemInput[],
 ): Promise<

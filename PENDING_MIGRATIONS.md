@@ -39,6 +39,62 @@ During the pre-production sprint, migration commits go to `origin/main` AND get
 an entry here; the operator applies the SQL to prod on its own schedule. A 🟠
 entry is on origin and NOT yet in the production database.
 
+## 🟠 PENDING: 00619 — MCP connector tool-call audit log (US-9113)
+
+**Risk: LOW.** One new table, three indexes, one CHECK constraint and one
+operator function. Nothing existing is altered, no row is rewritten, no
+column is added to a table that already has data. The table starts empty and
+only the edge writes to it.
+
+**Apply order: after 00618, before the edge deploy.** The edge boot guard
+expects 00619 once the new container ships, so the SQL must land first or the
+container refuses to start (there is a ~40s grace window, US-778).
+
+**`NOTIFY pgrst, 'reload schema';` IS required.** A new table and a new
+function signature both change what PostgREST exposes, and the edge writes
+audit rows through it. Without the reload the insert 404s on an unknown
+relation — which is survivable, because the write is fire-and-forget and a
+failure only costs the audit row, but it means the connector runs unaudited
+until someone notices.
+
+**The frontend deploy is harmless on its own.** Nothing in `src/` reads this
+table. The seller-facing view of connector activity is US-9119 and does not
+exist yet.
+
+**Deny-all RLS, deliberately.** No policies at all: readable, the table is a
+map of every seller's connector activity; writable, a caller could fabricate
+the record that would exonerate them, which is the one thing an audit log
+must not allow. Registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`. The
+owner column is `owner_user_id` per the rls-guard discovery convention.
+
+**Retention is 400 days**, enforced by `public.sweep_mcp_tool_calls(days)`.
+It is `SECURITY DEFINER` and guarded IN THE BODY with an `auth.role()` check
+that raises 42501 — deliberately **not** by a `REVOKE`. The first draft of
+this migration used a revoke, which is the pattern 00527 is permanently
+blocked for (US-2403): on this Postgres image a denied call from a role in
+`supautils.hint_roles` segfaults the backend and restarts the database, and
+this function is argument-defaulted and in `public`, so the anon key in the
+browser bundle can reach it. 00615 and 00617 made the same call. Nothing
+calls the sweep on a schedule yet — wire it into the maintenance cron when
+the connector has real traffic; until then the table grows, which for an
+empty table is not a problem.
+
+**Verified on the local stack, not assumed.** Applied twice against
+`supabase_db_gradethread` (idempotent: the second run inserts 0 rows), then
+three real tool calls were driven through `/mcp` and the rows checked:
+
+| tool | status | error_code | arguments_redacted |
+|---|---|---|---|
+| `gradethread_usage` | ok | | `{}` |
+| `gradethread_nope` | refused | unknown_tool | `{}` |
+| `gradethread_get_item` | refused | invalid_arguments | `{"item_id": 123}` |
+
+**Rollback is clean:** `DROP TABLE public.mcp_tool_calls;` and
+`DROP FUNCTION public.sweep_mcp_tool_calls(integer);`. Nothing references
+either, so nothing else breaks. You lose the audit history, which is the
+point of the table but not a dependency of anything.
+
+---
 ## 🟠 PENDING: 00618 — allow `escalation_trigger = 'crisis'` (US-2667)
 
 **Risk: LOW.** One CHECK constraint on `support_conversations` is dropped and
