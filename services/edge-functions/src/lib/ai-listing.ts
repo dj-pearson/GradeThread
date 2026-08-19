@@ -339,7 +339,10 @@ export interface ListingGenResult {
   tokensOut: number;
 }
 
-const LISTING_GEN_SYSTEM_PROMPT =
+// Exported for US-2674: the v2 rollout tests compare v1 against v2 directly,
+// because two version names pointing at one constant makes every downstream
+// comparison pass while measuring nothing.
+export const LISTING_GEN_SYSTEM_PROMPT =
   `You are an expert eBay listing creator for FlipDesk, a reseller tool. Given
 photos of a single second-hand item (and optionally known attributes and
 measurements), produce a complete, accurate, publish-ready eBay listing by
@@ -576,7 +579,13 @@ let cachedBundle: { value: ListingPromptBundle; expiresAt: number } | null = nul
 // version_name is looked up in the in-code registry (US-1900), falling back to
 // the v1 code default for any unknown/legacy version_name. This is how an
 // empty-text row like seeded listing_gen_v1 / listing_gen_v2 gets its text.
-function resolvePromptText(
+// US-2674 exported it. It is the hinge the whole listing_gen_v2 rollout turns
+// on: the seeded v2 row (migration 00446) carries EMPTY prompt_text, so if this
+// mapping is wrong then activating v2 silently serves v1 and the eval, the
+// canary and the acceptance stats all measure the champion against itself.
+// That failure is invisible from every surface -- version_name says v2
+// everywhere -- so it is asserted directly rather than through the bundle.
+export function resolvePromptText(
   promptText: string | null,
   versionName: string,
 ): string {
