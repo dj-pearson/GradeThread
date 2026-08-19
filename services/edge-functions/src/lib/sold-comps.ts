@@ -206,3 +206,49 @@ export async function getRealizedComps(
   // 2. Private sales comp set (the seller's own realized sales).
   return await getPrivateSalesComps(args);
 }
+
+// ── US-2675: sold TITLES, not just sold prices ─────────────────────────────
+//
+// getRealizedComps above answers "what did these go for" and throws the titles
+// away, because pricing has no use for them. Demand-term mining has the
+// opposite need: it wants the WORDS on listings that sold, and does not care
+// what they sold for.
+//
+// Deliberately eBay-only. The private-sales fallback getRealizedComps uses is
+// the seller's OWN past listings, and mining those would feed a seller their
+// own vocabulary back as though it were buyer demand -- the exact confusion
+// US-2675 exists to remove. Fewer titles from other people beats more titles
+// from the mirror.
+
+/**
+ * Titles of items that actually sold, for demand-term mining.
+ *
+ * NON-THROWING by contract, like getEbaySearchDemandTerms: returns [] when
+ * Marketplace Insights is not granted, when eBay errors, or when there is
+ * simply no sold history. Listing generation must never fail because a
+ * keyword-quality nicety could not be computed.
+ */
+export async function getRealizedCompTitles(
+  args: Omit<RealizedCompsArgs, "ownerId"> & { limit?: number },
+): Promise<string[]> {
+  try {
+    const sold = await searchSoldComps({
+      categoryId: args.categoryId,
+      q: args.q,
+      brand: args.brand,
+      size: args.size,
+      conditionId: args.conditionId,
+      limit: args.limit ?? 50,
+    });
+    if (!sold) return [];
+    return sold.items
+      .map((i) => i.title)
+      .filter((t): t is string => typeof t === "string" && t.trim().length > 0);
+  } catch (err) {
+    console.error(
+      "[sold-comps] getRealizedCompTitles fallback:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return [];
+  }
+}

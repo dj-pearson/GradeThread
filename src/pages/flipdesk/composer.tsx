@@ -159,6 +159,7 @@ import { StorageSkuCard } from "@/components/flipdesk/composer/storage-sku-card"
 import { PhotosCard } from "@/components/flipdesk/composer/photos-card";
 import { MeasurementsCard } from "@/components/flipdesk/composer/measurements-card";
 import { TitleCard } from "@/components/flipdesk/composer/title-card";
+import type { TitleChip } from "@/components/flipdesk/composer/title-card";
 import { SpecificsSection } from "@/components/flipdesk/composer/specifics-section";
 import { PriceCard } from "@/components/flipdesk/composer/price-card";
 import { CostMarginCard } from "@/components/flipdesk/composer/cost-margin-card";
@@ -2550,15 +2551,25 @@ export function FlipdeskComposerPage({
       titleQuality({
         title,
         brand: item?.brand ?? null,
-        demandTerms: listing?.demand_terms ?? [],
+        // US-2675: prefer the provenance-carrying form so a chip can say it
+        // came from items that SOLD. Falls back to the flat list for drafts
+        // generated before migration 00621, which recorded no source at all.
+        demandTerms: listing?.demand_terms_detail ?? listing?.demand_terms ?? [],
         aspects: livePickedAspects ?? savedAspects ?? {},
       }),
-    [title, item?.brand, listing?.demand_terms, livePickedAspects, savedAspects],
+    [
+      title,
+      item?.brand,
+      listing?.demand_terms,
+      listing?.demand_terms_detail,
+      livePickedAspects,
+      savedAspects,
+    ],
   );
   // Merge the existing titleKeywords() chips with the pack suggestions (demand
   // terms + aspects), dropping any token already in the title and de-duping —
   // extends the chips rather than duplicating them (AC2).
-  const titleChips = useMemo<string[]>(() => {
+  const titleChips = useMemo<TitleChip[]>(() => {
     const present = new Set(
       title
         .toLowerCase()
@@ -2567,15 +2578,18 @@ export function FlipdeskComposerPage({
         .filter(Boolean),
     );
     const seen = new Set<string>();
-    const out: string[] = [];
-    for (const t of [
-      ...keywords,
-      ...titleMeter.suggestions.map((s) => s.token),
+    const out: TitleChip[] = [];
+    for (const chip of [
+      ...keywords.map((token): TitleChip => ({ token })),
+      ...titleMeter.suggestions.map((s): TitleChip => ({
+        token: s.token,
+        evidence: s.evidence,
+      })),
     ]) {
-      const key = t.toLowerCase();
-      if (!t.trim() || seen.has(key) || present.has(key)) continue;
+      const key = chip.token.toLowerCase();
+      if (!chip.token.trim() || seen.has(key) || present.has(key)) continue;
       seen.add(key);
-      out.push(t);
+      out.push(chip);
     }
     return out;
   }, [title, keywords, titleMeter]);

@@ -1,4 +1,4 @@
-import { Loader2, Plus, Sparkles, Wand2 } from "lucide-react";
+import { Loader2, Plus, Sparkles, TrendingUp, Wand2 } from "lucide-react";
 import { AiDiffChip } from "@/components/flipdesk/ai-diff-chip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,19 @@ import type { titleQuality } from "@/lib/title-quality";
 import type { FieldSaveState } from "@/lib/composer-autosave";
 
 type TitleQuality = ReturnType<typeof titleQuality>;
+
+/**
+ * US-2675: a keyword chip, and what backs it.
+ *
+ * `evidence: "sold"` means the term was over-represented in the titles of items
+ * that actually sold, rather than in what other sellers are currently asking.
+ * Undefined means the draft predates the distinction being recorded, so the
+ * chip stays unmarked -- an unmarked chip is "we do not know", never "active".
+ */
+export interface TitleChip {
+  token: string;
+  evidence?: "sold" | "active";
+}
 export interface TitleCardProps {
   title: string;
   setTitle: (next: string) => void;
@@ -21,7 +34,7 @@ export interface TitleCardProps {
   titleLen: number;
   /** From src/lib/title-quality.ts — lockstep with the edge publish lint. */
   titleMeter: TitleQuality;
-  titleChips: string[];
+  titleChips: TitleChip[];
   chipFits: (kw: string) => boolean;
   appendKeyword: (kw: string) => void;
   /** US-551: the AI's original draft, for the per-field diff chips. */
@@ -243,8 +256,14 @@ export function TitleCard({
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-          {titleChips.map((kw) => {
+          {titleChips.map((chip) => {
+            const kw = chip.token;
             const fits = chipFits(kw) && !isEbayOrigin;
+            // US-2675: only "sold" is marked. Marking "active" too would put a
+            // badge on nearly every chip, which reads as decoration and stops
+            // meaning anything -- the point is that a few of them are backed by
+            // items that actually sold.
+            const soldBacked = chip.evidence === "sold";
             return (
               <button
                 key={kw}
@@ -254,9 +273,11 @@ export function TitleCard({
                 title={
                   isEbayOrigin
                     ? ebayOwnedHint
-                    : fits
-                      ? undefined
-                      : "Won't fit in 80 characters"
+                    : !fits
+                      ? "Won't fit in 80 characters"
+                      : soldBacked
+                        ? "Common in titles of items that sold, not just in what other sellers are asking"
+                        : undefined
                 }
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full border bg-muted/50 px-2 py-0.5 text-xs",
@@ -267,6 +288,12 @@ export function TitleCard({
               >
                 <Plus className="h-3 w-3" />
                 {kw}
+                {soldBacked && (
+                  <>
+                    <TrendingUp className="h-3 w-3 shrink-0" aria-hidden="true" />
+                    <span className="sr-only">backed by sold listings</span>
+                  </>
+                )}
               </button>
             );
           })}

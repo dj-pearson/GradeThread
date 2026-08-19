@@ -95,7 +95,7 @@ import {
 import { resolveMarketplaceCategory } from "./marketplace-category-resolve.ts";
 import { EBAY_TITLE_MAX, trimTitleToLimit } from "./title-trim.ts";
 import {
-  getEbaySearchDemandTerms,
+  getEbaySearchDemandTermsDetailed,
   type TitleVariant,
 } from "./demand-terms.ts";
 import { getRealizedComps } from "./sold-comps.ts";
@@ -1699,12 +1699,17 @@ export async function generateListing(
     .filter((v): v is string => !!v && v.trim().length > 0)
     .join(" ")
     .trim();
-  const demandTerms = await getEbaySearchDemandTerms({
+  // US-2675: the detailed form, so the draft records whether each term came
+  // from items that SOLD or merely from what other sellers are asking. The
+  // prompt still gets plain words -- the model has no use for the provenance,
+  // and the seller looking at the chip is the one who does.
+  const demandTermDetail = await getEbaySearchDemandTermsDetailed({
     brand: normalizedBrand,
     categoryId,
     query: demandQueryHint || null,
     size: item.size,
   });
+  const demandTerms = demandTermDetail.map((t) => t.term);
 
   // 4. Generate (on the cost-disciplined photo subset).
   const gen = await generateListingFields({
@@ -2234,6 +2239,11 @@ export async function generateListing(
     title_variants: titleVariants,
     active_title_variant: "A",
     demand_terms: demandTerms.length > 0 ? demandTerms : null,
+    // US-2675 (00621): the same terms with their provenance. Parallel to the
+    // flat array above rather than replacing it, so every existing reader keeps
+    // working; NULL here means the source was never recorded, which is not the
+    // same claim as "these were active-sourced".
+    demand_terms_detail: demandTermDetail.length > 0 ? demandTermDetail : null,
     // US-547: attribute the draft to the prompt version that produced it and
     // snapshot the AI's generated fields, so captureListingAcceptance can diff
     // the seller's published edits against the model's output at publish time.

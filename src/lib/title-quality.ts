@@ -166,10 +166,26 @@ export function isBrandFirst(
 
 export type SuggestionSource = "demand" | "aspect";
 
+/**
+ * US-2675: what a demand term's evidence actually is. "sold" means the term was
+ * over-represented in titles of items that SOLD; "active" means it came only
+ * from what other sellers are currently asking. Undefined means the draft
+ * predates the distinction being recorded, which is not the same as "active".
+ */
+export type DemandEvidence = "sold" | "active";
+
+/** A demand term that knows where it came from (listings.demand_terms_detail). */
+export interface DemandTermInput {
+  term: string;
+  source?: DemandEvidence;
+}
+
 export interface PackSuggestion {
   /** The token to append (kept as-is for display; matched case-insensitively). */
   token: string;
   source: SuggestionSource;
+  /** Only set for source === "demand", and only when the draft recorded it. */
+  evidence?: DemandEvidence;
 }
 
 // High-value aspect names, in the order the playbook recommends surfacing them.
@@ -198,8 +214,13 @@ function alreadyInTitle(titleTokens: Set<string>, token: string): boolean {
 
 export interface PackSuggestionsInput {
   title: string;
-  /** Mined demand terms for this listing (US-1890 demand-terms.ts), highest first. */
-  demandTerms?: (string | null | undefined)[];
+  /**
+   * Mined demand terms for this listing (US-1890 demand-terms.ts), highest
+   * first. Plain strings are the legacy `listings.demand_terms` shape; objects
+   * are `demand_terms_detail` (US-2675) and carry their evidence through to
+   * the chip.
+   */
+  demandTerms?: (string | DemandTermInput | null | undefined)[];
   /** Filled item specifics — name → value(s). Only high-value aspects are used. */
   aspects?: Record<string, string | string[] | null | undefined>;
   max?: number;
@@ -226,17 +247,24 @@ export function packTitleSuggestions(
   const candidates: PackSuggestion[] = [];
   const pushed = new Set<string>();
 
-  const consider = (raw: string | null | undefined, source: SuggestionSource) => {
+  const consider = (
+    raw: string | null | undefined,
+    source: SuggestionSource,
+    evidence?: DemandEvidence,
+  ) => {
     const token = (raw ?? "").trim();
     if (!token) return;
     const key = token.toLowerCase();
     if (pushed.has(key)) return;
     if (alreadyInTitle(titleTokens, token)) return;
-    candidates.push({ token, source });
+    candidates.push(evidence ? { token, source, evidence } : { token, source });
     pushed.add(key);
   };
 
-  for (const term of input.demandTerms ?? []) consider(term, "demand");
+  for (const term of input.demandTerms ?? []) {
+    if (typeof term === "string" || term == null) consider(term, "demand");
+    else consider(term.term, "demand", term.source);
+  }
 
   if (input.aspects) {
     for (const name of HIGH_VALUE_ASPECTS) {

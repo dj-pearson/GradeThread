@@ -1182,6 +1182,29 @@ export const MULTI_ATTRIBUTE_KEYS: readonly CanonicalAttributeKey[] = [
 // 'extra' = supplementary image.
 export type SlabImageMode = "off" | "hero" | "extra";
 
+/**
+ * US-2675: where a mined demand term's evidence came from.
+ *
+ * `sold` means the term was over-represented in the titles of items that
+ * actually sold; `active` means it came only from what other sellers are
+ * currently asking. Only the first is buyer demand, which is the whole reason
+ * the distinction is stored rather than inferred.
+ */
+export type DemandTermSource = "sold" | "active";
+
+export interface DemandTermDetail {
+  term: string;
+  /** How many titles in the corpus named by `source` carried the term. */
+  count: number;
+  source: DemandTermSource;
+  /**
+   * Sold-versus-active frequency lift; 1 means equally common in both. Absent
+   * when there were too few sold comps to divide by, in which case `source` is
+   * "active" for every term.
+   */
+  lift?: number;
+}
+
 export interface ListingRow {
   id: string;
   inventory_item_id: string;
@@ -1202,6 +1225,11 @@ export interface ListingRow {
   // 00154). Fed into the title/description prompt and the US-1892 title meter's
   // pack-to-80 chips.
   demand_terms: string[] | null;
+  // US-2675 (migration 00621): the same terms with provenance, ranked. `source`
+  // says whether the term was over-represented among items that SOLD or came
+  // only from active listings. NULL on drafts generated before this shipped,
+  // which means "unknown", not "active".
+  demand_terms_detail: DemandTermDetail[] | null;
   listing_status: ListingStatus;
   watchers: number;
   views: number;

@@ -1,5 +1,35 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## HELD: 00621 — listings.demand_terms_detail (US-2675)
+
+**Risk: low.** One nullable `jsonb` column added to `public.listings`, plus a
+column comment. No backfill, no constraint, no index, nothing dropped. Every
+existing row reads NULL and every existing query is unaffected.
+
+**What it is for.** The demand-term miner now reads titles of items that SOLD,
+not only active listings, and ranks by how much more common a term is among the
+sold ones. `demand_terms` (text[], 00154) keeps only the words, so the new
+column records `[{term,count,source,lift}]` alongside it. Both are written;
+nothing reads only the new one.
+
+**Apply order:** any time. It does not depend on another held migration.
+
+```sql
+-- supabase/migrations/00621_listing_demand_terms_detail.sql
+NOTIFY pgrst, 'reload schema';
+```
+
+⚠️ **The frontend READS this column, so the push order matters.**
+`src/pages/flipdesk/composer.tsx` reads `listing.demand_terms_detail` to mark a
+keyword chip as sold-backed, and Cloudflare Pages auto-deploys on push. It is
+written defensively (`?? listing?.demand_terms ?? []`), so a frontend that
+deploys before the column exists degrades to unmarked chips rather than
+breaking — but apply the SQL first anyway, so nobody has to rely on that.
+
+**Edge:** `EXPECTED_SCHEMA_VERSION` moves 00620 → 00621 in the same commit, so
+the edge boot guard will expect 00621 on its next Coolify deploy.
+
+
 > [!important] 00610–00620 ARE APPLIED. Measured 2026-08-19, not assumed.
 >
 > `GET https://functions.gradethread.com/health/ready` reports

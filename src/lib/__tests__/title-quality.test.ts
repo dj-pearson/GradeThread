@@ -162,3 +162,67 @@ describe("titleQuality", () => {
     expect(q.weak).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// US-2675: a chip says whether its term is backed by items that SOLD
+//
+// The two shapes have to coexist. listings.demand_terms is a plain text[] and
+// every draft written before migration 00621 has only that; demand_terms_detail
+// carries the provenance. A draft with no detail must render unmarked chips,
+// NOT chips labelled "active" -- "we never recorded it" and "it came from
+// active listings" are different claims, and only one of them is true.
+// ---------------------------------------------------------------------------
+
+describe("demand term provenance (US-2675)", () => {
+  it("carries sold evidence from a detail object through to the suggestion", () => {
+    const { suggestions } = packTitleSuggestionsFor([
+      { term: "gorpcore", source: "sold" },
+      { term: "streetwear", source: "active" },
+    ]);
+    expect(suggestions.find((s) => s.token === "gorpcore")?.evidence).toBe("sold");
+    expect(suggestions.find((s) => s.token === "streetwear")?.evidence).toBe("active");
+  });
+
+  it("a plain string term carries NO evidence, rather than defaulting to active", () => {
+    const { suggestions } = packTitleSuggestionsFor(["gorpcore"]);
+    const chip = suggestions.find((s) => s.token === "gorpcore");
+    expect(chip).toBeDefined();
+    expect(chip?.evidence).toBeUndefined();
+  });
+
+  it("mixes both shapes in one list without dropping either", () => {
+    const { suggestions } = packTitleSuggestionsFor([
+      "flannel",
+      { term: "gorpcore", source: "sold" },
+    ]);
+    expect(suggestions.map((s) => s.token)).toEqual(
+      expect.arrayContaining(["flannel", "gorpcore"]),
+    );
+    expect(suggestions.find((s) => s.token === "flannel")?.evidence).toBeUndefined();
+    expect(suggestions.find((s) => s.token === "gorpcore")?.evidence).toBe("sold");
+  });
+
+  it("still de-duplicates against the title, evidence or not", () => {
+    const { suggestions } = packTitleSuggestionsFor(
+      [{ term: "gorpcore", source: "sold" }],
+      "Patagonia Gorpcore Fleece",
+    );
+    expect(suggestions.some((s) => s.token === "gorpcore")).toBe(false);
+  });
+
+  it("a null or blank detail entry is skipped, not rendered as an empty chip", () => {
+    const { suggestions } = packTitleSuggestionsFor([
+      null,
+      { term: "   ", source: "sold" },
+      { term: "gorpcore", source: "sold" },
+    ]);
+    expect(suggestions.map((s) => s.token)).toEqual(["gorpcore"]);
+  });
+});
+
+function packTitleSuggestionsFor(
+  demandTerms: Parameters<typeof titleQuality>[0]["demandTerms"],
+  title = "Patagonia Fleece",
+) {
+  return titleQuality({ title, brand: "Patagonia", demandTerms });
+}
