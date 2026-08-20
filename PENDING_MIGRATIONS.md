@@ -1,5 +1,43 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00628 — the resolved NAME for a style code, and where it came from (US-2691)
+
+**Risk: LOW.** One new table, one upsert function, no existing table touched,
+nothing backfilled. Deny-all RLS, registered in `SERVICE_ROLE_ONLY`. No client
+reads it; the extract path reaches it through the service-role client.
+
+**What it is.** 00503 stores every listing title a code ever attracted, which is
+evidence. `style_code_names` stores the ANSWER, one row per source, so the read
+path does not recompute a consensus over a dozen titles on every extraction.
+
+Four sources, arriving in four stories and disagreeing by design: `official`
+(the brand's own name), `admin` (curated by hand), `seller` (a seller corrected
+it on their own item), `consensus` (the run of words most listings share).
+**Precedence lives in `lib/style-code-names.ts`, not in a rank column** — a
+number in the table would be a second copy of the same rule, free to drift.
+
+**No REVOKE on the function, on purpose.** Same US-2403 reason 00609 and 00627
+carry: a denied call from `anon` or `authenticated` segfaults this Postgres
+image and restarts the database.
+
+**Apply order**
+
+1. Run `supabase/migrations/00628_style_code_names.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — REQUIRED. New table and new RPC.
+3. Redeploy the edge (`EXPECTED_SCHEMA_VERSION` is now `00628`).
+4. Then OK the push.
+
+**Confirm it landed**
+
+```sql
+select proname from pg_proc where proname = 'record_style_code_name';
+select source, count(*) from public.style_code_names group by source;
+```
+
+Empty on a fresh apply. The `consensus` count is what the sweep fills; if it is
+still zero a day after the sweep task is live, the sweep is finding titles but
+never three that agree, and that is a finding about the codes, not a bug.
+
 ## ⏳ PENDING: 00627 — sweep bookkeeping for the learned style-code index (US-2690)
 
 **Risk: LOW, with one thing to watch.** One new table, two `SECURITY DEFINER`

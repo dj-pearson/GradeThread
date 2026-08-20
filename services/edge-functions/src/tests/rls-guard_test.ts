@@ -215,6 +215,10 @@ const SERVICE_ROLE_ONLY = new Set([
   // US-2690: sweep bookkeeping for the same index — brand + code + counters,
   // no owner and no title. Written and read only by the sweep cron.
   "style_code_sweeps",
+  // US-2691: the resolved NAME per code per source. Brand + code + name +
+  // a public evidence URL; a seller-sourced row records WHAT was corrected,
+  // never by whom.
+  "style_code_names",
   // US-1565: admin task board — internal operator tooling; client policies
   // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
   "admin_task_projects",

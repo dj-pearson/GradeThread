@@ -22,6 +22,10 @@
 // Pure normalize/score/precedence logic, so every rule above is unit-testable
 // without eBay or the database.
 
+import {
+  pickStyleCodeName,
+  type StyleCodeNameRow,
+} from "./style-code-names.ts";
 import { supabaseAdmin } from "./supabase.ts";
 
 /** Never let a learned hint reach the confidence of a verified decoder hit. */
@@ -149,6 +153,15 @@ export interface LearnedStyle {
   /** Capped confidence — see learnedConfidence(). */
   confidence: number;
   evidenceUrl: string | null;
+  /**
+   * US-2691: a RESOLVED name from 00628 — already a product name rather than a
+   * listing title. When this is set the caller must use it AS IS: running it
+   * through styleNameFromTitle would trim words off an answer that was already
+   * the answer.
+   */
+  resolvedName?: string;
+  /** Which 00628 source won. Provenance for the UI and the logs. */
+  resolvedSource?: string;
 }
 
 /**
@@ -226,6 +239,42 @@ export function styleNameFromTitle(
 }
 
 /**
+ * US-2691: the resolved name for a code from 00628, precedence applied.
+ * Returns null when no source has answered yet, or on any DB error.
+ */
+async function lookupResolvedName(
+  brandKey: string,
+  styleCodeNorm: string,
+): Promise<LearnedStyle | null> {
+  try {
+    let query = supabaseAdmin
+      .from("style_code_names")
+      .select("name, source, supporting, confidence, evidence_url, rejected_at")
+      .eq("style_code_norm", styleCodeNorm)
+      .is("rejected_at", null);
+    if (brandKey) query = query.eq("brand_key", brandKey);
+    const { data, error } = await query;
+    if (error) throw error;
+    const pick = pickStyleCodeName((data ?? []) as StyleCodeNameRow[]);
+    if (!pick) return null;
+    return {
+      productTitle: pick.name,
+      resolvedName: pick.name,
+      resolvedSource: pick.source,
+      seenCount: pick.supporting,
+      confidence: pick.confidence,
+      evidenceUrl: pick.evidenceUrl,
+    };
+  } catch (err) {
+    console.error(
+      "[StyleCodes] resolved-name lookup failed (ignored):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
+
+/**
  * Look up what a style code has turned out to be. Brand-scoped when a brand is
  * known (codes collide across namespaces), falling back to the code alone.
  * Returns null on any DB error: a lookup gap must never block extraction.
@@ -236,6 +285,13 @@ export async function lookupLearnedStyle(
 ): Promise<LearnedStyle | null> {
   const styleCodeNorm = normalizeStyleCode(styleCodeRaw);
   if (styleCodeNorm.length < MIN_STYLE_CODE_LENGTH) return null;
+
+  // US-2691: a RESOLVED name wins outright. The observation scan below is what
+  // runs before any source has answered for this code, and it reads back one
+  // seller's title trimmed by regex — strictly worse than any 00628 row.
+  const resolved = await lookupResolvedName(brandKey, styleCodeNorm);
+  if (resolved) return resolved;
+
   try {
     let query = supabaseAdmin
       .from("style_code_observations")

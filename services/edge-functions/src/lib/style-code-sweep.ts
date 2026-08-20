@@ -214,6 +214,12 @@ export interface SweepDeps {
   ) => Promise<unknown>;
   /** Record the ATTEMPT, hit or miss. This is the half 00503 cannot store. */
   markSwept: (candidate: SweepCandidate, titlesFound: number) => Promise<unknown>;
+  /** US-2691: derive and store the consensus NAME from this tick's titles.
+   *  Optional so a caller that only wants evidence can leave it out. */
+  resolveName?: (
+    candidate: SweepCandidate,
+    hits: readonly SweepHit[],
+  ) => Promise<unknown>;
 }
 
 /**
@@ -240,7 +246,13 @@ export async function sweepOneCode(
   }
 
   try {
-    if (hits.length > 0) await deps.observe(candidate, hits);
+    if (hits.length > 0) {
+      await deps.observe(candidate, hits);
+      // The consensus is derived from THIS tick's titles, which is more of them
+      // than 00503 keeps: recordStyleCodeObservations caps what it stores at
+      // MAX_TITLES_PER_OBSERVATION, and a name wants every title it can get.
+      if (deps.resolveName) await deps.resolveName(candidate, hits);
+    }
     await deps.markSwept(candidate, hits.length);
   } catch (err) {
     console.error(

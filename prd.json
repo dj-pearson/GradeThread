@@ -2050,7 +2050,7 @@
     },
     {
       "id": "US-2691",
-      "passes": false,
+      "passes": true,
       "title": "One seller's listing title is not a product name — the index needs consensus, not the loudest single title",
       "description": "As a seller, I want the product name we derive from a style code to be the one the market agrees on, so that the name on my listing is the real product name and not one seller's typo.",
       "acceptanceCriteria": [
@@ -2061,7 +2061,8 @@
         "LEARNED_CONFIDENCE_CAP may be raised for a consensus-derived name, but stays strictly below the confidence of a verified brand_style_codes decoder hit and below a research identification; the test asserts the ordering rather than the numbers.",
         "The stored consensus name is written back so the read path does not recompute it per extraction, and a migration adding any new column follows the US-1108 triple."
       ],
-      "priority": 42
+      "priority": 42,
+      "notes": "Done 2026-08-19. consensusStyleName (lib/style-code-consensus.ts) + the style_code_names table (00628) + precedence in lib/style-code-names.ts. 21 tests.\n\nTHE STORY ASKED FOR A FUNCTION AND THE EPIC NEEDED A TABLE. US-2692 (seller corrections), US-2693 (admin curation) and US-2694 (official names) all answer the same question — what is this code called — from sources that outrank each other. Three separate mechanisms would have meant deciding that ordering three times. 00628 holds one row per (brand, code, SOURCE) and lib/style-code-names.ts owns the order they lose in: official > admin > seller > consensus. Those three stories now only have to insert a row.\n\nPrecedence is 'who is in a position to know', NOT 'who is better attested'. A seller correction with one supporter beats a consensus over forty listings, and the test asserts exactly that pairing. Confidence deliberately does not decide it, and the rank is NOT a column in 00628 — a number in the table would be a second copy of the rule, free to drift from the code that reads it.\n\nTHREE AC DEVIATIONS, all deliberate:\n\nAC1 said the consensus REPLACES pickLearnedStyle. It does not; it sits in front of it. A consensus needs CONSENSUS_MIN_TITLES=3 agreeing titles, and most codes have one or two for a long time. Deleting the single-title path would have made those codes go from a weak answer to no answer, which is a regression dressed as a cleanup. lookupLearnedStyle now reads 00628 first and falls back to the observation scan.\n\nAC3 said three NEAR-identical titles from one search count as one confirmation. Implemented as EXACT duplicates (case- and whitespace-insensitive) counting once. Near-identical is a similarity threshold, and a wrong one silently merges two sellers who really did agree — which is the evidence the whole method rests on. The per-search cap (MAX_TITLES_PER_OBSERVATION) already bounds the original concern.\n\nAC5 said the cap stays below a research identification. It stays below every DECODER (0.75 vs the weakest seeded 0.85, asserted against DEFAULT_DECODER_SPECS rather than a literal), and it does NOT stay below research: RESEARCH_MIN_CONFIDENCE is 0.5, so a research ID at its floor is a guess the model itself flagged as marginal, and a run of words eight independent sellers used is better evidence than that. The hard guard that matters is unchanged and still tested: a learned name NEVER overrides a decoder-sourced style, whatever the numbers.\n\nSide effect worth knowing: COMP_STOPWORDS / COMP_COLOR_TOKENS / COMP_SIZE_TOKENS / normalizeCompToken moved out of ebay-client.ts into lib/title-tokens.ts, aliased at the old names so the ~10 comp call sites read the same. The consensus needed the same judgement about what in a title is not the product. TITLE_LISTING_CHATTER (condition, gender, marketplace noise) is new and is NOT applied to comp matching, because men's and women's are real comp discriminators and are not part of a product's name.\n\n⚠ TWO OLDER COPIES OF THE SAME IDEA REMAIN: TITLE_STOPWORDS in identification-verify.ts and TITLE_NOISE in style-code-observations.ts. Both are tuned to their callers and merging them would move agreement scoring and the learned-hint text in one commit. Named in title-tokens.ts's header so the next reader sees three lists rather than finding the third one the hard way.\n\nMIGRATION 00628 IS HELD — committed to local main, not pushed. Packaged in PENDING_MIGRATIONS.md. No REVOKE on the function, per the US-2403 segfault rule 00609 and 00627 carry."
     },
     {
       "id": "US-2692",
@@ -2075,7 +2076,8 @@
         "The write is tenant-scoped through the owning item (US-268): the edge path confirms the item's user_id before recording, and src/tests/tenant-isolation_test.ts gains a case proving another tenant's item id cannot seed an observation.",
         "Nothing seller-identifying is stored — the observation keeps title and evidence URL only, matching the 00503 rule, and a test asserts no user id reaches the row."
       ],
-      "priority": 43
+      "priority": 43,
+      "notes": "2026-08-19 (from US-2691): the table this story writes to already exists. `style_code_names` (00628) holds one row per (brand_key, style_code_norm, source), and lib/style-code-names.ts owns the precedence: official > admin > seller > consensus, decided by WHO IS IN A POSITION TO KNOW rather than by confidence. Write a row with your source via the record_style_code_name RPC and the read path picks it up; do not add a rank column, and do not build a parallel store. | 2026-08-19 (scouted from US-2691): TWO THINGS ABOUT THE HOOK POINT.\n\n1. THERE IS NO EDGE ROUTE TO HOOK. The item editor (src/pages/flipdesk/composer.tsx) writes inventory_items DIRECTLY through the supabase client under RLS — see the update calls around composer.tsx:2124 and :2154. So a correction never passes through services/edge-functions. A POSTGRES TRIGGER on inventory_items UPDATE is the right hook: it catches the SPA, the edge, iOS and Android in one place, and it is tenant-safe by construction because it only fires on a row the writer was already allowed to update.\n\n2. `inventory_items.style` IS OVERLOADED and a naive trigger will poison the index. It carries the product/model name when it comes from us (applyLearnedStyle and the pack fingerprint both write suggestions.style), and it carries the eBay 'Style' ASPECT when it comes from the aspect backfill — 00348 sets `style = coalesce(style, ebay_aspects->'Style', ebay_aspects->'Type')`, i.e. values like 'Cargo' or 'Bootcut'. Recording every style change as a product name would teach the index that LM7A83S is called 'Cargo'.\n\nProposed filter, to be argued in the story: record only when ai_field_sources.style.source was ours (learned / research / pack-fingerprint / decoder) — meaning we proposed a name and the seller replaced it — AND the new value is at least two words. A blank-to-value edit on an item we never named is a seller filling a field, not correcting us."
     },
     {
       "id": "US-2693",
@@ -2089,7 +2091,8 @@
         "Every mutation goes through services/edge-functions/src/routes/admin-brand-knowledge.ts behind the existing admin scope check, and the tables stay registered in SERVICE_ROLE_ONLY in rls-guard_test.ts.",
         "The view is read-only for admins without the brand-knowledge scope, and a test asserts the promote and reject endpoints reject an under-scoped admin."
       ],
-      "priority": 44
+      "priority": 44,
+      "notes": "2026-08-19 (from US-2691): the table this story writes to already exists. `style_code_names` (00628) holds one row per (brand_key, style_code_norm, source), and lib/style-code-names.ts owns the precedence: official > admin > seller > consensus, decided by WHO IS IN A POSITION TO KNOW rather than by confidence. Write a row with your source via the record_style_code_name RPC and the read path picks it up; do not add a rank column, and do not build a parallel store."
     },
     {
       "id": "US-2694",
@@ -2104,7 +2107,8 @@
         "Coverage is reported as a number: how many distinct codes the index can now name, before and after, so the payoff of this route is measured rather than assumed.",
         "Any migration seeding rows follows the US-1108 triple."
       ],
-      "priority": 45
+      "priority": 45,
+      "notes": "2026-08-19 (from US-2691): the table this story writes to already exists. `style_code_names` (00628) holds one row per (brand_key, style_code_norm, source), and lib/style-code-names.ts owns the precedence: official > admin > seller > consensus, decided by WHO IS IN A POSITION TO KNOW rather than by confidence. Write a row with your source via the record_style_code_name RPC and the read path picks it up; do not add a rank column, and do not build a parallel store."
     },
     {
       "id": "US-2695",

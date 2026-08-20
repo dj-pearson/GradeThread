@@ -20,6 +20,12 @@ import {
   withRetry,
 } from "./retry.ts";
 import { fetchWithTimeout, getBreaker } from "./circuit-breaker.ts";
+import {
+  isSizeToken,
+  normalizeTitleToken,
+  TITLE_COLOR_TOKENS,
+  TITLE_FILLER_TOKENS,
+} from "./title-tokens.ts";
 import { createSharedTokenCache, type SharedTokenCache } from "./coherent-cache.ts";
 
 // US-499: bounded deadline on every eBay HTTP call. eBay is occasionally slow;
@@ -4198,50 +4204,15 @@ function percentile(sorted: number[], p: number): number | null {
 // tokens, with stopwords / size tokens / color tokens stripped and casing
 // normalized. Pure + exported so it is unit-tested without any eBay I/O.
 
-// Grammatical filler + listing-label noise. NOT gender words (men's/women's are
-// meaningful comp discriminators) — only tokens that add zero matching signal.
-const COMP_STOPWORDS = new Set<string>([
-  "a", "an", "the", "and", "or", "for", "with", "in", "of", "to", "by", "on",
-  "at", "from", "your", "this", "that",
-  "size", "sz", "new", "brand", "style", "item", "nwt", "nwot",
-]);
-
-// Common color words — noise for comp matching (a red vs blue shirt are still
-// comparable for pricing) and a frequent cause of zero-result over-filtering.
-const COMP_COLOR_TOKENS = new Set<string>([
-  "black", "white", "red", "blue", "green", "yellow", "orange", "purple",
-  "pink", "brown", "gray", "grey", "navy", "beige", "tan", "gold", "silver",
-  "maroon", "teal", "olive", "cream", "ivory", "khaki", "burgundy", "charcoal",
-  "mustard", "coral", "turquoise", "lavender", "multicolor", "multicolour",
-  "multi",
-]);
-
-// Standalone size words (letter sizes + spelled-out sizes + fit qualifiers).
-const COMP_SIZE_TOKENS = new Set<string>([
-  "xs", "s", "m", "l", "xl", "xxl", "xxxl", "xxxxl",
-  "2xl", "3xl", "4xl", "5xl",
-  "xsmall", "small", "medium", "large", "xlarge", "xxlarge",
-  "petite", "plus", "tall", "reg", "regular",
-]);
-
-// Lowercase a token and strip leading/trailing punctuation (keeps inner chars
-// like the `x` in 32x34 or the `.` in a model number). Returns "" if nothing
-// alphanumeric remains.
-function normalizeCompToken(raw: string): string {
-  return raw.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
-}
-
-// Generic size patterns that aren't fixed words: waist×inseam (32x34), and
-// w/l-prefixed or -suffixed waist/length (w32, 32w, l34). Bare numbers are
-// deliberately NOT treated as sizes — they're often model identifiers (Levi's
-// 501, Air Max 90) whose removal would hurt matching.
-function isCompSizeToken(tok: string): boolean {
-  if (COMP_SIZE_TOKENS.has(tok)) return true;
-  if (/^\d{1,3}x\d{1,3}$/.test(tok)) return true;
-  if (/^[wl]\d{1,3}$/.test(tok)) return true;
-  if (/^\d{1,3}[wl]$/.test(tok)) return true;
-  return false;
-}
+// US-2691: these four moved to lib/title-tokens.ts. The style-code consensus
+// needs the same judgement about what in a title is not the product, and a
+// second colour list is a second thing to forget to update. Aliased rather than
+// renamed at the ~10 call sites below: the COMP_ names say WHY they are applied
+// here (comp matching), which the shared names deliberately do not.
+const COMP_STOPWORDS = TITLE_FILLER_TOKENS;
+const COMP_COLOR_TOKENS = TITLE_COLOR_TOKENS;
+const normalizeCompToken = normalizeTitleToken;
+const isCompSizeToken = isSizeToken;
 
 export interface CompKeywordInput {
   q?: string;

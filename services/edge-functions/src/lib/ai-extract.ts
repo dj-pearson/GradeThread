@@ -1267,7 +1267,10 @@ async function enrichWithLearnedStyle(
   for (const code of codes) {
     const learned = await lookupLearnedStyle(packKey, code);
     if (!learned) continue;
-    const styleName = styleNameFromTitle(learned.productTitle, brand, code);
+    // US-2691: a resolved name (00628) is already a product name. Only the
+    // observation fallback returns a raw listing title needing the trim.
+    const styleName = learned.resolvedName ??
+      styleNameFromTitle(learned.productTitle, brand, code);
     if (!styleName) continue;
     return applyLearnedStyle(decoded, {
       styleName,

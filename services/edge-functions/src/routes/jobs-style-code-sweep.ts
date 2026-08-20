@@ -21,6 +21,7 @@ import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { brandKey } from "../lib/brand-normalize.ts";
 import { searchBrowseComps } from "../lib/ebay-client.ts";
+import { consensusStyleName } from "../lib/style-code-consensus.ts";
 import { recordStyleCodeObservations } from "../lib/style-code-observations.ts";
 import {
   buildSweepWorkList,
@@ -171,6 +172,28 @@ const liveDeps: SweepDeps = {
       titles: hits,
       source: "market_verify",
     }),
+  resolveName: async (candidate, hits) => {
+    // US-2691: null is the common answer early on and is not an error — a code
+    // with two listings has no consensus, and inventing one would put a name on
+    // a listing that no seller and no decoder ever supported.
+    const consensus = consensusStyleName({
+      titles: hits.map((h) => h.title),
+      brand: candidate.brandLabel,
+      styleCode: candidate.styleCodeRaw,
+    });
+    if (!consensus) return;
+    const { error } = await supabaseAdmin.rpc("record_style_code_name", {
+      p_brand_key: candidate.brandKey,
+      p_style_code_norm: candidate.styleCodeNorm,
+      p_style_code_raw: candidate.styleCodeRaw,
+      p_name: consensus.name,
+      p_source: "consensus",
+      p_supporting: consensus.supporting,
+      p_confidence: consensus.confidence,
+      p_evidence_url: hits.find((h) => h.url)?.url ?? null,
+    });
+    if (error) throw error;
+  },
   markSwept: async (candidate, titlesFound) => {
     const { error } = await supabaseAdmin.rpc("record_style_code_sweep", {
       p_brand_key: candidate.brandKey,
