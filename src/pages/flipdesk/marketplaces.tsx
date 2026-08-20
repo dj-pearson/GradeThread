@@ -89,6 +89,7 @@ import {
   useCancelExtensionWork,
   useExtensionQueue,
 } from "@/hooks/use-extension-queue";
+import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
 import {
   syncStateCopy,
   useDismissSyncReview,
@@ -1789,6 +1790,13 @@ export function FlipdeskMarketplacesPage() {
       <SoldSyncSection />
         <ExtensionQueueSection />
 
+      {/* US-2719: the steps, before the channel list. The paragraph below used
+          to carry the only install instruction on the page and it was not a
+          link — a seller was told to install something and given nowhere to do
+          it. The instruction now lives in the setup section, which knows what
+          is already done; this block describes the mechanism only. */}
+      <CrossPostSetup />
+
       <section>
         <h2 className="mb-3 text-base font-semibold text-foreground">
           Connect via browser extension
@@ -1805,11 +1813,10 @@ export function FlipdeskMarketplacesPage() {
               </Badge>
             </div>
             <p className="text-xs text-muted-foreground">
-              These platforms have no public listing API. Install the
-              GradeThread Lister browser extension and cross-list a finished
-              draft straight from your own logged-in tab — title, photos, price
-              and the grade badge are filled in for you. Each channel below
-              states what that means for your account.
+              These platforms have no public listing API, so the extension
+              cross-lists a finished draft straight from your own logged-in tab
+              — title, photos, price and the grade badge are filled in for you.
+              Each channel below states what that means for your account.
             </p>
           </div>
         </div>

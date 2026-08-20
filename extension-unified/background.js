@@ -1714,8 +1714,33 @@ function handleExternalMessage(msg, sender, sendResponse) {
         installed: true,
         name: "GradeThread",
         unified: true,
+        version: ext.runtime.getManifest().version,
         platforms: SUPPORTED_LISTER,
         capabilities: caps,
+        // US-2719: the four things the SaaS's cross-posting setup has to show,
+        // in one round trip. The web page could already infer "installed" from
+        // the bridge marker and "signed in" from capabilities.authenticated,
+        // but it had no way at all to see whether the Lister clickwrap had been
+        // accepted — so a seller who never accepted it got a setup screen that
+        // said everything was ready and a send that failed with needsConsent.
+        //
+        // Reporting the flag is not the same as granting it. Acceptance still
+        // happens only in the popup, from the extension's own copy of the terms
+        // (see the GT_POLL_ACCEPT note above); this says whether it happened.
+        tosAccepted: await tosAccepted(),
+        // Which channels the seller's own build will actually run, rather than
+        // which ones it will accept a job for. A channel whose selectors are
+        // unverified reports "list manually", and the setup screen should not
+        // count it as ready.
+        channels: Object.keys(SUPPORTED_LISTER).map(function (key) {
+          var cfg = (self.GT_LISTER_SELECTORS || {})[key] || {};
+          return {
+            platform: key,
+            label: SUPPORTED_LISTER[key],
+            canList: cfg.enabled === true,
+            canDelist: cfg.enabled === true && !!(cfg.delist && cfg.delist.enabled),
+          };
+        }),
       });
     })();
     return true;

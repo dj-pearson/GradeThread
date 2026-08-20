@@ -72,6 +72,56 @@ function bundleModulesManifestPlugin(): Plugin {
   };
 }
 
+// US-2718: refuse to ship a half-configured cross-listing bridge.
+//
+// The FlipDesk "Send to extension" control is gated on
+// `isListerAvailable()`, which needs VITE_LISTER_EXTENSION === "true". The id
+// is a separate variable, and on 2026-08-20 production had NEITHER: the live
+// bundle compiled `isListerAvailable()` down to `return false` and
+// `listerExtensionId()` down to `return ""`. Cross-listing was not broken, it
+// was absent, and nothing failed to say so — a feature sellers pay for was
+// unreachable because two dashboard fields were blank.
+//
+// A missing id is not cosmetic. On Chromium the page reaches the extension
+// through externally_connectable, which is addressed BY id, so a blank id means
+// the Chromium transport cannot be used at all. Firefox is fine either way (it
+// uses the gt-bridge postMessage relay and never needs an id), which is exactly
+// why this must be checked at build time: the failure is invisible in the
+// browser most likely to be used for the smoke test.
+//
+// Build-time, because that is the only moment both values exist. `import.meta.env`
+// is inlined here and gone by runtime.
+function listerBridgeGuardPlugin(): Plugin {
+  let failure: string | null = null;
+  let warning: string | null = null;
+  return {
+    name: "lister-bridge-guard",
+    apply: "build",
+    // `config.env` is the resolved VITE_* set — .env files AND the process
+    // environment Cloudflare Pages injects. Reading process.env directly here
+    // would miss every local .env and pass a broken build in dev.
+    configResolved(config) {
+      const enabled = config.env.VITE_LISTER_EXTENSION === "true";
+      const id = String(config.env.VITE_LISTER_EXTENSION_ID ?? "").trim();
+      if (enabled && !id) {
+        failure =
+          'VITE_LISTER_EXTENSION is "true" but VITE_LISTER_EXTENSION_ID is empty. ' +
+          "The Chromium page-to-extension transport is addressed by id, so this " +
+          "build would offer sellers a cross-listing button that cannot reach the " +
+          "extension in Chrome. Set both, or neither.";
+      } else if (!enabled && id) {
+        warning =
+          'VITE_LISTER_EXTENSION_ID is set but VITE_LISTER_EXTENSION is not "true", ' +
+          "so the FlipDesk cross-listing button will not render in this build.";
+      }
+    },
+    buildStart() {
+      if (failure) this.error(failure);
+      if (warning) this.warn(warning);
+    },
+  };
+}
+
 function seoManifestPlugin(): Plugin {
   // US-2111: the image half of the manifest. `alt` is reused verbatim as the
   // image:caption, which is why ROUTE_OG_IMAGES alt text must stay descriptive
@@ -195,6 +245,7 @@ export default defineConfig({
     react(),
     tailwindcss(),
     bundleModulesManifestPlugin(),
+    listerBridgeGuardPlugin(),
     seoManifestPlugin(),
     llmsFullDataPlugin(),
     VitePWA({

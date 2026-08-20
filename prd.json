@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2718",
+  "nextId": "US-2725",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -107,7 +107,10 @@
       "acceptanceCriteria": [
         "Published on Chrome Web Store and Firefox AMO with listing copy, screenshots, privacy policy, and a data-use disclosure",
         "Opt-in anonymous telemetry (reads, click-throughs) with a clear toggle",
-        "Install -> click-through -> signup attributed via the referral/affiliate system"
+        "Install -> click-through -> signup attributed via the referral/affiliate system",
+        "The packaged artifact matches the manifest version before upload. extension-unified/manifest.json is at 0.9.0 while dist-ext/ holds only v0.3.7 zips, so scripts/package-extensions.mjs is run and its output version is asserted against the manifest.",
+        "SECRETS: no reviewer test-account password is ever written into extension-unified/SUBMISSION.md or any other tracked file - the repo is PUBLIC (github.com/dj-pearson/GradeThread). The placeholders stay placeholders; the real values are pasted only into the Chrome Web Store's reviewer test-credentials field and AMO's 'Notes for Reviewers' field, both of which are private to reviewers. SUBMISSION.md names WHERE the credential lives, never the value.",
+        "The review account is a dedicated comped account, not a personal one, and its password is rotated after each review round."
       ],
       "priority": 1757,
       "passes": false,
@@ -2299,6 +2302,132 @@
       ],
       "notes": "Filed 2026-08-20 by US-2016 AC4. The guard that found it exists because scoring grading as ONE row is what let iOS ship without this for months; Android is the same row, still green. NOT a bug to fix blind - AC1 is a product decision and it is first for a reason.",
       "priority": 1993
+    },
+    {
+      "id": "US-2718",
+      "passes": false,
+      "title": "Cross-posting is unreachable in production: the Listing Kit's extension button is compiled out of the live build",
+      "description": "As a FlipDesk seller on a paid plan, I want the 'Send to extension' control to exist on the live site, so that the cross-listing feature I pay for can be started at all.",
+      "acceptanceCriteria": [
+        "VITE_LISTER_EXTENSION=true and VITE_LISTER_EXTENSION_ID are both set on the Cloudflare Pages production build. Evidence: the deployed assets/lister-extension-*.js no longer compiles isListerAvailable() to a constant false and listerExtensionId() no longer returns the empty string - both were verified compiled-out on 2026-08-20 (isListerAvailable -> 'return!1', listerExtensionId -> 'return\"\"').",
+        "EXTENSION_ALLOWED_ORIGINS on the Coolify edge lists chrome-extension://<published id>; vault/10-ops/env-reference.md records all three variables as provisioned rather than blank.",
+        "A production build FAILS in vite.config.ts when VITE_LISTER_EXTENSION is 'true' and VITE_LISTER_EXTENSION_ID is empty, so the pair can never again be half-set and ship a silently dead feature.",
+        "A vitest case in src/test/ asserts isListerAvailable() is true when the flag is on and the gt-bridge DOM marker is present, and that extensionWebStoreUrl() returns a chromewebstore.google.com URL rather than null when an id is configured.",
+        "Firefox needs no extra frontend value: a case asserts sendExtensionMessage falls back to the postMessage bridge when the page has no chrome.runtime, so the single Chrome id does not gate Firefox.",
+        "OPERATOR: set the two Pages variables and the edge variable, redeploy, then confirm the button renders on the FlipDesk composer Listing Kit for a paid account with the extension installed."
+      ],
+      "priority": 8,
+      "dependsOn": [
+        "US-1757"
+      ],
+      "notes": "CODE HALF DONE 2026-08-20. vite.config.ts gains listerBridgeGuardPlugin: a production build now fails when VITE_LISTER_EXTENSION is 'true' and VITE_LISTER_EXTENSION_ID is empty, and warns on the reverse. It reads config.env (the resolved VITE_* set, .env files included) rather than process.env, which carries no .env and would have passed a broken local build. Guards in src/test/cross-post-setup.test.ts. REMAINING IS OPERATOR-ONLY: VITE_LISTER_EXTENSION_ID was set on Cloudflare Pages 2026-08-20 by the founder; VITE_LISTER_EXTENSION=true is still unset, and until it is the button stays compiled out. Also still to do: EXTENSION_ALLOWED_ORIGINS on the Coolify edge. Firefox needs NO extra frontend value and this was verified in the code rather than assumed - the page reaches the extension through gt-bridge.js (postMessage), sendExtensionMessage falls back to it whenever the page has no chrome.runtime, and popup.js passes ext.runtime.id which on Firefox is the gecko id 'unified@gradethread.com' and will never equal the configured Chrome id, so connect-extension.tsx drops targetExtId and uses the bridge. One id, both browsers."
+    },
+    {
+      "id": "US-2719",
+      "passes": false,
+      "title": "There is no cross-posting setup anywhere: the Marketplaces page names the extension and never links to it",
+      "description": "As a new FlipDesk seller, I want a step-by-step cross-posting setup on the Marketplaces page, so that I can get from nothing to a working Poshmark cross-post without guessing which of the buttons on the page starts it.",
+      "acceptanceCriteria": [
+        "A 'Set up cross-posting' section on src/pages/flipdesk/marketplaces.tsx shows four ordered steps with real state, not prose: extension installed, signed in to this account, Lister terms accepted, at least one channel ready.",
+        "'Installed' reads the gt-bridge DOM marker via isExtensionInstalled() (US-1882), the same signal src/components/buyer/buyer-first-steps.tsx already uses. It is never inferred from the feature flag.",
+        "'Signed in' and 'terms accepted' come from one GT_PING round trip via sendExtensionMessage. background.js's GT_PING reply is extended to carry tosAccepted alongside the capabilities and platforms it already returns; GT_PING stays in EXTERNAL_TYPES behind the existing isOriginAllowed check.",
+        "Step 1's CTA links to extensionWebStoreUrl(). When that returns null the step says the extension is not published yet - it must NOT fall back to /buyer/settings, which is where buyer-first-steps.tsx currently sends people and is not where anyone gets an extension.",
+        "A step that cannot be completed from the web says where it happens instead of offering a dead control: the Lister clickwrap is accepted in the extension popup only, because the terms must render from the extension's own copy (the one-copy rule stated in background.js's EXTERNAL_TYPES comment).",
+        "The existing dead sentence 'Install the GradeThread Lister browser extension' in the 'Connect via browser extension' section either becomes a link or is replaced by this section. A vitest case asserts the page contains no unlinked 'Install the' instruction.",
+        "A vitest case asserts all four steps render and that the install CTA resolves through extensionWebStoreUrl()."
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-2718"
+      ],
+      "notes": "DONE 2026-08-20 (code). New src/hooks/use-extension-setup.ts (GT_PING round trip + the gt-bridge DOM marker) and src/components/flipdesk/cross-post-setup.tsx, rendered at the top of the extension tier on the Marketplaces page. FIVE steps, not the four the ACs named: the paid-plan gate turned out to be a separate observable fact from being signed in (capabilities.sellerEnabled vs capabilities.authenticated), and folding it into 'signed in' would have shown a green step to a free account whose first send then fails with needsUpgrade. extension-unified/background.js GT_PING now also returns tosAccepted, the manifest version, and a channels array carrying canList/canDelist read from GT_LISTER_SELECTORS - so the screen counts a channel ready only when that build's selectors are verified, rather than when the platform is merely accepted. Reporting acceptance is not granting it: no GT_TOS_ACCEPT exists and a guard asserts EXTERNAL_TYPES still has no accept type, because the clickwrap must render from the extension's own copy. An older extension that does not report tosAccepted reads as not-yet, never as done. The page's dead 'Install the GradeThread Lister browser extension' sentence - the only install instruction on the page, and not a link - is gone; the paragraph now describes the mechanism and the setup section carries the instruction. 8 guards in src/test/cross-post-setup.test.ts."
+    },
+    {
+      "id": "US-2720",
+      "passes": false,
+      "title": "The Listing Kit hides the cross-post button instead of saying why it is missing",
+      "description": "As a seller without the extension installed, I want the Listing Kit to tell me cross-posting needs the extension and where to set it up, so that I do not conclude the feature was never built.",
+      "acceptanceCriteria": [
+        "On a Poshmark, Mercari, Grailed, Vinted or Facebook tab, when isListerAvailable() is false, src/components/flipdesk/listing-kit.tsx renders an inline notice naming the reason and linking to the Marketplaces cross-posting setup, instead of rendering nothing at all (today showSend simply gates the button out).",
+        "The notice distinguishes the two causes it can actually tell apart: the extension is not installed (no gt-bridge marker) versus cross-posting is switched off for this deployment (VITE_LISTER_EXTENSION not 'true'). It never states a cause it cannot verify.",
+        "The manual fallback stays visible and unchanged in both cases: Copy all fields, Open <platform>, Download photos.",
+        "A needsUpgrade result from sendToLister renders an upgrade link to /pricing rather than a bare error toast, since the seller gate is an active paid FlipDesk plan (resolveSellerEntitlement in the edge's lib/buyer-entitlements.ts).",
+        "A channel whose extension flow is off in MARKETPLACE_EXTENSION_FLOW (Facebook today) says 'list manually for now' on its own tab rather than offering a send that the background will refuse.",
+        "A vitest case asserts the notice renders for a lister platform with the bridge absent and does not render on a non-extension platform."
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-2718"
+      ],
+      "notes": "DONE 2026-08-20. src/lib/lister-extension.ts gains listerUnavailableReason(), which splits the single false that isListerAvailable() used to return into 'disabled' (this deployment never switched the bridge on) and 'not-installed' (it did, and the extension is not in this browser). The flag is checked FIRST and a guard asserts that ordering, because with the feature off 'install the extension' is a false trail - nothing the seller installs makes the button appear. listing-kit.tsx renders CrossPostNotice in place of the nothing it used to render, plus a third case for a channel whose MARKETPLACE_EXTENSION_FLOW is 'verifying' (Facebook today), which says list-it-yourself BEFORE the click rather than after the extension refuses. needsUpgrade from the extension now renders a /pricing link instead of a bare toast, and is set only by an explicit answer from the extension - never inferred from the plan the web thinks the account is on, since the extension is the thing enforcing it. Copy all fields / Open <platform> / Download photos are untouched in every case. 4 guards in src/test/cross-post-setup.test.ts."
+    },
+    {
+      "id": "US-2721",
+      "passes": false,
+      "title": "No account-level choice of which marketplaces to cross-post to",
+      "description": "As a seller who only sells on Poshmark and Mercari, I want to pick my channels once for the account, so that every draft stops offering six marketplaces I never use and the Listing Kit stops generating fields for them.",
+      "acceptanceCriteria": [
+        "flipdesk_settings gains a cross_post_channels column (text array, null meaning 'all'), added by a migration carrying the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and the self-record footer.",
+        "The picker lives on the Marketplaces page Settings tab beside 'Auto-end cross-listings on sale', and is read and written with the same supabase upsert-on-user_id pattern the auto_end_cross_listings toggle already uses (RLS on flipdesk_settings scopes it, so no new edge route is needed).",
+        "src/components/flipdesk/composer/push-to-card.tsx and the Listing Kit's KIT_PLATFORMS both read the selection, so an unselected channel is not offered on an item.",
+        "A channel whose flow is off in MARKETPLACE_EXTENSION_FLOW cannot be selected and states why, rather than being silently absent.",
+        "Turning a channel off never hides an item already listed there: existing listings rows for that platform still render on the item and in Marketplaces. A vitest case asserts this.",
+        "Selecting nothing is treated as 'all', never as 'none' - a seller who has not visited the setting must not lose the channels they have today."
+      ],
+      "priority": 30
+    },
+    {
+      "id": "US-2722",
+      "passes": false,
+      "title": "The web cannot queue a cross-post for the desktop, but iOS can",
+      "description": "As a seller working on a machine without the extension, I want to queue a Poshmark listing for the browser that does have it, so that the desktop queue iOS already uses is not iOS-only.",
+      "acceptanceCriteria": [
+        "src/hooks/use-extension-queue.ts useEnqueueExtensionWork is called with kind 'list' from the Listing Kit. Today the web calls it only with kind 'delist', from src/components/flipdesk/pending-delist-banner.tsx, while ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift already enqueues .list.",
+        "The control appears on an extension-tier Listing Kit tab when isListerAvailable() is false, and its explanatory copy is QUEUED_NOTICE verbatim - the same sentence iOS, Android and the edge already share.",
+        "The enqueued row carries source 'web', the inventory item id, the platform and the locale key, matching the body ExtensionQueueService.enqueue posts, so background.js drainQueue runs it with no extension change.",
+        "ExtensionQueueSection on the Marketplaces page lists the queued list job and can cancel it, using the hooks that already exist.",
+        "A queued job is never described as listed. A vitest case asserts the rendered string is QUEUED_NOTICE and that no success wording appears before a completion result arrives.",
+        "No new edge route is added: POST /api/flipdesk/extension-queue already exists and is user-scoped. If one is added, it carries a tenant-isolation_test.ts case per US-268."
+      ],
+      "priority": 31,
+      "dependsOn": [
+        "US-2720"
+      ],
+      "notes": "DONE 2026-08-20. 'Queue for my desktop' now sits inside the not-installed branch of CrossPostNotice in listing-kit.tsx, calling useEnqueueExtensionWork with kind 'list'. The web had only ever called it with kind 'delist' from pending-delist-banner.tsx while ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift had been enqueuing .list since US-2481 - the parity gap ran the wrong way. No server work was needed: the hook already posts source 'web' to POST /api/flipdesk/extension-queue, the route is already user-scoped, and background.js drainQueue already runs list rows, so nothing new touches a multi-tenant table. Deliberately confined to the not-installed branch: offering it beside a working Send button would be two paths to the same listing. The copy is QUEUED_NOTICE verbatim (the sentence web, iOS, Android and the edge already share) and a guard asserts it, because a queued job described as listed is exactly the belief that produces a double sale. 3 guards in src/test/cross-post-setup.test.ts."
+    },
+    {
+      "id": "US-2723",
+      "passes": false,
+      "title": "The extension's own token is rejected by every FlipDesk route it calls, so the desktop queue and sold-sync have never worked",
+      "description": "As a FlipDesk seller, I want the extension's calls to GradeThread to be accepted, so that queued cross-posts actually drain and sold-sync observations actually arrive.",
+      "acceptanceCriteria": [
+        "PROVEN IN PRODUCTION 2026-08-20: 'POST /api/flipdesk/extension-queue/claim status 401' in the edge logs, from background.js drainQueue. The 401 is not a stale token - drainQueue returns before /claim unless sellerAllowed() and tosAccepted() are both true, and sellerAllowed() resolves from the SAME token via /api/grading/public/entitlements, which returned 200.",
+        "Root cause: main.ts:491-492 puts /api/flipdesk/extension-queue behind authMiddleware, which calls supabaseAdmin.auth.getUser(token) and therefore accepts only a Supabase JWT. The extension sends gtBuyerToken, which lib/extension-token.ts mints as userId.expires.hmac - three dot-separated parts, so it LOOKS like a JWT and fails verification rather than being rejected as malformed.",
+        "main.ts:496-497 has the identical defect on /api/flipdesk/sync, so POST /api/flipdesk/sync/observations - the whole point of the US-2698 sold-sync observer - 401s the same way. Fix both, or the next observer ships into the same wall.",
+        "A shared middleware accepts EITHER credential and sets userId identically: Supabase JWT via authMiddleware's path, or a valid extension token via verifyExtensionToken. An invalid token of either kind still 401s; an extension token never grants more than the account it names.",
+        "Tenant scoping is unchanged and re-asserted: userId comes from the verified token only, never from the body, and the existing tenant-isolation_test.ts cases for both route groups still pass with an extension token as the credential.",
+        "A deno test posts an extension token to /api/flipdesk/extension-queue/claim and to /api/flipdesk/sync/observations and asserts 200 rather than 401, so this cannot regress silently again.",
+        "Every endpoint the extension calls is enumerated in one place and each is asserted reachable with an extension token. Today the ones that work are all under /api/grading/public/* and the two that do not are the two under /api/flipdesk/* - that split was accidental, not designed."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-2724",
+      "passes": false,
+      "title": "An undeliverable 'Send to extension' hangs for 130 seconds and then blames the extension for not answering",
+      "description": "As a seller whose click could never have reached the extension, I want to be told that immediately and accurately, so that I do not sit through two minutes of nothing and then read a message that points me at a tab that was never opened.",
+      "acceptanceCriteria": [
+        "src/lib/lister-extension.ts sendListerJob currently returns early on ANY transportError and waits for a push that, when the message was never delivered, can never arrive - so the only outcome is the 130s EXTENSION_TIMEOUT_MS backstop saying 'The extension didn't report back. Check the marketplace tab.'",
+        "The two transport failures are separated, because only one of them can have started a job. 'Could not establish connection. Receiving end does not exist' means nothing received the message and no job exists: settle immediately with a real error. 'The message port closed before a response was received' means the worker was suspended mid-job (the US-1874 case): keep waiting for the durable push, unchanged.",
+        "The immediate error names the actual cause and the actual fix: the installed extension is not the one this site is configured to talk to, or it is disabled. It must NOT say the extension failed to report back, and must not mention a marketplace tab, since none was opened.",
+        "A vitest case asserts a receiving-end-does-not-exist reply settles in well under the 130s timeout, and that a port-closed reply still does not settle - the US-1874 guarantee is preserved and tested, not traded away.",
+        "The same split applies to sendDelistToLister, since an unverified delist that silently hangs is worse: it leaves the US-1629 pending-delist stamp armed while telling the seller nothing."
+      ],
+      "priority": 6,
+      "dependsOn": [
+        "US-2718"
+      ],
+      "notes": "DONE 2026-08-20 (code). Found from a live report: Send to extension did nothing for 130 seconds and then said the extension never reported back. sendViaRuntime now classifies runtime.lastError with isUndeliverable() and sets an \"undelivered\" flag; sendListerJob settles on it immediately with a message naming the real cause (the installed extension is not the one this site is configured for, or it is off) instead of pointing at a marketplace tab that was never opened. The US-1874 guarantee is deliberately untouched and now tested: a plain transportError - the port dying while the worker is suspended mid-job - still does NOT settle, so a live job can still report via the durable push. isUndeliverable matches the stable substrings ('receiving end does not exist', 'could not establish connection') rather than the whole sentence, which Chrome has reworded before, and an UNRECOGNISED error falls into the recoverable branch on purpose: wrongly settling a live job is worse than a slow failure. 4 guards in src/test/cross-post-setup.test.ts, one of which asserts the ordering of the two branches. | FOLLOW-UP 2026-08-20, same session: the live cause was confirmed by the founder reading chrome://extensions - the installed build was an unpacked copy with id nfbjhdjkhpeccfmiedjhchleaeapnkki, while Cloudflare had been given the Chrome Web Store id apinefjjagmigmobdlbiilhbjebmjkdh. externally_connectable targets one exact id, so every message went nowhere. sendExtensionMessage now RECOVERS from that instead of only reporting it: an undelivered id-addressed send retries over the gt-bridge relay, which is injected by whichever build is actually installed and therefore needs no id at all. This also covers a sideloaded or enterprise-deployed copy and a stale id after a re-publish. The retry is gated strictly on undelivered - the flag that means nothing received it - so it cannot duplicate a job; a port that closed mid-job is deliberately never retried, because something did receive that one and a second send would open a second tab. 2 more guards, 48 transport tests green."
     }
   ]
 }

@@ -187,6 +187,27 @@ recallable once submitted.
 
 ## Notes to Reviewer (AMO) / Testing instructions
 
+> **The reviewer password never goes in this file.** This repository is public
+> (`github.com/dj-pearson/GradeThread`), so a password committed here is a
+> published password, and the pre-commit gitleaks hook is not a safety net for a
+> value it has no pattern for.
+>
+> Both stores have a private field for it, and that is the only place it goes:
+>
+> - **Chrome Web Store** — Developer Dashboard, the item's *Privacy practices*
+>   tab, the test-credentials / instructions-for-reviewers box. Visible to
+>   reviewers only.
+> - **Firefox AMO** — the *Notes for Reviewers* box on the version submission.
+>   Visible to reviewers only.
+>
+> Paste the block below into that box and type the password straight into the
+> form. The credential itself lives in the password manager alongside the other
+> Pearson Media signing secrets; name that location in
+> `vault/10-ops/key-rotation.md` if it is not already there, and never the value.
+> Use a dedicated comped review account, and rotate its password after each
+> review round.
+
+
 ```
 PRIMARY FEATURE NEEDS NO ACCOUNT:
 1. Install and open any eBay item page, e.g. https://www.ebay.com/itm/  (any live listing).
@@ -197,8 +218,8 @@ SELLER FEATURE (requires a paid account):
 Cross-listing is gated to an active paid FlipDesk plan. To test it, sign in from the
 popup ("Sign in to unlock" → gradethread.com/connect-extension), then use FlipDesk's
 Listing Kit "Send to extension".
-  Test account:  <<ADD A TEST EMAIL>>
-  Password:      <<ADD A TEST PASSWORD>>
+  Test account:  appledemouser@gradethread.com
+  Password:      (paste it here when you fill in the store form, not into this file)
 (This account is on a comped paid FlipDesk plan so seller tools are enabled.)
 
 BUILD / SOURCE:

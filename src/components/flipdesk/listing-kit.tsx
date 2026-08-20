@@ -11,6 +11,7 @@ import {
   Puzzle,
   Wand2,
 } from "lucide-react";
+import { Link } from "react-router";
 import {
   Card,
   CardContent,
@@ -46,12 +47,19 @@ import {
 } from "@/lib/photo-export";
 import {
   buildListerPayload,
+  extensionWebStoreUrl,
   isListerAvailable,
   isListerPlatform,
+  listerUnavailableReason,
   onListerListed,
   sendToLister,
 } from "@/lib/lister-extension";
+import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
 import { edgeFetch } from "@/lib/edge-fetch";
+import {
+  QUEUED_NOTICE,
+  useEnqueueExtensionWork,
+} from "@/hooks/use-extension-queue";
 
 // Copy-paste targets: the no-API platforms (Poshmark/Mercari/Grailed) plus
 // Depop until its partner API is live (US-712/713/714). Shopify + eBay push via
@@ -217,6 +225,10 @@ function PlatformPanel({
   // promotes it once the seller has actually hit Submit on the marketplace.
   const [prefilled, setPrefilled] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  // US-2720: set only by an explicit needsUpgrade answer FROM the extension —
+  // never inferred from the plan we think the account is on, because the
+  // extension is the thing enforcing it.
+  const [needsUpgrade, setNeedsUpgrade] = useState(false);
 
   // US-1877 (AC1): the AUTOMATIC path — the extension saw the tab navigate to the
   // live listing, which means the seller submitted. Promote the draft and record
@@ -366,6 +378,17 @@ function PlatformPanel({
   // reports the form was filled, WE record the cross-listing via the writeback
   // endpoint using the user's SaaS session.
   const showSend = isListerAvailable() && isListerPlatform(platform);
+  // US-2720: when this IS an extension channel and the send is not on offer, say
+  // why. Rendering nothing is what made a paid feature look like a missing one.
+  const unavailableReason = isListerPlatform(platform)
+    ? listerUnavailableReason()
+    : null;
+  // A channel whose selectors nobody has re-verified degrades to the manual
+  // message inside the extension anyway (MARKETPLACE_EXTENSION_FLOW), so say it
+  // here instead of offering a send the background will refuse.
+  const flowVerifying =
+    isListerPlatform(platform) &&
+    MARKETPLACE_EXTENSION_FLOW[platform] === "verifying";
   const sendExtension = async () => {
     if (!isListerPlatform(platform)) return; // narrows to a ListerPlatform
     if (errors.length > 0) {
@@ -378,6 +401,14 @@ function PlatformPanel({
       const res = await sendToLister(payload);
       if (res.needsConsent) {
         toast.error("Open the GradeThread Lister and accept its terms first.");
+        return;
+      }
+      // US-2720: the seller gate is an active paid FlipDesk plan
+      // (resolveSellerEntitlement in the edge). "Unauthorized" as a bare toast
+      // reads as a bug; it is a plan, and a plan has a link.
+      if (res.needsUpgrade) {
+        setNeedsUpgrade(true);
+        toast.error("Cross-listing needs an active paid FlipDesk plan.");
         return;
       }
       if (!res.ok && !res.filled) {
@@ -583,6 +614,30 @@ function PlatformPanel({
         )}
       </div>
 
+      {/* US-2720: the honest half of `showSend`. One of these renders whenever
+          this is an extension channel and the send is not on offer — the manual
+          controls above stay exactly as they are either way. */}
+      {isListerPlatform(platform) && (unavailableReason || flowVerifying) && (
+        <CrossPostNotice
+          platform={platform}
+          platformLabel={spec.label}
+          itemId={itemId}
+          reason={flowVerifying ? "verifying" : unavailableReason!}
+        />
+      )}
+      {needsUpgrade && (
+        <div className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Cross-listing needs an active paid FlipDesk plan.{" "}
+            <Link to="/pricing" className="font-medium underline underline-offset-2">
+              See plans
+            </Link>
+            .
+          </span>
+        </div>
+      )}
+
       <div className="space-y-3">
         {spec.fields.map((f) => (
           <KitField
@@ -593,6 +648,131 @@ function PlatformPanel({
             onChange={(v) => setEdits((prev) => ({ ...prev, [f.key]: v }))}
           />
         ))}
+      </div>
+    </div>
+  );
+}
+
+// US-2720: why cross-listing is not on offer for this channel right now.
+//
+// Three causes, three different next actions, and collapsing them is how a
+// seller ends up believing the feature does not exist:
+//
+//   disabled      — this deployment never switched the bridge on. Nothing the
+//                   seller does fixes it, so it does not send them anywhere.
+//   not-installed — the one they CAN fix. Install, then sign in from the
+//                   extension's own popup.
+//   verifying     — the channel's selectors have not been re-checked against
+//                   the live sell form, so the extension would report "list
+//                   manually" anyway. Say it before the click, not after.
+//
+// Deliberately NOT a colored side-tab card: this sits directly above the field
+// list and a 4px accent rail here reads as an error state on a form that is
+// perfectly fine.
+export function CrossPostNotice({
+  platform,
+  platformLabel,
+  itemId,
+  reason,
+}: {
+  platform: MarketplacePlatform;
+  platformLabel: string;
+  itemId: string;
+  reason: "disabled" | "not-installed" | "verifying";
+}) {
+  const storeUrl = extensionWebStoreUrl();
+  // US-2722: this browser cannot run the job. Another one might.
+  const enqueue = useEnqueueExtensionWork();
+  const [queued, setQueued] = useState(false);
+  return (
+    <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-2.5 text-xs text-muted-foreground">
+      <Puzzle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="space-y-1">
+        {reason === "verifying" && (
+          <p>
+            Automatic cross-listing to {platformLabel} is paused while we re-check
+            its listing form. Use the fields below and post it yourself.
+          </p>
+        )}
+        {reason === "disabled" && (
+          <p>
+            Automatic cross-listing to {platformLabel} is switched off for this
+            site right now. The fields below are ready to copy in the meantime.
+          </p>
+        )}
+        {reason === "not-installed" && (
+          <>
+            <p>
+              <span className="font-medium text-foreground">
+                Cross-listing needs the GradeThread extension.
+              </span>{" "}
+              It fills {platformLabel}&rsquo;s own listing form in your logged-in
+              tab. Until it is installed, copy the fields below.
+            </p>
+            <p className="flex flex-wrap gap-x-3 gap-y-1">
+              {storeUrl && (
+                <a
+                  href={storeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-foreground underline underline-offset-2"
+                >
+                  Get the extension
+                </a>
+              )}
+              <Link
+                to="/dashboard/flipdesk/marketplaces"
+                className="font-medium text-foreground underline underline-offset-2"
+              >
+                Set up cross-posting
+              </Link>
+            </p>
+            {/* US-2722: iOS has been able to hand this to the desktop since
+                US-2481; the web could only queue DELISTS, so a seller on the
+                machine without the extension had no option but copy-paste. The
+                server holds an instruction — item, platform, locale — never a
+                marketplace credential, and background.js drainQueue runs it the
+                next time a browser that does have the extension wakes up. */}
+            {queued ? (
+              <p className="flex items-start gap-1.5 text-emerald-700 dark:text-emerald-300">
+                <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>Queued for your desktop. {QUEUED_NOTICE}</span>
+              </p>
+            ) : (
+              <div className="space-y-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={enqueue.isPending}
+                  onClick={() => {
+                    enqueue.mutate(
+                      {
+                        kind: "list",
+                        platform,
+                        inventoryItemId: itemId,
+                        payload: {},
+                      },
+                      {
+                        onSuccess: () => setQueued(true),
+                        onError: (err) => toast.error(err.message),
+                      },
+                    );
+                  }}
+                >
+                  {enqueue.isPending ? (
+                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  Queue for my desktop
+                </Button>
+                {/* The sentence is shared verbatim across web, iOS, Android and
+                    the edge. A queued job is not a listed job, and wording that
+                    blurs the two is how a seller believes something is live. */}
+                <p>{QUEUED_NOTICE}</p>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

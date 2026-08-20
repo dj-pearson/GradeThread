@@ -202,6 +202,30 @@ export function extensionWebStoreUrl(): string | null {
   return id ? `https://chromewebstore.google.com/detail/${id}` : null;
 }
 
+/**
+ * WHY cross-listing is unavailable, when it is. (US-2720)
+ *
+ * `isListerAvailable()` collapses two very different situations into one
+ * `false`, and the Listing Kit answered that false by rendering nothing at all.
+ * The seller then sees a card offering Copy, Open and Download and concludes
+ * cross-listing was never built — which is exactly what happened in production
+ * for as long as the two build variables sat blank.
+ *
+ * Only a cause we can actually check is reported:
+ *   "disabled"      — this deployment did not switch the feature on.
+ *   "not-installed" — the feature is on and the extension is not here.
+ * Anything else (the paid-plan gate, an expired token, unaccepted terms) is
+ * knowable only by asking the extension, so it is never guessed at here. The
+ * send path reports those, from the extension's own answer.
+ */
+export type ListerUnavailableReason = "disabled" | "not-installed";
+
+export function listerUnavailableReason(): ListerUnavailableReason | null {
+  if (import.meta.env.VITE_LISTER_EXTENSION !== "true") return "disabled";
+  if (isListerAvailable()) return null;
+  return "not-installed";
+}
+
 /** True when the Lister UI should be offered (flag on + a transport is present). */
 export function isListerAvailable(): boolean {
   if (import.meta.env.VITE_LISTER_EXTENSION !== "true") return false;
@@ -352,6 +376,19 @@ function sendListerJob<T = ExtensionResponse>(message: {
 
     sendExtensionMessage<ExtensionResponse>({ ...message, clientRef }).then(
       (r) => {
+        // US-2724: nothing received the message, so there is no job to wait for.
+        // Say so now, and say the true thing — not "the extension didn't report
+        // back", which points at a marketplace tab that was never opened.
+        if (r && r.undelivered) {
+          done({
+            ok: false,
+            error:
+              "Couldn't reach the GradeThread extension. The installed extension " +
+              "isn't the one this site is set up to talk to, or it's switched off. " +
+              "Check it on your browser's extensions page, then reload this page.",
+          });
+          return;
+        }
         // Keep waiting for the push when the transport (not the extension) failed.
         if (r && r.transportError) return;
         done(r);
@@ -379,7 +416,48 @@ export interface ExtensionResponse {
    * NOT settle on this. See sendListerJob.
    */
   transportError?: boolean;
+  /**
+   * US-2724: the message was never DELIVERED — nothing received it, so no job
+   * exists and no push will ever arrive. Distinct from `transportError`, which
+   * also covers the port dying mid-job while the job is still running.
+   *
+   * A job send must settle on this immediately. Treating it like a suspended
+   * worker means sitting through the full 130s backstop and then telling the
+   * seller the extension "didn't report back" and to check a marketplace tab
+   * that was never opened — which is exactly what happened in production on
+   * 2026-08-20.
+   */
+  undelivered?: boolean;
   [key: string]: unknown;
+}
+
+/**
+ * Did this Chrome runtime error mean "nobody received it"? (US-2724)
+ *
+ * Chrome has two distinct messaging failures and they need opposite handling:
+ *
+ *   "Could not establish connection. Receiving end does not exist."
+ *       No extension with that id is listening. The overwhelmingly common
+ *       causes are an id mismatch (the site is configured for the store build
+ *       and an unpacked copy is installed, or vice versa) and a disabled
+ *       extension. Nothing started, so nothing can finish.
+ *
+ *   "The message port closed before a response was received."
+ *       Something DID receive it and then went away — almost always Chrome
+ *       suspending the MV3 worker while a job is still running. The job is
+ *       alive and the background will push the result home (US-1874).
+ *
+ * Matched on the stable substring rather than the whole sentence, which Chrome
+ * has reworded before. An unrecognised error is treated as the RECOVERABLE
+ * case, because wrongly settling a live job is worse than a slow failure.
+ */
+export function isUndeliverable(message: string | undefined): boolean {
+  if (!message) return false;
+  const m = message.toLowerCase();
+  return (
+    m.includes("receiving end does not exist") ||
+    m.includes("could not establish connection")
+  );
 }
 
 // Chromium externally_connectable transport (page → extension by id).
@@ -403,14 +481,20 @@ function sendViaRuntime(
     try {
       runtime.sendMessage!(id, message, (response) => {
         if (runtime.lastError) {
-          // US-1874: the classic case here is "The message port closed before a
+          // US-1874: one classic case here is "The message port closed before a
           // response was received" — the worker was suspended mid-job. Flagged as a
           // transport error so a job send keeps waiting for the push instead of
           // reporting a failure for a job that is still running.
+          //
+          // US-2724: the OTHER case is not that at all. "Receiving end does not
+          // exist" means the message was never delivered, so there is no job and
+          // no push is coming. Both used to hang for 130 seconds.
+          const msg = runtime.lastError.message;
           done({
             ok: false,
             transportError: true,
-            error: runtime.lastError.message || "Couldn't reach the GradeThread extension.",
+            undelivered: isUndeliverable(msg),
+            error: msg || "Couldn't reach the GradeThread extension.",
           });
           return;
         }
@@ -476,8 +560,26 @@ export function sendExtensionMessage<T = ExtensionResponse>(
   const runtime = chromeRuntime();
   const id = opts?.extensionId || listerExtensionId();
   let p: Promise<ExtensionResponse>;
-  if (runtime?.sendMessage && id) p = sendViaRuntime(runtime, id, message);
-  else if (bridgeAvailable()) p = sendViaBridge(message);
+  if (runtime?.sendMessage && id) {
+    // US-2724: the id-addressed transport is preferred, but it is addressed by
+    // an id that can be WRONG in a way nothing else notices.
+    //
+    // externally_connectable targets one exact extension id. The bridge does
+    // not: gt-bridge.js is injected by whichever build is actually installed
+    // and relays over internal messaging, so it reaches the right extension by
+    // construction. When the configured id names a build that is not installed
+    // — an unpacked dev copy alongside a store id, a sideloaded or
+    // enterprise-deployed copy, a stale id after a re-publish — the id path
+    // dies and the bridge path would have worked.
+    //
+    // Falling back ONLY on `undelivered` is what makes this safe. That flag
+    // means nothing received the message, so re-sending cannot duplicate a job.
+    // A port that closed mid-job is NOT retried here: something did receive it,
+    // a job may be running, and a second send would open a second tab.
+    p = sendViaRuntime(runtime, id, message).then((r) =>
+      r.undelivered && bridgeAvailable() ? sendViaBridge(message) : r,
+    );
+  } else if (bridgeAvailable()) p = sendViaBridge(message);
   else p = Promise.resolve({ ok: false, error: "GradeThread extension not detected." });
   return p as unknown as Promise<T>;
 }
