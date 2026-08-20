@@ -11,6 +11,7 @@ import {
   BREAKER_SHARE,
   dedupeKeyFor,
   planObservations,
+  planSaleEffects,
   type KnownListing,
   type ObservationBatch,
   type SoldObservation,
@@ -343,4 +344,53 @@ Deno.test("a sold row for a listing already marked sold locally is not re-confir
     seenKeys: new Set(),
   });
   assertEquals(plan.confirmed.length, 0);
+});
+
+// ── the delist handoff (AC11) ──────────────────────────────────────────────
+//
+// The point of the whole story: cross-listings.ts has planned sibling delists
+// correctly since US-1290 and has never been called for these marketplaces.
+// planSaleEffects is where that call is decided, so it is where it is asserted.
+
+Deno.test("a confirmed sale plans a sibling delist for that listing", () => {
+  const plan = planObservations({
+    batch: batch({ sold: [sold()] }),
+    known: [listing()],
+    seenKeys: new Set(),
+  });
+  const effects = planSaleEffects(plan.confirmed);
+  assertEquals(effects.length, 1);
+  assertEquals(effects[0].delistSiblingsOf, "l1");
+  assertEquals(effects[0].itemId, "i1");
+});
+
+Deno.test("cents become major units for sales.sale_price", () => {
+  const effects = planSaleEffects([
+    { listingId: "l1", itemId: "i1", soldPriceCents: 8500, soldAt: "2026-08-18T12:00:00.000Z", dedupeKey: "k" },
+  ]);
+  assertEquals(effects[0].salePrice, 85);
+  assertEquals(effects[0].saleDate, "2026-08-18");
+});
+
+Deno.test("an unpriced sale carries a null price rather than a zero", () => {
+  const effects = planSaleEffects([
+    { listingId: "l1", itemId: "i1", soldPriceCents: null, soldAt: null, dedupeKey: "k" },
+  ]);
+  assertEquals(effects[0].salePrice, null);
+  assertEquals(effects[0].saleDate, null);
+});
+
+Deno.test("a breaker-tripped batch delists NOTHING", () => {
+  const known: KnownListing[] = [];
+  const soldRows: SoldObservation[] = [];
+  for (let i = 0; i < 120; i++) {
+    known.push(listing({ id: `l${i}`, itemId: `i${i}`, listingUrl: `https://poshmark.com/listing/${i}` }));
+  }
+  for (let i = 0; i < 200; i++) {
+    soldRows.push(sold({ listingUrl: `https://poshmark.com/listing/${i}` }));
+  }
+  const plan = planObservations({ batch: batch({ sold: soldRows }), known, seenKeys: new Set() });
+  assertEquals(plan.breakerTripped, true);
+  // The assertion that matters: a broken selector cannot reach the delist path.
+  assertEquals(planSaleEffects(plan.confirmed).length, 0);
 });

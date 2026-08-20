@@ -27,6 +27,7 @@ import { EXTENSION_DELIST_PLATFORMS } from "../lib/cross-listing-sale.ts";
 import { findForbiddenKey } from "../lib/sync-payload-guard.ts";
 import {
   planObservations,
+  planSaleEffects,
   type ClosetObservation,
   type KnownListing,
   type ObservationBatch,
@@ -298,7 +299,10 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
 
     // ── confirmed sales ────────────────────────────────────────────────────
     let delisted = 0;
-    for (const sale of plan.confirmed) {
+    // planSaleEffects owns the shape of a confirmed sale (units, date half,
+    // which listing the sibling delist keys on) so that shape is asserted by
+    // marketplace-observations_test.ts instead of living only here.
+    for (const sale of planSaleEffects(plan.confirmed)) {
       // The dedupe ledger goes in FIRST and its unique index is the real guard:
       // two polls racing on the same Sold page would otherwise both pass the
       // seenKeys read above and book the sale twice.
@@ -326,8 +330,8 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
         platform_order_id: sale.dedupeKey,
         line_item_id: "",
         quantity: 1,
-        sale_price: sale.soldPriceCents == null ? null : sale.soldPriceCents / 100,
-        sale_date: sale.soldAt?.slice(0, 10) ?? null,
+        sale_price: sale.salePrice,
+        sale_date: sale.saleDate,
         sold_at: sale.soldAt,
         // Deliberately null: the observer never reads buyer identity, and there
         // is no column on the sync tables that could have carried it here.
@@ -339,7 +343,7 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       // The handoff this whole story exists for. Best-effort by construction:
       // autoEndCrossListings never throws, and a sale must not fail because a
       // sibling delist did.
-      const summary = await autoEndCrossListings(ownerId, sale.listingId);
+      const summary = await autoEndCrossListings(ownerId, sale.delistSiblingsOf);
       delisted += summary.ended + summary.queued;
     }
 

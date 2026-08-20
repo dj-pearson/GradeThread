@@ -216,6 +216,40 @@ function probableMatch(
   return candidates.length === 1 ? (candidates[0] ?? null) : null;
 }
 
+/**
+ * What a confirmed sale causes, as data.
+ *
+ * Separated from the route so the HANDOFF is assertable without a database.
+ * `delistSiblingsOf` is the whole point of this story: it is the listing id
+ * handed to autoEndCrossListings, which has planned sibling delists correctly
+ * since US-1290 and has simply never been called for these marketplaces.
+ * A test can now prove a confirmed sale produces that call, rather than a
+ * reviewer having to read the route and take it on trust.
+ */
+export interface SaleEffect {
+  dedupeKey: string;
+  listingId: string;
+  itemId: string;
+  /** MAJOR units — what sales.sale_price takes (00002 declares it decimal). */
+  salePrice: number | null;
+  /** Calendar date half of soldAt, for sales.sale_date. */
+  saleDate: string | null;
+  soldAt: string | null;
+  delistSiblingsOf: string;
+}
+
+export function planSaleEffects(confirmed: readonly ConfirmedSale[]): SaleEffect[] {
+  return confirmed.map((sale) => ({
+    dedupeKey: sale.dedupeKey,
+    listingId: sale.listingId,
+    itemId: sale.itemId,
+    salePrice: sale.soldPriceCents == null ? null : sale.soldPriceCents / 100,
+    saleDate: sale.soldAt ? sale.soldAt.slice(0, 10) : null,
+    soldAt: sale.soldAt,
+    delistSiblingsOf: sale.listingId,
+  }));
+}
+
 export function planObservations(input: PlanInput): ObservationPlan {
   const { batch, known, seenKeys } = input;
 
