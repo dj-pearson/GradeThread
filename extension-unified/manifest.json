@@ -66,6 +66,8 @@
       "registry.js",
       "research/seller-memory.js",
       "research/compare-tray.js",
+      "sync/selectors.js",
+      "sync/poll-plan.js",
       "background.js"
     ]
   },

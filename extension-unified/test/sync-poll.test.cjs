@@ -23,6 +23,10 @@ function load(rel, globalName) {
 }
 
 const P = load("sync/poll-plan.js", "GT_SYNC_POLL");
+
+function readSrc(rel) {
+  return fs.readFileSync(path.join(dir, rel), "utf8");
+}
 const NOW = 1_800_000_000_000;
 const PLATFORMS = ["poshmark", "mercari"];
 
@@ -292,8 +296,115 @@ assert.strictEqual(
   );
 }
 
+// ── 11. The DRIVER, which is the half that can actually do damage ──────────
+//
+// background.js opens the tab. These are source guards rather than behaviour
+// tests because the alternative is a browser, and the properties worth pinning
+// are structural: what it opens, how, and what it checks first.
+
+{
+  const bg = readSrc("background.js");
+
+  // Scope every check below to the poll's own function body. The first version
+  // matched `tabs.create({ url: url, ... })` across the whole file and failed on
+  // the LISTER's create, which focuses its tab deliberately: the seller asked
+  // for it and has to finish the form in it. Two features with opposite correct
+  // answers, so a file-wide guard was asserting the wrong rule on both.
+  const tick = bg.slice(
+    bg.indexOf("async function runSyncPollTick"),
+    bg.indexOf("async function reapSyncPollTab"),
+  );
+  assert.ok(tick.length > 200, "could not isolate runSyncPollTick");
+
+  // The tab is opened UNFOCUSED. A poll that stole focus while the seller was
+  // typing would be uninstalled within a day, whatever it did for them.
+  const pollCreate = tick.match(/tabs\.create\(\{[^}]*\}\)/g) || [];
+  assert.ok(pollCreate.length >= 1, "the poll driver no longer opens a tab");
+  for (const c of pollCreate) {
+    assert.ok(
+      /active:\s*false/.test(c),
+      `the poll opens a FOCUSED tab: ${c}`,
+    );
+  }
+
+  // The URL comes from pollUrlFor and nowhere else.
+  assert.ok(
+    /const url = PLAN\.pollUrlFor\(SELECTORS, platform\)/.test(bg),
+    "the poll driver no longer resolves its URL through pollUrlFor",
+  );
+  // Scoped to `tick`, not the file: `if (!url) return;` appears in other
+  // handlers too, so a file-wide match stayed green while the poll's own bail
+  // was deleted.
+  assert.ok(
+    /if \(!url\) return;/.test(tick),
+    "the poll driver does not bail when pollUrlFor refuses",
+  );
+  // And it must not build one from a message.
+  assert.ok(
+    !/msg\b/.test(tick),
+    "runSyncPollTick references a message. The polled URL and platform must come " +
+      "from the bundled config, never from something a page could send.",
+  );
+
+  // It asks the planner rather than deciding for itself.
+  assert.ok(/PLAN\.planPoll\(/.test(bg), "the driver no longer consults planPoll");
+  assert.ok(
+    /if \(!plan\.poll\.length\) return;/.test(bg),
+    "the driver does not honour an empty plan",
+  );
+  assert.ok(
+    /await sellerAllowed\(\)/.test(tick),
+    "the poll runs without re-checking the seller entitlement",
+  );
+
+  // An alarm, not a timer: a service worker is torn down and setTimeout dies
+  // with it, which would make the poll work only while something else kept the
+  // worker alive.
+  assert.ok(/alarms\.create\(SYNC_POLL_ALARM/.test(bg), "the poll has no alarm");
+  assert.ok(
+    !/setInterval\s*\(/.test(bg.slice(bg.indexOf("SYNC_POLL_ALARM"))),
+    "the poll driver uses setInterval, which dies with the service worker",
+  );
+
+  // Engagement liveness FAILS CLOSED.
+  const eng = bg.slice(bg.indexOf("async function engagementInFlight"), bg.indexOf("async function runSyncPollTick"));
+  assert.ok(
+    /catch \(_e\) \{[\s\S]*return true;/.test(eng),
+    "engagementInFlight fails OPEN. If we cannot tell whether a share run is " +
+      "live, polling anyway risks two automations on one closet, which is what " +
+      "costs a seller their account; a skipped poll costs them forty minutes.",
+  );
+
+  // A polled tab is always cleaned up, even if it never reports.
+  //
+  // The name is matched with a boundary, not as a substring: renaming the
+  // constant to SYNC_POLL_TAB_TTL_MSX left the old check green, because one
+  // contains the other. And naming a constant proves nothing on its own, so the
+  // reaper is asserted to actually COMPARE against it and then close the tab.
+  const reap = bg.slice(
+    bg.indexOf("async function reapSyncPollTab"),
+    bg.indexOf("async function notePollResult"),
+  );
+  assert.ok(reap.length > 100, "could not isolate reapSyncPollTab");
+  assert.ok(
+    /\bSYNC_POLL_TAB_TTL_MS\b/.test(bg),
+    "a polled tab has no time-to-live constant",
+  );
+  assert.ok(
+    /<\s*SYNC_POLL_TAB_TTL_MS\b/.test(reap),
+    "the reaper never compares a tab's age against the time-to-live, so a tab " +
+      "that never reports is left open on the seller's marketplace forever",
+  );
+  assert.ok(/tabs\.remove\(/.test(reap), "the reaper never closes the tab");
+  assert.ok(
+    /tabs\.remove\(/.test(bg.slice(bg.indexOf("async function notePollResult"))),
+    "a reporting poll never closes its own tab",
+  );
+}
+
 console.log(
   "sync-poll.test.cjs: consent is versioned and re-checked, the interval floor holds, " +
     "engagement blocks the poll, signed-out backs off, a human check stops the channel, " +
-    "and the polled URL can only ever come from the bundled config",
+    "the polled URL can only ever come from the bundled config, and the driver " +
+    "opens an unfocused tab on an alarm and fails closed on engagement",
 );

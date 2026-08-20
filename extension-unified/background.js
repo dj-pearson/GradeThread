@@ -43,6 +43,10 @@ if (typeof importScripts === "function") {
     "registry.js",
     "research/seller-memory.js",
     "research/compare-tray.js",
+    // US-2701: the poll's decisions and the adapters it reads them against.
+    // The DRIVER is in this file; these two only decide and describe.
+    "sync/selectors.js",
+    "sync/poll-plan.js",
   );
 }
 const ext = globalThis.browser || globalThis.chrome;
@@ -597,6 +601,136 @@ async function fetchSyncStatus() {
     status: resp.status,
     channels: (json && Array.isArray(json.channels)) ? json.channels : [],
   };
+}
+
+// ── US-2701: the scheduled sold-sync poll ──────────────────────────────────
+//
+// THE DECIDING IS NOT HERE. Every rule that stops this — consent, the interval
+// floor, the engagement exclusion, the signed-out backoff, the human-check stop
+// — is a pure function in sync/poll-plan.js, held by test/sync-poll.test.cjs.
+// This file only opens the tab the planner named.
+//
+// It reuses the queue drain's shape rather than inventing a second scheduler:
+// an unfocused tab, a URL that came from the bundled config, and a chrome.alarms
+// sweep. An alarm is owned by the browser, so it survives the service worker
+// being torn down, which setTimeout does not.
+const SYNC_POLL_ALARM = "gt-sync-poll";
+const SYNC_POLL_TICK_MIN = 5;
+/** A polled tab that has not reported by now is closed regardless. */
+const SYNC_POLL_TAB_TTL_MS = 90 * 1000;
+
+async function syncPollSettings() {
+  const out = await ext.storage.local.get(["syncPoll", "syncPollChannels", "syncPollClickwrap"]);
+  return {
+    settings: (out && out.syncPoll) || { enabled: false },
+    channels: (out && out.syncPollChannels) || {},
+    clickwrap: (out && out.syncPollClickwrap) || null,
+  };
+}
+
+/**
+ * Is an engagement run holding a tab right now?
+ *
+ * Mirrors the liveness check GT_ENGAGE_STATE does: a stored run whose tab is
+ * gone is a stale record, not a live run, and treating it as live would wedge
+ * the poll off forever after one crashed share pass.
+ */
+async function engagementInFlight() {
+  try {
+    const out = await ext.storage.local.get("engageRun");
+    const run = out && out.engageRun;
+    if (!run || typeof run.tabId !== "number") return false;
+    try {
+      return Boolean(await ext.tabs.get(run.tabId));
+    } catch (_e) {
+      await ext.storage.local.remove("engageRun");
+      return false;
+    }
+  } catch (_e) {
+    // FAIL CLOSED. If we cannot tell whether a share run is live, do not poll:
+    // two automations on one closet is the thing that costs a seller their
+    // account, and a skipped poll costs them forty minutes.
+    return true;
+  }
+}
+
+async function runSyncPollTick(nowMs) {
+  const PLAN = self.GT_SYNC_POLL;
+  const SELECTORS = self.GT_SYNC_SELECTORS;
+  if (!PLAN || !SELECTORS) return;
+
+  if (!(await sellerAllowed())) return;
+
+  const stored = await syncPollSettings();
+  const plan = PLAN.planPoll({
+    nowMs: nowMs,
+    platforms: Object.keys(SELECTORS).filter(function (k) { return SELECTORS[k].enabled; }),
+    clickwrap: stored.clickwrap,
+    settings: stored.settings,
+    channels: stored.channels,
+    engagementInFlight: await engagementInFlight(),
+  });
+  if (!plan.poll.length) return;
+
+  const platform = plan.poll[0];
+  // The URL is a value from the bundled config. There is no parameter for one.
+  const url = PLAN.pollUrlFor(SELECTORS, platform);
+  if (!url) return;
+
+  let tab;
+  try {
+    // NOT focused. This is background work the seller did not just ask for, and
+    // stealing focus from whatever they are doing is the fastest way to make
+    // them uninstall it.
+    tab = await ext.tabs.create({ url: url, active: false });
+  } catch (_e) {
+    return;
+  }
+
+  const channels = stored.channels;
+  channels[platform] = PLAN.applyPollResult(channels[platform], null, nowMs);
+  await ext.storage.local.set({
+    syncPollChannels: channels,
+    syncPollTab: { tabId: tab.id, platform: platform, openedAt: nowMs },
+  });
+}
+
+/** Close a polled tab once it has reported, or once it has had long enough. */
+async function reapSyncPollTab(nowMs) {
+  const out = await ext.storage.local.get("syncPollTab");
+  const rec = out && out.syncPollTab;
+  if (!rec || typeof rec.tabId !== "number") return;
+  if (nowMs - (rec.openedAt || 0) < SYNC_POLL_TAB_TTL_MS) return;
+  try {
+    await ext.tabs.remove(rec.tabId);
+  } catch (_e) { /* already gone */ }
+  await ext.storage.local.remove("syncPollTab");
+}
+
+/**
+ * Record what a polled read reported, and close its tab.
+ *
+ * Called from the GT_SYNC_OBSERVE handler, because the content script's report
+ * IS the poll's result — there is no second channel and no second read.
+ */
+async function notePollResult(batch) {
+  const PLAN = self.GT_SYNC_POLL;
+  if (!PLAN || !batch || !batch.platform) return;
+  const out = await ext.storage.local.get(["syncPollTab", "syncPollChannels"]);
+  const rec = out && out.syncPollTab;
+  if (!rec || rec.platform !== batch.platform) return; // a passive read, not ours
+
+  const channels = (out && out.syncPollChannels) || {};
+  channels[batch.platform] = PLAN.applyPollResult(
+    channels[batch.platform],
+    { signedIn: batch.signedIn !== false, humanCheck: batch.humanCheck === true },
+    Date.now(),
+  );
+  await ext.storage.local.set({ syncPollChannels: channels });
+  try {
+    await ext.tabs.remove(rec.tabId);
+  } catch (_e) { /* the seller may have closed it */ }
+  await ext.storage.local.remove("syncPollTab");
 }
 
 async function postSyncObservations(msg) {
@@ -1380,6 +1514,15 @@ function handleDelistRequest(payload, sender, sendResponse, clientRef) {
 // than bricking the extension.
 if (ext.alarms && ext.alarms.onAlarm) {
   ext.alarms.onAlarm.addListener(function (alarm) {
+    // US-2701: the sold-sync poll shares the alarm surface rather than adding
+    // a second scheduler. planPoll decides whether this tick does anything.
+    if (alarm && alarm.name === SYNC_POLL_ALARM) {
+      const now = Date.now();
+      void reapSyncPollTab(now);
+      void runSyncPollTick(now);
+      return;
+    }
+
     const name = (alarm && alarm.name) || "";
 
     if (name === SWEEP_ALARM) {
@@ -1407,6 +1550,7 @@ if (ext.alarms && ext.alarms.onAlarm) {
   // (not per-job) so it costs one alarm total rather than one per job.
   try {
     ext.alarms.create(SWEEP_ALARM, { periodInMinutes: 5 });
+    ext.alarms.create(SYNC_POLL_ALARM, { periodInMinutes: SYNC_POLL_TICK_MIN });
   } catch (_e) { /* jobs just linger until the session ends */ }
 }
 
@@ -1954,9 +2098,13 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       // US-2698: a passive sold-sync read from the seller's own Poshmark pages.
       // Nothing here decides what sold; the server does.
-      case "GT_SYNC_OBSERVE":
-        sendResponse(await postSyncObservations(msg));
+      case "GT_SYNC_OBSERVE": {
+        const out = await postSyncObservations(msg);
+        // If this read came from a polled tab, it is also the poll's result.
+        void notePollResult(msg && msg.batch);
+        sendResponse(out);
         break;
+      }
       // US-2699: what the popup renders. Same projection as the web.
       case "GT_SYNC_STATUS":
         sendResponse(await fetchSyncStatus());
