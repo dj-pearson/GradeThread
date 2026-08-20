@@ -222,7 +222,11 @@ describe("the measurement canvas can be operated without a drag (US-2534 AC2)", 
     const start = nudge.indexOf("static func announcement(");
     expect(start, "the announcement helper vanished").toBeGreaterThan(-1);
     const block = nudge.slice(start);
-    expect(block).not.toMatch(/point\.x|point\.y|x:|y:/);
+    // Only the coordinate ACCESSORS. An earlier version also tried to forbid
+    // the argument labels `x:` and `y:`, which is over-broad - a label is not a
+    // spoken coordinate - and the escape for it was mangled into two literal
+    // backspace characters, which is what eslint's no-control-regex caught.
+    expect(block).not.toMatch(/point\.x|point\.y/);
   });
 
   it("the nudge maths is NOT in the file that claims to mirror the web", () => {
