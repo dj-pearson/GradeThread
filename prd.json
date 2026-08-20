@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2733",
+  "nextId": "US-2734",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2555,6 +2555,21 @@
         "The per-photo failure accounting is unchanged: one bad photo still costs only itself, and the attached/failed/total counts the seller sees (US-1877) mean the same thing.",
         "SEPARATE FIX in the same change: GT.log, the login-wall notice and the RESULT delivery each wrapped chrome.runtime.sendMessage in a synchronous try/catch, which cannot catch what MV3 actually does - with no callback it returns a promise and a sleeping worker REJECTS it. Every fill on a page whose worker had slept printed 'Uncaught (in promise) Error: Could not establish connection. Receiving end does not exist.' into the marketplace console, seen live on poshmark.com/create-listing. All three now route through GT.tell, which swallows both the throw and the rejection.",
         "NOT the cause of the reported 15-20s before the Poshmark form appears. That window is the marketplace tab loading (its own console shows GTM, a PayPal tag 410 and an ad killed for CPU) plus the flow's deliberate 6s probe budget, which is capped and concurrent already. Recorded so nobody re-hunts it as a regression."
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-2733",
+      "passes": false,
+      "title": "Reloading the extension orphans the page's relay, and the site waits 130 seconds for a reply that can never come",
+      "description": "As someone developing against an unpacked build, I want a reload to fail fast and tell me to refresh the tab, so that I do not sit through a two-minute spinner every time I change the extension.",
+      "acceptanceCriteria": [
+        "OBSERVED 2026-08-20 right after reloading an unpacked build: GradeThread spun for 20+ seconds and then reported the extension could not be reached, on a page where it had worked a minute earlier.",
+        "CAUSE: reloading an unpacked extension orphans the content scripts already running in open tabs. gt-bridge.js writes its marker as a DOM attribute at document_start, so the attribute SURVIVES and bridgeAvailable() keeps returning true, while every sendMessage from that orphaned script throws 'Extension context invalidated'.",
+        "That is non-delivery - nothing received the message and no push is coming - but it arrived as a plain transportError, which a job send deliberately does NOT settle on (US-1874, so a suspended worker's live job is never falsely failed). So it ran to the full 130s EXTENSION_TIMEOUT_MS backstop.",
+        "isUndeliverable now also matches 'extension context invalidated', and gt-bridge.js sets undelivered on all THREE paths it can fail on: the Chromium lastError callback, the promise rejection, and the synchronous throw. A guard counts all three.",
+        "The US-1874 guarantee is untouched: a plain transportError with no undelivered flag still does not settle, and that is separately asserted.",
+        "The message now leads with the fix that actually works - reload the page - rather than sending the reader to their extensions page, which is the wrong place when the extension is installed and fine and only this tab is stale."
       ],
       "priority": 12
     }

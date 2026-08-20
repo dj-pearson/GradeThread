@@ -102,6 +102,18 @@
     var data = event.data;
     if (!data || data.__gtExtReq !== true || typeof data.id !== "string" || !data.message) return;
 
+    // US-2733: an extension RELOAD orphans this script. The marker we wrote at
+    // document_start is a plain DOM attribute and survives, so the page keeps
+    // believing the relay is alive, while every sendMessage from here throws
+    // "Extension context invalidated". Saying so explicitly lets the page settle
+    // at once instead of waiting out its 130s backstop for a push that no longer
+    // has anything to send it.
+    var isDead = function (err) {
+      var m = ((err && err.message) || String(err || "")).toLowerCase();
+      return m.indexOf("extension context invalidated") !== -1 ||
+        m.indexOf("receiving end does not exist") !== -1;
+    };
+
     var replied = false;
     var reply = function (response) {
       if (replied) return;
@@ -117,10 +129,13 @@
       // path safe either way.
       var maybePromise = api.runtime.sendMessage(data.message, function (response) {
         if (api.runtime.lastError) {
+          // The Chromium path, and the one that actually fires here.
+          var lastMsg = api.runtime.lastError.message || "Extension error.";
           reply({
             ok: false,
             transportError: true,
-            error: api.runtime.lastError.message || "Extension error.",
+            undelivered: isDead({ message: lastMsg }),
+            error: lastMsg,
           });
           return;
         }
@@ -140,12 +155,22 @@
             );
           },
           function (err) {
-            reply({ ok: false, transportError: true, error: (err && err.message) || String(err) });
+            reply({
+              ok: false,
+              transportError: true,
+              undelivered: isDead(err),
+              error: (err && err.message) || String(err),
+            });
           },
         );
       }
     } catch (err) {
-      reply({ ok: false, transportError: true, error: (err && err.message) || String(err) });
+      reply({
+        ok: false,
+        transportError: true,
+        undelivered: isDead(err),
+        error: (err && err.message) || String(err),
+      });
     }
   });
 })();

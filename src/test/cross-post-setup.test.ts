@@ -140,7 +140,10 @@ describe("an undeliverable send fails fast and honestly (US-2724)", () => {
     const msg = branch.slice(0, branch.indexOf("return;"));
     expect(msg).not.toContain("didn't report back");
     expect(msg).not.toContain("marketplace tab");
-    expect(msg).toContain("extensions page");
+    // The positive half — that it names an action the reader can take — is
+    // asserted in the US-2733 block, which owns the current wording. Pinning
+    // the exact phrase in two places is how a copy fix fails an unrelated test,
+    // which is what happened here.
   });
 });
 
@@ -194,6 +197,28 @@ describe("a dev build can still connect its account (US-2731)", () => {
     expect(fn).toContain("p = sendViaBridge(message);");
     // It must not fall back to an id-addressed send with the untrusted value.
     expect(fn).not.toContain("opts?.preferBridge ? opts.extensionId");
+  });
+});
+
+describe("an orphaned bridge fails fast instead of hanging (US-2733)", () => {
+  const BRIDGE = "extension-unified/gt-bridge.js";
+
+  it("an invalidated extension context counts as non-delivery", () => {
+    // Reloading an unpacked extension orphans the content scripts in open tabs.
+    // The DOM marker survives, so the page still believes the relay is alive.
+    expect(code(EXT)).toContain("extension context invalidated");
+  });
+
+  it("the bridge reports it on every path it can fail on", () => {
+    const src = read(BRIDGE);
+    // Chromium callback, promise rejection, and the synchronous throw.
+    expect(src.match(/undelivered: isDead\(/g)?.length).toBe(3);
+  });
+
+  it("the message tells the user to reload the page", () => {
+    const src = code(EXT);
+    const branch = src.slice(src.indexOf("if (r && r.undelivered)"));
+    expect(branch.slice(0, branch.indexOf("return;"))).toContain("Reload this page");
   });
 });
 

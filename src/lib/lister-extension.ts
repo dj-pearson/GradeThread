@@ -383,9 +383,10 @@ function sendListerJob<T = ExtensionResponse>(message: {
           done({
             ok: false,
             error:
-              "Couldn't reach the GradeThread extension. The installed extension " +
-              "isn't the one this site is set up to talk to, or it's switched off. " +
-              "Check it on your browser's extensions page, then reload this page.",
+              "Couldn't reach the GradeThread extension. Reload this page and try " +
+              "again — if you just installed or reloaded the extension, this tab is " +
+              "still running the old copy. If that doesn't help, check the extension " +
+              "is installed and switched on.",
           });
           return;
         }
@@ -456,7 +457,18 @@ export function isUndeliverable(message: string | undefined): boolean {
   const m = message.toLowerCase();
   return (
     m.includes("receiving end does not exist") ||
-    m.includes("could not establish connection")
+    m.includes("could not establish connection") ||
+    // US-2733: the DEV case, and the one that hurt. Reloading an unpacked
+    // extension orphans the content scripts already running in open tabs: the
+    // bridge's DOM marker survives (it was written at document_start and is just
+    // an attribute), so the page still believes the relay is there, while the
+    // relay's own sendMessage now throws "Extension context invalidated".
+    //
+    // That is non-delivery as surely as a missing receiver — nothing got the
+    // message and no push is coming — but it arrived as a plain transportError,
+    // which a job send deliberately does NOT settle on. The result was a spinner
+    // running to the full 130s backstop.
+    m.includes("extension context invalidated")
   );
 }
 
