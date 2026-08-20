@@ -380,6 +380,17 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
   {
     // US-593: buyer-facing "verify this grade" entry point — a no-login lookup
     // that resolves a scanned QR / pasted certificate code to the certificate.
+    // US-2750: the reseller-facing style-code lookup. The pSEO surface is the
+    // per-code pages (US-2747); this is their hub and the page that explains
+    // where the code is printed, which is the half a reseller actually needs.
+    path: "/style",
+    title: "Lululemon Style Code Lookup",
+    description:
+      "Type the style code from a Lululemon size dot and find out which product it is. Free, no account, and every answer shows where it came from.",
+    changefreq: "weekly",
+    priority: 0.8,
+  },
+  {
     path: "/verify",
     title: "Verify a Condition Grade",
     description:

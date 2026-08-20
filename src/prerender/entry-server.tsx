@@ -52,6 +52,7 @@ import { TransparencyPage } from "@/pages/marketing/transparency";
 import { ResaleConditionReportPage } from "@/pages/marketing/resale-condition-report";
 import { StateOfDurabilityPage } from "@/pages/marketing/state-of-durability";
 import { VerifyGradePage } from "@/pages/marketing/verify";
+import { StyleCodeLookupPage } from "@/pages/marketing/style-code-lookup";
 import { PassportScanPage } from "@/pages/marketing/passport-scan";
 import { DevelopersPage } from "@/pages/marketing/developers";
 import { WhatsItWorthPage } from "@/pages/marketing/whats-it-worth";
@@ -205,6 +206,7 @@ const PAGES: Record<string, React.ReactNode> = {
   // US-291: human HTML sitemap (long-tail internal-link discovery surface).
   "/sitemap": <HtmlSitemapPage />,
   "/verify": <VerifyGradePage />,
+  "/style": <StyleCodeLookupPage />,
   // US-1106: buyer-facing "scan before you buy" passport lookup landing.
   "/scan": <PassportScanPage />,
   "/developers": <DevelopersPage />,
@@ -405,6 +407,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   "/state-of-durability": `${M}marketing/state-of-durability`,
   "/sitemap": `${M}marketing/sitemap`,
   "/verify": `${M}marketing/verify`,
+  "/style": `${M}marketing/style-code-lookup`,
   "/scan": `${M}marketing/passport-scan`,
   "/developers": `${M}marketing/developers`,
   "/whats-it-worth": `${M}marketing/whats-it-worth`,

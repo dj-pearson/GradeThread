@@ -7,6 +7,7 @@ import { assert, assertEquals } from "@std/assert";
 import {
   NAME_SOURCE_ORDER,
   nameSourceRank,
+  PUBLIC_MIN_SUBMISSIONS,
   pickStyleCodeName,
   type StyleCodeNameRow,
 } from "../lib/style-code-names.ts";
@@ -87,6 +88,42 @@ Deno.test("US-2691: a blank name is not an answer", () => {
   assertEquals(pickStyleCodeName([row({ name: "   " })]), null);
 });
 
+// ── US-2749: the source that cannot stand alone ─────────────────────────────
+
+Deno.test("US-2749: one public submission is never the answer", () => {
+  // A stranger holding the garment is real evidence and is also the easiest
+  // thing in this system to forge. One report is a person who might be right.
+  assertEquals(
+    pickStyleCodeName([row({ source: "public", supporting: 1 })]),
+    null,
+  );
+});
+
+Deno.test("US-2749: corroboration makes it usable, and it still ranks last", () => {
+  const alone = pickStyleCodeName([
+    row({ source: "public", supporting: PUBLIC_MIN_SUBMISSIONS, name: "Crowd Answer" }),
+  ]);
+  assertEquals(alone!.source, "public");
+  assertEquals(alone!.name, "Crowd Answer");
+
+  // But forty strangers still lose to one seller reading the tag.
+  const contested = pickStyleCodeName([
+    row({ source: "public", supporting: 40, name: "Crowd Answer" }),
+    row({ source: "seller", supporting: 1, name: "Scuba Oversized Half Zip Hoodie" }),
+  ]);
+  assertEquals(contested!.source, "seller");
+});
+
+Deno.test("US-2749: an under-supported public row does not block a weaker-ranked one", () => {
+  // It is under-supported, not rejected: the consensus below it still answers.
+  const pick = pickStyleCodeName([
+    row({ source: "public", supporting: 1, name: "Single Stranger" }),
+    row({ source: "consensus", supporting: 5, name: "Market Answer" }),
+  ]);
+  assertEquals(pick!.source, "consensus");
+  assertEquals(pick!.name, "Market Answer");
+});
+
 Deno.test("US-2691: the source order is the precedence, with no gaps", () => {
   // A source added to 00628's CHECK constraint but not here would sort last and
   // be silently ignored. Pin the list so that is a test failure, not a surprise.
@@ -95,5 +132,6 @@ Deno.test("US-2691: the source order is the precedence, with no gaps", () => {
     "admin",
     "seller",
     "consensus",
+    "public",
   ]);
 });

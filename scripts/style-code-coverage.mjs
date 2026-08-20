@@ -28,7 +28,7 @@ const brand = brandIdx !== -1 ? (args[brandIdx + 1] ?? "").trim() : "";
 // narrowly: this is a Node operator script and that is Deno edge code, and a
 // build step to share four strings would cost more than it saves. The test
 // src/test/style-code-coverage-precedence.test.ts fails if the two drift.
-export const NAME_SOURCE_ORDER = ["official", "admin", "seller", "consensus"];
+export const NAME_SOURCE_ORDER = ["official", "admin", "seller", "consensus", "public"];
 
 /** Pick the winning source for one code's rows. Pure, exported for the test. */
 export function winningSource(sources) {

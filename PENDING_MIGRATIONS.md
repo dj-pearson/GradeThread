@@ -1,5 +1,49 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00635 — what the person holding the garment says it is (US-2749)
+
+**Risk: LOW.** One new table, one `plpgsql` counter function, and one CHECK
+constraint widened on `style_code_names`. No backfill, no existing data touched.
+Deny-all RLS.
+
+**What it is.** The reseller who looks up a style code we cannot name is holding
+the tag — the best evidence in the world for that code — and today the lookup
+tells them we do not know and the conversation ends. `style_code_submissions`
+lets them answer.
+
+**Why a table and not another `style_code_names` row.**
+`record_style_code_name` upserts on `(brand, code, source)` and OVERWRITES the
+name. That is right for a source with one opinion and wrong for anonymous
+submissions, where the second person may DISAGREE with the first: through that
+RPC, disagreement silently replaces agreement and resets the count. Submissions
+are counted per `(code, name)` instead, so dissent stays visible, and a name is
+promoted only once enough independent people said the same thing.
+
+**The CHECK widening is the part to read twice.** It drops and re-adds
+`style_code_names_source_check` to admit `'public'`. A drop-and-add is not
+atomic with respect to a concurrent writer, but the only writers are the edge
+service-role client and the 00629 trigger, and neither writes `'public'` until
+the code that does is deployed. Applying this BEFORE the edge deploy is
+therefore the safe order, which is the normal order anyway.
+
+**Nothing identifying is stored.** No account, no session, no IP, no user agent.
+Abuse is the existing `/api/content/public/*` rate limiter's job (60/min/IP,
+fail-closed).
+
+**Apply order**
+
+1. Run `supabase/migrations/00635_style_code_submissions.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — REQUIRED. New table and new RPC.
+3. Redeploy the edge (`EXPECTED_SCHEMA_VERSION` is now `00635`).
+
+**Confirm it landed**
+
+```sql
+select proname from pg_proc where proname = 'record_style_code_submission';
+select pg_get_constraintdef(oid) from pg_constraint
+where conname = 'style_code_names_source_check';   -- must now include 'public'
+```
+
 ## ⏳ PENDING: 00634 — listings.listed_at becomes nullable (US-2727)
 
 **Risk: LOW.** One `ALTER COLUMN ... DROP NOT NULL`. No table is created or

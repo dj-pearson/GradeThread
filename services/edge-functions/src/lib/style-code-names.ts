@@ -11,8 +11,12 @@
 //   admin      a human operator with the whole index in front of them.
 //   seller     the person holding the garment corrected us. Beats any amount of
 //              market chatter about the same code — they can read the tag.
-//   consensus  the run of words most listings share. The weakest, and the only
-//              one that scales.
+//   consensus  the run of words most listings share. The weakest that stands
+//              on its own, and the only one that scales.
+//   public     a visitor to the lookup told us (US-2749). Ranked last, and the
+//              only source that CANNOT stand on one report: see
+//              PUBLIC_MIN_SUBMISSIONS. An anonymous stranger holding the
+//              garment is real evidence and is also the easiest to forge.
 //
 // Confidence does NOT decide this. A consensus over forty listings can carry a
 // higher number than a one-off seller correction and still lose, because the
@@ -24,7 +28,19 @@ export const NAME_SOURCE_ORDER = [
   "admin",
   "seller",
   "consensus",
+  "public",
 ] as const;
+
+/**
+ * US-2749: how many independent people must say the same thing before a
+ * public submission is shown as the answer.
+ *
+ * One report is a person who might be right, might be guessing, or might be a
+ * competitor. Two is the cheapest bar that is not one, and it is the same
+ * reasoning as the consensus threshold: a single sighting is a coincidence.
+ * Below this the row exists and is simply not used.
+ */
+export const PUBLIC_MIN_SUBMISSIONS = 2;
 
 export type NameSource = typeof NAME_SOURCE_ORDER[number];
 
@@ -68,8 +84,14 @@ export function pickStyleCodeName(
   rows: readonly StyleCodeNameRow[],
 ): ResolvedStyleCodeName | null {
   const usable = rows.filter(
-    (r) => !r.rejected_at && r.name.trim() !== "" &&
-      nameSourceRank(r.source) < NAME_SOURCE_ORDER.length,
+    (r) =>
+      !r.rejected_at && r.name.trim() !== "" &&
+      nameSourceRank(r.source) < NAME_SOURCE_ORDER.length &&
+      // US-2749: a public submission needs corroboration before it is an
+      // answer. Filtered here rather than at the write site so the row is
+      // still recorded, still counted, and still visible to an admin — it is
+      // under-supported, not rejected.
+      (r.source !== "public" || r.supporting >= PUBLIC_MIN_SUBMISSIONS),
   );
   if (usable.length === 0) return null;
 

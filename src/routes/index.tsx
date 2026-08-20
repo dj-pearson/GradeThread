@@ -146,6 +146,7 @@ const StateOfDurabilityPage = lazy(() => import("@/pages/marketing/state-of-dura
 const HtmlSitemapPage = lazy(() => import("@/pages/marketing/sitemap").then(m => ({ default: m.HtmlSitemapPage })));
 const BodyProfilesPage = lazy(() => import("@/pages/fit/body-profiles").then(m => ({ default: m.BodyProfilesPage })));
 const VerifyGradePage = lazy(() => import("@/pages/marketing/verify").then(m => ({ default: m.VerifyGradePage })));
+const StyleCodeLookupPage = lazy(() => import("@/pages/marketing/style-code-lookup").then(m => ({ default: m.StyleCodeLookupPage })));
 const PassportScanPage = lazy(() => import("@/pages/marketing/passport-scan").then(m => ({ default: m.PassportScanPage })));
 const DevelopersPage = lazy(() => import("@/pages/marketing/developers").then(m => ({ default: m.DevelopersPage })));
 const WhatsItWorthPage = lazy(() => import("@/pages/marketing/whats-it-worth").then(m => ({ default: m.WhatsItWorthPage })));
@@ -388,6 +389,7 @@ export const router = createBrowserRouter([
       { path: "/state-of-durability", element: <SuspenseWrapper><StateOfDurabilityPage /></SuspenseWrapper> },
       { path: "/sitemap", element: <SuspenseWrapper><HtmlSitemapPage /></SuspenseWrapper> },
       { path: "/verify", element: <SuspenseWrapper><VerifyGradePage /></SuspenseWrapper> },
+      { path: "/style", element: <SuspenseWrapper><StyleCodeLookupPage /></SuspenseWrapper> },
       // US-1106: buyer-facing "scan before you buy" passport lookup landing.
       { path: "/scan", element: <SuspenseWrapper><PassportScanPage /></SuspenseWrapper> },
       { path: "/developers", element: <SuspenseWrapper><DevelopersPage /></SuspenseWrapper> },

@@ -57,6 +57,11 @@ export const ANALYTICS_EVENTS = {
   "authenticity_checker_result": "The public authenticity checker produced a result.",
   "authenticity_checker_cta_click": "A conversion control on an authenticity result was pressed.",
   "verify_lookup": "A certificate id was looked up on the verify page.",
+  // US-2750: a reseller typed a Lululemon style code into the public lookup.
+  // The event that says whether the pSEO surface is reaching the audience it
+  // was built for.
+  "style_code_lookup": "A Lululemon style code was looked up on /style.",
+  "style_code_submission": "A visitor told us what an unnamed Lululemon style code is.",
 
   // ── Marketplace comparison handoff (US-9018) ──────────────────────────────
   // The two migration sections on /compare/{a}-vs-{b} answer "how do I move my

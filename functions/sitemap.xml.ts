@@ -26,6 +26,7 @@ import {
   durabilityUrls,
   authorUrls,
   helpUrls,
+  styleCodeUrls,
   urlsetXml,
   sitemapIndexXml,
   newestLastmod,
@@ -98,9 +99,10 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
     finds: SitemapUrl[],
     leaderboards: SitemapUrl[],
     authors: SitemapUrl[],
-    help: SitemapUrl[];
+    help: SitemapUrl[],
+    styleCodes: SitemapUrl[];
   try {
-    [statics, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors, help] =
+    [statics, blog, certs, passports, sellers, condition, value, durability, finds, leaderboards, authors, help, styleCodes] =
       await Promise.all([
       staticUrls(env),
       blogUrls(env),
@@ -114,6 +116,7 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
       leaderboardUrls(env),
       authorUrls(env),
       helpUrls(env),
+      styleCodeUrls(env),
     ]);
   } catch (e) {
     if (e instanceof UpstreamUnavailable) {
@@ -135,6 +138,7 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
     finds.length +
     leaderboards.length +
     authors.length +
+    styleCodes.length +
     help.length;
 
   const xml =
@@ -168,6 +172,11 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
           // US-2578: the Help Center. Its lastmod comes from the articles'
           // reviewed_at, so it moves when somebody re-read one, not every day.
           { name: "sitemap-help.xml", lastmod: newestLastmod(help) },
+          // US-2748: the Lululemon style-code lookup. Only the codes we can
+          // NAME are listed — the rest render for humans and carry noindex, and
+          // a sitemap full of pages that answer nothing is how a section gets
+          // ignored rather than ranked.
+          { name: "sitemap-style-codes.xml", lastmod: newestLastmod(styleCodes) },
           // The image sitemap is generated from the blog payload, so its
           // content date is the blog's.
           { name: "sitemap-images.xml", lastmod: newestLastmod(blog) },
@@ -185,6 +194,7 @@ async function buildSitemap(env: PagesEnv): Promise<Response> {
           ...leaderboards,
           ...authors,
           ...help,
+          ...styleCodes,
         ]);
 
   return new Response(xml, { status: 200, headers: { ...SITEMAP_HEADERS } });

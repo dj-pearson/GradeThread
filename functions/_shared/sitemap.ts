@@ -424,6 +424,38 @@ const CERT_PAGE_SIZE = 5000; // the endpoint's own maximum
 // decides the ROOT document's index-vs-urlset shape — is the binding limit here.
 const CERT_MAX_URLS = 50_000;
 
+/**
+ * US-2748: the Lululemon style-code lookup pages that are worth indexing.
+ *
+ * THE SET IS DELIBERATELY SMALL. It is the codes we can NAME, not the codes we
+ * have seen — and the second number is far larger. Listing every code we have
+ * ever encountered would put thousands of "we do not know this yet" pages in
+ * front of a crawler, which is thin content and costs the whole domain rather
+ * than just this section.
+ *
+ * The edge endpoint applies the SAME predicate the page uses to decide noindex
+ * (a style_code_names row that is not rejected), which is what stops the two
+ * from drifting. A URL in a sitemap that renders noindex is the specific
+ * contradiction that gets a section ignored.
+ */
+export async function styleCodeUrls(env: PagesEnv): Promise<SitemapUrl[]> {
+  const base = siteUrl(env);
+  const data = await fetchEdgeJson<{
+    truncated?: boolean;
+    codes: Array<{ code: string; updated_at?: string | null }>;
+  }>(env, "/api/content/public/style-codes.json");
+  if (!data) return [];
+
+  return data.codes.map((c) => ({
+    loc: `${base}/style/${c.code}`,
+    lastmod: c.updated_at?.slice(0, 10),
+    // A resolved name changes when a stronger source answers — a seller
+    // correction over a market consensus — which is neither rare nor frequent.
+    changefreq: "monthly" as const,
+    priority: 0.6,
+  }));
+}
+
 export async function certUrls(env: PagesEnv): Promise<SitemapUrl[]> {
   const base = siteUrl(env);
   const urls: SitemapUrl[] = [];

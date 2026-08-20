@@ -1,6 +1,32 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { decodeTagCode } from "../lib/brand-decoders.ts";
+import {
+  canonicalStyleCode,
+  MIN_STYLE_CODE_LENGTH,
+} from "../lib/style-code-observations.ts";
+import {
+  pickStyleCodeName,
+  type StyleCodeNameRow,
+} from "../lib/style-code-names.ts";
+import {
+  indexableCodes,
+  normalizeSubmittedName,
+  pickSubmittedName,
+  PUBLIC_LOOKUP_BRAND_KEY,
+  publicStyleCode,
+  type SitemapCandidateRow,
+  submissionRefusal,
+  type SubmittedNameRow,
+} from "../lib/public-style-code.ts";
+import { PUBLIC_MIN_SUBMISSIONS } from "../lib/style-code-names.ts";
+
+/** US-2748: the sitemap cap. Generous — the indexable set is the codes we can
+ *  NAME, which is far smaller than the codes we have seen. warnIfCapped says so
+ *  when it binds, because a silently-truncated sitemap tells crawlers that the
+ *  missing URLs do not exist. */
+const STYLE_CODE_SITEMAP_CAP = 20_000;
 import { filterListablePhotos } from "../lib/item-photo-storage.ts";
 import { verifyPreviewToken } from "../lib/preview-token.ts";
 import { verifyCertIntegrity } from "../lib/cert-integrity.ts";
@@ -577,6 +603,162 @@ contentPublicRoutes.get("/posts/:slug", async (c) => {
 // ── GET /authors.json ─────────────────────────────────────
 // Compact list of every author for the sitemap + llms.txt (US-874). Public
 // projection only (no internal id beyond the slug); updated_at is the lastmod.
+// ── GET /style-codes/:code ────────────────────────────────
+// US-2747: the public style-code lookup. A reseller holding a garment types the
+// code off its tag and gets the product name plus WHERE that name came from.
+//
+// Reads non-tenant reference tables only (style_code_names, seeded decoders):
+// brand, code, name, provenance. No owner, no item, no seller identity — the
+// same class of data 00503, 00627 and 00628 already hold.
+//
+// A blank is a real answer here and the common one early on. It is returned as
+// name:null with indexable:false rather than as a 404, because the code still
+// grounds gender and season from the decoder, and because the page invites the
+// visitor to tell us what it is (US-2749).
+contentPublicRoutes.get("/style-codes/:code", async (c) => {
+  const requested = (c.req.param("code") ?? "").trim();
+  const canonical = canonicalStyleCode(PUBLIC_LOOKUP_BRAND_KEY, requested);
+  if (canonical.length < MIN_STYLE_CODE_LENGTH) {
+    return c.json({ error: "That is not a style code" }, 400);
+  }
+
+  const { data, error } = await supabaseAdmin
+    .from("style_code_names")
+    .select("name, source, supporting, confidence, evidence_url, rejected_at")
+    .eq("brand_key", PUBLIC_LOOKUP_BRAND_KEY)
+    .eq("style_code_norm", canonical)
+    .is("rejected_at", null);
+  if (error) return publicError(c, error, "style-codes");
+
+  const payload = publicStyleCode({
+    requested,
+    canonicalCode: canonical,
+    resolved: pickStyleCodeName((data ?? []) as StyleCodeNameRow[]),
+    decode: decodeTagCode(PUBLIC_LOOKUP_BRAND_KEY, canonical) ??
+      decodeTagCode(PUBLIC_LOOKUP_BRAND_KEY, requested),
+  });
+  return c.json(payload);
+});
+
+// ── POST /style-codes/:code/submit ────────────────────────
+// US-2749: the reseller looking up a code we cannot name is holding the
+// garment. They are the best evidence in the world for that code, and until now
+// the page told them we did not know and the conversation ended.
+//
+// NO ACCOUNT, and that is the point: requiring one excludes exactly the person
+// this exists for. Nothing identifying is stored — no session, no IP, no user
+// agent — because the counter is what makes a submission trustworthy, not
+// knowing who sent it. Abuse is the rate limiter's job (60/min/IP, fail-closed,
+// mounted over /api/content/public/*).
+//
+// A submission NEVER publishes on its own. It is counted per (code, name), and
+// a name becomes the answer only once PUBLIC_MIN_SUBMISSIONS independent people
+// have said the same thing — and even then it ranks below every other source.
+contentPublicRoutes.post("/style-codes/:code/submit", async (c) => {
+  const requested = (c.req.param("code") ?? "").trim();
+  const canonical = canonicalStyleCode(PUBLIC_LOOKUP_BRAND_KEY, requested);
+  if (canonical.length < MIN_STYLE_CODE_LENGTH) {
+    return c.json({ error: "That is not a style code" }, 400);
+  }
+
+  let body: { name?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const refusal = submissionRefusal(name);
+  if (refusal) return c.json({ error: refusal }, 400);
+
+  const nameNorm = normalizeSubmittedName(name);
+  const { error: writeErr } = await supabaseAdmin.rpc(
+    "record_style_code_submission",
+    {
+      p_brand_key: PUBLIC_LOOKUP_BRAND_KEY,
+      p_style_code_norm: canonical,
+      p_style_code_raw: requested,
+      p_name_norm: nameNorm,
+      p_name: name,
+    },
+  );
+  if (writeErr) return publicError(c, writeErr, "style-code-submit");
+
+  // Re-read and re-decide from ALL submissions for this code rather than acting
+  // on the one just written: the question is what the crowd agrees on, and that
+  // can change in either direction with any single submission.
+  const { data, error } = await supabaseAdmin
+    .from("style_code_submissions")
+    .select("name, name_norm, submissions")
+    .eq("brand_key", PUBLIC_LOOKUP_BRAND_KEY)
+    .eq("style_code_norm", canonical);
+  if (error) return publicError(c, error, "style-code-submit-read");
+
+  const winner = pickSubmittedName(
+    (data ?? []) as SubmittedNameRow[],
+    PUBLIC_MIN_SUBMISSIONS,
+  );
+
+  if (winner) {
+    const { error: promoteErr } = await supabaseAdmin.rpc("record_style_code_name", {
+      p_brand_key: PUBLIC_LOOKUP_BRAND_KEY,
+      p_style_code_norm: canonical,
+      p_style_code_raw: requested,
+      p_name: winner.name,
+      p_source: "public",
+      p_supporting: winner.submissions,
+      // Below every derived source's ceiling. The ORDER that matters is by
+      // source, in lib/style-code-names.ts; this number only feeds the
+      // extraction's field confidence.
+      p_confidence: 0.45,
+      p_evidence_url: null,
+    });
+    if (promoteErr) return publicError(c, promoteErr, "style-code-promote");
+  } else {
+    // No winner any more — a tie developed, or the leader was never corroborated.
+    // Removing the published row keeps what a visitor SEES consistent with the
+    // evidence; leaving it would show a name the submissions no longer support.
+    await supabaseAdmin
+      .from("style_code_names")
+      .delete()
+      .eq("brand_key", PUBLIC_LOOKUP_BRAND_KEY)
+      .eq("style_code_norm", canonical)
+      .eq("source", "public");
+  }
+
+  // Says what happened without publishing the losing answers: a visitor learns
+  // whether THEIR submission is now the shown name, not what everyone guessed.
+  return c.json({
+    ok: true,
+    published: Boolean(winner && winner.name_norm === nameNorm),
+    needsCorroboration: !winner,
+  });
+});
+
+// ── GET /style-codes.json ─────────────────────────────────
+// US-2748: exactly the codes that are indexable, for sitemap-style-codes.xml.
+// The SAME predicate the page uses to decide noindex — a URL in the sitemap
+// that renders noindex is what gets a whole section ignored, so the two cannot
+// be allowed to drift apart.
+contentPublicRoutes.get("/style-codes.json", async (c) => {
+  const { data, error } = await supabaseAdmin
+    .from("style_code_names")
+    .select("style_code_norm, name, updated_at, rejected_at")
+    .eq("brand_key", PUBLIC_LOOKUP_BRAND_KEY)
+    .is("rejected_at", null)
+    .order("updated_at", { ascending: false })
+    .limit(STYLE_CODE_SITEMAP_CAP);
+  if (error) return publicError(c, error, "style-codes.json");
+
+  // indexableCodes applies the SAME two conditions publicStyleCode applies, and
+  // a test drives both from one fixture set. The `.is("rejected_at", null)`
+  // above is belt-and-braces for the query planner; the decision is in the pure
+  // function, which is the half that can be held to it.
+  const codes = indexableCodes((data ?? []) as SitemapCandidateRow[]);
+  const truncated = warnIfCapped("style-codes.json", (data ?? []).length, STYLE_CODE_SITEMAP_CAP);
+  return c.json({ truncated, codes });
+});
+
 contentPublicRoutes.get("/authors.json", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("content_authors")
