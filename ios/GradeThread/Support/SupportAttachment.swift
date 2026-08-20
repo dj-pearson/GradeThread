@@ -60,7 +60,7 @@ enum SupportAttachmentContract {
     /// `;base64`; a bare `data:;base64,` is rejected as "not an image", which
     /// reads like a corrupt file rather than a malformed header.
     static func jpegDataURL(_ data: Data) -> String {
-        "data:image/jpeg;base64," + data.base64EncodedString()
+        ImageDataURL.jpeg(data)
     }
 }
 

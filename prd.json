@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2687",
+  "nextId": "US-2689",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1983,6 +1983,38 @@
       ],
       "notes": "Filed 2026-08-19 by US-2534. Deliberately not built alongside the iOS half: shipping an unused TypeScript twin of the Swift maths to keep the two files symmetrical would have been dead code, and the right web interaction is keyboard rather than four arrow buttons. Priority set beside its iOS twin.",
       "priority": 1955
+    },
+    {
+      "id": "US-2687",
+      "passes": false,
+      "title": "Every paid plan is denied the Claude connector, including the two sold with it",
+      "description": "Measured against a real database on 2026-08-19, not inferred: `select key, gate_flags ? 'connectorAccess' from public.pricing_plans` returns false for all four tiers. pricing_plans.gate_flags is CANONICAL once the row exists (pricing-config.ts load() overwrites the hardcoded FALLBACK_MATRIX with the DB row), and the read is `gateFlags[k] = flags[k] === true`, so an absent key is a hard false on every plan. US-9124 added connectorAccess to GATE_FLAG_KEYS and to FALLBACK_MATRIX with no migration. A Business seller calling the connector gets 'The GradeThread connector is not included in this plan ... see pricing to upgrade' - an upgrade prompt shown to the customer already on the top tier. Nothing errors and no unit test goes red, because every test that never touches the database reads the fallback and sees the flag set. The only visible symptom is the Tenant Isolation workflow, which has failed on every commit since 2026-08-19 12:47 on a case that reads like an authorization test: 'MCP: A's own key CAN read A's item - the tool is reachable, not blanket-denied'.",
+      "acceptanceCriteria": [
+        "A migration sets connectorAccess on all four pricing_plans rows to match FALLBACK_MATRIX (free false, starter false, pro true, business true), and only where the key is ABSENT so an operator override survives a directory re-run.",
+        "A guard fails when a gate flag the code reads appears in NO migration. That is the defect shape, and it will recur the next time a flag is added - the fallback matrix makes it invisible to every test that does not use a database.",
+        "A guard fails when FALLBACK_MATRIX and the 00166 seed disagree on a flag both define. Two definitions of one table, one read by CI and the other by production.",
+        "The Tenant Isolation workflow goes green on main. It has been red since 2026-08-19 12:47 and the failing case is about the plan gate, not about tenancy.",
+        "OPERATOR: apply 00625 to production and confirm with `select key, gate_flags->>'connectorAccess' from public.pricing_plans`. Until it is applied, every Pro and Business seller is still refused the connector. No NOTIFY needed - no table, column or RPC changed, only row data.",
+        "OPERATOR: decide whether anyone was actually turned away. The connector is dark in production behind MCP_ENABLED, so the likely answer is nobody - but that is worth confirming rather than assuming, and the mcp audit rows record a `plan_required` denial reason."
+      ],
+      "notes": "Filed 2026-08-19 while diagnosing a red Tenant Isolation lane on main. VERIFIED END TO END on the local stack, which is what makes this a measurement rather than a reading: before the migration all four rows lack the key; after it, free/starter false and pro/business true; a second run reports UPDATE 0 / UPDATE 0 / INSERT 0; and a pro row deliberately set to false by hand SURVIVES a re-run. Migration 00625, EXPECTED_SCHEMA_VERSION bumped to 00625 in the same commit, manifest regenerated. HELD pending the owner's prod apply.",
+      "priority": 6
+    },
+    {
+      "id": "US-2688",
+      "passes": false,
+      "title": "Filing a grade dispute from iOS fails every time, and the customer is shown a property name",
+      "description": "Found 2026-08-19 by reading the encoder, not from a report. DisputeSheet.submit() declared its request struct inline with a plain `gradeReportId` property. Every EdgeAPI request is encoded by JSONEncoder.iso8601, which sets .convertToSnakeCase, so the phone sent `grade_report_id`. routes/grade.ts reads `body.gradeReportId` and has no snake_case fallback, so it answered 400 'gradeReportId is required' - and the sheet renders error.localizedDescription, which carries the server's own string, so the customer was shown a property name. Web (submission-detail.tsx) and Android (kotlinx, no naming strategy) both hand-build camelCase and were never affected. It started on 2026-08-17 when US-2670 correctly moved iOS filing off a direct table insert and onto the route; the insert path had no such key. A dispute is how a seller challenges a grade they paid for inside a 7-day window (DISPUTE_WINDOW_DAYS), so on iOS that window has been shut since.",
+      "acceptanceCriteria": [
+        "The request type carries explicit CodingKeys so .convertToSnakeCase cannot rewrite the one spelling the route accepts, and it lives outside the view so a test can encode it.",
+        "A test asserts the encoded BYTES contain \"gradeReportId\" and not \"grade_report_id\". Asserting the property name is what passed while this was broken.",
+        "A test pins that the shared encoder DOES still transform an unprotected key, so the explicit CodingKeys read as load-bearing rather than redundant and nobody tidies them away.",
+        "A guard fails if the ROUTE is ever changed to read a snake_case key, which would silently invert the fix and leave the Swift pinned to the wrong spelling.",
+        "Evidence photos: the sheet sends `images` (up to MAX_DISPUTE_EVIDENCE = 8, downscaled on device). Web and Android have sent these since US-1437; on a CONDITION dispute the photograph is the argument, and the client built around a camera was the one that could not attach one.",
+        "OPERATOR: check whether any iOS dispute was lost. The filings 400ed so nothing was written - a seller who tried saw an error and may have given up inside the 7-day window. Sentry carries the failures if the sheet reported them."
+      ],
+      "notes": "Filed 2026-08-19 while scoping US-2016's evidence-photo gap. ⚠ THE SWEEP FOR SIBLINGS WAS RUN AND FOUND NONE, and the first pass of it was WRONG in a way worth recording. I initially reported three broken routes - dispute, ebay aspects/write-back and category/derive-aspects - by matching the request struct against the route's body key. That is the wrong test: EbayAspectsService builds its OWN plain JSONEncoder and so was never affected. The app has at least two transports with opposite key behaviour (28 files construct a plain JSONEncoder; the rest use EdgeAPI's snake-casing one), which means neither the struct nor the route tells you whether a call is correct - only the transport does. Re-run keyed on transport: 13 iOS files send a multi-word body through the SHARED encoder, and every one of their routes reads snake_case except this one. platform-fields reads body.item_id, appstore/verify reads body.jws, autolister/batch reads body.item_ids. So the defect is a single route reading camelCase where the rest of the edge reads snake_case, and iOS is the only client whose transport rewrites keys.",
+      "priority": 7
     }
   ]
 }

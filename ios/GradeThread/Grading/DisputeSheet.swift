@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 
 /// Lets a reseller dispute a certified grade they believe is wrong.
@@ -32,6 +33,11 @@ struct DisputeSheet: View {
     @State private var reason: DisputeReason = .gradeTooLow
     @State private var details: String = ""
     @State private var phase: Phase = .editing
+    // US-2688: evidence photos. Web and Android have sent these since US-1437;
+    // the client built around a camera was the one that could not attach one.
+    @State private var evidence: [DisputeEvidencePhoto] = []
+    @State private var picking = false
+    @State private var evidenceNote: String?
 
     private enum Phase: Equatable {
         case editing
@@ -113,6 +119,8 @@ struct DisputeSheet: View {
                 }
             }
 
+            evidenceSection
+
             Section {
                 Button {
                     AppRouter.haptic()
@@ -138,6 +146,80 @@ struct DisputeSheet: View {
         }
     }
 
+    private var evidenceRoom: Int {
+        max(0, DisputeEvidence.maxPhotos - evidence.count)
+    }
+
+    /// US-2688. A condition dispute is an argument about what the garment looks
+    /// like, so the photograph is the evidence rather than a nicety.
+    @ViewBuilder
+    private var evidenceSection: some View {
+        Section {
+            if !evidence.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(evidence) { photo in
+                            ZStack(alignment: .topTrailing) {
+                                Image(uiImage: photo.thumbnail)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 60, height: 60)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                Button {
+                                    evidence.removeAll { $0.id == photo.id }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .symbolRenderingMode(.palette)
+                                        .foregroundStyle(.white, .black.opacity(0.6))
+                                }
+                                .disabled(phase == .submitting)
+                                .accessibilityLabel("Remove photo")
+                                .padding(2)
+                            }
+                            .accessibilityElement(children: .contain)
+                            .accessibilityLabel("Evidence photo")
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+            Button {
+                picking = true
+            } label: {
+                Label("Add photo", systemImage: "camera")
+            }
+            .disabled(phase == .submitting || evidenceRoom == 0)
+            .accessibilityLabel("Add evidence photo")
+            if let evidenceNote {
+                Text(evidenceNote)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        } header: {
+            Text("Photos")
+        } footer: {
+            Text("Up to \(DisputeEvidence.maxPhotos) photos of the problem. Location data is stripped before they leave your phone.")
+                .font(.footnote)
+        }
+        .sheet(isPresented: $picking) {
+            PhotoLibraryPicker(selectionLimit: evidenceRoom) { results in
+                Task { await stage(results) }
+            }
+            .ignoresSafeArea()
+        }
+    }
+
+    private func stage(_ results: [PHPickerResult]) async {
+        guard !results.isEmpty else { return }
+        let staged = await DisputeEvidence.photos(from: results, room: evidenceRoom)
+        evidence.append(contentsOf: staged.photos)
+        // Said, not swallowed: on a dispute the missing photo may be the one
+        // that wins it.
+        evidenceNote = staged.skipped > 0
+            ? "\(staged.skipped) photo\(staged.skipped == 1 ? "" : "s") not added - the limit is \(DisputeEvidence.maxPhotos)."
+            : nil
+    }
+
     private var doneState: some View {
         ContentUnavailableView {
             Label("Dispute submitted", systemImage: "checkmark.circle.fill")
@@ -159,19 +241,28 @@ struct DisputeSheet: View {
         let composed = DisputeComposer.compose(reason: reason, details: details)
         // The route derives the owner from the session, so no user_id is sent —
         // a client-supplied one was never the thing being trusted anyway.
-        struct DisputeRequest: Encodable {
-            let gradeReportId: String
-            let reason: String
-        }
         struct DisputeResponse: Decodable {
             let success: Bool?
         }
         do {
+            // US-2688: DisputeRequest moved to its own file with EXPLICIT
+            // CodingKeys. Declared inline here with a plain `gradeReportId`, it
+            // was encoded by JSONEncoder.iso8601 (.convertToSnakeCase) as
+            // `grade_report_id`, and the route reads `body.gradeReportId` with
+            // no fallback - so every filing from this screen answered 400
+            // "gradeReportId is required" and showed the customer that string.
             let _: DisputeResponse = try await EdgeAPI.shared.postJSON(
                 "/api/grade/dispute",
-                body: DisputeRequest(gradeReportId: gradeReportId, reason: composed)
+                body: DisputeRequest(
+                    gradeReportId: gradeReportId,
+                    reason: composed,
+                    images: evidence.map(\.dataURL)
+                )
             )
-            Telemetry.event("grade.dispute_filed", props: ["reason": reason.rawValue])
+            Telemetry.event(
+                "grade.dispute_filed",
+                props: ["reason": reason.rawValue, "evidence": evidence.count]
+            )
             HapticFeedback.success()
             onSubmitted?()
             phase = .done
