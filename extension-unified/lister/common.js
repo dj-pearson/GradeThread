@@ -841,6 +841,14 @@
   var PROBE_ATTRS = [
     "name", "id", "type", "role", "aria-label", "placeholder",
     "data-testid", "data-test", "data-test-id", "data-et-name", "data-cy", "data-qa",
+    // 2026-08-20: the attribute that finally solved Poshmark's price. Its
+    // editor is Vue + vee-validate, which stamps every validated field with the
+    // site's OWN model name — `data-vv-name="listingPrice"`. Semantic, stable
+    // across restyles, and free of English, which is more than any other anchor
+    // on that page offered. It was on the element in every earlier report and
+    // invisible because this list did not ask for it, so two rounds were spent
+    // on placeholder text instead. Still UI chrome, never seller data.
+    "data-vv-name", "data-vv-as",
     // US-2485 round two: the first real report came back with a Poshmark title
     // input carrying nothing but a placeholder, which makes for a fragile,
     // English-only selector. `class` is the site's own styling hook and is

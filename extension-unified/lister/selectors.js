@@ -108,14 +108,25 @@ const GT_LISTER_SELECTORS = {
       // Enter key. Filling it would leave uncommitted text in a field the seller
       // believes is set.
       tags: 'input.listing-editor__tag__input',
-      // 2026-08-20: BOTH price inputs live in a dialog, not on the form, which
-      // is why every price selector here has missed since Poshmark rebuilt the
-      // editor. They are reached through `priceDialog` below, not through these.
-      // Left declared and unmatched ON PURPOSE: `f.price` being present is what
-      // makes runFlow report `priceFilled: false` instead of staying silent, and
-      // silence over an unset price is the US-2477 defect.
-      originalPrice: 'input[data-test="listing-editor-original-price"], input[name="originalPrice"]',
-      price: 'input[data-test="listing-editor-listing-price"], input[name="listingPrice"]',
+      // 2026-08-20: `data-vv-name` is the anchor, and it was hiding in plain
+      // sight. Poshmark's editor is Vue + vee-validate (its console says so),
+      // and vee-validate stamps every validated field with the model name the
+      // site itself uses. That makes it semantic, stable across restyles, and
+      // free of English — everything the placeholder anchors on this page are
+      // not. The probe never showed it because `data-vv-name` was not in
+      // PROBE_ATTRS; it is now, so the next report on any Vue marketplace
+      // carries it.
+      //
+      // The modal ids stay as a SECOND clause rather than being replaced. The
+      // same amount is editable in two places — the form field here, and the
+      // price-suggestion dialog it opens — and a selector that works whichever
+      // one is on screen costs nothing.
+      originalPrice:
+        'input[data-vv-name="originalPrice"], #listing-price-modal-original-price-input, ' +
+        'input[data-test="listing-editor-original-price"]',
+      price:
+        'input[data-vv-name="listingPrice"], #listing-price-modal-listing-price-input, ' +
+        'input[data-test="listing-editor-listing-price"]',
       // 2026-08-11: `input[type="file"][accept*="image"]` matched NOTHING here,
       // and had not been noticed because photoInput is not in `required` — the
       // probe stayed green while every cross-post to Poshmark attached zero
