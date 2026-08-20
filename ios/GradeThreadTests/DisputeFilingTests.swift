@@ -14,21 +14,26 @@ final class DisputeFilingTests: XCTestCase {
         String(data: try request.encodedForEdge(), encoding: .utf8) ?? ""
     }
 
-    func testSendsCamelCaseGradeReportId() throws {
-        // The route reads body.gradeReportId and has NO snake_case fallback:
-        // the wrong spelling is a 400 with "gradeReportId is required", shown to
-        // the customer verbatim.
+    func testTheWireKeyIsSnakeCaseAndTheRouteAcceptsThat() throws {
+        // ⚠ THIS CASE ASSERTED THE OPPOSITE AND FAILED ON iOS CI, which is the
+        // only reason the wrong fix did not ship. Explicit CodingKeys do NOT
+        // protect a key from .convertToSnakeCase - Swift applies the strategy to
+        // the CodingKey's stringValue, so `case gradeReportId = "gradeReportId"`
+        // still went out as grade_report_id.
+        //
+        // There is no client-side spelling that survives the shared encoder, so
+        // the route was changed to accept BOTH. This pins what the phone really
+        // sends; src/test/dispute-filing-key-contract.test.ts pins that the
+        // route still takes it.
         let body = try json(DisputeRequest(gradeReportId: "gr-1", reason: "Too low"))
-        XCTAssertTrue(body.contains("\"gradeReportId\""), body)
-        XCTAssertFalse(body.contains("grade_report_id"), body)
+        XCTAssertTrue(body.contains("\"grade_report_id\""), body)
     }
 
-    func testTheEncoderStillTransformsUnprotectedKeys() throws {
-        // The premise of the fix, pinned so it cannot quietly stop being true.
-        // If EdgeAPI ever drops .convertToSnakeCase, the explicit CodingKeys
-        // above become redundant rather than wrong - but this case is what says
-        // the danger was real, and it is the reason the next author should not
-        // "tidy" them away.
+    func testTheEncoderTransformsEveryCamelCaseKey() throws {
+        // The premise of the whole story. Every multi-word key on every EdgeAPI
+        // request is rewritten, whether or not the type declares CodingKeys - so
+        // any route reading camelCase is unreachable from this client until it
+        // accepts the snake_case spelling too.
         struct Probe: Encodable { let someCamelKey = 1 }
         let encoded = String(
             data: try JSONEncoder.iso8601.encode(Probe()),
@@ -51,6 +56,9 @@ final class DisputeFilingTests: XCTestCase {
     }
 
     func testEvidenceIsSentUnderTheKeyTheRouteReads() throws {
+        // `images` and `reason` are single words, so the strategy leaves them
+        // alone - they were never at risk and are asserted because the pair is
+        // the contract, not because it was in doubt.
         let body = try json(
             DisputeRequest(
                 gradeReportId: "gr-1",

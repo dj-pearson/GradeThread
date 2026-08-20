@@ -1779,16 +1779,48 @@ gradeRoutes.post("/dispute", async (c) => {
     return c.json({ error: "Viewers cannot file disputes in this workspace" }, 403);
   }
 
-  let body: { gradeReportId?: unknown; reason?: unknown; images?: unknown };
+  let body: {
+    gradeReportId?: unknown;
+    grade_report_id?: unknown;
+    reason?: unknown;
+    images?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "Invalid JSON body" }, 400);
   }
-  const gradeReportId =
-    typeof body.gradeReportId === "string" ? body.gradeReportId.trim() : "";
+  // US-2688: BOTH spellings, and the fix belongs here rather than on the client.
+  //
+  // This route read camelCase while the rest of the edge reads snake_case, and
+  // iOS encodes every request with JSONEncoder.iso8601 (.convertToSnakeCase), so
+  // every filing from the phone arrived as `grade_report_id` and was answered
+  // 400 "gradeReportId is required" - shown to the customer verbatim, since the
+  // sheet renders the server's own string.
+  //
+  // ⚠ THE CLIENT-SIDE FIX DOES NOT EXIST, which is why this is server-side.
+  // Explicit CodingKeys do NOT protect a key from the strategy: Swift applies
+  // .convertToSnakeCase to the CodingKey's stringValue, so `case gradeReportId =
+  // "gradeReportId"` still goes out as grade_report_id. (`data_url` in the
+  // support composer survives only because it is ALREADY snake_case.) The only
+  // client-side options were a per-call encoder override or hand-built JSON,
+  // both of which leave the next caller to rediscover this.
+  //
+  // Accepting both costs one `??` and cannot be undone by a client refactor.
+  const rawGradeReportId =
+    typeof body.gradeReportId === "string"
+      ? body.gradeReportId
+      : typeof body.grade_report_id === "string"
+        ? body.grade_report_id
+        : "";
+  const gradeReportId = rawGradeReportId.trim();
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
-  if (!gradeReportId) return c.json({ error: "gradeReportId is required" }, 400);
+  if (!gradeReportId) {
+    return c.json(
+      { error: "gradeReportId (or grade_report_id) is required" },
+      400,
+    );
+  }
   if (!reason) return c.json({ error: "reason is required" }, 400);
   const images = Array.isArray(body.images)
     ? body.images.filter(

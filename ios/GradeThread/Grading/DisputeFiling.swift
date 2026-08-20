@@ -14,10 +14,18 @@ import Foundation
 /// through the edge, until this. Web and Android were unaffected: both hand-
 /// build the JSON and neither transforms keys.
 ///
-/// Hoisted out of the view and given explicit ``CodingKeys`` so the wire shape
-/// is a thing a test can encode and read. `DisputeFilingTests` asserts the
-/// literal bytes, because "the property is named right" is exactly the check
-/// that passed while this was broken.
+/// ⚠ AND THE FIRST FIX FOR IT WAS WRONG, which the byte-level tests below
+/// caught on iOS CI before anyone shipped it. Explicit ``CodingKeys`` do NOT
+/// protect a key from the encoder's strategy: Swift applies
+/// `.convertToSnakeCase` to the CodingKey's *stringValue*, so
+/// `case gradeReportId = "gradeReportId"` still left as `grade_report_id`.
+/// (`data_url` in the support composer survives only because it is ALREADY
+/// snake_case - it has no uppercase for the strategy to act on.)
+///
+/// So the real fix is server-side: the route now accepts BOTH spellings. This
+/// type is hoisted out of the view anyway, because a struct declared inside a
+/// function body is not something a test can encode - which is exactly why
+/// nobody ever looked at these bytes.
 struct DisputeRequest: Encodable, Equatable {
     let gradeReportId: String
     let reason: String
@@ -26,13 +34,9 @@ struct DisputeRequest: Encodable, Equatable {
     /// same, and a text-only filing should not carry an empty field.
     let images: [String]?
 
-    /// SPELLED OUT, and it must stay that way. `.convertToSnakeCase` rewrites
-    /// any camelCase property name, and the route accepts exactly one spelling.
-    enum CodingKeys: String, CodingKey {
-        case gradeReportId = "gradeReportId"
-        case reason
-        case images
-    }
+    // NO CodingKeys, deliberately. They would read as protection and provide
+    // none - see the note above. What the phone actually sends is
+    // `grade_report_id`, and the route accepts it.
 
     init(gradeReportId: String, reason: String, images: [String] = []) {
         self.gradeReportId = gradeReportId

@@ -30,23 +30,25 @@ function code(rel: string): string {
 }
 
 describe("the dispute route and the iOS body agree on one spelling (US-2688)", () => {
-  it("the route reads gradeReportId, camelCase", () => {
+  it("the route accepts BOTH spellings", () => {
+    // iOS cannot send camelCase. The shared encoder applies .convertToSnakeCase
+    // to the CodingKey's stringValue, so no client-side declaration survives it
+    // - which is why the fix is here and not in Swift.
     const src = code(ROUTE);
     expect(src).toContain("body.gradeReportId");
-    // If this ever becomes true, the Swift CodingKeys below are now wrong and
-    // every iOS filing 400s again. Change both or neither.
     expect(
       src.includes("body.grade_report_id"),
-      "the route started reading snake_case; ios/GradeThread/Grading/DisputeFiling.swift " +
-        "pins the camelCase spelling and must change in the same commit",
-    ).toBe(false);
+      "the route stopped accepting the snake_case spelling, which is the only " +
+        "one iOS can send; every dispute filed from the phone 400s again",
+    ).toBe(true);
   });
 
-  it("the Swift pins that spelling explicitly", () => {
-    // Without this the shared encoder's .convertToSnakeCase rewrites it to
-    // grade_report_id, which is the outage this story is about.
+  it("the Swift does NOT pretend CodingKeys protect the key", () => {
+    // They do not, and a declaration that reads as protection is worse than
+    // none: the first fix for this story was exactly that, and it shipped to
+    // iOS CI before the byte-level test caught it.
     const src = code(SWIFT);
-    expect(src).toContain('case gradeReportId = "gradeReportId"');
+    expect(src).not.toContain('case gradeReportId = "gradeReportId"');
   });
 
   it("the request type is NOT declared inside the view again", () => {
@@ -59,11 +61,13 @@ describe("the dispute route and the iOS body agree on one spelling (US-2688)", (
   });
 
   it("evidence photos ride the key the route reads", () => {
+    // `images` is a single word, so .convertToSnakeCase leaves it alone and it
+    // was never at risk - which is also why the Swift declares no CodingKeys
+    // for it. Asserted on the property, not on a CodingKey that should not
+    // exist.
     const route = code(ROUTE);
     expect(route).toContain("body.images");
-    expect(code(SWIFT)).toContain("case images");
-    // Single-word keys are not rewritten by the encoder, so `images` was never
-    // at risk. Asserted anyway because the pair is the contract, not the risk.
+    expect(code(SWIFT)).toContain("let images: [String]?");
   });
 
   it("the cap agrees with the route, which rejects the WHOLE filing over it", () => {
