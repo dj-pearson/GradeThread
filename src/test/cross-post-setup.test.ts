@@ -408,6 +408,51 @@ describe("a price dialog is the price, not a fallback (US-2741)", () => {
   });
 });
 
+describe("each tab names what the seller still has to set (US-2745)", () => {
+  const SPECS = "src/lib/marketplace-specs.ts";
+
+  it("only VERIFIED platforms declare manual fields", () => {
+    // An unset value means "not established", never "the extension fills
+    // everything". Poshmark and Mercari were confirmed on the live form;
+    // Grailed and Vinted were not, so they must stay silent rather than make a
+    // promise nobody checked.
+    const src = code(SPECS);
+    const declared = [...src.matchAll(/manualFields: \[/g)].length;
+    expect(declared).toBe(2);
+  });
+
+  it("the labels come from the spec's own fields, so they cannot drift", () => {
+    const src = code(KIT);
+    expect(src).toContain("spec.fields.find((f) => f.key === key)?.label");
+  });
+
+  it("a platform with none renders nothing at all", () => {
+    const src = code(KIT);
+    expect(src).toContain("manualFieldLabels.length > 0 &&");
+  });
+
+  it("every declared key exists on that platform's field list", () => {
+    // A key with no matching field would silently vanish from the notice.
+    const src = code(SPECS);
+    for (const platform of ["poshmark", "mercari"]) {
+      const start = src.indexOf(`  ${platform}: {`);
+      const block = src.slice(start, src.indexOf("sourceNote", start));
+      const declared = /manualFields: \[([^\]]*)\]/.exec(block);
+      expect(declared, `${platform} should declare manualFields`).toBeTruthy();
+      const keys = (declared?.[1] ?? "")
+        .split(",")
+        .map((k) => k.trim().replace(/"/g, ""))
+        .filter(Boolean);
+      expect(keys.length).toBeGreaterThan(0);
+      for (const key of keys) {
+        expect(block, `${platform}.${key} must be a real field`).toContain(
+          `key: "${key}"`,
+        );
+      }
+    }
+  });
+});
+
 describe("cross-posting has a setup flow with real state (US-2719)", () => {
   it("the section is on the Marketplaces page", () => {
     expect(code(MARKETPLACES)).toContain("<CrossPostSetup />");

@@ -105,6 +105,20 @@ export interface MarketplaceSpec {
    * the same number it is about to send.
    */
   priceStep?: number;
+  /**
+   * US-2745: field keys the extension CANNOT fill, so the seller sets them on
+   * the marketplace themselves.
+   *
+   * These are option lists — pickers and dropdowns whose choices vary per
+   * garment — where a wrong pick is worse than an empty field. Naming them up
+   * front turns "the extension missed some things" into a short, finite list of
+   * what is left to do.
+   *
+   * ONLY POPULATED WHERE IT HAS BEEN VERIFIED ON THE LIVE FORM. An unset value
+   * means "not established", NOT "the extension fills everything" — the UI says
+   * nothing at all rather than making a promise nobody checked.
+   */
+  manualFields?: string[];
   /** True when the platform has its own category tree that must be mapped (US-722). */
   usesOwnTaxonomy: boolean;
   /** True when brand must come from the platform's curated list (Grailed designers). */
@@ -177,6 +191,9 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
       { value: "FAIR", label: "Fair" },
       { value: "PLAY", label: "Play condition" },
     ],
+    // Confirmed pickers on the live form 2026-08-20: colour, size, category
+    // and condition. Poshmark's structured condition flag is `nwt`.
+    manualFields: ["category", "size", "color", "nwt"],
     // Poshmark rejects cents — see priceStep on MarketplaceSpec.
     priceStep: 1,
     usesOwnTaxonomy: true, // Department → Category → Subcategory
@@ -211,6 +228,9 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
       { value: "Poor", label: "Poor" },
     ],
     tags: { max: 3, required: false, help: "Up to 3 hashtags for discovery" },
+    // Confirmed on the live form 2026-08-20: condition is a selection and size
+    // a dropdown. Category and brand DO fill, so they are deliberately not here.
+    manualFields: ["condition", "size"],
     usesOwnTaxonomy: true,
     brandAllowList: false,
     fields: [

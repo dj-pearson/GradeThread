@@ -332,6 +332,11 @@ function PlatformPanel({
 
   // title/description + the platform category are editable (the seller confirms
   // the seeded category / department — US-722); the rest is copy-only display.
+  // The spec's own labels, so this list can never drift from the rows below it.
+  const manualFieldLabels = (spec.manualFields ?? [])
+    .map((key) => spec.fields.find((f) => f.key === key)?.label)
+    .filter((label): label is string => Boolean(label));
+
   const editableKeys = new Set(["title", "description", "category", "department"]);
   // US-2736: one resolved variant, so the DISPLAYED price, the validation that
   // decides "Ready to list", and the payload the extension receives can never
@@ -679,6 +684,24 @@ function PlatformPanel({
               See plans
             </Link>
             .
+          </span>
+        </div>
+      )}
+
+      {/* US-2745: what the seller still has to set themselves, named up front.
+          Only rendered where manualFields has been VERIFIED on the live form —
+          an unset value means "not established", so the tab says nothing rather
+          than promising the extension fills everything. */}
+      {manualFieldLabels.length > 0 && (
+        <div className="flex items-start gap-2 rounded-md border bg-muted/40 p-2.5 text-xs text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <span className="font-medium text-foreground">
+              You&rsquo;ll set these on {spec.label} yourself:
+            </span>{" "}
+            {manualFieldLabels.join(", ")}. They are option lists whose choices
+            change per garment, so GradeThread leaves them for you rather than
+            guessing.
           </span>
         </div>
       )}

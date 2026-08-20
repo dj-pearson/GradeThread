@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2745",
+  "nextId": "US-2746",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2742,6 +2742,21 @@
         "No new mechanism and no new tests needed: the stepping rules are already covered by the US-2739 cases. 46 tests pass."
       ],
       "priority": 12
+    },
+    {
+      "id": "US-2745",
+      "passes": false,
+      "title": "Each platform tab should name what the seller still has to set by hand",
+      "description": "As a seller cross-posting, I want each marketplace tab to tell me which fields the extension will not fill, so that I know exactly what is left to do instead of discovering gaps after the form opens.",
+      "acceptanceCriteria": [
+        "MarketplaceSpec gains manualFields - the field keys the extension cannot fill because they are pickers whose choices vary per garment, where a wrong pick is worse than an empty field.",
+        "ONLY POPULATED WHERE VERIFIED ON THE LIVE FORM. poshmark declares category, size, color and nwt; mercari declares condition and size. grailed and vinted declare nothing, because nobody has checked them - an unset value means 'not established', never 'the extension fills everything', and a test asserts exactly two platforms declare it so a third cannot be added on a guess.",
+        "The notice renders above the field rows on that platform's tab, and its labels are looked up from the spec's OWN fields, so the list can never drift from the rows beneath it. A platform with none renders nothing at all.",
+        "A test asserts every declared key matches a real field on that platform - a key with no match would silently vanish from the notice rather than failing.",
+        "Mercari's category and brand are deliberately ABSENT from its list: both fill, and listing them would tell the seller to redo work already done.",
+        "50 tests pass; ui:check clean at zero blocking."
+      ],
+      "priority": 11
     }
   ]
 }
