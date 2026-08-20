@@ -490,6 +490,16 @@ app.use("/api/flipdesk/listings/*", authMiddleware);
 // /:id) — a wildcard alone would leave the bare mount open.
 app.use("/api/flipdesk/extension-queue", authMiddleware);
 app.use("/api/flipdesk/extension-queue/*", authMiddleware);
+// US-2697: sold-sync observation intake. Both mounts for the same reason as
+// the queue above - there is no bare route today and a wildcard alone would
+// leave one open the day someone adds it.
+app.use("/api/flipdesk/sync", authMiddleware);
+app.use("/api/flipdesk/sync/*", authMiddleware);
+// A workspace member syncing acts on the OWNER's tenant, not their own
+// (US-268). Without this the route resolves ownerId to the member's id and
+// would match a sold row against an empty set of listings.
+app.use("/api/flipdesk/sync", workspaceMiddleware);
+app.use("/api/flipdesk/sync/*", workspaceMiddleware);
 app.use("/api/flipdesk/reconciliation/*", authMiddleware);
 app.use("/api/flipdesk/sheets/*", authMiddleware);
 app.use("/api/flipdesk/import/*", authMiddleware);
@@ -1020,6 +1030,10 @@ app.use("/api/flipdesk/listings/*", rateLimiter(30, 60_000, "flipdesk-listings")
 // so this sits above the listings limit without being an open door.
 app.use("/api/flipdesk/extension-queue", rateLimiter(60, 60_000, "flipdesk-ext-queue"));
 app.use("/api/flipdesk/extension-queue/*", rateLimiter(60, 60_000, "flipdesk-ext-queue"));
+// One poll per channel per 30 minutes is the design; 60/min is far above any
+// honest client and still bounds a stuck extension retrying in a loop.
+app.use("/api/flipdesk/sync", rateLimiter(60, 60_000, "flipdesk-sync"));
+app.use("/api/flipdesk/sync/*", rateLimiter(60, 60_000, "flipdesk-sync"));
 app.use("/api/flipdesk/reconciliation/*", rateLimiter(30, 60_000, "flipdesk-recon"));
 app.use("/api/flipdesk/sheets/*", rateLimiter(30, 60_000, "flipdesk-sheets"));
 app.use("/api/flipdesk/import/*", rateLimiter(30, 60_000, "flipdesk-import"));
