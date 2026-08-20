@@ -89,6 +89,15 @@ import {
   useCancelExtensionWork,
   useExtensionQueue,
 } from "@/hooks/use-extension-queue";
+import {
+  reviewGroupCopy,
+  syncStateCopy,
+  useDismissSyncReview,
+  useSyncReviews,
+  useSyncStatus,
+  type SyncReview,
+  type SyncReviewReason,
+} from "@/hooks/use-sold-sync";
 import { HelpLink } from "@/components/help/help-link";
 
 // US-718: the non-API channels, grouped by their REAL tier (read from the
@@ -1089,6 +1098,140 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
 // A seller who believes a delist is still pending is a seller heading for a
 // double sale, so an item that never ran surfaces here instead of aging out in
 // silence (US-2481 AC6, the same rule as the US-2165 delist marker).
+// US-2699: sold-sync health, and the queue of things it refused to decide alone.
+//
+// The status here comes from the SAME projection the extension popup reads
+// (lib/sync-status.ts). Two surfaces disagreeing about whether a channel is
+// healthy is the failure lib/pending-delists.ts documents, and it is worse here
+// than there: sold-sync is the thing standing between a seller and a double
+// sale, so a seller who cannot tell whether it is running does not trust it.
+function SoldSyncSection() {
+  const { data: channels, isLoading } = useSyncStatus();
+  const { data: reviews } = useSyncReviews();
+  const dismiss = useDismissSyncReview();
+
+  const rows = channels ?? [];
+  if (isLoading || rows.length === 0) return null;
+
+  const queue = reviews ?? [];
+  const groups: SyncReviewReason[] = [
+    "probable_match",
+    "unexplained_absence",
+    "count_gap",
+    "circuit_breaker",
+  ];
+
+  const toneClass = (tone: string) =>
+    tone === "warn"
+      ? "text-brand-red-text"
+      : tone === "ok"
+        ? "text-foreground"
+        : "text-muted-foreground";
+
+  return (
+    <section>
+      <h2 className="mb-1 text-base font-semibold text-foreground">
+        Sold-sync
+      </h2>
+      <p className="mb-3 max-w-prose text-xs text-muted-foreground">
+        When one of these channels sells a garment, GradeThread ends your other
+        listings for it so the same item cannot sell twice. It reads your own
+        sold page while you are on it, from your browser. Nothing is read on a
+        schedule, and GradeThread never receives your marketplace password,
+        session, or the name or address of anyone who bought from you.
+      </p>
+
+      <div className="rounded-lg border">
+        <ul className="divide-y">
+          {rows.map((ch) => {
+            const copy = syncStateCopy(ch);
+            return (
+              <li
+                key={ch.platform}
+                className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 p-3"
+              >
+                <span className="text-sm font-medium">
+                  {MARKETPLACE_LABELS[
+                    ch.platform as keyof typeof MARKETPLACE_LABELS
+                  ] ?? ch.platform}
+                </span>
+                <span className="flex flex-1 flex-wrap items-baseline justify-end gap-x-3 gap-y-0.5 text-xs">
+                  {copy.detail && (
+                    <span className="text-muted-foreground">{copy.detail}</span>
+                  )}
+                  {ch.open_reviews > 0 && (
+                    <span className="text-muted-foreground">
+                      {ch.open_reviews} to review
+                    </span>
+                  )}
+                  <span className={`font-medium ${toneClass(copy.tone)}`}>
+                    {copy.label}
+                  </span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {queue.length > 0 && (
+        <div className="mt-3 space-y-3">
+          {groups.map((reason) => {
+            const items = queue.filter((r: SyncReview) => r.reason === reason);
+            if (items.length === 0) return null;
+            const copy = reviewGroupCopy(reason);
+            return (
+              <div key={reason} className="rounded-lg border border-dashed p-3">
+                <p className="text-sm font-medium">{copy.title}</p>
+                <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">
+                  {copy.blurb}
+                </p>
+                <ul className="mt-2 space-y-1.5">
+                  {items.map((r: SyncReview) => (
+                    <li
+                      key={r.id}
+                      className="flex flex-wrap items-center justify-between gap-2 text-xs"
+                    >
+                      <span className="text-muted-foreground">
+                        <span className="font-medium text-foreground">
+                          {r.title ?? "Untitled listing"}
+                        </span>
+                        {" on "}
+                        {MARKETPLACE_LABELS[
+                          r.platform as keyof typeof MARKETPLACE_LABELS
+                        ] ?? r.platform}
+                        {r.unexplained != null
+                          ? ` — ${r.unexplained} unaccounted for`
+                          : ""}
+                        {r.claimed != null && r.cap != null
+                          ? ` — claimed ${r.claimed}, cap ${r.cap}`
+                          : ""}
+                      </span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={dismiss.isPending}
+                        onClick={() => {
+                          dismiss.mutate(r.id, {
+                            onSuccess: () => toast.success("Cleared."),
+                            onError: (e) => toast.error(e.message),
+                          });
+                        }}
+                      >
+                        Dismiss
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ExtensionQueueSection() {
   const { data, isLoading } = useExtensionQueue();
   const cancel = useCancelExtensionWork();
@@ -1478,7 +1621,8 @@ export function FlipdeskMarketplacesPage() {
           GradeThread Lister browser extension (US-716). Presented honestly as a
           real, available capability — not "coming soon". */}
       {/* US-2481: what your phone queued and this desktop has not run yet. */}
-      <ExtensionQueueSection />
+      <SoldSyncSection />
+        <ExtensionQueueSection />
 
       <section>
         <h2 className="mb-3 text-base font-semibold text-foreground">
