@@ -203,6 +203,32 @@
     return { urls: urls, pagesRead: 1, reachedEnd: reachedEnd };
   }
 
+  /**
+   * Tell the worker a human check is on the page.
+   *
+   * A SEPARATE message from the observation, and deliberately so. The poll's
+   * RULE 5 (sync/poll-plan.js) stops a channel outright when a marketplace asks
+   * for a human check, and it learns that only from applyPollResult -- which is
+   * fed by the observation report. But a human check makes this script return
+   * BEFORE it reads or reports anything, so the rule had nothing to fire on: the
+   * poll would reopen the same challenged page every interval, which is the one
+   * behaviour most likely to cost a seller their account.
+   *
+   * It does not go to the server. There is no batch to send -- nothing was read
+   * -- and posting an empty one would overwrite the channel's last_ok_at with a
+   * read that never happened. A human check is something that happened to a tab
+   * on this device, which is where the poll already keeps it.
+   */
+  function sendHumanCheck() {
+    try {
+      const p = ext.runtime.sendMessage({
+        type: "GT_SYNC_HUMAN_CHECK",
+        platform: PLATFORM,
+      });
+      if (p && typeof p.catch === "function") p.catch(function () { /* worker asleep */ });
+    } catch (_e) { /* never surface an extension error onto the seller's page */ }
+  }
+
   function send(batch) {
     try {
       const p = ext.runtime.sendMessage({ type: "GT_SYNC_OBSERVE", batch: batch });
@@ -212,7 +238,12 @@
 
   function run() {
     if (!hostAllowed()) return;
-    if (isHumanCheck()) return; // stop, hand the tab back, never answer it
+    if (isHumanCheck()) {
+      // Stop, hand the tab back, never answer it -- and say so, so the poll
+      // stops reopening this channel (RULE 5).
+      sendHumanCheck();
+      return;
+    }
 
     const onSold = matches(cfg.sold && cfg.sold.urlPattern);
     const onCloset = matches(cfg.closet && cfg.closet.urlPattern);

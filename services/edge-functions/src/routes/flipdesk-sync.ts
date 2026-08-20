@@ -30,6 +30,7 @@ import { buildSyncSaleRecorded } from "../lib/marketplace-event-notify.ts";
 import { notifyUser } from "../lib/notify.ts";
 import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import {
+  dedupeKeyFor,
   planObservations,
   planSaleEffects,
   type ClosetObservation,
@@ -208,14 +209,23 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       listingStatus: l.listing_status,
     }));
 
-    const { data: seenRows } = await supabaseAdmin
-      .from("marketplace_sync_observations")
-      .select("dedupe_key")
-      .eq("user_id", ownerId)
-      .eq("platform", batch.platform);
-    const seenKeys = new Set(
-      ((seenRows ?? []) as { dedupe_key: string }[]).map((r) => r.dedupe_key),
-    );
+    // Only the keys THIS batch could collide with. The ledger holds one row per
+    // sale forever, so selecting the whole tenant-platform slice would grow with
+    // the seller's lifetime sales and be re-fetched on every poll; a batch is
+    // capped at MAX_SOLD_ROWS, so the `.in()` is bounded by construction.
+    const batchKeys = batch.sold.map((obs) => dedupeKeyFor(batch.platform, obs));
+    let seenKeys = new Set<string>();
+    if (batchKeys.length > 0) {
+      const { data: seenRows } = await supabaseAdmin
+        .from("marketplace_sync_observations")
+        .select("dedupe_key")
+        .eq("user_id", ownerId)
+        .eq("platform", batch.platform)
+        .in("dedupe_key", batchKeys);
+      seenKeys = new Set(
+        ((seenRows ?? []) as { dedupe_key: string }[]).map((r) => r.dedupe_key),
+      );
+    }
 
     const plan = planObservations({ batch, known, seenKeys });
 
@@ -283,8 +293,14 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
     }
 
     // ── unmatched sales ────────────────────────────────────────────────────
+    // Upserted on marketplace_sync_reviews_unmatched_uniq (00633), NOT inserted.
+    // An unmatched sale is never written to the dedupe ledger -- only confirmed
+    // sales are -- so `seenKeys` above can never suppress it, and every poll
+    // re-emits the same sold row with the same key. A plain insert therefore
+    // grows one row per poll forever, which is the exact failure the review
+    // queue's other unique index exists to prevent.
     if (plan.unmatched.length > 0) {
-      await supabaseAdmin.from("marketplace_sync_reviews").insert(
+      await supabaseAdmin.from("marketplace_sync_reviews").upsert(
         plan.unmatched.map((u) => ({
           user_id: ownerId,
           platform: batch.platform,
@@ -297,7 +313,9 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
           sold_price_cents: u.soldPriceCents,
           sold_at: u.soldAt,
           dedupe_key: u.dedupeKey,
+          updated_at: new Date().toISOString(),
         })),
+        { onConflict: "user_id,platform,dedupe_key", ignoreDuplicates: false },
       );
     }
 

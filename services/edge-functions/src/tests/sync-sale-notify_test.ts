@@ -5,6 +5,7 @@
 // extension read off a page. Everything asserted here is about making that
 // checkable while the listing can still be re-posted.
 
+import "./_env.ts";
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
 import { buildSyncSaleRecorded } from "../lib/marketplace-event-notify.ts";
 

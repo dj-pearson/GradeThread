@@ -5,6 +5,7 @@
 // either route grows its own copy of the query, which is the drift
 // lib/pending-delists.ts exists to document.
 
+import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import {
   projectSyncChannels,

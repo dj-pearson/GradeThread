@@ -2229,6 +2229,14 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         sendResponse(out);
         break;
       }
+      // A marketplace asked the reader to prove it is a person. Nothing was
+      // read and nothing is posted; this exists only so RULE 5 has something to
+      // fire on. Without it the poll reopens a challenged page every interval,
+      // because the content script returns before it reports anything.
+      case "GT_SYNC_HUMAN_CHECK":
+        await notePollResult({ platform: msg && msg.platform, humanCheck: true });
+        sendResponse({ ok: true });
+        break;
       // US-2699: what the popup renders. Same projection as the web.
       case "GT_SYNC_STATUS":
         sendResponse(await fetchSyncStatus());
