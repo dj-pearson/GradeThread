@@ -99,6 +99,73 @@ final class SupportTicketsTests: XCTestCase {
         XCTAssertEqual(fake.replyCalls, 0)
     }
 
+    // MARK: - Attachments + close (US-2561)
+
+    func test_create_passesAttachmentsThrough() async {
+        let fake = FakeSupportService(tickets: [])
+        let store = SupportTicketsStore(service: fake)
+        let upload = SupportAttachmentUpload(
+            dataURL: "data:image/jpeg;base64,AAA", name: "shot.jpg"
+        )
+        _ = await store.create(subject: "S", body: "B", attachments: [upload])
+        XCTAssertEqual(fake.lastCreateAttachments, [upload])
+    }
+
+    func test_reply_passesAttachmentsThrough() async {
+        let fake = FakeSupportService(tickets: [])
+        let store = SupportThreadStore(ticketId: "t1", service: fake)
+        let upload = SupportAttachmentUpload(
+            dataURL: "data:image/jpeg;base64,BBB", name: "b.jpg"
+        )
+        _ = await store.reply("hello", attachments: [upload])
+        XCTAssertEqual(fake.lastReplyAttachments, [upload])
+    }
+
+    func test_reply_withNoTextIsRefusedBeforeTheUpload() async {
+        // The route trims the body and 400s on an empty one BEFORE it looks at
+        // the attachments, so sending would mean waiting through the upload to
+        // be told no.
+        let fake = FakeSupportService(tickets: [])
+        let store = SupportThreadStore(ticketId: "t1", service: fake)
+        let sent = await store.reply(
+            "   ",
+            attachments: [SupportAttachmentUpload(dataURL: "data:image/jpeg;base64,C", name: "c.jpg")]
+        )
+        XCTAssertFalse(sent)
+        XCTAssertEqual(fake.replyCalls, 0)
+    }
+
+    func test_close_callsTheEndpointAndReloads() async {
+        let fake = FakeSupportService(tickets: [])
+        let store = SupportThreadStore(ticketId: "t1", service: fake)
+        let ok = await store.close()
+        XCTAssertTrue(ok)
+        XCTAssertEqual(fake.closeCalls, 1)
+        // Reloaded rather than flipping the status locally: closing is
+        // idempotent and a reply reopens it, so the server's row is the only
+        // thing that knows the answer after either action.
+        XCTAssertNotNil(store.ticket)
+    }
+
+    func test_close_surfacesAnError() async {
+        let fake = FakeSupportService(tickets: [])
+        fake.closeError = EdgeAPIError.network("offline")
+        let store = SupportThreadStore(ticketId: "t1", service: fake)
+        let ok = await store.close()
+        XCTAssertFalse(ok)
+        XCTAssertNotNil(store.actionError)
+    }
+
+    func test_threadLoad_stampsFetchedAt() async {
+        // Without this the attachment expiry rule has nothing to measure
+        // against and every signed URL looks fresh forever.
+        let fake = FakeSupportService(tickets: [])
+        let store = SupportThreadStore(ticketId: "t1", service: fake)
+        let before = Date()
+        await store.load()
+        XCTAssertGreaterThanOrEqual(store.fetchedAt, before)
+    }
+
     // MARK: - Fixtures
 
     private static func ticket(id: String) -> SupportTicket {
@@ -109,7 +176,9 @@ final class SupportTicketsTests: XCTestCase {
     }
 
     private static func message(id: String, author: String) -> SupportTicketMessage {
-        SupportTicketMessage(id: id, author: author, body: "Body \(id)", createdAt: nil)
+        SupportTicketMessage(
+            id: id, author: author, body: "Body \(id)", createdAt: nil, attachments: nil
+        )
     }
 }
 
@@ -123,6 +192,12 @@ private final class FakeSupportService: SupportTicketProviding, @unchecked Senda
     var replyError: Error?
     private(set) var createCalls = 0
     private(set) var replyCalls = 0
+    // US-2561: what the store actually handed down. A fake that only widened its
+    // signatures would compile and prove nothing about the attachments arriving.
+    private(set) var lastCreateAttachments: [SupportAttachmentUpload] = []
+    private(set) var lastReplyAttachments: [SupportAttachmentUpload] = []
+    private(set) var closeCalls = 0
+    var closeError: Error?
 
     init(tickets: [SupportTicket] = [], listError: Error? = nil) {
         self.tickets = tickets
@@ -143,15 +218,30 @@ private final class FakeSupportService: SupportTicketProviding, @unchecked Senda
         )
     }
 
-    func create(subject: String, body: String) async throws -> String {
+    func create(
+        subject: String,
+        body: String,
+        attachments: [SupportAttachmentUpload]
+    ) async throws -> String {
         createCalls += 1
+        lastCreateAttachments = attachments
         if let createError { throw createError }
         if let after = ticketsAfterCreate { tickets = after }
         return newTicketId
     }
 
-    func reply(ticketId: String, body: String) async throws {
+    func reply(
+        ticketId: String,
+        body: String,
+        attachments: [SupportAttachmentUpload]
+    ) async throws {
         replyCalls += 1
+        lastReplyAttachments = attachments
         if let replyError { throw replyError }
+    }
+
+    func close(ticketId: String) async throws {
+        closeCalls += 1
+        if let closeError { throw closeError }
     }
 }
