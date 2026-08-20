@@ -2601,7 +2601,8 @@
         "The ONE inferred piece is the opener selector - input.ff--no-increment-input:not([id^=listing-price-modal]) - taken from the deep probe's create-page input. The :not() is what keeps it honest: it can never match the modal's own inputs, so a wrong inference opens nothing rather than typing into the wrong box. Confirm it against the live page and replace it with a test attribute the moment one appears.",
         "priceFilled now reports the dialog result too, so the SaaS toast stops warning about a price that did in fact get set."
       ],
-      "priority": 11
+      "priority": 11,
+      "notes": "HARDENED 2026-08-20 from the founder's next paste. The offered element was [data-test=modal].modal-backdrop - the dialog's BACKDROP, not its opener, so it does not answer the open question. It did surface a real hazard though: a dialog renders over a backdrop that swallows clicks, so clicking the opener while a dialog is already up either does nothing or lands on the backdrop and DISMISSES the dialog we were about to fill. fillPriceDialog now checks for the price input FIRST and only clicks when there is no dialog - faster, and the only version that cannot close a dialog the seller opened themselves. cfg.open is now optional: with the dialog already open the fill works without any opener at all, which also means a wrong opener selector costs nothing on a page where the seller opened it by hand. STILL NEEDED: the element on the create form that a seller CLICKS to make the price dialog appear - the Listing Price row itself, captured BEFORE the popup opens."
     }
   ]
 }

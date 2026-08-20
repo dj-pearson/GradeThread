@@ -232,15 +232,25 @@
   //      would be us deciding the price is right. Leaving it open puts the
   //      number in front of them at the moment they can still change it.
   GT.fillPriceDialog = async function (cfg, payload) {
-    if (!cfg || !cfg.open || !cfg.price) return false;
+    if (!cfg || !cfg.price) return false;
     try {
-      const opener = document.querySelector(cfg.open);
-      if (!opener) return false;
-      opener.click();
-
-      // Short wait: a dialog that has not rendered in two seconds is not going
-      // to, and the seller is watching the form.
-      const input = await GT.waitFor(cfg.price, 2000);
+      // ALREADY OPEN? Then do not click anything.
+      //
+      // A dialog renders over a backdrop that swallows clicks, so "click the
+      // opener" while one is up either does nothing or lands on the backdrop
+      // and DISMISSES the dialog we were about to fill. Checking for the input
+      // first is both faster and the only version that cannot close a dialog
+      // the seller opened themselves.
+      let input = document.querySelector(cfg.price);
+      if (!input) {
+        if (!cfg.open) return false;
+        const opener = document.querySelector(cfg.open);
+        if (!opener) return false;
+        opener.click();
+        // Short wait: a dialog that has not rendered in two seconds is not
+        // going to, and the seller is watching the form.
+        input = await GT.waitFor(cfg.price, 2000);
+      }
       if (!input) {
         GT.log("price dialog did not open on " + payload.platform);
         return false;
