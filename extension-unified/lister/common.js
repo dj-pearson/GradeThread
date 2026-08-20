@@ -485,8 +485,23 @@
     // This does NOT fail the run. An unfilled price is a form the seller
     // finishes, not a form that changed under us — bailing out would cost them
     // the whole prefill over a field they were going to set anyway.
-    const priceFilled = f.price ? GT.fill(f.price, payload.price) : false;
-    if (f.price && !priceFilled) {
+    // US-2741: where a platform keeps a DIALOG for its price, the form field is
+    // not the price — it is a button that looks like one.
+    //
+    // On Poshmark, setting the create-form input does take: vee-validate reads
+    // it and the page flashes an estimated earnings figure ($25.60 on a $32
+    // listing, its 20% fee). Then it reverts, because the authoritative value
+    // lives in the price dialog and the form field is only a display that opens
+    // it. Filling it therefore LOOKS like success — GT.fill returns true, the
+    // seller sees a number appear — and leaves the listing priced at nothing.
+    //
+    // So when a flow declares a priceDialog, that is the price, and the form
+    // field is skipped entirely rather than filled and then contradicted.
+    const usesPriceDialog = Boolean(flow.priceDialog && flow.priceDialog.price);
+    const priceFilled = !usesPriceDialog && f.price
+      ? GT.fill(f.price, payload.price)
+      : false;
+    if (!usesPriceDialog && f.price && !priceFilled) {
       GT.showBanner(
         "GradeThread prefilled this " + (payload.platformLabel || payload.platform) +
           " listing, but it could NOT set the price — enter it yourself before you post.",
@@ -513,7 +528,7 @@
     // if the dialog never appears we report the price as unfilled, which is
     // exactly what happened before this existed.
     let dialogPriceFilled = false;
-    if (flow.priceDialog && !priceFilled && payload.price) {
+    if (usesPriceDialog && payload.price) {
       dialogPriceFilled = await GT.fillPriceDialog(flow.priceDialog, payload);
       if (dialogPriceFilled) {
         GT.showBanner(
@@ -523,6 +538,16 @@
       }
     }
     const anyPriceFilled = priceFilled || dialogPriceFilled;
+    if (usesPriceDialog && !dialogPriceFilled && payload.price) {
+      // Same loud treatment the form-field miss has had since US-2477. A price
+      // we could not set is the one thing the seller must not discover after
+      // publishing.
+      GT.showBanner(
+        "GradeThread prefilled this " + (payload.platformLabel || payload.platform) +
+          " listing, but it could NOT set the price — enter it yourself before you post.",
+      );
+      GT.log("price dialog fill failed on " + payload.platform);
+    }
 
     GT.log("filled " + payload.platform + " form (photos " +
       photos.attached + "/" + photos.total + " attached)");

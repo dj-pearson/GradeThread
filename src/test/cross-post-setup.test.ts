@@ -350,6 +350,38 @@ describe("a numeric string is a price, not a zero (US-2740)", () => {
   });
 });
 
+describe("a price dialog is the price, not a fallback (US-2741)", () => {
+  const COMMON = "extension-unified/lister/common.js";
+
+  it("the form field is skipped when a dialog is declared", () => {
+    // On Poshmark the create-form input is a button that looks like a field.
+    // Setting it DOES take -- vee-validate flashes an estimated earnings figure
+    // ($25.60 on a $32 listing, its 20% fee) -- and then reverts, because the
+    // authoritative value lives in the dialog. So filling it looks like success
+    // and leaves the listing priced at nothing.
+    const src = read(COMMON);
+    expect(src).toContain("const usesPriceDialog = Boolean(flow.priceDialog");
+    expect(src).toContain("const priceFilled = !usesPriceDialog && f.price");
+  });
+
+  it("the dialog runs whether or not the field fill would have worked", () => {
+    // It was gated on !priceFilled, so a form fill that "succeeded" skipped the
+    // dialog entirely -- which is exactly how the price went missing.
+    const src = read(COMMON);
+    expect(src).toContain("if (usesPriceDialog && payload.price) {");
+    expect(src).not.toContain("flow.priceDialog && !priceFilled");
+  });
+
+  it("a failed dialog fill is still reported loudly", () => {
+    // Same treatment the form-field miss has had since US-2477: a price we
+    // could not set is the one thing the seller must not find out after
+    // publishing.
+    const src = read(COMMON);
+    expect(src).toContain("usesPriceDialog && !dialogPriceFilled");
+    expect(src).toContain("could NOT set the price");
+  });
+});
+
 describe("cross-posting has a setup flow with real state (US-2719)", () => {
   it("the section is on the Marketplaces page", () => {
     expect(code(MARKETPLACES)).toContain("<CrossPostSetup />");

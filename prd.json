@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2741",
+  "nextId": "US-2742",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2682,6 +2682,22 @@
         "This is the ROOT cause of the blank price. The four earlier fixes stand on their own merits - the generator ignored the item's price, the kit needed a render-time fallback, Poshmark takes whole dollars, and the writeback swallowed its errors - but none of them could ever have fixed this one."
       ],
       "priority": 5
+    },
+    {
+      "id": "US-2741",
+      "passes": false,
+      "title": "Poshmark's create-form price field is a button that looks like a field, so filling it reports success and prices the listing at nothing",
+      "description": "As a seller, I want the price set where Poshmark actually keeps it, so that a number appearing on screen means the listing is priced.",
+      "acceptanceCriteria": [
+        "DIAGNOSED FROM ONE OBSERVATION 2026-08-20: the founder saw an earnings figure of 5.60 flash on the page. That is 32 x 0.80 - Poshmark's 20% fee on a 2 listing. So the price WAS being set, vee-validate read it and computed earnings, and then it reverted.",
+        "CAUSE: the create-form input carrying data-vv-name=listingPrice is a DISPLAY that opens the price dialog. The authoritative value lives in the dialog. GT.fill on the form field returns true, the seller watches a number appear, and the listing ends up priced at nothing - a false success on the field that decides what they get paid.",
+        "The priceDialog path existed and was gated on !priceFilled, so a form fill that 'succeeded' skipped it entirely. That gate is what turned a working dialog into dead code.",
+        "Now: when a flow declares a priceDialog with a price selector, THAT is the price. The form field is skipped rather than filled and then contradicted, and the dialog runs unconditionally.",
+        "A failed dialog fill gets the same loud banner the form-field miss has had since US-2477 - a price we could not set is the one thing a seller must not discover after publishing.",
+        "Order is unchanged and still matters: title, brand, tags, photos, THEN the dialog. An open modal sits over the file input, so photos go first.",
+        "3 guards in src/test/cross-post-setup.test.ts, including one asserting the !priceFilled gate is gone; 44 pass."
+      ],
+      "priority": 8
     }
   ]
 }
