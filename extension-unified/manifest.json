@@ -177,7 +177,9 @@
         "https://poshmark.com/order/sales*",
         "https://*.poshmark.com/order/sales*",
         "https://poshmark.com/closet/*",
-        "https://*.poshmark.com/closet/*"
+        "https://*.poshmark.com/closet/*",
+        "https://mercari.com/mypage/*",
+        "https://*.mercari.com/mypage/*"
       ],
       "js": [
         "sync/selectors.js",

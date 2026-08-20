@@ -41,18 +41,39 @@ assert.deepStrictEqual(
   "sync content script load order matters — selectors and observe must be on the page first",
 );
 
-// Every match must be scoped to a PATH. A whole-domain match here would put the
-// reader on every Poshmark page including other sellers' listings.
+// Every match must be scoped to a PATH, and that path must be one an adapter
+// actually claims to read.
+//
+// A whole-domain match would put the reader on every page of the marketplace,
+// including other sellers' listings. And a path no adapter names is reach we
+// asked the store for and cannot justify — the shape a permission review
+// rejects, and the shape that quietly outlives the feature that needed it.
+//
+// The allowed paths are DERIVED from the adapters' own urlPatterns rather than
+// listed here. The first version hard-coded Poshmark's two paths, and adding
+// Mercari failed it — correctly, but for the wrong reason: the guard was
+// describing one marketplace instead of the rule.
 for (const m of cs.matches) {
   const afterHost = String(m).replace(/^https:\/\/[^/]+/, "");
   assert.ok(
     afterHost !== "/*" && afterHost.length > 2,
     `sync content script matches "${m}", which is the whole domain. It must be ` +
-      `scoped to the seller's own Sold page and closet.`,
+      `scoped to the seller's own sold and listing pages.`,
   );
+
+  const host = String(m).replace(/^https:\/\/(\*\.)?/, "").replace(/\/.*$/, "");
+  const adapter = Object.values(SEL).find((a) => (a.hosts || []).includes(host));
+  assert.ok(adapter, `sync content script matches ${m} but no adapter declares host ${host}.`);
+
+  const stem = afterHost.replace(/^\//, "").replace(/\*+$/, "").replace(/\/+$/, "");
+  const patterns = [adapter.sold, adapter.closet]
+    .filter(Boolean)
+    .map((f) => String(f.urlPattern || ""));
   assert.ok(
-    /^\/(order\/sales|closet\/)/.test(afterHost),
-    `sync content script matches an unexpected path: ${m}`,
+    patterns.some((p) => p.includes(stem)),
+    `sync content script matches ${m}, but no ${host} adapter flow reads a path ` +
+      `containing "${stem}". Either the flow is missing or the match is reach we ` +
+      `cannot justify to a store reviewer.`,
   );
 }
 
@@ -180,6 +201,45 @@ for (const rel of syncFiles) {
   assert.ok(
     /cfg\.enabled/.test(src),
     "sync/content.js never checks cfg.enabled, so unverified selectors would run against a live page",
+  );
+}
+
+// ── 4b. The reader is platform-agnostic ────────────────────────────────────
+//
+// US-2700 AC5. Adding a second marketplace had to be selectors and page shapes,
+// with no new server code and no new reader logic. If a third one needs either,
+// the split between "the extension observes" and "the server decides" is in the
+// wrong place, and the cheapest way to find that out is to fail here.
+//
+// The concrete failure this prevents: content.js pinned PLATFORM to "poshmark"
+// in its first version. A file shaped like that gets COPIED for marketplace two,
+// and then one copy quietly stops receiving the other's fixes.
+
+{
+  const src = fs.readFileSync(path.join(dir, "sync/content.js"), "utf8");
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .split("\n")
+    .map((l) => l.replace(/\/\/.*$/, ""))
+    .join("\n");
+
+  for (const platform of Object.keys(SEL)) {
+    assert.ok(
+      !new RegExp(`["']${platform}["']`).test(code),
+      `sync/content.js names "${platform}" as a literal. The reader must resolve ` +
+        `its adapter from the host, or marketplace three means a second copy of ` +
+        `this file.`,
+    );
+  }
+  assert.ok(
+    /resolvePlatform/.test(code),
+    "sync/content.js no longer resolves its platform from the host",
+  );
+  // And more than one adapter must actually be wired, or the agnosticism is
+  // untested in practice.
+  assert.ok(
+    Object.keys(SEL).length >= 2,
+    "only one sold-sync adapter exists, so nothing has exercised the shared reader",
   );
 }
 

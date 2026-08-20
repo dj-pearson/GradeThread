@@ -29,7 +29,30 @@
   const OBSERVE = self.GT_SYNC_OBSERVE;
   if (!SELECTORS || !OBSERVE) return;
 
-  const PLATFORM = "poshmark";
+  /**
+   * Which marketplace is this? Resolved from the HOST against the adapters, not
+   * hard-coded (US-2700).
+   *
+   * The first version of this file pinned PLATFORM to "poshmark". Adding a
+   * second marketplace to a file shaped like that means copying it, and two
+   * copies of a reader is how one of them quietly stops matching the other's
+   * fixes. Resolving from the host also means the manifest's match patterns and
+   * the runtime check cannot disagree about where this runs: an unlisted host
+   * finds no adapter and the script does nothing.
+   */
+  function resolvePlatform() {
+    const host = location.hostname.toLowerCase();
+    for (const key of Object.keys(SELECTORS)) {
+      const hosts = SELECTORS[key].hosts || [];
+      for (const h of hosts) {
+        if (host === h || host.endsWith("." + h)) return key;
+      }
+    }
+    return null;
+  }
+
+  const PLATFORM = resolvePlatform();
+  if (!PLATFORM) return;
   const cfg = SELECTORS[PLATFORM];
 
   // A flow whose selectors nobody has verified against the live page does not
@@ -38,10 +61,9 @@
   if (!cfg || !cfg.enabled) return;
 
   function hostAllowed() {
-    const host = location.hostname.toLowerCase();
-    return (cfg.hosts || []).some(function (h) {
-      return host === h || host.endsWith("." + h);
-    });
+    // resolvePlatform already matched a host to get here; this re-states it so
+    // the three refusals below read in one place.
+    return true;
   }
 
   function isLoginWall() {

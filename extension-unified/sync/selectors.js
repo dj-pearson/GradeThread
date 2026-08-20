@@ -101,6 +101,77 @@ const GT_SYNC_SELECTORS = {
       },
     },
   },
+
+  // ── Mercari (US-2700) ───────────────────────────────────────────────────
+  //
+  // Added second precisely to prove the intake is platform-agnostic: this whole
+  // adapter is selectors and page shapes, with no new server code and no new
+  // content-script logic. If a second marketplace had needed either, the split
+  // between "the extension observes" and "the server decides" would have been
+  // in the wrong place.
+  //
+  // ⚠️ NOT VERIFIED, same as Poshmark. The selectors file for the LISTER says to
+  // assume monthly breakage on Mercari specifically -- it rewrites its React
+  // field ids often -- so this adapter is the one most likely to be stale by the
+  // time anyone reads it. Re-check before trusting the date.
+  mercari: {
+    enabled: false,
+    version: "2026.08.1-draft",
+    lastVerified: null,
+
+    // mercari.com only. The .jp property is a different company and a different
+    // app; matching it would be a new host permission for a site we cannot read.
+    hosts: ["mercari.com"],
+
+    login: { urlPattern: "mercari\\.com/(login|signin|account/login)" },
+    humanCheck: 'iframe[src*="recaptcha"], iframe[title*="challenge"], [data-testid="captcha"]',
+
+    sold: {
+      // The seller's own sold transactions. Under /mypage/, which is
+      // owner-scoped by construction -- unlike a closet, there is no version of
+      // this page belonging to somebody else.
+      urlPattern: "mercari\\.com/mypage/(listings/sold|transactions)",
+      required: ["row"],
+      row: '[data-testid="ListingCard"], [data-testid="TransactionCard"], li[data-testid*="item"]',
+      // No buyer selector, deliberately: the transaction row names the buyer,
+      // and ALLOWED_SOLD_FIELDS could not emit it anyway. A selector for it here
+      // would be the first half of someone trying.
+      fields: {
+        listingUrl: 'a[href*="/item/"]',
+        title: '[data-testid="ListingCard__ItemName"], [data-testid="item-name"]',
+        priceText: '[data-testid="ListingCard__Price"], [data-testid="item-price"]',
+        dateText: '[data-testid="ListingCard__Date"], time',
+        orderRef: '[data-testid="TransactionCard__OrderId"]',
+      },
+      pagination: {
+        // Mercari pages its sold list rather than infinite-scrolling it, which
+        // is the one place its shape differs from Poshmark's. A numbered pager
+        // means a passive read CAN legitimately reach the end, so unlike the
+        // Poshmark closet this flow is capable of reporting complete coverage.
+        nextButton: '[data-testid="pagination-next"], button[aria-label="Next"], a[rel="next"]',
+        endMarker: '[data-testid="pagination-last-active"]',
+      },
+    },
+
+    closet: {
+      // The seller's own listing list, also under /mypage/.
+      urlPattern: "mercari\\.com/mypage/listings",
+      required: ["tile", "ownClosetTell"],
+      tile: '[data-testid="ListingCard"], li[data-testid*="item"]',
+      // /mypage/ is owner-only by URL, but asserting it rather than assuming it
+      // costs one selector and removes a whole class of "we read the wrong
+      // page" from the failure surface.
+      ownClosetTell: '[data-testid="mypage-nav"], a[href*="/mypage/listings"], [data-testid="EditListingButton"]',
+      fields: {
+        listingUrl: 'a[href*="/item/"]',
+      },
+      soldBadge: '[data-testid="ListingCard__SoldBadge"], [data-testid="sold-label"]',
+      pagination: {
+        nextButton: '[data-testid="pagination-next"], button[aria-label="Next"], a[rel="next"]',
+        endMarker: '[data-testid="pagination-last-active"]',
+      },
+    },
+  },
 };
 
 // Content scripts share one isolated world per frame, so the global makes this
