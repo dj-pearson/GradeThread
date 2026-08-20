@@ -116,11 +116,18 @@ const GT_LISTER_SELECTORS = {
       // selector that can never match reads as a broken channel, and this one
       // is not broken.
       //
-      // Colour therefore joins size, category and condition: option lists whose
-      // choices vary per garment, where picking wrong is worse than leaving the
-      // field empty. Poshmark also requires category and size before it will
-      // publish, so the seller is on that screen regardless. Filling a picker is
-      // its own story with its own verification, not a line added here.
+      // FOUR PICKERS, ALL CONFIRMED ON THE LIVE FORM 2026-08-20:
+      //   colour, size, category, condition.
+      // None is a text input, so none belongs in this list. They are option
+      // lists whose choices vary per garment, where picking wrong is worse than
+      // leaving the field empty — and Poshmark requires category and size before
+      // it will publish, so the seller is on that screen regardless.
+      //
+      // This is the COMPLETE answer for Poshmark's create form. Everything
+      // text-shaped is now filled: title, description, brand, style tags, price
+      // and original price. What remains is pickers and nothing else, so there
+      // is no more selector work to do here — driving an option list is a
+      // different problem with its own verification, not a line added here.
       // 2026-08-20: `data-vv-name` is the anchor, and it was hiding in plain
       // sight. Poshmark's editor is Vue + vee-validate (its console says so),
       // and vee-validate stamps every validated field with the model name the
