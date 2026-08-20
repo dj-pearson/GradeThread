@@ -959,7 +959,12 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
       data?.listing_price,
       itemPrice?.target_price,
       itemPrice?.any_listing_price,
-    ].find((p): p is number => p != null && p > 0) ?? 0;
+      // Coerced for the same reason as the variant: PostgREST hands back a
+      // Postgres `numeric` as a STRING, and "32.49" > 0 is true by coercion
+      // while `typeof === "number"` is false. Reading these raw is how a real
+      // price behaves like a present value in one comparison and an absent one
+      // in the next.
+    ].map((p) => numericOr(p, 0)).find((p) => p > 0) ?? 0;
 
   // Seed from persisted platform_fields; overlay anything just generated.
   const variants = useMemo(() => {
@@ -1053,6 +1058,22 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   );
 }
 
+/**
+ * A number from whatever the JSON blob actually holds. (US-2740)
+ *
+ * Accepts a number or a numeric string; anything else — null, "", "TBD", an
+ * object — returns the fallback. Deliberately strict about what counts: a
+ * price is money, and coercing junk into one would put it on a live listing.
+ */
+function numericOr(value: unknown, fallback: number): number {
+  if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+  if (typeof value === "string" && value.trim() !== "") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  return fallback;
+}
+
 // Normalizes a persisted platform_fields entry (no `platform` key) into the
 // PlatformKitVariant shape the panel renders.
 function normalize(platform: string, raw: Record<string, unknown>): PlatformKitVariant {
@@ -1071,9 +1092,21 @@ function normalize(platform: string, raw: Record<string, unknown>): PlatformKitV
     brand: (raw.brand as string | null) ?? null,
     color: (raw.color as string | null) ?? null,
     size: (raw.size as string | null) ?? null,
-    price: typeof raw.price === "number" ? raw.price : 0,
+    // US-2740: a numeric STRING is a price, not a zero.
+    //
+    // This was `typeof raw.price === "number" ? raw.price : 0`, which silently
+    // turns "32.49" into 0 — a blank Listing price on a draft that plainly has
+    // one. Two ordinary things produce that string: PostgREST returns Postgres
+    // `numeric` as a string to avoid float precision loss, and anything that
+    // round-trips this blob through a form or a JSON edit stores it as text.
+    // The item that exposed it had platform_fields->poshmark->price sitting
+    // right there at 32.49 while every surface showed nothing.
+    //
+    // Coerced rather than trusted: a non-numeric value still becomes 0, so junk
+    // in the blob cannot become a price on a live listing.
+    price: numericOr(raw.price, 0),
     tags: Array.isArray(raw.tags) ? (raw.tags as string[]) : [],
-    confidence: typeof raw.confidence === "number" ? raw.confidence : 0,
+    confidence: numericOr(raw.confidence, 0),
     validation,
   };
 }

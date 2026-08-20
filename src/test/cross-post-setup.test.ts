@@ -244,7 +244,10 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
   it("first POSITIVE price wins, not first non-null", () => {
     // A stale 0 on a draft row must not shadow a real price further down.
     const src = code(KIT);
-    expect(src).toContain("p != null && p > 0");
+    // The null check moved into numericOr (US-2740), which returns 0 for
+    // null/undefined/junk — so the list is coerced first and then filtered on
+    // "> 0" alone. Same rule, one place.
+    expect(src).toContain(".map((p) => numericOr(p, 0)).find((p) => p > 0)");
     const first = (a: (number | null)[]) => a.find((p) => p != null && p > 0) ?? 0;
     expect(first([32.49, 19, 5])).toBe(32.49);
     expect(first([0, null, 24.99])).toBe(24.99);
@@ -305,6 +308,45 @@ describe("a price is sent in the units the marketplace accepts (US-2739)", () =>
     expect(step(32.49, 0)).toBe(32.49);
     // No price stays no price.
     expect(step(0, 1)).toBe(0);
+  });
+});
+
+describe("a numeric string is a price, not a zero (US-2740)", () => {
+  it("the variant parser coerces instead of type-checking", () => {
+    // The item that exposed this had platform_fields->poshmark->price sitting
+    // at 32.49 while every surface showed nothing, because the parser asked
+    // `typeof raw.price === "number"` and a numeric string is not.
+    const src = code(KIT);
+    expect(src).toContain("function numericOr(");
+    expect(src).toContain("price: numericOr(raw.price, 0)");
+    expect(src).not.toContain('typeof raw.price === "number"');
+  });
+
+  it("the fallback coerces too", () => {
+    // PostgREST returns a Postgres `numeric` as a STRING. "32.49" > 0 is true
+    // by coercion while typeof === "number" is false, so a real price behaved
+    // like a present value in one comparison and an absent one in the next.
+    const src = code(KIT);
+    expect(src).toContain("numericOr(p, 0)");
+  });
+
+  it("junk never becomes a price", () => {
+    const numericOr = (value: unknown, fallback: number): number => {
+      if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
+      if (typeof value === "string" && value.trim() !== "") {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : fallback;
+      }
+      return fallback;
+    };
+    expect(numericOr(32.49, 0)).toBe(32.49);
+    expect(numericOr("32.49", 0)).toBe(32.49);
+    // A price is money; coercing junk would put it on a live listing.
+    expect(numericOr("TBD", 0)).toBe(0);
+    expect(numericOr("", 0)).toBe(0);
+    expect(numericOr(null, 0)).toBe(0);
+    expect(numericOr(Number.NaN, 0)).toBe(0);
+    expect(numericOr({}, 0)).toBe(0);
   });
 });
 

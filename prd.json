@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2740",
+  "nextId": "US-2741",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2667,6 +2667,21 @@
         "STILL UNCONFIRMED: whether this was the ONLY thing stopping the price. The render-time fallback (US-2736) had not reached production when the last attempt was made, so an empty payload is still a live candidate — the Listing price row in the Poshmark kit tab is what distinguishes them."
       ],
       "priority": 8
+    },
+    {
+      "id": "US-2740",
+      "passes": false,
+      "title": "A numeric string is read as a zero, so a draft with a price shows none",
+      "description": "As a seller, I want a price that exists in the data to appear in the kit and reach the marketplace, so that a stored value is not silently discarded.",
+      "acceptanceCriteria": [
+        "PROVEN FROM PROD DATA 2026-08-20, after four fixes that each addressed something real and none of which moved it. The row for the affected item shows platform_fields->poshmark->price = 32.49 and the eBay listing_price = 32.49. The price was never missing; the kit was reading it and producing 0.",
+        "CAUSE: normalize() in listing-kit.tsx used a strict typeof check on raw.price and fell back to 0, and a numeric STRING is not a number. Two ordinary things produce that string - PostgREST returns Postgres numeric as a string to avoid float precision loss, and anything round-tripping this blob through a form or a JSON edit stores it as text.",
+        "The same coercion gap made the fallback behave inconsistently: '32.49' > 0 is TRUE by coercion while typeof === 'number' is FALSE, so one real price read as present in one comparison and absent in the next.",
+        "Both now go through numericOr(), which accepts a number or a numeric string and returns the fallback for anything else. Confidence uses it too - it had the identical type check.",
+        "Deliberately strict about what counts: '', 'TBD', null, NaN and an object all return 0. A price is money, and coercing junk into one would put it on a live listing. Seven cases pinned; 41 tests pass.",
+        "This is the ROOT cause of the blank price. The four earlier fixes stand on their own merits - the generator ignored the item's price, the kit needed a render-time fallback, Poshmark takes whole dollars, and the writeback swallowed its errors - but none of them could ever have fixed this one."
+      ],
+      "priority": 5
     }
   ]
 }
