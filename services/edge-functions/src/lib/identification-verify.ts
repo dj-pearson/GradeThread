@@ -15,7 +15,7 @@
 // configured, the token request throws and we skip.
 
 import type { ResearchIdentification } from "./ai-extract.ts";
-import { brandKey } from "./brand-normalize.ts";
+import { brandKeyForRaw } from "./brand-normalize.ts";
 import { searchBrowseComps } from "./ebay-client.ts";
 import { recordStyleCodeObservations } from "./style-code-observations.ts";
 import { supabaseAdmin } from "./supabase.ts";
@@ -238,7 +238,12 @@ export async function verifyIdentificationAgainstMarket(args: {
   // and the confidence cap (LEARNED_CONFIDENCE_CAP) is what keeps it modest.
   if (styleCode && codeHits.length > 0) {
     void _observe.record({
-      brandKey: brand ? brandKey(brand) : "",
+      // US-2692: brandKeyForRaw, NOT brandKey. The READ side keys on
+      // pack.key = brandKey(canonicalizeBrand(brand)), so writing the raw
+      // brand's key put an alias spelling ("Lulu", "Levi") under a key the
+      // lookup never asks for and the observation was learned into a namespace
+      // nothing reads.
+      brandKey: brandKeyForRaw(brand) ?? "",
       styleCodeRaw: styleCode,
       titles: codeHits,
       source: "market_verify",

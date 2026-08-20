@@ -1,5 +1,61 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00629 — a seller's correction teaches the style-code index (US-2692)
+
+**Risk: LOW-MEDIUM, and the medium part is a trigger on `inventory_items`.** One
+`plpgsql` function, one `AFTER UPDATE OF style` trigger, and one one-row `UPDATE`
+of `brand_knowledge`. No new table, no backfill.
+
+**Verified against a real schema, not reasoned about.** Applied to the local
+stack at 00628 and exercised with five cases inside a transaction. Recorded:
+a seller replacing a name WE proposed, and the same through an alias brand
+spelling. Not recorded: a seller filling a style we never named, a one-word eBay
+`Style` aspect ("Cargo"), and an item with no style code. The alias case failed
+the first run and is what turned up the `brand_knowledge` bug below.
+
+**Why a trigger.** The item editor writes `inventory_items` directly through the
+supabase client under RLS (`src/pages/flipdesk/composer.tsx`), so a correction
+never reaches the edge service and there is no handler to hook. The trigger
+catches the web app, iOS and Android at once, and is tenant-safe by
+construction: it only fires on a row the writer could already update.
+
+⚠ **The trigger can never fail a seller's save.** Its body ends in
+`EXCEPTION WHEN OTHERS THEN RAISE WARNING ... RETURN NEW`. A failure costs an
+observation, not an edit. If you see `capture_style_code_name_correction failed`
+in the Postgres log, that is the designed degradation, not an incident.
+
+**It also repairs one `brand_knowledge` row, and that is not scope creep.**
+00390 inserts lululemon with `aliases = ARRAY['lululemon','lulu']`, but its
+`ON CONFLICT DO UPDATE` clause never updates `aliases` and 00389 had already
+inserted the row — so prod has had `ARRAY['lululemon']` since the day 00390
+applied. "Lulu" is what sellers type, and an unresolved alias gets its own brand
+key, so a code learned from a "Lulu" item was never read back for a "Lululemon"
+one. `brand-normalize.ts` gains the same alias in this commit so both sides
+agree.
+
+⚠ **The same UPDATE rewrites `tag_eras`, and it has to.** A later migration
+added `CHECK (tag_eras_all_sourced(tag_eras))` as `NOT VALID`: existing rows are
+grandfathered, but any row that is UPDATED gets re-checked. Lululemon's two eras
+have a datable `years` and no per-era `source_url`/`confidence`, so the alias
+repair alone fails with `brand_knowledge_tag_eras_sourced`. Same text, same
+source the row already cites, now per-era.
+
+**Apply order**
+
+1. Run `supabase/migrations/00629_style_code_seller_corrections.sql`.
+2. `NOTIFY pgrst, 'reload schema';`
+3. Redeploy the edge (`EXPECTED_SCHEMA_VERSION` is now `00629`).
+4. Then OK the push.
+
+**Confirm it landed**
+
+```sql
+select array_to_string(aliases, ',') from public.brand_knowledge
+where brand_key = 'lululemon';                    -- expect: lulu,lululemon
+select tgname, tgenabled from pg_trigger
+where tgname = 'capture_style_code_name_correction_trg';
+```
+
 ## ⏳ PENDING: 00628 — the resolved NAME for a style code, and where it came from (US-2691)
 
 **Risk: LOW.** One new table, one upsert function, no existing table touched,

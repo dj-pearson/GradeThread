@@ -241,6 +241,12 @@ const BRAND_ALIASES: Record<string, string> = {
   fila: "Fila",
   champion: "Champion",
   lululemon: "Lululemon",
+  // US-2692: "Lulu" is what sellers type, and it was resolving to the passthrough
+  // brand "Lulu" — its own namespace, so a style code learned from a "Lulu" item
+  // was never read back for a "Lululemon" one. 00390 tried to seed this alias in
+  // brand_knowledge and could not: its ON CONFLICT clause does not update
+  // `aliases`, and 00389 had already inserted the row from this very map.
+  lulu: "Lululemon",
   gymshark: "Gymshark",
   // US-1733 athleisure group. Under Armour + Gymshark were already above; these
   // four were passthrough-only, so the pack rendered the seller's casing

@@ -240,3 +240,40 @@ Deno.test("US-2689: a code that returns no market hits records nothing", async (
   assertEquals(queries, ["Lululemon M7A83S"]);
   assertEquals(observed, []);
 });
+
+// ── US-2692: the key a code is LEARNED under must be the key it is READ under ─
+
+Deno.test("US-2692: an alias spelling learns under the canonical brand key", async () => {
+  const { brandKey, brandKeyForRaw } = await import("../lib/brand-normalize.ts");
+
+  // The read side keys on pack.key = brandKey(canonicalizeBrand(brand)).
+  // "Levi" is a curated alias of "Levi's", so the raw key and the canonical key
+  // DIFFER — which is exactly the case that used to write into a namespace
+  // nothing reads, and the reason this is brandKeyForRaw and not brandKey.
+  assertEquals(brandKey("Levi"), "levi");
+  assertEquals(brandKeyForRaw("Levi"), brandKeyForRaw("Levi's"));
+  assertEquals(brandKeyForRaw("Levi"), "levis");
+  assert(
+    brandKeyForRaw("Levi") !== brandKey("Levi"),
+    "the alias case this guards has stopped being an alias case",
+  );
+
+  // A brand whose spelling IS its canonical form is unaffected either way, so
+  // the fix cannot have moved the common case.
+  assertEquals(brandKeyForRaw("Lululemon"), brandKey("Lululemon"));
+
+  // "Lulu" is the live case this loop is about, and it only became an alias in
+  // this commit: it used to canonicalize to the passthrough brand "Lulu" and get
+  // its own namespace, so a code learned from a "Lulu" item was never read back
+  // for a "Lululemon" one.
+  assertEquals(brandKeyForRaw("Lulu"), "lululemon");
+  assertEquals(brandKeyForRaw("lulu "), "lululemon");
+});
+
+Deno.test("US-2692: a blank brand learns under the empty key, not under null", async () => {
+  const { brandKeyForRaw } = await import("../lib/brand-normalize.ts");
+  // brandKeyForRaw returns null for nothing-to-canonicalize; the write site
+  // coalesces to "", which is what 00503's brand_key column defaults to.
+  assertEquals(brandKeyForRaw("") ?? "", "");
+  assertEquals(brandKeyForRaw(null) ?? "", "");
+});

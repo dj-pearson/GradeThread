@@ -19,7 +19,7 @@ import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
-import { brandKey } from "../lib/brand-normalize.ts";
+import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import { searchBrowseComps } from "../lib/ebay-client.ts";
 import { consensusStyleName } from "../lib/style-code-consensus.ts";
 import { recordStyleCodeObservations } from "../lib/style-code-observations.ts";
@@ -97,7 +97,8 @@ async function scanItemCodes(): Promise<SweepSourceRow[]> {
   return rows
     .filter((r) => typeof r.style_code === "string" && r.style_code.trim() !== "")
     .map((r) => ({
-      brandKey: r.brand ? brandKey(r.brand) : "",
+      // US-2692: canonicalize before keying — see identification-verify.ts.
+      brandKey: brandKeyForRaw(r.brand) ?? "",
       brandLabel: r.brand ?? "",
       styleCodeRaw: r.style_code,
     }));
