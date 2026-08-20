@@ -177,7 +177,53 @@
     return next;
   }
 
+  /**
+   * The URL the poll may open for a channel, or null.
+   *
+   * THE ONE RULE: the URL is always a value from the bundled config. Nothing a
+   * message carries can reach this — there is no parameter for one. That is the
+   * same rule newListingUrlForLocale states in lister/lister-guard.js, and it
+   * exists because a URL that arrived in a message is a URL somebody else chose.
+   *
+   * Re-validated here rather than trusted, so a config edit that points a
+   * pollUrl at another domain resolves to null instead of opening it:
+   *   - https only;
+   *   - host must be one the adapter itself declares;
+   *   - the URL must match the sold flow's own urlPattern, so a poll cannot be
+   *     aimed at a page the adapter has no selectors for.
+   */
+  function pollUrlFor(selectors, platform) {
+    var cfg = selectors && selectors[platform];
+    var sold = cfg && cfg.sold;
+    var url = sold && sold.pollUrl;
+    if (typeof url !== "string" || url.indexOf("https://") !== 0) return null;
+
+    var rest = url.slice("https://".length);
+    var slash = rest.indexOf("/");
+    var host = (slash === -1 ? rest : rest.slice(0, slash)).toLowerCase();
+    if (!host) return null;
+
+    var hosts = cfg.hosts || [];
+    var hostOk = false;
+    for (var i = 0; i < hosts.length; i++) {
+      if (host === hosts[i] || host.slice(-(hosts[i].length + 1)) === "." + hosts[i]) {
+        hostOk = true;
+        break;
+      }
+    }
+    if (!hostOk) return null;
+
+    if (!sold.urlPattern) return null;
+    try {
+      if (!new RegExp(sold.urlPattern, "i").test(url)) return null;
+    } catch (_e) {
+      return null;
+    }
+    return url;
+  }
+
   root.GT_SYNC_POLL = {
+    pollUrlFor: pollUrlFor,
     CLICKWRAP_VERSION: CLICKWRAP_VERSION,
     CLICKWRAP_TERMS: CLICKWRAP_TERMS,
     MIN_INTERVAL_MIN: MIN_INTERVAL_MIN,

@@ -107,7 +107,12 @@
       Object.keys(cfg || {}).forEach(function (k) {
         if (typeof cfg[k] !== "string") return;
         if (k === "version" || k === "lastVerified") return;
-        if (/Pattern$/.test(k) || /^navigatesTo$/.test(k)) return;
+        // US-2698/US-2701: `…Url` joins `…Pattern` and `navigatesTo` as
+        // metadata. `pollUrl` arrived on the sold-sync flow and was treated as a
+        // selector — the probe would have tried to querySelector a URL, and,
+        // worse, printed the full address into a report whose whole contract is
+        // that it carries no page address. selector-probe.test.cjs caught it.
+        if (/Pattern$/.test(k) || /Url$/.test(k) || /^navigatesTo$/.test(k)) return;
         push(k, cfg[k]);
       });
       // US-2698: a non-list flow may ALSO carry a `fields` map. The sold-sync

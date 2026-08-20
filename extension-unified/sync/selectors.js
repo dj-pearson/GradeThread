@@ -35,7 +35,7 @@ const GT_SYNC_SELECTORS = {
     // US-1875's rule, reused: a logged-out seller must be told "log in", not
     // "the selectors broke", and an empty closet from a login page must never
     // read as an empty closet.
-    login: { urlPattern: "poshmark\\.(com|ca)/(login|signup)" },
+    login: { urlPattern: "poshmark\\.com/(login|signup)" },
 
     // A human check (captcha / "are you a person") stops the read and hands the
     // tab back, exactly as the engagement runner does. Never solved, never
@@ -45,7 +45,11 @@ const GT_SYNC_SELECTORS = {
     // ── the seller's own Sold list ──────────────────────────────────────────
     sold: {
       // Where it lives. The observer only ever reads a page matching this.
-      urlPattern: "poshmark\\.(com|ca)/order/sales",
+      urlPattern: "poshmark\\.com/order/sales",
+      // US-2701: the page the scheduled poll opens. It is a value FROM THIS
+      // CONFIG and never from a message, the same rule newListingUrlFor follows:
+      // a URL that arrived in a message is a URL somebody else chose.
+      pollUrl: "https://poshmark.com/order/sales",
       required: ["row"],
       row: '[data-test="order-item"], [data-et-name="order_item"], .order-item',
       // Fields, all read as TEXT and handed to sync/observe.js to parse.
@@ -75,7 +79,7 @@ const GT_SYNC_SELECTORS = {
       // `{handle}` is substituted by the content script from the page it is
       // already on. The extension holds no Poshmark handle of its own and never
       // navigates to a handle that arrived in a message (US-1876).
-      urlPattern: "poshmark\\.(com|ca)/closet/",
+      urlPattern: "poshmark\\.com/closet/",
       required: ["tile", "ownClosetTell"],
       // A closet URL is /closet/{handle} for ANY seller, so the match pattern
       // alone cannot tell whose closet this is. Reading a stranger's closet
@@ -131,6 +135,7 @@ const GT_SYNC_SELECTORS = {
       // owner-scoped by construction -- unlike a closet, there is no version of
       // this page belonging to somebody else.
       urlPattern: "mercari\\.com/mypage/(listings/sold|transactions)",
+      pollUrl: "https://www.mercari.com/mypage/listings/sold",
       required: ["row"],
       row: '[data-testid="ListingCard"], [data-testid="TransactionCard"], li[data-testid*="item"]',
       // No buyer selector, deliberately: the transaction row names the buyer,

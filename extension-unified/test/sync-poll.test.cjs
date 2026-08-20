@@ -222,7 +222,78 @@ assert.strictEqual(
   }
 }
 
+// ── 10. The polled URL always comes from the config ────────────────────────
+//
+// The single most important rule in the driver, and the one an attacker would
+// aim at: if a message could name the URL, a compromised page could point the
+// poll anywhere and the extension would open it with the seller's cookies.
+// pollUrlFor has no parameter for one, and re-validates the config value anyway.
+
+{
+  const SEL = load("sync/selectors.js", "GT_SYNC_SELECTORS");
+
+  for (const platform of Object.keys(SEL)) {
+    const url = P.pollUrlFor(SEL, platform);
+    assert.ok(url, `${platform} has no usable pollUrl`);
+    assert.ok(url.startsWith("https://"), `${platform} pollUrl is not https`);
+    // It must be a page the adapter has selectors for.
+    assert.ok(
+      new RegExp(SEL[platform].sold.urlPattern, "i").test(url),
+      `${platform} pollUrl does not match its own sold urlPattern`,
+    );
+  }
+
+  assert.strictEqual(P.pollUrlFor(SEL, "nope"), null, "an unknown platform resolved a URL");
+  assert.strictEqual(P.pollUrlFor(null, "poshmark"), null);
+
+  // A config edit pointing somewhere else resolves to NULL rather than opening.
+  const offDomain = JSON.parse(JSON.stringify(SEL));
+  offDomain.poshmark.sold.pollUrl = "https://evil.example.com/order/sales";
+  assert.strictEqual(
+    P.pollUrlFor(offDomain, "poshmark"),
+    null,
+    "a pollUrl on a domain the adapter does not declare was accepted",
+  );
+
+  const httpOnly = JSON.parse(JSON.stringify(SEL));
+  httpOnly.poshmark.sold.pollUrl = "http://poshmark.com/order/sales";
+  assert.strictEqual(P.pollUrlFor(httpOnly, "poshmark"), null, "a non-https pollUrl was accepted");
+
+  // A lookalike host must not pass the suffix check.
+  const lookalike = JSON.parse(JSON.stringify(SEL));
+  lookalike.poshmark.sold.pollUrl = "https://notposhmark.com/order/sales";
+  assert.strictEqual(
+    P.pollUrlFor(lookalike, "poshmark"),
+    null,
+    "a lookalike host passed the suffix check",
+  );
+
+  // Right host, wrong page: the adapter has no selectors for it, so refusing is
+  // the difference between a poll and a crawl.
+  const wrongPage = JSON.parse(JSON.stringify(SEL));
+  wrongPage.poshmark.sold.pollUrl = "https://poshmark.com/feed";
+  assert.strictEqual(
+    P.pollUrlFor(wrongPage, "poshmark"),
+    null,
+    "a pollUrl aimed at a page the adapter cannot read was accepted",
+  );
+}
+
+// And the function must not accept a URL as an argument at all.
+{
+  const src = fs.readFileSync(path.join(dir, "sync/poll-plan.js"), "utf8");
+  const sig = src.match(/function pollUrlFor\(([^)]*)\)/);
+  assert.ok(sig, "pollUrlFor not found");
+  const params = sig[1].split(",").map((x) => x.trim()).filter(Boolean);
+  assert.deepStrictEqual(
+    params,
+    ["selectors", "platform"],
+    "pollUrlFor takes a parameter beyond (selectors, platform) — a URL must never be passed in",
+  );
+}
+
 console.log(
   "sync-poll.test.cjs: consent is versioned and re-checked, the interval floor holds, " +
-    "engagement blocks the poll, signed-out backs off, a human check stops the channel",
+    "engagement blocks the poll, signed-out backs off, a human check stops the channel, " +
+    "and the polled URL can only ever come from the bundled config",
 );
