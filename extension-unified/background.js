@@ -63,6 +63,11 @@ const SCAN_ENDPOINT = "https://functions.gradethread.com/api/grading/public/scan
 // the signed extension token. A request without one is a 401 by design.
 const APPRAISE_ENDPOINT = "https://functions.gradethread.com/api/flipdesk/scout/appraise-url";
 const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/public/entitlements";
+// US-2698: sold-sync observation intake. A SELLER endpoint, unlike every other
+// constant above, so it sits behind the seller token and the server's own
+// FlipDesk gate rather than the anonymous public quota.
+const SYNC_OBSERVE_ENDPOINT =
+  "https://functions.gradethread.com/api/flipdesk/sync/observations";
 const SELECTOR_HEALTH_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/selector-health";
 // US-1757 AC2: the opt-in usage tally (reads + click-throughs). A SEPARATE
@@ -543,6 +548,60 @@ async function scanCards({ cards, marketplace, query, brand }) {
 //
 // ONE listing, on click. There is no batch form and no automatic trigger: the
 // endpoint is for a page the shopper opened, not for walking a results grid.
+// US-2698: post one sold-sync observation batch.
+//
+// The batch was built by sync/observe.js in the content script, which can emit
+// exactly six fields per sold row. This function adds nothing to it — no page
+// URL, no handle, no cookie — and does not inspect it. The server refuses a
+// forbidden key with a 400 regardless (lib/sync-payload-guard.ts), which is the
+// belt to this brace.
+//
+// Signed-in only, and refused here as well as on the server: sold-sync is about
+// the seller's own listings, so an anonymous install has nothing for the answer
+// to be about.
+//
+// Fire-and-forget by design. A passive harvest runs while the seller is doing
+// something else on their own closet, and there is no UI waiting on the result.
+// A failure is logged and dropped rather than retried, because a retry loop on a
+// page the seller is still browsing is a poll wearing a different name.
+async function postSyncObservations(msg) {
+  const batch = msg && msg.batch;
+  if (!batch || typeof batch !== "object" || !batch.platform) {
+    return { ok: false, status: 400, error: "No observation batch." };
+  }
+
+  // The same gate the Lister uses, by calling the same function rather than a
+  // second copy of the rule. Fail-safe by construction: getCapabilities resolves
+  // any lookup gap to anonymous, so a hiccup never posts a seller's closet.
+  if (!(await sellerAllowed())) {
+    return { ok: false, status: 402, error: "Sold-sync is a FlipDesk seller feature." };
+  }
+
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, status: 401, needsSignIn: true, error: "Sign in to GradeThread to sync sales." };
+  }
+
+  const instanceId = await getInstanceId();
+  let resp;
+  try {
+    resp = await fetch(SYNC_OBSERVE_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-GT-Extension-Id": instanceId,
+        Authorization: "Bearer " + gtBuyerToken,
+      },
+      body: JSON.stringify(batch),
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, error: "Couldn't reach GradeThread." };
+  }
+  let json = null;
+  try { json = await resp.json(); } catch (_e) { /* empty body */ }
+  return { ok: resp.ok, status: resp.status, result: json };
+}
+
 async function ingestListing(msg) {
   const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
   if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
@@ -1857,6 +1916,11 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // when they ask for it.
       case "GT_CC_INGEST":
         sendResponse(await ingestListing(msg));
+        break;
+      // US-2698: a passive sold-sync read from the seller's own Poshmark pages.
+      // Nothing here decides what sold; the server does.
+      case "GT_SYNC_OBSERVE":
+        sendResponse(await postSyncObservations(msg));
         break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));

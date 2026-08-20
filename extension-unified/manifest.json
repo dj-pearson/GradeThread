@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "GradeThread: Grade & List",
   "version": "0.9.0",
-  "description": "Get an AI-powered condition read on a pre-owned clothing listing before you buy \u2014 plus one-click cross-listing for FlipDesk sellers.",
+  "description": "Get an AI-powered condition read on a pre-owned clothing listing before you buy — plus one-click cross-listing for FlipDesk sellers.",
   "permissions": [
     "storage",
     "activeTab",
@@ -169,6 +169,20 @@
         "lister/selector-probe.js",
         "lister/poshmark.js",
         "lister/poshmark-engage.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://poshmark.com/order/sales*",
+        "https://*.poshmark.com/order/sales*",
+        "https://poshmark.com/closet/*",
+        "https://*.poshmark.com/closet/*"
+      ],
+      "js": [
+        "sync/selectors.js",
+        "sync/observe.js",
+        "sync/content.js"
       ],
       "run_at": "document_idle"
     },

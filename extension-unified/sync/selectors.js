@@ -25,7 +25,12 @@ const GT_SYNC_SELECTORS = {
 
     // The delist guard's host rule applies here too: a page outside this list is
     // never read, so a lookalike domain cannot feed us observations.
-    hosts: ["poshmark.com", "poshmark.ca"],
+    // poshmark.com ONLY. The .ca locale is deliberately absent: it is not in
+    // manifest host_permissions, and submission-kit.test.cjs pins the host count
+    // at 28 because every one of them is justified line by line to store review.
+    // A locale we cannot read reports that it cannot, which is the same rule the
+    // Vinted lister follows rather than guessing at a page.
+    hosts: ["poshmark.com"],
 
     // US-1875's rule, reused: a logged-out seller must be told "log in", not
     // "the selectors broke", and an empty closet from a login page must never
@@ -71,7 +76,14 @@ const GT_SYNC_SELECTORS = {
       // already on. The extension holds no Poshmark handle of its own and never
       // navigates to a handle that arrived in a message (US-1876).
       urlPattern: "poshmark\\.(com|ca)/closet/",
-      required: ["tile"],
+      required: ["tile", "ownClosetTell"],
+      // A closet URL is /closet/{handle} for ANY seller, so the match pattern
+      // alone cannot tell whose closet this is. Reading a stranger's closet
+      // would post their listings to our server as if they were the seller's
+      // own, and would make every one of the seller's real listings look absent.
+      // This is the owner-only affordance, the same shape as the eBay
+      // owner-only Revise controls in test/own-listing.test.cjs.
+      ownClosetTell: '[data-test="closet-edit"], [data-test="bulk-actions"], a[href="/edit-profile"]',
       tile: '[data-test="closet-item"], .tile, [data-et-name="listing"]',
       fields: {
         listingUrl: 'a[href*="/listing/"]',
