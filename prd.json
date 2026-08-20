@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2742",
+  "nextId": "US-2743",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2696,6 +2696,21 @@
         "A failed dialog fill gets the same loud banner the form-field miss has had since US-2477 - a price we could not set is the one thing a seller must not discover after publishing.",
         "Order is unchanged and still matters: title, brand, tags, photos, THEN the dialog. An open modal sits over the file input, so photos go first.",
         "3 guards in src/test/cross-post-setup.test.ts, including one asserting the !priceFilled gate is gone; 44 pass."
+      ],
+      "priority": 8
+    },
+    {
+      "id": "US-2742",
+      "passes": false,
+      "title": "The price dialog runs after the photos, and Poshmark's own photo modal then blocks it from ever opening",
+      "description": "As a seller, I want the price dialog reached before anything else covers the page, so that attaching photos does not cost me the price.",
+      "acceptanceCriteria": [
+        "REPORTED LIVE 2026-08-20: photos attached, Poshmark's photo confirmation appeared, price stayed blank, and no earnings figure ever flashed - so the dialog was never opened at all, as distinct from opening and reverting.",
+        "CAUSE: fillPriceDialog ran AFTER attachPhotos. Poshmark opens its own confirmation modal once photos are attached, and that backdrop swallows the click that opens the price dialog. The 2s wait then expires and the price is reported unfilled.",
+        "THE ORDER WAS MINE AND THE REASONING WAS WRONG. I put photos first because 'an open modal sits over the file input' - but attachPhotos never clicks. It resolves the input with querySelector and assigns .files, and an overlay blocks pointer events, not property assignment. The hazard I sequenced around could not happen; the one that could, I created.",
+        "The dialog now runs BEFORE the photos. Two guards hold it: one asserts fillPriceDialog appears before attachPhotos inside runFlow, and one asserts attachPhotos contains no .click() - because that is the fact the order depends on, and if it ever gains one the order has to be revisited.",
+        "Leaving the price dialog open while photos attach is therefore safe for the same reason: nothing in the photo path needs to be clickable.",
+        "46 tests pass."
       ],
       "priority": 8
     }

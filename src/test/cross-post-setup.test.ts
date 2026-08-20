@@ -372,6 +372,32 @@ describe("a price dialog is the price, not a fallback (US-2741)", () => {
     expect(src).not.toContain("flow.priceDialog && !priceFilled");
   });
 
+  it("the dialog runs BEFORE the photos", () => {
+    // It ran after, on the reasoning that an open modal covers the file input.
+    // attachPhotos never clicks: it resolves the input and assigns .files, and
+    // an overlay blocks pointer events, not property assignment. The real
+    // hazard ran the other way -- Poshmark opens its own confirmation modal
+    // once photos attach, and that backdrop swallows the click that opens the
+    // price dialog. Reported live: photos confirmed, price blank, no flash.
+    const src = read(COMMON);
+    const body = src.slice(src.indexOf("GT.runFlow"), src.indexOf("GT.runDelistFlow"));
+    expect(body.indexOf("GT.fillPriceDialog")).toBeLessThan(
+      body.indexOf("GT.attachPhotos"),
+    );
+  });
+
+  it("attachPhotos still never clicks, which is what makes that order safe", () => {
+    const src = read(COMMON);
+    const from = src.indexOf("GT.attachPhotos = ");
+    // To the NEXT definition, not to some later landmark: commitTags and
+    // fillPriceDialog both sit between attachPhotos and GT.result, and both
+    // click on purpose, so a loose boundary fails on their code.
+    const to = src.indexOf("GT.commitTags = ", from);
+    expect(from).toBeGreaterThan(-1);
+    expect(to).toBeGreaterThan(from);
+    expect(src.slice(from, to)).not.toContain(".click()");
+  });
+
   it("a failed dialog fill is still reported loudly", () => {
     // Same treatment the form-field miss has had since US-2477: a price we
     // could not set is the one thing the seller must not find out after

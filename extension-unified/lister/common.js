@@ -513,20 +513,22 @@
       GT.fill(f.originalPrice, payload.originalPrice);
     }
 
-    // US-1877 (AC4): carry the real counts, not a boolean. photosAttached stays for
-    // the existing consumers, but it is now only true when EVERY photo landed —
-    // "some of them" must never read as "attached".
-    const photos = f.photoInput
-      ? await GT.attachPhotos(f.photoInput, payload.photoUrls, payload.maxPhotos)
-      : { attached: 0, failed: 0, total: 0 };
-    const photosAttached = photos.total > 0 && photos.failed === 0;
-
-    // US-2735: the price lives behind a dialog on Poshmark, so reach it.
+    // US-2735/US-2742: the price lives behind a dialog on Poshmark, so reach it.
     //
-    // AFTER the photos, and that order is deliberate: an open modal sits over
-    // the file input, and photos matter more than price. Non-fatal throughout —
-    // if the dialog never appears we report the price as unfilled, which is
-    // exactly what happened before this existed.
+    // BEFORE the photos, and the earlier order was a mistake worth naming. It
+    // ran after, on the reasoning that "an open modal sits over the file input"
+    // — but attachPhotos never CLICKS anything. It resolves the input with
+    // querySelector and assigns `.files`, and an overlay blocks pointer events,
+    // not property assignment. So the stated hazard could not happen.
+    //
+    // The real hazard ran the other way. Poshmark opens its own confirmation
+    // modal once photos are attached, and THAT backdrop swallows the click that
+    // opens the price dialog — so the price silently never got set, which is
+    // exactly what a seller reported: photos confirmed, price blank, no numbers
+    // ever flashed.
+    //
+    // Non-fatal throughout — if the dialog never appears we report the price as
+    // unfilled, which is what happened before this existed.
     let dialogPriceFilled = false;
     if (usesPriceDialog && payload.price) {
       dialogPriceFilled = await GT.fillPriceDialog(flow.priceDialog, payload);
@@ -548,6 +550,14 @@
       );
       GT.log("price dialog fill failed on " + payload.platform);
     }
+
+    // US-1877 (AC4): carry the real counts, not a boolean. photosAttached stays for
+    // the existing consumers, but it is now only true when EVERY photo landed —
+    // "some of them" must never read as "attached".
+    const photos = f.photoInput
+      ? await GT.attachPhotos(f.photoInput, payload.photoUrls, payload.maxPhotos)
+      : { attached: 0, failed: 0, total: 0 };
+    const photosAttached = photos.total > 0 && photos.failed === 0;
 
     GT.log("filled " + payload.platform + " form (photos " +
       photos.attached + "/" + photos.total + " attached)");
