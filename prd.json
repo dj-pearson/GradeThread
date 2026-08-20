@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2714",
+  "nextId": "US-2715",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2150,7 +2150,7 @@
         "Sale evidence tiers (definitive, inferred) and match tiers (exact, probable, none) are implemented per the action matrix in docs/superpowers/specs/2026-08-19-extension-sold-sync-design.md. Only definitive plus exact returns a confirmed sale; definitive plus probable returns a review row and never a delist",
         "Absence is only evidence on complete coverage: an observation batch whose closet coverage field does not report reaching the last page yields zero inferred-absence results. A deno test asserts this",
         "Circuit breaker: a batch reporting more sales than max(5, 20 percent of that tenant's live listings on that platform) returns zero confirmed, routes the whole batch to review, and flags it. A deno test asserts a 200-row batch against a 120-listing closet confirms nothing",
-        "Zero sold rows for a platform where the tenant has known live listings is an error, not an empty closet: it sets that channel's sync state to failing and writes no observations. A deno test asserts this",
+        "Zero rows where many were expected is an error: a CLOSET enumeration returning zero active listings while the tenant has known live listings on that platform sets the channel to failing and writes no observations. Zero SOLD rows is the normal case and must never trip this. A deno test asserts both directions",
         "Count reconciliation: when the observed active closet count dropped by more than the number of sales explained, the gap is raised as its own review row. A deno test asserts the gap is reported rather than absorbed",
         "Replaying an identical batch produces no second sales row. Dedupe keys on the platform order reference where the platform supplies one, otherwise on platform plus listing_url plus soldAt",
         "POST /api/flipdesk/sync/observations exists, requires an authenticated FlipDesk seller, and every query is explicitly scoped to workspaceOwnerId ?? userId per US-268. A case is added to services/edge-functions/src/tests/tenant-isolation_test.ts proving a foreign listing id matches zero rows rather than another tenant's",
@@ -2158,7 +2158,8 @@
         "New tables carry the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the same commit, and a self-record footer. The migration is added to PENDING_MIGRATIONS.md and not pushed until the owner has applied it",
         "A confirmed sale writes the sales row and invokes the existing cross-listings.ts delist planner. A deno test asserts the sibling delist plan is produced for a cross-listed garment"
       ],
-      "priority": 41
+      "priority": 41,
+      "notes": "Correction 2026-08-19 before implementation: the original AC said zero SOLD rows was an error, which is wrong — a seller with no sales this hour is the common case, and that rule would have marked every healthy channel as failing. The real signal, and what the design doc says, is a closet enumeration returning nothing while we know listings are live."
     },
     {
       "id": "US-2698",
@@ -2452,6 +2453,22 @@
       "dependsOn": [
         "US-2710"
       ]
+    },
+    {
+      "id": "US-2714",
+      "passes": false,
+      "title": "One Lululemon garment can enter the style-code index under two different keys",
+      "description": "As a seller, I want the same Lululemon style to be recognised however its code was transcribed, so that a name learned from one copy of a garment is found for the next one.",
+      "acceptanceCriteria": [
+        "A decision is recorded, with a source, on whether Lululemon tags print the style number with a leading 'L' (LM7A83S) or without it (M7A83S). Two sources already in the repo say six characters starting W or M: theresaledoctor.com, cited by 00390 and 00626, and brand_knowledge.tag_eras for the 2017-2018 era. Neither has been checked against a photograph of an actual tag.",
+        "If both spellings circulate, normalizeStyleCode collapses them to ONE key, so a name learned from 'LM7A83S' is returned for 'M7A83S' and the reverse. Today it does not: normalizeStyleCode only strips punctuation, so the two are different rows in style_code_names, style_code_observations and style_code_sweeps.",
+        "The collapse is brand-scoped, not global. Stripping a leading letter for every brand would merge codes that are genuinely distinct in another namespace, which is the Reebok/adidas refusal in vault/20-domain/brands/brand-kb-decoder-bar.md wearing a new hat.",
+        "The 00626 decoder is extended to the confirmed spelling(s) only, with a golden case per spelling in brand-decoders_test.ts, and the decoder bar's three tests are re-applied rather than assumed to still hold for a seven-character pattern.",
+        "Existing rows are reconciled, or the story states explicitly that they are not and why. A migration that merges rows follows the US-1108 triple; one that does not merge them says what the residual duplication costs.",
+        "OPERATOR: AC1 needs a photograph of a real Lululemon tag, or a listing image clear enough to read the size dot. Nothing in this repo can settle it and no amount of code should guess."
+      ],
+      "priority": 46,
+      "notes": "Filed 2026-08-19 from US-2694. Found while widening the catalogue probe's regex: I wrote a test fixture using 'LM7A83S' and the six-character probe pattern rejected it, which is the question in miniature.\n\nWHAT IS ACTUALLY KNOWN. Two sources in this repo say the tag prints SIX characters starting with W or M — theresaledoctor.com (cited by both 00390 and 00626) and brand_knowledge.tag_eras for 2017-2018. lulufanatics resolves the six-character form: searching 'm7a83s' returns 'Commission Short Relaxed *Warpstreme 11\"'. The seven-character 'LM7A83S' form appears in listing text and in my own fixture, and I have not verified where it comes from — it may be lululemon's internal catalogue prefix rather than anything printed on a garment.\n\nWHY IT MATTERS EVEN IF THE TAG NEVER PRINTS THE L. The index keys on the code as TRANSCRIBED. normalizeStyleCode uppercases and strips punctuation; it does not strip a brand prefix. So a seller (or the extractor reading a listing) who writes 'LM7A83S' creates a second row that never meets the first, in all three tables. The consensus needs three agreeing titles per key, so splitting a code in half can keep BOTH halves below the threshold and produce no name at all from evidence that would have been sufficient.\n\nNOT FIXED BLIND, and that is deliberate. Collapsing a leading 'L' is a one-line change and a bad one to guess at: brand-kb-decoder-bar.md's Reebok/adidas refusal is exactly this shape — a normalization that looks harmless in one brand's namespace and merges distinct identities in another. Settle AC1 first."
     }
   ]
 }
