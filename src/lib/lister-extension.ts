@@ -91,6 +91,14 @@ export interface ListerResult {
    * is not on the create page at all).
    */
   priceFilled?: boolean;
+  /**
+   * US-2730: whether the brand field was set. `undefined` means the channel
+   * declares no brand selector, or the draft carries no brand — "not
+   * applicable", which must never render as a failure. Only an explicit `false`
+   * is a real miss (Poshmark's brand anchor is a placeholder and therefore
+   * English-only, so a localised page misses by design).
+   */
+  brandFilled?: boolean;
   /** True only when EVERY photo landed — see photosTotal/photosFailed (US-1877). */
   photosAttached?: boolean;
   /** US-1877 (AC4): how many photos the fill tried to attach, and how many failed.

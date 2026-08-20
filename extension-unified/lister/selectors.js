@@ -19,7 +19,7 @@ const GT_LISTER_SELECTORS = {
   // ── Poshmark — PHASE 1 (enabled) ──────────────────────────────────────
   poshmark: {
     enabled: true,
-    version: "2026.08.1",
+    version: "2026.08.2",
     // 2026-08-10: confirmed. A second report from the live create-listing page
     // read clean — title, description and submit all resolve against the new
     // wizard. `price` and `photoInput` are still misses, and they are supposed
@@ -27,7 +27,7 @@ const GT_LISTER_SELECTORS = {
     // and the fill flow already reports 0 photos attached rather than claiming
     // otherwise. The seller finishes both in the tab, which is what they were
     // going to do anyway.
-    lastVerified: "2026-08-10",
+    lastVerified: "2026-08-20",
     newListingUrl: "https://poshmark.com/create-listing",
     // US-1876: known domains a delist URL must host-match (subdomains included).
     // The background rejects any delist listingUrl outside these.
@@ -87,10 +87,27 @@ const GT_LISTER_SELECTORS = {
       // opens. Both are typeaheads, so a matching selector is necessary and may
       // not be sufficient: setting the value may still need the dropdown
       // selection that a real keystroke triggers. Verify before filling.
-      brand:
-        'input[data-test="listing-editor-brand"], input[name="brand"], input#brand',
-      tags:
-        'input[data-test="listing-editor-tags"], input[name="tags"], input#tags',
+      // 2026-08-20: VERIFIED against a live create-listing page with the deep
+      // probe. Every guess above was wrong; these are what is actually there.
+      //
+      // BRAND has no data-test, no name and no id, and its class is
+      // `form__text form__text--input p--4` — the SAME class the title input
+      // carries. The placeholder is the only thing that distinguishes the two,
+      // so this is a placeholder anchor by necessity rather than by choice, and
+      // it is English-only: a French-Canadian seller falls through to a miss and
+      // gets nothing filled, which is the correct failure. Replace it the moment
+      // a report shows a test attribute here.
+      //
+      // `^=` rather than `=` because the visible text is the part we can rely on;
+      // a trailing "(required)"-style suffix must not break the match.
+      brand: 'input[placeholder^="Enter the Brand"]',
+      // TAGS is the opposite and much safer: `listing-editor__tag__input` is the
+      // site's own component class, matches exactly one element, and needs no
+      // English. Declared and NOT filled — see runFlow. It is a chip control:
+      // setting a value types text, it does not create a tag, which needs the
+      // Enter key. Filling it would leave uncommitted text in a field the seller
+      // believes is set.
+      tags: 'input.listing-editor__tag__input',
       originalPrice: 'input[data-test="listing-editor-original-price"], input[name="originalPrice"]',
       price: 'input[data-test="listing-editor-listing-price"], input[name="listingPrice"]',
       // 2026-08-11: `input[type="file"][accept*="image"]` matched NOTHING here,

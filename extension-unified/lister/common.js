@@ -293,6 +293,30 @@
     GT.fill(f.title, payload.title);
     GT.fill(f.description, payload.description);
 
+    // US-2730: brand. WITNESSED, like price, and for the same reason — a field
+    // we tried and failed to set has to leave a mark rather than quietly not
+    // happening. This is the first field beyond title/description the Lister has
+    // ever filled on any platform.
+    //
+    // Only where the flow declares a selector: `f.brand` is undefined on every
+    // channel that has not been verified, so nothing is attempted there.
+    //
+    // NOT a failure when it misses. Poshmark's brand anchor is a placeholder and
+    // therefore English-only, so a seller on a localised page gets an unfilled
+    // brand and a working prefill — losing the whole cross-post over one field
+    // they can type themselves would be the wrong trade.
+    const brandFilled = f.brand && payload.brand
+      ? GT.fill(f.brand, payload.brand)
+      : false;
+    if (f.brand && payload.brand && !brandFilled) {
+      GT.log("brand NOT filled on " + payload.platform + " (selector matched nothing)");
+    }
+
+    // TAGS is declared on Poshmark and deliberately NOT filled. It is a chip
+    // control: setting its value types text into the box without creating a tag,
+    // which takes the Enter key. That would leave uncommitted text in a field the
+    // seller believes is set — worse than leaving it empty, because it looks done.
+
     // 2026-08-11: the price fill is now WITNESSED, not assumed.
     //
     // On Poshmark this returned false on every run and said nothing about it.
@@ -346,6 +370,11 @@
       // banner is on screen. A platform with no price field at all (none today)
       // reports false too — "we did not set a price" is true either way.
       priceFilled: priceFilled,
+      // US-2730: same contract as priceFilled. `undefined` where the channel
+      // declares no brand selector or the draft carries no brand — which must
+      // read as "not applicable", never as "we failed", or every unverified
+      // channel would report a miss on a field it was never going to try.
+      brandFilled: f.brand && payload.brand ? brandFilled : undefined,
       photosAttached: photosAttached,
       // AC4: the counts the SaaS renders as "attached 6 of 8 — drag the rest in".
       photosTotal: photos.total,
