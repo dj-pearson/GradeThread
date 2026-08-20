@@ -679,6 +679,55 @@ async function runSyncNow() {
   }
 }
 
+// US-2701: the scheduled poll's consent and cadence.
+//
+// The Accept button stays disabled until the checkbox is ticked, and the cadence
+// control only exists after acceptance — so the first thing a seller meets is
+// the sentences, never the switch.
+async function renderPollConsent(caps) {
+  const block = document.getElementById("pollBlock");
+  if (!block) return;
+  if (!caps || !caps.sellerEnabled) {
+    block.hidden = true;
+    return;
+  }
+
+  const state = await send({ type: "GT_POLL_STATE" });
+  if (!state || !state.available) {
+    block.hidden = true;
+    return;
+  }
+  block.hidden = false;
+
+  const status = document.getElementById("pollStatus");
+  const consent = document.getElementById("pollConsent");
+  const controls = document.getElementById("pollControls");
+  const terms = document.getElementById("pollTerms");
+  const interval = document.getElementById("pollInterval");
+
+  if (state.accepted && state.enabled) {
+    status.textContent = "On";
+    consent.hidden = true;
+    controls.hidden = false;
+    interval.value = String(state.intervalMin);
+  } else {
+    status.textContent = "Off";
+    consent.hidden = false;
+    controls.hidden = true;
+    // Rendered from the background's copy of the terms, never from this markup.
+    terms.textContent = "";
+    for (const term of state.terms || []) {
+      const li = document.createElement("li");
+      li.textContent = term;
+      terms.appendChild(li);
+    }
+    const check = document.getElementById("pollCheck");
+    const accept = document.getElementById("pollAccept");
+    if (check) check.checked = false;
+    if (accept) accept.disabled = true;
+  }
+}
+
 async function renderSyncStatus(caps) {
   const block = document.getElementById("syncBlock");
   if (!block) return;
@@ -734,6 +783,40 @@ async function renderSyncStatus(caps) {
     list.appendChild(li);
   }
 }
+
+// US-2701: bind the scheduled-poll consent controls.
+try {
+  const _pollCheck = document.getElementById("pollCheck");
+  const _pollAccept = document.getElementById("pollAccept");
+  if (_pollCheck && _pollAccept) {
+    _pollCheck.addEventListener("change", function () {
+      _pollAccept.disabled = !_pollCheck.checked;
+    });
+    _pollAccept.addEventListener("click", function () {
+      void (async function () {
+        await send({ type: "GT_POLL_ACCEPT" });
+        const caps = await send({ type: "GT_GET_CAPABILITIES", force: true });
+        await renderPollConsent(caps);
+      })();
+    });
+  }
+  const _pollRevoke = document.getElementById("pollRevoke");
+  if (_pollRevoke) {
+    _pollRevoke.addEventListener("click", function () {
+      void (async function () {
+        await send({ type: "GT_POLL_REVOKE" });
+        const caps = await send({ type: "GT_GET_CAPABILITIES", force: true });
+        await renderPollConsent(caps);
+      })();
+    });
+  }
+  const _pollInterval = document.getElementById("pollInterval");
+  if (_pollInterval) {
+    _pollInterval.addEventListener("change", function () {
+      void send({ type: "GT_POLL_INTERVAL", minutes: Number(_pollInterval.value) });
+    });
+  }
+} catch (_e) { /* no popup markup in this context */ }
 
 // US-2699: bind the Sync now control. Guarded because popup.js is also read as
 // text by zero-dep guards that have no DOM.
@@ -1294,6 +1377,7 @@ function renderSellerSections(caps) {
     renderLastJob();
     renderPendingDelists(caps);
   void renderSyncStatus(caps);
+  void renderPollConsent(caps);
     renderConsent();
     void renderEngagement();
   } else if (caps && caps.authenticated) {

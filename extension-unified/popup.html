@@ -107,6 +107,42 @@
              that calls a channel healthy while the web calls it failing makes the
              seller trust neither. "Not synced yet" is deliberately distinct from
              "Syncing": a channel nobody has read is not a healthy one. -->
+        <!-- US-2701: the scheduled poll's OWN clickwrap. Not the Lister's and not
+             the engagement runner's: both of those cover a seller pressing a
+             button, and this covers GradeThread opening a marketplace tab while
+             they are doing something else. The terms are rendered from
+             sync/poll-plan.js rather than written here, so there is exactly one
+             place they live and a test can assert none went missing. -->
+        <div class="pop-delists" id="pollBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Check on a schedule</span>
+            <span class="pop-lastjob-when" id="pollStatus"></span>
+          </div>
+          <div id="pollConsent" hidden>
+            <ul class="pop-engage-terms" id="pollTerms"></ul>
+            <label class="pop-tos-row">
+              <input type="checkbox" id="pollCheck" />
+              <span>I have read the points above and accept them.</span>
+            </label>
+            <button class="pop-cta" id="pollAccept" type="button" disabled>
+              Accept &amp; check on a schedule
+            </button>
+          </div>
+          <div id="pollControls" hidden>
+            <label class="pop-engage-field">
+              <span>How often</span>
+              <select id="pollInterval">
+                <option value="30">Every 30 minutes</option>
+                <option value="45">Every 45 minutes</option>
+                <option value="60">Every hour</option>
+                <option value="180">Every 3 hours</option>
+                <option value="360">Every 6 hours</option>
+              </select>
+            </label>
+            <button class="pop-linkbtn" id="pollRevoke" type="button">Turn scheduled checks off</button>
+          </div>
+        </div>
+
         <div class="pop-delists" id="syncBlock" hidden>
           <div class="pop-lastjob-head">
             <span class="pop-lastjob-label">Sold-sync</span>

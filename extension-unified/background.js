@@ -578,6 +578,54 @@ async function scanCards({ cards, marketplace, query, brand }) {
 // Read-only and cheap, so it is fetched fresh rather than cached: a seller
 // opening the popup to find out whether sync is working is exactly the moment a
 // stale "Syncing" would be a lie.
+// US-2701: the poll's consent and cadence, for the popup.
+//
+// The terms come from sync/poll-plan.js so the sentences the seller accepts and
+// the sentences a test asserts are the same strings. A clickwrap whose wording
+// lives in markup is one that can quietly lose a sentence.
+async function pollConsentState() {
+  const PLAN = self.GT_SYNC_POLL;
+  if (!PLAN) return { available: false };
+  const out = await ext.storage.local.get(["syncPoll", "syncPollClickwrap"]);
+  const settings = (out && out.syncPoll) || { enabled: false };
+  return {
+    available: true,
+    accepted: PLAN.isClickwrapAccepted(out && out.syncPollClickwrap),
+    enabled: settings.enabled === true,
+    intervalMin: PLAN.normalizeIntervalMin(settings.intervalMin),
+    terms: PLAN.CLICKWRAP_TERMS,
+  };
+}
+
+async function acceptPollClickwrap() {
+  const PLAN = self.GT_SYNC_POLL;
+  if (!PLAN) return { ok: false };
+  await ext.storage.local.set({
+    syncPollClickwrap: PLAN.acceptClickwrap(new Date().toISOString()),
+    syncPoll: { enabled: true, intervalMin: PLAN.DEFAULT_INTERVAL_MIN },
+  });
+  return { ok: true, state: await pollConsentState() };
+}
+
+// Revoking clears the ACCEPTANCE, not just the switch. Leaving a stale yes on
+// disk would mean flipping the toggle back on never re-asks, and the seller who
+// turned it off did so about the thing they had agreed to.
+async function revokePollClickwrap() {
+  await ext.storage.local.set({ syncPoll: { enabled: false } });
+  await ext.storage.local.remove("syncPollClickwrap");
+  return { ok: true, state: await pollConsentState() };
+}
+
+async function setPollInterval(minutes) {
+  const PLAN = self.GT_SYNC_POLL;
+  if (!PLAN) return { ok: false };
+  const out = await ext.storage.local.get("syncPoll");
+  const settings = (out && out.syncPoll) || {};
+  settings.intervalMin = PLAN.normalizeIntervalMin(minutes);
+  await ext.storage.local.set({ syncPoll: settings });
+  return { ok: true, state: await pollConsentState() };
+}
+
 async function fetchSyncStatus() {
   if (!(await sellerAllowed())) return { ok: false, status: 402, channels: [] };
 
@@ -2108,6 +2156,19 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // US-2699: what the popup renders. Same projection as the web.
       case "GT_SYNC_STATUS":
         sendResponse(await fetchSyncStatus());
+        break;
+      // US-2701: the scheduled poll's own consent.
+      case "GT_POLL_STATE":
+        sendResponse(await pollConsentState());
+        break;
+      case "GT_POLL_ACCEPT":
+        sendResponse(await acceptPollClickwrap());
+        break;
+      case "GT_POLL_REVOKE":
+        sendResponse(await revokePollClickwrap());
+        break;
+      case "GT_POLL_INTERVAL":
+        sendResponse(await setPollInterval(msg && msg.minutes));
         break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));

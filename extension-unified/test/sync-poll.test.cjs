@@ -402,9 +402,101 @@ assert.strictEqual(
   );
 }
 
+// ── 12. The consent UI cannot quietly degrade ──────────────────────────────
+//
+// A clickwrap is only worth the sentences the seller actually saw. Three ways
+// that decays, all guarded here: the terms getting copied into markup where one
+// can go missing, the switch appearing before the sentences, and revoking
+// leaving a stale acceptance on disk so flipping it back on never re-asks.
+
+{
+  const html = readSrc("popup.html");
+  const js = readSrc("popup.js");
+  const bg = readSrc("background.js");
+
+  // The markup holds a LIST to render into, not the sentences themselves.
+  assert.ok(/id="pollTerms"/.test(html), "popup.html has no poll terms list");
+  for (const term of P.CLICKWRAP_TERMS) {
+    const fragment = term.slice(0, 40);
+    assert.ok(
+      !html.includes(fragment),
+      `popup.html hard-codes a clickwrap sentence ("${fragment}..."). The terms must ` +
+        `render from sync/poll-plan.js, or one copy loses a sentence and nothing notices.`,
+    );
+  }
+  // Scoped to renderPollConsent. The ENGAGEMENT renderer also iterates
+  // state.terms, so a file-wide check stayed green while the poll's own loop was
+  // emptied — the same read-more-of-the-file-than-you-meant mistake as the
+  // cadence scrape above.
+  const renderPoll = js.slice(
+    js.indexOf("async function renderPollConsent"),
+    js.indexOf("async function renderSyncStatus"),
+  );
+  assert.ok(renderPoll.length > 200, "could not isolate renderPollConsent");
+  assert.ok(
+    /for \(const term of state\.terms/.test(renderPoll),
+    "renderPollConsent no longer renders the poll terms from the background's copy",
+  );
+  assert.ok(
+    /terms\.appendChild/.test(renderPoll),
+    "renderPollConsent builds no term elements, so the seller sees an empty clickwrap",
+  );
+
+  // Accept is disabled until the box is ticked.
+  assert.ok(
+    /id="pollAccept"[^>]*disabled/.test(html),
+    "the poll Accept button does not start disabled",
+  );
+  assert.ok(
+    /_pollAccept\.disabled = !_pollCheck\.checked/.test(js),
+    "ticking the box no longer gates the poll Accept button",
+  );
+
+  // The cadence control exists only after acceptance, so the first thing a
+  // seller meets is the sentences and never the switch.
+  assert.ok(/id="pollControls" hidden/.test(html), "the poll controls do not start hidden");
+  assert.ok(
+    /controls\.hidden = true;/.test(js) && /consent\.hidden = false;/.test(js),
+    "popup.js does not hide the cadence control while consent is outstanding",
+  );
+
+  // Revoking clears the ACCEPTANCE, not just the switch.
+  const revoke = bg.slice(
+    bg.indexOf("async function revokePollClickwrap"),
+    bg.indexOf("async function setPollInterval"),
+  );
+  assert.ok(revoke.length > 60, "could not isolate revokePollClickwrap");
+  assert.ok(
+    /remove\("syncPollClickwrap"\)/.test(revoke),
+    "revoking leaves the acceptance on disk, so switching the poll back on would " +
+      "never re-ask — and the seller who turned it off did so about the thing they agreed to",
+  );
+
+  // The cadences the popup offers must all be values the planner accepts.
+  //
+  // Scoped to the poll's own <select>. A file-wide scrape picked up the
+  // engagement runner's 1400ms pacing option and asserted the planner should
+  // accept a 1400-MINUTE cadence — the third guard in this feature to fail by
+  // reading more of a file than it was about.
+  const selectStart = html.indexOf('<select id="pollInterval">');
+  assert.ok(selectStart !== -1, "popup.html has no poll cadence control");
+  const selectHtml = html.slice(selectStart, html.indexOf("</select>", selectStart));
+  const pollOptions = [...selectHtml.matchAll(/<option value="(\d+)">/g)].map((m) => Number(m[1]));
+  assert.ok(pollOptions.length >= 3, "the poll cadence control offers fewer than three choices");
+  for (const n of pollOptions) {
+    assert.strictEqual(
+      P.normalizeIntervalMin(n),
+      n,
+      `the popup offers a ${n}-minute cadence the planner would clamp — the seller ` +
+        `would pick one thing and get another`,
+    );
+  }
+}
+
 console.log(
   "sync-poll.test.cjs: consent is versioned and re-checked, the interval floor holds, " +
     "engagement blocks the poll, signed-out backs off, a human check stops the channel, " +
     "the polled URL can only ever come from the bundled config, and the driver " +
-    "opens an unfocused tab on an alarm and fails closed on engagement",
+    "opens an unfocused tab on an alarm and fails closed on engagement, and the " +
+    "consent UI renders its terms from one place and cannot precede them with a switch",
 );
