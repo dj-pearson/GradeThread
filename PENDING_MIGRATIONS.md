@@ -1,5 +1,41 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+
+## ⏳ HELD: 00633 — one review row per unmatched sale, not one per poll (US-2717)
+
+**Risk: LOW.** One `DELETE` that removes duplicate rows from a table nothing has
+written to yet, and one `CREATE UNIQUE INDEX IF NOT EXISTS`. No table is
+altered, no column is dropped, no policy changes. Idempotent: the DELETE is a
+no-op once there are no duplicates, and the index guard is `IF NOT EXISTS`.
+
+**What it does.** Adds `marketplace_sync_reviews_unmatched_uniq`, a partial
+unique index on `(user_id, platform, dedupe_key)` where the row is open, has no
+`listing_id`, and carries a dedupe key.
+
+**Why.** 00632's `marketplace_sync_reviews_open_uniq` is partial on
+`listing_id IS NOT NULL`, and an UNMATCHED sale has no listing id -- so the one
+branch guaranteed to repeat is the one branch that index does not cover. It
+repeats by construction: the route builds its `seenKeys` set from
+`marketplace_sync_observations`, and a row lands there only when a sale is
+CONFIRMED, so an unmatched sold row is never suppressed and arrives again on
+every poll with the same key. At the scheduled poll's 45-minute default that is
+roughly 32 identical rows a day per unmatched sold row, and `GET /reviews`
+returns only the newest 200, so the copies crowd out the real queue.
+
+**The DELETE, specifically.** A unique index cannot be built over existing
+duplicates. It keeps the OLDEST row of each group: that is the `created_at` the
+seller would already have seen, and its id may be referenced by a claim they
+have open.
+
+**Client-side read risk: NONE.** No frontend code reads the index. The route
+change in this commit writes with `onConflict: "user_id,platform,dedupe_key"`,
+which REQUIRES this index -- so the SQL must be applied before the edge deploy,
+which is the normal order anyway.
+
+**Apply order.** 00633 after 00632 (already applied). Then
+`NOTIFY pgrst, 'reload schema';` -- an index alone does not change the PostgREST
+schema cache, but the reload is free and the runbook says to.
+
 ## ✅ APPLIED (owner-confirmed 2026-08-20): 00632 — sold-sync storage for the no-API marketplaces (US-2697)
 
 **Risk: LOW.** Three brand-new tables, four indexes, three RLS policies. No
