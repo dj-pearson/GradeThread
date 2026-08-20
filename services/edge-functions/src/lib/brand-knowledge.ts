@@ -410,6 +410,7 @@ export function decoderSpecsFromPack(pack: BrandKnowledgePack): DecoderSpec[] {
     const rules = (d.extractionRules ?? {}) as {
       fieldMap?: Record<string, string>;
       transforms?: Record<string, string>;
+      canonicalFrom?: string[];
       confidence?: number;
     };
     if (!rules.fieldMap || Object.keys(rules.fieldMap).length === 0) continue;
@@ -421,6 +422,12 @@ export function decoderSpecsFromPack(pack: BrandKnowledgePack): DecoderSpec[] {
       transforms: rules.transforms as
         | Partial<Record<string, TransformId>>
         | undefined,
+      // US-2714: without this the DB path yields no canonicalCode, and the DB
+      // path is the one production uses — decodeTagCode ignores the in-code
+      // defaults entirely once a brand has seeded specs.
+      canonicalFrom: Array.isArray(rules.canonicalFrom)
+        ? rules.canonicalFrom.filter((g): g is string => typeof g === "string")
+        : undefined,
       confidence: typeof rules.confidence === "number" ? rules.confidence : 0.8,
     });
   }

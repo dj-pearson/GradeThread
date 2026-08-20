@@ -125,6 +125,66 @@ Deno.test("US-2714: the L is optional on the 2019+ spec too, season intact", () 
   assertEquals(withL.season, "Fall");
 });
 
+Deno.test("US-2714: four spellings collapse to ONE canonical code", () => {
+  // Decoding the same is not enough. The learned index files a code under what
+  // was transcribed, so without a shared key these are four rows that never
+  // meet — and a consensus needing three agreeing titles can leave every
+  // fragment under the threshold.
+  const spellings = ["W6AMYS", "LW6AMYS", "W6AMYSP60417", "LW6AMYSP60417"];
+  const canonical = spellings.map((c) =>
+    decodeTagCode("lululemon", c)!.canonicalCode
+  );
+  assertEquals(canonical, ["W6AMYS", "W6AMYS", "W6AMYS", "W6AMYS"]);
+});
+
+Deno.test("US-2714: the canonical code is a CODE, not the transformed fields", () => {
+  const r = decodeTagCode("lululemon", "wa1234b.0322")!;
+  // gender reads "Women" but the canonical keeps the letter, and case is
+  // normalized so a lowercase transcription keys the same bucket.
+  assertEquals(r.gender, "Women");
+  assertEquals(r.canonicalCode, "WA1234B");
+  // The season suffix is dropped on purpose: the same style in two seasons is
+  // the same product, which is the question the index answers.
+  assertEquals(decodeTagCode("lululemon", "WA1234B.0119")!.canonicalCode, "WA1234B");
+});
+
+Deno.test("US-2714: a spec with no canonicalFrom yields no canonical code", () => {
+  // Every other brand in the corpus, unchanged.
+  const spec: DecoderSpec = {
+    brandKey: "levis",
+    decoderKind: "lot_number",
+    pattern: "^(?<style>50[0-9])$",
+    fieldMap: { style: "styleCode" },
+    confidence: 0.8,
+  };
+  assertEquals(decodeTagCode("levis", "501", [spec])!.canonicalCode, undefined);
+});
+
+Deno.test("US-2714: an incomplete canonicalFrom yields NOTHING, not a short code", () => {
+  // A shorter code would silently key a DIFFERENT bucket, which is worse than
+  // having no canonical code at all.
+  const spec: DecoderSpec = {
+    brandKey: "lululemon",
+    decoderKind: "broken",
+    pattern: "^(?<gender>[WM])(?<style>[A-Z0-9]{4})$",
+    fieldMap: { style: "styleCode" },
+    canonicalFrom: ["gender", "style", "color"], // `color` is never captured
+    confidence: 0.5,
+  };
+  assertEquals(decodeTagCode("lululemon", "W6AMY", [spec])!.canonicalCode, undefined);
+});
+
+Deno.test("US-2714: the DB path carries canonicalFrom, and it is the one prod uses", () => {
+  // decodeTagCode ignores DEFAULT_DECODER_SPECS entirely once a brand has
+  // seeded specs, so a canonical code that only works from the in-code copy
+  // would do nothing in production.
+  const dbSpecs = DEFAULT_DECODER_SPECS.filter((s) => s.brandKey === "lululemon");
+  assertEquals(
+    decodeTagCode("lululemon", "LW6AMYSP60417", dbSpecs)!.canonicalCode,
+    "W6AMYS",
+  );
+});
+
 Deno.test("US-2714: widening the shapes did not loosen the anchors", () => {
   // The full form needs BOTH the colour letter and the date block; the decoder
   // bar's third test is about format, and a substring hunt would fail it.

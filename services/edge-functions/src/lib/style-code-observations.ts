@@ -22,6 +22,7 @@
 // Pure normalize/score/precedence logic, so every rule above is unit-testable
 // without eBay or the database.
 
+import { decodeTagCode } from "./brand-decoders.ts";
 import {
   pickStyleCodeName,
   type StyleCodeNameRow,
@@ -46,6 +47,41 @@ export const LEARNED_CONFIDENCE_BASE = 0.3;
  */
 export function normalizeStyleCode(raw: string | null | undefined): string {
   return (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * US-2714: the ONE key a code should be filed under, whatever spelling arrived.
+ *
+ * normalizeStyleCode only strips punctuation and case, so the four spellings of
+ * a Lululemon garment — W6AMYS, LW6AMYS, W6AMYSP60417, LW6AMYSP60417 — became
+ * four rows that never met. A consensus needs three agreeing titles per key, so
+ * splitting one garment four ways can leave every fragment under the threshold
+ * and yield no name from evidence that would have been enough.
+ *
+ * The decoder already knows the answer: a spec's `canonicalFrom` names the
+ * groups that concatenate to the code's canonical spelling. This asks it, and
+ * falls back to plain normalization when no decoder fires — which is every
+ * brand that has no canonicalFrom, i.e. everything but Lululemon today.
+ *
+ * No database read: decodeTagCode falls back to DEFAULT_DECODER_SPECS when no
+ * pack specs are supplied, and decoder-seed-parity_test.ts is what keeps those
+ * honest against the seeded rows.
+ */
+export function canonicalStyleCode(
+  brandKey: string | null | undefined,
+  raw: string | null | undefined,
+): string {
+  const fallback = normalizeStyleCode(raw);
+  const code = (raw ?? "").trim();
+  if (!brandKey || !code) return fallback;
+  // BOTH forms, and both are needed — a regression the sweep's own test caught.
+  // The 2019+ pattern requires a literal "." that normalizeStyleCode strips, so
+  // the trimmed raw has to be tried first; but a punctuated transcription like
+  // "lw7d-vcs" matches no anchored pattern until the punctuation is gone, and
+  // trying only the raw form made it split from "LW7DVCS" — two keys for one
+  // code, which is the exact failure this function exists to remove.
+  const hit = decodeTagCode(brandKey, code) ?? decodeTagCode(brandKey, fallback);
+  return hit?.canonicalCode ? normalizeStyleCode(hit.canonicalCode) : fallback;
 }
 
 /**
@@ -110,7 +146,8 @@ export async function recordStyleCodeObservations(args: {
   source?: ObservationSource;
   write?: ObservationWriter;
 }): Promise<number> {
-  const styleCodeNorm = normalizeStyleCode(args.styleCodeRaw);
+  // US-2714: file it under the CANONICAL spelling, not the transcribed one.
+  const styleCodeNorm = canonicalStyleCode(args.brandKey, args.styleCodeRaw);
   // A code needs some length to be an identity: two characters match everything.
   if (styleCodeNorm.length < MIN_STYLE_CODE_LENGTH) return 0;
 
@@ -283,7 +320,8 @@ export async function lookupLearnedStyle(
   brandKey: string,
   styleCodeRaw: string | null | undefined,
 ): Promise<LearnedStyle | null> {
-  const styleCodeNorm = normalizeStyleCode(styleCodeRaw);
+  // US-2714: ask under the same canonical spelling the write path files under.
+  const styleCodeNorm = canonicalStyleCode(brandKey, styleCodeRaw);
   if (styleCodeNorm.length < MIN_STYLE_CODE_LENGTH) return null;
 
   // US-2691: a RESOLVED name wins outright. The observation scan below is what

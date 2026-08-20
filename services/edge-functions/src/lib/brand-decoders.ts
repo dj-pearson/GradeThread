@@ -39,6 +39,20 @@ export interface DecodeResult {
   colorway?: string;
   season?: string;
   year?: string;
+  /**
+   * US-2714: the ONE spelling this garment should be filed under.
+   *
+   * A tag code reaches us in several spellings — Lululemon's dot carries
+   * `LW6AMYSP60417` where the style number is `W6AMYS`, and a seller may type
+   * either — and the learned index keys on whatever was transcribed. So the
+   * same garment becomes several rows that never meet, and a consensus needing
+   * three agreeing titles can leave every fragment below the threshold.
+   *
+   * Built from the RAW captured groups a spec names in `canonicalFrom`, before
+   * transforms (which turn "W" into "Women"). Absent when the spec does not
+   * name any, so a brand without one behaves exactly as it did.
+   */
+  canonicalCode?: string;
   /** 0..1 — high on a clean match; feeds the confidence boost (US-1714). */
   confidence: number;
 }
@@ -54,6 +68,12 @@ export interface DecoderSpec {
   fieldMap: Record<string, keyof DecodeResult>;
   /** DecodeResult field -> transform applied to the captured value. */
   transforms?: Partial<Record<string, TransformId>>;
+  /**
+   * US-2714: capture-group names, IN ORDER, that concatenate to the code's one
+   * canonical spelling. Data rather than a per-brand branch in the engine: a
+   * spec that omits it simply yields no canonicalCode.
+   */
+  canonicalFrom?: string[];
   /** Confidence on a clean match. */
   confidence: number;
 }
@@ -101,6 +121,7 @@ export const DEFAULT_DECODER_SPECS: DecoderSpec[] = [
       year: "year2to4",
       color: "upper",
     },
+    canonicalFrom: ["gender", "style", "color"],
     confidence: 0.9,
   },
   {
@@ -125,6 +146,7 @@ export const DEFAULT_DECODER_SPECS: DecoderSpec[] = [
       gender: "genderCode",
       color: "upper",
     },
+    canonicalFrom: ["gender", "style", "color"],
     confidence: 0.85,
   },
   {
@@ -162,6 +184,7 @@ export const DEFAULT_DECODER_SPECS: DecoderSpec[] = [
       gender: "genderCode",
       color: "upper",
     },
+    canonicalFrom: ["gender", "style", "color"],
     confidence: 0.85,
   },
   {
@@ -215,6 +238,19 @@ export function runDecoderSpec(
     const out = tid ? TRANSFORMS[tid](value) : value;
     // All mapped fields are string-typed on DecodeResult.
     (result as unknown as Record<string, unknown>)[field] = out;
+  }
+
+  // US-2714: the canonical spelling, from the RAW captures. Read before the
+  // transform table has been applied, because those turn "W" into "Women" and
+  // a canonical CODE has to stay a code.
+  if (spec.canonicalFrom && spec.canonicalFrom.length > 0) {
+    const parts = spec.canonicalFrom.map((group) => m.groups?.[group]);
+    // All-or-nothing: a spec whose canonicalFrom names a group its pattern did
+    // not capture would otherwise produce a SHORTER code that silently keys a
+    // different bucket — worse than no canonical code at all.
+    if (parts.every((p) => p != null && p !== "")) {
+      result.canonicalCode = parts.join("").toUpperCase();
+    }
   }
   return result;
 }

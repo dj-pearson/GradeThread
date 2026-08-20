@@ -16,8 +16,8 @@
 // without the database, and without a clock.
 
 import {
+  canonicalStyleCode,
   MIN_STYLE_CODE_LENGTH,
-  normalizeStyleCode,
 } from "./style-code-observations.ts";
 
 export { MIN_STYLE_CODE_LENGTH };
@@ -140,7 +140,9 @@ export function buildSweepWorkList(args: {
   const deduped = new Map<string, SweepCandidate>();
   let skippedTooShort = 0;
   for (const row of seen) {
-    const norm = normalizeStyleCode(row.styleCodeRaw);
+    // US-2714: the CANONICAL spelling, so the four ways one Lululemon code can
+    // be transcribed are one candidate and one row rather than four of each.
+    const norm = canonicalStyleCode(row.brandKey, row.styleCodeRaw);
     if (norm.length < MIN_STYLE_CODE_LENGTH) {
       skippedTooShort++;
       continue;

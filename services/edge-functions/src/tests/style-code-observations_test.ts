@@ -78,6 +78,37 @@ type Written = {
   evidenceUrl: string | null;
 };
 
+// ── US-2714: one garment, one key ───────────────────────────────────────────
+
+Deno.test("US-2714: every spelling of one code canonicalizes to one key", async () => {
+  const { canonicalStyleCode } = await import("../lib/style-code-observations.ts");
+  // The four ways the same Lululemon garment reaches us, plus punctuation and
+  // case, plus the 2019+ generation whose season suffix is not part of identity.
+  for (
+    const spelling of ["W7DVCS", "LW7DVCS", "lw7d-vcs", "LW7D VCS", "W7DVCSP60417"]
+  ) {
+    assertEquals(canonicalStyleCode("lululemon", spelling), "W7DVCS", spelling);
+  }
+  assertEquals(canonicalStyleCode("lululemon", "WA1234B.0322"), "WA1234B");
+  assertEquals(canonicalStyleCode("lululemon", "LWA1234B.0119"), "WA1234B");
+});
+
+Deno.test("US-2714: a brand with no canonical rule is untouched", async () => {
+  const { canonicalStyleCode, normalizeStyleCode } = await import(
+    "../lib/style-code-observations.ts"
+  );
+  // Every brand but Lululemon today. The fallback must be exactly what the
+  // index used before, or this change silently re-keys the whole corpus.
+  for (const raw of ["511-0011", "GY7434", "  es5331 "]) {
+    assertEquals(canonicalStyleCode("levis", raw), normalizeStyleCode(raw));
+    assertEquals(canonicalStyleCode("", raw), normalizeStyleCode(raw));
+  }
+  // A Lululemon code that matches no decoder also falls back rather than
+  // returning nothing.
+  assertEquals(canonicalStyleCode("lululemon", "ABCDEFG"), "ABCDEFG");
+  assertEquals(canonicalStyleCode("lululemon", null), "");
+});
+
 Deno.test("a confirmed code keeps the title and cites the listing URL", async () => {
   const rows: Written[] = [];
   const n = await recordStyleCodeObservations({
@@ -93,7 +124,12 @@ Deno.test("a confirmed code keeps the title and cites the listing URL", async ()
     },
   });
   assertEquals(n, 1);
-  assertEquals(rows[0]!.styleCodeNorm, "LW7DVCS");
+  // US-2714: filed under the CANONICAL spelling, not the transcribed one. The
+  // decoder reads "lw7d-vcs" as the Lululemon style number W7DVCS behind an L
+  // brand prefix, so this row now meets the ones written for "LW7DVCS" and
+  // "W7DVCSP60417" instead of sitting in a bucket of its own.
+  assertEquals(rows[0]!.styleCodeNorm, "W7DVCS");
+  // The raw form is still kept verbatim, for display.
   assertEquals(rows[0]!.styleCodeRaw, "lw7d-vcs");
   assertEquals(rows[0]!.source, "market_verify");
   assertEquals(rows[0]!.evidenceUrl, "https://ebay.com/itm/1");
