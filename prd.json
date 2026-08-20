@@ -2727,7 +2727,8 @@
         "Nothing fills brand until a probe confirms the anchor. One deep report on the Mercari sell page turns this into a one-line edit, and the fill call itself is already generic - runFlow fills f.brand for any channel that declares it, witnessed, since US-2730.",
         "Category working on Mercari is worth understanding before it is claimed as a feature: no category selector exists in the config, so either Mercari derives it from the title or the seller set it by hand. Do not record it as supported until that is established."
       ],
-      "priority": 12
+      "priority": 12,
+      "notes": "BRAND RESOLVES ON MERCARI 2026-08-20. The deep probe reports it ok on the live sell form, so one of the declared candidates matched - leading with data-testid was right, since Mercari is React and that is the attribute its own tests depend on, the same anchor its title field already uses. Selectors bumped to v2026.08.1 / lastVerified 2026-08-20. No fill code was needed: runFlow has filled f.brand for any channel declaring it since US-2730, witnessed like price, so declaring the selector was the whole change. ONE THING TO WATCH on the first live run: Mercari's brand is a typeahead, so a resolving selector is necessary and may not be sufficient - the value can need the dropdown selection a real keystroke triggers. Poshmark's brand behaved and this is the same shape, but that is precedent rather than proof. CONDITION and SIZE stay out as pickers (a selection and a dropdown), recorded in the config."
     }
   ]
 }

@@ -423,7 +423,7 @@ const GT_LISTER_SELECTORS = {
     // ON as of 2026-08-11. Both halves: every list selector resolved on
     // mercari.com/sell/, and the delist menu resolved on a live listing.
     enabled: true,
-    version: "2026.08.0",
+    version: "2026.08.1",
     // 2026-08-10: the list flow is verified. All five selectors resolved on
     // mercari.com/sell/, including the renamed title field.
     //
@@ -431,7 +431,7 @@ const GT_LISTER_SELECTORS = {
     // below: a channel that can list and cannot end a listing sells one garment
     // to two people. `delist.menu` has only ever been probed from the sell
     // form, where it cannot exist.
-    lastVerified: "2026-08-10",
+    lastVerified: "2026-08-20",
     newListingUrl: "https://www.mercari.com/sell/",
     hosts: ["mercari.com"],
     login: { urlPattern: "mercari\\.com/(signin|login|signup)" },
@@ -448,16 +448,18 @@ const GT_LISTER_SELECTORS = {
       title: 'input[data-testid="Title"], input[name="sellName"], input#sellName',
       description: 'textarea[name="description"], textarea[data-testid="Description"]',
       price: 'input[name="price"], input[data-testid="Price"]',
-      // US-2743: DECLARED FOR THE PROBE, not yet filled - the same two-step that
-      // produced every correct Poshmark selector, and that every guess made
-      // before it failed. Mercari is React, so data-testid is the attribute its
-      // own tests depend on and the one most likely to be right; the name/id
-      // clauses mirror how the title field is wired. No placeholder anchor,
-      // deliberately: it would be English-only for no gain, exactly as the
-      // title note above says.
+      // 2026-08-20: VERIFIED on the live sell form — the deep probe reports
+      // this resolving. Leading with data-testid was the right call: Mercari is
+      // React and that is the attribute its own tests depend on, the same anchor
+      // the title field uses. No placeholder clause, deliberately, since that
+      // would be English-only for no gain.
       //
-      // If these miss, the deep probe reports the real controls and this
-      // becomes a one-line edit. Nothing fills it until then.
+      // Filled by the generic path in runFlow (US-2730), witnessed like price.
+      // ONE THING TO WATCH on the first live run: Mercari's brand is a
+      // typeahead, so a resolving selector is necessary and may not be
+      // sufficient — the value can need the dropdown selection a real keystroke
+      // triggers. Poshmark's brand behaved and this is the same shape, but that
+      // is precedent, not proof.
       brand:
         'input[data-testid="Brand"], input[data-testid="BrandName"], ' +
         'input[name="brand"], input#brand',
