@@ -20,8 +20,13 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireJobSecret } from "../lib/job-auth.ts";
 import { acquireJobLock } from "../lib/job-lock.ts";
 import { brandKeyForRaw } from "../lib/brand-normalize.ts";
-import { searchBrowseComps } from "../lib/ebay-client.ts";
-import { consensusStyleName } from "../lib/style-code-consensus.ts";
+import { getBrowseItemAspects, searchBrowseComps } from "../lib/ebay-client.ts";
+import { canonicalStyleCode } from "../lib/style-code-observations.ts";
+import {
+  aspectEvidence,
+  classifyListing,
+  type ClassifiedListing,
+} from "../lib/style-code-aspects.ts";
 import {
   planRekey,
   type RekeyRow,
@@ -59,6 +64,14 @@ const LOCK_TTL_SECONDS = 1800;
  *  MAX_TITLES_PER_OBSERVATION; a wider read is what makes a consensus possible
  *  later (US-2691) without a second call. */
 const TITLES_PER_CODE = 25;
+
+/** How many of a code's listings get their ITEM SPECIFICS read.
+ *
+ *  US-2751: the Browse search response does not carry item specifics, so each
+ *  one costs a second call. Bounded because the budget is shared with the Add
+ *  flow and the comps ladder — and because a code whose first few listings all
+ *  declare the same code is not made truer by a fourth. */
+const ASPECT_LOOKUPS_PER_CODE = 6;
 
 function sweepBudget(): number {
   const raw = Deno.env.get("STYLE_CODE_SWEEP_BUDGET");
@@ -228,7 +241,40 @@ async function reconcileKeys(): Promise<
   return { ...summarizeRekey(plan), failed };
 }
 
-const liveDeps: SweepDeps = {
+/**
+ * US-2751: our OWN eBay listings, so the sweep cannot learn our guesses back.
+ *
+ * Our sellers publish with titles and specifics our AI wrote. Counting those as
+ * independent market confirmation is three copies of one guess wearing three
+ * hats — and the consensus threshold does nothing about it, because the copies
+ * genuinely agree.
+ *
+ * Read once per tick, not per code. A read failure returns an EMPTY set, which
+ * fails toward counting our own listings rather than toward skipping the tick;
+ * the alternative is a sweep that stops working whenever this query does. The
+ * count is logged so a silent empty set is visible.
+ */
+async function ownEbayListingIds(): Promise<Set<string>> {
+  const { data, error } = await supabaseAdmin
+    .from("listings")
+    .select("platform_listing_id")
+    .eq("platform", "ebay")
+    .not("platform_listing_id", "is", null)
+    .limit(SCAN_LIMIT * 4);
+  if (error) {
+    console.error("[style-code-sweep] own-listing read failed:", error.message);
+    return new Set();
+  }
+  const ids = new Set(
+    ((data ?? []) as Array<{ platform_listing_id: string | null }>)
+      .map((r) => (r.platform_listing_id ?? "").trim())
+      .filter(Boolean),
+  );
+  return ids;
+}
+
+function makeLiveDeps(ownEbayItemIds: ReadonlySet<string>): SweepDeps {
+  return {
   search: async (candidate: SweepCandidate): Promise<SweepHit[]> => {
     const res = await searchBrowseComps({
       // styleCode (US-2245) is searched VERBATIM — buildCompKeywords' de-noising
@@ -239,8 +285,8 @@ const liveDeps: SweepDeps = {
       limit: TITLES_PER_CODE,
     });
     return (res.items ?? [])
-      .filter((i) => i.title !== "")
-      .map((i) => ({ title: i.title, url: i.itemWebUrl ?? null }));
+      .filter((i) => i.title !== "" && i.itemId)
+      .map((i) => ({ itemId: i.itemId, title: i.title, url: i.itemWebUrl ?? null }));
   },
   observe: (candidate, hits) =>
     recordStyleCodeObservations({
@@ -250,44 +296,78 @@ const liveDeps: SweepDeps = {
       source: "market_verify",
     }),
   resolveName: async (candidate, hits) => {
-    // US-2691: null is the common answer early on and is not an error — a code
-    // with two listings has no consensus, and inventing one would put a name on
-    // a listing that no seller and no decoder ever supported.
-    const consensus = consensusStyleName({
-      titles: hits.map((h) => h.title),
-      brand: candidate.brandLabel,
-      styleCode: candidate.styleCodeRaw,
-    });
-    if (!consensus) return;
+    // US-2751: THE NAME COMES FROM ITEM SPECIFICS, NOT FROM TITLES.
+    //
+    // The previous version took the run of words most listing TITLES shared. A
+    // title is marketing text assembled by a seller who may have bought the
+    // garment with no tag beyond a size dot, so a consensus over those is a
+    // confident guess. Worse, our own sellers publish with titles our AI wrote,
+    // so reading them back counted our guesses as independent corroboration.
+    //
+    // Now a listing only counts if it DECLARES this code in a structured field
+    // (Style Code / MPN) and names a product in one (Model). That is a name
+    // attached to a verified identifier by someone who typed both.
+    const classified: ClassifiedListing[] = [];
+    for (const hit of hits.slice(0, ASPECT_LOOKUPS_PER_CODE)) {
+      const listing = await getBrowseItemAspects(hit.itemId);
+      if (!listing) continue;
+      classified.push(
+        classifyListing({
+          listing,
+          canonicalCode: candidate.styleCodeNorm,
+          canonicalize: (raw) => canonicalStyleCode(candidate.brandKey, raw),
+          ownItemIds: ownEbayItemIds,
+        }),
+      );
+    }
+
+    const evidence = aspectEvidence(classified);
+    if (evidence.contradicting > 0 && evidence.confirming === 0) {
+      // Every listing that declared a code declared a DIFFERENT one. That is a
+      // signal about our canonicalization, not about the market, and it is
+      // worth saying out loud rather than recording as a quiet miss.
+      console.warn(
+        `[style-code-sweep] ${candidate.styleCodeNorm}: ${evidence.contradicting} listing(s) ` +
+          "declared a different style code and none matched",
+      );
+    }
+    if (!evidence.name) return;
+
     const { error } = await supabaseAdmin.rpc("record_style_code_name", {
       p_brand_key: candidate.brandKey,
       p_style_code_norm: candidate.styleCodeNorm,
       p_style_code_raw: candidate.styleCodeRaw,
-      p_name: consensus.name,
+      p_name: evidence.name,
       p_source: "consensus",
-      p_supporting: consensus.supporting,
-      p_confidence: consensus.confidence,
+      p_supporting: evidence.confirming,
+      // Higher than the old title consensus could ever earn, and still below a
+      // seller correction and a decoder. A structured code that matches is
+      // evidence of a different kind, not just more of the same.
+      p_confidence: Math.min(0.75, 0.6 + 0.05 * (evidence.confirming - 1)),
       p_evidence_url: hits.find((h) => h.url)?.url ?? null,
     });
     if (error) throw error;
   },
-  markSwept: async (candidate, titlesFound) => {
-    const { error } = await supabaseAdmin.rpc("record_style_code_sweep", {
-      p_brand_key: candidate.brandKey,
-      p_style_code_norm: candidate.styleCodeNorm,
-      p_style_code_raw: candidate.styleCodeRaw,
-      p_titles_found: titlesFound,
-    });
-    if (error) throw error;
-  },
-};
+    markSwept: async (candidate, titlesFound) => {
+      const { error } = await supabaseAdmin.rpc("record_style_code_sweep", {
+        p_brand_key: candidate.brandKey,
+        p_style_code_norm: candidate.styleCodeNorm,
+        p_style_code_raw: candidate.styleCodeRaw,
+        p_titles_found: titlesFound,
+      });
+      if (error) throw error;
+    },
+  };
+}
 
 /** The lock is a seam so the concurrency guarantee is a test, not a claim. */
 export type LockAcquirer = typeof acquireJobLock;
 
 export async function handleStyleCodeSweepCron(
   c: Context,
-  deps: SweepDeps = liveDeps,
+  // US-2751: null means "build the live deps for this tick", which needs the
+  // own-listing set and therefore a read. Tests pass their own.
+  deps: SweepDeps | null = null,
   acquire: LockAcquirer = acquireJobLock,
 ): Promise<Response> {
   if (!(await requireJobSecret(c))) {
@@ -317,9 +397,12 @@ export async function handleStyleCodeSweepCron(
       now: new Date(),
     });
 
+    // Read once per tick, before any code is swept.
+    const effectiveDeps = deps ?? makeLiveDeps(await ownEbayListingIds());
+
     const outcomes: SweepOutcome[] = [];
     for (const candidate of work.candidates) {
-      outcomes.push(await sweepOneCode(candidate, deps));
+      outcomes.push(await sweepOneCode(candidate, effectiveDeps));
     }
 
     // Say what was left behind. A sweep that reports only what it did reads as

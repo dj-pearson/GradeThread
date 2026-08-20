@@ -4603,6 +4603,49 @@ export interface BrowseItemLite {
   condition: string | null;
 }
 
+/**
+ * US-2751: one listing's ITEM SPECIFICS.
+ *
+ * The Browse SEARCH response does not carry them — item_summary omits
+ * localizedAspects entirely — so learning from what a seller FILLED IN rather
+ * than what they wrote costs a second call per listing. That is the price of
+ * not building a database out of marketing text.
+ *
+ * Returns null rather than throwing: an aspect read that fails costs one
+ * listing's evidence, never the sweep's tick.
+ */
+export async function getBrowseItemAspects(
+  itemId: string,
+): Promise<{ itemId: string; title: string; aspects: Record<string, string> } | null> {
+  try {
+    const token = await getAppAccessToken();
+    const url = `${apiHost()}/buy/browse/v1/item/${encodeURIComponent(itemId)}`;
+    const res = await ebayFetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+      },
+    });
+    if (!res.ok) return null;
+    const item = (await res.json()) as {
+      title?: string;
+      localizedAspects?: Array<{ type?: string; name?: string; value?: string }>;
+    };
+    const aspects: Record<string, string> = {};
+    for (const a of item.localizedAspects ?? []) {
+      const name = (a.name ?? "").trim();
+      const value = (a.value ?? "").trim();
+      // First value wins: eBay repeats a name for multi-valued aspects, and a
+      // style code is single-valued in every category that offers one.
+      if (name && value && !(name in aspects)) aspects[name] = value;
+    }
+    return { itemId, title: item.title ?? "", aspects };
+  } catch (err) {
+    console.error("[ebay-client] getBrowseItemAspects failed:", err);
+    return null;
+  }
+}
+
 export async function getBrowseItemByLegacyId(
   legacyItemId: string,
 ): Promise<BrowseItemLite | null> {

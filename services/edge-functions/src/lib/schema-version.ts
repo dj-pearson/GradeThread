@@ -44,12 +44,20 @@ import { EXPECTED_MIGRATIONS, FOOTER_ERA_START } from "./migration-manifest.ts";
 // role segfaults Postgres), so it is invisible to the *.sql glob the manifest
 // and the apply script use. Its number stays reserved for when it unblocks.
 //
+// ⚠ 00636 AND 00637 ARE SKIPPED, and are NOT phantoms. They created a
+// lulufanatics.com crawler and were applied to production before their files
+// were deleted. 00638 drops what they built AND removes their applied_migrations
+// rows, so the applied set matches the shipped set exactly and the phantom list
+// below does not have to grow. Numbering continues at 00639: the numbers are
+// safe to reuse once the rows are gone, and reusing them would still be
+// confusing to anyone reading the history.
+//
 // ⚠ 00479 IS DELIBERATELY SKIPPED. On 2026-07-19 /health/ready reported
 // applied="00479" while no 00479 file has ever existed in this repo (no file, no
 // git history, no branch). Reusing that number would let the boot guard read
 // "match" off prod's pre-existing row even if this migration never applied —
 // exactly the failure the guard exists to catch. See PENDING_MIGRATIONS.md.
-export const EXPECTED_SCHEMA_VERSION = "00635";
+export const EXPECTED_SCHEMA_VERSION = "00639";
 
 export type SchemaVersionComparison = "match" | "behind" | "ahead" | "unknown";
 

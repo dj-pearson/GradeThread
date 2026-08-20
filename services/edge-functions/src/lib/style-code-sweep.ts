@@ -201,6 +201,9 @@ export function buildSweepWorkList(args: {
 
 /** Public listing text only — the 00503 rule, unchanged by the sweep. */
 export interface SweepHit {
+  /** US-2751: needed to fetch the listing's ITEM SPECIFICS, which the search
+   *  response does not carry. The title alone is marketing text. */
+  itemId: string;
   title: string;
   url: string | null;
 }

@@ -13,7 +13,21 @@ import {
   type ResolvedStyleCodeName,
   type StyleCodeNameRow,
 } from "./style-code-names.ts";
-import { CONSENSUS_MIN_TITLES } from "./style-code-consensus.ts";
+
+/**
+ * US-2751: below this many confirmations, a name is worth a human's glance.
+ *
+ * It used to be CONSENSUS_MIN_TITLES (3) from the title-consensus module, back
+ * when a name was the run of words three listing TITLES shared. That module is
+ * retired: names now come from listings that DECLARE the style code in a
+ * structured field, and one of those is a real answer. Keeping the old bar
+ * would flag every correctly-identified code as thin.
+ *
+ * Two, not one, because a single confirmation is worth a glance and not an
+ * alarm — and because the queue is ordered, so "thin" only decides what an
+ * admin sees first.
+ */
+export const THIN_SUPPORT_THRESHOLD = 2;
 
 /** Review buckets, most-urgent first. The number IS the sort key. */
 export const REVIEW_PRIORITY = {
@@ -85,7 +99,7 @@ export function reviewItemFor(group: StyleCodeGroup): ReviewItem {
     // had one and an admin took it away, so the sweep may hand back the same
     // wrong name and someone should notice.
     priority = REVIEW_PRIORITY.rejected;
-  } else if (resolved.supporting < CONSENSUS_MIN_TITLES) {
+  } else if (resolved.supporting < THIN_SUPPORT_THRESHOLD) {
     priority = REVIEW_PRIORITY.thin;
   } else {
     priority = REVIEW_PRIORITY.settled;

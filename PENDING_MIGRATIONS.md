@@ -1,6 +1,53 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00635 — what the person holding the garment says it is (US-2749)
+## ⏳ PENDING: 00639 — remove the names derived from listing titles (US-2751)
+
+**Risk: LOW, and the risk of NOT applying it is higher.** One `DELETE` against
+`style_code_names` rows whose source is `consensus`. No schema change.
+
+**Why.** Those rows are the run of words that most eBay listing TITLES shared
+for a code. A title is marketing text written by a seller who may have bought
+the garment with no tag beyond a size dot, and our OWN sellers publish with
+titles our AI wrote — so the method counted our guesses as independent
+corroboration. The sweep now learns only from listings that DECLARE the style
+code in a structured field and name a product in one.
+
+The two generations are indistinguishable by source alone. Leaving them means a
+reseller sees a name that might be either and nobody can tell which.
+
+**Nothing is permanently lost.** The sweep re-derives a code once it is below
+the confirmation floor, and 00627's cooldown lets a previously-resolved code be
+re-asked. A name that does not come back is one no listing ever declared.
+
+`seller`, `admin`, `official` and `public` rows are untouched — those came from
+people, not from prose. The 00503 observation rows are kept too: a title is
+still evidence, correctly labelled as weak, and an admin should be able to see
+what the market called something even when that is not good enough to publish.
+
+**Apply order**
+
+1. Run `supabase/migrations/00639_clear_title_consensus_names.sql`.
+2. Redeploy the edge (`EXPECTED_SCHEMA_VERSION` is now `00639`). Deploy the edge
+   FIRST if you would rather not have a window where the old title-consensus
+   code could write a new row: the delete is idempotent, so re-running it after
+   the deploy is free.
+
+**Confirm it landed**
+
+```sql
+select source, count(*) from public.style_code_names group by source;
+```
+
+`consensus` should be absent, or non-zero only from sweep ticks that ran after
+the new edge build deployed.
+
+## ✅ APPLIED 2026-08-20: 00635 — what the person holding the garment says it is (US-2749)
+
+**APPLIED.** `/health/ready` reported `applied: "00638"` on 2026-08-20, which is
+past this one, and `status:"ahead"` with no `missing` key means every version up
+to it landed. This section previously said PENDING and was wrong — the file
+records intent, only the database records state.
+
 
 **Risk: LOW.** One new table, one `plpgsql` counter function, and one CHECK
 constraint widened on `style_code_names`. No backfill, no existing data touched.
