@@ -46,6 +46,17 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
  * line says looks identical in its output.
  */
 export const ALLOWED_DEAD_MODULES = {
+  "marketplace-observations.ts":
+    "PENDING, deliberately. US-2697's sold-sync observation planner: the PURE " +
+    "decision over what the extension saw on a seller's own marketplace pages. " +
+    "Its own header states the split - the extension observes and never " +
+    "concludes, this module decides, and the impure half (persisting rows, " +
+    "writing the sale, handing off to cross-listings.ts) lives in the route " +
+    "that has not landed yet. Built first ON PURPOSE: it is what stands " +
+    "between a Poshmark redesign and a seller's catalogue being pulled off " +
+    "four other channels, and it ships with an edge deploy while extension " +
+    "logic waits days for store review. 21 tests cover it. Remove this entry " +
+    "when the route imports it.",
   "drip-trigger.ts":
     "SUPERSEDED. US-933's unified trigger engine; jobs-journey-tick.ts does the " +
     "same work inline via switch(journey.trigger). Dead, not broken.",

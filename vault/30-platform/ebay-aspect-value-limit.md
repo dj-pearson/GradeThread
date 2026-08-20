@@ -6,12 +6,20 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-08-17
+reviewed: 2026-08-20
 tags: [ebay, publishing, gotcha]
 summary: eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 ---
 
 # eBay 65-character aspect-value limit
+
+> **Re-reviewed 2026-08-20.** Drift flagged `ebay-client.ts` again, for
+> `5f542210`. That commit extracts title tokenisation into `title-tokens.ts`
+> for the style-code market sweep: `git log -p` over it contains the word
+> `aspect` ZERO times. Same verdict as the 2026-08-17 re-review below, and for
+> the same reason - this file is large and busy, so it trips the drift guard on
+> changes that have nothing to do with aspect validation. The 65-character rule
+> and the 25002-at-publish behaviour are untouched.
 
 > **Re-reviewed 2026-08-17.** Drift flagged `ebay-client.ts` for `b25e7650`,
 > which made the relist workflow verify eBay actually acted instead of inferring

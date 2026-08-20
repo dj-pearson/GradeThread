@@ -7,12 +7,17 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-08-19
+reviewed: 2026-08-20
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
+
+> **Re-reviewed 2026-08-20.** Drift flagged `schema-version.ts`. The change is
+> `EXPECTED_SCHEMA_VERSION` moving 00629 -> 00630, which is the US-1108 triple
+> working exactly as this note describes: a migration and its version bump in
+> one commit. The note names the RULE and not a version, so nothing in it moved.
 
 Two facts about how the edge service runs. Neither is visible from inside a
 single module, and both change what that module is allowed to do.
