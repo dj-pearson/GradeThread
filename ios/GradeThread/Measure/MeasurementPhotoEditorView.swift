@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// US-1575: the native measurement overlay editor — the iOS mirror of the
 /// web's MeasurementPhotoEditor. The item's MeasureCard photo renders with
@@ -47,9 +48,10 @@ struct MeasurementPhotoEditorView: View {
                     }
                     editorCanvas
                     if calibration != nil {
-                        Text("Drag the circles onto the garment. Values are estimated from the photo via the MeasureCard — review each before listing.")
+                        Text("Drag the circles onto the garment, or use Adjust below. Values are estimated from the photo via the MeasureCard — review each before listing.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        adjustSection
                     }
                 }
                 .padding()
@@ -178,6 +180,147 @@ struct MeasurementPhotoEditorView: View {
                 }
                 .onEnded { _ in drag = nil }
         )
+    }
+
+    // MARK: - Adjust without dragging (US-2534)
+
+    /// The canvas positions endpoints with a `DragGesture`, which exactly one
+    /// input method can reach. This is the same action offered as controls, so
+    /// VoiceOver, Switch Control and full keyboard access can perform it.
+    ///
+    /// NOT an `accessibilityAdjustableAction` on the canvas, which was the
+    /// cheaper option and the wrong one: that gives one increment axis for the
+    /// whole canvas, and an endpoint needs two axes and a choice of which of the
+    /// two endpoints is moving. It also would have stayed invisible to Switch
+    /// Control, which needs a real control to select.
+    ///
+    /// Rendered for EVERYONE rather than gated on a VoiceOver check. A gate
+    /// would make the feature depend on a runtime flag nobody tests, and a
+    /// sighted user with shaky hands on a phone-sized canvas wants this too.
+    @ViewBuilder
+    private var adjustSection: some View {
+        if !lines.isEmpty, let size = imageSize, let calib = calibration {
+            let step = MeasureNudge.step(imgW: size.width, imgH: size.height)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Adjust")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(lines.indices, id: \.self) { index in
+                    adjustRow(index: index, step: step, calibration: calib, size: size)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func adjustRow(
+        index: Int,
+        step: Double,
+        calibration calib: MeasureService.Calibration,
+        size: CGSize
+    ) -> some View {
+        let line = lines[index]
+        let inches = MeasureGeometry.inchesBetween(calib.homography, line.e1, line.e2)
+        let short = line.label.components(separatedBy: " (").first ?? line.label
+        return DisclosureGroup {
+            VStack(alignment: .leading, spacing: 6) {
+                endpointRow(index: index, end: .e1, name: "Start", step: step, size: size)
+                endpointRow(index: index, end: .e2, name: "End", step: step, size: size)
+            }
+            .padding(.top, 4)
+        } label: {
+            HStack {
+                Text(short).font(.footnote)
+                Spacer()
+                Text("\(MeasureGeometry.formatQuarter(inches))\u{2033}")
+                    .font(.footnote.weight(.medium))
+                    .monospacedDigit()
+            }
+            // One element, so the reader announces the measurement WITH the name
+            // instead of two unrelated fragments.
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(short)
+            .accessibilityValue("\(MeasureGeometry.formatQuarter(inches)) inches")
+        }
+        .font(.footnote)
+        .tint(Color.brandNavy)
+    }
+
+    private func endpointRow(
+        index: Int,
+        end: MeasureGeometry.End,
+        name: String,
+        step: Double,
+        size: CGSize
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(name)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 44, alignment: .leading)
+            ForEach(MeasureNudge.Direction.allCases, id: \.self) { direction in
+                Button {
+                    nudge(index: index, end: end, direction: direction, step: step, size: size)
+                } label: {
+                    Image(systemName: arrow(direction))
+                        .frame(minWidth: 30, minHeight: 30)
+                }
+                .buttonStyle(.bordered)
+                // Named with the LINE and the ENDPOINT, not just the direction:
+                // eight of these are on screen at once and "Left, Left, Left"
+                // down the list names nothing.
+                .accessibilityLabel(
+                    "\(lines[index].label.components(separatedBy: " (").first ?? lines[index].label), \(name), move \(direction.label.lowercased())"
+                )
+            }
+        }
+    }
+
+    private func arrow(_ direction: MeasureNudge.Direction) -> String {
+        switch direction {
+        case .left:  return "arrow.left"
+        case .right: return "arrow.right"
+        case .up:    return "arrow.up"
+        case .down:  return "arrow.down"
+        }
+    }
+
+    private func nudge(
+        index: Int,
+        end: MeasureGeometry.End,
+        direction: MeasureNudge.Direction,
+        step: Double,
+        size: CGSize
+    ) {
+        guard lines.indices.contains(index) else { return }
+        let moved = MeasureNudge.nudged(
+            end == .e1 ? lines[index].e1 : lines[index].e2,
+            direction,
+            step: step,
+            imgW: size.width,
+            imgH: size.height
+        )
+        if end == .e1 {
+            lines[index].e1 = moved
+        } else {
+            lines[index].e2 = moved
+        }
+        // The SAME touched bookkeeping the drag path does. Without it a nudged
+        // line would not be saved and would not log a correction delta, so the
+        // accessible path would silently be a worse path.
+        touched.insert(lines[index].key)
+        if let calib = calibration {
+            let inches = MeasureGeometry.inchesBetween(
+                calib.homography, lines[index].e1, lines[index].e2
+            )
+            UIAccessibility.post(
+                notification: .announcement,
+                argument: MeasureNudge.announcement(
+                    lineLabel: lines[index].label,
+                    endName: end == .e1 ? "Start" : "End",
+                    inches: inches
+                )
+            )
+        }
     }
 
     // MARK: - Interaction

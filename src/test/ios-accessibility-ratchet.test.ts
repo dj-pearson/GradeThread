@@ -157,3 +157,81 @@ describe("what this slice does NOT claim (US-2534)", () => {
     }
   });
 });
+
+describe("the measurement canvas can be operated without a drag (US-2534 AC2)", () => {
+  // The last gap on this story, and the only one on these screens that a LABEL
+  // could never have closed. MeasurementPhotoEditorView positions endpoints with
+  // a DragGesture on a bare Canvas: VoiceOver has no handle on it, Switch
+  // Control has nothing to select, full keyboard access has nothing to focus.
+  // The missing thing was not a name, it was a way to perform the action.
+
+  const EDITOR = "ios/GradeThread/Measure/MeasurementPhotoEditorView.swift";
+  const NUDGE = "ios/GradeThread/Measure/MeasureNudge.swift";
+
+  const src = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
+
+  /** Comments stripped: a paragraph about a control is not a control. */
+  const code = (rel: string) =>
+    src(rel)
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+  it("the drag is still there, so this is an ALTERNATIVE and not a replacement", () => {
+    // Taking the drag away would "fix" the accessibility gap by making the
+    // screen worse for everyone who was already using it.
+    expect(code(EDITOR)).toContain("DragGesture(");
+  });
+
+  it("every endpoint has four real Buttons, not one adjustable action", () => {
+    // An accessibilityAdjustableAction gives ONE increment axis for the whole
+    // canvas. An endpoint needs two axes and a choice of which endpoint moves,
+    // and an action stays invisible to Switch Control, which needs a control.
+    const editor = code(EDITOR);
+    expect(editor).toContain("MeasureNudge.Direction.allCases");
+    expect(editor).toContain("endpointRow(index: index, end: .e1");
+    expect(editor).toContain("endpointRow(index: index, end: .e2");
+  });
+
+  it("a nudged line is marked touched, exactly like a dragged one", () => {
+    // Without this the accessible path silently saves nothing and logs no
+    // correction delta - a second-class route that looks like it worked.
+    const editor = code(EDITOR);
+    const start = editor.indexOf("private func nudge(");
+    expect(start, "the nudge action vanished").toBeGreaterThan(-1);
+    const block = editor.slice(start, start + 1400);
+    expect(block).toContain("touched.insert(");
+  });
+
+  it("the step is never zero and never keyed on width alone", () => {
+    // A zero step is a button that reports success and moves nothing. Keying on
+    // width would make a tall photo four times coarser than a wide one.
+    const nudge = code(NUDGE);
+    expect(nudge).toContain("min(imgW, imgH)");
+    expect(nudge).toMatch(/max\(1,/);
+  });
+
+  it("the announcement speaks inches, not pixel coordinates", () => {
+    // "x 1284, y 902" is a true statement about nothing a seller can act on.
+    //
+    // Scoped to the announcement FUNCTION. The first version scanned the whole
+    // file and failed on `nudged`, which reads point.x and point.y because
+    // moving a point is what it does - a guard that forbids the maths in order
+    // to forbid saying the maths out loud.
+    const nudge = code(NUDGE);
+    expect(nudge).toContain("MeasureGeometry.formatQuarter(inches)");
+    const start = nudge.indexOf("static func announcement(");
+    expect(start, "the announcement helper vanished").toBeGreaterThan(-1);
+    const block = nudge.slice(start);
+    expect(block).not.toMatch(/point\.x|point\.y|x:|y:/);
+  });
+
+  it("the nudge maths is NOT in the file that claims to mirror the web", () => {
+    // MeasureGeometry.swift states in its own header that it is a port of
+    // src/lib/measure-editor-math.ts and that both suites assert the same cases.
+    // Adding a Swift-only function there would make that sentence false while
+    // every test still passed.
+    const geometry = code("ios/GradeThread/Measure/MeasureGeometry.swift");
+    expect(geometry).not.toContain("nudge");
+    expect(() => src(NUDGE)).not.toThrow();
+  });
+});
