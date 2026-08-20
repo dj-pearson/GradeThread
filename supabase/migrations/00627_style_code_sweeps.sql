@@ -83,10 +83,23 @@ AS $$
     updated_at = now();
 $$;
 
-REVOKE ALL ON FUNCTION public.record_style_code_sweep(text, text, text, integer)
-  FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.record_style_code_sweep(text, text, text, integer)
-  FROM anon, authenticated;
+-- ⚠ DELIBERATELY NO REVOKE HERE, and that is not an oversight.
+--
+-- US-2403: on this Postgres image a DENIED function call from `anon` or
+-- `authenticated` SEGFAULTS the backend and restarts the whole database,
+-- because supautils appends a GRANT hint to the error. `anon` is the key that
+-- ships in the browser bundle, so a revoke here creates a crash surface any
+-- visitor can reach. That is why 00527 - the bulk revoke across the schema - is
+-- parked as .BLOCKED, and why 00609 carries this same note verbatim.
+--
+-- THE PERMISSION YOU WANT IS RIGHT AND THE IMAGE CANNOT EXPRESS IT SAFELY YET.
+-- It lands with US-2282/US-2403 once supautils.hint_roles is cleared on the
+-- host and scripts/db-denied-rpc-crash-check.mjs proves it - not smuggled in
+-- beside a new table.
+--
+-- These two functions are SECURITY DEFINER and called only by the job route,
+-- which authenticates on the job secret. Leaving the default EXECUTE in place
+-- is the same posture every other function in this schema has today.
 
 -- The candidate scan, as DISTINCT pairs rather than rows.
 --
@@ -117,9 +130,23 @@ AS $$
   LIMIT greatest(coalesce(p_limit, 20000), 0);
 $$;
 
-REVOKE ALL ON FUNCTION public.style_code_sweep_candidates(integer) FROM PUBLIC;
-REVOKE ALL ON FUNCTION public.style_code_sweep_candidates(integer)
-  FROM anon, authenticated;
+-- ⚠ DELIBERATELY NO REVOKE HERE, and that is not an oversight.
+--
+-- US-2403: on this Postgres image a DENIED function call from `anon` or
+-- `authenticated` SEGFAULTS the backend and restarts the whole database,
+-- because supautils appends a GRANT hint to the error. `anon` is the key that
+-- ships in the browser bundle, so a revoke here creates a crash surface any
+-- visitor can reach. That is why 00527 - the bulk revoke across the schema - is
+-- parked as .BLOCKED, and why 00609 carries this same note verbatim.
+--
+-- THE PERMISSION YOU WANT IS RIGHT AND THE IMAGE CANNOT EXPRESS IT SAFELY YET.
+-- It lands with US-2282/US-2403 once supautils.hint_roles is cleared on the
+-- host and scripts/db-denied-rpc-crash-check.mjs proves it - not smuggled in
+-- beside a new table.
+--
+-- These two functions are SECURITY DEFINER and called only by the job route,
+-- which authenticates on the job secret. Leaving the default EXECUTE in place
+-- is the same posture every other function in this schema has today.
 
 -- Makes the scan above an index scan rather than a walk of the largest table.
 CREATE INDEX IF NOT EXISTS inventory_items_style_code_idx
