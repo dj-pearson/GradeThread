@@ -506,6 +506,34 @@ export function PrivacyPage() {
         check, the tool stops and hands the tab back to you. We never answer one.
       </p>
       <p>
+        <strong>Knowing when your item sold.</strong> The marketplaces we
+        cross-post to have no way of telling us when something sells, so the
+        same garment can sell twice. If you use sold-sync, the extension reads
+        your <em>own</em> sold-order page and your <em>own</em> listings page on
+        those sites and sends us six things per row: the listing address, the
+        title, the price, the sale date, the order reference and a thumbnail id.
+        We store those so we can end your duplicate listings elsewhere. We do
+        not send, and the extension cannot send, the buyer&rsquo;s name, handle
+        or shipping address &mdash; they are printed on that same page, the
+        extension is built to extract only the six fields above, our server
+        rejects those keys outright, and no column exists that could hold them.
+        It never reads another seller&rsquo;s page.
+      </p>
+      <p>
+        <strong>The scheduled version of that read.</strong> The read above
+        happens on pages you opened yourself. You can also switch on a
+        background version, which is <em>off</em> until you turn it on and has
+        its own consent screen, separate from cross-posting and from the tool
+        that repeats your seller actions. When it is on, GradeThread opens one
+        unfocused tab on your own marketplace account, at a spacing you choose
+        between 30 minutes and 6 hours, and only while your browser is running.
+        The address it opens is fixed in the extension we ship; nothing sent to
+        the extension can choose one. It backs off on its own if the site shows
+        a sign-in wall, and if the site asks for a human check it stops for that
+        marketplace and stays stopped &mdash; we never answer one, and only you
+        can start it again. Turning it off does not turn off the read above.
+      </p>
+      <p>
         <strong>Queueing work from your phone.</strong> If you ask a phone or
         tablet to list or end a listing, we store an{" "}
         <em>instruction</em> &mdash; which of your items, which marketplace, and

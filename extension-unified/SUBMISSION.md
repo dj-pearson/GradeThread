@@ -52,14 +52,17 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
 **Permission justifications** (Privacy practices tab):
 - `storage` — Store the user's settings (auto-run, per-site toggles), local "recent reads" history, and the signed sign-in token, on the device.
 - `activeTab` — Read the active tab's host so the popup can show a per-site enable/disable toggle for the marketplace the user is on.
-- `alarms` — Two local, no-network uses, both for the seller cross-listing (Lister) feature:
+- `alarms` — Three uses. The first two are local and make no network request; the third is the opt-in sold-sync schedule, which does:
   1. **A one-shot timeout per cross-listing job.** If the marketplace's new-listing page never finishes loading, an alarm fires at that job's deadline so the user sees a clear "timed out — list manually" message instead of a spinner that never resolves. Chrome suspends the background service worker after ~30s of inactivity, which cancels ordinary `setTimeout` timers; an alarm is the only timer that survives the suspension to report the failure.
   2. **One periodic sweep (every 5 minutes), running entirely on the device.** It drops finished cross-listing jobs once their result grace-window has passed and expires abandoned tab "watches" (US-1877) so a forgotten tab can't capture whatever the seller browses to later. It makes no network requests, polls no server, and collects nothing — it is purely local state cleanup. The single periodic alarm costs one alarm total rather than one per job.
+  3. **The opt-in sold-sync schedule (OFF by default).** If — and only if — the seller accepts its own clickwrap, one alarm ticks and may open a single unfocused tab on their own marketplace account, at a cadence they choose between 30 minutes and 6 hours. This is the one alarm here that causes a network request, and it is the reason the feature carries a consent screen of its own. See the sold-sync bullet below.
 - Host `https://gradethread.com/*` and `https://*.gradethread.com/*` — Two uses, and the second is the one that needs stating plainly:
   1. Call GradeThread's own API (`functions.gradethread.com`) to grade a listing the user asked us to read, and to fetch that account's entitlements.
   2. **Inject a content script into gradethread.com pages** (`gt-bridge.js`). It is a message relay: the GradeThread web app posts a cross-listing request, the script forwards it to the extension's background, and posts the reply back. It exists because Firefox has no `externally_connectable`, so this is the only cross-browser way for our own site to talk to our own extension. It reads nothing from the page — no page content, no credentials, no cookies — and forwards only our own message envelope.
-  3. **Inject a content script into the seller's OWN Poshmark sold-order and closet pages** (`sync/content.js`, matched to `/order/sales*` and `/closet/*` only, never a listing page). It reads the seller's own sold rows so GradeThread can end their duplicate listings on other sites before the same garment sells twice. It runs only on pages the seller opened themselves — there is no scheduled read and it never opens or navigates a tab — and it extracts exactly six fields per row: listing address, title, price, sale date, order reference and thumbnail id. **It does not read, and cannot transmit, the buyer's name, handle or shipping address, all of which are printed on that page.** The extracted field set is fixed in code and enforced by a test.
 - Host `https://*.poshmark.com/*`, `https://*.mercari.com/*`, `https://*.grailed.com/*`, `https://*.facebook.com/*` and the Vinted country domains (`vinted.com`, `vinted.co.uk`, `vinted.fr`, `vinted.de`, `vinted.es`, `vinted.it`, `vinted.nl`, `vinted.pl`, `vinted.be`, `vinted.at`, `vinted.cz`, `vinted.sk`, `vinted.lt`, `vinted.pt`, `vinted.se`, `vinted.ro`, `vinted.hu`, `vinted.lu`, `vinted.hr`, `vinted.gr`, `vinted.dk`, `vinted.fi`) — Prefill the seller's own new-listing form during cross-listing, in the tab they are already signed into, and end one of the seller's own listings when the item sells on another site. The list is long only because these sites run one app across many country domains; each is the same single use. The extension does not read the account, has no `cookies` permission, and sends nothing from these pages to GradeThread.
+- **Sold-sync, on the seller's OWN account pages** (`sync/content.js`) — a content script matched to `poshmark.com/order/sales*`, `poshmark.com/closet/*` and `mercari.com/mypage/*` only, never a listing page and never another seller's page. On a closet, which has the same URL shape for every seller, it additionally refuses to read unless an owner-only control is present on the page. It reads the seller's own sold rows so GradeThread can end their duplicate listings on other sites before the same garment sells twice, and it extracts exactly six fields per row: listing address, title, price, sale date, order reference and thumbnail id. **It does not read, and cannot transmit, the buyer's name, handle or shipping address, all of which are printed on that page.** The extracted field set is fixed in code and enforced by a test. Two ways it can run, and they are separately consented:
+  1. **Passively, with no schedule.** On a covered page the seller opened themselves. This half opens nothing and navigates nothing.
+  2. **On an opt-in schedule** (`alarms`, OFF by default) — the seller may switch on a background read that opens ONE unfocused tab on their own marketplace account, at a cadence they choose between 30 minutes and 6 hours, only while the browser is open. It has its **own** clickwrap, separate from cross-listing and from the engagement tool, because opening a tab while the seller is doing something else is a different thing to agree to. The address it opens is a fixed value in the shipped package; no message can supply one. It stops on its own if the marketplace shows a sign-in wall, and it stops **permanently** for that marketplace if the marketplace asks for a human check — GradeThread never answers one, and only the seller can resume it.
 - `contextMenus` — Adds ONE right-click item on images ("Grade this image with GradeThread"). It is how a shopper grades the specific photo they spotted when the site's gallery layout hid it from us. It reads nothing on its own: the click hands the image's public URL to the extension, which grades it exactly like the on-page button does. No menu appears anywhere else, and nothing is added to the page.
 - **Remote code:** No — all executable code ships inside the package.
 
@@ -87,7 +90,8 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
      flow that both identifies the user and persists anything server-side, so do
      not fold it into flow 1 on a store form.
   4. **On the seller's own account pages, signed in only, and RETAINED** — sold-sync.
-     On the seller's own Poshmark sold-order page and closet, the extension reads
+     On the seller's own sold-order page and closet (Poshmark) or listings page
+     (Mercari), the extension reads
      their own sold rows and sends, per row, the listing address, title, price,
      sale date and order reference with their account token. GradeThread
      **stores** these so that when a garment sells on one marketplace it can end
@@ -95,9 +99,11 @@ Give shoppers an independent AI condition read on second-hand clothing listings,
      name, handle or shipping address**, which are printed on that same page; the
      extracted field set is fixed in code, the server rejects those keys outright,
      and no database column exists that could hold them. Private to that account.
-     Passive only: it reads pages the seller opened themselves, on no schedule.
-     This is a SELLER flow on the seller's own data — do not fold it into the
-     shopper flows above.
+     Two ways it runs, separately consented: passively on a covered page the
+     seller opened themselves, and — only if they switch it on — on a background
+     schedule that opens one unfocused tab on their own account. See the
+     sold-sync bullet above for both. This is a SELLER flow on the seller's own
+     data — do not fold it into the shopper flows above.
 
 - Collected **only if the user opts in** — TWO separate, independent toggles, both
   off by default, both in the popup, both revocable. State them separately; they

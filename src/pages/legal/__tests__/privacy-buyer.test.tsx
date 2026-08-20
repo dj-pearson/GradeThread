@@ -103,6 +103,38 @@ describe("privacy policy: the extension's alerts check", () => {
     expect(html).toMatch(/never store a marketplace password, cookie, or session/i);
   });
 
+  it("discloses sold-sync, and what it deliberately does not read", () => {
+    // US-2697..US-2700. This reads a page that prints the BUYER's name and
+    // shipping address, which makes the negative claim the load-bearing half:
+    // stating what we take, without stating what we refuse, leaves a reader to
+    // assume the worst about a page they can see carries both.
+    const html = render();
+    expect(html).toMatch(/sold-sync/i);
+    // The renderer emits a real curly apostrophe, not the JSX entity.
+    expect(html).toMatch(/buyer[\u2019']s name/i);
+    expect(html).toMatch(/shipping address/i);
+    expect(html).toMatch(/never reads another seller/i);
+  });
+
+  it("discloses the SCHEDULED sold-sync read, its own consent and its stop rules", () => {
+    // US-2701 shipped an alarm that opens a tab on the seller's marketplace
+    // while they are doing something else. SUBMISSION.md had said the opposite
+    // ("there is no scheduled read") and this page said nothing at all — the
+    // third time a seller-side behaviour on a third-party site shipped with the
+    // store listing updated and the policy untouched.
+    //
+    // Asserted by MEANING, so the wording can improve and no promise can quietly
+    // leave: that it is off until turned on, that its consent is its own, and
+    // that a human check stops it for good.
+    const html = render();
+    expect(html).toMatch(/off/i);
+    expect(html).toMatch(/its own consent screen/i);
+    expect(html).toMatch(/unfocused tab/i);
+    expect(html).toMatch(/30 minutes and 6 hours/i);
+    expect(html).toMatch(/stops for that\s+marketplace and stays stopped/i);
+    expect(html).toMatch(/only you\s+can start it again/i);
+  });
+
   it("keeps the retention schedule covering buyer data", () => {
     const html = render();
     expect(html).toMatch(/Listings you asked the extension to check/i);

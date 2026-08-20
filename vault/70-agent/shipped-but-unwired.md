@@ -13,7 +13,7 @@ code_refs:
   - src/test/waitlist-capture-reachable.test.ts
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
-reviewed: 2026-08-15
+reviewed: 2026-08-20
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
 ---
@@ -327,6 +327,21 @@ since US-2035 established that grading is *not* temperature-pinned on the defaul
 model, run-to-run variance is real and this module is the only thing that could
 measure it. The entry now says **allowlisted because US-2035 owns it, not because
 it is fine**. A one-word verdict would have buried that.
+
+> [!note] The STALE direction fired for real, and it took days to notice (2026-08-20)
+> The wrapper fails in two directions, and until now only the "new dead module"
+> direction had ever caught anything. The other one finally did:
+> `marketplace-observations.ts` was allowlisted as `PENDING` with an entry whose
+> own closing line read *"Remove this entry when the route imports it."*
+> `routes/flipdesk-sync.ts` then imported it, and the entry stayed — so
+> `npm run verify` and the CI gate both exited 1 from the moment that route
+> landed, on main, until a review pass went looking.
+>
+> Two things worth keeping. The entry was **not** wrong when written and **not**
+> vague — it was specific enough to state its own removal condition, and it still
+> outlived it, because the person satisfying the condition is never the person
+> reading the allowlist. And a gate that has been red for days is a gate nobody is
+> reading, which is this note's thesis pointed one more time at its own instrument.
 
 **The gap this leaves, stated rather than scoped away.** The gate covers
 `services/edge-functions/src/lib` only. The three instances that prompted it were

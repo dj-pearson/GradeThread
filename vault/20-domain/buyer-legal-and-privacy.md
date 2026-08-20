@@ -12,7 +12,7 @@ code_refs:
   - src/pages/legal/privacy.tsx
   - src/pages/legal/__tests__/privacy-buyer.test.tsx
   - extension-unified/SUBMISSION.md
-reviewed: 2026-08-19
+reviewed: 2026-08-20
 tags: [buyer, privacy, legal, consent, contract]
 summary: Buyer personal data is enumerated in one register that the export iterates; legally-sensitive buyer copy is either behind an operator kill-switch that defaults off or bound to a fixed disclosure, and both are asserted rather than described.
 ---
@@ -135,6 +135,31 @@ checks for the new wording passes fine alongside a reverted paragraph.
 > **a behaviour that runs in the seller's browser on somebody else's site, or a
 > new server-side row about the seller's account, is a privacy-page edit in the
 > same commit** — a store listing alone is not the disclosure.
+
+> [!warning] And a third time, on sold-sync (2026-08-20)
+> US-2697..US-2701 shipped the sold-sync reader and its scheduled poll with
+> `SUBMISSION.md` updated and `privacy.tsx` untouched — the same failure this
+> note already records twice. It went further than silence this time: US-2699's
+> disclosure said sold-sync had "no scheduled read and it never opens or
+> navigates a tab", US-2701 then shipped an alarm that opens a background tab on
+> the seller's marketplace, and the sentence stayed. The extension's **own**
+> clickwrap said the opposite ("GradeThread will open a background tab on your
+> own marketplace account, about once an hour") in the same package, so the
+> submission and the consent screen contradicted each other. US-2700 separately
+> added the Mercari adapter while the disclosure still named only Poshmark.
+>
+> Both documents are now correct, and the guards are no longer prose-shaped.
+> `submission-kit.test.cjs` derives the platforms it demands from
+> `sync/selectors.js` rather than listing them, fails if `SYNC_POLL_ALARM` ships
+> without a disclosed schedule, and fails on the retired sentence specifically.
+> `privacy-buyer.test.tsx` pins the scheduled read's off-by-default state, its
+> separate consent, and that a human check stops it for good.
+>
+> **Why the existing host guard did not catch the Mercari gap, which is the
+> transferable part:** it asserted the bare domain appeared *somewhere* in the
+> document, and `mercari.com` was already there justifying the Lister. A guard
+> that checks a string exists in a file, rather than in the paragraph making the
+> claim, passes the moment any other paragraph mentions it.
 
 ## Related
 

@@ -108,6 +108,61 @@ if (syncCs) {
       "without stating what is deliberately not collected leaves a reviewer to assume " +
       "the worst about a page they can see has both.",
   );
+  // US-2729: the disclosure must name every marketplace sold-sync can read, in
+  // the sold-sync disclosure itself.
+  //
+  // The host loop below is satisfied by the bare domain appearing ANYWHERE in the
+  // document, and every sold-sync host is already there for the Lister. So adding
+  // the Mercari adapter (US-2700) widened what this script reads while the
+  // disclosure still said "Poshmark", and nothing failed. A reviewer comparing the
+  // manifest to the copy would have found it; that is the wrong person to find it.
+  {
+    const selSrc = fs.readFileSync(path.join(dir, "sync/selectors.js"), "utf8");
+    const scope = {};
+    const SEL = new Function("self", `${selSrc}; return self.GT_SYNC_SELECTORS;`)(scope);
+    const start = doc.search(/sold-sync, on the seller/i);
+    assert.ok(start !== -1, "SUBMISSION.md has no sold-sync bullet to check");
+    const bullet = doc.slice(start, start + 3000);
+    for (const platform of Object.keys(SEL)) {
+      assert.ok(
+        new RegExp(platform, "i").test(bullet),
+        `sync/selectors.js ships a ${platform} adapter but the sold-sync disclosure ` +
+          `never names it. The host loop below passes anyway, because ${platform} is ` +
+          `already justified for the Lister — so a widened read looks disclosed when ` +
+          `it is not.`,
+      );
+    }
+  }
+
+  // US-2729: if the scheduled poll ships, the disclosure must say so.
+  //
+  // US-2699 wrote "there is no scheduled read and it never opens or navigates a
+  // tab", which was true that day. US-2701 then shipped an alarm that opens a
+  // background tab on the seller's marketplace, and the sentence stayed. The
+  // extension's OWN clickwrap said the opposite, in the same package.
+  {
+    const bg = fs.readFileSync(path.join(dir, "background.js"), "utf8");
+    if (/SYNC_POLL_ALARM/.test(bg)) {
+      assert.ok(
+        /schedule/i.test(doc) && /unfocused tab|background tab/i.test(doc),
+        "background.js ships the scheduled sold-sync poll, which opens a tab on the " +
+          "seller's marketplace, but SUBMISSION.md never discloses a scheduled read.",
+      );
+      assert.ok(
+        !/there is no scheduled read/i.test(doc),
+        "SUBMISSION.md still claims sold-sync has no scheduled read while " +
+          "background.js ships the alarm that performs one.",
+      );
+      assert.ok(
+        /human check/i.test(doc),
+        "the poll stops permanently on a human check and never answers one. That is " +
+          "the promise a store reviewer most needs stated, and it is asserted in the " +
+          "extension's own clickwrap — the submission must not be quieter than the " +
+          "consent screen.",
+      );
+    }
+  }
+
   // Every path the script can reach must be justified by host, same rule the
   // host_permissions loop applies above.
   for (const m of syncCs.matches || []) {

@@ -39365,6 +39365,23 @@
       "priority": 22,
       "passes": true,
       "notes": "[REVIEW 2026-08-20] Found during a full-codebase verification pass. Also fixed in the same pass, as separate concerns: scripts/check-unwired-modules.mjs still allowlisted marketplace-observations.ts after routes/flipdesk-sync.ts began importing it, so npm run verify and the CI unwired gate had been failing since that route landed; and sync-status_test.ts + sync-sale-notify_test.ts reached src/lib/supabase.ts statically without importing ./_env.ts first, failing the US-2379 env-isolation guard in the full deno test run."
+    },
+    {
+      "id": "US-2729",
+      "title": "Sold-sync: make the store submission and the privacy policy match the shipped code",
+      "description": "The vault-lint gate was red on main, and the drift it flagged was real. US-2699 disclosed sold-sync in extension-unified/SUBMISSION.md with the sentence \"there is no scheduled read and it never opens or navigates a tab\". US-2701 then shipped an alarm that opens a background tab on the sellers marketplace, and the sentence stayed - so the submission contradicted the extensions OWN clickwrap, which says \"GradeThread will open a background tab on your own marketplace account, about once an hour\", in the same package. US-2700 separately added the Mercari adapter while the disclosure still named only Poshmark, and the existing host guard passed because it looked for the bare domain anywhere in the document, where the Lister had already justified it. src/pages/legal/privacy.tsx mentioned none of it, which is the third time a seller-side behaviour on a third-party site shipped with the store listing updated and the policy untouched - a failure vault/20-domain/buyer-legal-and-privacy.md already records twice.",
+      "acceptanceCriteria": [
+        "SUBMISSION.md describes the scheduled poll truthfully: opt-in and off by default, its own clickwrap, one unfocused tab, a 30-minute to 6-hour cadence, a fixed in-package URL, backoff on a sign-in wall, and a permanent stop on a human check that only the seller can clear.",
+        "The sold-sync disclosure names every marketplace the shipped adapters cover (Poshmark and Mercari), and sits under the hosts it actually runs on rather than under the gradethread.com bullet, where it was never injected.",
+        "The alarms permission bullet no longer claims all its uses are local and network-free; the poll is listed as the third use and as the one that makes a request.",
+        "privacy.tsx discloses both halves - the passive read with its six fields and its refusal of buyer name, handle and shipping address, and the scheduled read with its separate consent and stop rules.",
+        "submission-kit.test.cjs derives the required platform names from sync/selectors.js rather than listing them, fails when SYNC_POLL_ALARM ships without a disclosed schedule, and fails specifically on the retired sentence. Sabotage-checked against both original defects.",
+        "privacy-buyer.test.tsx pins the load-bearing phrases by meaning: off by default, its own consent screen, unfocused tab, the cadence band, the permanent stop, and that only the seller can restart it. It fails when the paragraphs are removed.",
+        "npm run vault:lint exits 0 - buyer-legal-and-privacy.md re-read and reviewed bumped, with the third occurrence and the why-the-host-guard-missed-it recorded."
+      ],
+      "priority": 20,
+      "passes": true,
+      "notes": "[REVIEW 2026-08-20] Found by chasing the vault-lint failure on main after PR #280 merged. Not caused by that PR - red on base. Also bumped vault/70-agent/shipped-but-unwired.md after a genuine re-read: its claims still hold, and the STALE direction of its own gate firing for real (marketplace-observations.ts allowlisted past its stated removal condition, CI red for days) is recorded there as evidence."
     }
   ]
 }
