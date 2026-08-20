@@ -26,6 +26,9 @@ import { autoEndCrossListings } from "../lib/cross-listings.ts";
 import { EXTENSION_DELIST_PLATFORMS } from "../lib/cross-listing-sale.ts";
 import { findForbiddenKey } from "../lib/sync-payload-guard.ts";
 import { loadSyncStatus } from "../lib/sync-status.ts";
+import { buildSyncSaleRecorded } from "../lib/marketplace-event-notify.ts";
+import { notifyUser } from "../lib/notify.ts";
+import { delistMethodFor } from "../lib/cross-listing-sale.ts";
 import {
   planObservations,
   planSaleEffects,
@@ -346,6 +349,53 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
       // sibling delist did.
       const summary = await autoEndCrossListings(ownerId, sale.delistSiblingsOf);
       delisted += summary.ended + summary.queued;
+
+      // Tell the seller WHICH channels this pulled down, by name.
+      //
+      // This notification is the only moment they learn GradeThread ended
+      // listings on their behalf because of a row the extension read off a
+      // page. Naming the channels is what lets them disagree while the listing
+      // can still be re-posted. Best-effort: a notification must never fail a
+      // sale that already happened.
+      try {
+        const { data: sibRows } = await supabaseAdmin
+          .from("listings")
+          .select("platform, listing_status, inventory_items!inner(user_id)")
+          .eq("inventory_item_id", sale.itemId)
+          .eq("inventory_items.user_id", ownerId)
+          .neq("id", sale.listingId);
+        const siblings = (sibRows ?? []) as unknown as { platform: string }[];
+
+        const delistedOn: string[] = [];
+        const manualOn: string[] = [];
+        for (const sib of siblings) {
+          // 'unsupported' is the US-2165 marker case and Grailed is the standing
+          // example: its delete needs a native dialog nothing in a page can
+          // answer, so the seller has to do that one. Saying nothing about it is
+          // how the same garment sells twice.
+          if (delistMethodFor(sib.platform) === "unsupported") manualOn.push(sib.platform);
+          else delistedOn.push(sib.platform);
+        }
+
+        const { data: itemRow } = await supabaseAdmin
+          .from("inventory_items")
+          .select("title")
+          .eq("id", sale.itemId)
+          .eq("user_id", ownerId)
+          .maybeSingle();
+
+        await notifyUser(
+          ownerId,
+          buildSyncSaleRecorded({
+            itemTitle: (itemRow as { title: string | null } | null)?.title ?? null,
+            platform: batch.platform,
+            delistedOn,
+            manualOn,
+          }),
+        );
+      } catch (err) {
+        console.error("[flipdesk-sync] sale notification failed:", err);
+      }
     }
 
     return c.json({

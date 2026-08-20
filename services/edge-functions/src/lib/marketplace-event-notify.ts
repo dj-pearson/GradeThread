@@ -285,6 +285,85 @@ export function buildOfferReceived(ev: OfferReceivedEvent): NotifyInput {
   };
 }
 
+/**
+ * US-2699: a sold-sync confirmed sale, and what it pulled down elsewhere.
+ *
+ * WHY THE SIBLINGS ARE NAMED RATHER THAN COUNTED. This notification is the only
+ * moment a seller learns that GradeThread ended listings on their behalf, on
+ * channels they were not looking at, because of a row the extension read off a
+ * page. A seller who disagrees has to be able to find that out NOW, while the
+ * listing can be re-posted, rather than next week when they notice it missing.
+ * "We also ended 3 listings" does not let them check; naming eBay and Mercari
+ * does.
+ *
+ * Reuses the existing sale_recorded type deliberately. It is a sale being
+ * recorded, the pref category is already right, and a new type would mean a
+ * migration to widen a CHECK for a distinction the seller does not care about.
+ *
+ * Pure, so the wording is testable and so the "named, not counted" rule is held
+ * by a test rather than by this comment.
+ */
+export interface SyncSaleEvent {
+  itemTitle: string | null;
+  /** Where it sold. */
+  platform: string;
+  /** Channels whose sibling listing was ended or queued for ending. */
+  delistedOn: readonly string[];
+  /** Channels we could NOT end, which is the seller's job and must be said. */
+  manualOn: readonly string[];
+}
+
+function labelPlatform(p: string): string {
+  const key = String(p || "").toLowerCase();
+  const LABELS: Record<string, string> = {
+    ebay: "eBay",
+    poshmark: "Poshmark",
+    mercari: "Mercari",
+    grailed: "Grailed",
+    vinted: "Vinted",
+    facebook: "Facebook",
+    depop: "Depop",
+    etsy: "Etsy",
+    shopify: "Shopify",
+    whatnot: "Whatnot",
+  };
+  return LABELS[key] || (key ? key.charAt(0).toUpperCase() + key.slice(1) : "another channel");
+}
+
+/** Join a list the way a person writes one: "eBay and Mercari", "a, b and c". */
+function humanJoin(items: readonly string[]): string {
+  const list = items.map(labelPlatform);
+  if (list.length === 0) return "";
+  if (list.length === 1) return list[0];
+  return list.slice(0, -1).join(", ") + " and " + list[list.length - 1];
+}
+
+export function buildSyncSaleRecorded(ev: SyncSaleEvent): NotifyInput {
+  const title = ev.itemTitle?.trim() || "your listing";
+  const where = labelPlatform(ev.platform);
+
+  const parts = [`${title} sold on ${where}.`];
+  if (ev.delistedOn.length > 0) {
+    parts.push(`GradeThread ended it on ${humanJoin(ev.delistedOn)}.`);
+  }
+  if (ev.manualOn.length > 0) {
+    // Grailed is the standing case: its delete is confirmed by a native browser
+    // dialog nothing in a page can answer, so a Grailed sibling is always the
+    // seller's job. Saying nothing here is how the same garment sells twice.
+    parts.push(`End it yourself on ${humanJoin(ev.manualOn)} — we cannot do that one for you.`);
+  }
+  if (ev.delistedOn.length === 0 && ev.manualOn.length === 0) {
+    parts.push("Nothing was live elsewhere.");
+  }
+
+  return {
+    type: "sale_recorded",
+    title: "Sold, synced from your browser",
+    message: parts.join(" "),
+    link: POST_SALE_LINK,
+  };
+}
+
 export type OfferAction = "accepted" | "declined" | "countered";
 
 export function buildOfferResponded(itemTitle: string | null, action: OfferAction): NotifyInput {
