@@ -49,6 +49,11 @@ function saveDismissedSuggestion(id: string): void {
 }
 
 function getDaysListed(listing: ListingRow): number {
+  // US-2727: a draft has no listed_at — see the same guard in
+  // lib/price-suggestions.ts. Both are reached through an is_active filter
+  // today, so this is not a live NaN; it is the guard that keeps it that way
+  // when someone reuses the helper without that filter.
+  if (!listing.listed_at) return 0;
   const listedDate = new Date(listing.listed_at);
   const now = new Date();
   return Math.floor(

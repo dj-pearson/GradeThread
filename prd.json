@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2726",
+  "nextId": "US-2729",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2446,6 +2446,53 @@
       ],
       "priority": 6,
       "notes": "PARTIAL 2026-08-20. The blindness is fixed; the underlying insert failure is not, because it was not visible. All three failure branches of extension-writeback now use failSafe with distinct log tags (flipdesk.extension-writeback.item / .update / .insert) and return a stable code (WRITEBACK_ITEM_LOAD / WRITEBACK_UPDATE / WRITEBACK_INSERT), so the next occurrence prints the redacted Postgres cause instead of nothing. failSafe already existed and this file already imported it - the route simply never used it. Frontend: the composer toast said 'couldn't record the cross-listing: Could not record the cross-listing' because it prefixed its own sentence onto the server's identical one; it now names the code once and gives the seller the actual next step, which is that the marketplace form IS filled and 'I published it' will record it. It also sets prefilled so that button is present to press. Guard added to src/tests/extension-auth_test.ts: the route may contain no bare c.json({error}, 500) and must keep one distinct log tag per branch. STILL OPEN: what the insert is actually failing on. Two candidates worth checking first, both suggested by the same log dump - a stale PostgREST schema cache (the same minute logged 'Could not find the function public.style_code_sweep_candidates(p_limit) in the schema cache', which is PostgREST's wording, and 00627 is recorded as applied), or a constraint on listings that the row violates. Needs one retry after the edge redeploy to read the cause."
+    },
+    {
+      "id": "US-2726",
+      "passes": false,
+      "title": "Production PostgREST does not know listings.draft_id, so every extension cross-listing writeback 500s",
+      "description": "As a seller cross-posting to Poshmark, I want the listing recorded in FlipDesk after the extension fills the form, so that the cross-listing exists in my inventory and its siblings can be ended when it sells.",
+      "acceptanceCriteria": [
+        "CAUSE, captured live 2026-08-20 once the route was made to log: '[flipdesk.extension-writeback.insert] PGRST204 | Could not find the draft_id column of listings in the schema cache'. PGRST204 is PostgREST refusing a write payload naming a column its schema cache does not hold.",
+        "OPERATOR, first: settle whether the column EXISTS or the cache is merely stale. Run against prod - SELECT column_name FROM information_schema.columns WHERE table_schema='public' AND table_name='listings' AND column_name='draft_id'; A row back means the cache is stale; nothing back means migration 00134 never reached prod, which is far more serious.",
+        "OPERATOR, if the column exists: reload the cache with NOTIFY pgrst, 'reload schema'; (or restart the PostgREST container) and re-run one Send to extension to confirm a 200.",
+        "The same log window carries a second schema-cache miss - 'Could not find the function public.style_code_sweep_candidates(p_limit)', whose migration 00627 IS recorded as applied - so treat this as one stale-cache incident affecting an unknown number of surfaces, not as two unrelated bugs. Whatever the fix, check both afterwards.",
+        "If the cache turns out to be stale after a migration apply, the prod-apply runbook in the migrations skill gains a final step that reloads it, because a migration that the API cannot see is not applied in any sense the app cares about.",
+        "CODE: the writeback's base-draft lookup destructures only { data } and drops its error, so the failing SELECT that names draft_id was invisible and the route carried on with groupId null until the INSERT raised. Check that error and fail loudly; a lookup that cannot run must not read as 'no group found'.",
+        "A deno test asserts no supabase call in flipdesk-listings.ts extension-writeback discards its error object."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-2727",
+      "passes": false,
+      "title": "listings.listed_at is NOT NULL but the code writes null for a draft, so the extension writeback INSERT has never succeeded",
+      "description": "As a seller cross-posting to Poshmark, I want the draft row the extension writeback creates to actually insert, so that a filled marketplace form is recorded in FlipDesk instead of lost.",
+      "acceptanceCriteria": [
+        "CAUSE, captured live 2026-08-20: '[flipdesk.extension-writeback.insert] 23502 | null value in column listed_at of relation listings violates not-null constraint'. Confirmed NOT a production drift - the local stack carrying all 633 migrations reports listings.listed_at is_nullable = NO as well, so this INSERT path has failed on every environment since US-1877.",
+        "US-1877 is right and stays: a prefilled row is a DRAFT and must not carry a listed_at, because a date there is what made phantom rows look like real dateable cross-listings. The database is the piece that was never updated - listed_at has been NOT NULL DEFAULT now() since 00002 and no migration ever changed it.",
+        "The rest of the codebase already treats the column as nullable: lib/api-listings.ts and lib/api-items.ts type it 'listed_at: string | null' and openapi-spec.ts declares nullable true. The published API contract and the schema disagreed, and the schema was wrong.",
+        "Migration 00634 drops the NOT NULL and carries the US-1108 triple: idempotent (ALTER COLUMN DROP NOT NULL is a no-op when already nullable, verified by applying it twice locally), EXPECTED_SCHEMA_VERSION bumped to 00634 in the same commit, self-record footer, and the manifest regenerated.",
+        "The DEFAULT now() is deliberately KEPT. Dropping NOT NULL is what allows an explicit null; removing the default would change behaviour for every other writer that omits the column, which is a separate decision.",
+        "Proven end to end on the migrated local schema: the exact writeback INSERT (poshmark, gradethread origin, draft, is_active false, listed_at null, draft_id null) now returns a row with listed_at null and listing_status draft.",
+        "OPERATOR: apply 00634 to prod, then NOTIFY pgrst, 'reload schema', then retry one Send to extension and confirm a 200."
+      ],
+      "priority": 5,
+      "notes": "CORRECTION 2026-08-20, from the migration-triple check. The PENDING_MIGRATIONS entry claimed 'Client-side read risk: NONE - the rest of the codebase already treats the column as nullable'. That was true of the EDGE and false of the FRONTEND: src/types/database.ts typed the row as non-null listed_at: string and the Insert as listed_at?: string, which would have rejected the explicit null in TypeScript and described a shape the database can no longer guarantee. Fixed in the same change - Row is string | null, Insert accepts null - and correcting the type is what surfaced two unguarded parses, src/lib/price-suggestions.ts getDaysListed and src/components/analytics/listing-suggestions.tsx getDaysListed, both doing new Date(listing.listed_at). Neither was a LIVE NaN: both are reached behind an is_active filter and the writeback writes listed_at null together with is_active false. But that is an argument from the caller rather than from the type, so both now return 0 for a draft. Nothing else in src/ reads the column. The note has been rewritten to say LOW rather than NONE and to state what was wrong. Two further points from the same check are recorded in PENDING_MIGRATIONS.md: the edge change in this commit makes a missing draft_id fail EARLIER (a hard WRITEBACK_GROUP_LOAD 500) rather than limping to the INSERT, so the apply order matters more than the note first implied; and the 00134 draft_id repair leaves no durable record - it is SQL in a markdown file, apply-prod-migrations.sh will never run it, and no applied_migrations row will mark it done, so a future audit cannot distinguish a repaired prod from a broken one."
+    },
+    {
+      "id": "US-2728",
+      "passes": false,
+      "title": "A successful cross-post 500s the composer's duplicate-title panel, because title-conflicts assumed one listing per item",
+      "description": "As a seller who just cross-posted to Poshmark, I want the composer to keep working, so that succeeding at cross-listing does not break the screen I did it from.",
+      "acceptanceCriteria": [
+        "CAUSE, captured live 2026-08-20 immediately after the first successful writeback: '[flipdesk.title-conflicts] PGRST116 | JSON object requested, multiple (or no) rows returned | Results contain 2 rows' on GET /api/flipdesk/listings/title-conflicts/:itemId.",
+        "The route selected from listings filtered only on inventory_item_id + user_id and called maybeSingle(). That held only while cross-listing was broken; the Poshmark row made it two, and it 500s for exactly the sellers who just succeeded.",
+        "Fixed by pinning to the eBay base draft (.eq platform ebay, order created_at desc, limit 1) — the row the composer edits and the only one carrying platform_category_id, which fetchComparableListings compares within. Ordering newest-first WITHOUT pinning the platform would pick the Poshmark row, whose category is null, and return 'no conflicts' forever: a silent wrong answer, worse than the 500.",
+        "The rest of the codebase was scanned for the same one-listing-per-item assumption. Of 13 candidate sites, 12 are false positives that filter on the listings primary key or already pin a platform; this route was the only real one. Do not re-audit them without new evidence.",
+        "A deno test covers an item with an eBay draft plus a Poshmark cross-listing and asserts the route returns 200 with the eBay title's conflicts, not a 500."
+      ],
+      "priority": 5
     }
   ]
 }

@@ -30,6 +30,10 @@ function getGradeTierMultiplier(grade: number): number {
 }
 
 function getDaysListed(listing: ListingRow): number {
+  // US-2727: a draft has no listed_at. It was never listed, so "days listed" is
+  // 0 rather than a date subtraction against null, which yields NaN and then a
+  // suggestion built on a number that is not a number.
+  if (!listing.listed_at) return 0;
   const listedDate = new Date(listing.listed_at);
   const now = new Date();
   return Math.floor((now.getTime() - listedDate.getTime()) / (1000 * 60 * 60 * 24));

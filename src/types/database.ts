@@ -1220,7 +1220,11 @@ export interface ListingRow {
   platform_listing_id: string | null;
   listing_url: string | null;
   listing_price: number;
-  listed_at: string;
+  // US-2727: NULL for a draft -- a row the extension prefilled but the seller
+  // has not published. Migration 00634 dropped the NOT NULL to match what the
+  // code has written since US-1877; this type still claimed non-null, which is
+  // how a null would have reached `new Date(...)` unguarded.
+  listed_at: string | null;
   is_active: boolean;
   notes: string | null;
   // FlipDesk extensions
@@ -2505,7 +2509,7 @@ export interface ListingInsert {
   platform_listing_id?: string | null;
   listing_url?: string | null;
   listing_price: number;
-  listed_at?: string;
+  listed_at?: string | null;
   is_active?: boolean;
   notes?: string | null;
   listing_title?: string | null;

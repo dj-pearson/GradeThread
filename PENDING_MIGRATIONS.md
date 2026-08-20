@@ -1,5 +1,101 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00634 — listings.listed_at becomes nullable (US-2727)
+
+**Risk: LOW.** One `ALTER COLUMN ... DROP NOT NULL`. No table is created or
+dropped, no data is written, no policy changes. Idempotent by nature: dropping
+NOT NULL on an already-nullable column is a no-op, verified by applying the
+file twice against the local stack.
+
+**What it does.** `public.listings.listed_at` stops being `NOT NULL`. The
+`DEFAULT now()` stays.
+
+**Why.** US-1877 drew the line between PREFILLED and PUBLISHED: the extension
+filling a marketplace form is not a live listing, so the row is a draft and
+must not carry a `listed_at` — a date there is what made phantom rows look
+like real, dateable cross-listings. The code has written `listed_at: null` for
+a draft ever since. The column has been `NOT NULL DEFAULT now()` since 00002
+and nothing ever changed it, so that INSERT has failed with 23502 on every
+environment. Caught in production 2026-08-20 on a real Poshmark cross-post:
+`[flipdesk.extension-writeback.insert] 23502 | null value in column
+"listed_at" of relation "listings" violates not-null constraint`. The form was
+filled, the seller had a listing in front of them, and FlipDesk recorded
+nothing.
+
+**Not a prod drift.** The local stack carrying all 633 migrations reports the
+same `NOT NULL`. Every environment has this.
+
+**Client-side read risk: LOW, and it was NOT zero — this line said "NONE" and
+that was wrong.** The EDGE already treats the column as nullable
+(`lib/api-listings.ts`, `lib/api-items.ts` type it `listed_at: string | null`,
+`openapi-spec.ts` declares `nullable: true`) and the views that read it
+(`items_full`, the finances dashboard) already guard with
+`WHEN l.listed_at IS NOT NULL`. The FRONTEND did not: `src/types/database.ts`
+typed the row as non-null `listed_at: string`, so it described a shape the
+database can no longer guarantee, and two helpers parsed it unguarded
+(`src/lib/price-suggestions.ts`, `src/components/analytics/listing-suggestions.tsx`).
+Both are reached only behind an `is_active` filter and the writeback writes
+`listed_at: null` together with `is_active: false`, so no NaN was actually
+reaching a screen — but that is an argument from a caller, not from the type.
+Fixed in the same commit: the row type is `string | null`, the Insert accepts
+null, and both helpers return 0 for a draft. Correcting the type is what
+surfaced the two call sites; nothing else in `src/` reads the column.
+
+**Apply order.** 00634 after 00633. Then `NOTIFY pgrst, 'reload schema';` —
+the column's nullability is part of what PostgREST caches. Then redeploy the
+edge (its boot guard now expects 00634).
+
+**⚠ Apply this one alongside the 00134 repair below**, or the writeback still
+fails — they are two separate missing pieces of the same INSERT. Note the edge
+change in the same commit makes that failure EARLIER and LOUDER rather than
+merely continuing: `flipdesk-listings.ts` now returns a hard 500
+(`WRITEBACK_GROUP_LOAD`) when the `draft_id` SELECT errors, instead of dropping
+the error and limping on to the INSERT. So an edge deploy that lands before the
+`draft_id` repair fails every writeback immediately. Correct order: 00634 SQL →
+the 00134 `draft_id` repair → `NOTIFY pgrst, 'reload schema';` → edge redeploy →
+push.
+
+**⚠ The 00134 repair leaves no durable record.** It is SQL in a markdown file,
+so `scripts/apply-prod-migrations.sh` will never run it and no
+`applied_migrations` row will ever mark it done. A future audit cannot tell a
+repaired production from one that still has the gap. Worth promoting to a
+numbered idempotent "ensure" migration before launch; not done here because
+production already has the column and another prod apply was not worth the churn
+mid-incident.
+
+## ⚠️ PROD REPAIR (not a new migration): listings.draft_id was missing (US-2726)
+
+Found 2026-08-20. Production had no `listings.draft_id`, so every extension
+cross-listing writeback failed with `PGRST204 | Could not find the 'draft_id'
+column of 'listings' in the schema cache`. The column comes from **00134**,
+which is pre-footer-era and therefore never checked by the boot guard —
+`applied_migrations` only records 00254 and up.
+
+**Do NOT re-run 00134.** It is not idempotent: its `CREATE TRIGGER` and three
+`CREATE POLICY` statements have no guards, and re-running it fails with
+`42710: trigger "set_flipdesk_settings_updated_at" ... already exists`. That
+error also proves the REST of 00134 did apply — only the column was missing.
+
+Apply just the missing half:
+
+```sql
+ALTER TABLE public.listings
+  ADD COLUMN IF NOT EXISTS draft_id uuid
+  REFERENCES public.listings(id) ON DELETE SET NULL;
+
+CREATE INDEX IF NOT EXISTS idx_listings_draft_id
+  ON public.listings (draft_id) WHERE draft_id IS NOT NULL;
+
+NOTIFY pgrst, 'reload schema';
+```
+
+**Open question worth answering before launch:** how a pre-00254 migration
+came to be half-applied, and whether anything else below 00254 is missing.
+`scripts/prod-schema-audit.sql` (generated from a local stack at 00633, and
+self-tested against it at zero findings) reports every missing table, column,
+index and function in one read-only pass.
+
+
 
 ## ✅ APPLIED (owner-confirmed 2026-08-20): 00633 — one review row per unmatched sale, not one per poll (US-2717)
 

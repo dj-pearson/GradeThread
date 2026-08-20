@@ -436,7 +436,14 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   }
 
   // Join to the item's cross-list group (the eBay base draft), if any.
-  const { data: baseRow } = await supabaseAdmin
+  //
+  // US-2726: the error was dropped here, and that is what made the real failure
+  // undiagnosable. This SELECT names `draft_id`; when production PostgREST did
+  // not know that column, the query failed, `baseRow` came back undefined, and
+  // the route read that as "this item has no group" and carried on — until the
+  // INSERT named the same column and finally raised. A lookup that could not RUN
+  // must never be indistinguishable from a lookup that found nothing.
+  const { data: baseRow, error: baseErr } = await supabaseAdmin
     .from("listings")
     .select("id, draft_id, listing_price")
     .eq("inventory_item_id", itemId)
@@ -444,6 +451,16 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+  if (baseErr) {
+    return failSafe(
+      c,
+      500,
+      "Could not load the item's cross-listing group.",
+      baseErr,
+      "flipdesk.extension-writeback.group",
+      "WRITEBACK_GROUP_LOAD",
+    );
+  }
   const base = baseRow as
     | { id: string; draft_id: string | null; listing_price: number | null }
     | null;
@@ -456,7 +473,10 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   const now = new Date().toISOString();
 
   // One row per (item, platform): refresh it if it already exists, else create.
-  const { data: existingRow } = await supabaseAdmin
+  // Same rule as the group lookup above: a SELECT that errors must not read as
+  // "no existing row", which would send us down the INSERT path and create a
+  // duplicate listing for a platform that already has one.
+  const { data: existingRow, error: existingErr } = await supabaseAdmin
     .from("listings")
     .select("id, listing_status, listing_url, listed_at")
     .eq("inventory_item_id", itemId)
@@ -472,6 +492,16 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
       listed_at: string | null;
     }
     | null;
+  if (existingErr) {
+    return failSafe(
+      c,
+      500,
+      "Could not check for an existing cross-listing.",
+      existingErr,
+      "flipdesk.extension-writeback.existing",
+      "WRITEBACK_EXISTING_LOAD",
+    );
+  }
 
   if (existing) {
     const patch: Record<string, unknown> = { draft_id: groupId ?? undefined };
@@ -597,11 +627,29 @@ flipdeskListingsRoutes.get("/title-conflicts/:itemId", async (c) => {
   const itemId = c.req.param("itemId");
   if (!itemId) return c.json({ error: "itemId is required" }, 400);
 
+  // US-2728: ONE row, and it must be the eBay base draft.
+  //
+  // This was `.eq(inventory_item_id).eq(user_id).maybeSingle()`, which quietly
+  // assumed an item has exactly one listing. That held only while cross-listing
+  // was broken. The moment a Poshmark cross-post finally recorded its row, every
+  // such item had two, and maybeSingle answered PGRST116 -- "Results contain 2
+  // rows" -- so the composer's duplicate-title panel 500'd for exactly the
+  // sellers who had just succeeded at cross-posting.
+  //
+  // The eBay row is the right one rather than merely the first: it is the base
+  // draft the composer edits, it is the row that carries platform_category_id,
+  // and fetchComparableListings compares within that eBay category. Ordering
+  // newest-first without pinning the platform would pick the Poshmark row, whose
+  // category is null, and the route would return "no conflicts" forever -- a
+  // silent wrong answer, which is worse than the 500 it replaced.
   const { data: row, error } = await supabaseAdmin
     .from("listings")
     .select("id, listing_title, platform_category_id")
     .eq("inventory_item_id", itemId)
     .eq("user_id", ownerId)
+    .eq("platform", "ebay")
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) {
     return failSafe(c, 500, "Could not check for similar listings.", error, "flipdesk.title-conflicts");
