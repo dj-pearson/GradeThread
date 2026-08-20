@@ -720,9 +720,76 @@ const matchNone = () => false;
   }
 }
 
+// ── US-2698: the SOLD-SYNC probe ───────────────────────────────────────────
+//
+// The sync reads describe the seller's Sold page and their closet. The Sold
+// page has the BUYER's name and shipping address printed on it, so the
+// no-page-content rule matters more here than anywhere else in the extension:
+// this report is written to be pasted into a chat.
+{
+  const SYNC = load("sync/selectors.js", "GT_SYNC_SELECTORS");
+
+  // Every selector the sync flows declare is actually probed. Before US-2698
+  // the non-list branch only walked TOP-LEVEL strings, so a flow's `fields`
+  // map went unprobed entirely and the report claimed a clean sold flow while
+  // testing one selector.
+  const clean = P.buildSyncProbeReport(SYNC, "poshmark", matchAll, { host: "poshmark.com" });
+  assert.strictEqual(clean.kind, "sync");
+  assert.strictEqual(clean.flows.length, 2, "expected a sold flow and a closet flow");
+
+  const soldFlow = clean.flows.find((f) => f.flow === "sold");
+  const keys = soldFlow.entries.map((x) => x.key).sort();
+  for (const expected of ["row", "listingUrl", "title", "priceText", "dateText", "orderRef"]) {
+    assert.ok(keys.includes(expected), `sold flow does not probe "${expected}" — got ${keys.join(", ")}`);
+  }
+  assert.ok(clean.flows.every((f) => f.ok), "a page where everything resolves must report clean");
+
+  // The closet flow must probe the ownership tell, since that is the control
+  // deciding whether this closet is the seller's own.
+  const closetFlow = clean.flows.find((f) => f.flow === "closet");
+  assert.ok(
+    closetFlow.entries.some((x) => x.key === "ownClosetTell" && x.required),
+    "the closet probe must test ownClosetTell as REQUIRED",
+  );
+
+  // The report states the enable posture, because a clean report is what earns
+  // a lastVerified date and the reader needs to know none is set yet.
+  assert.strictEqual(clean.enabled, false);
+  assert.strictEqual(clean.lastVerified, null);
+  assert.ok(clean.version, "the report must name the selector version");
+
+  // No page content, and specifically no buyer identity.
+  const SECRETS = [
+    "Jane Doe",
+    "1 Main Street, Springfield",
+    "seller-handle-42",
+    "https://poshmark.com/listing/abc123",
+    "Vintage Nike windbreaker size L",
+  ];
+  const serialized = JSON.stringify(clean) + "\n" + P.formatProbeReport(clean);
+  for (const secret of SECRETS) {
+    assert.ok(
+      !serialized.includes(secret),
+      `the sold-sync probe report leaked page content: ${secret}`,
+    );
+  }
+  assert.ok(!/\/order\/sales/.test(serialized) || !/https:\/\//.test(serialized),
+    "the report must not carry a full URL");
+
+  // A miss is reported rather than thrown, same as the lister probe.
+  const missed = P.buildSyncProbeReport(SYNC, "poshmark", matchNone, { host: "poshmark.com" });
+  assert.ok(missed.flows.every((f) => !f.ok), "a page where nothing resolves must report NOT clean");
+
+  // An unknown platform is an error on the report, not an exception.
+  const unknown = P.buildSyncProbeReport(SYNC, "depop", matchAll, { host: "depop.com" });
+  assert.ok(unknown.error, "an unbundled platform must report an error");
+  assert.deepStrictEqual(unknown.flows, []);
+}
+
 console.log(
   "✓ selector-probe: report carries no page content, states whether it was run " +
     "on the right page, returns candidate controls for a miss without reading " +
     "any value, post-interaction controls are not counted as failures, all 5 " +
-    "platforms probe clean, invalid selectors are reported rather than thrown",
+    "platforms probe clean, invalid selectors are reported rather than thrown, " +
+    "and the sold-sync flows probe every field without carrying buyer identity",
 );

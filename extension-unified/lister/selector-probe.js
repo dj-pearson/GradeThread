@@ -110,6 +110,13 @@
         if (/Pattern$/.test(k) || /^navigatesTo$/.test(k)) return;
         push(k, cfg[k]);
       });
+      // US-2698: a non-list flow may ALSO carry a `fields` map. The sold-sync
+      // flows do — a Sold row's title, price and date are per-row selectors, the
+      // same shape the list flow uses for form inputs. Walking it here is a
+      // no-op for every lister delist/engage flow (none has one) and is what
+      // lets the sync flows be probed at all rather than reporting one selector.
+      var nestedFields = (cfg && cfg.fields) || {};
+      Object.keys(nestedFields).forEach(function (k) { push(k, nestedFields[k]); });
     }
     return out;
   }
@@ -372,6 +379,55 @@
     };
   }
 
+  /**
+   * US-2698: the same one-click check, for the SOLD-SYNC reads.
+   *
+   * Deliberately its own entry point rather than another branch inside
+   * buildProbeReport. The two describe different pages and are verified in
+   * different sittings: the lister flows want the sell form and one of your own
+   * live listings, sync wants your Sold page and your closet. Folding them
+   * together would produce one report where half the flows are always "wrong
+   * page", which is exactly the confusion US-2485 was filed to remove.
+   *
+   * Same privacy contract, inherited by reusing probeFlow: the report carries
+   * the host, the selector version and per-selector verdicts, and no page
+   * content. On the Sold page that matters more than anywhere else in the
+   * extension, because the page it is describing has the buyer's address on it.
+   */
+  function buildSyncProbeReport(syncSelectors, platform, matches, ctx) {
+    var cfg = syncSelectors && syncSelectors[platform];
+    if (!cfg) {
+      return {
+        platform: platform,
+        kind: "sync",
+        host: (ctx && ctx.host) || null,
+        error: "no sold-sync selectors are bundled for " + platform,
+        flows: [],
+      };
+    }
+    var flowCtx = {};
+    Object.keys(ctx || {}).forEach(function (k) { flowCtx[k] = ctx[k]; });
+    flowCtx.platformCfg = cfg;
+
+    var flows = [];
+    if (cfg.sold) flows.push(probeFlow(cfg.sold, "sold", matches, flowCtx));
+    if (cfg.closet) flows.push(probeFlow(cfg.closet, "closet", matches, flowCtx));
+    return {
+      platform: platform,
+      kind: "sync",
+      host: (ctx && ctx.host) || null,
+      checkedAt: (ctx && ctx.at) || null,
+      // Stated on the report because it is the question the reader has: this
+      // adapter does not run until somebody sets lastVerified, and a clean
+      // report is what earns that.
+      enabled: cfg.enabled === true,
+      version: cfg.version || null,
+      lastVerified: cfg.lastVerified || null,
+      appeared: [],
+      flows: flows,
+    };
+  }
+
   /** Plain-text report, sized to be pasted into a chat message. */
   function formatProbeReport(report) {
     var lines = [];
@@ -472,6 +528,7 @@
     pageCheck: pageCheck,
     probeFlow: probeFlow,
     buildProbeReport: buildProbeReport,
+    buildSyncProbeReport: buildSyncProbeReport,
     formatProbeReport: formatProbeReport,
     reportIsClean: reportIsClean,
     POST_INTERACTION: POST_INTERACTION,
