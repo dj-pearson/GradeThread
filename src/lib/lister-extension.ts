@@ -555,12 +555,23 @@ function sendViaBridge(
  */
 export function sendExtensionMessage<T = ExtensionResponse>(
   message: { type: string; [key: string]: unknown },
-  opts?: { extensionId?: string },
+  opts?: { extensionId?: string; preferBridge?: boolean },
 ): Promise<T> {
   const runtime = chromeRuntime();
   const id = opts?.extensionId || listerExtensionId();
   let p: Promise<ExtensionResponse>;
-  if (runtime?.sendMessage && id) {
+  // US-2731: the caller knows the configured id is the WRONG address for the
+  // install it is talking to — an unpacked or sideloaded build, whose id is not
+  // the store one. Addressing the store id anyway reaches an extension that may
+  // not be installed at all, which is what "receiving end does not exist" means.
+  //
+  // The bridge needs no id: gt-bridge.js is injected by whichever build of OUR
+  // extension is actually installed and relays over internal messaging, so it
+  // cannot deliver to a third party. That makes it the SAFER choice here, not a
+  // relaxation — it is the query parameter, not the bridge, that is untrusted.
+  if (opts?.preferBridge && bridgeAvailable()) {
+    p = sendViaBridge(message);
+  } else if (runtime?.sendMessage && id) {
     // US-2724: the id-addressed transport is preferred, but it is addressed by
     // an id that can be WRONG in a way nothing else notices.
     //

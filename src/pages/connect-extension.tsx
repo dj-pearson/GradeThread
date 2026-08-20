@@ -53,6 +53,20 @@ export function ConnectExtensionPage() {
   const configuredExtId = listerExtensionId();
   const targetExtId =
     extId && configuredExtId && extId === configuredExtId ? extId : undefined;
+  // US-2731: an id that does not match is not necessarily an attack — the
+  // ordinary case is a DEVELOPER build, loaded unpacked, whose id is assigned
+  // from its path and can never equal the store one. Before this, that install
+  // fell through to the configured (store) id and the token was posted to an
+  // extension that might not be installed at all: "Could not establish
+  // connection. Receiving end does not exist", and no way to connect a dev
+  // build to an account.
+  //
+  // Prefer the bridge in exactly that case. It is not a weaker path: gt-bridge.js
+  // is our OWN content script, injected only by our own extension, so the token
+  // reaches the install in front of the user and cannot reach a third party.
+  // The mismatching `ext` value is never used as an address — it is only the
+  // signal that the configured id is the wrong one to use.
+  const preferBridge = Boolean(extId && extId !== configuredExtId);
   const [phase, setPhase] = useState<Phase>("checking");
   const [error, setError] = useState<string>("");
   const [caps, setCaps] = useState<Capabilities | null>(null);
@@ -84,7 +98,7 @@ export function ConnectExtensionPage() {
       ok?: boolean;
       error?: string;
       capabilities?: Capabilities;
-    }>({ type: "GT_SET_TOKEN", token }, { extensionId: targetExtId });
+    }>({ type: "GT_SET_TOKEN", token }, { extensionId: targetExtId, preferBridge });
     if (resp.ok) {
       setCaps(resp.capabilities ?? null);
       setPhase("connected");
@@ -96,7 +110,7 @@ export function ConnectExtensionPage() {
       );
       setPhase("error");
     }
-  }, [targetExtId]);
+  }, [targetExtId, preferBridge]);
 
   useEffect(() => {
     if (isLoading || attempted.current) return;

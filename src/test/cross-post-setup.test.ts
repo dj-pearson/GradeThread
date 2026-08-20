@@ -169,6 +169,34 @@ describe("the web can queue a cross-post for the desktop (US-2722)", () => {
   });
 });
 
+describe("a dev build can still connect its account (US-2731)", () => {
+  const CONNECT = "src/pages/connect-extension.tsx";
+
+  it("a mismatching ?ext is treated as a dev build, not only as an attack", () => {
+    const src = code(CONNECT);
+    expect(src).toContain("const preferBridge = Boolean(extId && extId !== configuredExtId)");
+    expect(src).toContain("preferBridge }");
+  });
+
+  it("the mismatching id is never used as an address", () => {
+    // targetExtId still only ever holds an id that EQUALS the configured one.
+    // preferBridge is a boolean signal, not a destination.
+    const src = code(CONNECT);
+    expect(src).toContain(
+      "extId && configuredExtId && extId === configuredExtId ? extId : undefined",
+    );
+  });
+
+  it("preferBridge only ever selects our own content-script relay", () => {
+    const src = code(EXT);
+    const fn = src.slice(src.indexOf("export function sendExtensionMessage"));
+    expect(fn).toContain("if (opts?.preferBridge && bridgeAvailable()) {");
+    expect(fn).toContain("p = sendViaBridge(message);");
+    // It must not fall back to an id-addressed send with the untrusted value.
+    expect(fn).not.toContain("opts?.preferBridge ? opts.extensionId");
+  });
+});
+
 describe("cross-posting has a setup flow with real state (US-2719)", () => {
   it("the section is on the Marketplaces page", () => {
     expect(code(MARKETPLACES)).toContain("<CrossPostSetup />");

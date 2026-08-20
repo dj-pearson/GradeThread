@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2730",
+  "nextId": "US-2732",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2510,6 +2510,37 @@
         "The audit gained a nullability comparison BECAUSE of listings.listed_at - a column that exists with the wrong constraint is invisible to an existence check, and that is the failure that cost this session. All four of these findings come from that addition."
       ],
       "priority": 5
+    },
+    {
+      "id": "US-2730",
+      "passes": false,
+      "title": "The Lister has never filled brand, size, category, colour or tags on any marketplace, though the payload carries all five",
+      "description": "As a seller cross-posting to Poshmark, I want the fields I already entered in FlipDesk to arrive in the marketplace form, so that a cross-post saves me retyping instead of just seeding two fields.",
+      "acceptanceCriteria": [
+        "VERIFIED 2026-08-20, not inferred. runFlow in extension-unified/lister/common.js fills exactly five things: title, description, price, originalPrice and photos. A grep for f.brand / f.size / f.category / f.colour / f.tags returns nothing. No platform's config in lister/selectors.js defines any of them either - poshmark, mercari, grailed, vinted and facebook all expose only title, description, price, originalPrice and photoInput.",
+        "src/lib/lister-extension.ts buildListerPayload has always SENT brand, color, size, category, condition and tags. Nothing on the extension side reads them. The gap is per-platform selectors plus the fill calls, not the payload.",
+        "Poshmark first: its 2026-08 wizard puts title, BRAND and TAGS on step one (recorded in the selectors.js comment), so brand and tags are reachable on the page already open and are the cheapest real win. Add selectors for both, fill them, and report each as witnessed the way price now is.",
+        "Size, category and condition stay OUT of scope here and that is deliberate, not an omission: they are pickers whose option lists vary per category, and the existing comment is right that setting them blind is worse than leaving them. If they are ever attempted it is as a separate story with its own verification.",
+        "Every newly filled field is WITNESSED like price (US-2477): a selector that matches nothing must leave a mark in the result and in the on-page banner, never a silent no-op. A field we tried and failed to fill has to say so.",
+        "Poshmark price and photos are a SEPARATE problem with a different shape: both moved to a later wizard step, so no selector on the current page can reach them. Either drive the wizard forward or keep reporting them honestly as unfilled - do not add selectors that will match nothing and look green.",
+        "Bump the platform's selectors version and lastVerified in the same change, per the existing contract, and keep MARKETPLACE_EXTENSION_FLOW in lockstep."
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-2731",
+      "passes": false,
+      "title": "A developer build can never connect its account: an unpacked id falls through to the store id and the token goes nowhere",
+      "description": "As someone testing the extension from an unpacked build, I want to connect it to my account, so that I can exercise the seller flows before a store release.",
+      "acceptanceCriteria": [
+        "OBSERVED 2026-08-20 on an unpacked build: /connect-extension reported the extension could not be reached. connect-extension.tsx accepts ?ext only when it EQUALS the configured store id, and otherwise sends to listerExtensionId() anyway - so the token is addressed to a store extension that may not be installed, giving 'Could not establish connection. Receiving end does not exist'.",
+        "The original rule is right and stays: a token must never be posted to an arbitrary id from a query parameter. targetExtId is still only ever set when the id matches the configured one.",
+        "A mismatching id now selects the BRIDGE rather than a wrong address. gt-bridge.js is our own content script, injected only by our own extension, so the token reaches the install in front of the user and cannot reach a third party; the untrusted ?ext value is used as a SIGNAL that the configured id is wrong, never as a destination.",
+        "sendExtensionMessage gains opts.preferBridge, which selects sendViaBridge when the bridge marker is present. It does not weaken the default path: with no preferBridge the id-addressed transport is still preferred exactly as before.",
+        "3 guards in src/test/cross-post-setup.test.ts assert the signal is a boolean rather than an address, that targetExtId still requires equality, and that preferBridge routes only to sendViaBridge.",
+        "Follow-on, NOT done here: a manifest \"key\" field in extension-unified/manifest.json would give an unpacked build the same id as the store build and remove this whole class of problem. It needs the public half of the store signing key, which was untracked under US-2284 and is not in the repo."
+      ],
+      "priority": 12
     }
   ]
 }
