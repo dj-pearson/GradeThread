@@ -6,12 +6,20 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-08-19
+reviewed: 2026-08-20
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
 
 # DNS and routing
+
+> **Re-reviewed 2026-08-20.** Drift flagged `main.ts`, which changed to mount
+> the US-2697 sold-sync intake and its auth + workspace middleware. That is a
+> new ROUTE on the existing edge app, not a new hostname or a change to which
+> host serves what - so the split this note exists to protect (`api.*` is Kong
+> and Supabase routes only; every `/api/*` app route lives on `functions.*`)
+> is untouched. Every mount added was under `/api/flipdesk/`, which is already
+> on the right side of that line.
 
 Two hostnames, two entirely separate systems. Mixing them up produces a **silent
 404** rather than an error that explains itself, which is what makes this worth a
