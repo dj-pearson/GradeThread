@@ -99,6 +99,14 @@ export interface ListerResult {
    * English-only, so a localised page misses by design).
    */
   brandFilled?: boolean;
+  /**
+   * US-2737: how many style tags became chips, and how many were offered.
+   * Counts rather than a boolean, for the same reason the photos are counted:
+   * "2 of 3" is the difference between a seller fixing it now and finding out
+   * later. `undefined` where the channel has no tag field.
+   */
+  tagsCommitted?: number;
+  tagsTotal?: number;
   /** True only when EVERY photo landed — see photosTotal/photosFailed (US-1877). */
   photosAttached?: boolean;
   /** US-1877 (AC4): how many photos the fill tried to attach, and how many failed.

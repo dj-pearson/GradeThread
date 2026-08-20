@@ -108,6 +108,21 @@ const GT_LISTER_SELECTORS = {
       // Enter key. Filling it would leave uncommitted text in a field the seller
       // believes is set.
       tags: 'input.listing-editor__tag__input',
+      // US-2737: DECLARED FOR THE PROBE, not yet filled — the same two-step the
+      // brand and price anchors went through, which is the only method here
+      // that has produced a correct selector rather than a guess.
+      //
+      // The `data-vv-name` clauses are the informed part: this editor is
+      // vee-validate, so IF colour is a validated text input it carries one of
+      // these names. The deep probe's input sweep did not show a colour text
+      // box, though, and the kit's own label is "Color (up to 2)" — so the
+      // likeliest answer is that colour is a SWATCH PICKER, which puts it in the
+      // same class as size and category: an option list where a wrong pick is
+      // worse than an empty field. If the next report says picker, this entry
+      // stays unfilled and that is the finding, not a failure.
+      color:
+        'input[data-vv-name="color"], input[data-vv-name="colors"], ' +
+        '[data-et-name="color"], [data-test="listing-editor-color"]',
       // 2026-08-20: `data-vv-name` is the anchor, and it was hiding in plain
       // sight. Poshmark's editor is Vue + vee-validate (its console says so),
       // and vee-validate stamps every validated field with the model name the
@@ -167,6 +182,9 @@ const GT_LISTER_SELECTORS = {
     // same move the delist flow already makes for its menu; the seller still
     // reviews and posts. It runs AFTER the photos deliberately: an open modal
     // sits over the file input, and attaching photos matters more than price.
+    // Poshmark's own cap: the tag box says "Add up to 3 tags". Ours to respect,
+    // not to exceed — a fourth entry is a rejected keystroke at best.
+    tagsMax: 3,
     priceDialog: {
       open: 'input.ff--no-increment-input:not([id^="listing-price-modal"])',
       price: '#listing-price-modal-listing-price-input, input[aria-label="Listing Price"]',

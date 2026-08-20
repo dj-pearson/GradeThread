@@ -215,6 +215,56 @@
     }
   };
 
+  // US-2737: commit a chip/token field, one entry at a time.
+  //
+  // A tag box is not a text box. Setting its value TYPES the word and stops
+  // there — the tag only exists once Enter turns it into a chip. Filling it the
+  // ordinary way leaves uncommitted text in a field that looks finished, which
+  // is why `tags` was declared but not filled until now.
+  //
+  // WITNESSED BY THE FIELD ITSELF. A committed chip clears the input, so the
+  // input going empty is the site telling us it accepted the entry. Nothing is
+  // counted that we cannot see land, and an entry that does not clear stops the
+  // loop rather than typing the next word on top of it.
+  GT.commitTags = async function (selector, tags, max) {
+    const out = { committed: 0, total: 0 };
+    if (!selector || !Array.isArray(tags) || tags.length === 0) return out;
+    const input = document.querySelector(selector);
+    if (!input) return out;
+
+    // The marketplace's own cap, not ours. Poshmark says "Add up to 3 tags";
+    // pushing a fourth is a rejected keystroke at best.
+    const wanted = tags.filter(function (t) { return t && String(t).trim(); })
+      .slice(0, max || tags.length);
+    out.total = wanted.length;
+
+    for (let i = 0; i < wanted.length; i++) {
+      const tag = String(wanted[i]).trim();
+      if (!GT.setValue(input, tag)) break;
+      ["keydown", "keypress", "keyup"].forEach(function (type) {
+        input.dispatchEvent(new KeyboardEvent(type, {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true,
+        }));
+      });
+      // Give the framework a tick to turn the text into a chip.
+      await new Promise(function (r) { setTimeout(r, 150); });
+      if (input.value !== "") {
+        // It did not take. Stop: another word typed on top of this one would
+        // concatenate into a single nonsense tag.
+        GT.log("tag not committed (input did not clear) — stopping after " +
+          out.committed);
+        break;
+      }
+      out.committed += 1;
+    }
+    return out;
+  };
+
   // US-2735: open a marketplace's price dialog and fill it.
   //
   // Poshmark keeps both amounts in `listing-price-suggestion-modal` rather than
@@ -364,10 +414,15 @@
       GT.log("brand NOT filled on " + payload.platform + " (selector matched nothing)");
     }
 
-    // TAGS is declared on Poshmark and deliberately NOT filled. It is a chip
-    // control: setting its value types text into the box without creating a tag,
-    // which takes the Enter key. That would leave uncommitted text in a field the
-    // seller believes is set — worse than leaving it empty, because it looks done.
+    // US-2737: tags, committed as chips rather than typed and abandoned.
+    // Only where the flow declares the selector, so no other channel is touched.
+    const tagResult = f.tags
+      ? await GT.commitTags(f.tags, payload.tags, flow.tagsMax)
+      : { committed: 0, total: 0 };
+    if (tagResult.total > 0 && tagResult.committed < tagResult.total) {
+      GT.log("tags: committed " + tagResult.committed + " of " + tagResult.total +
+        " on " + payload.platform);
+    }
 
     // 2026-08-11: the price fill is now WITNESSED, not assumed.
     //
@@ -445,6 +500,10 @@
       // read as "not applicable", never as "we failed", or every unverified
       // channel would report a miss on a field it was never going to try.
       brandFilled: f.brand && payload.brand ? brandFilled : undefined,
+      // US-2737: counts, not a boolean — same contract as the photos. "2 of 3"
+      // is the difference between a seller fixing it now and finding out later.
+      tagsCommitted: tagResult.total > 0 ? tagResult.committed : undefined,
+      tagsTotal: tagResult.total > 0 ? tagResult.total : undefined,
       photosAttached: photosAttached,
       // AC4: the counts the SaaS renders as "attached 6 of 8 — drag the rest in".
       photosTotal: photos.total,

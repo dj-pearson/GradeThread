@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2737",
+  "nextId": "US-2738",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2618,6 +2618,22 @@
         "OPERATOR: the fix only affects newly generated variants. Existing drafts carry the stored 0 - press Regenerate on the Listing Kit to pick up the price."
       ],
       "priority": 8
+    },
+    {
+      "id": "US-2737",
+      "passes": false,
+      "title": "Style tags are typed into Poshmark's tag box but never committed, so a field that looks filled holds nothing",
+      "description": "As a seller cross-posting to Poshmark, I want my style tags to become real tags, so that the field either carries them or is honestly empty rather than holding uncommitted text.",
+      "acceptanceCriteria": [
+        "A tag box is not a text box: setting its value types the word and stops there, and the tag only exists once Enter turns it into a chip. That is why tags was declared with a verified selector (input.listing-editor__tag__input) and deliberately left unfilled until now - uncommitted text in a field that looks finished is worse than an empty one.",
+        "GT.commitTags sets each value then dispatches keydown/keypress/keyup Enter, and WAITS a tick for the framework to build the chip.",
+        "WITNESSED BY THE FIELD ITSELF: a committed chip clears the input, so the input going empty is the site confirming it accepted the entry. Nothing is counted that we cannot see land.",
+        "An entry that does NOT clear stops the loop rather than continuing - typing the next word on top of uncommitted text would concatenate them into one nonsense tag. Verified against three cases: all commit, the second sticks, the first sticks.",
+        "Reported as tagsCommitted / tagsTotal, counts rather than a boolean, for the same reason photos are counted: '2 of 3' is the difference between fixing it now and finding out later.",
+        "tagsMax 3 comes from Poshmark's own cap ('Add up to 3 tags'), configured per platform rather than hard-coded, so a fourth entry is never attempted.",
+        "COLOUR is declared for the probe and NOT filled, the same two-step that produced the brand and price anchors. The data-vv-name clauses are the informed guess; the deep sweep showed no colour text input and the kit's label is 'Color (up to 2)', so it is most likely a SWATCH PICKER - the same class as size and category, where a wrong pick is worse than an empty field. If the next report says picker, it stays unfilled and that is the finding."
+      ],
+      "priority": 12
     }
   ]
 }
