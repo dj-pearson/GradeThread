@@ -85,11 +85,16 @@ struct PhotoGradeImage: Equatable {
     let jpeg: Data
 }
 
-/// What came back. Abstain is a first-class outcome, not an error: the photos
-/// were fine, one required view was missing, and nothing was charged.
+/// What the SUBMIT call came back with.
+///
+/// One case, deliberately. My first draft carried an abstain here by copying
+/// ``VideoGradeOutcome``, and that is a video-path shape: the clip route decides
+/// at submit time whether every required view was shown, while the photo route's
+/// image-quality gate runs later inside the grading pipeline. So a photo submit
+/// can only report that a submission exists and whether it was already paid;
+/// `needs_photos` arrives on ``PhotoGradeStatus``.
 enum PhotoGradeOutcome: Equatable {
-    case graded(submissionId: String)
-    case needsPhotos(submissionId: String, reason: String, requested: [String])
+    case submitted(submissionId: String, paid: Bool)
 }
 
 enum PhotoGradeError: LocalizedError, Equatable {
