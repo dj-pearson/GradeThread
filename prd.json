@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2738",
+  "nextId": "US-2739",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2636,6 +2636,22 @@
       ],
       "priority": 12,
       "notes": "COLOUR ANSWERED 2026-08-20: the founder confirmed on the live form that colour is a SELECTION, not a text input - which is what the deep sweep implied when it found no colour text box. The declaration has been REMOVED rather than left unfilled: a selector that can never match reports 'missing' in every future probe, and a permanent miss reads as a broken channel when nothing is broken. The finding is recorded in the config comment instead. Colour therefore joins size, category and condition as an option list whose choices vary per garment, where a wrong pick is worse than an empty field; Poshmark requires category and size before it will publish anyway, so the seller is on that screen regardless. Filling pickers is its own story with its own verification, not a line added to the field list. TAGS shipped in this change and are unaffected."
+    },
+    {
+      "id": "US-2738",
+      "passes": false,
+      "title": "Photos are reported as attached when the page never took them, because the file list was shadowed rather than assigned",
+      "description": "As a seller cross-posting to Poshmark, I want the photos to actually arrive, and to be told the truth when they do not, so that I never publish a listing believing images are on it.",
+      "acceptanceCriteria": [
+        "OBSERVED 2026-08-20: no photos reached Poshmark, and the toast carried NO photo message at all - which by photoNote's own logic means total was above zero and failed was zero. The extension believed it had attached every photo. That is the worst failure shape available: a silent false success on the one thing a buyer sees.",
+        "CAUSE: attachPhotos used Object.defineProperty to hang a files value off the input. That shadows the prototype getter, so anything reading el.files sees the list, but the input's REAL state never changes - el.value stays empty and no internal file selection exists, so an uploader that checks value, or reads the selection at submit time rather than from the event, sees an empty input.",
+        "NOT a CORS or fetch problem, checked before changing anything: the public bucket returns access-control-allow-origin * to a poshmark.com origin, so a content-script fetch is allowed.",
+        "Chrome accepts a direct assignment from a DataTransfer, which sets the real selection and populates value with a fake path. The fill now assigns, and treats a non-empty value as the BROWSER confirming it took - a witness we did not write ourselves. defineProperty stays as a fallback for any host that refuses the assignment.",
+        "A refused list now reports every photo as FAILED rather than attached, so photosAttached goes false and the seller is told to drag them in. Verified against three cases: accepted 8/0, refused 0/8, partial 6/2.",
+        "Both input and change are dispatched, in the order a real selection fires them - some uploaders listen for one, some for the other.",
+        "STILL UNPROVEN until tested live: whether Poshmark's uploader accepts the assignment at all. If it does not, the honest report is now the deliverable and the next step is a different mechanism, not a louder claim."
+      ],
+      "priority": 8
     }
   ]
 }

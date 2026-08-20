@@ -206,8 +206,52 @@
         result.attached += 1;
       }
       if (dt.files.length === 0) return result;
-      Object.defineProperty(input, "files", { value: dt.files, configurable: true });
+
+      // 2026-08-20: ASSIGN the FileList, do not shadow it — and then check that
+      // the BROWSER accepted it.
+      //
+      // This used Object.defineProperty to hang a `files` value off the element.
+      // That shadows the prototype getter, so anything reading el.files sees the
+      // list, but the input's REAL state never changes: `el.value` stays empty,
+      // no internal file selection exists, and an uploader that checks value —
+      // or reads the selection at submit time rather than from the event — sees
+      // an empty input. The result was the worst kind of failure: every count
+      // said 8 of 8 attached, the seller was told the photos were on, and
+      // Poshmark had nothing.
+      //
+      // Chrome accepts a direct assignment from a DataTransfer, which sets the
+      // real selection and populates `value` with a fake path. That non-empty
+      // `value` is the browser confirming it took, which is a witness we did not
+      // write ourselves. defineProperty stays as a fallback for any host that
+      // refuses the assignment — reported honestly rather than assumed.
+      let accepted = false;
+      try {
+        input.files = dt.files;
+        accepted = input.files && input.files.length === dt.files.length &&
+          typeof input.value === "string" && input.value !== "";
+      } catch (_e) {
+        accepted = false;
+      }
+      if (!accepted) {
+        try {
+          Object.defineProperty(input, "files", { value: dt.files, configurable: true });
+          accepted = input.files && input.files.length === dt.files.length;
+        } catch (_e) { /* nothing more to try */ }
+      }
+
+      // Some uploaders listen for `input`, some for `change`. Both, in the order
+      // a real selection fires them.
+      input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
+
+      if (!accepted) {
+        // We fetched them and the page would not take them. That is a failure of
+        // every photo, and it must read as one — this is exactly the case that
+        // used to report a clean success.
+        GT.log("photo input refused the file list on " + (input.id || "the uploader"));
+        result.failed += result.attached;
+        result.attached = 0;
+      }
       return result;
     } catch (_e) {
       // The marketplace rejected the programmatic drop outright — nothing landed.
