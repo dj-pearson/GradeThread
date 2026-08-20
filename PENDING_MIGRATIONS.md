@@ -1,6 +1,44 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!note] NOTHING IS PENDING as of 2026-08-20.
+## ⏳ PENDING: 00630 — the whole size-dot string, not just the style number (US-2714)
+
+**Risk: LOW.** Three `INSERT ... ON CONFLICT DO UPDATE` rows in
+`brand_style_codes`. No table, no column, no function, no policy, no customer
+data. Nothing client-side reads it.
+
+**What it fixes.** The size dot carries more than the six-character style
+number: `[L]` + the six characters beginning at the `W`/`M` + a colour letter +
+a 5-6 digit manufacture date. `LW6AMYSP60417` = `L` + `W6AMYS` + `P` + `60417`.
+Both seeded decoders anchored to the six characters alone, so the reading a
+model actually produces — the extract prompt tells it to transcribe a style code
+VERBATIM — matched nothing. The most complete transcription available was the
+one that grounded no fields at all.
+
+Three changes, all widening what is ACCEPTED, none changing what is DERIVED:
+`style_number` and `style_number_2017` gain an optional leading `L`, and
+`style_number_full` is new for the whole printed string.
+
+**Verified locally**: applied to the local stack, and all four spellings of one
+garment (`W6AMYS`, `LW6AMYS`, `W6AMYSP60417`, `LW6AMYSP60417`) now decode to the
+same gender and the same style code, while `M7A83SX`, `M7A83S60417`,
+`LLW6AMYS` and `buy my LW6AMYS now` still return nothing.
+
+**Apply order**
+
+1. Run `supabase/migrations/00630_lululemon_full_style_number.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — not strictly needed (no shape change).
+3. Redeploy the edge (`EXPECTED_SCHEMA_VERSION` is now `00630`).
+
+**Confirm it landed**
+
+```sql
+select decoder_kind, pattern from public.brand_style_codes
+where brand_key = 'lululemon' order by decoder_kind;
+```
+
+Expect four rows, and the three `style_number*` patterns all starting `^L?`.
+
+> [!note] Everything through 00629 is applied as of 2026-08-20.
 > Every migration through **00629** is applied. Verified by asking the database
 > rather than this file: `GET /health/ready` reports
 > `{"expected":"00629","applied":"00629","status":"match"}`, which is the running

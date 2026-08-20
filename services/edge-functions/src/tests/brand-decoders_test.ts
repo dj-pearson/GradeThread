@@ -83,6 +83,60 @@ Deno.test("US-2689: the 2017 spec stays anchored to exactly six characters", () 
   assertEquals(decodeTagCode("lululemon", "X7A83S"), null); // bad gender
 });
 
+// ── US-2714: one garment, four spellings, one answer ────────────────────────
+// The size dot carries a longer string than the style number. A model told to
+// transcribe a code VERBATIM produces the whole thing, and until now that was
+// the one reading no decoder matched.
+
+Deno.test("US-2714: every spelling of one garment decodes to the same style", () => {
+  // Bare style number, with lululemon's L prefix, and the full printed string
+  // with the colour letter and the manufacture date.
+  const spellings = ["W6AMYS", "LW6AMYS", "W6AMYSP60417", "LW6AMYSP60417"];
+  const decoded = spellings.map((c) => decodeTagCode("lululemon", c));
+  for (const [i, r] of decoded.entries()) {
+    assert(r !== null, `${spellings[i]} decoded to nothing`);
+    assertEquals(r!.gender, "Women");
+    // The decoded styleCode is identical across all four, which is what makes
+    // it the natural join key for the learned index.
+    assertEquals(r!.styleCode, "6AMY");
+  }
+});
+
+Deno.test("US-2714: the full printed string is its own decoder kind", () => {
+  assertEquals(
+    decodeTagCode("lululemon", "LW6AMYSP60417")!.decoderKind,
+    "style_number_full",
+  );
+  // It grounds exactly what the 2017 spec grounds — the trailing block is a
+  // MANUFACTURE date, not the season/year the 2019+ suffix carries, so nothing
+  // is invented from it.
+  const full = decodeTagCode("lululemon", "LW6AMYSP60417")!;
+  assertEquals(full.season, undefined);
+  assertEquals(full.year, undefined);
+  assertEquals(full.confidence, 0.85);
+});
+
+Deno.test("US-2714: the L is optional on the 2019+ spec too, season intact", () => {
+  const withL = decodeTagCode("lululemon", "LWA1234B.0322")!;
+  const without = decodeTagCode("lululemon", "WA1234B.0322")!;
+  assertEquals(withL.decoderKind, "style_number");
+  assertEquals(withL.styleCode, without.styleCode);
+  assertEquals(withL.year, "2022");
+  assertEquals(withL.season, "Fall");
+});
+
+Deno.test("US-2714: widening the shapes did not loosen the anchors", () => {
+  // The full form needs BOTH the colour letter and the date block; the decoder
+  // bar's third test is about format, and a substring hunt would fail it.
+  assertEquals(decodeTagCode("lululemon", "M7A83SX"), null); // letter, no date
+  assertEquals(decodeTagCode("lululemon", "M7A83S60417"), null); // date, no colour
+  assertEquals(decodeTagCode("lululemon", "M7A83SP604"), null); // date too short
+  assertEquals(decodeTagCode("lululemon", "M7A83SP6041777"), null); // too long
+  assertEquals(decodeTagCode("lululemon", "LLW6AMYS"), null); // two prefixes
+  assertEquals(decodeTagCode("lululemon", "XW6AMYS"), null); // wrong prefix letter
+  assertEquals(decodeTagCode("lululemon", "buy my LW6AMYS now"), null); // not a substring hunt
+});
+
 // ── size dot (printed number) ───────────────────────────────────────────────
 // REGION-SCOPED: the caller must say it has isolated the dot, because the
 // pattern is a lone number and will otherwise read a stray OCR fragment as a

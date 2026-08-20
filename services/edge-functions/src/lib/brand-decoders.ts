@@ -81,8 +81,13 @@ export const DEFAULT_DECODER_SPECS: DecoderSpec[] = [
     brandKey: "lululemon",
     decoderKind: "style_number",
     // W|M + style code (3-5) + color initial (1 letter) + "." + SSYY.
+    // US-2714: an optional leading L. "LW" and "LM" are how lululemon writes
+    // Lululemon-Women and Lululemon-Men, and the six-character style number
+    // begins at the W or the M — so the L is a brand prefix in front of the
+    // code rather than part of it. Optional rather than required, because three
+    // of the four sources quote the style number without it.
     pattern:
-      "^(?<gender>[WM])(?<style>[A-Z0-9]{3,5})(?<color>[A-Z])\\.(?<season>0[1-4])(?<year>\\d{2})$",
+      "^L?(?<gender>[WM])(?<style>[A-Z0-9]{3,5})(?<color>[A-Z])\\.(?<season>0[1-4])(?<year>\\d{2})$",
     fieldMap: {
       gender: "gender",
       style: "styleCode",
@@ -109,7 +114,45 @@ export const DEFAULT_DECODER_SPECS: DecoderSpec[] = [
     // suffix and matches the earlier spec, so the two never compete.
     // Lower confidence than the 2019+ spec because it grounds fewer fields:
     // gender and the raw code, no season and no year.
-    pattern: "^(?<gender>[WM])(?<style>[A-Z0-9]{4})(?<color>[A-Z])$",
+    // US-2714: optional leading L, same reason as the spec above.
+    pattern: "^L?(?<gender>[WM])(?<style>[A-Z0-9]{4})(?<color>[A-Z])$",
+    fieldMap: {
+      gender: "gender",
+      style: "styleCode",
+      color: "colorInitial",
+    },
+    transforms: {
+      gender: "genderCode",
+      color: "upper",
+    },
+    confidence: 0.85,
+  },
+  {
+    brandKey: "lululemon",
+    decoderKind: "style_number_full",
+    // US-2714: the WHOLE string printed on the size dot — which is what a model
+    // asked to transcribe a code VERBATIM actually produces, and which matched
+    // no decoder at all until now. The most complete reading available was the
+    // one that grounded nothing.
+    //
+    // Shape: [L] + the six-character style number + a colour letter + a 5-6
+    // digit manufacture date. Example LW6AMYSP60417 = L + W6AMYS + P + 60417
+    // (4 June 2017).
+    //
+    // Anchored at BOTH ends, deliberately. The decoder bar's third test is
+    // brand-uniqueness of FORMAT, and an unanchored search for the six-character
+    // body inside arbitrary text would fire on ordinary words and on other
+    // brands' codes. Requiring the colour letter AND the date block is what
+    // keeps this a format rather than a substring hunt.
+    //
+    // The trailing block is deliberately NOT mapped to a field: sources disagree
+    // about whether the sixth character belongs to the style or the colour, and
+    // the digits are a MANUFACTURE date, not the season/year the 2019+ suffix
+    // carries. Grounding exactly what the 2017 spec grounds, at the same
+    // confidence, is the honest reading — the extra characters buy a MATCH, not
+    // more information.
+    pattern:
+      "^L?(?<gender>[WM])(?<style>[A-Z0-9]{4})(?<color>[A-Z])[A-Z]\\d{5,6}$",
     fieldMap: {
       gender: "gender",
       style: "styleCode",
