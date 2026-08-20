@@ -397,11 +397,21 @@
                 Checks whether our selectors still find every field on the page you
                 have open. No page content is included.
               </p>
+              <!-- US-2734: this box does TWO things and only ever named one.
+                   Its other effect is the one that closes a coverage gap: it
+                   makes the report describe the real controls on the page for
+                   EVERY field we could not find, not just the required ones.
+                   Labelled as "I have already opened the menu or dialog", a
+                   seller checking an ordinary sell form has no reason to tick
+                   it, and the report comes back saying "missing" with nothing
+                   about what to use instead. Lead with the outcome. -->
               <label class="pop-probe-deep">
                 <input type="checkbox" id="probeDeep" />
                 <span>
-                  I have already opened the menu or dialog
-                  <em>— also describe controls that only appear after a click</em>
+                  Also describe what IS on the page
+                  <em>— lists the real controls for every field we could not
+                  find, including ones that only appear after you open a menu
+                  or dialog. Tick this when reporting a broken form.</em>
                 </span>
               </label>
               <button class="pop-cta" id="probeRun" type="button">Check selectors</button>

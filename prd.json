@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2734",
+  "nextId": "US-2735",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2572,6 +2572,20 @@
         "The message now leads with the fix that actually works - reload the page - rather than sending the reader to their extensions page, which is the wrong place when the extension is installed and fine and only this tab is stale."
       ],
       "priority": 12
+    },
+    {
+      "id": "US-2734",
+      "passes": false,
+      "title": "The selector probe's deep checkbox names only half of what it does, so the report that closes a coverage gap is the one nobody ticks",
+      "description": "As someone reporting a broken marketplace form, I want the probe option that describes the real controls to be findable, so that a report comes back with what to use instead of just what is missing.",
+      "acceptanceCriteria": [
+        "OBSERVED 2026-08-20: a probe report came back with brand, tags, price and originalPrice all marked missing and no candidate signatures, because the run had deep off. The checkbox read 'I have already opened the menu or dialog', which gives a seller checking an ordinary sell form no reason to tick it.",
+        "The flag does two things. selector-probe.js: with deep on, candidates are computed for EVERY entry that missed; with it off, only for missing REQUIRED ones. The second effect is the one that closes a coverage gap, and the label never mentioned it.",
+        "Relabelled to lead with the outcome - it now says it describes the real controls for every field we could not find, and that the post-click case is included rather than being the whole point.",
+        "The probe's privacy contract is untouched: attribute names and values from the allowlist plus button label text, never a field's value. selector-probe.test.cjs still holds it.",
+        "FOLLOW-ON worth considering: the report itself could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than depending on someone remembering."
+      ],
+      "priority": 20
     }
   ]
 }
