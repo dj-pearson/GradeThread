@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2746",
+  "nextId": "US-2747",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2757,6 +2757,22 @@
         "50 tests pass; ui:check clean at zero blocking."
       ],
       "priority": 11
+    },
+    {
+      "id": "US-2746",
+      "passes": false,
+      "title": "RESEARCH FINDING: there is no integration surface for Facebook's Seller app, and the Commerce API is not Marketplace",
+      "description": "As the founder deciding where to spend integration effort, I want the Facebook question settled with evidence, so that nobody re-investigates it and no roadmap promises an integration that cannot be built.",
+      "acceptanceCriteria": [
+        "READ 2026-08-20 from the two sources the founder supplied. The Seller app (about.fb.com, announced 2026-07-24) is a FIRST-PARTY Meta app: US only, iOS, 18+, with a web experience in testing. It does photo-to-listing with Meta AI filling title, description, price suggestion and category, plus bulk listing, a threaded buyer inbox and performance insights. It mentions NO third-party API, NO cross-posting and NO partner program. There is nothing to integrate with.",
+        "The developer guide the founder linked (Commerce Platform project guide) covers SHOPS AND ADS CATALOGUES, NOT Marketplace C2C. It offers a product-feed API (CSV/XML) and an Order Management API, requires App Review with a video walkthrough, and restricts unapproved apps to test commerce accounts. It also records that Shops checkout ended 2025-09-04, with buyers sent to the seller's own site.",
+        "A real Marketplace listing API DOES exist - Marketplace Partnerships, with a Product Item API and a Seller API - but it was built so ONLINE CLASSIFIED AD SERVICES could distribute their C2C inventory on Marketplace in the EEA, following the European Commission decision. Named participants are eBay, Tradera and Jofogas. The eligibility page needs a login and was not readable; nothing indicates it is open to seller SaaS tools, and it is the wrong geography for a US launch.",
+        "CONCLUSION: the browser extension (US-2480) remains the ONLY route to Facebook Marketplace for a US seller tool. Its selectors are scaffolded and enabled:false, so the work is real but ordinary - no partnership to pursue first.",
+        "COMPETITIVE SIGNAL, which is the more important half: Meta now ships photo-to-listing AI generation and bulk listing itself, free, inside Marketplace. That is the same job FlipDesk's AutoLister does. It does NOT do condition grading, which is what GradeThread has and Meta does not - worth a positioning decision rather than a feature race.",
+        "Do not re-research this without a NEW source. Both pages were read in full and the partner-program eligibility page is the one open question, answerable only behind a Meta business login."
+      ],
+      "priority": 40,
+      "notes": "REFINEMENT 2026-08-20 after reading the Commerce Platform OVERVIEW page (the project guide read earlier is one page below it). The overview DOES name Marketplace as one of three selling surfaces alongside Shops and Instagram Shopping, so the flat claim 'Commerce API is not Marketplace' is too strong and is corrected here. What it is NOT is the consumer C2C flow: the platform is described for 'retailers and ecommerce businesses', built around Graph API seller onboarding, catalog and inventory, order management, finance reporting and customer communication, with Shops Ads using OFFSITE checkout - buyers discover on Facebook and Instagram and check out on the seller's own website. That is a catalogue-and-feed model for merchants with a product catalog, not a path for a reseller listing one used garment. THE OPEN QUESTION, and the only one worth spending time on: whether a used-goods reseller can be onboarded as a seller under Commerce Platform and reach the Marketplace surface that way. Nothing on the public pages answers it; it needs a question to Meta or an App Review submission, both of which are founder actions rather than code. Everything else in this story stands: the Seller app has no integration surface at all, and Marketplace Partnerships is EEA classifieds."
     }
   ]
 }
