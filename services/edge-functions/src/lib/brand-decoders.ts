@@ -177,6 +177,31 @@ export function runDecoderSpec(
 }
 
 /**
+ * Decoder kinds whose pattern only MEANS anything once the caller has isolated
+ * the region it reads.
+ *
+ * `size_dot` matches a lone one-or-two-digit number. That is correct for the
+ * number printed inside the size-dot circle and catastrophic for anything else:
+ * the only inputs any caller actually passes are the `style_code` and `mpn`
+ * attributes, so a stray two-digit fragment transcribed into either one used to
+ * decode as a SIZE and override the garment's real size at 0.85 confidence —
+ * silently, and in a field that sets what a buyer receives.
+ *
+ * So these are OFF by default and a caller that has genuinely isolated the
+ * region opts in. Nothing in the codebase isolates it yet; when something does,
+ * it passes `includeRegionScoped`.
+ */
+export const REGION_SCOPED_DECODER_KINDS: ReadonlySet<string> = new Set([
+  "size_dot",
+]);
+
+export interface DecodeOptions {
+  /** Allow REGION_SCOPED_DECODER_KINDS to match. Only pass this when the `raw`
+   *  string is the isolated region, not a whole tag's worth of OCR. */
+  includeRegionScoped?: boolean;
+}
+
+/**
  * Decode a raw tag code for a brand. Tries the provided specs first (DB-seeded,
  * from the US-1711 pack), then the in-code defaults for that brand. Returns the
  * FIRST matching decoder's result, or null when nothing matches.
@@ -185,11 +210,15 @@ export function decodeTagCode(
   brandKey: string,
   raw: string,
   dbSpecs: DecoderSpec[] = [],
+  opts: DecodeOptions = {},
 ): DecodeResult | null {
   if (!raw) return null;
-  const specs = dbSpecs.length > 0
+  const specs = (dbSpecs.length > 0
     ? dbSpecs
-    : DEFAULT_DECODER_SPECS.filter((s) => s.brandKey === brandKey);
+    : DEFAULT_DECODER_SPECS.filter((s) => s.brandKey === brandKey))
+    .filter((s) =>
+      opts.includeRegionScoped || !REGION_SCOPED_DECODER_KINDS.has(s.decoderKind)
+    );
   for (const spec of specs) {
     const hit = runDecoderSpec(spec, raw);
     if (hit) return hit;

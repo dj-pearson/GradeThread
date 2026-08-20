@@ -2,6 +2,7 @@
 import { assert, assertEquals } from "@std/assert";
 import {
   crossCheckDecodeResult,
+  DEFAULT_DECODER_SPECS,
   type DecodeResult,
   type DecoderSpec,
   decodeTagCode,
@@ -83,13 +84,41 @@ Deno.test("US-2689: the 2017 spec stays anchored to exactly six characters", () 
 });
 
 // ── size dot (printed number) ───────────────────────────────────────────────
+// REGION-SCOPED: the caller must say it has isolated the dot, because the
+// pattern is a lone number and will otherwise read a stray OCR fragment as a
+// size. See REGION_SCOPED_DECODER_KINDS.
+const DOT = { includeRegionScoped: true };
+
 Deno.test("lululemon size dot reads the printed size, lone-number only", () => {
-  assertEquals(decodeTagCode("lululemon", "6")!.size, "6");
-  assertEquals(decodeTagCode("lululemon", "  8 ")!.size, "8");
-  assertEquals(decodeTagCode("lululemon", "12")!.decoderKind, "size_dot");
-  // not a lone number → no match (caller must isolate the dot region)
-  assertEquals(decodeTagCode("lululemon", "size 6"), null);
-  assertEquals(decodeTagCode("lululemon", "abc"), null);
+  assertEquals(decodeTagCode("lululemon", "6", [], DOT)!.size, "6");
+  assertEquals(decodeTagCode("lululemon", "  8 ", [], DOT)!.size, "8");
+  assertEquals(decodeTagCode("lululemon", "12", [], DOT)!.decoderKind, "size_dot");
+  // not a lone number → no match even with the region isolated
+  assertEquals(decodeTagCode("lululemon", "size 6", [], DOT), null);
+  assertEquals(decodeTagCode("lululemon", "abc", [], DOT), null);
+});
+
+Deno.test("a bare number NEVER decodes as a size without an isolated region", () => {
+  // The live defect this guards: the only strings any caller passes are the
+  // style_code / mpn attributes, so a stray two-digit fragment transcribed into
+  // either one used to decode as a SIZE and override the garment's real size at
+  // 0.85 confidence — silently, in the field that decides what a buyer gets.
+  assertEquals(decodeTagCode("lululemon", "6"), null);
+  assertEquals(decodeTagCode("lululemon", "12"), null);
+  assertEquals(decodeTagCode("lululemon", "  8 "), null);
+  // The style-number decoders are unaffected: they read a whole code, not a
+  // region, so they still fire from the ordinary path.
+  assertEquals(decodeTagCode("lululemon", "M7A83S")!.decoderKind, "style_number_2017");
+  assertEquals(decodeTagCode("lululemon", "WA1234B.0322")!.decoderKind, "style_number");
+});
+
+Deno.test("region-scoping survives DB-seeded specs, not just the in-code defaults", () => {
+  // decodeTagCode ignores the in-code defaults entirely when the pack supplies
+  // specs, so the filter has to apply to the DB path too or the guard is a
+  // no-op in production.
+  const dbSpecs = DEFAULT_DECODER_SPECS.filter((s) => s.brandKey === "lululemon");
+  assertEquals(decodeTagCode("lululemon", "6", dbSpecs), null);
+  assertEquals(decodeTagCode("lululemon", "6", dbSpecs, DOT)!.size, "6");
 });
 
 // ── unknown brand → no in-code decoder → null ───────────────────────────────
