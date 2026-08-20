@@ -85,3 +85,52 @@ Deno.test("category override (US-722) wins over the base query", () => {
   const blank = assemblePlatformVariant("mercari", BASE, TEXT(), {}, "   ");
   assertEquals(blank.category, BASE.categoryQuery);
 });
+
+// ── US-2736: the price must survive the trip to the kit ────────────────────
+//
+// Every platform variant's price came from the eBay draft alone, so an item
+// priced on the ITEM produced priceCents 0. That became price 0 in the variant,
+// a blank Listing price in the kit, "" in the extension payload, and an
+// extension that refused to fill a field it had no value for — while telling
+// the seller on every cross-post that we could not set their price. The
+// selectors were correct the whole time; there was no number to type.
+//
+// The precedence lives in generatePlatformVariants, which needs a database, so
+// this pins the RULE as a pure function against the same cases. The rule and
+// the caller are one expression; if they ever diverge this test is the record
+// of which one was intended.
+
+function resolvedPriceCents(
+  draftPrice: number | null,
+  targetPrice: number | null,
+): number {
+  return Math.round(
+    (draftPrice && draftPrice > 0
+      ? draftPrice
+      : targetPrice && targetPrice > 0
+        ? targetPrice
+        : 0) * 100,
+  );
+}
+
+Deno.test("US-2736: the draft's price wins when it has one", () => {
+  assertEquals(resolvedPriceCents(32.49, 19.99), 3249);
+});
+
+Deno.test("US-2736: the item's target price is the fallback", () => {
+  // The case that shipped broken: nothing on the draft, a real price on the item.
+  assertEquals(resolvedPriceCents(null, 32.49), 3249);
+  assertEquals(resolvedPriceCents(0, 32.49), 3249);
+});
+
+Deno.test("US-2736: an unpriced draft stays unpriced", () => {
+  // Honest, not defensive: an item with no price anywhere has no price to
+  // carry, and inventing one would put a number on a live listing.
+  assertEquals(resolvedPriceCents(null, null), 0);
+  assertEquals(resolvedPriceCents(0, 0), 0);
+});
+
+Deno.test("US-2736: a negative price never becomes a listing price", () => {
+  assertEquals(resolvedPriceCents(-5, 32.49), 3249);
+  assertEquals(resolvedPriceCents(-5, -1), 0);
+});

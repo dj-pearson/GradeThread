@@ -2655,7 +2655,11 @@ export async function generatePlatformVariants(
   const { data: itemData, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
     .select(
-      "id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects, garment_category, item_category, measurements, ai_field_sources",
+      // US-2736: target_price is the FALLBACK price. Every platform variant's
+      // price came from the eBay draft alone, so an item priced on the item
+      // itself generated a kit with a blank price for every channel — and the
+      // extension then refused to fill a field it had no value for.
+      "id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects, garment_category, item_category, measurements, ai_field_sources, target_price",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -2668,6 +2672,7 @@ export async function generatePlatformVariants(
     material: string | null;
     grade_value: number | null;
     grade_label: string | null;
+    target_price: number | null;
     ebay_aspects: Record<string, string[]> | null;
     garment_category: string | null;
     item_category: string | null;
@@ -2705,7 +2710,26 @@ export async function generatePlatformVariants(
     itemSpecifics: item.ebay_aspects ?? {},
     gradeValue: item.grade_value,
     gradeLabel: item.grade_label,
-    priceCents: Math.round((d.listing_price ?? 0) * 100),
+    // US-2736: the draft's price if it has one, else the item's target price.
+    //
+    // This read the draft alone, so an item whose price lives on the ITEM
+    // produced priceCents 0 -> every variant priced at 0 -> the kit showed a
+    // blank Listing price -> buildListerPayload turned 0 into "" -> the
+    // extension refused to fill it, and told the seller on every single
+    // cross-post that we could not set their price. The selectors were fine the
+    // whole time; there was simply no number to type.
+    //
+    // Same precedence the extension writeback already uses for the listings row
+    // (routes/flipdesk-listings.ts), so the kit and the recorded row cannot
+    // disagree about what this item costs. Still 0 when neither is set, which
+    // is honest: an unpriced draft has no price to carry.
+    priceCents: Math.round(
+      ((d.listing_price && d.listing_price > 0
+        ? d.listing_price
+        : item.target_price && item.target_price > 0
+          ? item.target_price
+          : 0)) * 100,
+    ),
     categoryQuery: d.platform_category_id ?? "",
     confidence: d.ai_confidence ?? 0.7,
   };

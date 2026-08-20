@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2736",
+  "nextId": "US-2737",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2603,6 +2603,21 @@
       ],
       "priority": 11,
       "notes": "HARDENED 2026-08-20 from the founder's next paste. The offered element was [data-test=modal].modal-backdrop - the dialog's BACKDROP, not its opener, so it does not answer the open question. It did surface a real hazard though: a dialog renders over a backdrop that swallows clicks, so clicking the opener while a dialog is already up either does nothing or lands on the backdrop and DISMISSES the dialog we were about to fill. fillPriceDialog now checks for the price input FIRST and only clicks when there is no dialog - faster, and the only version that cannot close a dialog the seller opened themselves. cfg.open is now optional: with the dialog already open the fill works without any opener at all, which also means a wrong opener selector costs nothing on a page where the seller opened it by hand. STILL NEEDED: the element on the create form that a seller CLICKS to make the price dialog appear - the Listing Price row itself, captured BEFORE the popup opens. | SOLVED PROPERLY 2026-08-20. The price IS on the create form; the earlier reading that it lived only in a dialog was wrong. The anchor is data-vv-name=listingPrice, and it was on the element in every report we had already looked at - invisible because data-vv-name was not in PROBE_ATTRS. Poshmark's editor is Vue + vee-validate (its own console warns about fields missing a name), and vee-validate stamps each validated field with the SITE'S OWN model name: semantic, stable across restyles, and free of English, which is more than any other anchor on that page offers. Two rounds were spent on placeholder text because the probe never asked for it. FIXED BOTH ENDS: price and originalPrice now lead with the data-vv-name clause (modal ids kept as a second clause, since the same amount is editable in two places and a selector that works either way costs nothing), and PROBE_ATTRS gained data-vv-name + data-vv-as so the next report on any Vue marketplace carries them. The privacy contract is unchanged - a model name is UI chrome, never a field's value. The priceDialog path stays as the fallback it now is, already guarded so it never clicks while a dialog is open."
+    },
+    {
+      "id": "US-2736",
+      "passes": false,
+      "title": "Every platform variant is priced from the eBay draft alone, so an item priced on the item generates a kit with no price at all",
+      "description": "As a seller cross-posting to Poshmark, I want the price I set to reach the marketplace form, so that the one field deciding what I get paid is not blank.",
+      "acceptanceCriteria": [
+        "PROVEN 2026-08-20 by elimination, not inference: after the selectors were fixed the deep probe reported price and originalPrice both 'ok', and the Listing price row in the Poshmark kit tab was EMPTY. The selectors were never the problem.",
+        "CAUSE: generatePlatformVariants builds its base with priceCents from the eBay DRAFT row only - Math.round((d.listing_price ?? 0) * 100) - and platform-variants.ts derives every variant's price from it. inventory_items.target_price was not even in the item SELECT. An item priced on the item therefore produced price 0 for every channel.",
+        "That 0 then travels: normalize() in listing-kit.tsx keeps it as 0, buildListerPayload turns 0 into the empty string, and GT.fill refuses an empty value before it ever looks at the page - so the extension told the seller 'the price was NOT filled in' on every single cross-post while doing nothing wrong.",
+        "Fixed with the draft-then-target precedence the extension writeback already uses (routes/flipdesk-listings.ts), so the kit and the recorded listings row cannot disagree about what an item costs. target_price added to the item SELECT and its type.",
+        "An unpriced draft still resolves to 0 rather than inventing a number, and a negative price never becomes a listing price. 4 cases in platform-variants_test.ts pin the rule; 11 pass.",
+        "OPERATOR: the fix only affects newly generated variants. Existing drafts carry the stored 0 - press Regenerate on the Listing Kit to pick up the price."
+      ],
+      "priority": 8
     }
   ]
 }
