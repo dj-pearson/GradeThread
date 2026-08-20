@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2729",
+  "nextId": "US-2730",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2461,7 +2461,8 @@
         "CODE: the writeback's base-draft lookup destructures only { data } and drops its error, so the failing SELECT that names draft_id was invisible and the route carried on with groupId null until the INSERT raised. Check that error and fail loudly; a lookup that cannot run must not read as 'no group found'.",
         "A deno test asserts no supabase call in flipdesk-listings.ts extension-writeback discards its error object."
       ],
-      "priority": 5
+      "priority": 5,
+      "notes": "AUDIT RAN 2026-08-20 and the result is reassuring: SIX findings across 3748 columns, 183 functions and 1035 indexes. Production is broadly in step with the migrations; draft_id was an exception, not a symptom of wholesale drift. The findings are triaged in US-2729. Two things about the tool itself: the first version opened with psql meta-commands (\\set, \\echo) and died with '42601: syntax error at or near' the moment it met a SQL editor rather than the psql CLI - it is now one statement, one result set, no temp tables, so it runs anywhere; and it now compares NULLABILITY as well as existence, which is what surfaced the four agent-table divergences and is the exact class listings.listed_at belonged to. Self-tested at zero findings against the reference schema."
     },
     {
       "id": "US-2727",
@@ -2491,6 +2492,22 @@
         "Fixed by pinning to the eBay base draft (.eq platform ebay, order created_at desc, limit 1) — the row the composer edits and the only one carrying platform_category_id, which fetchComparableListings compares within. Ordering newest-first WITHOUT pinning the platform would pick the Poshmark row, whose category is null, and return 'no conflicts' forever: a silent wrong answer, worse than the 500.",
         "The rest of the codebase was scanned for the same one-listing-per-item assumption. Of 13 candidate sites, 12 are false positives that filter on the listings primary key or already pin a platform; this route was the only real one. Do not re-audit them without new evidence.",
         "A deno test covers an item with an eBay draft plus a Poshmark cross-listing and asserts the route returns 200 with the eBay title's conflicts, not a 500."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-2729",
+      "passes": false,
+      "title": "Prod schema audit: 00627 is half-applied and four agent columns are stricter in prod than in any migration",
+      "description": "As whoever runs production, I want prod's schema to match what the migrations produce, so that a code path that works locally cannot fail only in production.",
+      "acceptanceCriteria": [
+        "AUDIT RESULT 2026-08-20 (scripts/prod-schema-audit.sql, 3748 columns / 183 functions / 1035 indexes compared): SIX findings, not hundreds. Production is broadly correct. Record that: the two failures that cost this session were the exception, not the rule.",
+        "00627 IS HALF-APPLIED. Missing in prod: the function style_code_sweep_candidates and the index inventory_items_style_code_idx - the LAST two objects the file creates. Everything earlier (the style_code_sweeps table, both its indexes, and record_style_code_sweep) is present, so the file aborted between line 124 and the end. This is why /api/jobs/style-code-sweep logs 'Could not find the function public.style_code_sweep_candidates(p_limit)' on every run.",
+        "OPERATOR: re-run ONLY the tail of 00627 (the CREATE OR REPLACE FUNCTION style_code_sweep_candidates block, its GRANT, and the CREATE INDEX IF NOT EXISTS inventory_items_style_code_idx), then NOTIFY pgrst, 'reload schema'. Both statements are idempotent. Do NOT re-run the whole file: its CREATE TRIGGER at line 50 has no DROP TRIGGER IF EXISTS guard and will abort exactly the way 00134 did.",
+        "FOUR COLUMNS ARE NOT NULL IN PROD AND NULLABLE IN EVERY MIGRATION: agent_proposals.evidence, agent_proposals.summary, agent_run_steps.name, agent_runs.trigger. 00357 defines all four without NOT NULL and no later migration adds it, so prod's copies of these tables did not come from the migration set.",
+        "That direction is the dangerous one: prod is STRICTER, so any agent path writing a null there raises 23502 in production only and CI can never see it. agent-kernel.ts createRun passes the caller-supplied trigger value straight through and recordStep passes step.name; both need checking before the constraint is relaxed or the callers are pinned.",
+        "Decide and record which side is right. Relaxing prod to match the repo is safe for existing rows and makes prod match the contract the code was written against; tightening the repo to match prod would need the callers proven never-null first. Do not leave them disagreeing.",
+        "The audit gained a nullability comparison BECAUSE of listings.listed_at - a column that exists with the wrong constraint is invisible to an existence check, and that is the failure that cost this session. All four of these findings come from that addition."
       ],
       "priority": 5
     }
