@@ -2633,7 +2633,8 @@
         "tagsMax 3 comes from Poshmark's own cap ('Add up to 3 tags'), configured per platform rather than hard-coded, so a fourth entry is never attempted.",
         "COLOUR is declared for the probe and NOT filled, the same two-step that produced the brand and price anchors. The data-vv-name clauses are the informed guess; the deep sweep showed no colour text input and the kit's label is 'Color (up to 2)', so it is most likely a SWATCH PICKER - the same class as size and category, where a wrong pick is worse than an empty field. If the next report says picker, it stays unfilled and that is the finding."
       ],
-      "priority": 12
+      "priority": 12,
+      "notes": "COLOUR ANSWERED 2026-08-20: the founder confirmed on the live form that colour is a SELECTION, not a text input - which is what the deep sweep implied when it found no colour text box. The declaration has been REMOVED rather than left unfilled: a selector that can never match reports 'missing' in every future probe, and a permanent miss reads as a broken channel when nothing is broken. The finding is recorded in the config comment instead. Colour therefore joins size, category and condition as an option list whose choices vary per garment, where a wrong pick is worse than an empty field; Poshmark requires category and size before it will publish anyway, so the seller is on that screen regardless. Filling pickers is its own story with its own verification, not a line added to the field list. TAGS shipped in this change and are unaffected."
     }
   ]
 }
