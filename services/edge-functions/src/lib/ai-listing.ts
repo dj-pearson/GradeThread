@@ -2659,7 +2659,7 @@ export async function generatePlatformVariants(
       // price came from the eBay draft alone, so an item priced on the item
       // itself generated a kit with a blank price for every channel — and the
       // extension then refused to fill a field it had no value for.
-      "id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects, garment_category, item_category, measurements, ai_field_sources, target_price, list_price",
+      "id, user_id, brand, size, color, material, grade_value, grade_label, ebay_aspects, garment_category, item_category, measurements, ai_field_sources, target_price",
     )
     .eq("id", itemId)
     .eq("user_id", ownerId)
@@ -2673,7 +2673,6 @@ export async function generatePlatformVariants(
     grade_value: number | null;
     grade_label: string | null;
     target_price: number | null;
-    list_price: number | null;
     ebay_aspects: Record<string, string[]> | null;
     garment_category: string | null;
     item_category: string | null;
@@ -2720,14 +2719,17 @@ export async function generatePlatformVariants(
     // cross-post that we could not set their price. The selectors were fine the
     // whole time; there was simply no number to type.
     //
-    // A price can live in three places and the composer has always known it:
-    // [listing.listing_price, item.target_price, item.list_price], first
-    // POSITIVE wins. "First positive" not "first non-null" is load-bearing — a
-    // stale 0 on a draft row must not shadow a real price further down. Copied
-    // whole so the kit, this generator and the writeback cannot disagree about
-    // what an item costs. Still 0 when there is none anywhere, which is honest.
+    // FIRST POSITIVE wins, not first non-null: a stale 0 on a draft row must
+    // not shadow the item's target price.
+    //
+    // The composer reads a THIRD source, `item.list_price` — but that is a
+    // column on the `items_full` VIEW, where it is an alias for a listing's
+    // listing_price. `inventory_items` has no such column, and selecting it
+    // here throws "Item not found for this workspace" and takes generation with
+    // it. The equivalent third source is another of the item's listing rows;
+    // it is not read here, and this comment is the record of why.
     priceCents: Math.round(
-      ([d.listing_price, item.target_price, item.list_price].find(
+      ([d.listing_price, item.target_price].find(
         (p): p is number => p != null && p > 0,
       ) ?? 0) * 100,
     ),

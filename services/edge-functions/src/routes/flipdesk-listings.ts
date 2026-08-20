@@ -394,7 +394,7 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   // Verify the caller owns the item (US-268).
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, user_id, target_price, list_price, status")
+    .select("id, user_id, target_price, status")
     .eq("id", itemId)
     .maybeSingle();
   if (itemErr) {
@@ -412,7 +412,6 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
       id: string;
       user_id: string;
       target_price: number | null;
-      list_price: number | null;
       status: string | null;
     }
     | null;
@@ -467,10 +466,11 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     | null;
   const groupId = base?.draft_id ?? base?.id ?? null;
 
-  // US-2736: the composer's rule, all three sources, first POSITIVE wins. This
-  // checked only two, so an item priced through `list_price` was recorded at 0.
+  // First POSITIVE wins, not first non-null: a stale 0 on the draft row must not
+  // shadow the item's target price. `inventory_items` has no `list_price` — that
+  // is a column on the `items_full` view — so there is no third source here.
   const price =
-    [base?.listing_price, item.target_price, item.list_price].find(
+    [base?.listing_price, item.target_price].find(
       (p): p is number => p != null && p > 0,
     ) ?? 0;
 

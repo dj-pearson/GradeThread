@@ -103,12 +103,11 @@ Deno.test("category override (US-722) wins over the base query", () => {
 function resolvedPriceCents(
   draftPrice: number | null,
   targetPrice: number | null,
-  listPrice: number | null = null,
+  _listPriceNotAvailableHere: number | null = null,
 ): number {
   return Math.round(
-    ([draftPrice, targetPrice, listPrice].find(
-      (p): p is number => p != null && p > 0,
-    ) ?? 0) * 100,
+    ([draftPrice, targetPrice].find((p): p is number => p != null && p > 0) ?? 0) *
+      100,
   );
 }
 
@@ -134,17 +133,22 @@ Deno.test("US-2736: a negative price never becomes a listing price", () => {
   assertEquals(resolvedPriceCents(-5, -1), 0);
 });
 
-Deno.test("US-2736: list_price is the THIRD source, and it was the missing one", () => {
-  // A price can live in three places and the composer has always read all
-  // three. This rule checked two, so an item priced through list_price
-  // generated a blank price on every channel — the exact symptom the first fix
-  // was supposed to end, still happening after it shipped.
-  assertEquals(resolvedPriceCents(null, null, 32.49), 3249);
-  assertEquals(resolvedPriceCents(0, 0, 32.49), 3249);
+Deno.test("US-2736: a third source exists, but not on inventory_items", () => {
+  // The composer reads item.list_price as a third source. It is a column on the
+  // items_full VIEW, aliasing a listing's own price, and inventory_items has no
+  // such column — selecting it there throws "Item not found for this workspace"
+  // and takes generation down with it. Proven in production 2026-08-20:
+  // `42703: column i.list_price does not exist`.
+  //
+  // So the rule here is TWO sources, deliberately, and this test is the record.
+  // The equivalent third source is another of the item's listing rows; the kit
+  // reads it from `listings`, which is a table that actually has it.
+  assertEquals(resolvedPriceCents(null, null, 32.49), 0);
+  assertEquals(resolvedPriceCents(null, 32.49, null), 3249);
 });
 
 Deno.test("US-2736: first POSITIVE wins, not first non-null", () => {
-  // A stale 0 on a draft row must not shadow a real price further down.
-  assertEquals(resolvedPriceCents(0, 24.99, 9.99), 2499);
-  assertEquals(resolvedPriceCents(32.49, 24.99, 9.99), 3249);
+  // A stale 0 on a draft row must not shadow the item's target price.
+  assertEquals(resolvedPriceCents(0, 24.99), 2499);
+  assertEquals(resolvedPriceCents(32.49, 24.99), 3249);
 });

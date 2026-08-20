@@ -914,31 +914,52 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   const { data: itemPrice } = useQuery({
     queryKey: ["item-target-price", itemId],
     queryFn: async () => {
-      const { data: row } = await supabase
-        .from("inventory_items")
-        .select("target_price, list_price")
-        .eq("id", itemId)
-        .maybeSingle();
-      return (row ?? null) as {
-        target_price: number | null;
-        list_price: number | null;
-      } | null;
+      const [{ data: row }, { data: priced }] = await Promise.all([
+        supabase
+          .from("inventory_items")
+          .select("target_price")
+          .eq("id", itemId)
+          .maybeSingle(),
+        // The composer's third source is `item.list_price`, which is NOT a
+        // column on inventory_items — it is an alias on the `items_full` VIEW
+        // for a listing's own listing_price. Selecting it from inventory_items
+        // fails the whole query, which is worse than the blank price it was
+        // meant to fix. The equivalent, read from a table that has it: any of
+        // this item's listing rows carrying a positive price.
+        supabase
+          .from("listings")
+          .select("listing_price")
+          .eq("inventory_item_id", itemId)
+          .gt("listing_price", 0)
+          .order("listing_price", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      return {
+        target_price: (row as { target_price: number | null } | null)?.target_price ?? null,
+        any_listing_price:
+          (priced as { listing_price: number | null } | null)?.listing_price ?? null,
+      };
     },
   });
   // THE COMPOSER'S OWN RULE, copied whole rather than approximated.
   //
   // An item's price can live in three places and the composer has always known
   // that: `[listing.listing_price, item.target_price, item.list_price]`, first
-  // POSITIVE value wins (composer.tsx). This fallback originally checked only
-  // the first two, which is why an item priced through `list_price` still
-  // showed a blank Listing price after the fix that was supposed to end that.
+  // POSITIVE value wins (composer.tsx). The third is the subtle one — it is a
+  // column on the `items_full` VIEW, aliasing a listing's own price, and does
+  // NOT exist on inventory_items. Asking that table for it fails the entire
+  // query and loses target_price too, which is how "no price" survived two
+  // fixes that were both individually correct.
   //
   // "First positive" is the load-bearing part, not "first non-null": a stale 0
   // on a draft row must not shadow a real price further down the list.
   const fallbackPrice =
-    [data?.listing_price, itemPrice?.target_price, itemPrice?.list_price].find(
-      (p): p is number => p != null && p > 0,
-    ) ?? 0;
+    [
+      data?.listing_price,
+      itemPrice?.target_price,
+      itemPrice?.any_listing_price,
+    ].find((p): p is number => p != null && p > 0) ?? 0;
 
   // Seed from persisted platform_fields; overlay anything just generated.
   const variants = useMemo(() => {

@@ -232,10 +232,13 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // All THREE sources the composer reads. Checking only two is what left an
     // item priced through list_price showing a blank price after the fix that
     // was meant to end exactly that.
-    expect(src).toContain('.select("target_price, list_price")');
+    // NOT list_price on inventory_items — that column is on the items_full
+    // VIEW, and asking this table for it fails the whole query.
+    expect(src).toContain('.select("target_price")');
+    expect(src).not.toContain('"target_price, list_price"');
     expect(src).toContain("data?.listing_price");
     expect(src).toContain("itemPrice?.target_price");
-    expect(src).toContain("itemPrice?.list_price");
+    expect(src).toContain("itemPrice?.any_listing_price");
   });
 
   it("first POSITIVE price wins, not first non-null", () => {
