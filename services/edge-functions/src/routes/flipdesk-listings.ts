@@ -397,7 +397,16 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     .select("id, user_id, target_price, status")
     .eq("id", itemId)
     .maybeSingle();
-  if (itemErr) return c.json({ error: "Could not load the item." }, 500);
+  if (itemErr) {
+    return failSafe(
+      c,
+      500,
+      "Could not load the item.",
+      itemErr,
+      "flipdesk.extension-writeback.item",
+      "WRITEBACK_ITEM_LOAD",
+    );
+  }
   const item = itemRow as
     | {
       id: string;
@@ -487,7 +496,14 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
       .update(patch)
       .eq("id", existing.id);
     if (upErr) {
-      return c.json({ error: "Could not update the cross-listing." }, 500);
+      return failSafe(
+        c,
+        500,
+        "Could not update the cross-listing.",
+        upErr,
+        "flipdesk.extension-writeback.update",
+        "WRITEBACK_UPDATE",
+      );
     }
     // US-2179: count a confirmed extension publish against the cap.
     if (published) await markItemListed(itemId, ownerId);
@@ -523,7 +539,19 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     .select("id")
     .single();
   if (insErr || !created) {
-    return c.json({ error: "Could not record the cross-listing." }, 500);
+    // US-2725: this branch returned a bare 500 and threw the Postgres error
+    // away. A seller hit it twice in production on 2026-08-20 with a filled-in
+    // Poshmark form in front of them, and the edge log held nothing but the
+    // status — there was no way to tell a constraint violation from a missing
+    // column from a stale PostgREST schema cache.
+    return failSafe(
+      c,
+      500,
+      "Could not record the cross-listing.",
+      insErr ?? new Error("insert returned no row"),
+      "flipdesk.extension-writeback.insert",
+      "WRITEBACK_INSERT",
+    );
   }
   // US-2179: count a confirmed extension publish against the cap.
   if (published) await markItemListed(itemId, ownerId);

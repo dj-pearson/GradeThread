@@ -430,12 +430,22 @@ function PlatformPanel({
         },
       });
       if (!wb.ok) {
-        const j = await wb.json().catch(() => ({}));
+        // US-2725: this used to print the server's sentence straight after our
+        // own, so a real seller read "couldn't record the cross-listing: Could
+        // not record the cross-listing" — the same words twice and no next step.
+        // The form IS filled at this point, so the useful thing to say is that
+        // the listing is fine and how to record it once they submit.
+        const j = (await wb.json().catch(() => ({}))) as {
+          error?: string;
+          code?: string;
+        };
+        const ref = j.code ?? String(wb.status);
         toast.error(
-          `Prefilled ${spec.label}, but couldn't record the cross-listing: ${
-            j.error ?? wb.status
-          }`,
+          `${spec.label} is prefilled, but FlipDesk couldn't record it (${ref}). ` +
+            `Submit the listing, then press "I published it" to record it here.`,
+          { duration: 12_000 },
         );
+        setPrefilled(true);
         return;
       }
       // US-1877 (AC4): say what actually happened to the photos. This used to be a

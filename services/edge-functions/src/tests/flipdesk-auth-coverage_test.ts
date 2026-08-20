@@ -43,11 +43,18 @@ const mounts = matchAll(
   /app\.route\(\s*"(\/api\/flipdesk\/[^"]+)"/g,
 );
 
-// Every path that has authMiddleware applied. ebayAuthMiddleware (US-2014 AC3)
-// counts: it IS authMiddleware, wrapped so a named skip-list is the only way out.
+// Every path that has authMiddleware applied.
+//
+// Two wrappers count, and both are authMiddleware with one explicit, tested
+// change rather than a looser posture:
+//   ebayAuthMiddleware              (US-2014 AC3) — same auth, named skip-list.
+//   extensionOrUserAuthMiddleware   (US-2723)     — same auth, plus the signed
+//     extension token the browser extension actually holds. Required on the two
+//     route groups the extension calls; under plain authMiddleware every one of
+//     its requests 401'd.
 const authPaths = matchAll(
   mainSrc,
-  /app\.use\(\s*"(\/api\/flipdesk\/[^"]+)"\s*,\s*(?:authMiddleware|ebayAuthMiddleware)\s*\)/g,
+  /app\.use\(\s*"(\/api\/flipdesk\/[^"]+)"\s*,\s*(?:authMiddleware|ebayAuthMiddleware|extensionOrUserAuthMiddleware)\s*\)/g,
 ).map((p) => p.replace(/\/\*$/, "").replace(/\/$/, ""));
 
 Deno.test("every FlipDesk router mount has an auth posture (authed or explicitly public)", () => {
@@ -137,8 +144,13 @@ const PUBLIC_API_ROUTERS = new Set<string>([
   "/api/campaign-track", // campaign tracking pixels
 ]);
 
+// US-2723: extensionOrUserAuthMiddleware joins the list for the same reason
+// ebayAuthMiddleware is on it — it IS authMiddleware, with one explicit and
+// separately tested change (it also accepts the signed extension token the
+// browser extension holds). extension-auth_test.ts keeps it narrow: it may only
+// be mounted on the route groups the extension actually calls.
 const AUTH_MW =
-  "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware|ebayAuthMiddleware|mcpAuthMiddleware)";
+  "(?:authMiddleware|adminAuthMiddleware|apiKeyAuthMiddleware|ebayAuthMiddleware|mcpAuthMiddleware|extensionOrUserAuthMiddleware)";
 
 const apiMounts = [
   ...new Set(

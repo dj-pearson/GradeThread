@@ -68,6 +68,7 @@ import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskExtensionQueueRoutes } from "./routes/flipdesk-extension-queue.ts";
+import { extensionOrUserAuthMiddleware } from "./middleware/extension-or-user-auth.ts";
 import { flipdeskSyncRoutes } from "./routes/flipdesk-sync.ts";
 import { flipdeskExpensesRoutes } from "./routes/flipdesk-expenses.ts";
 import { flipdeskConsignmentRoutes } from "./routes/flipdesk-consignment.ts";
@@ -488,13 +489,22 @@ app.use("/api/flipdesk/listings/*", authMiddleware);
 // US-2481: the mobile→desktop extension work queue. Both the bare path (POST
 // to enqueue, GET to read) and the sub-paths (/claim, /:id/complete, DELETE
 // /:id) — a wildcard alone would leave the bare mount open.
-app.use("/api/flipdesk/extension-queue", authMiddleware);
-app.use("/api/flipdesk/extension-queue/*", authMiddleware);
+//
+// US-2723: extensionOrUserAuthMiddleware, not authMiddleware. These are the two
+// route groups the BROWSER EXTENSION calls, and the extension does not hold a
+// Supabase JWT — it holds the signed token from lib/extension-token.ts. Under
+// plain authMiddleware every call 401'd (observed live in the production edge
+// log on 2026-08-20), so the queue never drained a row and no sold-sync
+// observation ever landed. The wrapper accepts either credential and nothing
+// more; see the middleware for why an extension token can never satisfy a
+// step-up gate.
+app.use("/api/flipdesk/extension-queue", extensionOrUserAuthMiddleware);
+app.use("/api/flipdesk/extension-queue/*", extensionOrUserAuthMiddleware);
 // US-2697: sold-sync observation intake. Both mounts for the same reason as
 // the queue above - there is no bare route today and a wildcard alone would
 // leave one open the day someone adds it.
-app.use("/api/flipdesk/sync", authMiddleware);
-app.use("/api/flipdesk/sync/*", authMiddleware);
+app.use("/api/flipdesk/sync", extensionOrUserAuthMiddleware);
+app.use("/api/flipdesk/sync/*", extensionOrUserAuthMiddleware);
 // A workspace member syncing acts on the OWNER's tenant, not their own
 // (US-268). Without this the route resolves ownerId to the member's id and
 // would match a sold row against an empty set of listings.
