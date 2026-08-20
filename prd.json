@@ -2525,7 +2525,8 @@
         "Poshmark price and photos are a SEPARATE problem with a different shape: both moved to a later wizard step, so no selector on the current page can reach them. Either drive the wizard forward or keep reporting them honestly as unfilled - do not add selectors that will match nothing and look green.",
         "Bump the platform's selectors version and lastVerified in the same change, per the existing contract, and keep MARKETPLACE_EXTENSION_FLOW in lockstep."
       ],
-      "priority": 12
+      "priority": 12,
+      "notes": "STEP 1 2026-08-20: brand and tags are now DECLARED in the Poshmark field config but nothing fills them, and that split is the point. runFlow only fills the keys it names, so a declared field is inert until a fill call is added; what declaring it does is make the field visible to the deep selector probe (US-2485), which reports candidate controls for entries that MISS. That is the only way to get real attribute signatures off a page nobody on this side can log into - every Poshmark sell form is behind a login, and vault/30-platform/closing-a-coverage-gap.md is explicit that re-verifying selectors needs a human on the real page. The declared values are the documented wizard's likely anchors in the house order, data-test then name/id, with NO placeholder-text fallback: a placeholder anchor that half-matches fills the WRONG control, which is worse than filling nothing. Both fields are typeaheads, so a matching selector is necessary and may not be sufficient - setting a value may still need the dropdown selection a real keystroke triggers, and that has to be established before any fill call is written. verify-lister-selectors passes; the 3 red files in test-extensions are the pre-existing sync guards matching their own comments and are untouched by this."
     },
     {
       "id": "US-2731",

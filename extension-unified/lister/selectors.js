@@ -67,6 +67,30 @@ const GT_LISTER_SELECTORS = {
       description:
         'textarea[data-test="listing-editor-description"], textarea[name="description"], ' +
         'textarea#description, textarea[placeholder^="Describe it"]',
+      // US-2730 STEP 1 — DECLARED SO THE PROBE CAN SEE THEM, NOT SO THEY FILL.
+      //
+      // Nothing fills these yet, and that is deliberate. runFlow only fills the
+      // keys it names, so declaring a field here is inert until a fill call is
+      // added. What declaring it DOES do is make the field visible to the deep
+      // selector probe (US-2485): the probe reports candidate controls for
+      // entries that MISS, so a key with no working selector is how we get the
+      // real attribute signatures off a page nobody here can log into.
+      //
+      // The values below are the documented wizard's likely anchors, in the
+      // house order: data-test first, then name/id, and NO placeholder-text
+      // fallback. A placeholder anchor that half-matches would fill the wrong
+      // control, which is worse than filling nothing — the same reasoning the
+      // title/description entries already carry, applied before the fact.
+      //
+      // Poshmark's step 1 holds title, BRAND and TAGS (see the wizard note
+      // above), so these two are reachable on the page the extension already
+      // opens. Both are typeaheads, so a matching selector is necessary and may
+      // not be sufficient: setting the value may still need the dropdown
+      // selection that a real keystroke triggers. Verify before filling.
+      brand:
+        'input[data-test="listing-editor-brand"], input[name="brand"], input#brand',
+      tags:
+        'input[data-test="listing-editor-tags"], input[name="tags"], input#tags',
       originalPrice: 'input[data-test="listing-editor-original-price"], input[name="originalPrice"]',
       price: 'input[data-test="listing-editor-listing-price"], input[name="listingPrice"]',
       // 2026-08-11: `input[type="file"][accept*="image"]` matched NOTHING here,
