@@ -2872,15 +2872,16 @@
       "acceptanceCriteria": [
         "lib/condition-value.ts valueAtGrade uses the grade TWICE: to filter the Browse query via gradeToConditionId, and to adjust the stats via valueRangeFromStats. Only the filter forces the wait, and only the filter is removed from the blocking path",
         "The comp search runs concurrently with quickGrade in routes/flipdesk-scout.ts /appraise. A test asserts the two are awaited together rather than in sequence",
-        "Comps are bucketed by BrowseComp.condition locally, so the grade selects a bucket when it lands instead of triggering a second query. No additional eBay call is made in the common case",
-        "THIN BUCKET RULE: when the selected condition bucket holds too few comps to state a range honestly, the route falls back to the filtered query rather than returning a confident number off a handful of points. The floor is a named constant and a test covers both sides of it",
+        "SPECULATIVE CONDITION, not local bucketing. The comp query is issued immediately at the condition gradeToConditionId returns for a null grade ('3000', Used), concurrently with the grade. When the grade lands and wants that same condition — which is every grade from 3.0 to 8.4, so nearly every thrift item — the comps are already in hand and cost nothing. A grade wanting 1000, 1500 or 7000 issues the precise query then, which is exactly what today costs.",
+        "The answer is IDENTICAL to today's in both cases, and that is the point of choosing speculation over bucketing: the query issued is the same query with the same filter, so there is no population change to reason about and no thin-bucket rule to get wrong. A test asserts the returned value matches the sequential implementation for the same inputs on both the hit and the miss path.",
         "The value returned for a given grade is unchanged within a stated tolerance when the bucket is well populated. A test pins this against fixed comp fixtures, so the speedup cannot quietly become a different answer",
         "Measured before and after on the same inputs, with the numbers recorded in the story note"
       ],
       "priority": 11,
       "dependsOn": [
         "US-2752"
-      ]
+      ],
+      "notes": "APPROACH CHANGED 2026-08-20, before implementation. The story was written to fetch comps unfiltered and bucket them by BrowseComp.condition locally. Reading gradeToConditionId showed why that is the worse trade: it collapses to four buckets and everything from 3.0 to 8.4 is '3000', so the common case needs no bucketing at all — it needs the query it was always going to issue, started earlier. Bucketing an unfiltered result would also have changed the POPULATION (eBay's relevance ranking without a condition filter is not a representative sample per condition), which is an accuracy change smuggled in as a speedup. Speculation cannot change the answer because it issues the identical query."
     },
     {
       "id": "US-2754",

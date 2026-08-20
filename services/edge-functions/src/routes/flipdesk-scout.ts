@@ -25,7 +25,10 @@ import {
   valueRangeFromStats,
   type ValueRange,
 } from "../lib/condition-value.ts";
-import { gradeToConditionId } from "../lib/repricing.ts";
+import {
+  resolveComps,
+  SPECULATIVE_CONDITION_ID,
+} from "../lib/comp-speculation.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { decideBuy, DECISION_FEE_RATE } from "../lib/scout-decision.ts";
 import {
@@ -207,6 +210,42 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     return c.json(quota.body, quota.status);
   }
 
+  // 0) US-2753: START THE COMP QUERY NOW, before the grade exists.
+  //
+  // gradeToConditionId collapses the whole scale into four eBay buckets, and
+  // everything from 3.0 to 8.4 lands on the same one — which is very nearly
+  // every garment anyone picks up in a shop. So the condition the grade is about
+  // to ask for is already knowable, and the eBay call no longer waits behind a
+  // Claude Vision call doing nothing.
+  //
+  // The query issued here is IDENTICAL to the one the sequential code issued —
+  // same filter, same limit — so a hit returns exactly what today returns. See
+  // lib/comp-speculation.ts for why this beats bucketing an unfiltered result.
+  const compArgs = barcode
+    ? {
+      gtin: barcode,
+      categoryId: categoryId || undefined,
+      brand: brand || undefined,
+      limit: 25,
+    }
+    : {
+      categoryId,
+      q: q || undefined,
+      brand: brand || undefined,
+      size: size || undefined,
+      limit: 25,
+    };
+
+  // Settled, never rejecting. The grade block below can return early on failure,
+  // and an in-flight promise nobody awaits is the unhandled rejection that takes
+  // the whole worker down (vault/10-ops/edge-hang-vs-crash-loop.md).
+  const speculativeComps = searchBrowseComps({
+    ...compArgs,
+    conditionId: SPECULATIVE_CONDITION_ID,
+  })
+    .then((result) => ({ ok: true as const, result }))
+    .catch((err: unknown) => ({ ok: false as const, err }));
+
   // 1) Private shadow grade from the photo (US-616 primitive). Barcode-only
   //    appraisals skip grading and value at the default "used" condition.
   let shadowGrade: number | null = null;
@@ -250,23 +289,20 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   let value: ValueRange;
   let matchedTitle: string | null = null;
   const matchedCategoryId: string | null = categoryId || null;
+  const speculated = await speculativeComps;
+  let compsReused = false;
   try {
-    if (barcode) {
-      const search = await searchBrowseComps({
-        gtin: barcode,
-        categoryId: categoryId || undefined,
-        brand: brand || undefined,
-        conditionId: gradeToConditionId(shadowGrade),
-        limit: 25,
-      });
-      value = valueRangeFromStats(search.stats, shadowGrade, search.stats.currency);
-      matchedTitle = search.items[0]?.title ?? null;
-    } else {
-      value = await valueAtGrade(
-        { categoryId, q: q || undefined, brand: brand || undefined, size: size || undefined },
-        shadowGrade,
-      );
-    }
+    // The reuse decision lives in lib/comp-speculation.ts and is unit-tested by
+    // COUNTING fetches, so "a hit issues no second call" is held by a test rather
+    // than by reading this line and believing it.
+    const { result: search, reused } = await resolveComps(
+      speculated,
+      shadowGrade,
+      (conditionId) => searchBrowseComps({ ...compArgs, conditionId }),
+    );
+    compsReused = reused;
+    value = valueRangeFromStats(search.stats, shadowGrade, search.stats.currency);
+    if (barcode) matchedTitle = search.items[0]?.title ?? null;
   } catch (err) {
     return failSafe(
       c,
@@ -290,6 +326,12 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   recordMetric("scout.appraise", 1, {
     recommendation: decision.recommendation,
     graded: String(imagesAnalyzed > 0),
+    // US-2753: did the speculative comp query serve this appraisal, or did the
+    // grade land outside the used band and force a second call? The unit test
+    // measures coverage across a FLAT scale; this measures it against the grades
+    // sellers actually produce, which is the number that decides whether the
+    // speculation is worth keeping.
+    compsReused: String(compsReused),
   });
 
   return c.json({
