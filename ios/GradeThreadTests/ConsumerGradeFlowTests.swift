@@ -111,10 +111,18 @@ final class ConsumerGradeFlowTests: XCTestCase {
         XCTAssertEqual(slots, ["tag"])
     }
 
-    func testRetryPaymentAfterBuyingCreditsProceeds() async {
-        // Safe by construction: the route enforces one debit per submission
-        // (US-2298), so a second pay call cannot double-charge.
+    func testItWaitsForTheGrantBeforeRetrying() async {
+        // ⚠ THE CASE MY FIRST VERSION WOULD HAVE FAILED. An Apple purchase
+        // completing on the device is not the balance moving - the grant comes
+        // through the server. Charging inside that gap answers "out of credits"
+        // a SECOND time, which is the same wall the customer just paid to clear.
         var attempt = 0
+        var balance = 0
+        let topUp = CreditTopUpFlow(
+            maxPolls: 4,
+            fetchBalance: { balance },
+            sleep: { _ in balance = 25 }   // the grant lands after one wait
+        )
         let flow = ConsumerGradeFlow(
             submit: { _, _, _ in .submitted(submissionId: "sub-1", paid: false) },
             pay: { _ in
@@ -124,12 +132,42 @@ final class ConsumerGradeFlowTests: XCTestCase {
                     : .paidFromCredits(balance: 24)
             },
             status: { _ in self.status("completed") },
-            sleep: { _ in }
+            sleep: { _ in },
+            creditTopUp: topUp
         )
         await flow.start(images: images, request: request)
         XCTAssertEqual(flow.step, .needsCredits(submissionId: "sub-1", offer: nil))
-        await flow.retryPayment(submissionId: "sub-1")
+
+        await flow.creditsPurchased(submissionId: "sub-1", baseline: 0)
         XCTAssertEqual(flow.step, .graded(submissionId: "sub-1"))
+        XCTAssertEqual(attempt, 2, "the retry must happen exactly once, after the grant")
+    }
+
+    func testAGrantThatNeverLandsOffersCheckAgainRatherThanAnError() async {
+        // NOT a refusal: the grant may still arrive. awaitGrant already
+        // re-checks once more before reporting the timeout, so the honest state
+        // is "delayed", and a red banner here would tell a paying customer their
+        // purchase failed when it did not.
+        var payCalls = 0
+        let topUp = CreditTopUpFlow(
+            maxPolls: 3,
+            fetchBalance: { 0 },          // the balance never moves
+            sleep: { _ in }
+        )
+        let flow = ConsumerGradeFlow(
+            submit: { _, _, _ in .submitted(submissionId: "sub-1", paid: false) },
+            pay: { _ in payCalls += 1; return .needsCredits(offer: nil) },
+            status: { _ in self.status("completed") },
+            sleep: { _ in },
+            creditTopUp: topUp
+        )
+        await flow.start(images: images, request: request)
+        await flow.creditsPurchased(submissionId: "sub-1", baseline: 0)
+
+        XCTAssertEqual(flow.step, .creditsDelayed(submissionId: "sub-1"))
+        if case .failed = flow.step { XCTFail("a delayed grant is not a failure") }
+        // And it must NOT have charged again into the gap.
+        XCTAssertEqual(payCalls, 1, "no retry while the grant has not landed")
     }
 
     // MARK: - Polling

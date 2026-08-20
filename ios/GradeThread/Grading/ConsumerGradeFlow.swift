@@ -26,6 +26,19 @@ final class ConsumerGradeFlow {
         /// Neither covered it. NOT an error - an offer, and the pack is the one
         /// the route named.
         case needsCredits(submissionId: String, offer: PhotoGradePayment.PackOffer?)
+        /// The purchase went through and the server has not credited the account
+        /// YET.
+        ///
+        /// ⚠ THIS STATE IS THE WHOLE POINT OF THE TOP-UP FLOW. An Apple purchase
+        /// completing on the device does not mean the balance has moved: the
+        /// grant arrives through the server, and there is a gap. Paying again
+        /// during that gap returns "out of credits" a SECOND time - the same
+        /// wall the customer just paid to clear.
+        case awaitingCredits(submissionId: String)
+        /// The grant did not appear inside the poll window. NOT a failure and
+        /// NOT a refusal: it may still land, so the user gets "check again"
+        /// rather than an error.
+        case creditsDelayed(submissionId: String)
         /// Paid, grading. The server sends nothing until it is done, so the UI
         /// must render this indeterminately rather than invent a number.
         case grading(submissionId: String, statusText: String)
@@ -42,14 +55,29 @@ final class ConsumerGradeFlow {
     private let status: (String) async throws -> PhotoGradeStatus
     private let sleep: (Double) async -> Void
 
+    /// THE SAME top-up flow ``GradeRequestStore`` uses, not a second one.
+    ///
+    /// It polls the billing snapshot until the balance rises above the
+    /// pre-purchase baseline, tolerating a failed read, and it re-checks once
+    /// more on timeout because the grant may land between the last poll and
+    /// giving up. Two answers to "have the credits arrived yet" would drift, and
+    /// the one that drifts is the one that tells a paying customer no.
+    let creditTopUp: CreditTopUpFlow
+
     /// Seams injected so the whole journey is testable without a network. The
     /// defaults are the real calls.
     init(
         submit: (([PhotoGradeImage], PhotoGradeRequest, @MainActor (Double) -> Void) async throws -> PhotoGradeOutcome)? = nil,
         pay: ((String) async throws -> PhotoGradePayment.Outcome)? = nil,
         status: ((String) async throws -> PhotoGradeStatus)? = nil,
-        sleep: ((Double) async -> Void)? = nil
+        sleep: ((Double) async -> Void)? = nil,
+        creditTopUp: CreditTopUpFlow? = nil
     ) {
+        // Built in the init body, not as a default argument: a default is
+        // evaluated in a nonisolated context and PaywallStore is @MainActor -
+        // the same reason GradeRequestStore constructs its own here.
+        self.creditTopUp = creditTopUp ?? CreditTopUpFlow(
+            fetchBalance: { await PaywallStore.liveBillingFetcher()?.credits })
         self.submit = submit ?? { images, request, onProgress in
             try await PhotoGradeUploadService.submit(
                 images: images, request: request, onProgress: onProgress)
@@ -94,11 +122,40 @@ final class ConsumerGradeFlow {
         await charge(submissionId: submissionId)
     }
 
-    /// Called again after a credit purchase completes. Retrying pay is safe:
-    /// the route refuses to double-charge a submission (US-2298 enforces one
-    /// debit per submission in the database).
-    func retryPayment(submissionId: String) async {
-        await charge(submissionId: submissionId)
+    /// Called when the credit purchase completes.
+    ///
+    /// ⚠ WAITS FOR THE GRANT BEFORE RETRYING, which my first version did not.
+    /// The purchase succeeding on the device is not the balance moving; the
+    /// grant comes through the server and there is a gap. Charging inside that
+    /// gap answers "out of credits" again and shows the customer the same wall
+    /// they just paid to clear.
+    ///
+    /// `baseline` is the balance BEFORE the purchase. The grant is detected as a
+    /// strict increase over it, which tolerates a failed read and does not
+    /// assume the pack size arrived exactly.
+    ///
+    /// Retrying the charge itself is safe: the route enforces one debit per
+    /// submission in the database (US-2298, after batch grading charged up to
+    /// five times for one garment).
+    func creditsPurchased(submissionId: String, baseline: Int) async {
+        step = .awaitingCredits(submissionId: submissionId)
+        await creditTopUp.awaitGrant(baseline: baseline) { [weak self] in
+            guard let self else { return }
+            if case .granted = self.creditTopUp.state {
+                await self.charge(submissionId: submissionId)
+            }
+        }
+        // timedOut is not a refusal - the grant may still land, so offer
+        // "check again" rather than an error. awaitGrant already re-checks once
+        // more before reporting it.
+        if case .timedOut = creditTopUp.state, case .awaitingCredits = step {
+            step = .creditsDelayed(submissionId: submissionId)
+        }
+    }
+
+    /// The "check again" affordance on ``Step/creditsDelayed``.
+    func recheckCredits(submissionId: String, baseline: Int) async {
+        await creditsPurchased(submissionId: submissionId, baseline: baseline)
     }
 
     private func charge(submissionId: String) async {
