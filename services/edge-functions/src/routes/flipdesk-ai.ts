@@ -386,11 +386,17 @@ flipdeskAiRoutes.post("/extract", async (c) => {
   // listings (Browse, app token) in the background — verified IDs get boosted
   // confidence + "Verified on eBay"; zero market hits demote. No AI call, no
   // foreground latency; every failure degrades to "stays unverified".
-  if (itemId && result.research) {
+  //
+  // US-2689: also run on a bare STYLE CODE with no research identification. The
+  // research tier is where identifications come from, but a legible tag code is
+  // learnable from any tier, and gating on result.research meant the learned
+  // index (US-2246) never saw the items the model could not name.
+  const verifyStyleCode = result.attributes.style_code?.values[0] ?? null;
+  if (itemId && (result.research || verifyStyleCode)) {
     const bgItemId = itemId as string;
-    const research = result.research;
+    const research = result.research ?? null;
     const brand = result.suggestions.brand?.value ?? null;
-    const styleCode = result.attributes.style_code?.values[0] ?? null;
+    const styleCode = verifyStyleCode;
     void (async () => {
       try {
         await verifyIdentificationAgainstMarket({

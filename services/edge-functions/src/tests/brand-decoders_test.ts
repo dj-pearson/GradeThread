@@ -40,10 +40,46 @@ Deno.test("lululemon style number is case-insensitive and normalizes color", () 
 
 // ── never a false positive ──────────────────────────────────────────────────
 Deno.test("malformed style numbers return no match", () => {
-  assertEquals(decodeTagCode("lululemon", "WABCD"), null); // no dot/season
+  assertEquals(decodeTagCode("lululemon", "WABCD"), null); // 5 chars: neither generation
   assertEquals(decodeTagCode("lululemon", "XA1234B.0322"), null); // bad gender
   assertEquals(decodeTagCode("lululemon", "WA1234B.0522"), null); // season 05 invalid
   assertEquals(decodeTagCode("lululemon", ""), null);
+});
+
+// ── US-2689: Jan 2017 - Jan 2019 style numbers (no season/year suffix) ──────
+Deno.test("US-2689: a 2017-generation code decodes gender and the raw code", () => {
+  const r = decodeTagCode("lululemon", "M7A83S");
+  assert(r !== null);
+  assertEquals(r!.brand, "Lululemon");
+  assertEquals(r!.decoderKind, "style_number_2017");
+  assertEquals(r!.gender, "Men");
+  assertEquals(r!.styleCode, "7A83");
+  assertEquals(r!.colorInitial, "S");
+  // The suffix is what carried season/year; without it they must stay absent
+  // rather than be guessed.
+  assertEquals(r!.season, undefined);
+  assertEquals(r!.year, undefined);
+});
+
+Deno.test("US-2689: 2017 codes are case-insensitive and women's decode too", () => {
+  assertEquals(decodeTagCode("lululemon", "w6avbs")!.gender, "Women");
+  assertEquals(decodeTagCode("lululemon", "w6avbs")!.colorInitial, "S");
+});
+
+Deno.test("US-2689: the 2019+ spec still wins for codes carrying the suffix", () => {
+  // Anchored to different lengths, so the two decoders never compete.
+  assertEquals(
+    decodeTagCode("lululemon", "WA1234B.0322")!.decoderKind,
+    "style_number",
+  );
+  assertEquals(decodeTagCode("lululemon", "WA1234B.0322")!.year, "2022");
+});
+
+Deno.test("US-2689: the 2017 spec stays anchored to exactly six characters", () => {
+  assertEquals(decodeTagCode("lululemon", "M7A83"), null); // 5
+  assertEquals(decodeTagCode("lululemon", "M7A83SX"), null); // 7
+  assertEquals(decodeTagCode("lululemon", "M7A835"), null); // colour slot is a letter
+  assertEquals(decodeTagCode("lululemon", "X7A83S"), null); // bad gender
 });
 
 // ── size dot (printed number) ───────────────────────────────────────────────

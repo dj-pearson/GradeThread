@@ -1,5 +1,58 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00626 — Lululemon style numbers from 2017-2019 decode to nothing (US-2689)
+
+**Risk: LOW.** One `INSERT ... ON CONFLICT DO UPDATE` of a single row into
+`public.brand_style_codes`. No table, no column, no function, no policy, no
+customer data. Nothing reads a new column, so the frontend auto-deploy on push
+cannot break on it.
+
+**What it fixes.** `brand_style_codes` carries one Lululemon `style_number`
+decoder (seeded by 00390) and its pattern REQUIRES the `.SSYY` season/year
+block:
+
+```
+^(?<gender>[WM])(?<style>[A-Z0-9]{3,5})(?<color>[A-Z])\.(?<season>0[1-4])(?<year>\d{2})$
+```
+
+Lululemon only started printing that block in 2019. Codes from Jan 2017 to Jan
+2019 are the same `W|M` + code + colour-initial body with nothing after it
+(`M7A83S`, `W6AVBS`), so every garment from those two years matched no decoder
+at all: no brand confirmation, no gender, and no anchor for the learned style
+index. 00626 adds a second row, `decoder_kind = 'style_number_2017'`, anchored
+to exactly six characters at confidence 0.85 (lower than the 2019+ spec because
+it grounds fewer fields — gender and the code, never season or year).
+
+**Why a second row and not a looser pattern.** The two are anchored to
+different lengths, so they can never compete, and a 2019+ code still decodes
+against the more specific spec with its season and year intact.
+`decodeTagCode` returns the first match and the `brand_style_codes` unique key
+is `(brand_key, decoder_kind)`, so ordering is irrelevant either way.
+
+**Note the code-side fallback also changed.** `DEFAULT_DECODER_SPECS` in
+`services/edge-functions/src/lib/brand-decoders.ts` carries the same new spec.
+`decodeTagCode` ignores the in-code defaults entirely when DB specs exist for a
+brand, so both had to move or the fix would depend on which path ran.
+
+**Apply order**
+
+1. Run `supabase/migrations/00626_lululemon_2017_style_number_decoder.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — not strictly needed (no shape change),
+   but harmless and keeps the habit.
+3. Redeploy the edge on Coolify (`EXPECTED_SCHEMA_VERSION` is now `00626`).
+4. Then OK the push.
+
+**Confirm it landed**
+
+```sql
+select decoder_kind, pattern, confidence
+from public.brand_style_codes
+where brand_key = 'lululemon'
+order by decoder_kind;
+```
+
+Expect three rows: `size_dot`, `style_number`, `style_number_2017`.
+
 ## ✅ APPLIED 2026-08-19: 00625 — the connector is denied on the plans that include it (US-2687)
 
 **Applied to production by the owner on 2026-08-19 and verified in the same

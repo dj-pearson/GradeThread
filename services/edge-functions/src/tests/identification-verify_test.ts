@@ -16,6 +16,9 @@ const {
   decideVerification,
   scoreTitleAgreement,
   tokenizeTitle,
+  verifyIdentificationAgainstMarket,
+  _browse,
+  _observe,
   VERIFY_CONFIDENCE_DELTA,
   VERIFY_MIN_AGREEMENT,
 } = await import("../lib/identification-verify.ts");
@@ -135,4 +138,105 @@ Deno.test("US-1528: hits that disagree leave confidence untouched, unverified", 
   assertEquals(decision.verified, false);
   // Noisy search ≠ refutation: absence of agreement doesn't demote.
   assertEquals(decision.adjustedConfidence, 0.7);
+});
+
+// ── US-2689: the learning path runs without a proposed identification ────────
+// The old gate returned before the search whenever the model could not name the
+// style, so the learned index (US-2246) only ever saw items that were ALREADY
+// identified. These drive the real function through the two exported seams.
+
+type ObserveArgs = Parameters<typeof _observe.record>[0];
+type Research = NonNullable<
+  Parameters<typeof verifyIdentificationAgainstMarket>[0]["research"]
+>;
+
+/** A research block whose only interesting field is whether it named a style. */
+function research(identifiedStyle: string | null, confidence: number): Research {
+  return {
+    identifiedStyle,
+    productLine: null,
+    fabricTechnology: null,
+    msrpEstimateCents: null,
+    rationale: null,
+    confidence,
+  };
+}
+
+/** Run the real function with both seams stubbed; returns what each one saw. */
+async function runVerify(args: {
+  styleCode: string | null;
+  research?: Research | null;
+  hits?: { title: string; url: string | null }[];
+}): Promise<{ queries: string[]; observed: ObserveArgs[] }> {
+  const realSearch = _browse.search;
+  const realRecord = _observe.record;
+  const queries: string[] = [];
+  const observed: ObserveArgs[] = [];
+  _browse.search = (q: string) => {
+    queries.push(q);
+    return Promise.resolve(args.hits ?? []);
+  };
+  _observe.record = (o: ObserveArgs) => {
+    observed.push(o);
+    return Promise.resolve(1);
+  };
+  try {
+    await verifyIdentificationAgainstMarket({
+      userId: "user-1",
+      itemId: "item-1",
+      brand: "Lululemon",
+      styleCode: args.styleCode,
+      research: args.research ?? null,
+    });
+  } finally {
+    _browse.search = realSearch;
+    _observe.record = realRecord;
+  }
+  return { queries, observed };
+}
+
+Deno.test("US-2689: a style code with no identification still searches and learns", async () => {
+  const { queries, observed } = await runVerify({
+    styleCode: "M7A83S",
+    research: null,
+    hits: [
+      { title: "Lululemon Commission Short Relaxed Warpstreme 11\" Black 32", url: "https://ebay.com/1" },
+      { title: "Lululemon Commission Short 11 Warpstreme Dark Olive 34", url: "https://ebay.com/2" },
+    ],
+  });
+  // Only the code query — there is no named style to search for.
+  assertEquals(queries, ["Lululemon M7A83S"]);
+  assertEquals(observed.length, 1);
+  assertEquals(observed[0]!.styleCodeRaw, "M7A83S");
+  assertEquals(observed[0]!.brandKey, "lululemon");
+  assertEquals(observed[0]!.titles.length, 2);
+});
+
+Deno.test("US-2689: research that failed to name a style still learns from the code", async () => {
+  const { queries, observed } = await runVerify({
+    styleCode: "W6AVBS",
+    research: research(null, 0.4),
+    hits: [{ title: "Lululemon Align Legging 25 Nulu Black Size 6", url: null }],
+  });
+  assertEquals(queries, ["Lululemon W6AVBS"]);
+  assertEquals(observed.length, 1);
+});
+
+Deno.test("US-2689: no code and no identification searches nothing", async () => {
+  const { queries, observed } = await runVerify({
+    styleCode: null,
+    research: null,
+  });
+  assertEquals(queries, []);
+  assertEquals(observed, []);
+});
+
+Deno.test("US-2689: a code that returns no market hits records nothing", async () => {
+  const { queries, observed } = await runVerify({
+    styleCode: "M7A83S",
+    research: null,
+    hits: [],
+  });
+  assertEquals(queries, ["Lululemon M7A83S"]);
+  assertEquals(observed, []);
 });

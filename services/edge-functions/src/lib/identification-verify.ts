@@ -173,31 +173,49 @@ export const _browse = {
   },
 };
 
+// US-2689: the same seam for the learned-index write, so a test can assert what
+// the code query taught us without a service-role round trip.
+export const _observe = {
+  record: recordStyleCodeObservations,
+};
+
 /**
  * Background verification step: search Browse for the identification, decide,
  * and persist onto the item — attributes.identification_verified ("true" /
  * "false") + attributes.market_title_keywords, and the adjusted confidence on
  * ai_field_sources.style when the style came from research. Tenant-scoped;
  * every failure is swallowed (caller logs).
+ *
+ * US-2689: `research` is OPTIONAL. A transcribed style code with NO proposed
+ * style is the case the learned index (US-2246) exists for, and it was the one
+ * case this function used to skip — so the index only ever learned from items
+ * that were already identified, and never from the failures. When there is a
+ * code we run the code query and record what the market called it, then stop;
+ * verification proper still needs a proposal to verify.
  */
 export async function verifyIdentificationAgainstMarket(args: {
   userId: string;
   itemId: string;
   brand: string | null;
   styleCode: string | null;
-  research: ResearchIdentification;
+  research?: ResearchIdentification | null;
 }): Promise<void> {
   const { userId, itemId, brand, styleCode, research } = args;
-  const identifiedStyle = research.identifiedStyle;
-  if (!identifiedStyle) return;
+  const identifiedStyle = research?.identifiedStyle ?? null;
 
   // Two anchored queries: the hard code (when US-1526 read one) and the named
-  // style. Dedupe titles across both.
+  // style. Either may be absent; with neither there is nothing to search.
   const queries: Array<{ q: string; isCode: boolean }> = [];
   if (styleCode) {
     queries.push({ q: `${brand ?? ""} ${styleCode}`.trim(), isCode: true });
   }
-  queries.push({ q: `${brand ?? ""} ${identifiedStyle}`.trim(), isCode: false });
+  if (identifiedStyle) {
+    queries.push({
+      q: `${brand ?? ""} ${identifiedStyle}`.trim(),
+      isCode: false,
+    });
+  }
+  if (queries.length === 0) return;
 
   const titles = new Set<string>();
   // US-2246: what the CODE query returned, kept separately — those hits are the
@@ -219,13 +237,18 @@ export async function verifyIdentificationAgainstMarket(args: {
   // deliberately BEFORE the decision: what the code returned is a fact either way,
   // and the confidence cap (LEARNED_CONFIDENCE_CAP) is what keeps it modest.
   if (styleCode && codeHits.length > 0) {
-    void recordStyleCodeObservations({
+    void _observe.record({
       brandKey: brand ? brandKey(brand) : "",
       styleCodeRaw: styleCode,
       titles: codeHits,
       source: "market_verify",
     });
   }
+
+  // Everything below SCORES a proposed identification. With no proposal there is
+  // nothing to verify and nothing to persist — the learning above is the whole
+  // point of the call, and it has already happened.
+  if (!research || !identifiedStyle) return;
 
   const agreement = scoreTitleAgreement({
     brand,

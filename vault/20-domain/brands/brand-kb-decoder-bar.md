@@ -9,6 +9,7 @@ code_refs:
   - supabase/migrations/00574_headwear_brand_knowledge.sql
   - supabase/migrations/00575_eyewear_brand_knowledge.sql
   - supabase/migrations/00576_jewelry_brand_knowledge.sql
+  - supabase/migrations/00626_lululemon_2017_style_number_decoder.sql
   - services/edge-functions/src/lib/brand-decoders.ts
   - services/edge-functions/src/lib/ai-authenticity.ts
 reviewed: 2026-08-09
@@ -197,6 +198,50 @@ Rag & Bone's men's denim runs `Fit 1`–`Fit 4`, printed on the tag and genuinel
 regular, but "Fit 2" would false-recover the brand from any tag using those two
 words. Carry it into the title; require a Rag & Bone tag before treating it as
 brand evidence.
+
+## A brand that CHANGES its format needs a second row, not a looser one (US-2689)
+
+Added 2026-08-19. Lululemon's seeded `style_number` decoder (`00390`) requires
+the `.SSYY` season/year block. Lululemon only began printing that block in 2019,
+so codes from **Jan 2017 to Jan 2019** — the same `W|M` + code + colour-initial
+body with nothing after it, `M7A83S`, `W6AVBS` — matched no decoder at all. Two
+years of one of the most-resold brands in the corpus decoded to nothing.
+
+`00626` seeds a second row, `decoder_kind = 'style_number_2017'`, rather than
+relaxing the 2019 pattern. Two reasons, and the second is the general one:
+
+- The specs are **anchored to different lengths**, so they cannot compete: a
+  2019+ code still matches the more specific spec with its season and year
+  intact. A single loosened pattern would have made the suffix optional and
+  silently widened what the 2019 spec accepts.
+- A generation gets its own confidence. The 2017 spec sits at **0.85** against
+  the 2019 spec's 0.90 because it grounds strictly fewer fields — gender and the
+  raw code, never season or year. One merged pattern can only carry one number,
+  so it would have had to overstate the weaker half or understate the stronger.
+
+### Is the 2017 shape brand-unique enough?
+
+It is weaker than the 2019 shape, and the answer is that **this bar is about
+brand RECOVERY, and a style-code hit cannot recover a brand.** From
+[[#Passing the bar is still not enough a decoder needs something LEFT TO SAY]]:
+`decodeTagCode` runs inside an already-resolved pack, and both call sites pass
+`brandPack.key`. Downstream, `enrichExtractionWithBrandKnowledge` applies a
+style-code hit to exactly one field — `brand`, set to *the pack's own brand*,
+which is the brand that selected the pack. A false fire therefore re-confirms a
+brand already proposed; it cannot spell "Lululemon" onto a Nike.
+
+That is what separates this from the Reebok and URBN refusals. Those decoders
+would have run in a pack the tag's own brand did not choose. This one cannot.
+
+> The rule the corpus should carry forward: **a decoder's blast radius is the
+> set of fields it OVERRIDES, not the set it derives.** Judge a marginal pattern
+> against that, and judge a brand-recovering pattern against the three tests
+> unchanged.
+
+The 2017 spec goes into `DEFAULT_DECODER_SPECS` as well as the migration.
+`decodeTagCode` ignores the in-code defaults entirely whenever DB specs exist for
+a brand, so seeding only one of the two leaves the fix dependent on which path
+ran.
 
 ## A decoder CONTRADICTION now caps the authenticity verdict (US-2138)
 

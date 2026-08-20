@@ -100,6 +100,29 @@ export const DEFAULT_DECODER_SPECS: DecoderSpec[] = [
   },
   {
     brandKey: "lululemon",
+    decoderKind: "style_number_2017",
+    // US-2689: the Jan 2017 - Jan 2019 generation. Same W|M + code + colour-
+    // initial body; the ".SSYY" season block only arrived in 2019, so those two
+    // years of garments decode to NOTHING against the spec above and lose brand
+    // confirmation entirely. Anchored to exactly six characters, which is what
+    // that generation printed (e.g. M7A83S, W6AVBS) — a 2019+ code carries the
+    // suffix and matches the earlier spec, so the two never compete.
+    // Lower confidence than the 2019+ spec because it grounds fewer fields:
+    // gender and the raw code, no season and no year.
+    pattern: "^(?<gender>[WM])(?<style>[A-Z0-9]{4})(?<color>[A-Z])$",
+    fieldMap: {
+      gender: "gender",
+      style: "styleCode",
+      color: "colorInitial",
+    },
+    transforms: {
+      gender: "genderCode",
+      color: "upper",
+    },
+    confidence: 0.85,
+  },
+  {
+    brandKey: "lululemon",
     decoderKind: "size_dot",
     // The size PRINTED in the pocket size-dot. Anchored to a lone number so it
     // only fires when the caller isolates the dot region (no false positives on

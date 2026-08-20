@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2689",
+  "nextId": "US-2696",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2015,6 +2015,109 @@
       ],
       "notes": "Filed 2026-08-19 while scoping US-2016's evidence-photo gap. ⚠ THE SWEEP FOR SIBLINGS WAS RUN AND FOUND NONE, and the first pass of it was WRONG in a way worth recording. I initially reported three broken routes - dispute, ebay aspects/write-back and category/derive-aspects - by matching the request struct against the route's body key. That is the wrong test: EbayAspectsService builds its OWN plain JSONEncoder and so was never affected. The app has at least two transports with opposite key behaviour (28 files construct a plain JSONEncoder; the rest use EdgeAPI's snake-casing one), which means neither the struct nor the route tells you whether a call is correct - only the transport does. Re-run keyed on transport: 13 iOS files send a multi-word body through the SHARED encoder, and every one of their routes reads snake_case except this one. platform-fields reads body.item_id, appstore/verify reads body.jws, autolister/batch reads body.item_ids. So the defect is a single route reading camelCase where the rest of the edge reads snake_case, and iOS is the only client whose transport rewrites keys.",
       "priority": 7
+    },
+    {
+      "id": "US-2689",
+      "passes": true,
+      "title": "Lululemon 2017-2019 style numbers decode to nothing, and the learned index never sees the items it exists for",
+      "description": "As a seller photographing a Lululemon tag, I want the style code on it to be read and remembered, so that the second copy of that garment is identified without another model call.",
+      "acceptanceCriteria": [
+        "brand_style_codes carries a lululemon decoder_kind 'style_number_2017' anchored to exactly six characters (W|M + 4 alphanumerics + colour initial) at confidence 0.85, and DEFAULT_DECODER_SPECS in services/edge-functions/src/lib/brand-decoders.ts carries the same spec, because decodeTagCode ignores the in-code defaults whenever DB specs exist for the brand.",
+        "decodeTagCode('lululemon', 'M7A83S') returns decoderKind 'style_number_2017', gender 'Men', styleCode '7A83', colourInitial 'S', and leaves season and year undefined rather than guessing them.",
+        "decodeTagCode('lululemon', 'WA1234B.0322') still returns decoderKind 'style_number' with year '2022' — the 2019+ spec is unchanged and the two are anchored to different lengths, so they never compete.",
+        "verifyIdentificationAgainstMarket accepts research: null and, when a styleCode is present, runs the code query and records the observation BEFORE the identifiedStyle gate; with neither a code nor a named style it issues no Browse query at all.",
+        "The flipdesk-ai extract handler calls verifyIdentificationAgainstMarket when result.research OR a style_code attribute is present, so a legible tag code is learned on every tier rather than only the research tier.",
+        "Migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, and the shipped manifest regenerated."
+      ],
+      "priority": 40,
+      "notes": "Done 2026-08-19. Three defects, one cause: a Lululemon tag code could be read correctly and still ground nothing.\n\n1. THE DECODER. brand_style_codes' lululemon 'style_number' pattern (00390) requires the '.SSYY' season/year block, which Lululemon only began printing in 2019. Jan 2017 to Jan 2019 codes are the same W|M + code + colour-initial body with nothing after it (M7A83S, W6AVBS) and matched no decoder at all. Migration 00626 adds decoder_kind 'style_number_2017', anchored to exactly six characters at confidence 0.85, and the same spec goes into DEFAULT_DECODER_SPECS because decodeTagCode ignores the in-code defaults whenever DB specs exist for the brand — fixing only one path would have left the fix dependent on which path ran.\n\n2. THE LEARNING GATE. verifyIdentificationAgainstMarket opened with `if (!identifiedStyle) return;`, so the learned style-code index (US-2246) only ever recorded observations for items the model had ALREADY named. The failures — a legible code the model could not turn into a product — were exactly the ones it never saw, and they are the ones the index exists for. `research` is now optional; the code query and the observation write run first, and the function returns before the scoring block when there is nothing to verify.\n\n3. THE TIER GATE. flipdesk-ai.ts ran the verify step only when result.research was present, which is the research tier. A tag code is learnable from any tier, so the condition is now `result.research || style_code`.\n\nEight tests added, all passing (30 in the two touched files, 70 across the four run). Two exported seams — _browse was already there, _observe is new — let the tests drive the real function without a service-role round trip.\n\nWHAT THIS DOES NOT DO, and it is the important half. A decoder confirms the brand and reads gender, season and year. It does NOT yield a product NAME: that mapping is private to Lululemon and no vendor sells it. What is fixed here is the plumbing that FEEDS the name index; filling it is US-2690 (sweep), US-2691 (consensus naming), US-2692 (seller corrections), US-2693 (admin curation) and US-2694 (official current-season names).\n\nMIGRATION 00626 IS HELD — committed to local main, not pushed. Packaged in PENDING_MIGRATIONS.md with the apply order and the confirmation query (expect three lululemon rows: size_dot, style_number, style_number_2017). Risk LOW: one INSERT ... ON CONFLICT DO UPDATE of a single brand_style_codes row, no schema change, nothing client-side reads it."
+    },
+    {
+      "id": "US-2690",
+      "passes": false,
+      "title": "The learned style-code index only ever fills one code at a time, at the speed sellers happen to photograph tags",
+      "description": "As the operator, I want a background job that resolves every style code we have ever seen against eBay Browse, so that the code-to-product index fills at API speed instead of at seller speed.",
+      "acceptanceCriteria": [
+        "A new services/edge-functions/src/routes/jobs-style-code-sweep.ts follows the existing jobs-*.ts contract: job_locks lock, job_runs row, heartbeat, and a stale-claim reclaim, per the durable-jobs skill.",
+        "The sweep's work-list is every distinct (brand_key, style_code_norm) that appears on an inventory_items style_code attribute or in style_code_observations with seen_count below a configurable confirmation floor — codes already well-confirmed are skipped, and the skip count is logged.",
+        "Per-run volume is capped by an env-configured budget (default well under the eBay Browse app-level daily call allowance) and the run logs how many codes were swept, how many were skipped, and how many were left for the next run — no silent truncation.",
+        "Every resolved code writes through recordStyleCodeObservations with source 'market_verify', so the LEARNED_CONFIDENCE_CAP and the title/URL-only storage rule from 00503 continue to apply unchanged.",
+        "The job is registered in the cron fleet alongside the other jobs-*.ts entries and is safe to run twice concurrently (the lock proves it) — a test asserts the second invocation returns without duplicating work.",
+        "A zero-hit code is recorded as swept rather than retried forever: the sweep does not re-query a code it has already failed to resolve until a configurable cooldown has passed."
+      ],
+      "priority": 41
+    },
+    {
+      "id": "US-2691",
+      "passes": false,
+      "title": "One seller's listing title is not a product name — the index needs consensus, not the loudest single title",
+      "description": "As a seller, I want the product name we derive from a style code to be the one the market agrees on, so that the name on my listing is the real product name and not one seller's typo.",
+      "acceptanceCriteria": [
+        "A pure function derives a consensus product name from N observation titles for one code by taking the longest word n-gram present in at least a configurable majority of them, replacing today's pick-the-single-most-seen-title path in pickLearnedStyle.",
+        "The consensus function is unit-tested against real-shaped Lululemon titles: the fixture set for one code yields 'Commission Short Relaxed Warpstreme' and drops size, condition and colour chatter.",
+        "Confidence rises with the number of INDEPENDENT titles agreeing, not with the number of rows: three near-identical titles harvested from one search count as one confirmation, matching the existing MAX_TITLES_PER_OBSERVATION intent.",
+        "A code whose titles do not reach the majority threshold yields NULL rather than a best guess — the existing tie-yields-nothing rule is preserved and tested.",
+        "LEARNED_CONFIDENCE_CAP may be raised for a consensus-derived name, but stays strictly below the confidence of a verified brand_style_codes decoder hit and below a research identification; the test asserts the ordering rather than the numbers.",
+        "The stored consensus name is written back so the read path does not recompute it per extraction, and a migration adding any new column follows the US-1108 triple."
+      ],
+      "priority": 42
+    },
+    {
+      "id": "US-2692",
+      "passes": false,
+      "title": "When a seller fixes the product name we got wrong, the correction dies on that one item",
+      "description": "As a seller, I want my correction to a wrong product name to teach the system, so that nobody else has to make the same correction for the same garment.",
+      "acceptanceCriteria": [
+        "Editing the style or title on an inventory_item that carries a style_code attribute records a style_code_observation with source 'own_sale' (the existing enum value for first-party evidence), not 'market_verify'.",
+        "A first-party correction outranks any number of market titles for the same code: the lookup returns the corrected name, and a test asserts it wins over a market consensus with a higher seen_count.",
+        "Only a correction that actually CHANGES the name is recorded — re-saving an unchanged item writes nothing, so a seller opening and closing the editor does not inflate seen_count.",
+        "The write is tenant-scoped through the owning item (US-268): the edge path confirms the item's user_id before recording, and src/tests/tenant-isolation_test.ts gains a case proving another tenant's item id cannot seed an observation.",
+        "Nothing seller-identifying is stored — the observation keeps title and evidence URL only, matching the 00503 rule, and a test asserts no user id reaches the row."
+      ],
+      "priority": 43
+    },
+    {
+      "id": "US-2693",
+      "passes": false,
+      "title": "Nobody can see, correct, or promote what the style-code index has learned",
+      "description": "As an admin, I want to review the learned style codes and promote the good ones, so that a confirmed code-to-product mapping becomes permanent knowledge instead of staying a capped hint forever.",
+      "acceptanceCriteria": [
+        "src/pages/admin/brand-knowledge.tsx gains a style-codes view listing learned observations by brand with the code, the consensus name, seen_count, source and evidence URL, sorted so the least-confirmed and the conflicting codes surface first.",
+        "An admin can promote a learned code to a permanent brand_styles row for that brand, and the promoted row carries style_name, keywords and source_url populated, matching the seeding conventions US-2216 already established.",
+        "An admin can reject a wrong learned name, and a rejected code is not re-learned by the sweep from the same evidence — rejection is recorded, not just deleted.",
+        "Every mutation goes through services/edge-functions/src/routes/admin-brand-knowledge.ts behind the existing admin scope check, and the tables stay registered in SERVICE_ROLE_ONLY in rls-guard_test.ts.",
+        "The view is read-only for admins without the brand-knowledge scope, and a test asserts the promote and reject endpoints reject an under-scoped admin."
+      ],
+      "priority": 44
+    },
+    {
+      "id": "US-2694",
+      "passes": false,
+      "title": "Codes on garments Lululemon still sells resolve to seller chatter when the real product name is published",
+      "description": "As a seller listing a current-season Lululemon garment, I want its code to resolve to Lululemon's own product name, so that the listing carries the name buyers actually search for.",
+      "acceptanceCriteria": [
+        "An operator script resolves current-season Lululemon products to (style code, official product name, colourway) and seeds them as brand_styles rows, with the run's source URL recorded on every row.",
+        "A source that blocks automated access is reported as blocked and the script exits non-zero rather than seeding a partial or inferred set — no guessed names enter brand_styles.",
+        "An official name outranks a market-consensus name for the same code, and the precedence is asserted by a test rather than left to insertion order.",
+        "The script is idempotent: a second run against unchanged upstream data inserts nothing and says so, and the first run is exercised against the local stack before it is handed over (the apply-blog-ctr-rewrites lesson — a dry run exercises none of the write path).",
+        "Coverage is reported as a number: how many distinct codes the index can now name, before and after, so the payoff of this route is measured rather than assumed.",
+        "Any migration seeding rows follows the US-1108 triple."
+      ],
+      "priority": 45
+    },
+    {
+      "id": "US-2695",
+      "passes": true,
+      "title": "Rendering a measurements photo made the item impossible to grade, and the seller was shown a Postgres enum error",
+      "description": "Reported 2026-08-19 from the composer: 'Submit failed: Failed to record submission images: invalid input value for enum image_type: \"measurement_overlay\"'. lib/grading-submit.ts mapPhotoTypeForGrading() matched tape-measure photos on the `measurement_` PREFIX, mapping the type through unchanged as an image_type. That was true of exactly five names until migration 00350 added `measurement_overlay` to flipdesk_photo_type — the GENERATED annotated render (lines and inch labels burned in) that /api/flipdesk/measure/overlay writes. It starts with the prefix and names no dimension, and image_type is a SEPARATE enum (00001, grown by 00103) that has never held it, so the submission_images insert failed for the whole item. The charge is reversed by the catch (refund_grade is idempotent), so no money was lost, but the item could not be graded at all while that photo existed — and a seller who used the measure tool as intended is the one who could not grade. Every future `measurement_*` photo type would have failed the same way.",
+      "acceptanceCriteria": [
+        "mapPhotoTypeForGrading resolves `measurement_overlay` to null (with any role): it is graphics this app drew, not evidence about the garment, and it is already excluded from the card scan (measure-autofill NEVER_THE_CARD) and from eBay (EBAY_INELIGIBLE_PHOTO_TYPES).",
+        "The `measurement_` branch accepts only the five dimensions that exist in BOTH enums, so a photo type added by a future migration is refused rather than passed through to a failed INSERT.",
+        "Second layer: every image_type this function returns is checked against GRADE_IMAGE_TYPES (the enum's value list) before it leaves. An unknown name resolves to 'not gradable' — the item grades without that photo — instead of failing an insert on a submission that is already paid for.",
+        "The regression guard reads the flipdesk_photo_type values out of supabase/migrations/ rather than a list in the test file, so the next enum value is covered the day it lands. Both new tests fail against the old mapper (verified by reverting it)."
+      ],
+      "notes": "Fixed 2026-08-19. Verified: deno test src/tests/grading-readiness-parity_test.ts, 10 passed / 0 failed; the two new cases fail 2/8 against the pre-fix mapper. The failed submission leaves an orphan `submissions` row in `pending` plus the copied blobs in submission-images — the refund runs but the row is not deleted (the non-payment path a few lines above DOES delete it). /api/jobs/stuck-submissions is the sweeper; not touched here.",
+      "priority": 3
     }
   ]
 }
