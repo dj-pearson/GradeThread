@@ -203,6 +203,7 @@ function KitField({ field, value, editable, onChange }: KitFieldProps) {
 function PlatformPanel({
   platform,
   variant,
+  fallbackPrice,
   photos,
   primaryId,
   baseName,
@@ -210,6 +211,8 @@ function PlatformPanel({
 }: {
   platform: MarketplacePlatform;
   variant: PlatformKitVariant | undefined;
+  /** US-2736: used when the stored variant carries no price. 0 means none. */
+  fallbackPrice: number;
   photos: ExportablePhoto[];
   primaryId: string | null;
   baseName: string;
@@ -330,8 +333,16 @@ function PlatformPanel({
   // title/description + the platform category are editable (the seller confirms
   // the seeded category / department — US-722); the rest is copy-only display.
   const editableKeys = new Set(["title", "description", "category", "department"]);
+  // US-2736: one resolved variant, so the DISPLAYED price, the validation that
+  // decides "Ready to list", and the payload the extension receives can never
+  // disagree about what this item costs. Patching only the render would have
+  // shown a price the extension still refused to type.
+  const priced: PlatformKitVariant =
+    variant.price > 0 || fallbackPrice <= 0
+      ? variant
+      : { ...variant, price: fallbackPrice };
   const valueOf = (f: FieldSpec) =>
-    edits[f.key] ?? fieldValue(f.key, variant);
+    edits[f.key] ?? fieldValue(f.key, priced);
 
   // US-725: re-validate the *edited* draft live against the platform's
   // requirements registry (not just the stale generation-time result), so an
@@ -397,7 +408,16 @@ function PlatformPanel({
     }
     setSending(true);
     try {
-      const payload = buildListerPayload({ platform, itemId, variant, photos, primaryId });
+      const payload = buildListerPayload({
+        platform,
+        itemId,
+        // US-2736: the SAME resolved variant the panel is showing. Sending the
+        // raw one would hand the extension an empty price while the seller is
+        // looking at a filled-in Listing price row.
+        variant: priced,
+        photos,
+        primaryId,
+      });
       const res = await sendToLister(payload);
       if (res.needsConsent) {
         toast.error("Open the GradeThread Lister and accept its terms first.");
@@ -836,7 +856,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
     queryFn: async () => {
       const { data: row } = await supabase
         .from("listings")
-        .select("id, platform_fields, primary_photo_id")
+        .select("id, platform_fields, primary_photo_id, listing_price")
         .eq("inventory_item_id", itemId)
         .eq("platform", "ebay")
         .order("created_at", { ascending: false })
@@ -846,6 +866,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
         id: string;
         platform_fields: Record<string, unknown> | null;
         primary_photo_id: string | null;
+        listing_price: number | null;
       } | null;
     },
   });
@@ -863,6 +884,32 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
     },
   });
   const primaryId = data?.primary_photo_id ?? null;
+
+  // US-2736: the price the kit falls back to when the stored variant has none.
+  //
+  // A variant's price is written once, when it is generated. Every draft
+  // generated before the server-side fix carries 0, and 0 renders as a blank
+  // Listing price and reaches the extension as "" — which it refuses to type.
+  // Fixing only the generator would have meant every existing draft stayed
+  // broken until someone thought to press Regenerate.
+  //
+  // Resolving it at RENDER time fixes them all at once, with no regeneration
+  // and no deploy ordering to get right. Same precedence as the generator and
+  // the extension writeback: the eBay draft's price, else the item's target.
+  const { data: itemPrice } = useQuery({
+    queryKey: ["item-target-price", itemId],
+    queryFn: async () => {
+      const { data: row } = await supabase
+        .from("inventory_items")
+        .select("target_price")
+        .eq("id", itemId)
+        .maybeSingle();
+      return (row as { target_price: number | null } | null)?.target_price ?? null;
+    },
+  });
+  const fallbackPrice =
+    (data?.listing_price && data.listing_price > 0 ? data.listing_price : null) ??
+    (itemPrice && itemPrice > 0 ? itemPrice : 0);
 
   // Seed from persisted platform_fields; overlay anything just generated.
   const variants = useMemo(() => {
@@ -942,6 +989,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
               <PlatformPanel
                 platform={p}
                 variant={variants[p]}
+                fallbackPrice={fallbackPrice}
                 photos={photos}
                 primaryId={primaryId}
                 baseName={baseName ?? `item-${itemId.slice(0, 8)}`}

@@ -222,6 +222,33 @@ describe("an orphaned bridge fails fast instead of hanging (US-2733)", () => {
   });
 });
 
+describe("a draft with no stored price still cross-posts one (US-2736)", () => {
+  it("the kit resolves a price at render, not only at generation", () => {
+    // A variant's price is written once, when it is generated. Every draft made
+    // before the generator fix carries 0, and fixing only the generator would
+    // leave them all broken until someone thought to press Regenerate.
+    const src = code(KIT);
+    expect(src).toContain("const fallbackPrice =");
+    expect(src).toContain('.select("target_price")');
+  });
+
+  it("display, validation and payload all read the SAME resolved variant", () => {
+    // Patching only the render would show a price the extension still refuses
+    // to type, which is the failure this whole thread has been about.
+    const src = code(KIT);
+    expect(src).toContain("const priced: PlatformKitVariant =");
+    expect(src).toContain("fieldValue(f.key, priced)");
+    expect(src).toContain("variant: priced,");
+  });
+
+  it("it never invents a price", () => {
+    // fallbackPrice 0 means the item has none anywhere; the variant is left
+    // exactly as stored rather than being given a number nobody chose.
+    const src = code(KIT);
+    expect(src).toContain("variant.price > 0 || fallbackPrice <= 0");
+  });
+});
+
 describe("cross-posting has a setup flow with real state (US-2719)", () => {
   it("the section is on the Marketplaces page", () => {
     expect(code(MARKETPLACES)).toContain("<CrossPostSetup />");

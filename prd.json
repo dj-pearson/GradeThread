@@ -2617,7 +2617,8 @@
         "An unpriced draft still resolves to 0 rather than inventing a number, and a negative price never becomes a listing price. 4 cases in platform-variants_test.ts pin the rule; 11 pass.",
         "OPERATOR: the fix only affects newly generated variants. Existing drafts carry the stored 0 - press Regenerate on the Listing Kit to pick up the price."
       ],
-      "priority": 8
+      "priority": 8,
+      "notes": "RENDER-TIME FALLBACK ADDED 2026-08-20, after the server fix alone did not clear it. The server fix is correct but only affects NEWLY generated variants: a variant's price is written once, at generation, so every draft made before it carries the stored 0 and stays broken until someone thinks to press Regenerate. That is the wrong dependency for a field this important. listing-kit.tsx now resolves the price at RENDER: it reads the eBay draft's listing_price alongside platform_fields and the item's target_price, applying the same draft-then-target precedence the generator and the extension writeback use, so all three agree about what an item costs. The resolved variant is used in THREE places deliberately - the displayed row, the live validation that decides Ready to list, and buildListerPayload - because patching only the render would show the seller a filled-in price while still handing the extension an empty string, which is exactly the failure this whole thread has been about. It never invents a price: fallbackPrice 0 leaves the variant exactly as stored. 3 guards in src/test/cross-post-setup.test.ts; 34 pass. This fixes every existing draft with no regeneration and no deploy ordering to get right."
     },
     {
       "id": "US-2737",
