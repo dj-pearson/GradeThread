@@ -102,6 +102,20 @@
              be ended in the seller's own browser. Until now the extension — the
              only thing that CAN end them — never showed the queue, so a sold item
              stayed live until the seller happened to open the SaaS. -->
+        <!-- US-2699: sold-sync health, per channel. The SAME projection the
+             Marketplaces page renders (edge lib/sync-status.ts), because a popup
+             that calls a channel healthy while the web calls it failing makes the
+             seller trust neither. "Not synced yet" is deliberately distinct from
+             "Syncing": a channel nobody has read is not a healthy one. -->
+        <div class="pop-delists" id="syncBlock" hidden>
+          <div class="pop-lastjob-head">
+            <span class="pop-lastjob-label">Sold-sync</span>
+            <button type="button" class="pop-linkbtn" id="syncNowBtn">Sync now</button>
+          </div>
+          <p class="pop-delist-note" id="syncNote" hidden></p>
+          <ul class="pop-delist-list" id="syncList"></ul>
+        </div>
+
         <div class="pop-delists" id="delistBlock" hidden>
           <div class="pop-lastjob-head">
             <span class="pop-lastjob-label">Needs ending</span>

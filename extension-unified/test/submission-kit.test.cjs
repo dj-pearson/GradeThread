@@ -85,6 +85,43 @@ if (bridge) {
   );
 }
 
+// ── the sold-sync content script must be DISCLOSED ─────────────────────────
+// US-2699. The second genuinely-new access after the bridge, and the more
+// sensitive one: it runs on a page that prints the BUYER's name and shipping
+// address. A reviewer reading only "reads listing pages" would not know we are
+// on the seller's order history, and a store that finds that out by itself
+// finds it out as an undisclosed collection.
+const syncCs = (manifest.content_scripts || []).find(
+  (c) => Array.isArray(c.js) && c.js.includes("sync/content.js"),
+);
+if (syncCs) {
+  assert.ok(
+    /sold-order|order\/sales|sold-sync/i.test(doc),
+    "sync/content.js is injected into the seller's own Poshmark order pages, but " +
+      "SUBMISSION.md never discloses it. That page carries buyer identity, so an " +
+      "undisclosed content script on it is the worst omission in this kit.",
+  );
+  assert.ok(
+    /buyer'?s? name/i.test(doc) && /shipping address/i.test(doc),
+    "SUBMISSION.md discloses the sold-sync content script but does not state that " +
+      "the buyer's name and shipping address are NOT read. Stating what is collected " +
+      "without stating what is deliberately not collected leaves a reviewer to assume " +
+      "the worst about a page they can see has both.",
+  );
+  // Every path the script can reach must be justified by host, same rule the
+  // host_permissions loop applies above.
+  for (const m of syncCs.matches || []) {
+    const bare = String(m)
+      .replace(/^https:\/\//, "")
+      .replace(/^\*\./, "")
+      .replace(/\/.*$/, "");
+    assert.ok(
+      doc.includes(bare),
+      `sold-sync content script matches ${m} but ${bare} is never justified in SUBMISSION.md.`,
+    );
+  }
+}
+
 console.log(
   `submission-kit.test.cjs: SUBMISSION.md matches manifest v${version} — ` +
     `${(manifest.permissions || []).length} permissions + ` +

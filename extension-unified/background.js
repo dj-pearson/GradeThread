@@ -68,6 +68,11 @@ const ENTITLEMENTS_ENDPOINT = "https://functions.gradethread.com/api/grading/pub
 // FlipDesk gate rather than the anonymous public quota.
 const SYNC_OBSERVE_ENDPOINT =
   "https://functions.gradethread.com/api/flipdesk/sync/observations";
+// The popup's door onto the SAME projection the Marketplaces page reads. The
+// extension speaks an HMAC token, not a Supabase JWT, so it cannot reach the
+// JWT-guarded /api/flipdesk/sync/status.
+const SYNC_STATUS_ENDPOINT =
+  "https://functions.gradethread.com/api/grading/public/sync-status";
 const SELECTOR_HEALTH_ENDPOINT =
   "https://functions.gradethread.com/api/grading/public/selector-health";
 // US-1757 AC2: the opt-in usage tally (reads + click-throughs). A SEPARATE
@@ -564,6 +569,36 @@ async function scanCards({ cards, marketplace, query, brand }) {
 // something else on their own closet, and there is no UI waiting on the result.
 // A failure is logged and dropped rather than retried, because a retry loop on a
 // page the seller is still browsing is a poll wearing a different name.
+// US-2699: per-channel sold-sync health for the popup.
+//
+// Read-only and cheap, so it is fetched fresh rather than cached: a seller
+// opening the popup to find out whether sync is working is exactly the moment a
+// stale "Syncing" would be a lie.
+async function fetchSyncStatus() {
+  if (!(await sellerAllowed())) return { ok: false, status: 402, channels: [] };
+
+  const { gtBuyerToken } = await ext.storage.local.get("gtBuyerToken");
+  if (!gtBuyerToken || typeof gtBuyerToken !== "string") {
+    return { ok: false, status: 401, needsSignIn: true, channels: [] };
+  }
+
+  let resp;
+  try {
+    resp = await fetch(SYNC_STATUS_ENDPOINT, {
+      headers: { Authorization: "Bearer " + gtBuyerToken },
+    });
+  } catch (_e) {
+    return { ok: false, status: 0, channels: [] };
+  }
+  let json = null;
+  try { json = await resp.json(); } catch (_e) { /* empty body */ }
+  return {
+    ok: resp.ok,
+    status: resp.status,
+    channels: (json && Array.isArray(json.channels)) ? json.channels : [],
+  };
+}
+
 async function postSyncObservations(msg) {
   const batch = msg && msg.batch;
   if (!batch || typeof batch !== "object" || !batch.platform) {
@@ -1921,6 +1956,10 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
       // Nothing here decides what sold; the server does.
       case "GT_SYNC_OBSERVE":
         sendResponse(await postSyncObservations(msg));
+        break;
+      // US-2699: what the popup renders. Same projection as the web.
+      case "GT_SYNC_STATUS":
+        sendResponse(await fetchSyncStatus());
         break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));

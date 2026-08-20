@@ -609,6 +609,139 @@ const DELIST_REASON = {
   error: "Couldn't check for listings that need ending. Try again in a moment.",
 };
 
+// US-2699: per-channel sold-sync health in the popup.
+//
+// Reads the shared projection through the extension's own door
+// (/api/grading/public/sync-status), so this and the Marketplaces page can never
+// disagree about whether a channel is working. They disagreeing is the failure
+// lib/pending-delists.ts documents, and it matters more here: sold-sync is what
+// stands between the seller and a double sale.
+//
+// "Sync now" does NOT poll. It re-reads the CURRENT tab if that tab is already a
+// page sold-sync covers, and otherwise tells the seller which page to open. A
+// button that opened a marketplace tab would be the scheduled poll (US-2701)
+// wearing a different name, and that feature carries its own consent.
+function syncStateLine(ch) {
+  switch (ch.status) {
+    case "ok":
+      return ch.listings_seen === null
+        ? "Syncing"
+        : "Syncing — " + ch.listings_seen + " listing" +
+          (ch.listings_seen === 1 ? "" : "s") + " seen";
+    case "failing":
+      return "Sync failing — nothing was recorded";
+    case "not_signed_in":
+      return "Not signed in — nothing was recorded";
+    default:
+      return "Not synced yet";
+  }
+}
+
+// "Sync now": re-read the tab the seller is already on, if it is one sold-sync
+// covers. It never opens or navigates a tab — a button that did would be the
+// scheduled poll (US-2701) under another name, and that feature carries its own
+// consent for exactly that reason.
+//
+// The honest failure is the important half. On a page sold-sync does not cover
+// there is nothing to read, so the button says which page to open rather than
+// reporting a successful sync of nothing.
+async function runSyncNow() {
+  const btn = document.getElementById("syncNowBtn");
+  const note = document.getElementById("syncNote");
+  if (!btn) return;
+  btn.disabled = true;
+  try {
+    let tabs = [];
+    try {
+      tabs = await ext.tabs.query({ active: true, currentWindow: true });
+    } catch (_e) { /* no tabs access in this context */ }
+    const tab = tabs && tabs[0];
+    let answered = null;
+    if (tab && tab.id != null) {
+      try {
+        answered = await ext.tabs.sendMessage(tab.id, { type: "GT_SYNC_RUN" });
+      } catch (_e) {
+        answered = null; // no sold-sync content script on this page
+      }
+    }
+    if (note) {
+      note.hidden = false;
+      note.textContent = answered && answered.ok
+        ? "Read this page. Anything new shows up in a moment."
+        : "Open your own sold page or closet on a supported marketplace, then press this again.";
+    }
+    if (answered && answered.ok) {
+      const caps = await send({ type: "GT_GET_CAPABILITIES", force: true });
+      await renderSyncStatus(caps);
+    }
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function renderSyncStatus(caps) {
+  const block = document.getElementById("syncBlock");
+  if (!block) return;
+
+  // Seller-only surface; don't even ask the server otherwise.
+  if (!caps || !caps.sellerEnabled) {
+    block.hidden = true;
+    return;
+  }
+
+  const list = document.getElementById("syncList");
+  const note = document.getElementById("syncNote");
+  list.textContent = "";
+
+  const res = await send({ type: "GT_SYNC_STATUS" });
+  if (!res || !res.ok || !Array.isArray(res.channels)) {
+    block.hidden = false;
+    note.hidden = false;
+    note.textContent = "Couldn't check sync status.";
+    return;
+  }
+
+  const channels = res.channels;
+  if (!channels.length) {
+    block.hidden = true;
+    return;
+  }
+
+  block.hidden = false;
+  const trouble = channels.filter(
+    (c) => c.status === "failing" || c.status === "not_signed_in",
+  ).length;
+  if (trouble) {
+    note.hidden = false;
+    note.textContent = trouble === 1
+      ? "One channel needs a look. Nothing was recorded from it."
+      : trouble + " channels need a look. Nothing was recorded from them.";
+  } else {
+    note.hidden = true;
+    note.textContent = "";
+  }
+
+  for (const ch of channels) {
+    const li = document.createElement("li");
+    const name = document.createElement("span");
+    name.className = "pop-delist-title";
+    name.textContent = ch.platform;
+    const state = document.createElement("span");
+    state.className = "pop-delist-meta";
+    state.textContent = syncStateLine(ch);
+    li.appendChild(name);
+    li.appendChild(state);
+    list.appendChild(li);
+  }
+}
+
+// US-2699: bind the Sync now control. Guarded because popup.js is also read as
+// text by zero-dep guards that have no DOM.
+try {
+  const _syncBtn = document.getElementById("syncNowBtn");
+  if (_syncBtn) _syncBtn.addEventListener("click", function () { void runSyncNow(); });
+} catch (_e) { /* no popup markup in this context */ }
+
 async function renderPendingDelists(caps) {
   const block = document.getElementById("delistBlock");
   if (!block) return;
@@ -1160,6 +1293,7 @@ function renderSellerSections(caps) {
     renderPlatforms();
     renderLastJob();
     renderPendingDelists(caps);
+  void renderSyncStatus(caps);
     renderConsent();
     void renderEngagement();
   } else if (caps && caps.authenticated) {

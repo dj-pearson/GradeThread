@@ -237,6 +237,27 @@
     run();
   }
 
+  // "Sync now" in the popup. It re-reads THIS tab, which the seller is already
+  // looking at — it does not open one. A button that opened a marketplace tab
+  // would be the scheduled poll (US-2701) under another name, and that feature
+  // carries its own consent for exactly that reason.
+  //
+  // Forced: it bypasses the same-href guard, because the seller pressing the
+  // button is saying "read it again" about the page already on screen.
+  try {
+    ext.runtime.onMessage.addListener(function (msg, _sender, sendResponse) {
+      if (!msg || msg.type !== "GT_SYNC_RUN") return undefined;
+      lastHref = null;
+      try {
+        run();
+        sendResponse({ ok: true, read: true });
+      } catch (_e) {
+        sendResponse({ ok: false, read: false });
+      }
+      return undefined;
+    });
+  } catch (_e) { /* no runtime messaging in this context */ }
+
   maybeRun();
   try {
     new MutationObserver(maybeRun).observe(document.body, { childList: true, subtree: true });
