@@ -9,6 +9,14 @@ import {
 import { requireScope } from "../lib/scope-guard.ts";
 import { resolveBrandKnowledgePack } from "../lib/brand-knowledge.ts";
 import { validateTellsForWrite } from "../lib/brand-authenticity.ts";
+import {
+  groupStyleCodeRows,
+  keywordsForPromotedStyle,
+  orderReviewQueue,
+  effectivePromotionSource,
+  promotionRefusal,
+  reviewItemFor,
+} from "../lib/style-code-review.ts";
 
 // US-1715: admin authoring + verification surface for the Brand & Style
 // Knowledge Base (00389 tables: brand_knowledge / brand_styles /
@@ -301,4 +309,156 @@ adminBrandKnowledgeRoutes.delete("/:table/:id", async (c) => {
     before,
   });
   return c.json({ ok: true });
+});
+
+
+// ── US-2693: the learned style-code index, and what to do about it ───────────
+//
+// Everything above edits facts a human authored. This edits what the machine
+// LEARNED — style_code_names (00628), filled by the market sweep (US-2690) and
+// by sellers correcting us (US-2692). Two verbs an admin needs and nothing else
+// has: PROMOTE a name that is right into permanent brand_styles knowledge, and
+// REJECT one that is wrong.
+//
+// Rejection RECORDS rather than deletes. A deleted row is one the sweep hands
+// straight back next tick from the same listings; a rejected one it cannot.
+
+/** Rows read per review page. The queue is ordered in code, not in SQL, because
+ *  the ordering rule (conflict first, then thin evidence) is not expressible as
+ *  a column and is worth a unit test. */
+const STYLE_CODE_REVIEW_SCAN = 2000;
+
+adminBrandKnowledgeRoutes.get("/style-codes/review", async (c) => {
+  const brand = c.req.query("brand")?.trim();
+  const limit = Math.min(
+    Math.max(Number.parseInt(c.req.query("limit") ?? "100", 10) || 100, 1),
+    500,
+  );
+
+  let query = supabaseAdmin
+    .from("style_code_names")
+    .select(
+      "id, brand_key, style_code_norm, style_code_raw, name, source, supporting, confidence, evidence_url, rejected_at, updated_at",
+    )
+    .order("updated_at", { ascending: false })
+    .limit(STYLE_CODE_REVIEW_SCAN);
+  if (brand) query = query.eq("brand_key", brand);
+
+  const { data, error } = await query;
+  if (error) {
+    console.error("[admin-brand-kb] style-code review read failed:", error.message);
+    return c.json({ error: "Read failed" }, 500);
+  }
+
+  const rows = (data ?? []) as Array<
+    Parameters<typeof groupStyleCodeRows>[0][number]
+  >;
+  const queue = orderReviewQueue(groupStyleCodeRows(rows).map(reviewItemFor));
+  return c.json({
+    items: queue.slice(0, limit),
+    total: queue.length,
+    // Say it when the scan bound, so "nothing left to review" is never a lie
+    // told by a LIMIT.
+    truncated: rows.length >= STYLE_CODE_REVIEW_SCAN,
+  });
+});
+
+// ── POST /style-codes/:id/reject — this name is wrong ────────────────────────
+adminBrandKnowledgeRoutes.post("/style-codes/:id/reject", async (c) => {
+  const id = c.req.param("id");
+  // No updated_by stamp here on purpose: 00628's columns describe the NAME, not
+  // who touched it, and the acting admin is already the audit log's subject.
+  const { data: before } = await supabaseAdmin
+    .from("style_code_names")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!before) return c.json({ error: "Row not found" }, 404);
+
+  const { data: after, error } = await supabaseAdmin
+    .from("style_code_names")
+    .update({ rejected_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[admin-brand-kb] style-code reject failed:", error.message);
+    return c.json({ error: "Reject failed" }, 500);
+  }
+
+  await writeAuditLog(c, {
+    action: "brand_knowledge.style_code_reject",
+    targetType: "style_code_names",
+    targetId: id,
+    before,
+    after,
+  });
+  return c.json({ row: after });
+});
+
+// ── POST /style-codes/:id/promote — this name is right, keep it forever ──────
+adminBrandKnowledgeRoutes.post("/style-codes/:id/promote", async (c) => {
+  const id = c.req.param("id");
+  const adminId = c.get("userId");
+
+  let body: Record<string, unknown> = {};
+  try {
+    body = await c.req.json();
+  } catch {
+    // Body is optional — department is the only thing a human can add that the
+    // code cannot, and an empty one is valid (00389 defaults it to '').
+  }
+
+  const { data: row } = await supabaseAdmin
+    .from("style_code_names")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) return c.json({ error: "Row not found" }, 404);
+
+  const learned = row as {
+    brand_key: string;
+    style_code_raw: string;
+    name: string;
+    source: string;
+    confidence: number;
+    evidence_url: string | null;
+    rejected_at: string | null;
+  };
+  const sourceUrl = effectivePromotionSource(body.source_url, learned.evidence_url);
+  const refusal = promotionRefusal(learned, sourceUrl);
+  if (refusal) return c.json({ error: refusal.error }, refusal.status as 400 | 409);
+
+  const department = typeof body.department === "string" ? body.department.trim() : "";
+  const styleRow = {
+    brand_key: learned.brand_key,
+    style_name: learned.name,
+    department,
+    keywords: keywordsForPromotedStyle(learned.name),
+    // The code itself is the most searchable alias a style row can carry.
+    aliases: [learned.style_code_raw],
+    source_url: sourceUrl,
+    confidence: learned.confidence,
+    // Promoting IS the human verification. That is the whole verb.
+    verified: true,
+    updated_by: `admin:${adminId}`,
+  };
+
+  const { data: created, error } = await supabaseAdmin
+    .from("brand_styles")
+    .upsert(styleRow, { onConflict: "brand_key,style_name,department" })
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    console.error("[admin-brand-kb] style promote failed:", error.message);
+    return c.json({ error: "Promote failed" }, 500);
+  }
+
+  await writeAuditLog(c, {
+    action: "brand_knowledge.style_code_promote",
+    targetType: "brand_styles",
+    targetId: (created as { id?: string } | null)?.id ?? id,
+    after: created,
+  });
+  return c.json({ style: created });
 });

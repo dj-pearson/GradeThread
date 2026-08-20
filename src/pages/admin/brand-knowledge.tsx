@@ -132,6 +132,35 @@ const EDITABLE: Record<string, string[]> = {
   ],
 };
 
+// US-2693: the learned style-code review queue. Shapes mirror
+// lib/style-code-review.ts; the ORDER is decided there, not here — the page
+// renders what the queue hands it.
+interface ReviewCandidate {
+  id?: string;
+  name: string;
+  source: string;
+  supporting: number;
+  confidence: number;
+  evidenceUrl: string | null;
+  rejected: boolean;
+}
+
+interface ReviewItem {
+  brandKey: string;
+  styleCodeNorm: string;
+  styleCodeRaw: string;
+  resolved: { name: string; source: string; supporting: number } | null;
+  candidates: ReviewCandidate[];
+  conflicting: boolean;
+  priority: number;
+}
+
+interface ReviewResponse {
+  items: ReviewItem[];
+  total: number;
+  truncated: boolean;
+}
+
 export function AdminBrandKnowledgePage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -142,6 +171,14 @@ export function AdminBrandKnowledgePage() {
   const [editJson, setEditJson] = useState("");
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<{ table: string; fact: Fact } | null>(null);
+  // US-2693: promoting needs a source URL. That is the DATABASE's rule, not a
+  // form preference — brand_styles carries
+  // CHECK (brand_fact_is_sourced(source_url, confidence)) — so the dialog is
+  // where an admin supplies one when the learned row has no evidence link,
+  // which is every seller correction.
+  const [promoteTarget, setPromoteTarget] = useState<ReviewCandidate | null>(null);
+  const [promoteSource, setPromoteSource] = useState("");
+  const [promoteDepartment, setPromoteDepartment] = useState("");
 
   const { data: brands, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["admin-brand-kb"],
@@ -160,6 +197,64 @@ export function AdminBrandKnowledgePage() {
     queryFn: async (): Promise<BrandDetail> => await api(`/api/admin/brand-knowledge/${selected}`),
     enabled: !!selected,
   });
+
+  const {
+    data: review,
+    isLoading: reviewLoading,
+    isError: reviewError,
+    refetch: refetchReview,
+    isFetching: reviewFetching,
+  } = useQuery({
+    queryKey: ["admin-brand-kb", "style-codes"],
+    queryFn: async (): Promise<ReviewResponse> =>
+      await api("/api/admin/brand-knowledge/style-codes/review?limit=100"),
+    staleTime: 30 * 1000,
+  });
+
+  const refreshReview = () =>
+    void queryClient.invalidateQueries({
+      queryKey: ["admin-brand-kb", "style-codes"],
+    });
+
+  function openPromote(cand: ReviewCandidate) {
+    setPromoteTarget(cand);
+    setPromoteSource(cand.evidenceUrl ?? "");
+    setPromoteDepartment("");
+  }
+
+  async function confirmPromote() {
+    const cand = promoteTarget;
+    if (!cand?.id) return;
+    setBusyId(cand.id);
+    try {
+      await api(`/api/admin/brand-knowledge/style-codes/${cand.id}/promote`, "POST", {
+        source_url: promoteSource,
+        department: promoteDepartment,
+      });
+      toast.success("Promoted to brand knowledge.");
+      setPromoteTarget(null);
+      refreshReview();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Promote failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function rejectName(id: string) {
+    setBusyId(id);
+    try {
+      await api(`/api/admin/brand-knowledge/style-codes/${id}/reject`, "POST");
+      // Recorded, not deleted: the sweep would hand a deleted name straight
+      // back next tick from the same listings.
+      toast.success("Rejected. The sweep will not re-learn it.");
+      refreshReview();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Reject failed");
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   const filtered = useMemo(() => {
     const rows = brands ?? [];
@@ -419,6 +514,182 @@ export function AdminBrandKnowledgePage() {
             : null}
         </div>
       </div>
+
+      {/* US-2693: what the machine LEARNED, and the two verbs an admin has for
+          it. Ordered by what needs a human — disagreement first, then thin
+          evidence — because a list sorted by brand is a list nobody opens
+          twice. */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Learned style codes</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            Names the market sweep and seller corrections produced for a tag
+            code. Promote one to permanent brand knowledge, or reject it.
+            Conflicts and thinly-evidenced names are listed first.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {reviewError
+            ? (
+              <ErrorState
+                title="Couldn't load the review queue"
+                description="Nothing was changed — this is a read failure."
+                onRetry={() => void refetchReview()}
+                retrying={reviewFetching}
+              />
+            )
+            : reviewLoading
+            ? [0, 1, 2].map((i) => <Skeleton key={i} className="h-14 w-full" />)
+            : (review?.items ?? []).length === 0
+            ? (
+              <p className="text-sm text-muted-foreground">
+                Nothing learned yet. The sweep fills this as it resolves codes.
+              </p>
+            )
+            : (review?.items ?? []).map((item) => (
+              <div
+                key={`${item.brandKey}-${item.styleCodeNorm}`}
+                className="rounded-md border px-3 py-2"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-mono text-sm">{item.styleCodeRaw}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {item.brandKey}
+                  </span>
+                  {item.conflicting
+                    ? <Badge variant="destructive">Sources disagree</Badge>
+                    : null}
+                  {!item.conflicting && item.resolved &&
+                      item.resolved.supporting < 3
+                    ? <Badge variant="outline">Thin evidence</Badge>
+                    : null}
+                  {!item.resolved
+                    ? <Badge variant="outline">No name left</Badge>
+                    : null}
+                </div>
+                <div className="mt-2 space-y-1">
+                  {item.candidates.map((cand, i) => (
+                    <div
+                      key={cand.id ?? `${item.styleCodeNorm}-${i}`}
+                      className="flex flex-wrap items-center gap-2 text-sm"
+                    >
+                      <span className={cand.rejected ? "line-through text-muted-foreground" : ""}>
+                        {cand.name}
+                      </span>
+                      <Badge variant="secondary">{cand.source}</Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {cand.supporting} supporting
+                      </span>
+                      {/* safeHref returns null for a scheme it will not
+                          render; drop the link rather than emit a dead anchor. */}
+                      {safeHref(cand.evidenceUrl)
+                        ? (
+                          <a
+                            className="text-xs underline"
+                            href={safeHref(cand.evidenceUrl) ?? undefined}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            evidence
+                          </a>
+                        )
+                        : null}
+                      {cand.id && !cand.rejected
+                        ? (
+                          <>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busyId === cand.id}
+                              onClick={() => openPromote(cand)}
+                            >
+                              {busyId === cand.id
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <BadgeCheck className="h-3 w-3" />}
+                              Promote
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={busyId === cand.id}
+                              onClick={() => void rejectName(cand.id!)}
+                            >
+                              <CircleAlert className="h-3 w-3" />
+                              Reject
+                            </Button>
+                          </>
+                        )
+                        : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          {review?.truncated
+            ? (
+              <p className="text-sm text-muted-foreground">
+                More codes exist than this page scanned. Filter by brand to see
+                the rest.
+              </p>
+            )
+            : null}
+        </CardContent>
+      </Card>
+
+      {/* US-2693: promote dialog */}
+      <Dialog
+        open={!!promoteTarget}
+        onOpenChange={(o) => !o && setPromoteTarget(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Promote to brand knowledge</DialogTitle>
+            <DialogDescription>
+              This writes a permanent brand_styles row and marks it verified.
+              A source is required — the knowledge base rejects a fact without
+              one.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label htmlFor="promote-name">Style name</Label>
+              <p id="promote-name" className="text-sm">{promoteTarget?.name}</p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="promote-source">Source URL</Label>
+              <Input
+                id="promote-source"
+                placeholder="https://…"
+                value={promoteSource}
+                onChange={(e) => setPromoteSource(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="promote-department">Department (optional)</Label>
+              <Input
+                id="promote-department"
+                placeholder="Men, Women, Unisex…"
+                value={promoteDepartment}
+                onChange={(e) => setPromoteDepartment(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPromoteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={!promoteSource.trim() || busyId === promoteTarget?.id}
+              onClick={() => void confirmPromote()}
+            >
+              {busyId === promoteTarget?.id
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <BadgeCheck className="h-4 w-4" />}
+              Promote
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit dialog */}
       <Dialog open={!!editTarget} onOpenChange={(o) => !o && setEditTarget(null)}>
