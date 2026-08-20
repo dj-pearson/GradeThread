@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2732",
+  "nextId": "US-2733",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2540,6 +2540,21 @@
         "sendExtensionMessage gains opts.preferBridge, which selects sendViaBridge when the bridge marker is present. It does not weaken the default path: with no preferBridge the id-addressed transport is still preferred exactly as before.",
         "3 guards in src/test/cross-post-setup.test.ts assert the signal is a boolean rather than an address, that targetExtId still requires equality, and that preferBridge routes only to sendViaBridge.",
         "Follow-on, NOT done here: a manifest \"key\" field in extension-unified/manifest.json would give an unpacked build the same id as the store build and remove this whole class of problem. It needs the public half of the store signing key, which was untracked under US-2284 and is not in the repo."
+      ],
+      "priority": 12
+    },
+    {
+      "id": "US-2732",
+      "passes": false,
+      "title": "Photos are fetched one at a time, so a slow set can outlast the job's own deadline",
+      "description": "As a seller cross-posting a listing with a dozen photos, I want the attach step bounded by one slow photo rather than by the sum of all of them, so that a slow connection does not read as a timed-out cross-post.",
+      "acceptanceCriteria": [
+        "attachPhotos in extension-unified/lister/common.js fetched serially in a for loop, each with its own 15s PHOTO_FETCH_TIMEOUT_MS. Twelve photos on a bad connection is a three-minute worst case, longer than the job's deadline, so 'the photos were slow' surfaced as 'the cross-post timed out' with no clue why.",
+        "Now fetched concurrently with Promise.all, so the set is bounded by ONE timeout rather than their sum - the same reasoning US-1875 already applied to the concurrent selector probe.",
+        "ORDER IS PRESERVED and that is load-bearing: the first photo is the cover image. Promise.all resolves positionally, the results are indexed as the urls were, and the DataTransfer is built afterwards in that order - never in completion order. Verified against a mixed success/failure set: positions 2 and 4 of a 4-item list produce 02.png and 04.jpg with attached=2, failed=2.",
+        "The per-photo failure accounting is unchanged: one bad photo still costs only itself, and the attached/failed/total counts the seller sees (US-1877) mean the same thing.",
+        "SEPARATE FIX in the same change: GT.log, the login-wall notice and the RESULT delivery each wrapped chrome.runtime.sendMessage in a synchronous try/catch, which cannot catch what MV3 actually does - with no callback it returns a promise and a sleeping worker REJECTS it. Every fill on a page whose worker had slept printed 'Uncaught (in promise) Error: Could not establish connection. Receiving end does not exist.' into the marketplace console, seen live on poshmark.com/create-listing. All three now route through GT.tell, which swallows both the throw and the rejection.",
+        "NOT the cause of the reported 15-20s before the Poshmark form appears. That window is the marketplace tab loading (its own console shows GTM, a PayPal tag 410 and an ad killed for CPU) plus the flow's deliberate 6s probe budget, which is capped and concurrent already. Recorded so nobody re-hunts it as a regression."
       ],
       "priority": 12
     }

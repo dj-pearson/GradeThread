@@ -14,13 +14,29 @@
 
   const GT = {};
 
-  GT.log = function (msg) {
+  // Send to the background and swallow BOTH ways it can fail.
+  //
+  // The try/catch these calls used to carry was written for a throwing
+  // sendMessage and does not catch what MV3 actually does: with no callback it
+  // returns a PROMISE, and a sleeping worker REJECTS it. A synchronous catch
+  // never sees that, so every fill on a page whose worker had gone to sleep
+  // printed "Uncaught (in promise) Error: Could not establish connection.
+  // Receiving end does not exist." into the marketplace's console — seen live
+  // on poshmark.com/create-listing 2026-08-20.
+  //
+  // Noise is the smaller half. The same pattern wraps the RESULT delivery, so a
+  // genuinely undelivered result looked identical to a log line nobody reads.
+  GT.tell = function (message) {
     try {
-      chrome.runtime.sendMessage({ type: "GT_LISTER_LOG", message: String(msg) });
+      var p = chrome.runtime.sendMessage(message);
+      if (p && typeof p.catch === "function") p.catch(function () { /* asleep */ });
     } catch (_e) {
-      /* background may be asleep; logging is best-effort */
+      /* background may be asleep; every caller here is best-effort */
     }
-     
+  };
+
+  GT.log = function (msg) {
+    GT.tell({ type: "GT_LISTER_LOG", message: String(msg) });
     console.debug("[GradeThread Lister]", msg);
   };
 
@@ -153,24 +169,41 @@
         result.total = 0;
         return result;
       }
-      const dt = new DataTransfer();
-      for (let i = 0; i < urls.length; i++) {
+      // 2026-08-20: fetched CONCURRENTLY, and the reason is the worst case
+      // rather than the average one. These ran in a serial `for` loop, each with
+      // its own 15s timeout, so a dozen photos on a slow connection could spend
+      // three minutes here — longer than the job's own deadline, which turned
+      // "the photos were slow" into "the cross-post timed out" with no clue why.
+      // The requests are independent, so the whole set is now bounded by ONE
+      // timeout instead of their sum. Same reasoning as the concurrent probe.
+      //
+      // ORDER IS PRESERVED, and it matters: the first photo is the seller's
+      // cover image. Promise.all resolves positionally, so the results are
+      // indexed exactly as the urls were and the DataTransfer is built in that
+      // order afterwards — never in completion order.
+      const blobs = await Promise.all(urls.map(async function (url) {
         try {
-          const res = await fetchWithTimeout(urls[i], PHOTO_FETCH_TIMEOUT_MS);
-          if (!res.ok) {
-            result.failed += 1;
-            continue;
-          }
-          const blob = await res.blob();
-          const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
-          const name = String(i + 1).padStart(2, "0") + "." + ext;
-          dt.items.add(new File([blob], name, { type: blob.type || "image/jpeg" }));
-          result.attached += 1;
+          const res = await fetchWithTimeout(url, PHOTO_FETCH_TIMEOUT_MS);
+          if (!res.ok) return null;
+          return await res.blob();
         } catch (_e) {
           // Timeout or network error on THIS photo only — keep going. One bad
           // photo must not cost the seller the other seven.
-          result.failed += 1;
+          return null;
         }
+      }));
+
+      const dt = new DataTransfer();
+      for (let i = 0; i < blobs.length; i++) {
+        const blob = blobs[i];
+        if (!blob) {
+          result.failed += 1;
+          continue;
+        }
+        const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+        const name = String(i + 1).padStart(2, "0") + "." + ext;
+        dt.items.add(new File([blob], name, { type: blob.type || "image/jpeg" }));
+        result.attached += 1;
       }
       if (dt.files.length === 0) return result;
       Object.defineProperty(input, "files", { value: dt.files, configurable: true });
@@ -650,17 +683,16 @@
       GT.showBanner(
         "Log in to " + label + " — GradeThread will finish this automatically once you're in.",
       );
-      try {
-        chrome.runtime.sendMessage({
-          type: "GT_LISTER_NOTICE",
-          jobId: job.jobId,
-          notice: {
-            loginWall: true,
-            platform: platformKey,
-            error: "Log in to " + label + " and this will retry automatically.",
-          },
-        });
-      } catch (_e) { /* worker asleep — the job is still queued either way */ }
+      // worker asleep — the job is still queued either way
+      GT.tell({
+        type: "GT_LISTER_NOTICE",
+        jobId: job.jobId,
+        notice: {
+          loginWall: true,
+          platform: platformKey,
+          error: "Log in to " + label + " and this will retry automatically.",
+        },
+      });
       return; // deliberately NO GT_LISTER_RESULT: the job stays pending.
     }
 
@@ -682,9 +714,8 @@
     // page. Reporting anything here would end a job that is still working.
     if (partial && partial.deferred) return;
 
-    try {
-      chrome.runtime.sendMessage(GT.result(job.jobId, partial));
-    } catch (_e) { /* the background's push/alarm still reports the job */ }
+    // The background's push/alarm still reports the job if this never lands.
+    GT.tell(GT.result(job.jobId, partial));
   };
 
   // US-2484: answer the popup's "check this page" request.
