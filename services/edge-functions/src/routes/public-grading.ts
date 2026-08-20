@@ -47,6 +47,7 @@ import {
 } from "../lib/buyer-entitlements.ts";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import { loadPendingDelists } from "../lib/pending-delists.ts";
+import { loadSyncStatus } from "../lib/sync-status.ts";
 // US-1808: extension-fed marketplace listing ingestion. The pure half (the
 // marketplace allowlist that IS the anti-crawl boundary, URL canonicalization,
 // body validation) lives in lib/listing-ingest.ts; the matching predicate is
@@ -378,6 +379,58 @@ publicGradingRoutes.get("/entitlements", async (c) => {
 // decides what to draw, not what the holder may read. A token minted before a
 // plan lapsed would still say "seller" in the popup, so the seller entitlement
 // is re-resolved server-side on every call.
+// GET /sync-status — per-channel sold-sync health for the extension popup.
+//
+// The second door onto lib/sync-status.ts, for the same reason the pending-delists
+// route above is a second door onto lib/pending-delists.ts: the extension speaks
+// an HMAC extension token, not a Supabase JWT, so it cannot reach the
+// JWT-guarded /api/flipdesk/sync/status. The PROJECTION is shared precisely so a
+// second door does not become a second answer — a popup that called a channel
+// healthy while the web called it failing would make the seller trust neither.
+//
+// TENANCY (US-268): ownerId comes from the HMAC-signed token and never from the
+// request. As with pending-delists, the extension token carries no workspace
+// notion, so this serves the TOKEN HOLDER'S OWN tenant only.
+//
+// AUTHORIZATION IS RE-RESOLVED HERE, not inherited from the popup's registry
+// gating: a token minted before a plan lapsed would still draw seller UI.
+publicGradingRoutes.get("/sync-status", async (c) => {
+  const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
+  if (!verified) {
+    return c.json({ error: "Sign in to GradeThread to see sync status." }, 401, {
+      "Cache-Control": "no-store",
+    });
+  }
+
+  let ent: { sellerEnabled: boolean };
+  try {
+    ent = await getExtensionEntitlements(verified.userId);
+  } catch (err) {
+    // FAIL CLOSED, matching pending-delists: a hiccup here would hand seller
+    // data to a caller we could not confirm is entitled to it.
+    console.error(
+      "public-grading /sync-status entitlements:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return c.json({ error: "Could not verify your plan. Try again." }, 503, {
+      "Cache-Control": "no-store",
+    });
+  }
+  if (!ent.sellerEnabled) {
+    return c.json({ error: "FlipDesk plan required." }, 403, { "Cache-Control": "no-store" });
+  }
+
+  const { channels, error } = await loadSyncStatus(verified.userId);
+  if (error) {
+    console.error(
+      "public-grading /sync-status:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return c.json({ error: "Could not load sync status." }, 500, { "Cache-Control": "no-store" });
+  }
+  return c.json({ channels }, 200, { "Cache-Control": "no-store" });
+});
+
 publicGradingRoutes.get("/pending-delists", async (c) => {
   const verified = await verifyExtensionToken(bearerFromHeader(c.req.header("authorization")));
   // 401, not the anonymous-fallback the entitlements route uses: there is no

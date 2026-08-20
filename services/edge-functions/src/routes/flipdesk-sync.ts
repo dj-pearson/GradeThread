@@ -25,6 +25,7 @@ import { resolveSellerEntitlement } from "../lib/buyer-entitlements.ts";
 import { autoEndCrossListings } from "../lib/cross-listings.ts";
 import { EXTENSION_DELIST_PLATFORMS } from "../lib/cross-listing-sale.ts";
 import { findForbiddenKey } from "../lib/sync-payload-guard.ts";
+import { loadSyncStatus } from "../lib/sync-status.ts";
 import {
   planObservations,
   planSaleEffects,
@@ -358,4 +359,140 @@ flipdeskSyncRoutes.post("/observations", async (c) => {
   } catch (err) {
     return failSafe(c, 502, "Couldn't record the sync observations.", err, "flipdesk.sync.observations");
   }
+});
+
+// GET /status — per-channel sync health for the Marketplaces page.
+//
+// The projection is lib/sync-status.ts, shared with the extension popup's door
+// in public-grading.ts. See that file's header for why a second door must not
+// become a second answer.
+flipdeskSyncRoutes.get("/status", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { channels, error } = await loadSyncStatus(ownerId);
+  if (error) {
+    return failSafe(c, 500, "Couldn't load sync status.", error, "flipdesk.sync.status");
+  }
+  return c.json({ channels });
+});
+
+// GET /reviews — the queue, newest first, in the three groups the UI renders.
+flipdeskSyncRoutes.get("/reviews", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_sync_reviews")
+    .select(
+      "id, platform, reason, status, listing_id, inventory_item_id, listing_url, title, " +
+        "sold_price_cents, sold_at, dedupe_key, unexplained, claimed, cap, created_at",
+    )
+    .eq("user_id", ownerId)
+    .eq("status", "open")
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    return failSafe(c, 500, "Couldn't load the sync review queue.", error, "flipdesk.sync.reviews");
+  }
+  return c.json({ reviews: data ?? [] });
+});
+
+// POST /reviews/:id/claim — link an unmatched sold row to one of my listings.
+//
+// THE POINT OF THIS ENDPOINT IS THAT IT MAKES THE NEXT TIME AUTOMATIC. Writing
+// listing_url onto the listings row turns today's manual claim into tomorrow's
+// exact match, so the system needs the seller less the more they use it.
+//
+// It deliberately does NOT book the sale. The claim establishes identity; the
+// next observation of that URL is what confirms a sale, through the same
+// definitive-plus-exact path everything else goes through. Booking here would
+// be a second, unguarded route to a sibling delist.
+//
+// TENANCY (US-268): both the review row and the listing are addressed by ids the
+// CLIENT supplies, so both are filtered together with the owner. A foreign id
+// matches zero rows rather than someone else's.
+flipdeskSyncRoutes.post("/reviews/:id/claim", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const reviewId = c.req.param("id");
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await c.req.json()) as Record<string, unknown>;
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const listingId = typeof body.listing_id === "string" ? body.listing_id : null;
+  if (!listingId) return c.json({ error: "A listing_id is required." }, 400);
+
+  const { data: reviewRow } = await supabaseAdmin
+    .from("marketplace_sync_reviews")
+    .select("id, platform, listing_url, status")
+    .eq("id", reviewId)
+    .eq("user_id", ownerId)
+    .maybeSingle();
+  const review = reviewRow as
+    | { id: string; platform: string; listing_url: string | null; status: string }
+    | null;
+  if (!review) return c.json({ error: "Not found." }, 404);
+  if (review.status !== "open") return c.json({ error: "That review is already resolved." }, 409);
+  if (!review.listing_url) {
+    return c.json({ error: "That row carries no listing address to claim." }, 422);
+  }
+
+  // Ownership via the parent item, the convention the whole delist path uses.
+  const { data: listingRow } = await supabaseAdmin
+    .from("listings")
+    .select("id, platform, listing_url, inventory_items!inner(user_id)")
+    .eq("id", listingId)
+    .eq("inventory_items.user_id", ownerId)
+    .maybeSingle();
+  const listing = listingRow as { id: string; platform: string; listing_url: string | null } | null;
+  if (!listing) return c.json({ error: "Not found." }, 404);
+
+  if (listing.platform !== review.platform) {
+    return c.json(
+      { error: "That listing is on a different marketplace than the sale." },
+      422,
+    );
+  }
+  if (listing.listing_url && listing.listing_url !== review.listing_url) {
+    // Overwriting a URL we already hold would re-point a listing at a different
+    // page, and the next sold row for the ORIGINAL address would then match
+    // nothing. Refuse rather than silently repoint.
+    return c.json(
+      { error: "That listing already points at a different address." },
+      409,
+    );
+  }
+
+  const { error: updErr } = await supabaseAdmin
+    .from("listings")
+    .update({ listing_url: review.listing_url })
+    .eq("id", listing.id);
+  if (updErr) {
+    return failSafe(c, 500, "Couldn't link that listing.", updErr, "flipdesk.sync.claim");
+  }
+
+  await supabaseAdmin
+    .from("marketplace_sync_reviews")
+    .update({ status: "resolved", updated_at: new Date().toISOString() })
+    .eq("id", review.id)
+    .eq("user_id", ownerId);
+
+  return c.json({ ok: true, listing_id: listing.id, listing_url: review.listing_url });
+});
+
+// POST /reviews/:id/dismiss — the seller has looked and there is nothing to do.
+flipdeskSyncRoutes.post("/reviews/:id/dismiss", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const { data, error } = await supabaseAdmin
+    .from("marketplace_sync_reviews")
+    .update({ status: "dismissed", updated_at: new Date().toISOString() })
+    .eq("id", c.req.param("id"))
+    .eq("user_id", ownerId)
+    .eq("status", "open")
+    .select("id")
+    .maybeSingle();
+  if (error) {
+    return failSafe(c, 500, "Couldn't dismiss that row.", error, "flipdesk.sync.dismiss");
+  }
+  if (!data) return c.json({ error: "Not found." }, 404);
+  return c.json({ ok: true });
 });
