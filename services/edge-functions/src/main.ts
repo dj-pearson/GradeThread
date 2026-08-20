@@ -1,4 +1,5 @@
 import { handleEbaySearchTermsCron } from "./routes/jobs-ebay-search-terms.ts";
+import { handleStyleCodeSweepCron } from "./routes/jobs-style-code-sweep.ts";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
@@ -1330,6 +1331,9 @@ app.route("/api/support/assistant", supportAssistantRoutes);
 app.post("/api/jobs/reprice-scan", (c) => handleRepriceScanCron(c));
 // US-2683: eBay Promoted Listings search-term ingest, daily.
 app.post("/api/jobs/ebay-search-terms", (c) => handleEbaySearchTermsCron(c));
+// US-2690: fill the learned style-code index from the market instead of waiting
+// for a seller to photograph each tag.
+app.post("/api/jobs/style-code-sweep", (c) => handleStyleCodeSweepCron(c));
 // US-672 repricing-automation cron — applies owner-defined rules. Same
 // X-Internal-Job-Secret gate as reprice-scan.
 app.post("/api/jobs/reprice-rules", (c) => handleRepriceRulesCron(c));

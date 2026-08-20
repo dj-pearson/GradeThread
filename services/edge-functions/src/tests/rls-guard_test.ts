@@ -212,6 +212,9 @@ const SERVICE_ROLE_ONLY = new Set([
   // Written during identification verify, read during extraction — both
   // service-role. The SPA never queries it.
   "style_code_observations",
+  // US-2690: sweep bookkeeping for the same index — brand + code + counters,
+  // no owner and no title. Written and read only by the sweep cron.
+  "style_code_sweeps",
   // US-1565: admin task board — internal operator tooling; client policies
   // dropped in 00344, all CRUD flows through /api/admin/tasks (edge boundary).
   "admin_task_projects",

@@ -1,5 +1,67 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00627 — sweep bookkeeping for the learned style-code index (US-2690)
+
+**Risk: LOW, with one thing to watch.** One new table, two `SECURITY DEFINER`
+functions, and one index on an existing table. Nothing is altered or backfilled
+and no client reads any of it — the sweep cron is the only reader and writer.
+Deny-all RLS, registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
+
+⚠ **The one thing to watch** is the index, because it is the only statement here
+that touches a big existing table:
+
+```sql
+CREATE INDEX IF NOT EXISTS inventory_items_style_code_idx
+  ON public.inventory_items ((attributes->>'style_code'))
+  WHERE attributes->>'style_code' IS NOT NULL;
+```
+
+A plain `CREATE INDEX` takes a lock that blocks writes to `inventory_items` for
+its duration. On a partial expression index over a table this size that is
+seconds, not minutes, but if you would rather not block seller writes at all,
+run that one statement separately as `CREATE INDEX CONCURRENTLY` (outside a
+transaction, and it cannot be the form in the migration file — `CONCURRENTLY`
+is not allowed inside one) and let the `IF NOT EXISTS` in the migration find it
+already there.
+
+**Why it exists.** 00503 records what the market CALLED a code. It cannot
+record that a code was looked up and the market said nothing, because a zero-hit
+sweep produces no title and therefore no row. Without that fact the new
+background sweep re-queries its own dead ends forever, which is the whole eBay
+budget spent on the codes least likely to resolve.
+
+`style_code_sweeps` holds one row per (brand, code) attempted, whatever the
+outcome: `sweep_count`, `titles_found` (of the most recent attempt),
+`last_swept_at`, and `last_hit_at`, which only ever moves forward so a later
+miss cannot erase the fact that a code once resolved.
+
+**Apply order**
+
+1. Run `supabase/migrations/00627_style_code_sweeps.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — REQUIRED here. A new table and a new RPC,
+   so PostgREST will 404 `record_style_code_sweep` until it reloads.
+3. Redeploy the edge on Coolify (`EXPECTED_SCHEMA_VERSION` is now `00627`).
+4. Add the Coolify scheduled task — `style-code-sweep`, `35 * * * *`, POST
+   `/api/jobs/style-code-sweep` with `X-Internal-Job-Secret`. Code without the
+   scheduled task is a sweep that never runs. The row is in `CRON_SETUP.md`.
+5. Then OK the push.
+
+**Confirm it landed**
+
+```sql
+select count(*) from public.style_code_sweeps;                -- 0 on a fresh apply
+select proname from pg_proc
+where proname in ('record_style_code_sweep', 'style_code_sweep_candidates');
+select count(*) from public.style_code_sweep_candidates(20000);  -- distinct codes we know
+```
+
+That last count is the backlog the sweep is working through, and it is the
+number worth writing down before the first run so the second one can be
+compared against it.
+
+Then hit the endpoint once by hand; a first run on a cold table should report
+`swept` greater than 0 and `skipped_cooldown` of 0.
+
 ## ⏳ PENDING: 00626 — Lululemon style numbers from 2017-2019 decode to nothing (US-2689)
 
 **Risk: LOW.** One `INSERT ... ON CONFLICT DO UPDATE` of a single row into

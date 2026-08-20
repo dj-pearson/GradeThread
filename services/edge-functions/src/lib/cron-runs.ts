@@ -276,6 +276,11 @@ export const CRON_REGISTRY: CronDef[] = [
   // healthy run is usually mostly no_campaign: the report only exists for a
   // seller running Priority, and most are not.
   { name: "ebay-search-terms", label: "eBay search-term ingest", schedule: "25 6 * * *", category: "sync", endpoint: "/api/jobs/ebay-search-terms", recorded: true, healthy: "200 with {ok:true, owners, stored, no_campaign, ...}; owners is 0 on an account with no Priority campaigns" },
+  // US-2690: learn what the market calls the style codes we have seen. Hourly is
+  // the cadence the budget implies, not an urgency claim — the backlog is finite
+  // and shrinks every tick, and a faster clock would only spend the same shared
+  // eBay allowance the Add flow and the comps ladder draw on.
+  { name: "style-code-sweep", label: "Style-code index sweep", schedule: "35 * * * *", category: "sync", endpoint: "/api/jobs/style-code-sweep", recorded: true, healthy: "200 with {ok:true, considered, swept, deferred, learned, noHits}; swept is 0 once every known code is confirmed or cooling off" },
   { name: "ebay-publish-due", label: "Scheduled publish-due", schedule: "*/5 * * * *", category: "publish", endpoint: "/api/flipdesk/ebay/jobs/publish-due", recorded: true },
   // Recorded via recordEbayCron mounted on the sync/push path (cronNameForPath),
   // so a missed/failed 5-min sheet sync signals in the cron_runs ledger + ops stream.

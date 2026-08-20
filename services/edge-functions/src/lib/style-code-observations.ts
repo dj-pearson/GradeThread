@@ -27,6 +27,11 @@ import { supabaseAdmin } from "./supabase.ts";
 /** Never let a learned hint reach the confidence of a verified decoder hit. */
 export const LEARNED_CONFIDENCE_CAP = 0.55;
 
+/** Below this length a code is not an identity: two characters match anything.
+ *  US-2690 exported it so the sweep applies the SAME floor as the read and
+ *  write paths rather than a second copy of the number. */
+export const MIN_STYLE_CODE_LENGTH = 4;
+
 /** One confirmation is a coincidence; the curve rewards repetition, slowly. */
 export const LEARNED_CONFIDENCE_BASE = 0.3;
 
@@ -103,7 +108,7 @@ export async function recordStyleCodeObservations(args: {
 }): Promise<number> {
   const styleCodeNorm = normalizeStyleCode(args.styleCodeRaw);
   // A code needs some length to be an identity: two characters match everything.
-  if (styleCodeNorm.length < 4) return 0;
+  if (styleCodeNorm.length < MIN_STYLE_CODE_LENGTH) return 0;
 
   const write = args.write ?? defaultWriter;
   const seen = new Set<string>();
@@ -230,7 +235,7 @@ export async function lookupLearnedStyle(
   styleCodeRaw: string | null | undefined,
 ): Promise<LearnedStyle | null> {
   const styleCodeNorm = normalizeStyleCode(styleCodeRaw);
-  if (styleCodeNorm.length < 4) return null;
+  if (styleCodeNorm.length < MIN_STYLE_CODE_LENGTH) return null;
   try {
     let query = supabaseAdmin
       .from("style_code_observations")
