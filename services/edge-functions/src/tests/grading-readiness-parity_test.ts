@@ -23,6 +23,7 @@ const {
   REQUIRED_GRADING_PHOTO_TYPES,
 } = await import("../lib/grading-submit.ts");
 const { REQUIRED_IMAGE_TYPES } = await import("../lib/image-quality.ts");
+const { GRADE_IMAGE_TYPES } = await import("../lib/api-grade-ingest.ts");
 
 const fixture = JSON.parse(
   await Deno.readTextFile(
@@ -175,6 +176,70 @@ Deno.test("US-2471: a measurement photo's role decides whether it grades", () =>
     imageType: "measurement_inseam",
     imageRole: "inseam",
   });
+});
+
+// US-2695. `measurement_overlay` (00350) is the GENERATED annotated render, and
+// the one `flipdesk_photo_type` that starts with `measurement_` without naming a
+// dimension. The prefix branch handed it straight through as an `image_type`,
+// which is a DIFFERENT enum that has never held that value. A seller who
+// rendered a measurements photo and then submitted got the whole item back as
+// `invalid input value for enum image_type: "measurement_overlay"` — after the
+// credit was charged.
+Deno.test("US-2695: the generated overlay is not grading evidence", () => {
+  assertEquals(
+    mapPhotoTypeForGradingForTest("measurement_overlay", null),
+    null,
+    "the annotated render is graphics we drew, not evidence about the garment",
+  );
+  assertEquals(
+    mapPhotoTypeForGradingForTest("measurement_overlay", "overlay"),
+    null,
+  );
+});
+
+// The guard that keeps the NEXT one out. The photo types come from the
+// migrations, so a `flipdesk_photo_type` added tomorrow is covered the day it
+// lands instead of when somebody remembers to extend a list in a test file.
+Deno.test("US-2695: no photo type maps to a name image_type lacks", async () => {
+  const dir = new URL("../../../../supabase/migrations/", import.meta.url);
+  const photoTypes = new Set<string>();
+  for await (const entry of Deno.readDir(dir)) {
+    if (!entry.name.endsWith(".sql")) continue;
+    const sql = await Deno.readTextFile(new URL(entry.name, dir));
+    for (
+      const m of sql.matchAll(
+        /flipdesk_photo_type ADD VALUE IF NOT EXISTS '([a-z0-9_]+)'/g,
+      )
+    ) {
+      photoTypes.add(m[1]!);
+    }
+    const created = sql.match(
+      /CREATE TYPE public\.flipdesk_photo_type AS ENUM \(([^)]*)\)/,
+    );
+    for (const m of (created?.[1] ?? "").matchAll(/'([a-z0-9_]+)'/g)) {
+      photoTypes.add(m[1]!);
+    }
+  }
+  // A parse that found nothing would satisfy every assertion below it.
+  assertEquals(photoTypes.has("measurement_overlay"), true);
+  assertEquals(photoTypes.has("front"), true);
+  assertEquals(photoTypes.size >= 28, true, "enum parse came up short");
+
+  const valid = GRADE_IMAGE_TYPES as readonly string[];
+  for (const t of photoTypes) {
+    for (
+      const role of [null, "chest", "shoulder", "brand", "fabric", "overlay"]
+    ) {
+      const mapped = mapPhotoTypeForGradingForTest(t, role);
+      if (mapped === null) continue;
+      assertEquals(
+        valid.includes(mapped.imageType),
+        true,
+        `(${t}, ${role}) maps to image_type "${mapped.imageType}", which the ` +
+          `enum does not have — the insert fails after the credit is charged`,
+      );
+    }
+  }
 });
 
 Deno.test("US-2471: a tag's role rides along to the grader", () => {

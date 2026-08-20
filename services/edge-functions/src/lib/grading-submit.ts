@@ -22,6 +22,7 @@ import { supabaseAdmin } from "./supabase.ts";
 import { downloadItemPhoto } from "./item-photo-storage.ts";
 import { processSubmission } from "./grading-pipeline.ts";
 import { REQUIRED_IMAGE_TYPES } from "./image-quality.ts";
+import { GRADE_IMAGE_TYPES } from "./api-grade-ingest.ts";
 import { featureDisabledBody, isFeatureEnabled } from "./feature-flags.ts";
 import { isAiBudgetExhausted } from "./ai-budget-gate.ts";
 import {
@@ -543,10 +544,15 @@ export function mapPhotoTypeForGrading(
   t: string,
   role?: string | null,
 ): { imageType: string; imageRole: string | null } | null {
-  const pair = (imageType: string, imageRole: string | null = role ?? null) => ({
-    imageType,
-    imageRole,
-  });
+  // US-2695, second layer: `image_type` is a Postgres enum, so a name this
+  // function invents is not a wrong photo, it is a failed INSERT on a
+  // submission that has already been charged. GRADE_IMAGE_TYPES is the enum's
+  // value list, so anything not in it resolves to "not gradable" here — where
+  // the item simply grades without that photo — rather than at the database.
+  const pair = (imageType: string, imageRole: string | null = role ?? null) =>
+    (GRADE_IMAGE_TYPES as readonly string[]).includes(imageType)
+      ? { imageType, imageRole }
+      : null;
 
   if (t === "front") return pair("front", null);
   if (t === "back") return pair("back", null);
@@ -560,8 +566,19 @@ export function mapPhotoTypeForGrading(
   if (t === "defect") return pair("defect", null);
   // Retired by 00587, same as above: the type already names the dimension, so
   // hand it on as the role too and the prompt site only has to speak roles.
+  //
+  // US-2695: matched on the `measurement_` PREFIX until a seller rendered a
+  // measurements photo and submitted. `measurement_overlay` (00350) is a
+  // `flipdesk_photo_type` and starts with that prefix without naming a
+  // dimension, so it was handed through as an `image_type` — a DIFFERENT enum
+  // that has never held it. The insert failed with `invalid input value for
+  // enum image_type` AFTER the credit was charged, and it would have done the
+  // same for any future `measurement_*` photo type. Only the five names that
+  // exist in both enums may pass.
   if (t.startsWith("measurement_")) {
-    return pair(t, t.slice("measurement_".length));
+    const dimension = t.slice("measurement_".length);
+    if (!LEGACY_MEASUREMENT_IMAGE_ROLES.has(dimension)) return null;
+    return pair(t, dimension);
   }
   if (t === "measurement") {
     // No role = the MeasureCard calibration frame. It is a branded foreign
