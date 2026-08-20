@@ -1,5 +1,58 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## 🟠 PENDING: 00625 — the connector is denied on the plans that include it (US-2687)
+
+**Risk: LOW, and the do-nothing risk is higher.** Two `UPDATE`s against four
+rows of `public.pricing_plans`. No table, no column, no function, no policy, no
+backfill of customer data.
+
+**What it fixes, measured rather than reasoned.** On the local stack today:
+
+```
+select key, gate_flags ? 'connectorAccess' from public.pricing_plans;
+ business | f
+ free     | f
+ pro      | f
+ starter  | f
+```
+
+`pricing_plans.gate_flags` is CANONICAL once the row exists — `pricing-config.ts`
+`load()` overwrites the hardcoded `FALLBACK_MATRIX` with the DB row — and the read
+is `gateFlags[k] = flags[k] === true`. So an absent key is a hard **false on every
+tier**, including the two sold with the connector. A Business seller calling it is
+told *"The GradeThread connector is not included in this plan … see pricing to
+upgrade"*, which is an upgrade prompt shown to the customer already on the top tier.
+
+`connectorAccess` was added to the code in US-9124 and the migration was never
+written. Nothing errored, and no unit test went red, because every test that does
+not use a database reads the fallback and sees the flag set.
+
+**Apply order: any.** Nothing in this commit's code depends on the rows changing.
+The code has been reading this key since US-9124; this migration is what makes the
+answer correct.
+
+**`NOTIFY pgrst, 'reload schema';` NOT required.** No table, column or RPC changed
+— only row data. Running it anyway is harmless.
+
+**Safe to re-run, and proven so.** A second pass reports `UPDATE 0 / UPDATE 0 /
+INSERT 0`. Both statements carry `and not (gate_flags ? 'connectorAccess')`, so an
+operator who has deliberately turned the flag OFF on a tier keeps their value —
+tested by setting `pro` to false by hand and re-running, which left it false. That
+is the same posture as 00166, 00607 and 00623's `ON CONFLICT DO NOTHING`.
+
+**How to confirm afterwards:**
+
+```sql
+select key, gate_flags->>'connectorAccess' from public.pricing_plans order by key;
+-- expect: business true, free false, pro true, starter false
+```
+
+**Also watch:** the `Tenant Isolation` GitHub workflow has failed on every commit
+since 2026-08-19 12:47 on the case *"MCP: A's own key CAN read A's item"*. It reads
+like an authorization failure and is this plan gate. It should go green once the
+CI database is seeded from the migration directory.
+
+
 ## 🟠 PENDING: 00624 — disputes INSERT must own the grade report (US-2670)
 
 **Risk: LOW.** Adds one SECURITY DEFINER helper (`grade_report_belongs_to`) and
