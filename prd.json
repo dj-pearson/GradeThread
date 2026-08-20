@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2696",
+  "nextId": "US-2703",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2123,6 +2123,140 @@
       ],
       "notes": "Fixed 2026-08-19. Verified: deno test src/tests/grading-readiness-parity_test.ts, 10 passed / 0 failed; the two new cases fail 2/8 against the pre-fix mapper. The failed submission leaves an orphan `submissions` row in `pending` plus the copied blobs in submission-images — the refund runs but the row is not deleted (the non-payment path a few lines above DOES delete it). /api/jobs/stuck-submissions is the sweeper; not touched here.",
       "priority": 3
+    },
+    {
+      "id": "US-2696",
+      "passes": false,
+      "title": "EPIC: extension sold-sync — two-way truth for the no-API marketplaces",
+      "description": "As a FlipDesk seller, I want GradeThread to learn when one of my Poshmark, Mercari, Grailed or Vinted listings sells, so that the sibling delist planner that already protects my eBay and Shopify listings finally protects these channels too and I stop overselling the same garment.",
+      "acceptanceCriteria": [
+        "Umbrella only: this story closes when every child passes. Children are filed immediately after it and named in the closing AC below",
+        "Design of record is docs/superpowers/specs/2026-08-19-extension-sold-sync-design.md; a child that departs from it updates the document in the same commit",
+        "Standing constraint, inherited from the ADR at vault/60-decisions/adr-no-server-side-marketplace-automation.md and the US-715 decision: every marketplace read happens in the seller's own browser on pages of their own account. No GradeThread server holds a marketplace cookie, password or session token, and no server fetches a marketplace page",
+        "The extension observes and the server decides: no extension code concludes that an item sold or triggers a delist. A child that puts a confidence decision in extension-unified/ fails review",
+        "At close, a sale on Poshmark or Mercari detected by the extension produces a sales row and a sibling delist plan through the existing services/edge-functions/src/lib/cross-listings.ts path, with no manual step by the seller",
+        "No child ships a seller-visible automation whose only disclosure is in a README (US-2472 AC5)",
+        "Children: US-2697, US-2698, US-2699, US-2700, US-2701, US-2702. This epic closes when all six pass"
+      ],
+      "priority": 40
+    },
+    {
+      "id": "US-2697",
+      "passes": false,
+      "title": "Sold-sync intake: the pure observation planner and the tenant-scoped edge route",
+      "description": "As a FlipDesk seller, I want GradeThread's server to accept marketplace observations from my browser extension and decide for itself which of them are real sales, so that a bad selector produces a bad observation instead of pulling my listings off four other channels.",
+      "acceptanceCriteria": [
+        "New pure module services/edge-functions/src/lib/marketplace-observations.ts exports a planner taking observations plus the tenant's listings rows and returning confirmed, ambiguous and unmatched groups. It imports no supabase client and is unit-tested with no DB, mirroring the split in lib/cross-listing-sale.ts",
+        "Sale evidence tiers (definitive, inferred) and match tiers (exact, probable, none) are implemented per the action matrix in docs/superpowers/specs/2026-08-19-extension-sold-sync-design.md. Only definitive plus exact returns a confirmed sale; definitive plus probable returns a review row and never a delist",
+        "Absence is only evidence on complete coverage: an observation batch whose closet coverage field does not report reaching the last page yields zero inferred-absence results. A deno test asserts this",
+        "Circuit breaker: a batch reporting more sales than max(5, 20 percent of that tenant's live listings on that platform) returns zero confirmed, routes the whole batch to review, and flags it. A deno test asserts a 200-row batch against a 120-listing closet confirms nothing",
+        "Zero sold rows for a platform where the tenant has known live listings is an error, not an empty closet: it sets that channel's sync state to failing and writes no observations. A deno test asserts this",
+        "Count reconciliation: when the observed active closet count dropped by more than the number of sales explained, the gap is raised as its own review row. A deno test asserts the gap is reported rather than absorbed",
+        "Replaying an identical batch produces no second sales row. Dedupe keys on the platform order reference where the platform supplies one, otherwise on platform plus listing_url plus soldAt",
+        "POST /api/flipdesk/sync/observations exists, requires an authenticated FlipDesk seller, and every query is explicitly scoped to workspaceOwnerId ?? userId per US-268. A case is added to services/edge-functions/src/tests/tenant-isolation_test.ts proving a foreign listing id matches zero rows rather than another tenant's",
+        "The route rejects any payload carrying a forbidden key (cookie, password, session token, buyer name, buyer handle, shipping address) with a 400, mirroring how CREDENTIAL_KEYS is enforced in services/edge-functions/src/lib/extension-queue.ts. The list is pinned by a test so it cannot be shortened, and by a CHECK constraint on the table",
+        "New tables carry the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the same commit, and a self-record footer. The migration is added to PENDING_MIGRATIONS.md and not pushed until the owner has applied it",
+        "A confirmed sale writes the sales row and invokes the existing cross-listings.ts delist planner. A deno test asserts the sibling delist plan is produced for a cross-listed garment"
+      ],
+      "priority": 41
+    },
+    {
+      "id": "US-2698",
+      "passes": false,
+      "title": "Poshmark sold-sync observer: passive harvest, no automated traffic",
+      "description": "As a FlipDesk seller, I want the extension to read my own Poshmark Sold page and closet whenever I happen to be on them, so that GradeThread learns about my sales without sending a single automated request to Poshmark.",
+      "acceptanceCriteria": [
+        "extension-unified/sync/observe.js is pure: no chrome namespace, no document, no fetch. A source guard in extension-unified/test/ fails the build if any of the three appears",
+        "extension-unified/sync/selectors.js carries version and lastVerified per platform, and scripts/verify-lister-selectors.mjs is extended to cover it rather than a second gate being written. The gate refuses enabled true with a null lastVerified or a draft version, as it already does for the lister",
+        "A content script runs only on the seller's own Poshmark closet and Sold or Orders pages. It never runs on another seller's listing page, and a manifest-hosts test asserts the match patterns",
+        "Every closet observation carries a coverage field naming which pages were enumerated and whether the last page was reached",
+        "The observer never extracts a buyer name, buyer handle or shipping address from an order row. A node guard asserts the exact extracted field set, so adding a field is a deliberate change to the guard",
+        "A login wall produces a not-signed-in result and zero rows. A human check stops the read and hands the tab back, matching the rule in lister/engagement.js",
+        "GT_SYNC_OBSERVE is handled in extension-unified/background.js and posts the batch to POST /api/flipdesk/sync/observations with the extension token",
+        "Passive only: no code added by this story calls tabs.create or navigates a tab. A source guard asserts it",
+        "Node guards under extension-unified/test/ run via scripts/test-extensions.mjs against saved HTML fixtures. Fixtures are scrubbed of buyer details before entering the repo, and a test asserts no fixture contains a street address pattern",
+        "The popup's Check selectors probe (extension-unified/lister/selector-probe.js) is extended to cover the sync selectors, so a human with a logged-in account can verify against the live page in one click"
+      ],
+      "priority": 42,
+      "dependsOn": [
+        "US-2697"
+      ]
+    },
+    {
+      "id": "US-2699",
+      "passes": false,
+      "title": "Sold-sync surfaces: status, review queue, claim and notification",
+      "description": "As a FlipDesk seller, I want to see what sold-sync found, fix what it could not match, and be told when it pulled my listings off other channels, so that I trust it enough to leave it on.",
+      "acceptanceCriteria": [
+        "One shared edge projection serves sync status to both the extension popup (HMAC extension token) and the SaaS (Supabase JWT), following the pattern and the rationale in services/edge-functions/src/lib/pending-delists.ts. A test asserts both routes read the same lib rather than two copies",
+        "The extension popup shows, per channel: last sync time, listings seen, or not signed in, or off. Plus a Sync now button",
+        "src/pages/flipdesk/marketplaces.tsx shows the same per-channel rows and carries the sync toggle",
+        "A review queue tab on marketplaces.tsx lists three groups: needs confirming (definitive plus probable), unexplained (inferred plus exact), and unmatched",
+        "Claim on an unmatched sold row writes listing_url onto the chosen listings row, so a later sighting of that item matches exact. A test asserts the second sighting is auto-confirmed",
+        "A confirmed sale sends a notification through services/edge-functions/src/lib/marketplace-event-notify.ts naming the item, the channel it sold on, and each sibling listing that was delisted",
+        "The disclosure is on screen before the first observation is ever sent, naming what leaves the browser (listing URL, title, price, sale date, order reference) and what never does (cookies, passwords, session tokens, buyer name, buyer handle, shipping address). It is not only in a README, per US-2472 AC5, and extension-unified/SUBMISSION.md is updated to match",
+        "npm run ui:check stays at zero findings for src/"
+      ],
+      "priority": 43,
+      "dependsOn": [
+        "US-2697"
+      ]
+    },
+    {
+      "id": "US-2700",
+      "passes": false,
+      "title": "Mercari sold-sync observer",
+      "description": "As a FlipDesk seller cross-listing to Mercari, I want the same sold detection I get on Poshmark, so that a Mercari sale pulls my other listings before someone buys the same garment twice.",
+      "acceptanceCriteria": [
+        "A Mercari adapter is added to extension-unified/sync/selectors.js with its own version and lastVerified, verified against a live logged-in account and recorded in the same way the lister flows are",
+        "Mercari's pagination shape is handled and reports coverage honestly: a partial read reports partial coverage rather than claiming the end was reached",
+        "The content script runs only on the seller's own Mercari listings and sold pages, asserted by a manifest-hosts test",
+        "Node guards cover the Mercari fixture with the same scrubbing rule as Poshmark",
+        "No new code path is added to the server: this story is selectors plus extraction only, proving the intake from the previous story is platform-agnostic"
+      ],
+      "priority": 44,
+      "dependsOn": [
+        "US-2698"
+      ]
+    },
+    {
+      "id": "US-2701",
+      "passes": false,
+      "title": "Sold-sync scheduled poll: the unfocused background read, with consent",
+      "description": "As a FlipDesk seller who has not opened Poshmark in three days, I want GradeThread to check my Sold page on its own while my browser is open, so that a sale that happened on Monday does not leave my other listings live until Thursday.",
+      "acceptanceCriteria": [
+        "The poll reuses the drain pattern at extension-unified/background.js (unfocused tab via tabs.create with active false, a URL allowlist guard, and a chrome.alarms sweep) rather than introducing a second scheduler",
+        "The polled URL is checked against an allowlist before the tab opens, the way GT_LISTER_GUARD.isAllowedDelistUrl already guards the queue drain. A URL that arrived in a message is never navigated to",
+        "Default interval is between 30 and 60 minutes per channel while the browser is open, configurable, with an off switch reachable from both the popup and src/pages/flipdesk/marketplaces.tsx",
+        "The poll has its own versioned clickwrap, separate from the lister and engagement ones, stating that GradeThread will open a background tab on the seller's marketplace account. An old acceptance stops counting, matching the engagement consent rule",
+        "The consent and the interval are checked before every poll, not once per session, matching the per-action gate rule in lister/engagement.js",
+        "A not-signed-in result backs the channel off rather than retrying, and never opens a login prompt",
+        "A human check stops the poll for that channel and surfaces it to the seller",
+        "The engagement runner and the poll never drive the same tab at the same time; a test asserts the poll skips a channel with an engagement run in flight"
+      ],
+      "priority": 45,
+      "dependsOn": [
+        "US-2698"
+      ]
+    },
+    {
+      "id": "US-2702",
+      "passes": false,
+      "title": "Grailed and Vinted sold-sync observers",
+      "description": "As a FlipDesk seller on Grailed, I want to be told the moment a Grailed listing sells, because Grailed can never be delisted automatically and I am the only one who can end my other listings.",
+      "acceptanceCriteria": [
+        "Grailed and Vinted adapters are added to extension-unified/sync/selectors.js, each with its own version and lastVerified verified against a live logged-in account",
+        "A detected Grailed sale produces an explicit seller instruction rather than a silent delist, because Grailed delete is confirmed by a native browser dialog nothing in a page can answer (recorded in extension-unified/README.md). The notification names Grailed as needing a manual end",
+        "Vinted's locale domains are handled the way the lister handles them: an uncovered locale reports that it cannot read rather than guessing at the page",
+        "Both channels report coverage honestly on paginated closets",
+        "Node guards cover both fixtures with the same scrubbing rule"
+      ],
+      "priority": 46,
+      "dependsOn": [
+        "US-2700",
+        "US-2478",
+        "US-2479"
+      ]
     }
   ]
 }
