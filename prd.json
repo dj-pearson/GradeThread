@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2744",
+  "nextId": "US-2745",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2729,6 +2729,19 @@
       ],
       "priority": 12,
       "notes": "BRAND RESOLVES ON MERCARI 2026-08-20. The deep probe reports it ok on the live sell form, so one of the declared candidates matched - leading with data-testid was right, since Mercari is React and that is the attribute its own tests depend on, the same anchor its title field already uses. Selectors bumped to v2026.08.1 / lastVerified 2026-08-20. No fill code was needed: runFlow has filled f.brand for any channel declaring it since US-2730, witnessed like price, so declaring the selector was the whole change. ONE THING TO WATCH on the first live run: Mercari's brand is a typeahead, so a resolving selector is necessary and may not be sufficient - the value can need the dropdown selection a real keystroke triggers. Poshmark's brand behaved and this is the same shape, but that is precedent rather than proof. CONDITION and SIZE stay out as pickers (a selection and a dropdown), recorded in the config."
+    },
+    {
+      "id": "US-2744",
+      "passes": false,
+      "title": "Vinted takes whole units and we send cents",
+      "description": "As a seller cross-posting to Vinted, I want the price in the units Vinted accepts, so that the field takes it.",
+      "acceptanceCriteria": [
+        "Reported from the live sell form 2026-08-20: Vinted prices in whole units. Same shape as Poshmark, and the mechanism for it already exists - MarketplaceSpec.priceStep, applied in listing-kit.tsx where the displayed row, the Ready-to-list validation and the extension payload all read one resolved variant.",
+        "vinted declares priceStep 1. Rounded to nearest rather than floored, never below one step, and never invented - the same rules already pinned for Poshmark.",
+        "CAVEAT RECORDED IN THE CODE, not just here: priceStep is per PLATFORM and Vinted is ~20 country domains. This was confirmed on the domain the seller was using. If a locale prices in decimals it would be rounded too, and the step would then belong alongside the locale map in the extension's selectors config rather than on this one spec.",
+        "No new mechanism and no new tests needed: the stepping rules are already covered by the US-2739 cases. 46 tests pass."
+      ],
+      "priority": 12
     }
   ]
 }

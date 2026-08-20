@@ -389,6 +389,14 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
       { value: "Satisfactory", label: "Satisfactory" },
     ],
     tags: { max: 5, required: false, help: "Search keywords" },
+    // US-2744: whole units, reported from the live sell form 2026-08-20.
+    //
+    // CAVEAT WORTH KEEPING: priceStep is per PLATFORM and Vinted is ~20 country
+    // domains. This was confirmed on the domain the seller was using; a locale
+    // that prices in decimals would be rounded here too. If that turns out to
+    // matter, the step belongs alongside the locale map in the extension's
+    // selectors config, not on this one spec.
+    priceStep: 1,
     usesOwnTaxonomy: true, // Vinted catalog tree
     brandAllowList: false,
     fields: [
