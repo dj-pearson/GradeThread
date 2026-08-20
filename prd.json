@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2708",
+  "nextId": "US-2714",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2345,6 +2345,112 @@
       "priority": 24,
       "dependsOn": [
         "US-2706"
+      ]
+    },
+    {
+      "id": "US-2708",
+      "passes": false,
+      "title": "EPIC: market condition index — aggregate the claimed-vs-actual gap the extension already measures and throws away",
+      "description": "As the GradeThread team, we want the condition reads our extension already performs to accumulate into a de-identified market-wide measurement of how far seller claims sit from objective condition, so that the extension gets better for everyone as more people use it and we own a dataset no competitor can construct.",
+      "acceptanceCriteria": [
+        "Umbrella only: this story closes when every child passes. Children are filed immediately after it and named in the closing AC below",
+        "The asset this epic creates: how far claimed condition sits from objective condition, aggregated by marketplace, brand, category and price band. Today lib/listing-ingest.ts scores that gap per read, persists it on ingested_listings (00535), and the row is pruned, so the measurement is discarded after serving one buyer",
+        "Standing constraint from US-2148: a seller-adverse score is never published from unconfirmed model reads. The recorded asymmetry holds — penalise only what a human confirmed, credit on either — so this epic publishes categorical aggregates and may credit a seller, and no child ships a per-seller deficit derived from extension reads",
+        "Standing constraint from the anti-crawl contract in lib/listing-ingest.ts and vault/20-domain/buyer-platform.md: one buyer-initiated listing per request, marketplace hosts only, page HTML never fetched. No child extends retention of an identifying listing row to make aggregation easier; the statistic is extracted at read time and the row prunes on the schedule it already has",
+        "Every published rate follows the honesty rule already used by lib/resale-condition.ts: a minimum sample before a rate is stated, and null with a not-enough-data message rather than a misleading number",
+        "At close, a buyer read on a supported marketplace can be stated in market context rather than in isolation, and the aggregate is published on a public route",
+        "Children: US-2709, US-2710, US-2711, US-2712, US-2713. This epic closes when all five pass"
+      ],
+      "priority": 50
+    },
+    {
+      "id": "US-2709",
+      "passes": false,
+      "title": "Decision spike: what may be aggregated from buyer condition reads, and under what contract",
+      "description": "As the founder, I need a written decision on what the market condition index may retain and publish before any of it is built, because the source rows sit under an anti-crawl contract and a deliberate prune, and getting this wrong is a legal problem rather than a bug.",
+      "acceptanceCriteria": [
+        "A vault note is written under vault/20-domain/ recording the contract, linked from the index, and passing npm run vault:lint --strict as a type: contract note",
+        "The note states exactly which fields may be extracted from an ingested_listings row at read time, and asserts that no identifying field (listing_url, thumb_url, title, seller handle) survives into the aggregate store",
+        "The note states the retention decision: the aggregate row's lifetime, and confirmation that the source row's existing prune schedule is unchanged",
+        "The note states the k-anonymity floor per aggregation bucket, and the reasoning for the number, following the precedent set by RESALE_MIN_SAMPLE in lib/resale-condition.ts",
+        "The note applies US-2148's asymmetry explicitly to this dataset and records that a per-seller deficit from unconfirmed reads is out of scope, with the condition under which that could be revisited",
+        "The note records whether aggregating buyer-initiated reads is consistent with each marketplace's terms, per marketplace, with the reasoning written down rather than assumed. A marketplace that cannot be cleared is excluded from the index rather than included quietly",
+        "NO-CODE story: the deliverable is the note plus a go or no-go per marketplace. A no-go on a marketplace removes it from the children below"
+      ],
+      "priority": 51,
+      "dependsOn": [
+        "US-2708"
+      ]
+    },
+    {
+      "id": "US-2710",
+      "passes": false,
+      "title": "Extract the gap at read time: the de-identified aggregate store",
+      "description": "As the GradeThread team, we want each buyer condition read to contribute a de-identified row to an aggregate store as it happens, so that the measurement survives the prune without retaining anything that identifies a listing, a seller or a buyer.",
+      "acceptanceCriteria": [
+        "A new aggregate table holds only the bucketed dimensions cleared by the spike (marketplace, brand, category, price band, period) plus the claimed-vs-actual gap and a count. No listing_url, no thumb_url, no title, no seller identifier, no user_id. A CHECK constraint or a column-level test pins the absence of identifying columns",
+        "The write happens inside the existing read path in services/edge-functions/src/lib/listing-ingest.ts, at the point the gap is already scored, so no second pass over listing data is introduced",
+        "The source row's prune schedule is unchanged by this story; a test asserts retention was not extended",
+        "The aggregate write is best-effort and never fails a buyer's read, following the pattern in lib/closet-grade-link.ts",
+        "A pure module computes the bucketing and is unit-tested with no DB, so bucket boundaries are reviewable in one place",
+        "Rows are written with the service-role client and the table is RLS deny-all, registered in the rls-guard test the way other platform-level tables are (see vault/20-domain/service-role-tables.md)",
+        "The table carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and a self-record footer. Added to PENDING_MIGRATIONS.md and not pushed until the owner has applied it"
+      ],
+      "priority": 52,
+      "dependsOn": [
+        "US-2709"
+      ]
+    },
+    {
+      "id": "US-2711",
+      "passes": false,
+      "title": "The public market condition report",
+      "description": "As someone deciding whether to trust a secondhand listing, I want a published, citable measurement of how far condition claims sit from reality on each marketplace, so that the question has an answer with a number instead of an opinion.",
+      "acceptanceCriteria": [
+        "A public route renders the report from the aggregate store: claimed-vs-actual gap by marketplace, by brand, by category and by price band, with the sample size stated on the page",
+        "A bucket below the k-anonymity floor from the spike renders not enough data yet rather than a rate, matching the honesty rule in lib/resale-condition.ts",
+        "The route is registered in src/lib/seo/public-routes.ts AND in src/prerender/entry-server.tsx, or the CI guard test and the prerender sync-guard fail",
+        "Structured data is added via the SEO component AND mirrored in jsonLdForRoute() in the head builder, per the prerender gotcha in CLAUDE.md. No markup is emitted for data that does not exist",
+        "No per-seller figure appears anywhere on the page, per the epic constraint",
+        "npm run ui:check stays at zero findings for src/"
+      ],
+      "priority": 53,
+      "dependsOn": [
+        "US-2710"
+      ]
+    },
+    {
+      "id": "US-2712",
+      "passes": false,
+      "title": "State a buyer's read in market context, not in isolation",
+      "description": "As a shopper using the extension, I want to know whether this listing's condition claim is normal or optimistic for its marketplace and category, so that one read tells me something the read alone cannot.",
+      "acceptanceCriteria": [
+        "The overlay states the read against the relevant bucket, for example that the claim sits above what listings in this marketplace and category typically deliver, and says nothing when the bucket is below the sample floor",
+        "The context figure is served from the aggregate store through the existing read response, adding no second network call and no second Vision spend",
+        "No statement about the individual seller is made, per the epic constraint. The comparison is to a category, never to a person",
+        "The overlay renders the context inside the existing shadow root and adds no document CSS, per extension-unified/research/overlay-host.js and US-1884",
+        "Zero-dep node guards under extension-unified/test/ cover the formatting, including the below-sample-floor case"
+      ],
+      "priority": 54,
+      "dependsOn": [
+        "US-2710"
+      ]
+    },
+    {
+      "id": "US-2713",
+      "passes": false,
+      "title": "Show a seller how their condition claims compare to the market",
+      "description": "As a FlipDesk seller, I want to see whether my condition claims run tighter or looser than my market, so that I can price and describe with a number instead of a hunch, and see why my return rate looks the way it does.",
+      "acceptanceCriteria": [
+        "A FlipDesk surface compares the seller's own claimed-vs-graded gap, computed from their own items, against the market bucket for the same marketplace and category",
+        "The seller's own figure is computed from their own data and is never taken from the aggregate store, which holds no per-seller rows",
+        "Framing follows the US-2148 asymmetry: a seller whose claims are tighter than market is credited explicitly, and a looser figure is stated as a fact with its sample size rather than as a rating or a score",
+        "A seller with too few graded sales to clear the sample floor sees that plainly rather than a figure computed from three items",
+        "npm run ui:check stays at zero findings for src/"
+      ],
+      "priority": 55,
+      "dependsOn": [
+        "US-2710"
       ]
     }
   ]
