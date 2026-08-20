@@ -2033,27 +2033,6 @@
       "priority": 40
     },
     {
-      "id": "US-2697",
-      "passes": true,
-      "title": "Sold-sync intake: the pure observation planner and the tenant-scoped edge route",
-      "description": "As a FlipDesk seller, I want GradeThread's server to accept marketplace observations from my browser extension and decide for itself which of them are real sales, so that a bad selector produces a bad observation instead of pulling my listings off four other channels.",
-      "acceptanceCriteria": [
-        "New pure module services/edge-functions/src/lib/marketplace-observations.ts exports a planner taking observations plus the tenant's listings rows and returning confirmed, ambiguous and unmatched groups. It imports no supabase client and is unit-tested with no DB, mirroring the split in lib/cross-listing-sale.ts",
-        "Sale evidence tiers (definitive, inferred) and match tiers (exact, probable, none) are implemented per the action matrix in docs/superpowers/specs/2026-08-19-extension-sold-sync-design.md. Only definitive plus exact returns a confirmed sale; definitive plus probable returns a review row and never a delist",
-        "Absence is only evidence on complete coverage: an observation batch whose closet coverage field does not report reaching the last page yields zero inferred-absence results. A deno test asserts this",
-        "Circuit breaker: a batch reporting more sales than max(5, 20 percent of that tenant's live listings on that platform) returns zero confirmed, routes the whole batch to review, and flags it. A deno test asserts a 200-row batch against a 120-listing closet confirms nothing",
-        "Zero rows where many were expected is an error: a CLOSET enumeration returning zero active listings while the tenant has known live listings on that platform sets the channel to failing and writes no observations. Zero SOLD rows is the normal case and must never trip this. A deno test asserts both directions",
-        "Count reconciliation: when the observed active closet count dropped by more than the number of sales explained, the gap is raised as its own review row. A deno test asserts the gap is reported rather than absorbed",
-        "Replaying an identical batch produces no second sales row. Dedupe keys on the platform order reference where the platform supplies one, otherwise on platform plus listing_url plus soldAt",
-        "POST /api/flipdesk/sync/observations exists, requires an authenticated FlipDesk seller, and every query is explicitly scoped to workspaceOwnerId ?? userId per US-268. A case is added to services/edge-functions/src/tests/tenant-isolation_test.ts proving a foreign listing id matches zero rows rather than another tenant's",
-        "The route rejects any payload carrying a forbidden key (cookie, password, session token, buyer name, buyer handle, shipping address) with a 400, mirroring how CREDENTIAL_KEYS is enforced in services/edge-functions/src/lib/extension-queue.ts, walking nested objects and arrays. The list is pinned by a test so it cannot be shortened. The storage-side guarantee is a COLUMN ALLOWLIST test rather than a CHECK constraint: these tables hold typed columns and no jsonb payload, so there is nothing for a CHECK to inspect, and asserting the exact column set prevents a PII column from ever being added rather than only rejecting PII inside one",
-        "New tables carry the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the same commit, and a self-record footer. The migration is added to PENDING_MIGRATIONS.md and not pushed until the owner has applied it",
-        "A confirmed sale writes the sales row and invokes the existing cross-listings.ts delist planner. A deno test asserts the sibling delist plan is produced for a cross-listed garment"
-      ],
-      "priority": 41,
-      "notes": "Correction 2026-08-19 before implementation: the original AC said zero SOLD rows was an error, which is wrong — a seller with no sales this hour is the common case, and that rule would have marked every healthy channel as failing. The real signal, and what the design doc says, is a closet enumeration returning nothing while we know listings are live. Correction 2026-08-20: the CHECK-constraint clause was written by analogy to extension_work_queue, which stores a jsonb payload a CHECK can walk. The sync tables store typed columns and no payload, so a CHECK has nothing to inspect. Replaced with a column-allowlist test, which is the stronger guarantee: it stops a PII column existing at all. | DONE 2026-08-20. All 11 ACs verified against the tree, not assumed. lib/marketplace-observations.ts is the pure planner (25 tests, no DB, no supabase import); POST /api/flipdesk/sync/observations is tenant-scoped through inventory_items.user_id with a tenant-isolation case; lib/sync-payload-guard.ts derives its credential half from extension-queue.ts CREDENTIAL_KEYS rather than copying it; migration 00632 carries the US-1108 triple and is recorded in PENDING_MIGRATIONS.md. THREE DEFECTS FOUND AND FIXED DURING THE BUILD. (1) The route was mounted with NO auth middleware for one commit, so ownerId resolved to undefined and the endpoint was unauthenticated; flipdesk-auth-coverage_test.ts caught it. (2) The route selected listings.price, but the column is listing_price, which deno check cannot see through supabase-js. (3) Two ACs were themselves wrong and were corrected before implementation: one said zero SOLD rows was an error (that is the normal case and would have marked every healthy channel failing; the real signal is a complete CLOSET read returning nothing), and one called for a CHECK constraint on tables that hold no jsonb for a CHECK to inspect (replaced with a column-allowlist test, which stops a PII column existing at all rather than only rejecting PII inside one, and was sabotage-checked by adding buyer_name). | PROD STATE 2026-08-20: the commits reached origin/main via a concurrent ship rather than a deliberate one, and the owner confirms 00630, 00631 and 00632 were applied to prod as they landed. PENDING_MIGRATIONS.md records all three as applied and has no outstanding entries. The risk that mattered is closed: EXPECTED_SCHEMA_VERSION is 00632 and so is prod, so the next edge deploy boots rather than crash-looping on the schema guard."
-    },
-    {
       "id": "US-2698",
       "passes": false,
       "title": "Poshmark sold-sync observer: passive harvest, no automated traffic",
@@ -2076,27 +2055,6 @@
       ]
     },
     {
-      "id": "US-2699",
-      "passes": false,
-      "title": "Sold-sync surfaces: status, review queue, claim and notification",
-      "description": "As a FlipDesk seller, I want to see what sold-sync found, fix what it could not match, and be told when it pulled my listings off other channels, so that I trust it enough to leave it on.",
-      "acceptanceCriteria": [
-        "One shared edge projection serves sync status to both the extension popup (HMAC extension token) and the SaaS (Supabase JWT), following the pattern and the rationale in services/edge-functions/src/lib/pending-delists.ts. A test asserts both routes read the same lib rather than two copies",
-        "The extension popup shows, per channel: last sync time, listings seen, or not signed in, or off. Plus a Sync now button",
-        "src/pages/flipdesk/marketplaces.tsx shows the same per-channel rows and carries the sync toggle",
-        "A review queue tab on marketplaces.tsx lists three groups: needs confirming (definitive plus probable), unexplained (inferred plus exact), and unmatched",
-        "Claim on an unmatched sold row writes listing_url onto the chosen listings row, so a later sighting of that item matches exact. A test asserts the second sighting is auto-confirmed",
-        "A confirmed sale sends a notification through services/edge-functions/src/lib/marketplace-event-notify.ts naming the item, the channel it sold on, and each sibling listing that was delisted",
-        "The disclosure is on screen before the first observation is ever sent, naming what leaves the browser (listing URL, title, price, sale date, order reference) and what never does (cookies, passwords, session tokens, buyer name, buyer handle, shipping address). It is not only in a README, per US-2472 AC5, and extension-unified/SUBMISSION.md is updated to match",
-        "npm run ui:check stays at zero findings for src/"
-      ],
-      "priority": 43,
-      "dependsOn": [
-        "US-2697"
-      ],
-      "notes": "MOSTLY DONE 2026-08-20, and deliberately NOT closed. Built and verified: the shared projection (lib/sync-status.ts, read by both the SaaS and the extension popup, with a guard that neither route grows its own SELECT), the review-queue and dismiss endpoints, the claim ENDPOINT, the sale notification naming each sibling channel by name (9 tests), the popup rows with Sync now, the Marketplaces section, and the on-screen disclosure. ui:check zero blocking, 13 copy tests. TWO REAL GAPS REMAIN, found by re-reading the ACs rather than trusting the build. AC4: unmatched sold rows are inserted with reason 'probable_match' and a null listing_id (routes/flipdesk-sync.ts), so the UI conflates them with probable matches instead of showing the three distinct groups the AC asks for. Unmatched needs its own reason value, which means a CHECK-constraint widening on marketplace_sync_reviews and therefore a migration. AC5: the claim endpoint exists and is tenant-scoped, but there is no claim UI, and no test asserts the promised payoff — that a second sighting of a claimed URL is auto-confirmed. That test is the whole reason the feature is worth working: it proves the queue shrinks as the seller uses it."
-    },
-    {
       "id": "US-2700",
       "passes": false,
       "title": "Mercari sold-sync observer",
@@ -2112,27 +2070,6 @@
       "dependsOn": [
         "US-2698"
       ]
-    },
-    {
-      "id": "US-2701",
-      "passes": false,
-      "title": "Sold-sync scheduled poll: the unfocused background read, with consent",
-      "description": "As a FlipDesk seller who has not opened Poshmark in three days, I want GradeThread to check my Sold page on its own while my browser is open, so that a sale that happened on Monday does not leave my other listings live until Thursday.",
-      "acceptanceCriteria": [
-        "The poll reuses the drain pattern at extension-unified/background.js (unfocused tab via tabs.create with active false, a URL allowlist guard, and a chrome.alarms sweep) rather than introducing a second scheduler",
-        "The polled URL is checked against an allowlist before the tab opens, the way GT_LISTER_GUARD.isAllowedDelistUrl already guards the queue drain. A URL that arrived in a message is never navigated to",
-        "Default interval is between 30 and 60 minutes per channel while the browser is open, configurable, with an off switch reachable from both the popup and src/pages/flipdesk/marketplaces.tsx",
-        "The poll has its own versioned clickwrap, separate from the lister and engagement ones, stating that GradeThread will open a background tab on the seller's marketplace account. An old acceptance stops counting, matching the engagement consent rule",
-        "The consent and the interval are checked before every poll, not once per session, matching the per-action gate rule in lister/engagement.js",
-        "A not-signed-in result backs the channel off rather than retrying, and never opens a login prompt",
-        "A human check stops the poll for that channel and surfaces it to the seller",
-        "The engagement runner and the poll never drive the same tab at the same time; a test asserts the poll skips a channel with an engagement run in flight"
-      ],
-      "priority": 45,
-      "dependsOn": [
-        "US-2698"
-      ],
-      "notes": "MOSTLY DONE 2026-08-20, and deliberately NOT closed. Seven of eight ACs verified. The safety layer is pure (sync/poll-plan.js) and was sabotage-checked 14/14; the driver is in background.js and was sabotage-checked 8/8 after two guard-precision fixes; the consent UI was sabotage-checked 7/7; the web-side off switch cannot turn the poll ON, which is the point, and was sabotage-checked 5/5. A parity test reads the shipped extension module so the web's cadence choices cannot drift from the planner's bounds. ONE GAP: AC7 says a human check stops the poll for that channel AND SURFACES IT TO THE SELLER. The stop works and is tested (applyPollResult sets stoppedForHumanCheck, and channelDue then refuses that channel forever), but nothing renders it. syncStateCopy in hooks/use-sold-sync.ts handles ok/failing/not_signed_in/never and has no human-check state, and the popup's poll section shows no per-channel status at all. A seller whose channel stopped sees a poll that is on and quietly doing nothing, which is the exact failure the 'never reads as never, not ok' rule exists to prevent everywhere else in this feature."
     },
     {
       "id": "US-2702",
