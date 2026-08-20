@@ -1617,6 +1617,19 @@ const EXTERNAL_TYPES = new Set([
   "GT_CLEAR_TOKEN",
   "GT_LISTER_LIST",
   "GT_LISTER_DELIST",
+  // US-2701: the Marketplaces page reads the scheduled poll's state, turns it
+  // OFF, and changes its cadence.
+  //
+  // GT_POLL_ACCEPT IS DELIBERATELY ABSENT, and this is the load-bearing half.
+  // The clickwrap's whole guarantee is that the sentences the seller accepted
+  // came from the extension's own copy (sync/poll-plan.js). A web page that
+  // could grant that consent would be a page granting consent to terms IT
+  // rendered — which is the exact substitution the one-copy rule exists to
+  // prevent. Turning something off, and slowing it down, need no such care:
+  // both are strictly safer than the state they replace.
+  "GT_WEB_POLL_STATE",
+  "GT_WEB_POLL_REVOKE",
+  "GT_WEB_POLL_INTERVAL",
 ]);
 
 function handleExternalMessage(msg, sender, sendResponse) {
@@ -1630,6 +1643,33 @@ function handleExternalMessage(msg, sender, sendResponse) {
   }
 
   // Unified handshake — the SaaS detects the extension + reads what it can do.
+  // US-2701: the Marketplaces page's view of the scheduled poll.
+  //
+  // Read, turn off, slow down. There is no GT_WEB_POLL_ACCEPT and there must not
+  // be: the clickwrap's guarantee is that the sentences the seller accepted came
+  // from the extension's own copy, and a page that could grant that consent
+  // would be granting it to terms the page itself rendered.
+  if (
+    msg.type === "GT_WEB_POLL_STATE" ||
+    msg.type === "GT_WEB_POLL_REVOKE" ||
+    msg.type === "GT_WEB_POLL_INTERVAL"
+  ) {
+    (async () => {
+      try {
+        if (msg.type === "GT_WEB_POLL_REVOKE") {
+          sendResponse(await revokePollClickwrap());
+        } else if (msg.type === "GT_WEB_POLL_INTERVAL") {
+          sendResponse(await setPollInterval(msg.minutes));
+        } else {
+          sendResponse({ ok: true, state: await pollConsentState() });
+        }
+      } catch (_e) {
+        sendResponse({ ok: false, error: "Could not read the schedule." });
+      }
+    })();
+    return true;
+  }
+
   if (msg.type === "GT_PING" || msg.type === "GT_LISTER_PING") {
     (async () => {
       const caps = await getCapabilities(false);

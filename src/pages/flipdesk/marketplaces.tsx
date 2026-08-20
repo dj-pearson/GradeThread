@@ -97,6 +97,10 @@ import {
   useSyncStatus,
   type SyncReview,
   type SyncReviewReason,
+  POLL_INTERVAL_CHOICES,
+  useSetPollInterval,
+  useStopPoll,
+  usePollState,
 } from "@/hooks/use-sold-sync";
 import { HelpLink } from "@/components/help/help-link";
 
@@ -1105,6 +1109,86 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
 // healthy is the failure lib/pending-delists.ts documents, and it is worse here
 // than there: sold-sync is the thing standing between a seller and a double
 // sale, so a seller who cannot tell whether it is running does not trust it.
+// US-2701 AC3: the scheduled poll's off switch, reachable from the web as well
+// as the popup.
+//
+// It can stop the poll and change its cadence. It cannot START it: accepting the
+// clickwrap happens in the extension, where the terms render from the
+// extension's own copy. Saying that on screen matters more than hiding it —
+// a seller who cannot find the on switch should be told where it is, not left
+// to conclude the feature is broken.
+function SoldSyncSchedule() {
+  const { data: poll, isLoading } = usePollState();
+  const stop = useStopPoll();
+  const setInterval = useSetPollInterval();
+
+  // No extension, or an older one: say nothing rather than showing a control
+  // that cannot work.
+  if (isLoading || !poll || !poll.available) return null;
+
+  if (!poll.accepted || !poll.enabled) {
+    return (
+      <div className="mt-3 rounded-lg border border-dashed p-3">
+        <p className="text-sm font-medium">Scheduled checks are off</p>
+        <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">
+          Sold-sync currently reads your sold pages only while you are on them.
+          To have GradeThread check on its own, open the extension and accept the
+          short list of what it will do. That has to happen in the extension so
+          you are agreeing to its wording, not ours.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Checking on a schedule</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            One channel at a time, in a background tab, while your browser is open.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-muted-foreground" htmlFor="pollEvery">
+            Every
+          </label>
+          <select
+            id="pollEvery"
+            className="h-8 rounded-md border bg-background px-2 text-xs"
+            value={poll.intervalMin}
+            disabled={setInterval.isPending}
+            onChange={(e) => {
+              setInterval.mutate(Number(e.target.value), {
+                onError: (err) => toast.error(err.message),
+              });
+            }}
+          >
+            {POLL_INTERVAL_CHOICES.map((m) => (
+              <option key={m} value={m}>
+                {m < 60 ? `${m} minutes` : `${m / 60} hour${m === 60 ? "" : "s"}`}
+              </option>
+            ))}
+          </select>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={stop.isPending}
+            onClick={() => {
+              stop.mutate(undefined, {
+                onSuccess: () => toast.success("Scheduled checks turned off."),
+                onError: (err) => toast.error(err.message),
+              });
+            }}
+          >
+            Turn off
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SoldSyncSection() {
   const { data: channels, isLoading } = useSyncStatus();
   const { data: reviews } = useSyncReviews();
@@ -1173,6 +1257,8 @@ function SoldSyncSection() {
           })}
         </ul>
       </div>
+
+      <SoldSyncSchedule />
 
       {queue.length > 0 && (
         <div className="mt-3 space-y-3">

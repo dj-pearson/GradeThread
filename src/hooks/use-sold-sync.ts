@@ -8,6 +8,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { edgeFetch } from "@/lib/edge-fetch";
 import { MARKETPLACE_LABELS } from "@/lib/constants";
+import { sendExtensionMessage } from "@/lib/lister-extension";
 
 /** "poshmark" reads as a database key. Sellers know it as Poshmark. */
 function label(platform: string): string {
@@ -212,3 +213,72 @@ export function reviewGroupCopy(reason: SyncReviewReason): { title: string; blur
       };
   }
 }
+
+// ── the scheduled poll (US-2701) ───────────────────────────────────────────
+//
+// The poll's settings live in the EXTENSION's storage, not on the server, so
+// this page reaches them through the same bridge the Lister uses rather than
+// through an API. That is not an accident of implementation: the consent is
+// about what the extension does on the seller's own machine, and putting it on
+// a server would make it a setting rather than a permission.
+//
+// The page can read the state, turn it OFF, and slow it down. It CANNOT turn it
+// on. Accepting the clickwrap happens in the extension popup, where the terms
+// render from the extension's own copy — a page that could accept would be
+// consenting to terms it rendered itself.
+
+export interface PollState {
+  available: boolean;
+  accepted: boolean;
+  enabled: boolean;
+  intervalMin: number;
+}
+
+export function usePollState(enabled = true) {
+  return useQuery({
+    queryKey: ["sold_sync_poll_state"],
+    enabled,
+    staleTime: 30 * 1000,
+    queryFn: async (): Promise<PollState | null> => {
+      const res = await sendExtensionMessage<{ ok?: boolean; state?: PollState }>({
+        type: "GT_WEB_POLL_STATE",
+      });
+      if (!res || res.ok === false || !res.state) return null;
+      return res.state;
+    },
+  });
+}
+
+export function useStopPoll() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await sendExtensionMessage<{ ok?: boolean }>({ type: "GT_WEB_POLL_REVOKE" });
+      if (!res || res.ok === false) throw new Error("Couldn't reach the extension.");
+      return res;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["sold_sync_poll_state"] });
+    },
+  });
+}
+
+export function useSetPollInterval() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (minutes: number) => {
+      const res = await sendExtensionMessage<{ ok?: boolean }>({
+        type: "GT_WEB_POLL_INTERVAL",
+        minutes,
+      });
+      if (!res || res.ok === false) throw new Error("Couldn't reach the extension.");
+      return res;
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["sold_sync_poll_state"] });
+    },
+  });
+}
+
+/** Cadences the extension's planner accepts. Mirrors sync/poll-plan.js bounds. */
+export const POLL_INTERVAL_CHOICES = [30, 45, 60, 180, 360] as const;

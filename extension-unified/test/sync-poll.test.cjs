@@ -493,6 +493,64 @@ assert.strictEqual(
   }
 }
 
+// ── 13. A web page can turn the poll OFF, and can never turn it ON ─────────
+//
+// The clickwrap's guarantee is that the sentences the seller accepted came from
+// the extension's own copy. A page able to grant that consent would be granting
+// it to terms the page itself rendered, which is the substitution the one-copy
+// rule exists to prevent. Off and slower need no such care: both are strictly
+// safer than the state they replace.
+
+{
+  const bg = readSrc("background.js");
+  const externalBlock = bg.slice(
+    bg.indexOf("const EXTERNAL_TYPES = new Set(["),
+    bg.indexOf("function handleExternalMessage"),
+  );
+  assert.ok(externalBlock.length > 100, "could not isolate EXTERNAL_TYPES");
+
+  for (const allowed of ["GT_WEB_POLL_STATE", "GT_WEB_POLL_REVOKE", "GT_WEB_POLL_INTERVAL"]) {
+    assert.ok(
+      externalBlock.includes(`"${allowed}"`),
+      `${allowed} is not externally reachable, so the Marketplaces page cannot show or stop the poll`,
+    );
+  }
+  for (const forbidden of ["GT_POLL_ACCEPT", "GT_WEB_POLL_ACCEPT"]) {
+    assert.ok(
+      !externalBlock.includes(`"${forbidden}"`),
+      `${forbidden} is externally reachable. A web page must never be able to ` +
+        `accept the poll clickwrap — it would be consenting to terms it rendered itself.`,
+    );
+  }
+
+  // And the popup's own message names must NOT be in the external set, or the
+  // origin check would reject the popup: its origin is chrome-extension://,
+  // not gradethread.com. This bit me while writing it.
+  for (const internal of ["GT_POLL_STATE", "GT_POLL_REVOKE", "GT_POLL_INTERVAL"]) {
+    assert.ok(
+      !new RegExp(`"${internal}"`).test(externalBlock),
+      `${internal} is in EXTERNAL_TYPES, which routes it through the ` +
+        `gradethread.com origin check and rejects the popup's own calls.`,
+    );
+  }
+
+  // The external handler must never call the accept function.
+  const extHandler = bg.slice(
+    bg.indexOf("function handleExternalMessage"),
+    bg.indexOf("if (ext.runtime.onMessageExternal)"),
+  );
+  assert.ok(extHandler.length > 200, "could not isolate handleExternalMessage");
+  assert.ok(
+    !/acceptPollClickwrap/.test(extHandler),
+    "handleExternalMessage can accept the poll clickwrap on a web page's say-so",
+  );
+  // It must still verify the origin before doing any of it.
+  assert.ok(
+    /isOriginAllowed\(sender\)/.test(extHandler),
+    "handleExternalMessage no longer checks the sender origin",
+  );
+}
+
 console.log(
   "sync-poll.test.cjs: consent is versioned and re-checked, the interval floor holds, " +
     "engagement blocks the poll, signed-out backs off, a human check stops the channel, " +
