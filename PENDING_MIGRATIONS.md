@@ -1,6 +1,20 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## 🟠 PENDING: 00625 — the connector is denied on the plans that include it (US-2687)
+## ✅ APPLIED 2026-08-19: 00625 — the connector is denied on the plans that include it (US-2687)
+
+**Applied to production by the owner on 2026-08-19 and verified in the same
+sitting.** The confirmation query returned exactly the expected shape:
+
+```
+business | true
+free     | false
+pro      | true
+starter  | false
+```
+
+So Pro and Business sellers can reach the connector for the first time since
+US-9124 shipped the gate. Kept here rather than deleted because the next reader
+of this file needs to know it LANDED, not just that it stopped being pending.
 
 **Risk: LOW, and the do-nothing risk is higher.** Two `UPDATE`s against four
 rows of `public.pricing_plans`. No table, no column, no function, no policy, no
