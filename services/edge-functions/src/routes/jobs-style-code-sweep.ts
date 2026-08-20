@@ -22,6 +22,11 @@ import { acquireJobLock } from "../lib/job-lock.ts";
 import { brandKeyForRaw } from "../lib/brand-normalize.ts";
 import { searchBrowseComps } from "../lib/ebay-client.ts";
 import { consensusStyleName } from "../lib/style-code-consensus.ts";
+import {
+  planRekey,
+  type RekeyRow,
+  summarizeRekey,
+} from "../lib/style-code-rekey.ts";
 import { recordStyleCodeObservations } from "../lib/style-code-observations.ts";
 import {
   buildSweepWorkList,
@@ -152,6 +157,77 @@ async function scanSweepState(): Promise<SweepStateRow[]> {
   return (data ?? []) as SweepStateRow[];
 }
 
+/**
+ * US-2714: move rows the SQL trigger filed under a non-canonical key.
+ *
+ * Every TypeScript writer files a code under canonicalStyleCode. The 00629
+ * trigger cannot — plpgsql has no decoder to ask — so a seller correcting a
+ * garment whose tag reads LW6AMYSP60417 writes that key while every reader asks
+ * for W6AMYS. Not lost, filed where nobody looks. This tick puts it back.
+ *
+ * Never throws: a reconcile failure must not cost the sweep its whole tick.
+ */
+async function reconcileKeys(): Promise<
+  ReturnType<typeof summarizeRekey> & { failed: number }
+> {
+  const empty = { moved: 0, dropped: 0, conflicts: 0, correct: 0, failed: 0 };
+  const { data, error } = await supabaseAdmin
+    .from("style_code_names")
+    .select(
+      "id, brand_key, style_code_norm, style_code_raw, name, source, supporting, confidence, evidence_url, rejected_at",
+    )
+    .is("rejected_at", null)
+    .limit(SCAN_LIMIT);
+  if (error) {
+    console.error("[style-code-sweep] rekey read failed:", error.message);
+    return empty;
+  }
+
+  const plan = planRekey((data ?? []) as RekeyRow[]);
+  let failed = 0;
+  for (const step of plan.steps) {
+    // A conflict is a DECISION, not a write. Two different first-party answers
+    // for one garment need a human, and the admin queue already surfaces
+    // exactly that — merging here would silently pick a winner.
+    if (step.action === "conflict") continue;
+    try {
+      if (step.action === "move") {
+        const { error: writeErr } = await supabaseAdmin.rpc(
+          "record_style_code_name",
+          {
+            p_brand_key: step.row.brand_key,
+            p_style_code_norm: step.canonical,
+            p_style_code_raw: step.row.style_code_raw,
+            p_name: step.row.name,
+            p_source: step.row.source,
+            p_supporting: step.row.supporting,
+            p_confidence: step.row.confidence,
+            p_evidence_url: step.row.evidence_url,
+          },
+        );
+        if (writeErr) throw writeErr;
+      }
+      // Written at the canonical key (or already there), so the mis-keyed row
+      // is one nothing reads and it goes. Deleted AFTER the write, never
+      // before: a crash between the two leaves a duplicate, which the next tick
+      // resolves as drop_duplicate. The other order would lose the answer.
+      const { error: delErr } = await supabaseAdmin
+        .from("style_code_names")
+        .delete()
+        .eq("id", step.row.id);
+      if (delErr) throw delErr;
+    } catch (err) {
+      failed++;
+      console.error(
+        `[style-code-sweep] rekey ${step.row.style_code_norm} -> ${step.canonical} failed:`,
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  return { ...summarizeRekey(plan), failed };
+}
+
 const liveDeps: SweepDeps = {
   search: async (candidate: SweepCandidate): Promise<SweepHit[]> => {
     const res = await searchBrowseComps({
@@ -254,8 +330,19 @@ export async function handleStyleCodeSweepCron(
         `skipped_cooldown=${work.skippedCooldown} skipped_short=${work.skippedTooShort}`,
     );
 
+    // US-2714: reconcile BEFORE reporting, so a tick's output describes the
+    // index as it now stands rather than as it was when the tick began.
+    const rekey = await reconcileKeys();
+    if (rekey.moved || rekey.dropped || rekey.conflicts || rekey.failed) {
+      console.log(
+        `[style-code-sweep] rekey moved=${rekey.moved} dropped=${rekey.dropped} ` +
+          `conflicts=${rekey.conflicts} failed=${rekey.failed} correct=${rekey.correct}`,
+      );
+    }
+
     return c.json({
       ok: true,
+      rekey,
       considered: work.considered,
       swept: work.candidates.length,
       deferred: work.deferred,
