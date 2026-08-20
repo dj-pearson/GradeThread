@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2735",
+  "nextId": "US-2736",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2586,6 +2586,22 @@
         "FOLLOW-ON worth considering: the report itself could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than depending on someone remembering."
       ],
       "priority": 20
+    },
+    {
+      "id": "US-2735",
+      "passes": false,
+      "title": "Poshmark's price lives in a dialog, so every cross-post has told the seller we could not set it",
+      "description": "As a seller cross-posting to Poshmark, I want the price carried across, so that the one field deciding what I get paid is not the one I always have to type myself.",
+      "acceptanceCriteria": [
+        "CAUSE: both amounts live in listing-price-suggestion-modal, not on the create form. Every price selector in the config has therefore missed since Poshmark rebuilt the editor, and US-2477 made that miss loud - so the seller was correctly but relentlessly told 'the price was NOT filled in' on every single run.",
+        "The two inputs are the best anchors on the page and were read off the live DOM, not guessed: #listing-price-modal-listing-price-input (aria-label 'Listing Price') and #listing-price-modal-original-price-input. Real ids, no placeholder text, no English.",
+        "GT.fillPriceDialog clicks the opener, waits up to 2s for the dialog, sets the listing price and the optional original price. It runs AFTER the photos: an open modal sits over the file input, and attaching photos matters more than price.",
+        "It never submits. The only elements touched are the opener and the two inputs, and the dialog is left OPEN on success on purpose - Poshmark commits through its own Apply control, and clicking that for the seller would be GradeThread deciding the price is right. Leaving it open puts the number in front of them while they can still change it.",
+        "Every step is optional and non-fatal: no opener, no dialog, or no input returns false and the run reports the price unfilled exactly as before. Nothing here can make a cross-post worse than not having it.",
+        "The ONE inferred piece is the opener selector - input.ff--no-increment-input:not([id^=listing-price-modal]) - taken from the deep probe's create-page input. The :not() is what keeps it honest: it can never match the modal's own inputs, so a wrong inference opens nothing rather than typing into the wrong box. Confirm it against the live page and replace it with a test attribute the moment one appears.",
+        "priceFilled now reports the dialog result too, so the SaaS toast stops warning about a price that did in fact get set."
+      ],
+      "priority": 11
     }
   ]
 }

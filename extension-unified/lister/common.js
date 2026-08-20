@@ -215,6 +215,48 @@
     }
   };
 
+  // US-2735: open a marketplace's price dialog and fill it.
+  //
+  // Poshmark keeps both amounts in `listing-price-suggestion-modal` rather than
+  // on the create form, which is why every price selector missed and why the
+  // seller was told "we could not set the price" on every cross-post.
+  //
+  // THREE RULES, and they are what keep a click safe:
+  //   1. It opens a dialog. It never submits, and there is no path here that
+  //      could — the only elements touched are the opener and the two inputs.
+  //   2. Every step is optional. No opener, no dialog, or no price input and we
+  //      return false, which reports the price as unfilled exactly as before.
+  //      Nothing about this can make a run worse than not having it.
+  //   3. The dialog is left OPEN on success, on purpose. Poshmark commits the
+  //      amount through its own Apply control, and clicking that for the seller
+  //      would be us deciding the price is right. Leaving it open puts the
+  //      number in front of them at the moment they can still change it.
+  GT.fillPriceDialog = async function (cfg, payload) {
+    if (!cfg || !cfg.open || !cfg.price) return false;
+    try {
+      const opener = document.querySelector(cfg.open);
+      if (!opener) return false;
+      opener.click();
+
+      // Short wait: a dialog that has not rendered in two seconds is not going
+      // to, and the seller is watching the form.
+      const input = await GT.waitFor(cfg.price, 2000);
+      if (!input) {
+        GT.log("price dialog did not open on " + payload.platform);
+        return false;
+      }
+
+      const filled = GT.setValue(input, String(payload.price));
+      if (cfg.originalPrice && payload.originalPrice) {
+        GT.fill(cfg.originalPrice, payload.originalPrice);
+      }
+      return filled;
+    } catch (_e) {
+      // A click that throws is a page we do not understand. Report unfilled.
+      return false;
+    }
+  };
+
   // Build the success/failure result envelope the background worker expects.
   GT.result = function (jobId, partial) {
     return Object.assign({ type: "GT_LISTER_RESULT", jobId: jobId }, partial);
@@ -355,6 +397,24 @@
       : { attached: 0, failed: 0, total: 0 };
     const photosAttached = photos.total > 0 && photos.failed === 0;
 
+    // US-2735: the price lives behind a dialog on Poshmark, so reach it.
+    //
+    // AFTER the photos, and that order is deliberate: an open modal sits over
+    // the file input, and photos matter more than price. Non-fatal throughout —
+    // if the dialog never appears we report the price as unfilled, which is
+    // exactly what happened before this existed.
+    let dialogPriceFilled = false;
+    if (flow.priceDialog && !priceFilled && payload.price) {
+      dialogPriceFilled = await GT.fillPriceDialog(flow.priceDialog, payload);
+      if (dialogPriceFilled) {
+        GT.showBanner(
+          "GradeThread prefilled this " + (payload.platformLabel || payload.platform) +
+            " listing, including the price — review it and post.",
+        );
+      }
+    }
+    const anyPriceFilled = priceFilled || dialogPriceFilled;
+
     GT.log("filled " + payload.platform + " form (photos " +
       photos.attached + "/" + photos.total + " attached)");
 
@@ -369,7 +429,7 @@
       // could not set is visible after the tab is closed, not only while the
       // banner is on screen. A platform with no price field at all (none today)
       // reports false too — "we did not set a price" is true either way.
-      priceFilled: priceFilled,
+      priceFilled: anyPriceFilled,
       // US-2730: same contract as priceFilled. `undefined` where the channel
       // declares no brand selector or the draft carries no brand — which must
       // read as "not applicable", never as "we failed", or every unverified

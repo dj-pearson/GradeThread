@@ -108,6 +108,12 @@ const GT_LISTER_SELECTORS = {
       // Enter key. Filling it would leave uncommitted text in a field the seller
       // believes is set.
       tags: 'input.listing-editor__tag__input',
+      // 2026-08-20: BOTH price inputs live in a dialog, not on the form, which
+      // is why every price selector here has missed since Poshmark rebuilt the
+      // editor. They are reached through `priceDialog` below, not through these.
+      // Left declared and unmatched ON PURPOSE: `f.price` being present is what
+      // makes runFlow report `priceFilled: false` instead of staying silent, and
+      // silence over an unset price is the US-2477 defect.
       originalPrice: 'input[data-test="listing-editor-original-price"], input[name="originalPrice"]',
       price: 'input[data-test="listing-editor-listing-price"], input[name="listingPrice"]',
       // 2026-08-11: `input[type="file"][accept*="image"]` matched NOTHING here,
@@ -125,6 +131,35 @@ const GT_LISTER_SELECTORS = {
       photoInput:
         'input#img-file-input, input[name="img-file-input"], ' +
         'input[type="file"][accept*="image"], input[type="file"][accept*="jpg"]',
+    },
+    // ── The price dialog (2026-08-20) ────────────────────────────────────
+    //
+    // Poshmark's price is not on the create form. Clicking the price control
+    // opens `listing-price-suggestion-modal`, and BOTH amounts live inside it.
+    // That is the whole reason `price` above has never matched, and why sellers
+    // were told "we could not set the price" on every single cross-post.
+    //
+    // The two inputs are the best anchors on this entire page — real ids and a
+    // real aria-label, no placeholder text, no English:
+    //   #listing-price-modal-listing-price-input   aria-label="Listing Price"
+    //   #listing-price-modal-original-price-input
+    //
+    // `open` is the one piece INFERRED rather than read off the page. The deep
+    // probe found a create-page input carrying `ff--no-increment-input` that is
+    // not one of the modal's two, and that is the price control the seller
+    // clicks. The `:not()` is what keeps it honest — it can never match the
+    // modal's own inputs, so a mis-inference opens nothing rather than typing
+    // into the wrong box. If the dialog does not appear, the flow reports the
+    // price as unfilled exactly as it does today; nothing is worse than before.
+    //
+    // NOT a submit and never will be. Opening a dialog to reach a field is the
+    // same move the delist flow already makes for its menu; the seller still
+    // reviews and posts. It runs AFTER the photos deliberately: an open modal
+    // sits over the file input, and attaching photos matters more than price.
+    priceDialog: {
+      open: 'input.ff--no-increment-input:not([id^="listing-price-modal"])',
+      price: '#listing-price-modal-listing-price-input, input[aria-label="Listing Price"]',
+      originalPrice: '#listing-price-modal-original-price-input',
     },
     submit:
       'button[data-test="listing-editor-submit"], button[type="submit"].listing-editor__submit, ' +
