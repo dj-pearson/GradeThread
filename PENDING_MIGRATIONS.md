@@ -1,6 +1,35 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00639 — remove the names derived from listing titles (US-2751)
+> [!note] NOTHING IS PENDING as of 2026-08-20.
+> Every migration through **00639** is applied. Verified by asking the database
+> rather than this file: `GET /health/ready` reports
+> `{"expected":"00634","applied":"00639","status":"ahead"}` with no `missing`
+> key, which means every version up to 00639 landed — `status:"ahead"` only says
+> the RUNNING edge build is older than the schema, which the next edge deploy
+> resolves.
+>
+> The `unexpected` list showing 00635/00638/00639 is the same thing from the
+> other side: that build's manifest predates them. It is NOT a phantom report.
+> 00636 and 00637 have dropped off it, which is how we know 00638's cleanup of
+> their bookkeeping rows ran.
+>
+> This file records INTENT; only the database records STATE. It has gone stale in
+> both directions before — claiming HELD when prod had applied, and claiming
+> applied when prod had not — and both times it was trusted and prod was not
+> asked. One unauthenticated GET settles it.
+
+## ✅ APPLIED 2026-08-20: 00639 — remove the names derived from listing titles (US-2751)
+
+**APPLIED, verified 2026-08-20.** `GET /health/ready` reports `applied: "00639"`.
+The names produced from eBay listing TITLES are gone; the sweep now writes only
+from listings that declare the style code in a structured item specific.
+
+⚠ **The edge still has to redeploy.** Production is running a build that expects
+00634, so until it rolls, the OLD title-consensus code is what the sweep cron
+executes — and it can write fresh `consensus` rows into the table this migration
+just cleaned. The delete is idempotent: re-run 00639 after the edge deploy and
+the table is clean again. That is why this one's apply order was reversed in the
+first place.
 
 **Risk: LOW, and the risk of NOT applying it is higher.** One `DELETE` against
 `style_code_names` rows whose source is `consensus`. No schema change.
@@ -91,7 +120,11 @@ select pg_get_constraintdef(oid) from pg_constraint
 where conname = 'style_code_names_source_check';   -- must now include 'public'
 ```
 
-## ⏳ PENDING: 00634 — listings.listed_at becomes nullable (US-2727)
+## ✅ APPLIED 2026-08-20: 00634 — listings.listed_at becomes nullable (US-2727)
+
+**APPLIED.** Below the 00639 the database reports as applied, and `/health/ready`
+carries no `missing` key — which is the guard's way of saying there is no hole
+under the maximum (US-2620 reports one as `incomplete`).
 
 **Risk: LOW.** One `ALTER COLUMN ... DROP NOT NULL`. No table is created or
 dropped, no data is written, no policy changes. Idempotent by nature: dropping
