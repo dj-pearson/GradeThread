@@ -448,8 +448,27 @@ const GT_LISTER_SELECTORS = {
       title: 'input[data-testid="Title"], input[name="sellName"], input#sellName',
       description: 'textarea[name="description"], textarea[data-testid="Description"]',
       price: 'input[name="price"], input[data-testid="Price"]',
+      // US-2743: DECLARED FOR THE PROBE, not yet filled - the same two-step that
+      // produced every correct Poshmark selector, and that every guess made
+      // before it failed. Mercari is React, so data-testid is the attribute its
+      // own tests depend on and the one most likely to be right; the name/id
+      // clauses mirror how the title field is wired. No placeholder anchor,
+      // deliberately: it would be English-only for no gain, exactly as the
+      // title note above says.
+      //
+      // If these miss, the deep probe reports the real controls and this
+      // becomes a one-line edit. Nothing fills it until then.
+      brand:
+        'input[data-testid="Brand"], input[data-testid="BrandName"], ' +
+        'input[name="brand"], input#brand',
       photoInput: 'input[type="file"][accept*="image"]',
     },
+    // CONDITION AND SIZE ARE PICKERS on Mercari - condition is a selection and
+    // size a dropdown, reported from the live form 2026-08-20. Same class as
+    // Poshmark's four: option lists whose choices vary per category, where a
+    // wrong pick is worse than an empty field. Deliberately absent from
+    // `fields` rather than declared and left permanently missing, because a
+    // selector that can never match reads as a broken channel.
     submit: 'button[data-testid="ListButton"], button[type="submit"]',
     delist: {
       // ON as of 2026-08-11. `menu` — the one selector this flow probes before

@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2743",
+  "nextId": "US-2744",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2713,6 +2713,21 @@
         "46 tests pass."
       ],
       "priority": 8
+    },
+    {
+      "id": "US-2743",
+      "passes": false,
+      "title": "Mercari: brand is the only non-picker field the Lister does not fill",
+      "description": "As a seller cross-posting to Mercari, I want the brand carried across, so that the last text field I have to retype is gone.",
+      "acceptanceCriteria": [
+        "STATE FROM A LIVE RUN 2026-08-20: photos, title, description, category and price all land on Mercari. Brand, condition and size do not.",
+        "Condition and size are PICKERS - a selection and a dropdown, reported from the live form. Same class as Poshmark's four: option lists whose choices vary per category, where a wrong pick is worse than an empty field. Recorded in the config as deliberately absent rather than declared and left permanently missing, because a selector that can never match reads as a broken channel.",
+        "That leaves BRAND as the only text-shaped gap, and it is now declared for the deep probe - the same two-step that produced every correct Poshmark selector and that every guess made before it failed.",
+        "The candidates lead with data-testid because Mercari is React and that is the attribute its own tests depend on, mirroring how the title field is anchored. No placeholder clause: English-only for no gain, per the existing note on that field.",
+        "Nothing fills brand until a probe confirms the anchor. One deep report on the Mercari sell page turns this into a one-line edit, and the fill call itself is already generic - runFlow fills f.brand for any channel that declares it, witnessed, since US-2730.",
+        "Category working on Mercari is worth understanding before it is claimed as a feature: no category selector exists in the config, so either Mercari derives it from the title or the seller set it by hand. Do not record it as supported until that is established."
+      ],
+      "priority": 12
     }
   ]
 }
