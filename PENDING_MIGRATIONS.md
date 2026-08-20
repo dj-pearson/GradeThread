@@ -1,7 +1,7 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
 
-## ⏳ HELD: 00633 — one review row per unmatched sale, not one per poll (US-2717)
+## ✅ APPLIED (owner-confirmed 2026-08-20): 00633 — one review row per unmatched sale, not one per poll (US-2717)
 
 **Risk: LOW.** One `DELETE` that removes duplicate rows from a table nothing has
 written to yet, and one `CREATE UNIQUE INDEX IF NOT EXISTS`. No table is
@@ -32,9 +32,9 @@ change in this commit writes with `onConflict: "user_id,platform,dedupe_key"`,
 which REQUIRES this index -- so the SQL must be applied before the edge deploy,
 which is the normal order anyway.
 
-**Apply order.** 00633 after 00632 (already applied). Then
-`NOTIFY pgrst, 'reload schema';` -- an index alone does not change the PostgREST
-schema cache, but the reload is free and the runbook says to.
+**Applied.** 00633 after 00632. The edge boot guard now expects 00633, which
+matches EXPECTED_SCHEMA_VERSION in this commit, so the next Coolify deploy
+starts clean.
 
 ## ✅ APPLIED (owner-confirmed 2026-08-20): 00632 — sold-sync storage for the no-API marketplaces (US-2697)
 
