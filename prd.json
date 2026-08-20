@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2752",
+  "nextId": "US-2758",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2848,6 +2848,110 @@
       ],
       "priority": 19,
       "notes": "Done 2026-08-20. lib/style-code-aspects.ts + getBrowseItemAspects in ebay-client, wired into the sweep; lib/style-code-consensus.ts deleted; migration 00639 clears the rows the old method wrote. 174 tests pass across everything this touches.\n\nTHE OWNER REJECTED THE PREVIOUS DESIGN AND WAS RIGHT. The sweep took the run of words most eBay listing TITLES shared. A title is marketing text assembled by a seller who may have bought the garment with no tag beyond a size dot, so a consensus over those is a confident guess. I had shipped it three stories earlier and defended it as 'the market confirms codes for us constantly'.\n\nAND IT WAS WORSE THAN THAT, which the owner implied and I had not seen: our own sellers publish to eBay with titles our AI wrote. Reading them back counted our guesses as independent corroboration — three copies of one guess, agreeing because they share an author. The consensus threshold did nothing about it, because the copies genuinely agree. AC2 exists for that and reads listings.platform_listing_id to exclude them.\n\nWHAT COUNTS NOW. A listing earns 'confirmed' only by declaring the code in a structured item specific AND naming a product in one. Everything else is 'unconfirmed', including a listing whose title looks perfect — that is the whole point, since the old design would have believed it. One confirmed listing is enough where three agreeing titles were needed, because a structured code that matches is evidence of a different KIND, not more of the same.\n\nTHE COST, STATED: the Browse search response does not carry item specifics, so each listing needs a second call. Bounded at ASPECT_LOOKUPS_PER_CODE=6, which is roughly 800 codes a day against the shared app budget — still far faster than waiting for sellers to photograph tags, and the trade is deliberate.\n\nFOUR VERDICTS, three of which are information the old design threw away: confirmed, contradicting (active evidence this listing is NOT our garment), own_listing, unconfirmed. A code where every declaring listing contradicts now warns, because that says our canonicalization may be mangling the code rather than that the market is silent.\n\n⚠ RETIRING THE MODULE BROKE A THRESHOLD NOBODY WOULD HAVE NOTICED. style-code-review.ts used CONSENSUS_MIN_TITLES (3) to mark a name 'thin evidence'. Under the new rules one confirmed listing is a real answer, so that bar would have flagged every correctly-identified code as suspect. Replaced with THIN_SUPPORT_THRESHOLD=2, defined where it is used, with the reasoning attached. Deleting a module is not free even when nothing imports the function you meant to remove.\n\n00639 DELETES the existing consensus rows rather than keeping them. The two generations are indistinguishable by source alone, so leaving them means a reseller sees a name that might be either and nobody can tell which. Nothing is permanently lost: the sweep re-derives a code once it is below the confirmation floor, and a name that does not come back is one no listing ever declared. Observations (00503) are KEPT — a title is still evidence, correctly labelled as weak, and an admin should see what the market called something even when it is not good enough to publish.\n\n⚠ APPLY ORDER IS UNUSUAL FOR 00639: deploy the edge FIRST. The delete is idempotent, so re-running it after the deploy is free, whereas migrate-then-deploy leaves a window where the old code writes fresh rows into a table just cleaned."
+    },
+    {
+      "id": "US-2752",
+      "passes": false,
+      "title": "EPIC: Scout that keeps up with a cart — speed, accuracy, and an iOS surface that exists",
+      "description": "As a reseller standing in a thrift store with twenty things in my cart, I want a buy or skip answer fast enough that I do not put the phone away, on the device I actually have with me, so that Scout is a sourcing tool rather than a thing I use at the desk afterwards.",
+      "acceptanceCriteria": [
+        "Umbrella only: closes when every child passes",
+        "MEASURED BASELINE, recorded before any change: today one /appraise is a serial chain of three DB round trips, one Claude Vision call and one eBay Browse call, and the Browse call cannot start until the grade lands because gradeToConditionId feeds the query filter",
+        "At close, the eBay comp lookup is no longer on the critical path behind the grade, repeat lookups in one store run do not re-query eBay, and iOS can appraise a photo at all — which today it cannot, there being zero occurrences of 'appraise' anywhere under ios/",
+        "Identification stays swappable: the eBay-vision path lands behind a flag as a second provider, not as a rewrite of the route, so it can be turned on and off without touching the caller",
+        "No child claims a latency improvement it has not measured. A number in a note is a measurement or it is not there",
+        "Children: US-2753, US-2754, US-2755, US-2756, US-2757. This epic closes when all five pass"
+      ],
+      "priority": 10
+    },
+    {
+      "id": "US-2753",
+      "passes": false,
+      "title": "Scout: take the eBay comp lookup off the critical path behind the grade",
+      "description": "As a reseller waiting on an appraisal, I want the comp search and the photo grade to happen at the same time instead of one after the other, so that the wait is the longer of the two rather than the sum.",
+      "acceptanceCriteria": [
+        "lib/condition-value.ts valueAtGrade uses the grade TWICE: to filter the Browse query via gradeToConditionId, and to adjust the stats via valueRangeFromStats. Only the filter forces the wait, and only the filter is removed from the blocking path",
+        "The comp search runs concurrently with quickGrade in routes/flipdesk-scout.ts /appraise. A test asserts the two are awaited together rather than in sequence",
+        "Comps are bucketed by BrowseComp.condition locally, so the grade selects a bucket when it lands instead of triggering a second query. No additional eBay call is made in the common case",
+        "THIN BUCKET RULE: when the selected condition bucket holds too few comps to state a range honestly, the route falls back to the filtered query rather than returning a confident number off a handful of points. The floor is a named constant and a test covers both sides of it",
+        "The value returned for a given grade is unchanged within a stated tolerance when the bucket is well populated. A test pins this against fixed comp fixtures, so the speedup cannot quietly become a different answer",
+        "Measured before and after on the same inputs, with the numbers recorded in the story note"
+      ],
+      "priority": 11,
+      "dependsOn": [
+        "US-2752"
+      ]
+    },
+    {
+      "id": "US-2754",
+      "passes": false,
+      "title": "Scout: a repeat comp lookup in the same store run should not re-query eBay",
+      "description": "As a reseller scanning five similar jackets off the same rack, I want the second, third and fourth lookups to come back instantly, so that Scout gets faster as I work rather than charging me the same wait every time.",
+      "acceptanceCriteria": [
+        "searchBrowseComps results are cached. Today nothing caches them: the eBay client caches its OAuth token and taxonomy aspects for 30 days and never a search result",
+        "The key is the query shape (category, keyword, brand, size, condition, limit) — not the photo, and never anything tenant-specific, because comps are public market data and a per-tenant cache would multiply the misses for no benefit",
+        "TTL is short and named, with the reasoning written down: comps move slowly enough that minutes are safe and fast enough that hours are not",
+        "A cache hit is provably free: a test asserts the second identical call issues no fetch",
+        "Follows the existing lib/coherent-cache.ts pattern rather than introducing a second caching mechanism",
+        "Cache state never changes the ANSWER, only its latency. A test asserts a hit and a miss return the same value for the same query"
+      ],
+      "priority": 12,
+      "dependsOn": [
+        "US-2752"
+      ]
+    },
+    {
+      "id": "US-2755",
+      "passes": false,
+      "title": "Scout: stop paying three sequential database round trips before any work starts",
+      "description": "As a reseller, I want the plan check and the quota check to happen at the same time, so that a lookup does not spend its first moments on bookkeeping.",
+      "acceptanceCriteria": [
+        "requireFlipdesk and checkQuota run concurrently in the /appraise path rather than sequentially. reserveAiActionSafe stays after both, because reserving an AI action for a request that is about to be refused is worse than slow",
+        "A refusal still returns the SAME status and body it does today. A test covers the plan-gate refusal and the quota refusal separately, since running them together must not let one mask the other",
+        "The refund path is unchanged: a grade that throws still refunds the reserved action",
+        "Applied to /appraise and /appraise-url both, or the note says why only one"
+      ],
+      "priority": 13,
+      "dependsOn": [
+        "US-2752"
+      ]
+    },
+    {
+      "id": "US-2756",
+      "passes": false,
+      "title": "Scout: an identification provider seam, with eBay visual search behind a flag",
+      "description": "As the GradeThread team, we want the way Scout identifies an item to be one swappable piece rather than a shape baked into the route, so that eBay visual search can be turned on and off without a rewrite and without risking the path sellers depend on.",
+      "acceptanceCriteria": [
+        "A provider interface takes a photo plus optional hints (barcode, keyword, brand, category, size) and returns candidate identity plus comps. The route calls the interface and knows nothing about which implementation answered",
+        "The existing behaviour becomes the DEFAULT provider and is unchanged by this story. A test asserts the default path returns what it returns today",
+        "An eBay visual-search provider calls POST /buy/browse/v1/item_summary/search_by_image, which nothing in the codebase touches today, and is gated by a flag that DEFAULTS TO OFF — the same posture as DEPOP_ENABLED, where built and live are different claims",
+        "The flag is read per request, not cached at module load, so it can be turned off without a redeploy when it misbehaves in a store",
+        "OPERATOR: the eBay provider cannot be enabled until the spike has run against production with real thrift photos and its latency and accuracy are recorded on this story. A provider nobody has measured is not a provider, and sandbox proves nothing because it has no inventory",
+        "Falling back is automatic and silent to the seller but visible in the logs: an image-search miss or timeout returns the default provider's answer rather than an error"
+      ],
+      "priority": 14,
+      "dependsOn": [
+        "US-2753"
+      ]
+    },
+    {
+      "id": "US-2757",
+      "passes": false,
+      "title": "iOS Scout: appraise a photo at all",
+      "description": "As a reseller in a store, I want to point my phone at an item and get a buy or skip answer, because the phone is the only device I have with me and the iOS app currently cannot do this at all.",
+      "acceptanceCriteria": [
+        "THE GAP: there are currently ZERO occurrences of 'appraise' anywhere under ios/. ScoutService.swift exposes suggestCategory and scan only, so the photo workflow this epic is about does not exist on the device it is for",
+        "ScoutService gains an appraise call against POST /api/flipdesk/scout/appraise, matching the web hook's request and response shape",
+        "A capture surface: take or pick a photo, optionally add a keyword or brand, see grade, value range, sell-through and the buy or skip verdict",
+        "The image is downscaled on the device before upload. A full-resolution phone photo is several megabytes, the route rejects anything over MAX_APPRAISE_IMAGE_BYTES, and on a shop's cellular connection the upload would dominate every other cost in this epic",
+        "A 402 plan gate routes through the existing centralized upgrade presentation (US-1213), the way the scan already does, rather than surfacing a raw error",
+        "All six ios/Scripts guards pass in npm run verify: no ungated print, no URLSession.shared, no raw JPEG, no bare strings, no force unwrap, ATS intact",
+        "CANNOT BE COMPILED HERE: Swift does not build on Windows, so iOS CI on a macOS runner is the gate for anything that has to compile. The note records what was verified locally and what was left to CI, rather than implying the whole thing was proven"
+      ],
+      "priority": 15,
+      "dependsOn": [
+        "US-2753"
+      ]
     }
   ]
 }
