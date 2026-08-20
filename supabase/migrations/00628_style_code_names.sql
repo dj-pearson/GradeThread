@@ -124,6 +124,16 @@ $$;
 -- It lands with US-2282/US-2403 once supautils.hint_roles is cleared on the
 -- host and scripts/db-denied-rpc-crash-check.mjs proves it - not smuggled in
 -- beside a new table.
+--
+-- US-2282 AC4: name the caller explicitly. This function is invoked ONLY by
+-- the job route through the service-role client, so service_role is the whole
+-- of its intended audience. The GRANT narrows nothing on its own - anon and
+-- authenticated keep the CREATE FUNCTION default, because taking it away is
+-- exactly what segfaults this image - it states who the caller is, which is
+-- what the guard asks for. The real lockdown lands with US-2282/US-2403.
+GRANT EXECUTE ON FUNCTION public.record_style_code_name(
+  text, text, text, text, text, integer, numeric, text
+) TO service_role;
 
 -- US-1108: self-record the applied version so the edge boot guard stays truthful.
 insert into public.applied_migrations (version) values ('00628') on conflict do nothing;

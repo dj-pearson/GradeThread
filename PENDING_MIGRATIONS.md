@@ -1,6 +1,19 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00629 — a seller's correction teaches the style-code index (US-2692)
+> [!note] NOTHING IS PENDING as of 2026-08-20.
+> Every migration through **00629** is applied. Verified by asking the database
+> rather than this file: `GET /health/ready` reports
+> `{"expected":"00629","applied":"00629","status":"match"}`, which is the running
+> edge reading `applied_migrations` through the service-role client.
+>
+> This file records INTENT; only the database records STATE. It has gone stale in
+> both directions before — claiming HELD when prod had applied, and claiming
+> applied when prod had not — and both times it was trusted and prod was not
+> asked. One unauthenticated GET settles it.
+
+## ✅ APPLIED 2026-08-20: 00629 — a seller's correction teaches the style-code index (US-2692)
+
+**APPLIED, verified 2026-08-20.** `GET /health/ready` reports `{"expected":"00629","applied":"00629","status":"match"}` - the running edge reading `applied_migrations` through the service-role client, i.e. the database's own answer, not an inference from commit history. `status:"match"` with no `missing` key means every version up to and including this one landed (US-2620 reports a hole under the maximum as `incomplete`).
 
 **Risk: LOW-MEDIUM, and the medium part is a trigger on `inventory_items`.** One
 `plpgsql` function, one `AFTER UPDATE OF style` trigger, and one one-row `UPDATE`
@@ -56,7 +69,9 @@ select tgname, tgenabled from pg_trigger
 where tgname = 'capture_style_code_name_correction_trg';
 ```
 
-## ⏳ PENDING: 00628 — the resolved NAME for a style code, and where it came from (US-2691)
+## ✅ APPLIED 2026-08-20: 00628 — the resolved NAME for a style code, and where it came from (US-2691)
+
+**APPLIED, verified 2026-08-20.** `GET /health/ready` reports `{"expected":"00629","applied":"00629","status":"match"}` - the running edge reading `applied_migrations` through the service-role client, i.e. the database's own answer, not an inference from commit history. `status:"match"` with no `missing` key means every version up to and including this one landed (US-2620 reports a hole under the maximum as `incomplete`).
 
 **Risk: LOW.** One new table, one upsert function, no existing table touched,
 nothing backfilled. Deny-all RLS, registered in `SERVICE_ROLE_ONLY`. No client
@@ -94,7 +109,9 @@ Empty on a fresh apply. The `consensus` count is what the sweep fills; if it is
 still zero a day after the sweep task is live, the sweep is finding titles but
 never three that agree, and that is a finding about the codes, not a bug.
 
-## ⏳ PENDING: 00627 — sweep bookkeeping for the learned style-code index (US-2690)
+## ✅ APPLIED 2026-08-20: 00627 — sweep bookkeeping for the learned style-code index (US-2690)
+
+**APPLIED, verified 2026-08-20.** `GET /health/ready` reports `{"expected":"00629","applied":"00629","status":"match"}` - the running edge reading `applied_migrations` through the service-role client, i.e. the database's own answer, not an inference from commit history. `status:"match"` with no `missing` key means every version up to and including this one landed (US-2620 reports a hole under the maximum as `incomplete`).
 
 **Risk: LOW, with one thing to watch.** One new table, two `SECURITY DEFINER`
 functions, and one index on an existing table. Nothing is altered or backfilled
@@ -156,7 +173,9 @@ compared against it.
 Then hit the endpoint once by hand; a first run on a cold table should report
 `swept` greater than 0 and `skipped_cooldown` of 0.
 
-## ⏳ PENDING: 00626 — Lululemon style numbers from 2017-2019 decode to nothing (US-2689)
+## ✅ APPLIED 2026-08-20: 00626 — Lululemon style numbers from 2017-2019 decode to nothing (US-2689)
+
+**APPLIED, verified 2026-08-20.** `GET /health/ready` reports `{"expected":"00629","applied":"00629","status":"match"}` - the running edge reading `applied_migrations` through the service-role client, i.e. the database's own answer, not an inference from commit history. `status:"match"` with no `missing` key means every version up to and including this one landed (US-2620 reports a hole under the maximum as `incomplete`).
 
 **Risk: LOW.** One `INSERT ... ON CONFLICT DO UPDATE` of a single row into
 `public.brand_style_codes`. No table, no column, no function, no policy, no
@@ -276,7 +295,9 @@ like an authorization failure and is this plan gate. It should go green once the
 CI database is seeded from the migration directory.
 
 
-## 🟠 PENDING: 00624 — disputes INSERT must own the grade report (US-2670)
+## ✅ APPLIED 2026-08-20: 00624 — disputes INSERT must own the grade report (US-2670)
+
+**APPLIED, verified 2026-08-20.** `GET /health/ready` reports `{"expected":"00629","applied":"00629","status":"match"}` - the running edge reading `applied_migrations` through the service-role client, i.e. the database's own answer, not an inference from commit history. `status:"match"` with no `missing` key means every version up to and including this one landed (US-2620 reports a hole under the maximum as `incomplete`).
 
 **Risk: LOW.** Adds one SECURITY DEFINER helper (`grade_report_belongs_to`) and
 re-creates the two `disputes` INSERT policies with an extra AND. No table, no

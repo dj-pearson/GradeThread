@@ -100,6 +100,14 @@ $$;
 -- These two functions are SECURITY DEFINER and called only by the job route,
 -- which authenticates on the job secret. Leaving the default EXECUTE in place
 -- is the same posture every other function in this schema has today.
+--
+-- US-2282 AC4: name the caller explicitly. This function is invoked ONLY by
+-- the job route through the service-role client, so service_role is the whole
+-- of its intended audience. The GRANT narrows nothing on its own - anon and
+-- authenticated keep the CREATE FUNCTION default, because taking it away is
+-- exactly what segfaults this image - it states who the caller is, which is
+-- what the guard asks for. The real lockdown lands with US-2282/US-2403.
+GRANT EXECUTE ON FUNCTION public.record_style_code_sweep(text, text, text, integer) TO service_role;
 
 -- The candidate scan, as DISTINCT pairs rather than rows.
 --
@@ -147,6 +155,14 @@ $$;
 -- These two functions are SECURITY DEFINER and called only by the job route,
 -- which authenticates on the job secret. Leaving the default EXECUTE in place
 -- is the same posture every other function in this schema has today.
+--
+-- US-2282 AC4: name the caller explicitly. This function is invoked ONLY by
+-- the job route through the service-role client, so service_role is the whole
+-- of its intended audience. The GRANT narrows nothing on its own - anon and
+-- authenticated keep the CREATE FUNCTION default, because taking it away is
+-- exactly what segfaults this image - it states who the caller is, which is
+-- what the guard asks for. The real lockdown lands with US-2282/US-2403.
+GRANT EXECUTE ON FUNCTION public.style_code_sweep_candidates(integer) TO service_role;
 
 -- Makes the scan above an index scan rather than a walk of the largest table.
 CREATE INDEX IF NOT EXISTS inventory_items_style_code_idx
