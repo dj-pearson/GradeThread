@@ -90,14 +90,20 @@ import {
   useExtensionQueue,
 } from "@/hooks/use-extension-queue";
 import {
-  reviewGroupCopy,
   syncStateCopy,
   useDismissSyncReview,
   useSyncReviews,
   useSyncStatus,
   type SyncReview,
-  type SyncReviewReason,
   POLL_INTERVAL_CHOICES,
+  groupCopy,
+  reviewGroupOf,
+  REVIEW_GROUP_ORDER,
+  stoppedChannelCopy,
+  useClaimSyncReview,
+  useClaimCandidates,
+  type ClaimCandidate,
+  type ReviewGroup,
   useSetPollInterval,
   useStopPoll,
   usePollState,
@@ -1117,6 +1123,74 @@ function ChannelRisk({ platform }: { platform: keyof typeof MARKETPLACE_TIER }) 
 // extension's own copy. Saying that on screen matters more than hiding it —
 // a seller who cannot find the on switch should be told where it is, not left
 // to conclude the feature is broken.
+// US-2699 AC5: link an unmatched sale to one of the seller's listings.
+//
+// The payoff is the sentence in the group blurb: do this once and every later
+// sighting of that address matches on its own. It is asserted end to end in
+// marketplace-observations_test.ts, not just implied by the column write.
+function ClaimControl({ review }: { review: SyncReview }) {
+  const [open, setOpen] = useState(false);
+  const claim = useClaimSyncReview();
+  const { data: candidates, isLoading } = useClaimCandidates(open ? review.platform : null);
+
+  if (!open) {
+    return (
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        Link to an item
+      </Button>
+    );
+  }
+
+  return (
+    <select
+      className="h-8 max-w-[16rem] rounded-md border bg-background px-2 text-xs"
+      defaultValue=""
+      disabled={isLoading || claim.isPending}
+      onChange={(e) => {
+        if (!e.target.value) return;
+        claim.mutate(
+          { reviewId: review.id, listingId: e.target.value },
+          {
+            onSuccess: () => toast.success("Linked. The next sale on this listing matches by itself."),
+            onError: (err) => toast.error(err.message),
+          },
+        );
+      }}
+    >
+      <option value="">{isLoading ? "Loading your listings..." : "Choose an item"}</option>
+      {(candidates ?? []).map((c: ClaimCandidate) => (
+        <option key={c.id} value={c.id}>
+          {c.title ?? "Untitled listing"}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// US-2701 AC7: a channel the poll stopped because the marketplace asked for a
+// human check.
+//
+// The quietest failure in the feature. The poll stays switched on, no error
+// appears anywhere, and that channel never runs again until the seller opens it
+// themselves. Resuming is a button and not a timer, because GradeThread never
+// decides a human check has passed.
+function StoppedChannels({ platforms }: { platforms: string[] }) {
+  if (platforms.length === 0) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-dashed p-3">
+      {platforms.map((platform) => {
+        const copy = stoppedChannelCopy(platform);
+        return (
+          <div key={platform}>
+            <p className="text-sm font-medium text-brand-red-text">{copy.label}</p>
+            <p className="mt-0.5 max-w-prose text-xs text-muted-foreground">{copy.detail}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function SoldSyncSchedule() {
   const { data: poll, isLoading } = usePollState();
   const stop = useStopPoll();
@@ -1125,6 +1199,8 @@ function SoldSyncSchedule() {
   // No extension, or an older one: say nothing rather than showing a control
   // that cannot work.
   if (isLoading || !poll || !poll.available) return null;
+
+  const stopped = poll.stoppedChannels ?? [];
 
   if (!poll.accepted || !poll.enabled) {
     return (
@@ -1185,6 +1261,7 @@ function SoldSyncSchedule() {
           </Button>
         </div>
       </div>
+      <StoppedChannels platforms={stopped} />
     </div>
   );
 }
@@ -1198,12 +1275,7 @@ function SoldSyncSection() {
   if (isLoading || rows.length === 0) return null;
 
   const queue = reviews ?? [];
-  const groups: SyncReviewReason[] = [
-    "probable_match",
-    "unexplained_absence",
-    "count_gap",
-    "circuit_breaker",
-  ];
+  const groups = REVIEW_GROUP_ORDER;
 
   const toneClass = (tone: string) =>
     tone === "warn"
@@ -1262,10 +1334,12 @@ function SoldSyncSection() {
 
       {queue.length > 0 && (
         <div className="mt-3 space-y-3">
-          {groups.map((reason) => {
-            const items = queue.filter((r: SyncReview) => r.reason === reason);
+          {groups.map((reason: ReviewGroup) => {
+            // Derived, so an unmatched sale and a probable match stop sharing
+            // a heading. See reviewGroupOf for why this is not a stored column.
+            const items = queue.filter((r: SyncReview) => reviewGroupOf(r) === reason);
             if (items.length === 0) return null;
-            const copy = reviewGroupCopy(reason);
+            const copy = groupCopy(reason);
             return (
               <div key={reason} className="rounded-lg border border-dashed p-3">
                 <p className="text-sm font-medium">{copy.title}</p>
@@ -1293,19 +1367,24 @@ function SoldSyncSection() {
                           ? ` — claimed ${r.claimed}, cap ${r.cap}`
                           : ""}
                       </span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={dismiss.isPending}
-                        onClick={() => {
-                          dismiss.mutate(r.id, {
-                            onSuccess: () => toast.success("Cleared."),
-                            onError: (e) => toast.error(e.message),
-                          });
-                        }}
-                      >
-                        Dismiss
-                      </Button>
+                      <span className="flex items-center gap-1">
+                        {reason === "unmatched" && (
+                          <ClaimControl review={r} />
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={dismiss.isPending}
+                          onClick={() => {
+                            dismiss.mutate(r.id, {
+                              onSuccess: () => toast.success("Cleared."),
+                              onError: (e) => toast.error(e.message),
+                            });
+                          }}
+                        >
+                          Dismiss
+                        </Button>
+                      </span>
                     </li>
                   ))}
                 </ul>

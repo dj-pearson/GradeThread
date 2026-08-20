@@ -586,14 +586,34 @@ async function scanCards({ cards, marketplace, query, brand }) {
 async function pollConsentState() {
   const PLAN = self.GT_SYNC_POLL;
   if (!PLAN) return { available: false };
-  const out = await ext.storage.local.get(["syncPoll", "syncPollClickwrap"]);
+  const out = await ext.storage.local.get([
+    "syncPoll",
+    "syncPollClickwrap",
+    "syncPollChannels",
+  ]);
   const settings = (out && out.syncPoll) || { enabled: false };
+  // US-2701 AC7: which channels the poll has STOPPED on, and why.
+  //
+  // A human check is not stored server-side and should not be: it is something
+  // that happened to a read on this device, and marketplace_sync_state's CHECK
+  // deliberately holds only the three states the SERVER can observe. Reporting
+  // it from here keeps the state where it is true and needs no migration.
+  //
+  // It matters because a stopped channel is the quietest failure in the whole
+  // feature: the poll is switched on, the seller sees no error, and nothing will
+  // ever happen again on that channel until they open it themselves.
+  const channels = (out && out.syncPollChannels) || {};
+  const stopped = Object.keys(channels).filter(function (k) {
+    return channels[k] && channels[k].stoppedForHumanCheck === true;
+  });
+
   return {
     available: true,
     accepted: PLAN.isClickwrapAccepted(out && out.syncPollClickwrap),
     enabled: settings.enabled === true,
     intervalMin: PLAN.normalizeIntervalMin(settings.intervalMin),
     terms: PLAN.CLICKWRAP_TERMS,
+    stoppedChannels: stopped,
   };
 }
 
@@ -613,6 +633,22 @@ async function acceptPollClickwrap() {
 async function revokePollClickwrap() {
   await ext.storage.local.set({ syncPoll: { enabled: false } });
   await ext.storage.local.remove("syncPollClickwrap");
+  return { ok: true, state: await pollConsentState() };
+}
+
+// The seller has dealt with the human check and wants the channel resumed.
+//
+// Only they can say so. GradeThread never answers a human check and never
+// decides one has passed, so there is no timer here and no automatic retry —
+// resuming is an action, not an elapsed duration.
+async function resumePollChannel(platform) {
+  const out = await ext.storage.local.get("syncPollChannels");
+  const channels = (out && out.syncPollChannels) || {};
+  if (channels[platform]) {
+    channels[platform].stoppedForHumanCheck = false;
+    channels[platform].backoffUntilMs = 0;
+    await ext.storage.local.set({ syncPollChannels: channels });
+  }
   return { ok: true, state: await pollConsentState() };
 }
 
@@ -2209,6 +2245,9 @@ ext.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         break;
       case "GT_POLL_INTERVAL":
         sendResponse(await setPollInterval(msg && msg.minutes));
+        break;
+      case "GT_POLL_RESUME":
+        sendResponse(await resumePollChannel(msg && msg.platform));
         break;
       case "GT_CC_GET_CACHED":
         sendResponse(await readGradeCache(msg.listingKey));

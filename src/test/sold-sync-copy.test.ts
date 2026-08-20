@@ -7,8 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  groupCopy,
   reviewGroupCopy,
+  reviewGroupOf,
+  REVIEW_GROUP_ORDER,
   syncStateCopy,
+  type ReviewGroup,
   type SyncChannel,
 } from "@/hooks/use-sold-sync";
 
@@ -128,5 +132,57 @@ describe("reviewGroupCopy", () => {
     const copy = reviewGroupCopy("unexplained_absence");
     expect(copy.title.toLowerCase()).toContain("unknown");
     expect(copy.blurb).toContain("may have");
+  });
+});
+
+describe("reviewGroupOf (US-2699 AC4)", () => {
+  it("a probable match that names a listing needs confirming", () => {
+    expect(reviewGroupOf({ reason: "probable_match", listing_id: "l1" })).toBe("needs_confirming");
+  });
+
+  it("a probable match with NO listing is unmatched, not a probable match", () => {
+    // Both are stored with reason 'probable_match', and conflating them is the
+    // gap this exists to close. One asks "is this the right item?" and takes a
+    // click; the other asks "which item is this?" and takes a search.
+    expect(reviewGroupOf({ reason: "probable_match", listing_id: null })).toBe("unmatched");
+  });
+
+  it("the other reasons map to their own groups", () => {
+    expect(reviewGroupOf({ reason: "unexplained_absence", listing_id: "l1" })).toBe("unexplained");
+    expect(reviewGroupOf({ reason: "count_gap", listing_id: null })).toBe("count_gap");
+    expect(reviewGroupOf({ reason: "circuit_breaker", listing_id: null })).toBe("circuit_breaker");
+  });
+
+  it("every group has copy and a place in the order", () => {
+    const groups: ReviewGroup[] = [
+      "needs_confirming",
+      "unmatched",
+      "unexplained",
+      "count_gap",
+      "circuit_breaker",
+    ];
+    for (const g of groups) {
+      expect(REVIEW_GROUP_ORDER).toContain(g);
+      const copy = groupCopy(g);
+      expect(copy.title.length).toBeGreaterThan(0);
+      expect(copy.blurb.length).toBeGreaterThan(0);
+    }
+    expect(REVIEW_GROUP_ORDER.length).toBe(groups.length);
+  });
+
+  it("the two probable-match groups do not share a heading", () => {
+    // The whole point. Sharing one makes the easy rows look like the hard ones.
+    expect(groupCopy("needs_confirming").title).not.toBe(groupCopy("unmatched").title);
+  });
+
+  it("the unmatched blurb promises the payoff of claiming", () => {
+    // The reason a seller works this pile: it shrinks permanently as they do.
+    expect(groupCopy("unmatched").blurb).toContain("on its own");
+  });
+
+  it("needs-confirming is shown before the groups that need investigation", () => {
+    const order = [...REVIEW_GROUP_ORDER];
+    expect(order.indexOf("needs_confirming")).toBeLessThan(order.indexOf("unexplained"));
+    expect(order.indexOf("unmatched")).toBeLessThan(order.indexOf("unexplained"));
   });
 });

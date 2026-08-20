@@ -394,3 +394,58 @@ Deno.test("a breaker-tripped batch delists NOTHING", () => {
   // The assertion that matters: a broken selector cannot reach the delist path.
   assertEquals(planSaleEffects(plan.confirmed).length, 0);
 });
+
+// ── the claim payoff (US-2699 AC5) ─────────────────────────────────────────
+//
+// The promise the review queue makes: link an unmatched sale to an item once,
+// and every later sighting of that listing matches on its own. That promise is
+// the only reason a seller works the pile, so it is asserted end to end rather
+// than inferred from the claim endpoint writing a column.
+//
+// The claim itself is one UPDATE, setting listings.listing_url. What matters is
+// what the PLANNER does afterwards, which is what these two halves show.
+
+Deno.test("before a claim, a sold row nothing resembles is unmatched", () => {
+  // The FIRST version of this test gave the known listing the same title and
+  // price as the sold row and expected `unmatched`. It got a probable match,
+  // and the planner was right: title plus price singling out exactly one live
+  // listing is the definition of probable. Genuinely unmatched means nothing
+  // resembles it — which is the case the claim flow exists for.
+  const plan = planObservations({
+    batch: batch({ sold: [sold({ listingUrl: "https://poshmark.com/listing/zzz", title: "Mystery coat" })] }),
+    known: [listing({ id: "l9", itemId: "i9", listingUrl: null, title: "Something else entirely" })],
+    seenKeys: new Set(),
+  });
+  assertEquals(plan.confirmed.length, 0);
+  assertEquals(plan.unmatched.length, 1);
+  assertEquals(plan.unmatched[0].listingUrl, "https://poshmark.com/listing/zzz");
+});
+
+Deno.test("AFTER the claim writes listing_url, the next sighting is auto-confirmed", () => {
+  // Exactly the same observation. The only thing that changed is the column the
+  // claim endpoint set, which is the whole point: the seller did the work once.
+  const plan = planObservations({
+    batch: batch({ sold: [sold({ listingUrl: "https://poshmark.com/listing/zzz", title: "Mystery coat" })] }),
+    known: [listing({ id: "l9", itemId: "i9", listingUrl: "https://poshmark.com/listing/zzz", title: "Mystery coat" })],
+    seenKeys: new Set(),
+  });
+  assertEquals(plan.unmatched.length, 0, "the claimed listing is still unmatched");
+  assertEquals(plan.confirmed.length, 1, "a claimed listing did not auto-confirm on the next sighting");
+  assertEquals(plan.confirmed[0].listingId, "l9");
+  // And it reaches the delist planner, which is the point of confirming at all.
+  assertEquals(planSaleEffects(plan.confirmed)[0].delistSiblingsOf, "l9");
+});
+
+Deno.test("a claim does not make OTHER unknown URLs match", () => {
+  // The claim links one address to one listing. A planner that started matching
+  // loosely afterwards would be attributing sales to the wrong garment.
+  const plan = planObservations({
+    batch: batch({ sold: [sold({ listingUrl: "https://poshmark.com/listing/other", title: "Mystery coat" })] }),
+    known: [listing({ id: "l9", itemId: "i9", listingUrl: "https://poshmark.com/listing/zzz", title: "Mystery coat" })],
+    seenKeys: new Set(),
+  });
+  // Title and price still single it out, so this is a PROBABLE match at most —
+  // it goes to review and never to a delist.
+  assertEquals(plan.confirmed.length, 0);
+  assertEquals(plan.review.filter((r) => r.reason === "probable_match").length, 1);
+});

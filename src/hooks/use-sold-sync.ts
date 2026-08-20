@@ -24,7 +24,12 @@ function label(platform: string): string {
  * a seller concludes sold-sync is working when the content script has never once
  * run on their machine.
  */
-export type SyncChannelState = "never" | "ok" | "failing" | "not_signed_in";
+export type SyncChannelState =
+  | "never"
+  | "ok"
+  | "failing"
+  | "not_signed_in"
+  | "stopped";
 
 export interface SyncChannel {
   platform: string;
@@ -167,6 +172,17 @@ export function syncStateCopy(channel: SyncChannel): SyncStateCopy {
           "The last read did not look like your closet. Nothing was recorded.",
         tone: "warn",
       };
+    case "stopped":
+      // US-2701 AC7. A human check is not a failure and not a sign-in problem:
+      // the marketplace asked for a person, GradeThread refused to answer it,
+      // and the channel will not resume until the seller does. Saying so is the
+      // difference between a poll that looks broken and one that is waiting.
+      return {
+        label: "Waiting for you",
+        detail:
+          `${label(channel.platform)} asked for a human check. GradeThread never answers one, so scheduled checks are paused here until you open it yourself. Nothing was recorded.`,
+        tone: "warn",
+      };
     case "not_signed_in":
       return {
         label: "Not signed in",
@@ -180,6 +196,80 @@ export function syncStateCopy(channel: SyncChannel): SyncStateCopy {
           ? `Open your ${label(channel.platform)} sold page once and we will start tracking your ${channel.live_listings} listing${channel.live_listings === 1 ? "" : "s"}.`
           : "Nothing to sync here yet.",
         tone: "idle",
+      };
+  }
+}
+
+/**
+ * Which of the three groups a review row belongs in (US-2699 AC4).
+ *
+ * WHY THIS IS DERIVED RATHER THAN STORED. An unmatched sale and a probable match
+ * are both stored with reason 'probable_match', and the difference between them
+ * is already recorded: a probable match names a listing, an unmatched sale does
+ * not. Adding a fifth reason value would mean widening a CHECK constraint, so a
+ * migration and a prod apply cycle, to record something the row already says.
+ *
+ * The two are genuinely different work, though, and must not share a heading.
+ * A probable match asks "is this the right item?" and one click confirms it. An
+ * unmatched sale asks "which item is this?" and the seller has to go and find
+ * out. Putting them in one pile makes the easy ones look like the hard ones and
+ * the whole queue look not worth opening.
+ */
+export type ReviewGroup =
+  | "needs_confirming"
+  | "unmatched"
+  | "unexplained"
+  | "count_gap"
+  | "circuit_breaker";
+
+export function reviewGroupOf(review: Pick<SyncReview, "reason" | "listing_id">): ReviewGroup {
+  if (review.reason === "probable_match") {
+    return review.listing_id ? "needs_confirming" : "unmatched";
+  }
+  if (review.reason === "unexplained_absence") return "unexplained";
+  return review.reason === "count_gap" ? "count_gap" : "circuit_breaker";
+}
+
+/** The order the groups are shown in: most actionable first. */
+export const REVIEW_GROUP_ORDER: readonly ReviewGroup[] = [
+  "needs_confirming",
+  "unmatched",
+  "unexplained",
+  "count_gap",
+  "circuit_breaker",
+];
+
+export function groupCopy(group: ReviewGroup): { title: string; blurb: string } {
+  switch (group) {
+    case "needs_confirming":
+      return {
+        title: "Needs confirming",
+        blurb:
+          "A sale we matched to one of your items, but not with enough certainty to act on. Confirm it and we will do this one automatically next time.",
+      };
+    case "unmatched":
+      return {
+        title: "Sales we could not place",
+        blurb:
+          "These sold on your account but we do not know which of your items they were. Link one to an item and every later sighting of that listing matches on its own.",
+      };
+    case "unexplained":
+      return {
+        title: "Gone, reason unknown",
+        blurb:
+          "These listings vanished from your closet with no matching sale. They may have sold, been removed by you, or been pulled by the marketplace.",
+      };
+    case "count_gap":
+      return {
+        title: "More missing than sold",
+        blurb:
+          "Your closet shrank by more than the sales we found explain. That usually means we are reading fewer sold rows than there really are.",
+      };
+    case "circuit_breaker":
+      return {
+        title: "Refused a suspicious read",
+        blurb:
+          "One read claimed more sales than your closet could plausibly produce, so we recorded none of it. This is almost always a marketplace redesign, not a very good day.",
       };
   }
 }
@@ -232,6 +322,16 @@ export interface PollState {
   accepted: boolean;
   enabled: boolean;
   intervalMin: number;
+  /**
+   * Channels the scheduled poll stopped because the marketplace asked for a
+   * human check (US-2701 AC7).
+   *
+   * Device-local, not server state: it is something that happened to a read on
+   * this machine, and only the seller can clear it. The quietest failure in the
+   * feature, because the poll stays switched on and simply never runs again on
+   * that channel.
+   */
+  stoppedChannels?: string[];
 }
 
 export function usePollState(enabled = true) {
@@ -276,6 +376,51 @@ export function useSetPollInterval() {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["sold_sync_poll_state"] });
+    },
+  });
+}
+
+/**
+ * What a stopped channel says. Separate from syncStateCopy because the stop is
+ * device state and the rest of the row is server state — merging them would
+ * mean inventing a server status the database cannot hold.
+ */
+export function stoppedChannelCopy(platform: string): { label: string; detail: string } {
+  return {
+    label: "Waiting for you",
+    detail:
+      `${label(platform)} asked for a human check. GradeThread never answers one, so ` +
+      `scheduled checks are paused here until you open ${label(platform)} yourself and ` +
+      `clear it. Nothing was recorded.`,
+  };
+}
+
+/**
+ * Listings on a platform that an unmatched sale could belong to.
+ *
+ * Scoped to the platform because a Poshmark sale can only be a Poshmark
+ * listing, and offering the seller their whole catalogue turns a one-click job
+ * into a search. The server refuses a cross-platform claim anyway (422); this
+ * just avoids showing a choice that would be rejected.
+ */
+export interface ClaimCandidate {
+  id: string;
+  title: string | null;
+  listing_url: string | null;
+}
+
+export function useClaimCandidates(platform: string | null) {
+  return useQuery({
+    queryKey: ["sold_sync_claim_candidates", platform],
+    enabled: Boolean(platform),
+    staleTime: 60 * 1000,
+    queryFn: async (): Promise<ClaimCandidate[]> => {
+      const res = await edgeFetch(
+        `/api/flipdesk/listings?platform=${encodeURIComponent(platform ?? "")}&status=active`,
+      );
+      if (!res.ok) throw new Error("Could not load your listings.");
+      const json = (await res.json()) as { listings?: ClaimCandidate[] };
+      return json.listings ?? [];
     },
   });
 }
