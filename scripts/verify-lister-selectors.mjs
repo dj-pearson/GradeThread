@@ -24,6 +24,7 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SELECTORS = resolve(root, "extension-unified/lister/selectors.js");
+const SYNC_SELECTORS = resolve(root, "extension-unified/sync/selectors.js");
 
 /** Evaluate the shipped content script and hand back its config object. */
 function loadSelectors() {
@@ -31,6 +32,14 @@ function loadSelectors() {
   const scope = {};
   new Function("self", `${src}; return self.GT_LISTER_SELECTORS;`)(scope);
   return scope.GT_LISTER_SELECTORS;
+}
+
+/** US-2698: the sold-sync selectors, which describe the seller's OWN pages. */
+function loadSyncSelectors() {
+  const src = readFileSync(SYNC_SELECTORS, "utf8");
+  const scope = {};
+  new Function("self", `${src}; return self.GT_SYNC_SELECTORS;`)(scope);
+  return scope.GT_SYNC_SELECTORS;
 }
 
 /**
@@ -186,6 +195,80 @@ function checkPlatform(platform, cfg) {
   }
 }
 
+/**
+ * US-2698: the same enable discipline for the sold-sync reads.
+ *
+ * The stakes differ from the lister's. A broken sell-form selector fails loudly
+ * and the seller lists manually. A broken CLOSET selector returns an empty
+ * closet, which looks exactly like a seller who sold out — so the invariants
+ * here are mostly about making sure a read cannot silently claim to have seen
+ * everything.
+ */
+function checkSyncPlatform(platform, cfg) {
+  const where = `sync.${platform}`;
+
+  if (!Array.isArray(cfg.hosts) || cfg.hosts.length === 0) {
+    fail(`${where}: \`hosts\` is empty. A read with no host allowlist would accept observations from any page that happens to match a selector.`);
+  }
+  if (!cfg.login || !cfg.login.urlPattern) {
+    fail(`${where}: no \`login.urlPattern\`. A logged-out read must report not-signed-in; without this it reports an EMPTY CLOSET, which the server treats as a selector failure at best and a sell-out at worst.`);
+  }
+  if (!cfg.humanCheck) {
+    fail(`${where}: no \`humanCheck\` selector. The read is supposed to stop and hand the tab back when the marketplace asks for a human, exactly as the engagement runner does.`);
+  }
+
+  for (const kind of ["sold", "closet"]) {
+    const flow = cfg[kind];
+    if (!flow) {
+      fail(`${where}: no \`${kind}\` flow. Both halves are needed — sold rows alone cannot detect a listing that vanished, and a closet alone cannot detect a sale.`);
+      continue;
+    }
+    const w = `${where}.${kind}`;
+    if (!flow.urlPattern) {
+      fail(`${w}: no \`urlPattern\`, so the observer cannot tell it is on the right page and would read whatever it landed on.`);
+    } else {
+      try { new RegExp(flow.urlPattern, "i"); }
+      catch (_e) { fail(`${w}: \`urlPattern\` is not a valid regular expression.`); }
+    }
+    if (!Array.isArray(flow.required) || flow.required.length === 0) {
+      fail(`${w}: \`required\` is empty — a probe that checks nothing always passes, which is the same as no probe.`);
+    } else {
+      for (const key of flow.required) {
+        if (!flow[key]) {
+          fail(`${w}: required selector "${key}" has no definition, so the probe can never be satisfied.`);
+        }
+      }
+    }
+    if (!flow.pagination) {
+      fail(`${w}: no \`pagination\` block. Coverage is what makes an absence evidence; a flow that cannot tell whether it reached the end must not report that it did.`);
+    }
+
+    // The privacy rule as an invariant rather than a comment: naming a buyer
+    // field here is the first half of someone emitting it.
+    const banned = /buyer|recipient|address|street|postcode|zip|phone|email/i;
+    for (const key of Object.keys(flow.fields || {})) {
+      if (banned.test(key)) {
+        fail(`${w}.fields.${key}: names buyer identity. The observer's ALLOWED_SOLD_FIELDS cannot emit it, and a selector for it should not exist either.`);
+      }
+    }
+  }
+
+  if (!cfg.version) fail(`${where}: no \`version\`.`);
+  if (cfg.enabled) {
+    if (!cfg.lastVerified) {
+      fail(`${where}: enabled with \`lastVerified: null\`. Enabling claims a human loaded their own Sold page and closet; a null date says nobody did.`);
+    } else {
+      const age = daysSince(cfg.lastVerified);
+      if (age === null) fail(`${where}: \`lastVerified\` is not a date ("${cfg.lastVerified}").`);
+      else if (age < 0) fail(`${where}: \`lastVerified\` is in the future ("${cfg.lastVerified}").`);
+      else if (age > STALE_DAYS) warn(`${where}: last verified ${age} days ago (${cfg.lastVerified}).`);
+    }
+    if (String(cfg.version).includes("draft")) {
+      fail(`${where}: enabled while its version is still marked "${cfg.version}". Bump the version when you verify.`);
+    }
+  }
+}
+
 function printChecklist(platform, cfg) {
   const line = (s = "") => console.log(s);
   line();
@@ -295,6 +378,8 @@ if (checklistIdx !== -1) {
 }
 
 for (const [platform, cfg] of Object.entries(selectors)) checkPlatform(platform, cfg);
+const syncSelectors = loadSyncSelectors();
+for (const [platform, cfg] of Object.entries(syncSelectors)) checkSyncPlatform(platform, cfg);
 
 for (const w of warnings) console.warn(`  ! ${w}`);
 if (errors.length > 0) {
@@ -306,9 +391,17 @@ if (errors.length > 0) {
 const platforms = Object.entries(selectors);
 const live = platforms.filter(([, c]) => c.enabled).map(([p]) => p);
 const pending = platforms.filter(([, c]) => !c.enabled).map(([p]) => p);
+const syncPlatforms = Object.entries(syncSelectors);
+const syncLive = syncPlatforms.filter(([, c]) => c.enabled).map(([p]) => p);
+const syncPending = syncPlatforms.filter(([, c]) => !c.enabled).map(([p]) => p);
 console.log(
   `✓ verify-lister-selectors: ${platforms.length} platforms — ` +
     `enabled: ${live.join(", ") || "none"}; ` +
     `awaiting live verification: ${pending.join(", ") || "none"}` +
     (warnings.length ? ` (${warnings.length} warning(s))` : ""),
+);
+console.log(
+  `✓ verify-lister-selectors: sold-sync ${syncPlatforms.length} platform(s) — ` +
+    `enabled: ${syncLive.join(", ") || "none"}; ` +
+    `awaiting live verification: ${syncPending.join(", ") || "none"}`,
 );
