@@ -476,6 +476,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `STUCK_SUBMISSION_MINUTES` | ⬜ Coolify edge | Minutes before a grading submission is flagged stuck. |
 | `SYNC_STUCK_THRESHOLD_MIN` | ⬜ Coolify edge | Minutes before a marketplace sync run is flagged stuck. |
 | `PUBLISH_DUE_BATCH_LIMIT` | ⬜ Coolify edge | Max scheduled listings published per cron tick. |
+| `STYLE_CODE_SWEEP_BUDGET` | ⬜ Coolify edge | Style codes the market sweep asks eBay about per tick (US-2246). Default 100, well under eBay Browse's app-level daily allowance. `0` parks the sweep without a deploy; a non-numeric value falls back to the default rather than failing the run. |
 | `POSTHOG_KEY` / `POSTHOG_HOST` | ⬜ Coolify edge | Server-side PostHog analytics (edge events). |
 | `SENTRY_DSN` | ⬜ Coolify edge | Read for the `observability` boot feature (the `[BOOT] observability not configured` warning). |
 
