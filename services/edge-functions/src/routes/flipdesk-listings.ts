@@ -394,7 +394,7 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
   // Verify the caller owns the item (US-268).
   const { data: itemRow, error: itemErr } = await supabaseAdmin
     .from("inventory_items")
-    .select("id, user_id, target_price, status")
+    .select("id, user_id, target_price, list_price, status")
     .eq("id", itemId)
     .maybeSingle();
   if (itemErr) {
@@ -412,6 +412,7 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
       id: string;
       user_id: string;
       target_price: number | null;
+      list_price: number | null;
       status: string | null;
     }
     | null;
@@ -466,9 +467,12 @@ flipdeskListingsRoutes.post("/extension-writeback", async (c) => {
     | null;
   const groupId = base?.draft_id ?? base?.id ?? null;
 
+  // US-2736: the composer's rule, all three sources, first POSITIVE wins. This
+  // checked only two, so an item priced through `list_price` was recorded at 0.
   const price =
-    (base?.listing_price && base.listing_price > 0 ? base.listing_price : null) ??
-    (item.target_price && item.target_price > 0 ? item.target_price : 0);
+    [base?.listing_price, item.target_price, item.list_price].find(
+      (p): p is number => p != null && p > 0,
+    ) ?? 0;
 
   const now = new Date().toISOString();
 

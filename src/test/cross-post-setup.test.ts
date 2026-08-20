@@ -229,7 +229,24 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // leave them all broken until someone thought to press Regenerate.
     const src = code(KIT);
     expect(src).toContain("const fallbackPrice =");
-    expect(src).toContain('.select("target_price")');
+    // All THREE sources the composer reads. Checking only two is what left an
+    // item priced through list_price showing a blank price after the fix that
+    // was meant to end exactly that.
+    expect(src).toContain('.select("target_price, list_price")');
+    expect(src).toContain("data?.listing_price");
+    expect(src).toContain("itemPrice?.target_price");
+    expect(src).toContain("itemPrice?.list_price");
+  });
+
+  it("first POSITIVE price wins, not first non-null", () => {
+    // A stale 0 on a draft row must not shadow a real price further down.
+    const src = code(KIT);
+    expect(src).toContain("p != null && p > 0");
+    const first = (a: (number | null)[]) => a.find((p) => p != null && p > 0) ?? 0;
+    expect(first([32.49, 19, 5])).toBe(32.49);
+    expect(first([0, null, 24.99])).toBe(24.99);
+    expect(first([null, null, 32.49])).toBe(32.49);
+    expect(first([null, 0, null])).toBe(0);
   });
 
   it("display, validation and payload all read the SAME resolved variant", () => {

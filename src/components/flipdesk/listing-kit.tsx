@@ -916,15 +916,29 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
     queryFn: async () => {
       const { data: row } = await supabase
         .from("inventory_items")
-        .select("target_price")
+        .select("target_price, list_price")
         .eq("id", itemId)
         .maybeSingle();
-      return (row as { target_price: number | null } | null)?.target_price ?? null;
+      return (row ?? null) as {
+        target_price: number | null;
+        list_price: number | null;
+      } | null;
     },
   });
+  // THE COMPOSER'S OWN RULE, copied whole rather than approximated.
+  //
+  // An item's price can live in three places and the composer has always known
+  // that: `[listing.listing_price, item.target_price, item.list_price]`, first
+  // POSITIVE value wins (composer.tsx). This fallback originally checked only
+  // the first two, which is why an item priced through `list_price` still
+  // showed a blank Listing price after the fix that was supposed to end that.
+  //
+  // "First positive" is the load-bearing part, not "first non-null": a stale 0
+  // on a draft row must not shadow a real price further down the list.
   const fallbackPrice =
-    (data?.listing_price && data.listing_price > 0 ? data.listing_price : null) ??
-    (itemPrice && itemPrice > 0 ? itemPrice : 0);
+    [data?.listing_price, itemPrice?.target_price, itemPrice?.list_price].find(
+      (p): p is number => p != null && p > 0,
+    ) ?? 0;
 
   // Seed from persisted platform_fields; overlay anything just generated.
   const variants = useMemo(() => {
