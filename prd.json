@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2703",
+  "nextId": "US-2708",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2256,6 +2256,95 @@
         "US-2700",
         "US-2478",
         "US-2479"
+      ]
+    },
+    {
+      "id": "US-2703",
+      "passes": false,
+      "title": "EPIC: grade as dispute evidence — turn the grade report into an eBay INAD defense",
+      "description": "As a FlipDesk seller facing an item-not-as-described case, I want GradeThread to assemble my dated, signed grade report and the disclosure my listing actually carried into one-click eBay evidence with a drafted argument, so that I stop losing INAD cases I should win with a screenshot and a defensive paragraph.",
+      "acceptanceCriteria": [
+        "Umbrella only: this story closes when every child passes. Children are filed immediately after it and named in the closing AC below",
+        "Design of record is docs/superpowers/specs/2026-08-19-grade-as-dispute-evidence-design.md; a child that departs from it updates the document in the same commit",
+        "Standing honesty constraint: no surface in this epic claims that submitting evidence wins a case. eBay decides. The claim is one-click dated signed specific evidence, and copy asserting an outcome fails review",
+        "Standing safety constraint: no draft may cite a defect that is not present in the item's grade report. The AI matcher proposes and a pure deterministic layer decides what survives, mirroring the split in lib/grading-pipeline.ts",
+        "Standing safety constraint: when the grade report documents a flaw that the listing did not disclose, the pack refuses to auto-assemble and tells the seller to consider refunding. Handing eBay proof against our own user under our signature is the failure this epic must not ship",
+        "At close, an eBay INAD return on an item graded and published through FlipDesk produces a drafted response and an attachable evidence pack from the post-sale surface with no manual file assembly",
+        "Children: US-2704, US-2705, US-2706, US-2707. This epic closes when all four pass"
+      ],
+      "priority": 20
+    },
+    {
+      "id": "US-2704",
+      "passes": false,
+      "title": "Listing publication snapshots: record what we published, every time we publish it",
+      "description": "As a FlipDesk seller, I want GradeThread to keep a timestamped copy of every description and aspect map it pushes to eBay, so that when a buyer claims I hid a flaw there is a dated record of what my listing actually said.",
+      "acceptanceCriteria": [
+        "New table listing_publications holds one row per publish and per revise: listing id, channel, description, aspect map, price, and the timestamp. Nothing else",
+        "Every eBay description or aspect write goes through a single snapshot funnel. A source guard test fails the build if any eBay write path reaches the wire without it, covering publishOffer, publishOfferByInventoryItemGroup, updateOfferFields, updateOfferPrice, createOrReplaceInventoryItem, the aspect gap-fill revise, the forced resync, and routes/jobs-credentials-refresh.ts",
+        "Consecutive identical snapshots collapse: a re-push of unchanged text writes no new row and bumps last_confirmed_at on the existing one. A deno test asserts the credentials-refresh cron re-running twice produces one row",
+        "The stored claim is what GradeThread published, never what eBay displayed. No code path labels a snapshot as the live listing text unless the live text was independently confirmed to match",
+        "The table carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the same commit, and a self-record footer. Added to PENDING_MIGRATIONS.md and not pushed until the owner has applied it",
+        "Reads are tenant-scoped to workspaceOwnerId ?? userId per US-268, with a case added to services/edge-functions/src/tests/tenant-isolation_test.ts",
+        "This story ships alone and first. Coverage cannot be backfilled honestly, so it must not wait on any other child in the epic"
+      ],
+      "priority": 21
+    },
+    {
+      "id": "US-2705",
+      "passes": false,
+      "title": "Dispute evidence core: the complaint matcher, the evidence plan and the three verdicts",
+      "description": "As a FlipDesk seller, I want GradeThread to compare what the buyer is complaining about against the flaw map in my grade report and tell me honestly whether I have a case, so that I fight the ones I should and refund the ones I should not.",
+      "acceptanceCriteria": [
+        "New pure module services/edge-functions/src/lib/complaint-match.ts maps buyer complaint text onto DetectedIssue entries from the item's grade report, using defect_type, location, severity and size_bucket",
+        "New pure module services/edge-functions/src/lib/dispute-evidence.ts takes the grade report, the listing_publications snapshot and the match, and returns an evidence plan: which photos, which flaws, which citations, and one of three verdicts",
+        "Verdict contradicted requires the flaw to be documented in the report AND present in the snapshot description or aspect map. Verdict supported is returned when the report documents a flaw the snapshot did not disclose. Verdict not_covered is returned when the report has nothing on the complaint",
+        "Ambiguity resolves to not_covered and never to contradicted. A deno test asserts a weak or partial match does not produce a contradicted verdict",
+        "A citation naming a defect absent from the grade report is dropped, not softened. A deno test drives the pure layer with a matcher stub that invents a defect and asserts zero citations survive",
+        "Verdict supported returns a refusal to auto-assemble plus the plain-language reason, per the epic safety constraint",
+        "A labelled fixture set of complaint-and-report pairs with expected verdicts is committed and gated, so a prompt change that starts calling stretches contradicted fails rather than ships",
+        "Neither module imports the supabase client and both are unit-tested with no DB, mirroring the split in lib/cross-listing-sale.ts"
+      ],
+      "priority": 22,
+      "dependsOn": [
+        "US-2704"
+      ]
+    },
+    {
+      "id": "US-2706",
+      "passes": false,
+      "title": "eBay return evidence: attach the pack to an INAD return",
+      "description": "As a FlipDesk seller with an item-not-as-described return open, I want to review a drafted response and send the grade evidence to eBay in one click, so that I answer within the deadline with something better than a screenshot.",
+      "acceptanceCriteria": [
+        "services/edge-functions/src/lib/ebay-postorder.ts gains file upload and evidence attachment for a return, extending the existing Post-Order v2 client rather than adding a second one",
+        "New route POST /api/flipdesk/ebay/returns/:returnId/evidence assembles the pack from the evidence plan and submits it. Every query is scoped to workspaceOwnerId ?? userId per US-268, with a case added to services/edge-functions/src/tests/tenant-isolation_test.ts",
+        "The evidence sheet is rendered by reusing the compositor in services/edge-functions/src/lib/defect-annotations.ts, and carries the certificate number, the grade date, and the verify instruction. It never carries an off-eBay link",
+        "Uploaded imagery goes through validateImageUpload magic-byte sniffing and stripImageMetadata before it leaves, matching the existing payment-dispute evidence route",
+        "src/pages/flipdesk/post-sale.tsx shows the drafted response and the exact pack contents before anything is sent. Nothing reaches eBay without a seller click, and there is no timer and no auto-submit",
+        "An item with no listing_publications snapshot renders the grade-report-only argument and labels it as the weaker case rather than presenting it as equivalent",
+        "No surface added by this story claims the evidence wins the case",
+        "npm run ui:check stays at zero findings for src/"
+      ],
+      "priority": 23,
+      "dependsOn": [
+        "US-2705"
+      ]
+    },
+    {
+      "id": "US-2707",
+      "passes": false,
+      "title": "Payment dispute evidence: reuse the pack on the route that exists",
+      "description": "As a FlipDesk seller in an eBay payment dispute, I want the same one-click evidence pack I get on returns, so that the rarer path is not the one where GradeThread abandons me.",
+      "acceptanceCriteria": [
+        "POST /payment-disputes/:id/evidence in routes/flipdesk-ebay.ts gains a from-pack mode that assembles from the evidence plan, keeping the existing manual single-file upload working unchanged",
+        "The same three verdicts and the same refusal-to-assemble rule apply. A deno test asserts a supported verdict blocks assembly on this path too",
+        "The evidence type sent to eBay is derived from the live dispute as it already is, and the pack does not override an eBay-requested evidence type",
+        "src/pages/flipdesk/post-sale.tsx offers the pack on the dispute surface with the same review-before-send flow as returns",
+        "A tenant-isolation case covers the from-pack path"
+      ],
+      "priority": 24,
+      "dependsOn": [
+        "US-2706"
       ]
     }
   ]
