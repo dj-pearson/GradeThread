@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## ⏳ PENDING: 00632 — sold-sync storage for the no-API marketplaces (US-2697)
+## ✅ APPLIED (owner-confirmed 2026-08-20): 00632 — sold-sync storage for the no-API marketplaces (US-2697)
 
 **Risk: LOW.** Three brand-new tables, four indexes, three RLS policies. No
 existing table is altered, no column is dropped, no data is migrated, and
@@ -43,7 +43,7 @@ order by table_name;
 ```
 
 
-## ⏳ PENDING: 00631 — one spelling per Lululemon garment in the index (US-2714)
+## ✅ APPLIED (owner-confirmed 2026-08-20): 00631 — one spelling per Lululemon garment in the index (US-2714)
 
 **Risk: LOW.** One `UPDATE` of three `brand_style_codes` rows, adding a
 `canonicalFrom` key to their `extraction_rules`. No table, no column, no
@@ -91,7 +91,7 @@ where brand_key = 'lululemon' order by decoder_kind;
 Expect `["gender", "style", "color"]` on the three `style_number*` rows and
 nothing on `size_dot`.
 
-## ⏳ PENDING: 00630 — the whole size-dot string, not just the style number (US-2714)
+## ✅ APPLIED (owner-confirmed 2026-08-20): 00630 — the whole size-dot string, not just the style number (US-2714)
 
 **Risk: LOW.** Three `INSERT ... ON CONFLICT DO UPDATE` rows in
 `brand_style_codes`. No table, no column, no function, no policy, no customer
