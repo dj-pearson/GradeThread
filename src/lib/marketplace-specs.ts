@@ -91,6 +91,20 @@ export interface MarketplaceSpec {
   conditions: ConditionOption[];
   /** Hashtag/keyword-tag rules, when the platform has a dedicated tag input. */
   tags?: { max: number; required: boolean; help?: string };
+  /**
+   * US-2739: the smallest price step the platform accepts.
+   *
+   * Poshmark takes WHOLE DOLLARS. Its listing-price input is
+   * `inputmode="numeric" pattern="[0-9]*"` — digits only, no decimal point — so
+   * "32.49" is not a price it can hold. Sending one is not a rounding nicety,
+   * it is a value the field rejects.
+   *
+   * `1` means whole units; omitted means cents are fine (eBay, Shopify, and the
+   * rest). Kept HERE rather than in the extension because it is a fact about
+   * the marketplace, not about a selector, and the kit has to show the seller
+   * the same number it is about to send.
+   */
+  priceStep?: number;
   /** True when the platform has its own category tree that must be mapped (US-722). */
   usesOwnTaxonomy: boolean;
   /** True when brand must come from the platform's curated list (Grailed designers). */
@@ -163,6 +177,8 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
       { value: "FAIR", label: "Fair" },
       { value: "PLAY", label: "Play condition" },
     ],
+    // Poshmark rejects cents — see priceStep on MarketplaceSpec.
+    priceStep: 1,
     usesOwnTaxonomy: true, // Department → Category → Subcategory
     brandAllowList: false,
     fields: [

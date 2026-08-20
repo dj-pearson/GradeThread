@@ -242,10 +242,49 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
   });
 
   it("it never invents a price", () => {
-    // fallbackPrice 0 means the item has none anywhere; the variant is left
-    // exactly as stored rather than being given a number nobody chose.
+    // No price anywhere means the variant is left exactly as stored rather than
+    // being given a number nobody chose. Two guards carry that now: the step
+    // maths only runs on a price above zero, and an unchanged value returns the
+    // original object rather than a copy.
     const src = code(KIT);
-    expect(src).toContain("variant.price > 0 || fallbackPrice <= 0");
+    expect(src).toContain("const resolvedPrice = variant.price > 0 ? variant.price : fallbackPrice");
+    expect(src).toContain("step > 0 && resolvedPrice > 0");
+    expect(src).toContain("steppedPrice === variant.price");
+  });
+});
+
+describe("a price is sent in the units the marketplace accepts (US-2739)", () => {
+  it("Poshmark is declared as whole dollars", () => {
+    // Its listing-price input is inputmode="numeric" pattern="[0-9]*" -- digits
+    // only, no decimal point -- because Poshmark prices in whole dollars.
+    // Confirmed by the founder against the live form 2026-08-20.
+    const src = code("src/lib/marketplace-specs.ts");
+    expect(src).toContain("priceStep?: number;");
+    expect(src).toContain("priceStep: 1,");
+  });
+
+  it("the step is applied where display and payload already agree", () => {
+    // Rounding only in the payload would show the seller one number and send
+    // another, which is the class of bug this whole file guards against.
+    const src = code(KIT);
+    expect(src).toContain("spec.priceStep ?? 0");
+    expect(src).toContain("const steppedPrice =");
+    expect(src).toContain("steppedPrice === variant.price");
+  });
+
+  it("rounds to nearest and never below one step", () => {
+    const step = (resolved: number, s: number) =>
+      s > 0 && resolved > 0 ? Math.max(s, Math.round(resolved / s) * s) : resolved;
+    expect(step(32.49, 1)).toBe(32);
+    // Nearest, not floored: flooring quietly costs the seller money every time.
+    expect(step(32.51, 1)).toBe(33);
+    expect(step(19.99, 1)).toBe(20);
+    // A sub-dollar price becomes the minimum step, never 0.
+    expect(step(0.4, 1)).toBe(1);
+    // No step configured leaves cents alone.
+    expect(step(32.49, 0)).toBe(32.49);
+    // No price stays no price.
+    expect(step(0, 1)).toBe(0);
   });
 });
 

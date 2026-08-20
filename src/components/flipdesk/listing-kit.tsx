@@ -337,10 +337,25 @@ function PlatformPanel({
   // decides "Ready to list", and the payload the extension receives can never
   // disagree about what this item costs. Patching only the render would have
   // shown a price the extension still refused to type.
+  const resolvedPrice = variant.price > 0 ? variant.price : fallbackPrice;
+  // US-2739: round to the platform's own step BEFORE anything reads the price.
+  //
+  // Poshmark's listing-price input is inputmode="numeric" pattern="[0-9]*" —
+  // digits only, no decimal point — because Poshmark prices in whole dollars.
+  // "32.49" is not a value that field can hold, so sending one is not a
+  // rounding nicety; it is handing the marketplace something it rejects.
+  //
+  // Rounded to NEAREST rather than floored: flooring quietly costs the seller
+  // money on every cross-post, and the number is shown in the row below before
+  // they send it, so it is a visible adjustment rather than a silent one.
+  const step = spec.priceStep ?? 0;
+  const steppedPrice = step > 0 && resolvedPrice > 0
+    ? Math.max(step, Math.round(resolvedPrice / step) * step)
+    : resolvedPrice;
   const priced: PlatformKitVariant =
-    variant.price > 0 || fallbackPrice <= 0
+    steppedPrice === variant.price
       ? variant
-      : { ...variant, price: fallbackPrice };
+      : { ...variant, price: steppedPrice };
   const valueOf = (f: FieldSpec) =>
     edits[f.key] ?? fieldValue(f.key, priced);
 
