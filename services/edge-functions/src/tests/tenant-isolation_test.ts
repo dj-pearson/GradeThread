@@ -16,6 +16,9 @@
 // mutation succeeding):
 //   TEST_USER_A_SUBMISSION_ID   a flipdesk_grading_submissions.id
 //   TEST_USER_A_LISTING_ID      a listings.id
+//   TEST_USER_A_SYNC_LISTING_URL a poshmark listings.listing_url owned by A
+//                               (US-2697 sold-sync; OPTIONAL - skips until the
+//                               seed script has been re-run)
 //   TEST_USER_A_API_KEY_ID      an api_keys.id
 //   TEST_USER_A_API_KEY         A's RAW key (gt_sk_…) for /api/v1 (US-9107)
 //   TEST_USER_B_API_KEY         B's RAW key (gt_sk_…) for /api/v1 (US-9107)
@@ -6319,5 +6322,84 @@ Deno.test({
       [],
       "a foreign item resolved for B, so anything derived from it is reachable too",
     );
+  },
+});
+
+
+// ── Sold-sync observations (US-2697) ───────────────────────────────────────
+//
+// This route takes NO resource id from the caller. It takes listing URLs read
+// off a marketplace page, and matches them against the CALLER's own listings.
+// That makes the isolation property a matching property rather than a lookup
+// one: B posting a sold row for A's listing URL must come back UNMATCHED, and
+// must never confirm a sale.
+//
+// Getting it wrong is the worst failure in this file. A confirmed sale on A's
+// listing does not just leak - it marks A's garment sold and fires the
+// cross-listing delist planner, pulling A's live listings off every other
+// channel. B would be able to empty A's storefront by posting JSON.
+
+Deno.test({
+  name: "B posting a sold row for A's listing URL never confirms a sale",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_SYNC_LISTING_URL"),
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/sync/observations`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        signedIn: true,
+        sold: [{
+          listingUrl: Deno.env.get("TEST_USER_A_SYNC_LISTING_URL")!,
+          title: "Tenant-A-sync-fixture",
+          soldPriceCents: 5500,
+          soldAt: "2026-08-18T12:00:00.000Z",
+          orderRef: "isolation-probe-1",
+        }],
+      }),
+    });
+    // 402 is a pass: B on a plan without FlipDesk is stopped before the query.
+    if (res.status === 402) {
+      await res.body?.cancel();
+      return;
+    }
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(
+      body.confirmed,
+      0,
+      "B confirmed a sale against A's listing URL. That marks A's garment sold " +
+        "and fires the sibling delist planner across every other channel.",
+    );
+    assertEquals(
+      body.unmatched,
+      1,
+      "A's URL should be UNMATCHED for B - it is not in B's listings.",
+    );
+  },
+});
+
+Deno.test({
+  name: "the sync route refuses a payload carrying buyer identity",
+  ignore: !CONFIGURED,
+  fn: async () => {
+    const res = await fetch(`${BASE}/api/flipdesk/sync/observations`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        platform: "poshmark",
+        signedIn: true,
+        sold: [{
+          listingUrl: "https://poshmark.com/listing/whatever",
+          shipping_address: "1 Main St",
+        }],
+      }),
+    });
+    const body = await res.json();
+    assertEquals(res.status, 400);
+    assertEquals(body.error, "FORBIDDEN_KEY");
+    // Refused BEFORE the plan gate, so a free account cannot use a 402 to learn
+    // that its PII would otherwise have been accepted.
+    assertEquals(body.key, "shipping_address");
   },
 });

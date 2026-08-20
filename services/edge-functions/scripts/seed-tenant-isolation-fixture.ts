@@ -262,6 +262,23 @@ async function main(): Promise<void> {
   });
   out.TEST_USER_A_LISTING_ID = listingId;
 
+  // US-2697: a POSHMARK listing WITH a listing_url, so the sold-sync isolation
+  // case can hand B a sold row carrying A's URL and prove it never confirms.
+  // The eBay fixture above cannot serve: /api/flipdesk/sync only accepts the
+  // extension-mechanism platforms, and it has no listing_url either.
+  // No spaces in the value - see the $GITHUB_ENV note above.
+  const syncUrl = "https://poshmark.com/listing/tenant-a-sync-fixture";
+  const syncListingId = await insert("listings", {
+    inventory_item_id: itemId,
+    platform: "poshmark",
+    listing_price: 55.0,
+    listing_title: "Tenant-A-sync-fixture",
+    listing_status: "active",
+    listing_url: syncUrl,
+  });
+  out.TEST_USER_A_SYNC_LISTING_ID = syncListingId;
+  out.TEST_USER_A_SYNC_LISTING_URL = syncUrl;
+
   // US-2395 AC6: a MULTI-VARIATION listing, which the group-revise branch takes
   // a different path for. Deliberately seeded rather than classified as
   // unseeded: it needs nothing external — a listings row with `variations` set,

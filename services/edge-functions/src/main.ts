@@ -68,6 +68,7 @@ import { flipdeskGoogleRoutes } from "./routes/flipdesk-google.ts";
 import { flipdeskGoogleSyncRoutes } from "./routes/flipdesk-google-sync.ts";
 import { flipdeskDisclosureRoutes } from "./routes/flipdesk-disclosure.ts";
 import { flipdeskExtensionQueueRoutes } from "./routes/flipdesk-extension-queue.ts";
+import { flipdeskSyncRoutes } from "./routes/flipdesk-sync.ts";
 import { flipdeskExpensesRoutes } from "./routes/flipdesk-expenses.ts";
 import { flipdeskConsignmentRoutes } from "./routes/flipdesk-consignment.ts";
 import {
@@ -1318,6 +1319,7 @@ app.route("/api/flipdesk/disclosure", flipdeskDisclosureRoutes);
 // Stores WHAT to do only — never a marketplace credential (the ADR bright line,
 // enforced here, in lib/extension-queue.ts and as a CHECK on the table).
 app.route("/api/flipdesk/extension-queue", flipdeskExtensionQueueRoutes);
+app.route("/api/flipdesk/sync", flipdeskSyncRoutes);
 app.route("/api/flipdesk/expenses", flipdeskExpensesRoutes);
 app.route("/api/flipdesk/consignment", flipdeskConsignmentRoutes);
 app.route("/api/flipdesk/pricing", flipdeskPricingRoutes);

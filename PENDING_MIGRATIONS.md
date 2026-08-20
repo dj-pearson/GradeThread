@@ -1,5 +1,96 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
+## ⏳ PENDING: 00632 — sold-sync storage for the no-API marketplaces (US-2697)
+
+**Risk: LOW.** Three brand-new tables, four indexes, three RLS policies. No
+existing table is altered, no column is dropped, no data is migrated, and
+nothing already running reads any of it. Fully idempotent (`CREATE TABLE IF NOT
+EXISTS`, `CREATE INDEX IF NOT EXISTS`, `DROP POLICY IF EXISTS` before each
+`CREATE POLICY`). **No REVOKE** — see the standing rule; a denied `anon` call
+segfaults this Postgres image.
+
+**What it does.** Adds `marketplace_sync_observations` (the dedupe ledger that
+makes re-reading the same Sold page a no-op rather than a second sale),
+`marketplace_sync_reviews` (what the planner refused to act on alone) and
+`marketplace_sync_state` (per-channel sync health, where `failing` means a
+complete closet read returned nothing while listings are believed live).
+
+**Why the tables have the columns they have.** A Poshmark order page carries the
+buyer's name and shipping address. There is no jsonb payload column here and no
+column that could hold either, and `sync-payload-guard_test.ts` pins the exact
+column set so a later migration cannot quietly add one.
+
+**Client-side read risk: NONE.** No frontend code in this commit reads these
+tables. The web surfaces are US-2699 and are not built yet, so a Cloudflare
+Pages auto-deploy on push cannot reach a table that is not there. The only new
+reader is the edge route `POST /api/flipdesk/sync/observations`, which ships in
+the same commit and goes out with the edge redeploy in step 2.
+
+**Apply order**
+
+1. Run `supabase/migrations/00632_marketplace_sync.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — three new tables, so PostgREST must be
+   told or every call to the new route 404s at the schema cache.
+3. Redeploy the edge (`EXPECTED_SCHEMA_VERSION` is now `00632`).
+
+**Confirm it landed**
+
+```sql
+select table_name from information_schema.tables
+where table_schema = 'public' and table_name like 'marketplace_sync%'
+order by table_name;
+-- expect: marketplace_sync_observations, marketplace_sync_reviews, marketplace_sync_state
+```
+
+
+## ⏳ PENDING: 00631 — one spelling per Lululemon garment in the index (US-2714)
+
+**Risk: LOW.** One `UPDATE` of three `brand_style_codes` rows, adding a
+`canonicalFrom` key to their `extraction_rules`. No table, no column, no
+function, no customer data. Guarded by `not (extraction_rules ? 'canonicalFrom')`
+so a re-run touches nothing.
+
+**What it does.** 00630 made all four spellings of a code decode. They still do
+not share a KEY: the learned index files a code under whatever was transcribed,
+so `W6AMYS`, `LW6AMYS`, `W6AMYSP60417` and `LW6AMYSP60417` are four rows in
+`style_code_names`, `style_code_observations` and `style_code_sweeps`. A
+consensus needs three agreeing titles per key, so splitting one garment four
+ways can leave every fragment under the threshold and produce no name at all
+from evidence that would have been enough.
+
+`canonicalFrom` names the capture groups, in order, that concatenate to the one
+spelling a code is filed under. The engine reads them from the RAW captures —
+before the transforms turn `W` into `Women`, because a canonical code has to
+stay a code — and uppercases the result.
+
+⚠ **This migration is what makes the feature real.** `decodeTagCode` uses the
+seeded specs INSTEAD of the in-code defaults once a brand has any; the in-code
+copy is only the local fallback. `decoder-seed-parity_test.ts` fails if they
+drift.
+
+**Verified locally**: applied on top of a fresh 00630 stack, and all four
+spellings now yield `canonicalCode = W6AMYS` through the DB-spec path.
+
+**Not yet wired.** Nothing READS `canonicalCode` yet — the write and read sites
+of the learned index still key on the transcription. That is the rest of
+US-2714 and it changes no schema.
+
+**Apply order**
+
+1. Run `supabase/migrations/00631_lululemon_canonical_style_code.sql`.
+2. Redeploy the edge (`EXPECTED_SCHEMA_VERSION` is now `00631`).
+
+**Confirm it landed**
+
+```sql
+select decoder_kind, extraction_rules->>'canonicalFrom'
+from public.brand_style_codes
+where brand_key = 'lululemon' order by decoder_kind;
+```
+
+Expect `["gender", "style", "color"]` on the three `style_number*` rows and
+nothing on `size_dot`.
+
 ## ⏳ PENDING: 00630 — the whole size-dot string, not just the style number (US-2714)
 
 **Risk: LOW.** Three `INSERT ... ON CONFLICT DO UPDATE` rows in
