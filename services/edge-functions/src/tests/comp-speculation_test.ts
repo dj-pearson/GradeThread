@@ -205,3 +205,101 @@ Deno.test("the /appraise handler starts comps before it grades", async () => {
     "the speculative result is awaited before the grade runs, which serialises it again",
   );
 });
+
+// ── /prospect: the surface that is actually used in a shop (US-2757) ───────
+//
+// /appraise is the WEB path. /prospect is the one ProspectView on iOS calls,
+// and it was the slower of the two: ten sequential awaits carrying two Vision
+// calls and two eBay calls. These guards hold the shape that fixed it.
+//
+// Scoped to the /prospect handler, because this file has five handlers and a
+// file-wide search would pass on any one of them being right.
+
+function prospectHandler(src: string): string {
+  const start = src.indexOf('flipdeskScoutRoutes.post("/prospect"');
+  const end = src.indexOf('flipdeskScoutRoutes.post("/buy"');
+  if (start === -1 || end <= start) throw new Error("could not isolate /prospect");
+  return src.slice(start, end);
+}
+
+Deno.test("/prospect resolves the category and grades the photo concurrently", async () => {
+  const handler = prospectHandler(
+    await Deno.readTextFile(new URL("../routes/flipdesk-scout.ts", import.meta.url)),
+  );
+
+  // Both only need the hints. Running them one after the other paid for an eBay
+  // round trip and a Vision call back to back for no reason.
+  assert(
+    /await Promise\.all\(\[/.test(handler),
+    "/prospect no longer runs anything concurrently",
+  );
+  // The handler now has TWO Promise.all blocks — the gate/quota pair at the top
+  // and this one. Taking the first match found the wrong block and failed on
+  // correct code, which is the read-more-than-you-meant mistake this codebase
+  // keeps producing. Anchor on the block that actually contains the category.
+  const catAt = handler.indexOf("suggestCategories(query)");
+  const gradeAt = handler.indexOf("await quickGrade(");
+  const allAt = handler.lastIndexOf("await Promise.all([", catAt);
+  assert(catAt !== -1 && gradeAt !== -1 && allAt !== -1, "expected calls are missing");
+  assert(allAt < catAt && allAt < gradeAt, "the category and grade are outside the concurrent block");
+});
+
+Deno.test("/prospect still grades WITH the hints, so the grade is unchanged", async () => {
+  // Grading before the hints would be faster and would mean grading a garment
+  // we cannot name — a different answer dressed as a speedup. The epic refused
+  // that trade once already and must keep refusing it.
+  const handler = prospectHandler(
+    await Deno.readTextFile(new URL("../routes/flipdesk-scout.ts", import.meta.url)),
+  );
+  const hintsAt = handler.indexOf("await extractMatchHints(");
+  const catAt = handler.indexOf("suggestCategories(query)");
+  const allAt = handler.lastIndexOf("await Promise.all([", catAt);
+  assert(hintsAt !== -1 && allAt !== -1 && catAt !== -1);
+  assert(
+    hintsAt < allAt,
+    "the concurrent block starts before the hints exist, so the grade lost its context",
+  );
+  assert(
+    /garment: \{ brand, title: keywords\.join\(" "\) \|\| undefined \}/.test(handler),
+    "quickGrade no longer receives the identification hints",
+  );
+});
+
+Deno.test("/prospect comps go through the shared cache and the speculation", async () => {
+  const handler = prospectHandler(
+    await Deno.readTextFile(new URL("../routes/flipdesk-scout.ts", import.meta.url)),
+  );
+  assert(
+    /cachedSearchBrowseComps\(/.test(handler),
+    "/prospect queries eBay directly, so a rack of similar items pays per item",
+  );
+  // Presence of the cached call is not enough: /prospect makes TWO comp calls
+  // (the speculation and the re-query), so swapping one back to the uncached
+  // client left the guard green. Assert the BARE call is absent instead.
+  // Note the casing does the work — "cachedSearchBrowseComps" contains a capital
+  // S, so a lowercase match can only be the uncached function.
+  assert(
+    !/[^a-zA-Z]searchBrowseComps\(/.test(handler),
+    "/prospect calls the uncached searchBrowseComps somewhere, so one of its two " +
+      "comp queries bypasses the shared cache",
+  );
+  assert(
+    /SPECULATIVE_CONDITION_ID/.test(handler),
+    "/prospect does not speculate the comp condition, so comps wait on the grade",
+  );
+  assert(
+    /resolveComps\(/.test(handler),
+    "/prospect does not use the tested reuse decision",
+  );
+});
+
+Deno.test("/prospect pairs its plan gate with its quota", async () => {
+  const handler = prospectHandler(
+    await Deno.readTextFile(new URL("../routes/flipdesk-scout.ts", import.meta.url)),
+  );
+  assert(
+    !/const gate = await requireFlipdesk\(/.test(handler),
+    "/prospect still awaits the plan gate on its own line",
+  );
+  assert(/whichRefusal\(/.test(handler), "/prospect lost the named precedence rule");
+});

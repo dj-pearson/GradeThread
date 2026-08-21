@@ -17,7 +17,11 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { requireFlipdesk } from "../lib/plan-gate.ts";
 import { checkQuota } from "./flipdesk-ai.ts";
 import { refundAiAction, reserveAiActionSafe } from "../lib/ai-metering.ts";
-import { searchBrowseComps, suggestCategories } from "../lib/ebay-client.ts";
+import {
+  type BrowseCompsResult,
+  searchBrowseComps,
+  suggestCategories,
+} from "../lib/ebay-client.ts";
 import { extractMatchHints, type VisionImage } from "../lib/ai-reconcile.ts";
 import { quickGrade } from "../lib/quick-grade.ts";
 import {
@@ -30,6 +34,7 @@ import {
   SPECULATIVE_CONDITION_ID,
 } from "../lib/comp-speculation.ts";
 import { whichRefusal } from "../lib/gate-order.ts";
+import { cachedSearchBrowseComps } from "../lib/comps-cache.ts";
 import {
   chooseProviders,
   identifyWithFallback,
@@ -664,8 +669,17 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
   // Same paid gate + AI quota as the scan/appraise: prospecting runs the grader.
-  const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
-  if (gate) return gate;
+  //
+  // US-2757: both read one users row and neither depends on the other, so they
+  // run together, with the same named precedence rule /appraise uses. The quota
+  // result is needed further down for the two reservations, so it is hoisted
+  // here rather than re-fetched.
+  const [gate, quota] = await Promise.all([
+    requireFlipdesk(c, { feature: "compPulls", userId }),
+    checkQuota(userId),
+  ]);
+  if (whichRefusal(gate !== null, quota.ok) === "gate") return gate!;
+  if (!quota.ok) return c.json(quota.body, quota.status);
 
   let body: {
     image?: unknown;
@@ -728,11 +742,6 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
       ? Math.round(body.costCents)
       : null;
 
-  const quota = await checkQuota(userId);
-  if (!quota.ok) {
-    return c.json(quota.body, quota.status);
-  }
-
   // 1) IDENTIFY — read the brand/size tag and pull short matching keywords
   //    (US-285 primitive). One AI action; the comp search is meaningless
   //    without it, so a failure here is terminal for this call.
@@ -782,50 +791,100 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     });
   }
 
-  // 2) Resolve an eBay leaf category from the identification query.
-  let categoryId: string | null = null;
-  let categoryPath: string | null = null;
-  try {
-    const cats = await suggestCategories(query);
-    categoryId = cats[0]?.categoryId ?? null;
-    categoryPath = cats[0]?.categoryTreePath ?? null;
-  } catch (err) {
-    captureException(err, { level: "warn", route: "scout.prospect.category" });
-  }
+  // 2+3) US-2757: RESOLVE THE CATEGORY AND GRADE THE PHOTO AT THE SAME TIME.
+  //
+  // These were sequential, and there was never a reason for it. The category
+  // lookup needs the identification QUERY; the grade needs the front PHOTO and
+  // the same hints for context. Both inputs exist the moment extractMatchHints
+  // returns, and neither waits on the other — so /prospect was paying for an
+  // eBay round trip and a Vision call back to back when it could pay for the
+  // slower of the two.
+  //
+  // The grade still receives the hints, so the number it produces is unchanged.
+  // Running it BEFORE the hints would have been faster still and would have
+  // meant grading a garment we could not name — a different answer dressed up
+  // as a speedup, which this epic has already refused once.
+  //
+  // The comp query rides behind the category inside the same branch, at the
+  // speculative condition (US-2753), so it overlaps the grade too.
+  const compQuery = { q: keywords.join(" ") || undefined, brand: brand ?? undefined };
 
-  // 3) GRADE the front photo (best-effort) so the value is condition-adjusted.
-  //    If the cap is hit or grading fails, fall through with a null grade —
-  //    valueAtGrade then prices at the default "used" condition.
-  let shadowGrade: number | null = null;
-  let gradeTier: string | null = null;
-  let gradeConfidence = 0;
-  if (frontDataUri) {
-    const reservedGrade = await reserveAiActionSafe(userId, quota.limit);
-    if (reservedGrade === true) {
+  const [categoryOutcome, gradeOutcome] = await Promise.all([
+    (async () => {
+      let categoryId: string | null = null;
+      let categoryPath: string | null = null;
+      try {
+        const cats = await suggestCategories(query);
+        categoryId = cats[0]?.categoryId ?? null;
+        categoryPath = cats[0]?.categoryTreePath ?? null;
+      } catch (err) {
+        captureException(err, { level: "warn", route: "scout.prospect.category" });
+      }
+      if (!categoryId) return { categoryId, categoryPath, speculated: null };
+      // Settled, never rejecting: the grade branch beside this one can fail and
+      // an in-flight promise nobody awaits is the unhandled rejection that takes
+      // the worker down (vault/10-ops/edge-hang-vs-crash-loop.md).
+      const speculated = await cachedSearchBrowseComps({
+        categoryId,
+        ...compQuery,
+        conditionId: SPECULATIVE_CONDITION_ID,
+        limit: 25,
+      })
+        .then((out: { result: BrowseCompsResult; hit: boolean }) => ({ ok: true as const, result: out.result }))
+        .catch((err: unknown) => ({ ok: false as const, err }));
+      return { categoryId, categoryPath, speculated };
+    })(),
+    (async () => {
+      // Best-effort. If the cap is hit or grading fails, fall through with a
+      // null grade and price at the default used condition, exactly as before.
+      if (!frontDataUri) return { shadowGrade: null, gradeTier: null, gradeConfidence: 0 };
+      const reservedGrade = await reserveAiActionSafe(userId, quota.limit);
+      if (reservedGrade !== true) {
+        return { shadowGrade: null, gradeTier: null, gradeConfidence: 0 };
+      }
       try {
         const grade = await quickGrade({
           images: [{ dataUri: frontDataUri, type: "front" }],
           garment: { brand, title: keywords.join(" ") || undefined },
         });
-        shadowGrade = grade.overallScore;
-        gradeTier = grade.gradeTier;
-        gradeConfidence = grade.confidence;
+        return {
+          shadowGrade: grade.overallScore,
+          gradeTier: grade.gradeTier,
+          gradeConfidence: grade.confidence,
+        };
       } catch (err) {
         await refundAiAction(userId);
         captureException(err, { level: "warn", route: "scout.prospect.grade" });
+        return { shadowGrade: null, gradeTier: null, gradeConfidence: 0 };
       }
-    }
-  }
+    })(),
+  ]);
 
-  // 4) Condition-matched value range (= comp count + going rate) — only when we
-  //    resolved a category. Then a transparent sell-through forecast.
+  const categoryId = categoryOutcome.categoryId;
+  const categoryPath = categoryOutcome.categoryPath;
+  const shadowGrade = gradeOutcome.shadowGrade;
+  const gradeTier = gradeOutcome.gradeTier;
+  const gradeConfidence = gradeOutcome.gradeConfidence;
+
+  // 4) Condition-matched value range. The speculative comps usually already
+  //    hold the condition the grade wants, so this is normally free.
   let value: ValueRange | null = null;
-  if (categoryId) {
+  if (categoryId && categoryOutcome.speculated) {
     try {
-      value = await valueAtGrade(
-        { categoryId, q: keywords.join(" ") || undefined, brand: brand ?? undefined },
+      const { result: search } = await resolveComps(
+        categoryOutcome.speculated,
         shadowGrade,
+        async (conditionId) => {
+          const out = await cachedSearchBrowseComps({
+            categoryId,
+            ...compQuery,
+            conditionId,
+            limit: 25,
+          });
+          return out.result;
+        },
       );
+      value = valueRangeFromStats(search.stats, shadowGrade, search.stats.currency);
     } catch (err) {
       captureException(err, { level: "warn", route: "scout.prospect.value" });
     }
