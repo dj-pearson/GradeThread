@@ -573,7 +573,7 @@ touches `android/**`.
 - [ ] Data safety form matches §3.6, including the `RECORD_AUDIO` note
 - [ ] Government / Financial / Health / News: all No
 - [ ] Account deletion declaration filled with both paths
-- [ ] Category Business; contact email set
+- [ ] Category Business; contact email set to `support@gradethread.com` (matches the listing copy and the domain with DKIM/SPF/DMARC — see `vault/50-business/deliverability.md`)
 - [ ] Countries selected
 - [ ] `npm run verify:android` green on the release commit
 - [ ] Internal track build installed on a real device and signed into

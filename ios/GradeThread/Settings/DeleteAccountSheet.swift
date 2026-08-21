@@ -86,7 +86,7 @@ struct DeleteAccountSheet: View {
             dismiss()
         } catch {
             HapticFeedback.error()
-            errorMessage = "Couldn't delete your account. Check your connection and try again, or contact support@pearson-media.com."
+            errorMessage = "Couldn't delete your account. Check your connection and try again, or contact support@gradethread.com."
         }
     }
 
