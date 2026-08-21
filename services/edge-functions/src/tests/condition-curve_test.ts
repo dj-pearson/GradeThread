@@ -1,6 +1,7 @@
 // US-611: price-vs-grade curve builder. Dummy-env then dynamic-import (pulls in
 // ebay-client/supabase). Comp fetcher is injected so no eBay call is made.
 import { assert, assertEquals } from "@std/assert";
+import type { BrowseCompsResult } from "../lib/ebay-client.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -19,13 +20,26 @@ function statsFor(conditionId: string) {
   return { count: 4, currency: "USD", min: 60, p25: 65, median: 70, p75: 80, max: 90 };
 }
 
+// US-2764: comps now carry the categories eBay files them under. This suite
+// cares about none of that, so it builds the empty case in ONE place rather
+// than in four literals that each have to be remembered separately.
+function emptyResult(cid: string): BrowseCompsResult {
+  return {
+    items: [],
+    total: 0,
+    stats: statsFor(cid),
+    categoryVotes: [],
+    leafCategoryVotes: [],
+  };
+}
+
 // Fake fetcher records which conditionIds were requested.
 function fakeFetcher() {
   const calls: string[] = [];
   const fetcher = (args: { conditionId?: string }) => {
     const cid = args.conditionId ?? "3000";
     calls.push(cid);
-    return Promise.resolve({ items: [], total: 0, stats: statsFor(cid) });
+    return Promise.resolve(emptyResult(cid));
   };
   return { fetcher, calls };
 }
@@ -88,7 +102,7 @@ Deno.test("totalSampleSize sums DISTINCT buckets once (never the inflated per-gr
 Deno.test("a bucket fetch failure degrades that bucket's grades to insufficient, not a thrown curve", async () => {
   const fetcher = (args: { conditionId?: string }) => {
     if (args.conditionId === "3000") return Promise.reject(new Error("eBay 503"));
-    return Promise.resolve({ items: [], total: 0, stats: statsFor(args.conditionId ?? "1500") });
+    return Promise.resolve(emptyResult(args.conditionId ?? "1500"));
   };
   const curve = await buildValueCurve({ categoryId: "57988" }, fetcher);
   const g6 = curve.points.find((p) => p.grade === 6)!; // used bucket → failed

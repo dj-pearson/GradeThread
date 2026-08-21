@@ -15,6 +15,10 @@ import {
   resolveBrandKnowledgePack,
 } from "./brand-knowledge.ts";
 import { decodeTagCode, type DecodeResult } from "./brand-decoders.ts";
+import {
+  buildCandidateBlock,
+  type VisualCandidate,
+} from "./visual-candidates.ts";
 // US-2677: the same seller-text sanitizer the grading prompts use. One
 // implementation, because two would drift and only one of them would be the
 // one an injection test exercises.
@@ -302,6 +306,17 @@ export interface ExtractInput {
   text?: string;
   photos?: ExtractPhoto[];
   knownFields?: Record<string, unknown>;
+  /**
+   * US-2767: what eBay's visual matches claim, for the model to CONFIRM or
+   * REJECT against the photos.
+   *
+   * Deliberately NOT folded into knownFields. That block is rendered as
+   * "ground truth - do not contradict, only fill gaps", which would end the
+   * question before the model looked at a photo. A similarity match is not
+   * ground truth: it returns a confident brand for a garment with no brand
+   * mark anywhere in frame (vault/30-platform/ebay-visual-search.md).
+   */
+  visualCandidates?: VisualCandidate[];
 }
 
 export interface FieldConflict {
@@ -635,7 +650,10 @@ const EXTRACT_TOOL: Anthropic.Tool = {
   },
 };
 
-function buildUserPrompt(input: ExtractInput): string {
+// Exported for the prompt-assembly tests (US-2767). The framing of the two
+// outside-information blocks is the whole mechanism, so it is asserted
+// rather than trusted to survive editing.
+export function buildUserPrompt(input: ExtractInput): string {
   const parts: string[] = [];
   if (input.text && input.text.trim()) {
     parts.push(`ITEM DESCRIPTION:\n${input.text.trim()}`);
@@ -650,6 +668,8 @@ function buildUserPrompt(input: ExtractInput): string {
         JSON.stringify(Object.fromEntries(knownEntries), null, 2)
     );
   }
+  const candidateBlock = buildCandidateBlock(input.visualCandidates ?? []);
+  if (candidateBlock) parts.push(candidateBlock);
   parts.push(
     "Call extract_item_fields with only the fields you can confidently determine."
   );

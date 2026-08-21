@@ -273,7 +273,15 @@ export async function searchCompsWithLadder(
 
   const winner = chosen ?? best;
   const activeResult: BrowseCompsResult = winner?.result ??
-    { items: [], total: 0, stats: EMPTY_STATS };
+    {
+      items: [],
+      total: 0,
+      stats: EMPTY_STATS,
+      // No listings means nobody voted. Distinct from a tie, which is listings
+      // that voted and disagreed (US-2764).
+      categoryVotes: [],
+      leafCategoryVotes: [],
+    };
   const breadth: CompBreadth = winner?.stage.breadth ?? "category";
 
   // Sold comps — searched at the winning breadth so the realized set matches the

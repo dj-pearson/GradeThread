@@ -33,8 +33,14 @@ import {
   type ItemPhotoUrlRow,
   itemPhotoAiUrls,
 } from "../lib/item-photo-storage.ts";
-import { getCategoryAspects, suggestCategories } from "../lib/ebay-client.ts";
+import {
+  fetchCategoryLeafStatus,
+  getCategoryAspects,
+  suggestCategories,
+} from "../lib/ebay-client.ts";
 import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
+import { decideCategory } from "../lib/category-decision.ts";
+import type { BrowseCompCategoryVote } from "../lib/ebay-client.ts";
 import { grantReward } from "../lib/rewards-engine.ts";
 import { verifyIdentificationAgainstMarket } from "../lib/identification-verify.ts";
 import {
@@ -731,8 +737,16 @@ async function runEbayAspectsPhase(args: {
   limit: number;
   photos: ExtractPhoto[];
   extraction: ExtractionResult;
+  /**
+   * Leaf categories the visually similar listings sit in (US-2765).
+   *
+   * Optional, and its absence is the current behaviour rather than a
+   * degradation: with no votes the decision falls to the Taxonomy keyword
+   * search, which is what ran here before. US-2768 supplies them.
+   */
+  visualLeafVotes?: readonly BrowseCompCategoryVote[];
 }): Promise<{ block: EbayAspectsBlock | null; actionsSpent: number }> {
-  const { userId, itemId, limit, photos, extraction } = args;
+  const { userId, itemId, limit, photos, extraction, visualLeafVotes } = args;
 
   // Ownership gate — this phase WRITES to the item.
   const { data: item } = await supabaseAdmin
@@ -744,20 +758,44 @@ async function runEbayAspectsPhase(args: {
     .single();
   if (!item || item.user_id !== userId) return { block: null, actionsSpent: 0 };
 
-  // 1. Resolve a leaf category: saved mapping wins; otherwise taxonomy
-  //    search on the AI's category query (falling back to the title).
-  let categoryId = (item.ebay_category_id as string | null) ?? null;
+  // 1. Resolve a leaf category (US-2765). Precedence, strongest first: a
+  //    category the seller already set, then the leaf that visually similar
+  //    listings actually sit in, then the Taxonomy keyword search on the AI's
+  //    phrase. The keyword path is unchanged and is still the floor.
+  //
+  //    `leafVotes` is empty until the visual pass runs here (US-2768), so
+  //    today every call takes the keyword branch exactly as it did before.
   let categoryPath: string | null = null;
-  if (!categoryId) {
-    const query = extraction.ebayCategoryQuery ??
-      extraction.suggestions.title?.value ??
-      (typeof item.title === "string" ? item.title : null);
-    if (!query || !query.trim()) return { block: null, actionsSpent: 0 };
-    const matches = await suggestCategories(query.trim());
-    if (matches.length === 0) return { block: null, actionsSpent: 0 };
-    categoryId = matches[0]!.categoryId;
-    categoryPath = matches[0]!.categoryTreePath ?? null;
+  const decision = await decideCategory({
+    savedCategoryId: item.ebay_category_id as string | null,
+    leafVotes: visualLeafVotes,
+    leafStatus: fetchCategoryLeafStatus,
+    keywordSuggest: async () => {
+      const query = extraction.ebayCategoryQuery ??
+        extraction.suggestions.title?.value ??
+        (typeof item.title === "string" ? item.title : null);
+      if (!query || !query.trim()) return [];
+      const matches = await suggestCategories(query.trim());
+      // The path is only carried on the keyword branch because only Taxonomy
+      // returns it; a vote knows the leaf's name but not its ancestry.
+      categoryPath = matches[0]?.categoryTreePath ?? null;
+      return matches.map((m) => ({
+        categoryId: m.categoryId,
+        categoryName: m.categoryName,
+      }));
+    },
+  });
+  if (decision.rejectedReason && decision.method !== "visual_consensus") {
+    // A vote that lost is worth a line. An ignored vote and an absent vote are
+    // indistinguishable in the data otherwise, and only one means the visual
+    // pass is not earning its latency.
+    console.log(
+      `[ebay-prep] visual category vote rejected (${decision.rejectedReason}); ` +
+        `fell back to ${decision.method}`,
+    );
   }
+  const categoryId = decision.categoryId;
+  if (!categoryId) return { block: null, actionsSpent: 0 };
 
   // 2. Category aspect spec (cached taxonomy read).
   const aspectsResponse = await getCategoryAspects(categoryId);

@@ -2757,7 +2757,7 @@
     },
     {
       "id": "US-2760",
-      "passes": false,
+      "passes": true,
       "title": "Scout: a prospect costs TWO AI actions per item, so a full cart costs forty",
       "description": "As a reseller working a cart of twenty, I want Scout to charge me for what it actually needed to do, because today every item reserves two metered AI actions even when I already told it the brand.",
       "acceptanceCriteria": [
@@ -2765,7 +2765,11 @@
         "DECISION REQUIRED, and it is a product call rather than a performance fix: when the seller has already supplied a brand or keyword, is the identification pass still needed, or can the grade run against what they typed?",
         "Whichever way it goes, the answer is written down here. 'It costs two' is a fine answer if it is a decision; it is a bad one if nobody ever looked",
         "If identification becomes conditional, the response must still say what it identified and how — a seller trusting a number needs to know whether the item was recognised or merely accepted from their own typing",
-        "Any change measures the cap impact, not just latency: the point of this story is the monthly allowance, not the clock"
+        "Any change measures the cap impact, not just latency: the point of this story is the monthly allowance, not the clock",
+        "ANSWERED 2026-08-21 by US-2759, and the count is now measurable rather than asserted. Reservations in flipdesk-scout.ts: /appraise reserves ONE (line 285, the grade) and always did - its identification comes from what the seller typed, never from an AI call. /prospect reserved TWO (line 848 hints, line 946 grade). Line 848 is now CONDITIONAL: when the seller photographed only the garment, eBay visual search identifies it for free and hints never runs. One action instead of two; a cart of twenty goes from 40 to 20.",
+        "AC2's PREMISE DOES NOT HOLD, and saying so is the useful part. It asks whether the identification pass is still needed 'when the seller has already supplied a brand or keyword'. /prospect accepts no brand and no keyword - its body is image/images/imageRoles/costCents/lat/lng, photos only. The route that DOES take typed hints is /appraise, and that route never spent an AI action on identification in the first place. So there was no typed-hint shortcut to take; the real lever was letting a free identifier do the work when there is no tag to read, which is what US-2759 did.",
+        "AC4 SATISFIED: the response says what identified the item and how - identitySource ('tag' | 'visual' | 'barcode' | null) and identityIsAuthoritative ride with matchedTitle on both routes, and identifyConfidence is a flat 0.5 for a visual match rather than a borrowed number, because US-2758 measured visual search being equally confident when right and when wrong.",
+        "AC5 SATISFIED: the measure is the cap, not the clock. 40 metered actions per twenty-item cart down to 20 for the garment-only case, unchanged for a seller who photographs tags - and that is the right trade, since a tag read is the stronger identification and worth its action."
       ],
       "priority": 18
     },

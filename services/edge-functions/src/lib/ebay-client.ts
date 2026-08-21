@@ -4143,6 +4143,40 @@ export interface BrowseComp {
   itemWebUrl: string | null;
   condition: string | null;
   buyingOptions: string[];
+  /**
+   * Where eBay itself files this listing (US-2764).
+   *
+   * Browse returns this on every summary and we dropped it for two years. It is
+   * the only category signal in the system that comes from a human who listed
+   * the actual garment, rather than from a keyword search over a phrase our own
+   * model wrote — see categoryVotes for why that matters.
+   *
+   * Empty when eBay omitted it; never null, so callers can iterate without a
+   * guard at every site.
+   */
+  categories: BrowseCompCategory[];
+  /**
+   * The leaf eBay itself resolved for this listing.
+   *
+   * MEASURED, not inferred (probed against production 2026-08-21): Browse
+   * returns `leafCategoryIds` as its own field alongside the ancestor chain, so
+   * there is no need to walk `categories` guessing which entry is the leaf.
+   * A real response looked like:
+   *
+   *   leafCategoryIds: ["155226"]
+   *   categories: 155226 Hoodies & Sweatshirts, 11450 Clothing Shoes &
+   *               Accessories, 15724 Women's Clothing, 185098 Activewear,
+   *               260010 Women
+   *
+   * Almost always one entry. Modelled as an array because that is what eBay
+   * sends, not because a second one is expected.
+   */
+  leafCategoryIds: string[];
+}
+
+export interface BrowseCompCategory {
+  categoryId: string;
+  categoryName: string;
 }
 
 export interface BrowseCompsArgs {
@@ -4180,6 +4214,176 @@ export interface BrowseCompsResult {
     p75: number | null;
     max: number | null;
   };
+  /**
+   * Which categories these listings sit in, most-supported first (US-2764).
+   *
+   * TIES ARE LEFT AS TIES. Two categories with two votes each come back as two
+   * entries with count 2, and the caller has to decide what to do about that.
+   * Sorting by count and letting the reader take [0] would answer a question
+   * the evidence did not settle, using array order as the tiebreak - which is
+   * the same mistake as taking rank 1 from a keyword search and calling it the
+   * category.
+   */
+  categoryVotes: BrowseCompCategoryVote[];
+  /**
+   * The same tally restricted to the LEAF each listing actually sits in.
+   *
+   * Two arrays because they answer two questions and merging them would lose
+   * the distinction that matters. In a real probe, five Lululemon half-zips
+   * voted 5-0 for the ancestor "Women's Clothing" while splitting 3-1-1 across
+   * Hoodies & Sweatshirts, Activewear Tops and Sweaters. Only a LEAF can be
+   * listed into, so this is the decision-grade list; `categoryVotes` is the
+   * context that says how confident the neighbourhood is.
+   */
+  leafCategoryVotes: BrowseCompCategoryVote[];
+}
+
+export interface BrowseCompCategoryVote {
+  categoryId: string;
+  categoryName: string;
+  count: number;
+}
+
+/**
+ * The slice of a Browse itemSummary we read. Both the keyword search and the
+ * image search return the same shape, and until US-2764 both mapped it with
+ * their own copy of the same nine lines - which is exactly how `categories`
+ * came to be parsed by neither of them. One mapper, so a field added here
+ * cannot reach one caller and miss the other.
+ */
+export interface BrowseItemSummary {
+  itemId?: string;
+  title?: string;
+  price?: { value?: string; currency?: string };
+  image?: { imageUrl?: string };
+  thumbnailImages?: Array<{ imageUrl?: string }>;
+  itemWebUrl?: string;
+  condition?: string;
+  buyingOptions?: string[];
+  categories?: Array<{ categoryId?: string; categoryName?: string }>;
+  leafCategoryIds?: string[];
+}
+
+function toBrowseComp(s: BrowseItemSummary): BrowseComp {
+  return {
+    itemId: s.itemId ?? "",
+    title: s.title ?? "",
+    price: s.price?.value ? Number(s.price.value) : null,
+    currency: s.price?.currency ?? "USD",
+    imageUrl: s.image?.imageUrl ?? s.thumbnailImages?.[0]?.imageUrl ?? null,
+    itemWebUrl: s.itemWebUrl ?? null,
+    condition: s.condition ?? null,
+    buyingOptions: s.buyingOptions ?? [],
+    categories: (s.categories ?? [])
+      .filter((c) => typeof c.categoryId === "string" && c.categoryId !== "")
+      .map((c) => ({
+        categoryId: c.categoryId!,
+        categoryName: c.categoryName ?? "",
+      })),
+    leafCategoryIds: (s.leafCategoryIds ?? []).filter((id) =>
+      typeof id === "string" && id !== ""
+    ),
+  };
+}
+
+/** Price percentiles + the category tally, shared by both comp searches. */
+function toBrowseCompsResult(
+  summaries: readonly BrowseItemSummary[],
+  total: number | undefined,
+): BrowseCompsResult {
+  const items = summaries.map(toBrowseComp);
+  const prices = items
+    .map((i) => i.price)
+    .filter((p): p is number => p != null && p > 0)
+    .sort((a, b) => a - b);
+  return {
+    items,
+    total: total ?? items.length,
+    stats: {
+      count: prices.length,
+      currency: items[0]?.currency ?? "USD",
+      min: prices[0] ?? null,
+      p25: percentile(prices, 0.25),
+      median: percentile(prices, 0.5),
+      p75: percentile(prices, 0.75),
+      max: prices[prices.length - 1] ?? null,
+    },
+    categoryVotes: tallyCategoryVotes(items),
+    leafCategoryVotes: tallyLeafCategoryVotes(items),
+  };
+}
+
+/**
+ * Tally the categories across a set of comps.
+ *
+ * A listing sits in exactly one leaf category but Browse reports the ancestor
+ * chain too, so each listing contributes ONE vote per distinct category id it
+ * names. That is deliberate: the ancestors are real information (five listings
+ * agreeing on "Women's Tops" while splitting between two leaves is a useful
+ * thing to know) and the caller filters to leaves when it needs one.
+ */
+export function tallyCategoryVotes(
+  items: readonly BrowseComp[],
+): BrowseCompCategoryVote[] {
+  const byId = new Map<string, BrowseCompCategoryVote>();
+  for (const item of items) {
+    const seen = new Set<string>();
+    for (const cat of item.categories) {
+      if (!cat.categoryId || seen.has(cat.categoryId)) continue;
+      seen.add(cat.categoryId);
+      const existing = byId.get(cat.categoryId);
+      if (existing) existing.count += 1;
+      else {
+        byId.set(cat.categoryId, {
+          categoryId: cat.categoryId,
+          categoryName: cat.categoryName,
+          count: 1,
+        });
+      }
+    }
+  }
+  // Stable within a tie: insertion order is preserved by Map, so equal counts
+  // come back in the order eBay returned them rather than in a random one.
+  return [...byId.values()].sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Tally only the leaf each listing sits in.
+ *
+ * Names are looked up from the same listing's `categories` chain, since
+ * `leafCategoryIds` carries ids alone. A leaf whose name is nowhere in the
+ * chain still counts - the id is the part that can be listed into, and an
+ * unnamed winner is better than a dropped one.
+ */
+export function tallyLeafCategoryVotes(
+  items: readonly BrowseComp[],
+): BrowseCompCategoryVote[] {
+  const byId = new Map<string, BrowseCompCategoryVote>();
+  for (const item of items) {
+    const names = new Map(
+      item.categories.map((c) => [c.categoryId, c.categoryName]),
+    );
+    const seen = new Set<string>();
+    for (const id of item.leafCategoryIds) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const existing = byId.get(id);
+      if (existing) {
+        existing.count += 1;
+        // A later listing may name a leaf an earlier one left blank.
+        if (!existing.categoryName) {
+          existing.categoryName = names.get(id) ?? "";
+        }
+      } else {
+        byId.set(id, {
+          categoryId: id,
+          categoryName: names.get(id) ?? "",
+          count: 1,
+        });
+      }
+    }
+  }
+  return [...byId.values()].sort((a, b) => b.count - a.count);
 }
 
 function percentile(sorted: number[], p: number): number | null {
@@ -4342,51 +4546,12 @@ export async function searchBrowseComps(
   }
 
   const payload = (await res.json()) as {
-    itemSummaries?: Array<{
-      itemId?: string;
-      title?: string;
-      price?: { value?: string; currency?: string };
-      image?: { imageUrl?: string };
-      thumbnailImages?: Array<{ imageUrl?: string }>;
-      itemWebUrl?: string;
-      condition?: string;
-      buyingOptions?: string[];
-    }>;
+    itemSummaries?: BrowseItemSummary[];
     total?: number;
   };
 
   const summaries = payload.itemSummaries ?? [];
-  const items: BrowseComp[] = summaries.map((s) => ({
-    itemId: s.itemId ?? "",
-    title: s.title ?? "",
-    price: s.price?.value ? Number(s.price.value) : null,
-    currency: s.price?.currency ?? "USD",
-    imageUrl:
-      s.image?.imageUrl ?? s.thumbnailImages?.[0]?.imageUrl ?? null,
-    itemWebUrl: s.itemWebUrl ?? null,
-    condition: s.condition ?? null,
-    buyingOptions: s.buyingOptions ?? [],
-  }));
-
-  const prices = items
-    .map((i) => i.price)
-    .filter((p): p is number => p != null && p > 0)
-    .sort((a, b) => a - b);
-  const currency = items[0]?.currency ?? "USD";
-
-  return {
-    items,
-    total: payload.total ?? items.length,
-    stats: {
-      count: prices.length,
-      currency,
-      min: prices[0] ?? null,
-      p25: percentile(prices, 0.25),
-      median: percentile(prices, 0.5),
-      p75: percentile(prices, 0.75),
-      max: prices[prices.length - 1] ?? null,
-    },
-  };
+  return toBrowseCompsResult(summaries, payload.total);
 }
 
 // ── Visual comps via Browse search_by_image (US-2756) ───────────────────
@@ -4443,49 +4608,12 @@ export async function searchBrowseCompsByImage(
   }
 
   const payload = (await res.json()) as {
-    itemSummaries?: Array<{
-      itemId?: string;
-      title?: string;
-      price?: { value?: string; currency?: string };
-      image?: { imageUrl?: string };
-      thumbnailImages?: Array<{ imageUrl?: string }>;
-      itemWebUrl?: string;
-      condition?: string;
-      buyingOptions?: string[];
-    }>;
+    itemSummaries?: BrowseItemSummary[];
     total?: number;
   };
 
   const summaries = payload.itemSummaries ?? [];
-  const items: BrowseComp[] = summaries.map((s) => ({
-    itemId: s.itemId ?? "",
-    title: s.title ?? "",
-    price: s.price?.value ? Number(s.price.value) : null,
-    currency: s.price?.currency ?? "USD",
-    imageUrl: s.image?.imageUrl ?? s.thumbnailImages?.[0]?.imageUrl ?? null,
-    itemWebUrl: s.itemWebUrl ?? null,
-    condition: s.condition ?? null,
-    buyingOptions: s.buyingOptions ?? [],
-  }));
-
-  const prices = items
-    .map((i) => i.price)
-    .filter((p): p is number => p != null && p > 0)
-    .sort((a, b) => a - b);
-
-  return {
-    items,
-    total: payload.total ?? items.length,
-    stats: {
-      count: prices.length,
-      currency: items[0]?.currency ?? "USD",
-      min: prices[0] ?? null,
-      p25: percentile(prices, 0.25),
-      median: percentile(prices, 0.5),
-      p75: percentile(prices, 0.75),
-      max: prices[prices.length - 1] ?? null,
-    },
-  };
+  return toBrowseCompsResult(summaries, payload.total);
 }
 
 // ── Sold/realized comps via eBay Marketplace Insights (US-542) ──────────
@@ -4581,6 +4709,11 @@ export async function searchSoldComps(
       itemWebUrl: s.itemWebUrl ?? null,
       condition: s.condition ?? null,
       buyingOptions: [],
+      // Marketplace Insights reports no category on a sale, so these stay empty
+      // and categoryVotes comes back empty with them. That is the honest
+      // answer: "this source cannot say", not "the listings disagreed".
+      categories: [],
+      leafCategoryIds: [],
     }));
 
     const prices = items
@@ -4601,6 +4734,8 @@ export async function searchSoldComps(
         p75: percentile(prices, 0.75),
         max: prices[prices.length - 1] ?? null,
       },
+      categoryVotes: tallyCategoryVotes(items),
+      leafCategoryVotes: tallyLeafCategoryVotes(items),
     };
   } catch (err) {
     console.error(

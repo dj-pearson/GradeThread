@@ -3,6 +3,7 @@
 // are injected, so these tests exercise the PURE stage-building + rung-selection
 // + sold-merge logic with no eBay or DB I/O.
 import { assert, assertEquals } from "@std/assert";
+import type { BrowseComp, BrowseCompsResult } from "../lib/ebay-client.ts";
 
 Deno.env.set("SUPABASE_URL", Deno.env.get("SUPABASE_URL") ?? "http://localhost:54321");
 Deno.env.set(
@@ -28,28 +29,13 @@ type Args = {
   styleCode?: string;
 };
 
-type Stats = {
-  count: number;
-  currency: string;
-  min: number | null;
-  p25: number | null;
-  median: number | null;
-  p75: number | null;
-  max: number | null;
-};
-
-type Comp = {
-  itemId: string;
-  title: string;
-  price: number | null;
-  currency: string;
-  imageUrl: string | null;
-  itemWebUrl: string | null;
-  condition: string | null;
-  buyingOptions: string[];
-};
-
-type Result = { items: Comp[]; total: number; stats: Stats };
+// US-2764: these were three hand-written copies of the real shapes, and adding
+// a field to BrowseComp broke every fake here at once. Aliasing the real types
+// means the compiler tells us about the next field too, instead of the fakes
+// quietly describing a response the client stopped returning.
+type Stats = BrowseCompsResult["stats"];
+type Comp = BrowseComp;
+type Result = BrowseCompsResult;
 
 function stats(count: number): Stats {
   return {
@@ -73,11 +59,19 @@ function comps(n: number, prefix: string): Comp[] {
     itemWebUrl: null,
     condition: "Used",
     buyingOptions: ["FIXED_PRICE"],
+    categories: [],
+    leafCategoryIds: [],
   }));
 }
 
 function result(n: number, prefix: string): Result {
-  return { items: comps(n, prefix), total: n, stats: stats(n) };
+  return {
+    items: comps(n, prefix),
+    total: n,
+    stats: stats(n),
+    categoryVotes: [],
+    leafCategoryVotes: [],
+  };
 }
 
 // ── buildLadderStages (pure) ───────────────────────────────────────────────
