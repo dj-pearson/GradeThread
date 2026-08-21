@@ -2730,14 +2730,18 @@
     },
     {
       "id": "US-2744",
-      "passes": false,
+      "passes": true,
       "title": "Vinted takes whole units and we send cents",
       "description": "As a seller cross-posting to Vinted, I want the price in the units Vinted accepts, so that the field takes it.",
       "acceptanceCriteria": [
         "Reported from the live sell form 2026-08-20: Vinted prices in whole units. Same shape as Poshmark, and the mechanism for it already exists - MarketplaceSpec.priceStep, applied in listing-kit.tsx where the displayed row, the Ready-to-list validation and the extension payload all read one resolved variant.",
         "vinted declares priceStep 1. Rounded to nearest rather than floored, never below one step, and never invented - the same rules already pinned for Poshmark.",
         "CAVEAT RECORDED IN THE CODE, not just here: priceStep is per PLATFORM and Vinted is ~20 country domains. This was confirmed on the domain the seller was using. If a locale prices in decimals it would be rounded too, and the step would then belong alongside the locale map in the extension's selectors config rather than on this one spec.",
-        "No new mechanism and no new tests needed: the stepping rules are already covered by the US-2739 cases. 46 tests pass."
+        "No new mechanism and no new tests needed: the stepping rules are already covered by the US-2739 cases. 46 tests pass.",
+        "AC4 WAS WRONG, found 2026-08-21 by sabotage. It said no new tests were needed because the US-2739 cases already covered the stepping rules. Two problems: those cases were the MIRROR test that could not fail (replaced by src/test/step-price.test.ts), and more to the point they cover the FUNCTION, never the per-platform declaration. cross-post-setup asserts src.toContain('priceStep: 1,'), which Poshmark's own declaration satisfies - so Vinted's could be deleted and the whole suite stayed green.",
+        "FIXED: src/test/manual-fields.test.ts now pins the declaring SET (exactly poshmark and vinted), the value of each (exactly 1, since a step of 5 would be a different claim about a different form), and that every other platform keeps its cents.",
+        "SABOTAGE-CHECKED, control-first, all three caught: deleting vinted's priceStep while poshmark keeps its, changing vinted's step to 5, and giving eBay a step it never had.",
+        "AC3's caveat stands unchanged and is not something a test can hold: priceStep is per PLATFORM and Vinted is ~20 country domains. If a locale prices in decimals it would be rounded too, and the step would then belong beside the locale map rather than on the spec."
       ],
       "priority": 12
     },

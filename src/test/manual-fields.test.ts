@@ -93,3 +93,32 @@ describe("US-2745: manualFields", () => {
       .toEqual(["condition", "size"]);
   });
 });
+
+describe("US-2739 / US-2744: which platforms price in whole units", () => {
+  it("the declaring set is exactly the two confirmed on a live form", () => {
+    // PER PLATFORM, not "somebody declares one". cross-post-setup asserts
+    // src.toContain('priceStep: 1,'), which Poshmark's declaration satisfies on
+    // its own - so Vinted's could be deleted and every test stayed green.
+    // Verified by sabotage 2026-08-21.
+    const stepping = SPECCED_PLATFORMS
+      .filter((p) => (MARKETPLACE_SPECS[p].priceStep ?? 0) > 0)
+      .sort();
+    expect(stepping).toEqual(["poshmark", "vinted"]);
+  });
+
+  it("each declares a step of exactly 1", () => {
+    // Both were confirmed as WHOLE units on the live sell form. A step of 5 or
+    // 0.5 would be a different claim about a different form.
+    expect(MARKETPLACE_SPECS.poshmark.priceStep).toBe(1);
+    expect(MARKETPLACE_SPECS.vinted.priceStep).toBe(1);
+  });
+
+  it("every other platform keeps its cents", () => {
+    // An unset step means "prices in cents", and eBay genuinely does. Stepping a
+    // platform nobody checked would round real prices for no reason.
+    for (const p of SPECCED_PLATFORMS) {
+      if (p === "poshmark" || p === "vinted") continue;
+      expect(MARKETPLACE_SPECS[p].priceStep ?? 0, `${p} gained a priceStep`).toBe(0);
+    }
+  });
+});
