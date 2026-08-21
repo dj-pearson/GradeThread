@@ -49,6 +49,27 @@ PUBLIC entry. Both count. The distinction only matters when choosing the fix.
 
 The 40 are the work of 00514 and 00611-00617 and they hold up. The gap is 15.
 
+## Closed 2026-08-21
+
+Migration 00640 applied to production. Measured after, not assumed:
+
+| | before | after |
+|---|---|---|
+| `channel_attribution` as anon | 200, real UTM campaign names | 401 `service_role required` |
+| `buyer_growth_metrics` as anon | 200 | 401 `service_role required` |
+| `community_benchmarks` as anon | 200 | 401 `authenticated required` |
+| `increment_grades_used` as anon | 204, UPDATE ran | PGRST202, function gone |
+
+**The story's own AC asked for the wrong measurement**, which is worth keeping.
+It wanted `pg_proc.proacl` before and after. This fix deliberately does not touch
+the ACL -- a REVOKE is the thing that segfaults the database -- so the two
+snapshots are IDENTICAL and an operator diffing them would conclude nothing
+happened. The anon call result is the before/after that means something.
+
+Still unverified: a guarded function exercised through the edge's own
+service-role client in production. The local matrix and the shared shape with
+00615 make it near-certain, but near-certain is inference.
+
 ## The anon key being public is correct, and it is not what this is about
 
 Worth stating plainly, because it is the first and most reasonable objection:

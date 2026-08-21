@@ -1,20 +1,38 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] ONE MIGRATION IS HELD: **00640**.
-> Everything through **00639** is applied. 00640 is committed to local `main` and
-> **must not be pushed** until it has been applied to prod.
+> [!note] NOTHING IS PENDING as of 2026-08-21.
+> Everything through **00640** is applied. Verified by asking the database rather
+> than this file: `GET /health/ready` reports
+> `{"expected":"00639","applied":"00640","status":"ahead"}` with no `missing` key.
+> `status:"ahead"` and `unexpected:["00640"]` only say the RUNNING edge build
+> predates the schema, which the next edge deploy resolves; they are not a
+> problem report.
 >
 > This file records INTENT; only the database records STATE. It has gone stale in
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
-> asked. One unauthenticated GET settles it:
-> `curl -fsS https://functions.gradethread.com/health/ready | jq .schema`
+> asked. One unauthenticated GET settles it.
 
-## HELD: 00640 — body guards for the 13 SECURITY DEFINER functions that had none (US-2282)
+## APPLIED 2026-08-21: 00640 — body guards for the 13 SECURITY DEFINER functions that had none (US-2282)
 
-**Risk: MEDIUM.** It rewrites 13 live functions and drops a 14th. Nothing about
-the change is subtle, but the blast radius is the metering path and two analytics
-RPCs, so apply it when you can watch the edge for a few minutes afterwards.
+**APPLIED, verified 2026-08-21.** Owner applied it; the result was then measured
+rather than assumed:
+
+* `/health/ready` reports `applied: "00640"`.
+* The three RPCs that were returning real data to the public anon key now answer
+  **401 / 42501** — `channel_attribution` and `buyer_growth_metrics` with
+  "service_role required", `community_benchmarks` with "authenticated required",
+  which is the correct tier for each.
+* `increment_grades_used` answers **PGRST202, function not found**. The drop
+  landed.
+* Edge `/health/ready` still reports `status: ready`, `database: ok`.
+
+**One check is still open.** Nothing here exercised a guarded function through
+the edge's own service-role client end to end — there is no public certificate in
+the sitemap to drive `increment_certificate_view` with. Grade one item and list
+one item when convenient; that covers `reserve_ai_action`, `increment_ai_actions`
+and `get_or_create_source`. If the edge ever starts answering 42501, the rollback
+below is immediate.
 
 ### What it does
 
