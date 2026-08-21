@@ -601,6 +601,13 @@ const SERVICE_ROLE_ONLY = new Set([
   // owner_user_id is there to scope the writes, not to serve a read policy.
   // Deny-all by design.
   "identification_provenance",
+  // US-2704: what GradeThread published to a marketplace, per publish and per
+  // revise (migration 00643). Written only by the snapshot funnel
+  // (lib/listing-publications.ts) with the service-role client, and read by the
+  // dispute-evidence pack the edge assembles. `owner_user_id` scopes the writes
+  // and the reads; it is not there to serve a client policy, because no client
+  // reads this table directly. Deny-all by design.
+  "listing_publications",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /

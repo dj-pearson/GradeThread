@@ -2070,22 +2070,6 @@
       "priority": 20
     },
     {
-      "id": "US-2704",
-      "passes": false,
-      "title": "Listing publication snapshots: record what we published, every time we publish it",
-      "description": "As a FlipDesk seller, I want GradeThread to keep a timestamped copy of every description and aspect map it pushes to eBay, so that when a buyer claims I hid a flaw there is a dated record of what my listing actually said.",
-      "acceptanceCriteria": [
-        "New table listing_publications holds one row per publish and per revise: listing id, channel, description, aspect map, price, and the timestamp. Nothing else",
-        "Every eBay description or aspect write goes through a single snapshot funnel. A source guard test fails the build if any eBay write path reaches the wire without it, covering publishOffer, publishOfferByInventoryItemGroup, updateOfferFields, updateOfferPrice, createOrReplaceInventoryItem, the aspect gap-fill revise, the forced resync, and routes/jobs-credentials-refresh.ts",
-        "Consecutive identical snapshots collapse: a re-push of unchanged text writes no new row and bumps last_confirmed_at on the existing one. A deno test asserts the credentials-refresh cron re-running twice produces one row",
-        "The stored claim is what GradeThread published, never what eBay displayed. No code path labels a snapshot as the live listing text unless the live text was independently confirmed to match",
-        "The table carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the same commit, and a self-record footer. Added to PENDING_MIGRATIONS.md and not pushed until the owner has applied it",
-        "Reads are tenant-scoped to workspaceOwnerId ?? userId per US-268, with a case added to services/edge-functions/src/tests/tenant-isolation_test.ts",
-        "This story ships alone and first. Coverage cannot be backfilled honestly, so it must not wait on any other child in the epic"
-      ],
-      "priority": 21
-    },
-    {
       "id": "US-2705",
       "passes": false,
       "title": "Dispute evidence core: the complaint matcher, the evidence plan and the three verdicts",

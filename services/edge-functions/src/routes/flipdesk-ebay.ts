@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { recordPublication } from "../lib/listing-publications.ts";
 import { trimTitleToLimit, trimTitleWithReport } from "../lib/title-trim.ts";
 import { lintTitle } from "../lib/title-lint.ts";
 // US-2677: near-duplicate titles across the seller's own live listings. A
@@ -7834,6 +7835,25 @@ export async function publishItemForOwner(
       publish_failed_at: null,
     };
 
+    // US-2704: record the FIRST publish, here rather than at the wire.
+    //
+    // The wire-level funnel resolves a listing by inventory_sku or
+    // platform_offer_id, and neither is on the listings row until the persist
+    // below runs — createOrReplaceInventoryItem is step 2 and this is step 5.
+    // So the snapshot inside that call correctly skips, and the ORIGINAL
+    // description, which is the single most useful row this table will ever
+    // hold, would never be recorded at all. Deferred until after persist for
+    // the same reason: the row it attaches to has to exist first.
+    const recordFirstPublish = () =>
+      recordPublication(supabaseAdmin, {
+        ownerUserId: ownerId,
+        sku,
+        offerId,
+        description: ctx.summary.description,
+        aspects: ctx.summary.aspects,
+        price: Number(ctx.summary.priceValue),
+      });
+
     // US-783: the listing is LIVE on eBay now. A failure on the local writes
     // below is NOT a publish failure — retry, then fall back to a reconcile
     // marker (the pull-sync adopts the orphan by SKU) and return success with
@@ -7881,6 +7901,13 @@ export async function publishItemForOwner(
         );
       },
     });
+
+    // US-2704: now the listings row exists, so the snapshot has something to
+    // attach to. Awaited rather than fire-and-forget: this is the row a dispute
+    // pack is built from, and a publish is rare enough to pay one write for it.
+    // recordPublication swallows its own failures by contract, so this cannot
+    // turn a live listing into a failed publish.
+    await recordFirstPublish();
 
     // US-932: the listing is live → record it to the internal event stream (the
     // drip trigger substrate), alongside existing analytics. Fire-and-forget;

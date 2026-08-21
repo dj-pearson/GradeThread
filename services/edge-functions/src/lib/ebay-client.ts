@@ -10,6 +10,10 @@
 // All endpoint hosts switch between sandbox and production based on EBAY_ENV.
 
 import { supabaseAdmin } from "./supabase.ts";
+// US-2704: the snapshot funnel. Every write below that changes what a buyer
+// reads records it, because an INAD defence is the listing text that was live
+// and nothing else kept it.
+import { recordPublication } from "./listing-publications.ts";
 import { grantMarketplaceConnectedReward } from "./rewards-engine.ts";
 import { decryptToken, encryptToken } from "./crypto-aes.ts";
 import {
@@ -2365,6 +2369,14 @@ export async function createOrReplaceInventoryItem(
     { method: "PUT", body: JSON.stringify(safePayload) },
     connectionId,
   );
+  // US-2704: AFTER the wire, never before — a snapshot of a write that failed
+  // is a record of text that was never live.
+  await recordPublication(supabaseAdmin, {
+    ownerUserId: userId,
+    sku,
+    description: safePayload.product.description ?? null,
+    aspects: safePayload.product.aspects ?? null,
+  });
 }
 
 // The item specifics eBay CURRENTLY holds for a SKU, or null when the record
@@ -2545,11 +2557,16 @@ export async function publishOffer(
       await new Promise((r) => setTimeout(r, Math.floor(Math.random() * cap)));
     }
     try {
-      return await fetchAuthedOnce<{ listingId: string }>(
+      const result = await fetchAuthedOnce<{ listingId: string }>(
         userId,
         `/sell/inventory/v1/offer/${encodeURIComponent(offerId)}/publish`,
         { method: "POST" }
       );
+      // US-2704: a publish carries no text of its own — it makes live whatever
+      // the inventory item and offer already hold. So this records a
+      // CONFIRMATION: the text already snapshotted went live at this moment.
+      await recordPublication(supabaseAdmin, { ownerUserId: userId, offerId });
+      return result;
     } catch (err) {
       lastErr = err;
       if (attempt >= MAX_ATTEMPTS || !isRetryableError(err)) break;
@@ -2778,6 +2795,14 @@ export async function updateOfferPrice(
     { method: "PUT", body: JSON.stringify(current) },
     connectionId,
   );
+  // US-2704: a price and NOTHING else. The funnel carries the previous
+  // snapshot's description forward rather than recording a listing that lost
+  // its text, which is what passing an explicit null here would mean.
+  await recordPublication(supabaseAdmin, {
+    ownerUserId: userId,
+    offerId,
+    price: priceValue,
+  });
 }
 
 // Read-modify-write of arbitrary offer fields. eBay's PUT /offer/{id}
@@ -2832,6 +2857,13 @@ export async function updateOfferFields(
     { method: "PUT", body: JSON.stringify(current) },
     connectionId,
   );
+  // US-2704: the live offer's description and price are what a buyer read.
+  await recordPublication(supabaseAdmin, {
+    ownerUserId: userId,
+    offerId,
+    description: patch.listingDescription,
+    price: patch.price,
+  });
 }
 
 // Brings an EXISTING (unpublished) offer in line with the current draft before
@@ -3187,7 +3219,7 @@ export async function publishOfferByInventoryItemGroup(
   groupKey: string,
   marketplaceId: string
 ): Promise<{ listingId: string }> {
-  return await fetchAuthedOnce<{ listingId: string }>(
+  const result = await fetchAuthedOnce<{ listingId: string }>(
     userId,
     `/sell/inventory/v1/publish_by_inventory_item_group`,
     {
@@ -3195,6 +3227,12 @@ export async function publishOfferByInventoryItemGroup(
       body: JSON.stringify({ inventoryItemGroupKey: groupKey, marketplaceId }),
     }
   );
+  // US-2704: same confirmation as publishOffer. A variation listing is
+  // addressed by group key rather than offer id, and neither is a listings-row
+  // key, so the funnel resolves nothing and skips — the variation publish path
+  // records through its own route call, like the single-SKU first publish.
+  await recordPublication(supabaseAdmin, { ownerUserId: userId });
+  return result;
 }
 
 // Reads the group's first published offer to find an already-live listingId,

@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!note] NOTHING IS PENDING as of 2026-08-21.
+> [!warning] 00643 IS PENDING as of 2026-08-21. See the section directly below.
 > Everything through **00642** is applied. Verified by asking the database
 > rather than this file: `GET /health/ready` reports
 > `{"expected":"00640","applied":"00642","status":"ahead","unexpected":["00641","00642"]}`
@@ -19,6 +19,67 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## HELD: 00643 — listing_publications (US-2704)
+
+**Risk: low.** One new table, one index, no change to any existing table, no
+backfill. Nothing reads it yet.
+
+### What it does
+
+Creates `public.listing_publications` — one row per publish and per revise,
+holding the listing, the channel, the description, the aspect map, the price and
+the timestamp. It is the evidence half of the grade-as-dispute-evidence epic
+(US-2703): when a buyer claims a seller hid a flaw, the defence is the listing
+text that was live, and nothing kept it. eBay's own `GetMyeBaySelling` does not
+return descriptions.
+
+**The claim is deliberately narrow.** This records what GradeThread PUBLISHED,
+never what eBay DISPLAYED. A seller editing in Seller Hub changes eBay's copy
+and not ours, and we usually cannot tell. Nothing built on this table may
+upgrade the first claim into the second.
+
+`last_confirmed_at` is the collapse column. The credentials-refresh cron
+re-pushes unchanged text often, so an unchanged push extends the existing row's
+window instead of writing a duplicate — which is also the stronger statement:
+this exact text was live and confirmed from `published_at` through
+`last_confirmed_at`.
+
+Operator table: RLS on, zero policies, `REVOKE INSERT, UPDATE, DELETE FROM anon,
+authenticated`. Registered in `SERVICE_ROLE_ONLY`.
+
+### Apply
+
+1. `supabase/migrations/00643_listing_publications.sql` — idempotent.
+2. `NOTIFY pgrst, 'reload schema';` — a new table, so PostgREST must be told.
+3. Redeploy the edge (boot guard now expects `00643`).
+4. Then push.
+
+### Does the frontend read it?
+
+**No.** Nothing in `src/` touches the table. The only writer is the edge's
+snapshot funnel, and every write there is best-effort by contract: a missing
+table logs `[publication] …` and the publish it was recording still succeeds.
+So a Cloudflare auto-deploy ahead of the SQL breaks nothing, and an edge deploy
+ahead of it degrades to no snapshots rather than to failed publishes.
+
+### Retroactivity
+
+It covers listings published after it is applied and nothing before. A dispute
+on an older item falls back to the grade-report-only argument. Coverage cannot
+be backfilled — a description that was never snapshotted is gone — which is why
+this ships first and alone.
+
+### Verified locally
+
+Applied twice against the throwaway local stack: clean, then
+`NOTICE … already exists, skipping`. 19 new deno tests pass, and the coverage
+guard was sabotage-checked 5 of 5.
+
+### Rollback
+
+`DROP TABLE IF EXISTS public.listing_publications;` then
+`DELETE FROM public.applied_migrations WHERE version = '00643';`.
 
 ## APPLIED 2026-08-21: 00642 — the four agent columns match the repo again (US-2729)
 
