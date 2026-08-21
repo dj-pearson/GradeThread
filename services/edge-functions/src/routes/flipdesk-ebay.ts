@@ -1,7 +1,99 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
-import { recordPublication } from "../lib/listing-publications.ts";
+import { latestPublication, recordPublication } from "../lib/listing-publications.ts";
+import { submitReturnFiles, uploadReturnFile } from "../lib/ebay-postorder.ts";
+import { matchComplaint, type ReportedDefect } from "../lib/complaint-match.ts";
+import {
+  buildEvidencePlan,
+  type EvidencePlan,
+  type PublicationSnapshot,
+} from "../lib/dispute-evidence.ts";
+
+/**
+ * US-2706: how many images a return-evidence pack may carry.
+ *
+ * Not an eBay limit we have measured — a judgement. A pack that is mostly
+ * filler argues worse than one that is only the flaw and the disclosure, and
+ * the seller has already chosen what goes in it.
+ */
+const MAX_RETURN_EVIDENCE_FILES = 6;
+
+/**
+ * US-2706: the evidence verdict for one eBay order's item, or null.
+ *
+ * Null means "could not decide", never "nothing to worry about". Every lookup
+ * here is tenant-scoped by ownerId, and the chain is
+ * sale -> inventory item -> grading submission -> grade report, plus the
+ * listing's most recent publication snapshot.
+ */
+async function planReturnEvidence(
+  ownerId: string,
+  orderId: string,
+  complaint: string,
+): Promise<EvidencePlan | null> {
+  try {
+    const { data: sale } = await supabaseAdmin
+      .from("sales")
+      .select("inventory_item_id, listing_id")
+      .eq("user_id", ownerId)
+      .eq("platform_order_id", orderId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const itemId = (sale as { inventory_item_id?: string } | null)?.inventory_item_id;
+    if (!itemId) return null;
+
+    const { data: grading } = await supabaseAdmin
+      .from("flipdesk_grading_submissions")
+      .select("submission_id")
+      .eq("inventory_item_id", itemId)
+      .not("submission_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const submissionId = (grading as { submission_id?: string } | null)?.submission_id;
+    if (!submissionId) return null;
+
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select("defects_found")
+      .eq("submission_id", submissionId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const defects = ((report as { defects_found?: unknown } | null)?.defects_found ??
+      []) as ReportedDefect[];
+    if (!Array.isArray(defects) || defects.length === 0) return null;
+
+    const listingId = (sale as { listing_id?: string } | null)?.listing_id ?? null;
+    // Through the funnel module, not straight at the table. US-2704's coverage
+    // guard caught the direct read here and was right to: one module owning the
+    // table is what keeps `published_at DESC` from being re-derived by a reader
+    // who would hand a dispute pack the wrong revision.
+    let snapshot: PublicationSnapshot | null = null;
+    if (listingId) {
+      const row = await latestPublication(supabaseAdmin, listingId, ownerId);
+      if (row) {
+        snapshot = {
+          description: row.description,
+          aspects: row.aspects,
+          publishedAt: row.published_at,
+          lastConfirmedAt: row.last_confirmed_at,
+        };
+      }
+    }
+
+    const { matches } = matchComplaint(complaint, defects);
+    return buildEvidencePlan({ defects, snapshot, matches });
+  } catch (err) {
+    console.error(
+      "[ebay.returns.evidence] could not build the plan:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
 import { trimTitleToLimit, trimTitleWithReport } from "../lib/title-trim.ts";
 import { lintTitle } from "../lib/title-lint.ts";
 // US-2677: near-duplicate titles across the seller's own live listings. A
@@ -4227,6 +4319,139 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
     details: { order_id: body.order_id ?? null },
   });
   return c.json({ ok: true });
+});
+
+// US-2706: POST /returns/:returnId/evidence — attach the grade evidence to an
+// item-not-as-described return.
+//
+// Multipart: one or more `file` parts (images). The seller has already reviewed
+// the pack on the post-sale surface; this route sends it. There is no timer and
+// no auto-submit, and there is no path here that fires without a request.
+//
+// TWO EBAY CALLS, and the second is what makes the evidence real. `file/upload`
+// associates each image and returns a fileId; the files stay INERT until
+// `file/submit` activates them. Reporting success after the uploads alone would
+// tell a seller their evidence is on the case when eBay has not been shown it —
+// the same silent-success shape as a photo attach that never landed.
+//
+// TENANT SCOPE (US-268): every eBay call runs under the OWNER's own token
+// (`workspaceOwnerId ?? userId`), so a returnId belonging to another seller
+// reaches eBay as this seller's return and comes back 404/403 — there is no
+// query here that could read another tenant's row. The audit row is written
+// against the same owner.
+flipdeskEbayRoutes.post("/returns/:returnId/evidence", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const returnId = c.req.param("returnId");
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json({ error: "Invalid form data. Expected multipart/form-data." }, 400);
+  }
+  const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) {
+    return c.json({ error: "Missing evidence file." }, 400);
+  }
+  // eBay caps what a return will carry, and a pack that is mostly filler argues
+  // worse than a pack that is only the flaw. The seller picked these already.
+  if (files.length > MAX_RETURN_EVIDENCE_FILES) {
+    return c.json(
+      { error: `Too many files — ${MAX_RETURN_EVIDENCE_FILES} is the limit.` },
+      400,
+    );
+  }
+
+  // US-2706 AC4: sniff the magic bytes rather than trusting the client MIME,
+  // and strip EXIF/GPS before anything leaves for a buyer-facing surface. Same
+  // order as the payment-dispute evidence route above.
+  const cleaned: Array<{ bytes: Uint8Array; filename: string }> = [];
+  for (const [i, file] of files.entries()) {
+    const rawBytes = new Uint8Array(await file.arrayBuffer());
+    const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png"] });
+    if (!verdict.ok) {
+      return c.json({ error: `Invalid image: ${verdict.reason}` }, 400);
+    }
+    const { bytes } = stripImageMetadata(rawBytes, verdict.format);
+    cleaned.push({
+      bytes,
+      filename: file.name || `evidence-${i + 1}.${verdict.ext}`,
+    });
+  }
+
+  // US-2706 + the epic's standing safety constraint (US-2703 AC5): REFUSE when
+  // the grade report agrees with the buyer.
+  //
+  // The pack is assembled from the item's own grade report and the listing text
+  // GradeThread published (US-2704). When the report documents a flaw the
+  // listing did not disclose, sending this pack hands eBay a signed document
+  // proving our own user sold an undisclosed flaw. That is not a weak case, it
+  // is evidence for the other side, and the design says we do not send it.
+  //
+  // Best-effort in ONE direction only: if the report or the snapshot cannot be
+  // loaded, the plan is not built and the send proceeds on the seller's own
+  // judgement. A lookup failure must not silently become a refusal, and it must
+  // never become an assembly either — which is why the refusal is keyed on a
+  // verdict we actually computed rather than on the absence of one.
+  const complaint = String(form.get("complaint") ?? "").trim();
+  const orderId = String(form.get("order_id") ?? "").trim();
+  if (complaint && orderId) {
+    const plan = await planReturnEvidence(ownerId, orderId, complaint);
+    if (plan?.verdict === "supported") {
+      return c.json(
+        {
+          error: "refused",
+          verdict: plan.verdict,
+          reason: plan.reason,
+        },
+        409,
+      );
+    }
+  }
+
+  const fileIds: string[] = [];
+  try {
+    for (const file of cleaned) {
+      fileIds.push(
+        await uploadReturnFile(ownerId, returnId, {
+          bytes: file.bytes,
+          filename: file.filename,
+          purpose: "ITEM_RELATED",
+        }),
+      );
+    }
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the evidence upload.", err, "ebay.returns.evidence.upload");
+  }
+
+  let removedFileIds: string[] = [];
+  try {
+    // Submit activates by PURPOSE, not by id, so the whole pack goes up first
+    // and this runs once. A partial batch cannot be activated selectively.
+    ({ removedFileIds } = await submitReturnFiles(ownerId, returnId, "ITEM_RELATED"));
+  } catch (err) {
+    return failSafe(c, 502, "eBay accepted the files but would not activate them.", err, "ebay.returns.evidence.submit");
+  }
+
+  await writeAuditLog(c, {
+    action: "ebay.return.evidence",
+    targetType: "ebay_return",
+    targetId: returnId,
+    details: { files: fileIds.length, removed: removedFileIds.length },
+  });
+
+  // `removed` is reported rather than swallowed: eBay accepted the upload and
+  // then dropped the file at activation, so the pack on the case is smaller
+  // than the one the seller reviewed. Saying "sent" over that is the lie this
+  // route is here to avoid.
+  return c.json({
+    ok: true,
+    attached: fileIds.length - removedFileIds.length,
+    removed: removedFileIds.length,
+  });
 });
 
 // US-1978 (AC3): POST /orders/:orderId/refund — a PROACTIVE or PARTIAL refund,

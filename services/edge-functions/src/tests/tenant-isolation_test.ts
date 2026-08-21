@@ -153,6 +153,7 @@ const KNOWN_UNSEEDED: Record<string, string> = {
   // External systems — cannot be produced by the local seed script.
   TEST_USER_A_EBAY_OFFER_ID: "needs a live eBay sandbox offer — external dependency",
   TEST_USER_A_EBAY_ORDER_ID: "needs a live eBay sandbox order — external dependency",
+  TEST_USER_A_EBAY_RETURN_ID: "needs a live eBay sandbox RETURN — external dependency",
   TEST_USER_A_EBAY_SKU: "needs a published eBay inventory item — external dependency",
   TEST_USER_A_FULFILLMENT_POLICY_ID: "needs eBay business policies — external dependency",
   TEST_USER_A_PUSH_ENDPOINT: "needs a real Web Push subscription endpoint",
@@ -598,6 +599,40 @@ Deno.test({
     );
     await res.body?.cancel();
     assertDenied(res.status, "POST eBay order refund");
+  },
+});
+
+Deno.test({
+  // US-2706: the return-evidence route. Every eBay call it makes runs under the
+  // OWNER's own token, so a returnId belonging to another seller is not a row
+  // this service could read — it reaches eBay as THIS seller's return and comes
+  // back denied.
+  //
+  // That is the property worth pinning, and it is worth pinning even though
+  // there is no local query to get wrong: the route is one line away from
+  // taking an owner from the body, and this case is what would notice.
+  name: "B cannot attach evidence to A's eBay return",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_RETURN_ID"),
+  fn: async () => {
+    const returnId = Deno.env.get("TEST_USER_A_EBAY_RETURN_ID")!;
+    // A one-pixel PNG, so the magic-byte sniff passes and the request reaches
+    // the eBay call rather than being rejected as a bad image — otherwise this
+    // would pass for the wrong reason.
+    const png = Uint8Array.from(atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    ), (ch) => ch.charCodeAt(0));
+    const form = new FormData();
+    form.append("file", new File([png], "evidence.png", { type: "image/png" }));
+    const headers = authHeaders(B_JWT!) as Record<string, string>;
+    // FormData sets its own multipart boundary; a JSON content-type here would
+    // make the route 400 before it ever looked at the tenant.
+    delete headers["Content-Type"];
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/evidence`,
+      { method: "POST", headers, body: form },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST eBay return evidence");
   },
 });
 

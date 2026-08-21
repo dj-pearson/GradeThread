@@ -128,6 +128,48 @@ export function mergedRow(
   };
 }
 
+/**
+ * The most recent snapshot for a listing, tenant-scoped.
+ *
+ * US-2706: the READ lives here too, not just the write. The coverage guard says
+ * nothing outside this module touches the table, and it caught the dispute
+ * route reading it directly — correctly. One module owning the table means one
+ * place knows the column names and the collapse semantics, and a reader that
+ * did not know `published_at DESC` is the ordering would quietly hand a dispute
+ * pack the wrong revision.
+ *
+ * Returns null on any failure, same contract as the writes: a missing snapshot
+ * is the weaker case, never a thrown request.
+ */
+export async function latestPublication(
+  supabase: SupabaseClient,
+  listingId: string,
+  ownerUserId: string,
+): Promise<PublicationRow | null> {
+  if (!listingId || !ownerUserId) return null;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select("description, aspects, published_at, last_confirmed_at")
+    .eq("listing_id", listingId)
+    .eq("owner_user_id", ownerUserId)
+    .order("published_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("[publication] read failed:", error.message);
+    return null;
+  }
+  return (data as PublicationRow | null) ?? null;
+}
+
+/** One stored snapshot, as a reader sees it. */
+export interface PublicationRow {
+  description: string | null;
+  aspects: Record<string, string[]> | null;
+  published_at: string;
+  last_confirmed_at: string;
+}
+
 /** Resolve the listing this write is about, tenant-scoped. */
 async function findListingId(
   supabase: SupabaseClient,
