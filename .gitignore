@@ -196,4 +196,3 @@ assets/*
 # CI clone, which is the worst shape a fix can have.
 !assets/measure-card/
 gradethread.com-Performance-on-Search-2026-08-18.zip
-.env.production
