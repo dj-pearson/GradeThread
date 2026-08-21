@@ -2460,36 +2460,6 @@
       "notes": "REFINEMENT 2026-08-20 after reading the Commerce Platform OVERVIEW page (the project guide read earlier is one page below it). The overview DOES name Marketplace as one of three selling surfaces alongside Shops and Instagram Shopping, so the flat claim 'Commerce API is not Marketplace' is too strong and is corrected here. What it is NOT is the consumer C2C flow: the platform is described for 'retailers and ecommerce businesses', built around Graph API seller onboarding, catalog and inventory, order management, finance reporting and customer communication, with Shops Ads using OFFSITE checkout - buyers discover on Facebook and Instagram and check out on the seller's own website. That is a catalogue-and-feed model for merchants with a product catalog, not a path for a reseller listing one used garment. THE OPEN QUESTION, and the only one worth spending time on: whether a used-goods reseller can be onboarded as a seller under Commerce Platform and reach the Marketplace surface that way. Nothing on the public pages answers it; it needs a question to Meta or an App Review submission, both of which are founder actions rather than code. Everything else in this story stands: the Seller app has no integration surface at all, and Marketplace Partnerships is EEA classifieds."
     },
     {
-      "id": "US-2765",
-      "passes": false,
-      "title": "Category is decided by rank 1 of a keyword search on AI-written text",
-      "description": "As a seller, I want the category chosen from evidence rather than from the first hit on a phrase the AI made up, so that hard-to-name garments stop landing in the wrong category.",
-      "acceptanceCriteria": [
-        "flipdesk-ai.ts resolveEbayPrep prefers the visual-match category vote over suggestCategories(query)[0] when a vote exists and the winning category is a proven leaf.",
-        "The keyword path stays as the fallback and is unchanged when no visual vote is available, so a stock deployment behaves exactly as today.",
-        "A category from the vote is only accepted if it passes the existing leaf check (categoryHasCachedLeafAspects or a subtree read); a non-leaf winner falls through to the next candidate, then to keywords.",
-        "Which path chose the category is recorded on the item so a wrong category can be traced to the method that picked it, not just to the id.",
-        "Tests cover: vote wins, vote is non-leaf so keywords win, no vote so keywords win."
-      ],
-      "priority": 3,
-      "notes": "PARTIAL as of 2026-08-21, 4 of 5 AC done in commit 3ca575882. AC1, AC2, AC3 and AC5 are met by services/edge-functions/src/lib/category-decision.ts (decideCategory, pickLeafVote, MIN_VOTE_SUPPORT = 2) with 177 lines of tests in category-decision_test.ts.\n\nAC4 IS NOT DONE. decideCategory returns method ('saved' | 'visual_consensus' | 'keyword' | 'none'), support and rejectedReason, and flipdesk-ai.ts console.logs a rejected vote - but nothing is RECORDED ON THE ITEM. AC4 asks for the deciding method to be traceable per item, and a log line is not that.\n\nIT NEEDS A MIGRATION, which is why it is split out rather than bodged. inventory_items has no free-form jsonb for provenance; the only jsonb is `attributes`, which is the CANONICAL garment attribute map (00182) and must not be polluted with decision metadata.\n\nALSO NOTE the path is live but DORMANT: visualLeafVotes is always empty until US-2768 runs the visual pass, so today every call takes the keyword branch and a stock deployment behaves exactly as before. AC4 has nothing to record until US-2768 lands, so doing it first would ship an always-'keyword' column.\n\nUPDATE 2026-08-21: the 'dormant until US-2768' caveat is now STALE. US-2768 is closed and flipdesk-ai.ts:400 feeds decideCategory real votes via visualLeafVotes, so the vote path is live. AC4 is tracked as US-2774."
-    },
-    {
-      "id": "US-2767",
-      "passes": false,
-      "title": "Claude is handed eBay's guess as fact instead of as a hypothesis to judge",
-      "description": "As a seller, I want the AI to weigh eBay's visual guess against what it can actually read on the tag, so that a confident wrong brand gets rejected instead of repeated.",
-      "acceptanceCriteria": [
-        "ExtractInput gains an optional block carrying the visual candidates (brand, category, type, style, each with its supporting count) clearly labelled as an UNVERIFIED external guess.",
-        "The prompt instructs the model to CONFIRM or REJECT each candidate against tag evidence and states the precedence explicitly: a decoded style code beats a legible tag wordmark, which beats the visual consensus, which beats the model's own product knowledge.",
-        "The model must return, per accepted candidate, which evidence accepted it; a candidate accepted with no stated evidence is dropped server-side, the same way research below RESEARCH_MIN_CONFIDENCE is dropped today.",
-        "A candidate the model REJECTS is recorded as rejected rather than silently discarded, so the visual provider's accuracy can be measured over time instead of assumed.",
-        "Tests assert that a candidate brand contradicted by a tag value in the same payload does not survive into suggestions."
-      ],
-      "priority": 3,
-      "notes": "PARTIAL as of 2026-08-21, now 4 of 5. AC3 and AC5 were wired and sabotage-checked (9 of 9 caught, control-first); only AC4 remains and it is tracked as US-2774.\n\nAC1 and AC2 ARE done: buildCandidateBlock in visual-candidates.ts emits the block headed 'UNVERIFIED EXTERNAL GUESS' with the four-level precedence spelled out (style code > readable wordmark > visual consensus > model knowledge), and it is concatenated into the prompt at ai-extract.ts:721. extract-prompt-candidates_test.ts covers the wording, including that the block never leans toward accepting.\n\nAC3 IS NOW WIRED. The prompt block had no OUTPUT CHANNEL - it said 'decide' and named no field to put the decision in, which is why nothing could read it. It now asks for visual_rulings, the tool schema declares it, and decodeExtraction runs parseRulings -> dropUnevidenced -> applyRulings. Order matters and is tested: dropping unevidenced acceptances BEFORE enforcing means an acceptance the server is about to discard is not present to shield a value.\n\nAC4 IS NOT DONE. CandidateVerdict is a type with no persistence behind it. Same blocker as US-2765 AC4: measuring the visual provider's accuracy over time needs a place to write the rulings, and that is a migration.\n\nAC5 PASSES. visual-rulings_test.ts drives the real decodeExtraction: a payload where the model rejects 'Lululemon' and then fills brand with 'Lululemon' comes back with no brand. The enforcement is value-scoped, so a model that rejects the candidate and reads a DIFFERENT brand off the tag keeps its own answer.\n\nREMAINING: AC4 only, split out to US-2774 together with US-2765's identical AC4. Both need one migration and neither should be closed by dropping it."
-    },
-    {
       "id": "US-2772",
       "passes": false,
       "title": "Ten super_admin mutations have no step-up, and two of them spend money",
@@ -2504,25 +2474,6 @@
       ],
       "dependsOn": [
         "US-2356"
-      ]
-    },
-    {
-      "id": "US-2774",
-      "passes": false,
-      "title": "Identification provenance is computed on every run and written down nowhere",
-      "description": "As an operator, I want the method that chose a category and the verdicts on each visual candidate persisted per item, so that a wrong suggestion can be traced to the method that produced it and the visual provider's accuracy can be measured instead of assumed.",
-      "acceptanceCriteria": [
-        "THIS IS THE SHARED AC4 of US-2765 and US-2767. Both stories are 4 of 5 and both are blocked on the same missing place to write to. Neither should be closed by dropping its AC4; this story is where that work lives.",
-        "decideCategory already returns method ('saved' | 'visual_consensus' | 'keyword' | 'none'), support, and rejectedReason, and flipdesk-ai.ts only console.logs them. decodeExtraction already returns visualRulings (accepted/rejected plus the evidence kind) and only the accepted half acts on anything. Both are computed correctly today and discarded.",
-        "It needs a migration; there is no existing column that can hold it honestly. inventory_items.attributes is the CANONICAL garment attribute map from 00182, and ai_enrichment_log.suggested_fields is keyed by FIELD NAME, so a '_visual_rulings' key inside it would read as a field to anything iterating the map. Both were considered and rejected for that reason.",
-        "The migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, and node scripts/gen-migration-manifest.mjs re-run.",
-        "Held-migration rule applies: commit locally, do NOT push until the owner has applied it to prod, and package it in PENDING_MIGRATIONS.md with the NOTIFY pgrst reload reminder.",
-        "A rejected candidate must be distinguishable from an absent one in the stored data. An ignored rejection and a candidate that was never offered look identical otherwise, and only one of them means the visual provider is wrong - which is the entire measurement this story exists to enable.",
-        "Tenant scoping per US-268 on any new table, plus a tenant-isolation_test.ts case, and rls-guard registration if it is service-role only."
-      ],
-      "dependsOn": [
-        "US-2765",
-        "US-2767"
       ]
     },
     {

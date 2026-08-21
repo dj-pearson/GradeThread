@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!note] NOTHING IS PENDING as of 2026-08-21.
+> [!warning] 00641 IS PENDING as of 2026-08-21. See the section directly below.
 > Everything through **00640** is applied. Verified by asking the database rather
 > than this file: `GET /health/ready` reports
 > `{"expected":"00639","applied":"00640","status":"ahead"}` with no `missing` key.
@@ -12,6 +12,55 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## HELD: 00641 — identification_provenance (US-2774)
+
+**Risk: low.** One new table, two indexes, no change to any existing table, no
+backfill, no data movement. Nothing reads it yet.
+
+### What it does
+
+Creates `public.identification_provenance` — one row per AI identification run,
+recording how the eBay category was chosen (`category_method` is one of `saved`,
+`visual_consensus`, `keyword`, `none`, plus the support behind a winning vote and
+the reason a losing one lost) and what the model ruled on each visual candidate.
+
+The two jsonb columns are separate on purpose. `visual_candidates` is what was
+put to the model; `visual_rulings` is what came back. A candidate that was never
+offered, one that was offered and ignored, and one that was refused on evidence
+are three different findings, and a table holding only the rulings would make
+them look identical — which is the measurement the story exists for.
+
+Operator table: RLS on, zero policies, `REVOKE INSERT, UPDATE, DELETE FROM anon,
+authenticated`. Registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
+
+### Apply
+
+1. `supabase/migrations/00641_identification_provenance.sql` — idempotent, safe
+   to re-run.
+2. `NOTIFY pgrst, 'reload schema';` — a new table, so PostgREST must be told.
+3. Redeploy the edge (its boot guard now expects `00641`).
+4. Then push.
+
+### Does the frontend read it?
+
+**No.** Nothing in `src/` touches the table, so a Cloudflare Pages auto-deploy
+ahead of the SQL breaks nothing. The only writers are the edge's extract and
+eBay-prep phases, and both writes are best-effort: a missing table logs
+`[provenance] … failed` and the extraction continues unaffected.
+
+### Verified locally
+
+Applied twice against the throwaway local stack (`supabase_db_gradethread`):
+clean the first time, `NOTICE … already exists, skipping` the second. Both check
+constraints reject a bad value; `anon` reads 0 rows while the service role reads
+the row; `authenticated` insert is refused with `permission denied`.
+
+### Rollback
+
+`DROP TABLE IF EXISTS public.identification_provenance;` then
+`DELETE FROM public.applied_migrations WHERE version = '00641';`. Nothing depends
+on it.
 
 ## APPLIED 2026-08-21: 00640 — body guards for the 13 SECURITY DEFINER functions that had none (US-2282)
 

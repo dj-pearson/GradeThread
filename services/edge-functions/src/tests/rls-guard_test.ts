@@ -593,6 +593,14 @@ const SERVICE_ROLE_ONLY = new Set([
   // client-readable table would be the way around it.
   "radar_venue_aggregates",
   "radar_scan_history",
+  // US-2774: how each identification was arrived at (migration 00641) — the
+  // category method and the model's verdict on each visual candidate. Written
+  // by the extract + eBay-prep phases (service role), read only by operator
+  // analysis measuring whether the visual provider earns its latency. It holds
+  // the AI's working-out about a garment, not the seller's data, and
+  // owner_user_id is there to scope the writes, not to serve a read policy.
+  // Deny-all by design.
+  "identification_provenance",
 ]);
 
 // Service-role-only tables with NO user_id and NO parent FK (pure operator /

@@ -385,6 +385,15 @@ export interface ExtractionResult {
    * only one of them means the provider is wrong.
    */
   visualRulings: CandidateRuling[];
+  /**
+   * US-2774: what was PUT TO the model, alongside what came back.
+   *
+   * A candidate the model rejected and a candidate that was never offered are
+   * indistinguishable from the rulings alone, and only one of them means the
+   * visual provider is wrong. Transport-level, not decode-level: the decoder
+   * reads the response and never sees the prompt.
+   */
+  visualCandidates: VisualCandidate[];
   model: string;
   tokensIn: number;
   tokensOut: number;
@@ -1039,6 +1048,7 @@ export async function extractItemFields(
 
   return {
     ...decoded,
+    visualCandidates: resolvedCandidates,
     model,
     tokensIn:
       response.usage.input_tokens +
@@ -1057,7 +1067,7 @@ export async function extractItemFields(
 export function decodeExtraction(
   raw: Record<string, unknown>,
   hasPhotos: boolean,
-): Omit<ExtractionResult, "model" | "tokensIn" | "tokensOut"> {
+): DecodedExtraction {
   const defaultSource = hasPhotos ? "photo" : "text";
   const suggestions: Record<string, FieldSuggestion> = {};
 
@@ -1226,7 +1236,7 @@ export function decodeExtraction(
 /** The decode-time subset of ExtractionResult (no transport/token fields). */
 export type DecodedExtraction = Omit<
   ExtractionResult,
-  "model" | "tokensIn" | "tokensOut"
+  "model" | "tokensIn" | "tokensOut" | "visualCandidates"
 >;
 
 /** US-1713: what the brand-knowledge enrichment changed, for logging/telemetry. */
