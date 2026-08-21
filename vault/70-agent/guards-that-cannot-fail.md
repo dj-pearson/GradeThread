@@ -132,6 +132,26 @@ This note exists so the eighth instance gets recognised instead of rediscovered.
    The fix in every case: export the function and call it. That is a smaller
    cost than a green suite over a broken one.
 
+### How common is it, actually
+
+Swept 2026-08-21: **93 test files read source to assert and never import the
+code.** That number is not a defect count, and reporting it as one would be its
+own version of the mistake this note is about.
+
+Four were sampled by sabotage, control-first:
+
+| suite | verdict |
+|---|---|
+| `cross-post-setup.test.ts` | **the outlier.** 70 source-asserts of 111, plus two mirrors. Three separate reverts-to-the-original-bug went unnoticed. |
+| `two-person-controls_test.ts` | **a hole.** Correct where it looks, blind where it does not: its hand-written route list omits the newsletter kill-switch route, so removing that step-up passed. |
+| `account-erasure-order_test.ts` | **sound.** Ordering IS a property of the file's arrangement, its `soleIndex` refuses an ambiguous match, and both "delete the retention call" and "run it after the irreversible delete" fail it. |
+| `billing-receipts-and-meters.test.ts` | **sound enough.** Asserts a duplicate section is gone and a component is rendered - structural facts - with behaviour covered elsewhere. |
+
+So the shape to look for is not "reads source". It is **reads source about
+something that is not syntactic** (a rounding rule, a coercion) or **reads source
+from a hand-written list** (which only defends what someone remembered). Both
+failed here; the two that asserted genuinely structural properties held up.
+
 ## The habit that catches all of them
 
 **Break it on purpose and watch it fail.**
