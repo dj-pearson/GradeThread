@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2758",
+  "nextId": "US-2761",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2959,6 +2959,54 @@
         "US-2753"
       ],
       "notes": "RE-SCOPED 2026-08-20 after finding the premise was wrong. Everything built for /appraise (US-2753 speculation, US-2754 shared comp cache, US-2755 gate pairing, US-2756 provider seam) applies here and is reused rather than reimplemented. The win should be larger than on /appraise because there is more serialisation to remove. The two-AI-actions-per-item cost is worth a separate decision and is NOT in scope here: halving it means not running extractMatchHints when the seller already told us the brand, which is a product call about when identification is needed, not a performance fix. | DONE 2026-08-20. All four speedups applied to /prospect, the surface ProspectView on iOS actually calls. The category lookup and the photo grade now run concurrently — both need only the hints and neither needs the other, so the route was paying for an eBay round trip and a Vision call back to back for no reason. The comp query rides behind the category inside the same branch at the speculative condition (US-2753) and goes through the shared cache (US-2754), so it overlaps the grade too. Gate and quota are paired via lib/gate-order.ts (US-2755). MEASURED, MODELLED: at hints=1500 grade=1800 category=350 comps=450, 4137ms serial to 3311ms, 20 percent off. Stand-in delays measuring the restructure, not production — this machine cannot call eBay or Claude. THE FLOOR IS NOW hints + grade, two Vision calls that CANNOT overlap. Grading before the identification would be faster and would mean grading a garment we cannot name, which is a different answer dressed as a speedup. Everything else is hidden behind those two. Warm and cold cache measure the same here because the cached comp read hides behind the grade either way — the cache still pays on eBay quota and on any request where the grade is faster than modelled. Five sabotage cases, all caught after one guard fix: category and grade serialised, the grade losing its hints, the uncached client sneaking back, the speculation dropped, and the gate serialised. The guard fix is the same lesson again — it asserted the cached call was PRESENT, and /prospect makes two comp calls, so swapping one back left it green. It now asserts the bare call is ABSENT. NO iOS CODE CHANGED, deliberately: the surface already existed and the win is server-side. All six ios/Scripts guards pass. Swift does not build on Windows, so iOS CI stays the gate for anything that compiles — nothing here does."
+    },
+    {
+      "id": "US-2758",
+      "passes": false,
+      "title": "[OPERATOR] Scout spike: is eBay visual search any good on thrift clothing?",
+      "description": "As the founder, I need a measured answer on eBay's search_by_image before anything is built on top of it, because every remaining Scout speed idea depends on identifying an item without a Vision call and nobody has tried it.",
+      "acceptanceCriteria": [
+        "Run the spike script against PRODUCTION with at least five real photos of things you would genuinely pick up, including two deliberately hard ones (a faded or unbranded garment, and one where the brand is only legible on the tag)",
+        "Needs EBAY_APP_ID and EBAY_CERT_ID in the environment. Never on a command line and never pasted into a chat or a note — the script reads them from the environment and prints neither",
+        "SANDBOX PROVES NOTHING and must not be used for this: it carries almost no inventory, so image search returns nothing there whatever its quality",
+        "Record on this story: median and worst latency, and per photo whether the returned listings are actually the same garment and whether the brand is right. The accuracy call is a human judgement the script cannot make and deliberately does not attempt",
+        "DECIDE and write the decision down: enable SCOUT_EBAY_IMAGE_SEARCH_ENABLED, or keep it off and say why. A flag left off with no recorded reason reads to the next person as unfinished work rather than a decision",
+        "If it is enabled, US-2756 can close. If not, US-2756 closes as built-and-parked with the measurement as its justification"
+      ],
+      "priority": 16,
+      "dependsOn": [
+        "US-2756"
+      ]
+    },
+    {
+      "id": "US-2759",
+      "passes": false,
+      "title": "Scout: the provider seam does not reach the in-store path",
+      "description": "As the GradeThread team, we want the identification seam to cover /prospect and not only /appraise, so that turning eBay visual search on actually changes the surface a reseller uses in a shop.",
+      "acceptanceCriteria": [
+        "THE GAP, found while doing US-2757: chooseProviders is wired into /appraise only. /prospect does its own identification via extractMatchHints and never reaches the seam, so flipping SCOUT_EBAY_IMAGE_SEARCH_ENABLED today changes the WEB path and leaves the phone exactly as it is",
+        "This is NOT simply wiring the same call in. /prospect already identifies from photos, so adding a second photo-identification mechanism in front of it needs a decision about which one wins and when — visual search naming the garment, or extractMatchHints reading the tag, or one falling back to the other",
+        "Whatever is decided, the two-AI-action cost per prospect is re-examined as part of it: if visual search identifies the item, extractMatchHints may not need to run at all, which would halve both the latency and the metered cost",
+        "Gated on the spike: there is no point designing the merge until we know whether eBay visual search is worth merging in"
+      ],
+      "priority": 17,
+      "dependsOn": [
+        "US-2756"
+      ]
+    },
+    {
+      "id": "US-2760",
+      "passes": false,
+      "title": "Scout: a prospect costs TWO AI actions per item, so a full cart costs forty",
+      "description": "As a reseller working a cart of twenty, I want Scout to charge me for what it actually needed to do, because today every item reserves two metered AI actions even when I already told it the brand.",
+      "acceptanceCriteria": [
+        "THE FACT: /prospect reserves an AI action for extractMatchHints and a second for quickGrade. Twenty items is forty actions against the monthly cap, which is the real constraint on working a full cart rather than a few pieces",
+        "DECISION REQUIRED, and it is a product call rather than a performance fix: when the seller has already supplied a brand or keyword, is the identification pass still needed, or can the grade run against what they typed?",
+        "Whichever way it goes, the answer is written down here. 'It costs two' is a fine answer if it is a decision; it is a bad one if nobody ever looked",
+        "If identification becomes conditional, the response must still say what it identified and how — a seller trusting a number needs to know whether the item was recognised or merely accepted from their own typing",
+        "Any change measures the cap impact, not just latency: the point of this story is the monthly allowance, not the clock"
+      ],
+      "priority": 18
     }
   ]
 }
