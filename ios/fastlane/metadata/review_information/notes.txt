@@ -25,4 +25,4 @@ Settings → Delete account. Requires typing "delete" to confirm; removes the ac
 COMMERCE NOTE
 The app supports listing items for resale (commercial activity by the seller). All marketplace selling happens on the seller's connected eBay account via API.
 
-Questions during review: support@pearson-media.com
+Questions during review: support@gradethread.com
