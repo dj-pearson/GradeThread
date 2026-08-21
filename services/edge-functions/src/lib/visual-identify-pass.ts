@@ -27,6 +27,7 @@ import {
   roleCanIdentify,
 } from "./scout-identify.ts";
 import { pickVisualImageIndex } from "./prospect-identify.ts";
+import { fetchWithTimeout } from "./circuit-breaker.ts";
 import {
   gatherVisualAspectEvidence,
   type VisualAspectEvidence,
@@ -180,10 +181,12 @@ export async function fetchIdentifyingPhoto(
 
   const timeoutMs = opts.timeoutMs ?? 4_000;
   const maxBytes = opts.maxBytes ?? 5_000_000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(photo.url, { signal: controller.signal });
+    // fetchWithTimeout, never a bare fetch. Its deadline stays armed through
+    // the BODY stream, which a hand-rolled AbortController cleared on headers -
+    // a host that answers 200 and then stalls the bytes would otherwise hang
+    // this call forever while looking perfectly healthy (US-2323).
+    const res = await fetchWithTimeout(photo.url, {}, timeoutMs);
     if (!res.ok) return null;
     const buf = new Uint8Array(await res.arrayBuffer());
     // eBay rejects oversized payloads, and a photo this large is a sign the
@@ -194,8 +197,6 @@ export async function fetchIdentifyingPhoto(
     return { base64: btoa(binary), role: photo.type ?? "" };
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
