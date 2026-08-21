@@ -2939,21 +2939,24 @@
     {
       "id": "US-2757",
       "passes": false,
-      "title": "iOS Scout: appraise a photo at all",
-      "description": "As a reseller in a store, I want to point my phone at an item and get a buy or skip answer, because the phone is the only device I have with me and the iOS app currently cannot do this at all.",
+      "title": "Prospect: make the in-store path fast, not just the web one",
+      "description": "As a reseller with twenty things in my cart, I want the surface I actually use in a shop — Prospect — to be as fast as the web appraise path, because it is currently the slower of the two and it is the one on my phone.",
       "acceptanceCriteria": [
-        "THE GAP: there are currently ZERO occurrences of 'appraise' anywhere under ios/. ScoutService.swift exposes suggestCategory and scan only, so the photo workflow this epic is about does not exist on the device it is for",
-        "ScoutService gains an appraise call against POST /api/flipdesk/scout/appraise, matching the web hook's request and response shape",
-        "A capture surface: take or pick a photo, optionally add a keyword or brand, see grade, value range, sell-through and the buy or skip verdict",
-        "The image is downscaled on the device before upload. A full-resolution phone photo is several megabytes, the route rejects anything over MAX_APPRAISE_IMAGE_BYTES, and on a shop's cellular connection the upload would dominate every other cost in this epic",
-        "A 402 plan gate routes through the existing centralized upgrade presentation (US-1213), the way the scan already does, rather than surfacing a raw error",
-        "All six ios/Scripts guards pass in npm run verify: no ungated print, no URLSession.shared, no raw JPEG, no bare strings, no force unwrap, ATS intact",
-        "CANNOT BE COMPILED HERE: Swift does not build on Windows, so iOS CI on a macOS runner is the gate for anything that has to compile. The note records what was verified locally and what was left to CI, rather than implying the whole thing was proven"
+        "THE CORRECTION THIS STORY IS BUILT ON. The original story said iOS could not appraise at all, because 'appraise' appears nowhere under ios/. That was literally true and substantively wrong: the in-store photo workflow exists as PROSPECT — ProspectView is wired into the Tools hub as 'Snap an item in-store, get instant comps', ProspectService posts to /api/flipdesk/scout/prospect, and that route already accepts front-plus-tag with the tag feeding the identifier. A second surface was built and has been deleted.",
+        "MEASURED BASELINE, recorded before changing anything: /prospect is ten sequential awaits carrying TWO Vision calls (extractMatchHints, then quickGrade) and TWO eBay calls (suggestCategories, then valueAtGrade), and it reserves TWO metered AI actions per item — so a twenty-item cart is forty actions, not twenty",
+        "The comp lookup no longer waits behind the grade, using the same speculative-condition approach as US-2753 (lib/comp-speculation.ts) rather than a second mechanism",
+        "The comp query goes through the shared cache from US-2754, so a rack of similar items costs one eBay call rather than one per item",
+        "The plan gate and the quota run concurrently via lib/gate-order.ts, with the same named precedence rule, so a refusal still says the same thing it says today",
+        "suggestCategories does not sit on the critical path between the two Vision calls when its input is already known, or the note explains why it must",
+        "Measured before and after on the same inputs, with the numbers and their basis recorded on the story. A modelled number is labelled as modelled",
+        "No behaviour change the seller can see beyond speed: same verdict, same value range, same disclaimer, for the same inputs",
+        "All six ios/Scripts guards pass. Swift does not compile on Windows, so iOS CI on a macOS runner remains the gate for anything that has to build, and the note says what was verified locally versus left to CI"
       ],
       "priority": 15,
       "dependsOn": [
         "US-2753"
-      ]
+      ],
+      "notes": "RE-SCOPED 2026-08-20 after finding the premise was wrong. Everything built for /appraise (US-2753 speculation, US-2754 shared comp cache, US-2755 gate pairing, US-2756 provider seam) applies here and is reused rather than reimplemented. The win should be larger than on /appraise because there is more serialisation to remove. The two-AI-actions-per-item cost is worth a separate decision and is NOT in scope here: halving it means not running extractMatchHints when the seller already told us the brand, which is a product call about when identification is needed, not a performance fix."
     }
   ]
 }
