@@ -2738,7 +2738,7 @@
     },
     {
       "id": "US-2745",
-      "passes": false,
+      "passes": true,
       "title": "Each platform tab should name what the seller still has to set by hand",
       "description": "As a seller cross-posting, I want each marketplace tab to tell me which fields the extension will not fill, so that I know exactly what is left to do instead of discovering gaps after the form opens.",
       "acceptanceCriteria": [
@@ -2747,7 +2747,9 @@
         "The notice renders above the field rows on that platform's tab, and its labels are looked up from the spec's OWN fields, so the list can never drift from the rows beneath it. A platform with none renders nothing at all.",
         "A test asserts every declared key matches a real field on that platform - a key with no match would silently vanish from the notice rather than failing.",
         "Mercari's category and brand are deliberately ABSENT from its list: both fill, and listing them would tell the seller to redo work already done.",
-        "50 tests pass; ui:check clean at zero blocking."
+        "50 tests pass; ui:check clean at zero blocking.",
+        "VERIFIED 2026-08-21 by sabotage, control-first, and the existing coverage WAS ALREADY SOUND - recording that rather than implying a hole was found. Both sabotages were caught by the original source scan: a manualFields key matching no field (the silent-vanish case AC4 names), and an unverified platform starting to declare manualFields.",
+        "Added src/test/manual-fields.test.ts anyway, as a complement rather than a fix. It IMPORTS MARKETPLACE_SPECS and performs the same mapping listing-kit performs, so it exercises the real lookup and survives the spec file being reformatted, reordered or split - none of which the text scan would survive. 6 tests, including a count check that a key filtered out silently shows up as a shorter notice than was declared."
       ],
       "priority": 11
     },
