@@ -29,10 +29,12 @@ import { readImageDimensions } from "./upload-validation.ts";
 import { ensureCertificateNumber } from "./cert-number.ts";
 import {
   certificateCardCopy,
+  type CertificateCardCopy,
   type DefectCropTarget,
   type EvidenceStamp,
   evidenceStampLine,
   maxDefectCrops,
+  returnEvidenceCardCopy,
   selectDefectCrops,
 } from "./evidence-pack.ts";
 import {
@@ -364,8 +366,14 @@ export async function compositeCertificateCard(
   stamp: EvidenceStamp,
   defectCount: number,
 ): Promise<Uint8Array> {
+  return await drawCertificateCard(certificateCardCopy(stamp, defectCount));
+}
+
+/** The drawing, shared by the listing card and the return-evidence sheet. */
+async function drawCertificateCard(
+  copy: CertificateCardCopy,
+): Promise<Uint8Array> {
   const font = await loadFont();
-  const copy = certificateCardCopy(stamp, defectCount);
 
   const w = CARD_W;
   const h = CARD_H;
@@ -399,6 +407,25 @@ export async function compositeCertificateCard(
   canvas.composite(verify, CARD_PAD, y);
 
   return await canvas.encodeJPEG(92);
+}
+
+/**
+ * US-2706: the evidence sheet an eBay return case receives.
+ *
+ * Same compositor, same geometry, same brand band - only the copy differs, so
+ * a seller looking at the sheet and at their certificate sees one document.
+ * Reusing compositeCertificateCard's drawing rather than writing a second one
+ * is the point: two renderers would drift, and the one that drifted would be
+ * the one nobody looks at until a case is open.
+ */
+export async function compositeReturnEvidenceSheet(
+  stamp: EvidenceStamp,
+  defectCount: number,
+  gradedAtIso: string | null,
+): Promise<Uint8Array> {
+  return await drawCertificateCard(
+    returnEvidenceCardCopy(stamp, defectCount, gradedAtIso),
+  );
 }
 
 // ── AutoLister orchestration ──────────────────────────────────────

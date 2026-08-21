@@ -1,7 +1,17 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
 > [!note] NOTHING IS PENDING as of 2026-08-21.
-> Everything through **00640** is applied. Verified by asking the database rather
+> Everything through **00644** is applied. Verified by asking the database
+> rather than this file: `GET /health/ready` reports
+> `{"expected":"00642","applied":"00644","status":"ahead","unexpected":["00643","00644"]}`
+> with no `missing` key. `ahead` and the `unexpected` pair only say the RUNNING
+> edge build predates the schema, which the next edge deploy resolves.
+>
+> Superseded: everything through **00642** was applied, verified the same way
+> at `{"expected":"00640","applied":"00642"}`.
+>
+> Superseded text follows, kept because this file's history is how a stale
+> claim gets caught: everything through **00640** was applied. Verified by asking the database rather
 > than this file: `GET /health/ready` reports
 > `{"expected":"00639","applied":"00640","status":"ahead"}` with no `missing` key.
 > `status:"ahead"` and `unexpected:["00640"]` only say the RUNNING edge build
@@ -12,6 +22,244 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## APPLIED 2026-08-21: 00644 — cross_post_channels (US-2721)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
+
+> [!important] The edge still reports `expected: 00642`, so the running build
+> predates this column. The SPA reads `cross_post_channels` DIRECTLY through
+> RLS rather than through the edge, so the picker works as soon as PostgREST
+> has reloaded its schema cache — it does not wait for an edge deploy. If the
+> picker cannot save, `NOTIFY pgrst, 'reload schema';` is the thing to check.
+
+**Risk: very low.** One nullable column on an existing per-user settings table.
+No backfill, no default, no constraint. Every existing row keeps NULL.
+
+### What it does
+
+Adds `flipdesk_settings.cross_post_channels text[]`, the marketplaces a seller
+cross-posts to. A seller on two channels was being offered six on every draft,
+and the Listing Kit was generating AI fields for all six.
+
+**NULL means ALL**, and that is the design rather than a convenience. Every
+existing row has no value and every new seller starts with none, so the default
+has to be "you keep what you have today". An empty array is treated the same
+way by the app: unticking the last box is never how somebody says "stop
+offering me marketplaces". The setting narrows; it cannot switch cross-posting
+off.
+
+Not an enum and not a foreign key — the platform vocabulary lives in
+`src/lib/constants.ts` and moves when a channel ships, and a DB enum would make
+that a migration every time.
+
+### Apply
+
+1. `supabase/migrations/00644_cross_post_channels.sql` — idempotent.
+2. `NOTIFY pgrst, 'reload schema';` — a new column, so PostgREST must be told,
+   and here it matters: **the SPA reads and writes this column directly**
+   through RLS, the same path the `auto_end_cross_listings` toggle uses.
+3. Redeploy the edge (boot guard now expects `00644`).
+
+### Does the frontend read it?
+
+**Yes — this one does.** Unlike 00641/00643, the column is read by
+`useCrossPostChannels` and written by the picker on the Marketplaces settings
+tab. So the ORDER matters more than usual: if Cloudflare deploys the frontend
+before the SQL is applied, the read returns a PostgREST error for an unknown
+column and the picker cannot save. Apply the SQL and reload the schema cache
+first.
+
+The read failure is not silent and not destructive — the query errors, the
+picker shows nothing saved, and no channel is lost, because absent still means
+all.
+
+### Verified locally
+
+Applied twice against the throwaway local stack: `ALTER TABLE` then
+`NOTICE … already exists, skipping`. 17 web tests cover the empty-means-all
+rule in both of its forms, the narrowing, the not-live channels, and that no
+surface rendering existing listings filters them by the selection.
+
+### Rollback
+
+`ALTER TABLE public.flipdesk_settings DROP COLUMN IF EXISTS cross_post_channels;`
+then `DELETE FROM public.applied_migrations WHERE version = '00644';`. Any
+seller selection is lost and everyone returns to all channels, which is the
+same state they are in today.
+
+## APPLIED 2026-08-21: 00643 — listing_publications (US-2704)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
+
+> [!note] Snapshots start from the first publish AFTER the edge redeploys,
+> not from now. The table exists, but the funnel that writes it ships in the
+> edge build, and the running one still reports `expected: 00642`. Coverage
+> cannot be backfilled — a description that was never snapshotted is gone —
+> so the redeploy is what starts the clock.
+
+**Risk: low.** One new table, one index, no change to any existing table, no
+backfill. Nothing reads it yet.
+
+### What it does
+
+Creates `public.listing_publications` — one row per publish and per revise,
+holding the listing, the channel, the description, the aspect map, the price and
+the timestamp. It is the evidence half of the grade-as-dispute-evidence epic
+(US-2703): when a buyer claims a seller hid a flaw, the defence is the listing
+text that was live, and nothing kept it. eBay's own `GetMyeBaySelling` does not
+return descriptions.
+
+**The claim is deliberately narrow.** This records what GradeThread PUBLISHED,
+never what eBay DISPLAYED. A seller editing in Seller Hub changes eBay's copy
+and not ours, and we usually cannot tell. Nothing built on this table may
+upgrade the first claim into the second.
+
+`last_confirmed_at` is the collapse column. The credentials-refresh cron
+re-pushes unchanged text often, so an unchanged push extends the existing row's
+window instead of writing a duplicate — which is also the stronger statement:
+this exact text was live and confirmed from `published_at` through
+`last_confirmed_at`.
+
+Operator table: RLS on, zero policies, `REVOKE INSERT, UPDATE, DELETE FROM anon,
+authenticated`. Registered in `SERVICE_ROLE_ONLY`.
+
+### Apply
+
+1. `supabase/migrations/00643_listing_publications.sql` — idempotent.
+2. `NOTIFY pgrst, 'reload schema';` — a new table, so PostgREST must be told.
+3. Redeploy the edge (boot guard now expects `00643`).
+4. Then push.
+
+### Does the frontend read it?
+
+**No.** Nothing in `src/` touches the table. The only writer is the edge's
+snapshot funnel, and every write there is best-effort by contract: a missing
+table logs `[publication] …` and the publish it was recording still succeeds.
+So a Cloudflare auto-deploy ahead of the SQL breaks nothing, and an edge deploy
+ahead of it degrades to no snapshots rather than to failed publishes.
+
+### Retroactivity
+
+It covers listings published after it is applied and nothing before. A dispute
+on an older item falls back to the grade-report-only argument. Coverage cannot
+be backfilled — a description that was never snapshotted is gone — which is why
+this ships first and alone.
+
+### Verified locally
+
+Applied twice against the throwaway local stack: clean, then
+`NOTICE … already exists, skipping`. 19 new deno tests pass, and the coverage
+guard was sabotage-checked 5 of 5.
+
+### Rollback
+
+`DROP TABLE IF EXISTS public.listing_publications;` then
+`DELETE FROM public.applied_migrations WHERE version = '00643';`.
+
+## APPLIED 2026-08-21: 00642 — the four agent columns match the repo again (US-2729)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
+
+**Risk: low.** Four `DROP NOT NULL`s. No data moves, nothing is rewritten, and
+dropping a constraint cannot invalidate a row that already satisfied it.
+
+### What it does
+
+The 2026-08-20 prod schema audit found four columns NOT NULL in production and
+nullable in every migration: `agent_proposals.evidence`,
+`agent_proposals.summary`, `agent_run_steps.name`, `agent_runs.trigger`. 00357
+declares all four without the constraint and no later migration adds it, so
+prod's copies of those tables did not come from the migration set.
+
+This relaxes prod to match. The repo wins because the code writes NULL into
+three of them deliberately — `dispatchWriteIntent` builds every proposal with
+`summary: intent.summary ?? null` and `evidence: intent.evidence ?? null`, and
+`AgentStep.name` is typed `string | null` — so the production constraint is a
+23502 that can only ever fire in production, where CI cannot see it. Tightening
+the repo instead would mean pinning those write paths non-null first, which is a
+product question (what is a proposal with no summary?) rather than a schema
+correction.
+
+### Apply
+
+1. `supabase/migrations/00642_agent_columns_match_the_repo.sql` — idempotent.
+2. No `NOTIFY pgrst` needed: nullability is not part of the schema cache
+   PostgREST keys on for routing. Harmless to send anyway, and it does refresh
+   the OpenAPI `required` array that this was measured through.
+3. Redeploy the edge (boot guard now expects `00642`).
+
+### Does the frontend read it?
+
+**No.** These are agent-runtime tables behind `/api/admin/agents/*`.
+
+### Verified locally
+
+Applied twice against the throwaway local stack: four `ALTER TABLE`s both times,
+`INSERT 0 1` then `INSERT 0 0` on the footer. `information_schema.columns`
+reports all four `is_nullable = YES`, and an `agent_runs` insert with an
+explicit null trigger succeeds (rolled back).
+
+`services/edge-functions/src/tests/agent-column-nullability_test.ts` holds the
+decision: no migration may put the constraint back, and 00642 must actually
+contain the four `DROP NOT NULL` statements rather than describe them.
+
+### Rollback
+
+Re-adding the constraint is what caused this, so there is no reason to roll it
+back. If you must: `ALTER TABLE … ALTER COLUMN … SET NOT NULL` will now fail on
+any row written since, which is the point.
+
+## APPLIED 2026-08-21: 00641 — identification_provenance (US-2774)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
+
+**Risk: low.** One new table, two indexes, no change to any existing table, no
+backfill, no data movement. Nothing reads it yet.
+
+### What it does
+
+Creates `public.identification_provenance` — one row per AI identification run,
+recording how the eBay category was chosen (`category_method` is one of `saved`,
+`visual_consensus`, `keyword`, `none`, plus the support behind a winning vote and
+the reason a losing one lost) and what the model ruled on each visual candidate.
+
+The two jsonb columns are separate on purpose. `visual_candidates` is what was
+put to the model; `visual_rulings` is what came back. A candidate that was never
+offered, one that was offered and ignored, and one that was refused on evidence
+are three different findings, and a table holding only the rulings would make
+them look identical — which is the measurement the story exists for.
+
+Operator table: RLS on, zero policies, `REVOKE INSERT, UPDATE, DELETE FROM anon,
+authenticated`. Registered in `SERVICE_ROLE_ONLY` in `rls-guard_test.ts`.
+
+### Apply
+
+1. `supabase/migrations/00641_identification_provenance.sql` — idempotent, safe
+   to re-run.
+2. `NOTIFY pgrst, 'reload schema';` — a new table, so PostgREST must be told.
+3. Redeploy the edge (its boot guard now expects `00641`).
+4. Then push.
+
+### Does the frontend read it?
+
+**No.** Nothing in `src/` touches the table, so a Cloudflare Pages auto-deploy
+ahead of the SQL breaks nothing. The only writers are the edge's extract and
+eBay-prep phases, and both writes are best-effort: a missing table logs
+`[provenance] … failed` and the extraction continues unaffected.
+
+### Verified locally
+
+Applied twice against the throwaway local stack (`supabase_db_gradethread`):
+clean the first time, `NOTICE … already exists, skipping` the second. Both check
+constraints reject a bad value; `anon` reads 0 rows while the service role reads
+the row; `authenticated` insert is refused with `permission denied`.
+
+### Rollback
+
+`DROP TABLE IF EXISTS public.identification_provenance;` then
+`DELETE FROM public.applied_migrations WHERE version = '00641';`. Nothing depends
+on it.
 
 ## APPLIED 2026-08-21: 00640 — body guards for the 13 SECURITY DEFINER functions that had none (US-2282)
 

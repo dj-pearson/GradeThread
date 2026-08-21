@@ -38,6 +38,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
+import { ReturnEvidencePanel } from "@/components/flipdesk/return-evidence-panel";
 import {
   caseItemKey,
   ebayOrderUrl,
@@ -150,6 +151,10 @@ function DisputesCard() {
   );
   const visible = showClosed ? closedDisputes : openDisputes;
   const [contestNote, setContestNote] = useState("");
+  // US-2707: which dispute's grade-pack panel is open. One at a time, same as
+  // returns — two open packs is two complaint boxes and a good way to send the
+  // wrong one.
+  const [packFor, setPackFor] = useState<string | null>(null);
 
   async function runResolve(
     d: EbayPaymentDispute,
@@ -261,6 +266,20 @@ function DisputesCard() {
                 {!showClosed && (
                 <div className="flex shrink-0 gap-2">
                   <EvidenceUploader disputeId={d.paymentDisputeId} disabled={!!busy} />
+                  {/* US-2707: the same review-before-send pack the returns list
+                      offers. The rarer path is not the one where GradeThread
+                      hands the seller a file picker and no verdict. */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() =>
+                      setPackFor(
+                        packFor === d.paymentDisputeId ? null : d.paymentDisputeId,
+                      )}
+                  >
+                    Grade pack…
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -288,6 +307,13 @@ function DisputesCard() {
                     Accept &amp; refund
                   </Button>
                 </div>
+                )}
+                {packFor === d.paymentDisputeId && !showClosed && (
+                  <ReturnEvidencePanel
+                    caseId={d.paymentDisputeId}
+                    orderId={d.orderId}
+                    kind="dispute"
+                  />
                 )}
               </div>
             );
@@ -407,6 +433,9 @@ function ReturnsCard() {
   const [busy, setBusy] = useState<string | null>(null);
   // US-2227: which return's partial-refund row is open, and what is typed in it.
   const [partialFor, setPartialFor] = useState<string | null>(null);
+  // US-2706: which return's evidence panel is open. One at a time — two open
+  // packs is two complaint boxes and a good way to send the wrong one.
+  const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
   const [partialAmount, setPartialAmount] = useState("");
   const partialOrderId = useMemo(
     () => returns.find((r) => r.returnId === partialFor)?.orderId ?? null,
@@ -621,7 +650,26 @@ function ReturnsCard() {
                 >
                   Partial…
                 </Button>
+                {/* US-2706: the grade evidence. Opens a review panel and sends
+                    nothing until the seller reads the verdict and clicks — the
+                    useful outcome of this feature is often "do not fight". */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() =>
+                    setEvidenceFor(evidenceFor === r.returnId ? null : r.returnId)}
+                >
+                  Evidence…
+                </Button>
               </div>
+              )}
+              {evidenceFor === r.returnId && !showClosed && (
+                <ReturnEvidencePanel
+                  caseId={r.returnId}
+                  orderId={r.orderId}
+                  kind="return"
+                />
               )}
               {partialFor === r.returnId && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">

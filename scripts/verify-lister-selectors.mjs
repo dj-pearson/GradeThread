@@ -119,6 +119,68 @@ function checkFlow(platform, flow, kind) {
   }
 }
 
+/**
+ * The prose above a platform's config must not contradict the config.
+ *
+ * TWICE NOW, in the same file. Mercari's heading said "not yet enabled" for a
+ * day after the flip; Grailed's said it for ten days, directly above
+ * `enabled: true`, while sellers were listing to the channel. Both were caught
+ * by somebody reading the file rather than by anything that runs.
+ *
+ * It matters more than a tidy comment: this file's headings are what a reader
+ * consults to decide whether a flow is safe to touch, and a heading claiming a
+ * channel is off is exactly the licence somebody needs to change it carelessly.
+ *
+ * Deliberately narrow. It looks for a CLAIM OF BEING OFF - the words a stale
+ * heading actually uses - and only when the flow is on. Prose that discusses
+ * `enabled: false` for the DELIST half (Grailed's does, correctly, at length)
+ * is not a claim about the list flow, so the phrases are anchored to the words
+ * that only ever mean the whole channel.
+ */
+const DISABLED_CLAIMS = [
+  /not yet enabled/i,
+  /still\s+`?enabled:\s*false`?/i,
+  /\bis not enabled\b/i,
+  /\bstays? (?:off|disabled)\b/i,
+];
+
+function checkHeadingHonesty(platform, cfg, source) {
+  if (!cfg.enabled) return;
+  // The comment block that introduces this platform: everything between the
+  // previous platform's config and this one's opening line.
+  const at = source.indexOf(`
+  ${platform}: {`);
+  if (at === -1) return;
+  const before = source.slice(0, at);
+  const start = before.lastIndexOf("// ──");
+  if (start === -1) return;
+  const heading = before.slice(start);
+  // The delist half is allowed to say it is off, because it IS off and saying
+  // so is the honest disclosure. Only the lines before that discussion count.
+  const delistAt = heading.search(/delist[.\s]/i);
+  let listProse = delistAt === -1 ? heading : heading.slice(0, delistAt);
+
+  // A correction QUOTES the wording it is correcting, and both existing
+  // corrections in this file do exactly that. The first run of this check
+  // failed Mercari on its own note explaining that the stale heading had been
+  // fixed — the guard firing on the record of the fix. Quoted text is a report
+  // about what the file used to say, never a claim about what it says now, so
+  // it comes out before the match.
+  listProse = listProse.replace(/"[^"]*"/g, " ").replace(/`[^`]*`/g, " ");
+
+  for (const claim of DISABLED_CLAIMS) {
+    if (claim.test(listProse)) {
+      fail(
+        `${platform}: the comment block above \`enabled: true\` still says the ` +
+        `flow is off (matched ${claim}). This has happened twice in this file. ` +
+        `A heading that contradicts the line it introduces is what a reader ` +
+        `trusts when deciding whether a channel is safe to change.`,
+      );
+      return;
+    }
+  }
+}
+
 function checkPlatform(platform, cfg) {
   if (!Array.isArray(cfg.hosts) || cfg.hosts.length === 0) {
     fail(`${platform}: \`hosts\` is empty. lister-guard refuses to open any delist URL outside this list, so an empty one silently disables auto-delist for the whole channel — and a sibling that is never delisted after a sale elsewhere is a double sale.`);
@@ -377,7 +439,11 @@ if (checklistIdx !== -1) {
   process.exit(0);
 }
 
-for (const [platform, cfg] of Object.entries(selectors)) checkPlatform(platform, cfg);
+const SELECTOR_SOURCE = readFileSync(SELECTORS, "utf8");
+for (const [platform, cfg] of Object.entries(selectors)) {
+  checkPlatform(platform, cfg);
+  checkHeadingHonesty(platform, cfg, SELECTOR_SOURCE);
+}
 const syncSelectors = loadSyncSelectors();
 for (const [platform, cfg] of Object.entries(syncSelectors)) checkSyncPlatform(platform, cfg);
 

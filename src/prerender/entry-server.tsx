@@ -28,6 +28,7 @@ import { TermsPage } from "@/pages/legal/terms";
 import { CookiesPage } from "@/pages/legal/cookies";
 import { AcceptableUsePage } from "@/pages/legal/acceptable-use";
 import { RefundPage } from "@/pages/legal/refund";
+import { AccountDeletionPage } from "@/pages/legal/account-deletion";
 import { ImprintPage } from "@/pages/legal/imprint";
 import { DpaPage } from "@/pages/legal/dpa";
 import { SubprocessorsPage } from "@/pages/legal/subprocessors";
@@ -229,6 +230,7 @@ const PAGES: Record<string, React.ReactNode> = {
   "/cookies": <CookiesPage />,
   "/acceptable-use": <AcceptableUsePage />,
   "/refund": <RefundPage />,
+  "/account-deletion": <AccountDeletionPage />,
   "/imprint": <ImprintPage />,
   "/dpa": <DpaPage />,
   "/subprocessors": <SubprocessorsPage />,
@@ -424,6 +426,7 @@ export const ROUTE_PAGE_MODULES: Record<string, string> = {
   "/cookies": `${M}legal/cookies`,
   "/acceptable-use": `${M}legal/acceptable-use`,
   "/refund": `${M}legal/refund`,
+  "/account-deletion": `${M}legal/account-deletion`,
   "/imprint": `${M}legal/imprint`,
   "/dpa": `${M}legal/dpa`,
   "/subprocessors": `${M}legal/subprocessors`,

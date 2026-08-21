@@ -40,6 +40,10 @@ import {
 } from "../lib/ebay-client.ts";
 import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
 import { decideCategory } from "../lib/category-decision.ts";
+import {
+  recordCategoryDecision,
+  recordExtractionProvenance,
+} from "../lib/identification-provenance.ts";
 import { startVisualPass } from "../lib/visual-identify-pass.ts";
 import { visualAspectPrefill } from "../lib/visual-aspect-prefill.ts";
 import type { VisualAspectEvidence } from "../lib/visual-aspect-consensus.ts";
@@ -358,6 +362,18 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     console.error("[flipdesk-ai] failed to write log row:", logErr.message);
   }
 
+  // US-2774: what the visual pass offered and what the model ruled on each
+  // candidate. Best-effort — a lost provenance row must never cost an
+  // extraction. The id completes the same row when the eBay phase settles the
+  // category below, so one run is one row rather than two half-rows.
+  const provenanceId = await recordExtractionProvenance(supabaseAdmin, {
+    ownerUserId: userId,
+    itemId,
+    enrichmentLogId: (logRow as { id: string } | null)?.id ?? null,
+    candidates: result.visualCandidates,
+    rulings: result.visualRulings,
+  });
+
   // US-821: persist the canonical attributes + condition_summary +
   // ebay_category_query onto the item in the SAME pass (gap-fill, tenant-
   // scoped). Best-effort — never fails the core extraction.
@@ -402,6 +418,7 @@ flipdeskAiRoutes.post("/extract", async (c) => {
           visualLeafVotes: (await visualPass).leafCategoryVotes,
           // Same already-resolved promise, same zero added latency (US-2770).
           visualEvidence: (await visualPass).evidence,
+          provenanceId,
         });
       } catch (err) {
         console.error(
@@ -776,6 +793,12 @@ async function runEbayAspectsPhase(args: {
    * the flag-off path produces.
    */
   visualEvidence?: VisualAspectEvidence | null;
+  /**
+   * The provenance row this run opened (US-2774), so the category decision
+   * completes it instead of opening a second one. Absent means the extraction
+   * could not open one; the decision is still recorded, on its own row.
+   */
+  provenanceId?: string | null;
 }): Promise<{ block: EbayAspectsBlock | null; actionsSpent: number }> {
   const {
     userId,
@@ -785,6 +808,7 @@ async function runEbayAspectsPhase(args: {
     extraction,
     visualLeafVotes,
     visualEvidence,
+    provenanceId,
   } = args;
 
   // Ownership gate — this phase WRITES to the item.
@@ -823,6 +847,16 @@ async function runEbayAspectsPhase(args: {
         categoryName: m.categoryName,
       }));
     },
+  });
+  // US-2774: the decision itself, not just a log line. Recorded BEFORE the
+  // early return below, so a run that resolved no category at all is stored as
+  // method 'none' rather than as an absent row — "nothing was decided" and
+  // "nothing was recorded" are different findings.
+  await recordCategoryDecision(supabaseAdmin, {
+    ownerUserId: userId,
+    itemId,
+    provenanceId,
+    decision,
   });
   if (decision.rejectedReason && decision.method !== "visual_consensus") {
     // A vote that lost is worth a line. An ignored vote and an absent vote are

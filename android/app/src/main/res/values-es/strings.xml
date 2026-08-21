@@ -164,7 +164,6 @@
     <string name="money_revenue_mo">Ingresos (mes)</string>
     <string name="money_roi_mo">ROI (mes)</string>
     <string name="settings_cancel">Cancelar</string>
-    <string name="settings_continue">Continuar</string>
     <string name="settings_delete_account">Eliminar cuenta</string>
     <string name="settings_delete_your_account">¿Eliminar tu cuenta?</string>
     <string name="settings_ok">OK</string>
@@ -273,6 +272,14 @@
     <string name="settings_edge_endpoint">Endpoint de Edge</string>
     <string name="settings_sign_out_body">Esto borra la copia de tu inventario, tus ventas y los cambios en cola guardados en este dispositivo. Todo lo que aún no se haya sincronizado se perderá.</string>
     <string name="settings_delete_account_body">Esto elimina tu cuenta, tu inventario y tu historial de calificaciones de forma permanente. No se puede deshacer.</string>
+    <!-- US-2776: eliminación de cuenta en la app, exigida por la política de datos de Google Play. -->
+    <string name="settings_delete_account_confirm_hint">Escribe %1$s para confirmar</string>
+    <string name="settings_delete_account_phrase_label">Confirmación</string>
+    <string name="settings_delete_account_password_label">Contraseña</string>
+    <string name="settings_delete_account_password_help">Esta cuenta inicia sesión con contraseña, así que la necesitamos antes de eliminar nada.</string>
+    <string name="settings_delete_account_export_hint">¿Quieres una copia primero? Cierra esto y usa Exportar mis datos.</string>
+    <string name="settings_delete_account_action">Eliminar permanentemente</string>
+    <string name="settings_delete_account_working">Eliminando…</string>
     <string name="snap_intro">Toma una foto de cualquier prenda y recibe al instante una calificación de estado con AI y un rango de valor de reventa.</string>
     <string name="snap_camera_denied">El acceso a la cámara está desactivado. Actívalo en Ajustes para tomar una foto — o elige una de tu galería.</string>
     <string name="snap_photo_placeholder">Toma o elige una foto</string>

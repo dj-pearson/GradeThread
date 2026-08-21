@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2776",
+  "nextId": "US-2778",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -1522,26 +1522,6 @@
       "notes": "BLOCKED ON OPERATOR 2026-08-10: needs the Etsy app keystring and ETSY_ENABLED set in Coolify. The code half is then MARKETPLACE_TIER.etsy -> api, etsy into LIVE_CROSS_LISTING_PLATFORMS, and moving Etsy on src/pages/legal/trademarks.tsx from the named-but-not-integrated section into the licensed-API section, all in one commit."
     },
     {
-      "id": "US-2478",
-      "passes": false,
-      "title": "Grailed lister flow: enable phase 3 in the unified extension",
-      "description": "As a FlipDesk seller, I want to publish a draft to Grailed from my own logged-in tab, so that menswear inventory reaches the channel that pays best for it without me retyping the listing.",
-      "acceptanceCriteria": [
-        "The Grailed entries in extension-unified/lister/selectors.js flip enabled:false to true only after every required selector is re-verified against the live sell form, with version bumped and lastVerified set",
-        "probe() aborts with the manual-listing message and the selector version when a required selector is missing; the form is never half-filled",
-        "A successful publish writes one listings row with platform='grailed' and listing_url",
-        "A Grailed sibling queued as DelistMethod 'extension' is ended through use-pending-delists.ts and its delist_requested_at clears",
-        "The Grailed delist host is in the selectors.js hosts allowlist and passes lister-guard host matching",
-        "Fixes mirrored into extension/ in the same commit; extension-unified/test/legacy-parity.test.cjs passes",
-        "OPERATOR: re-verify every required Grailed selector against the live sell form while logged in, then flip enabled:false to true with version bumped and lastVerified set (AC1). Run: node scripts/verify-lister-selectors.mjs --checklist grailed."
-      ],
-      "priority": 36,
-      "dependsOn": [
-        "US-2472"
-      ],
-      "notes": "IN PROGRESS 2026-08-10: same state as US-2477. Grailed hosts, guard coverage, parity and README done; the enable itself needs a logged-in human against the live Grailed sell form. Run: node scripts/verify-lister-selectors.mjs --checklist grailed."
-    },
-    {
       "id": "US-2479",
       "passes": false,
       "title": "Vinted lister flow: publish and delist via the unified extension",
@@ -2067,80 +2047,8 @@
         "At close, an eBay INAD return on an item graded and published through FlipDesk produces a drafted response and an attachable evidence pack from the post-sale surface with no manual file assembly",
         "Children: US-2704, US-2705, US-2706, US-2707. This epic closes when all four pass"
       ],
-      "priority": 20
-    },
-    {
-      "id": "US-2704",
-      "passes": false,
-      "title": "Listing publication snapshots: record what we published, every time we publish it",
-      "description": "As a FlipDesk seller, I want GradeThread to keep a timestamped copy of every description and aspect map it pushes to eBay, so that when a buyer claims I hid a flaw there is a dated record of what my listing actually said.",
-      "acceptanceCriteria": [
-        "New table listing_publications holds one row per publish and per revise: listing id, channel, description, aspect map, price, and the timestamp. Nothing else",
-        "Every eBay description or aspect write goes through a single snapshot funnel. A source guard test fails the build if any eBay write path reaches the wire without it, covering publishOffer, publishOfferByInventoryItemGroup, updateOfferFields, updateOfferPrice, createOrReplaceInventoryItem, the aspect gap-fill revise, the forced resync, and routes/jobs-credentials-refresh.ts",
-        "Consecutive identical snapshots collapse: a re-push of unchanged text writes no new row and bumps last_confirmed_at on the existing one. A deno test asserts the credentials-refresh cron re-running twice produces one row",
-        "The stored claim is what GradeThread published, never what eBay displayed. No code path labels a snapshot as the live listing text unless the live text was independently confirmed to match",
-        "The table carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in services/edge-functions/src/lib/schema-version.ts in the same commit, and a self-record footer. Added to PENDING_MIGRATIONS.md and not pushed until the owner has applied it",
-        "Reads are tenant-scoped to workspaceOwnerId ?? userId per US-268, with a case added to services/edge-functions/src/tests/tenant-isolation_test.ts",
-        "This story ships alone and first. Coverage cannot be backfilled honestly, so it must not wait on any other child in the epic"
-      ],
-      "priority": 21
-    },
-    {
-      "id": "US-2705",
-      "passes": false,
-      "title": "Dispute evidence core: the complaint matcher, the evidence plan and the three verdicts",
-      "description": "As a FlipDesk seller, I want GradeThread to compare what the buyer is complaining about against the flaw map in my grade report and tell me honestly whether I have a case, so that I fight the ones I should and refund the ones I should not.",
-      "acceptanceCriteria": [
-        "New pure module services/edge-functions/src/lib/complaint-match.ts maps buyer complaint text onto DetectedIssue entries from the item's grade report, using defect_type, location, severity and size_bucket",
-        "New pure module services/edge-functions/src/lib/dispute-evidence.ts takes the grade report, the listing_publications snapshot and the match, and returns an evidence plan: which photos, which flaws, which citations, and one of three verdicts",
-        "Verdict contradicted requires the flaw to be documented in the report AND present in the snapshot description or aspect map. Verdict supported is returned when the report documents a flaw the snapshot did not disclose. Verdict not_covered is returned when the report has nothing on the complaint",
-        "Ambiguity resolves to not_covered and never to contradicted. A deno test asserts a weak or partial match does not produce a contradicted verdict",
-        "A citation naming a defect absent from the grade report is dropped, not softened. A deno test drives the pure layer with a matcher stub that invents a defect and asserts zero citations survive",
-        "Verdict supported returns a refusal to auto-assemble plus the plain-language reason, per the epic safety constraint",
-        "A labelled fixture set of complaint-and-report pairs with expected verdicts is committed and gated, so a prompt change that starts calling stretches contradicted fails rather than ships",
-        "Neither module imports the supabase client and both are unit-tested with no DB, mirroring the split in lib/cross-listing-sale.ts"
-      ],
-      "priority": 22,
-      "dependsOn": [
-        "US-2704"
-      ]
-    },
-    {
-      "id": "US-2706",
-      "passes": false,
-      "title": "eBay return evidence: attach the pack to an INAD return",
-      "description": "As a FlipDesk seller with an item-not-as-described return open, I want to review a drafted response and send the grade evidence to eBay in one click, so that I answer within the deadline with something better than a screenshot.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/lib/ebay-postorder.ts gains file upload and evidence attachment for a return, extending the existing Post-Order v2 client rather than adding a second one",
-        "New route POST /api/flipdesk/ebay/returns/:returnId/evidence assembles the pack from the evidence plan and submits it. Every query is scoped to workspaceOwnerId ?? userId per US-268, with a case added to services/edge-functions/src/tests/tenant-isolation_test.ts",
-        "The evidence sheet is rendered by reusing the compositor in services/edge-functions/src/lib/defect-annotations.ts, and carries the certificate number, the grade date, and the verify instruction. It never carries an off-eBay link",
-        "Uploaded imagery goes through validateImageUpload magic-byte sniffing and stripImageMetadata before it leaves, matching the existing payment-dispute evidence route",
-        "src/pages/flipdesk/post-sale.tsx shows the drafted response and the exact pack contents before anything is sent. Nothing reaches eBay without a seller click, and there is no timer and no auto-submit",
-        "An item with no listing_publications snapshot renders the grade-report-only argument and labels it as the weaker case rather than presenting it as equivalent",
-        "No surface added by this story claims the evidence wins the case",
-        "npm run ui:check stays at zero findings for src/"
-      ],
-      "priority": 23,
-      "dependsOn": [
-        "US-2705"
-      ]
-    },
-    {
-      "id": "US-2707",
-      "passes": false,
-      "title": "Payment dispute evidence: reuse the pack on the route that exists",
-      "description": "As a FlipDesk seller in an eBay payment dispute, I want the same one-click evidence pack I get on returns, so that the rarer path is not the one where GradeThread abandons me.",
-      "acceptanceCriteria": [
-        "POST /payment-disputes/:id/evidence in routes/flipdesk-ebay.ts gains a from-pack mode that assembles from the evidence plan, keeping the existing manual single-file upload working unchanged",
-        "The same three verdicts and the same refusal-to-assemble rule apply. A deno test asserts a supported verdict blocks assembly on this path too",
-        "The evidence type sent to eBay is derived from the live dispute as it already is, and the pack does not override an eBay-requested evidence type",
-        "src/pages/flipdesk/post-sale.tsx offers the pack on the dispute surface with the same review-before-send flow as returns",
-        "A tenant-isolation case covers the from-pack path"
-      ],
-      "priority": 24,
-      "dependsOn": [
-        "US-2706"
-      ]
+      "priority": 20,
+      "notes": "ALL FOUR CHILDREN PASS as of 2026-08-21: US-2704 (publication snapshots), US-2705 (matcher, plan, three verdicts), US-2706 (return evidence + the review surface), US-2707 (payment-dispute parity). AC7's condition is met.\n\nTHE EPIC STAYS OPEN ON AC6, which is not a coding task. AC6 asks that a real eBay INAD return on a real graded, published item produce a drafted response and an attachable pack from the post-sale surface. Nothing here has been driven against a live eBay case: the Post-Order file contract (upload then submit, UploadFileRequest / SubmitFileRequest, activation by filePurpose) was verified from eBay's own reference, not exercised. Closing this epic on the children alone would assert an end-to-end result nobody has seen.\n\nTHE STANDING CONSTRAINTS HELD, and each is enforced by a test rather than by intent:\n  AC3 (no outcome claims) - the panel is scanned for win/guarantee/proves your case/eBay will side, and every line of the sheet copy is scanned separately.\n  AC4 (the model proposes, code decides) - matches are filtered against the real defect list BEFORE the verdict logic, and an out-of-range index is dropped rather than clamped. Driven with a snapshot whose text would have supported the fabrication.\n  AC5 (refuse when the report agrees with the buyer) - refused server-side on BOTH case types, with a parity guard that walks each handler body, and refused on the surface too, where the Send button is not rendered at all.\n\nAC2's same-commit rule: the design document needed no change. The one place the implementation departed from it is recorded on US-2704 - the wire-level funnel cannot record a FIRST publish, because the listings row does not carry inventory_sku or platform_offer_id until step 5 while the inventory item is PUT at step 2, so the publish route records it after persist.\n\nWHAT TO DO WHEN A REAL CASE ARRIVES: open the return or dispute on the post-sale page, press Evidence (or Grade pack), paste the buyer's words, and read the verdict before sending. If it says the report agrees with the buyer, that is the feature working."
     },
     {
       "id": "US-2708",
@@ -2303,40 +2211,6 @@
       "notes": "DONE 2026-08-20 (code). New src/hooks/use-extension-setup.ts (GT_PING round trip + the gt-bridge DOM marker) and src/components/flipdesk/cross-post-setup.tsx, rendered at the top of the extension tier on the Marketplaces page. FIVE steps, not the four the ACs named: the paid-plan gate turned out to be a separate observable fact from being signed in (capabilities.sellerEnabled vs capabilities.authenticated), and folding it into 'signed in' would have shown a green step to a free account whose first send then fails with needsUpgrade. extension-unified/background.js GT_PING now also returns tosAccepted, the manifest version, and a channels array carrying canList/canDelist read from GT_LISTER_SELECTORS - so the screen counts a channel ready only when that build's selectors are verified, rather than when the platform is merely accepted. Reporting acceptance is not granting it: no GT_TOS_ACCEPT exists and a guard asserts EXTERNAL_TYPES still has no accept type, because the clickwrap must render from the extension's own copy. An older extension that does not report tosAccepted reads as not-yet, never as done. The page's dead 'Install the GradeThread Lister browser extension' sentence - the only install instruction on the page, and not a link - is gone; the paragraph now describes the mechanism and the setup section carries the instruction. 8 guards in src/test/cross-post-setup.test.ts."
     },
     {
-      "id": "US-2721",
-      "passes": false,
-      "title": "No account-level choice of which marketplaces to cross-post to",
-      "description": "As a seller who only sells on Poshmark and Mercari, I want to pick my channels once for the account, so that every draft stops offering six marketplaces I never use and the Listing Kit stops generating fields for them.",
-      "acceptanceCriteria": [
-        "flipdesk_settings gains a cross_post_channels column (text array, null meaning 'all'), added by a migration carrying the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and the self-record footer.",
-        "The picker lives on the Marketplaces page Settings tab beside 'Auto-end cross-listings on sale', and is read and written with the same supabase upsert-on-user_id pattern the auto_end_cross_listings toggle already uses (RLS on flipdesk_settings scopes it, so no new edge route is needed).",
-        "src/components/flipdesk/composer/push-to-card.tsx and the Listing Kit's KIT_PLATFORMS both read the selection, so an unselected channel is not offered on an item.",
-        "A channel whose flow is off in MARKETPLACE_EXTENSION_FLOW cannot be selected and states why, rather than being silently absent.",
-        "Turning a channel off never hides an item already listed there: existing listings rows for that platform still render on the item and in Marketplaces. A vitest case asserts this.",
-        "Selecting nothing is treated as 'all', never as 'none' - a seller who has not visited the setting must not lose the channels they have today."
-      ],
-      "priority": 30
-    },
-    {
-      "id": "US-2722",
-      "passes": false,
-      "title": "The web cannot queue a cross-post for the desktop, but iOS can",
-      "description": "As a seller working on a machine without the extension, I want to queue a Poshmark listing for the browser that does have it, so that the desktop queue iOS already uses is not iOS-only.",
-      "acceptanceCriteria": [
-        "src/hooks/use-extension-queue.ts useEnqueueExtensionWork is called with kind 'list' from the Listing Kit. Today the web calls it only with kind 'delist', from src/components/flipdesk/pending-delist-banner.tsx, while ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift already enqueues .list.",
-        "The control appears on an extension-tier Listing Kit tab when isListerAvailable() is false, and its explanatory copy is QUEUED_NOTICE verbatim - the same sentence iOS, Android and the edge already share.",
-        "The enqueued row carries source 'web', the inventory item id, the platform and the locale key, matching the body ExtensionQueueService.enqueue posts, so background.js drainQueue runs it with no extension change.",
-        "ExtensionQueueSection on the Marketplaces page lists the queued list job and can cancel it, using the hooks that already exist.",
-        "A queued job is never described as listed. A vitest case asserts the rendered string is QUEUED_NOTICE and that no success wording appears before a completion result arrives.",
-        "No new edge route is added: POST /api/flipdesk/extension-queue already exists and is user-scoped. If one is added, it carries a tenant-isolation_test.ts case per US-268."
-      ],
-      "priority": 31,
-      "dependsOn": [
-        "US-2720"
-      ],
-      "notes": "DONE 2026-08-20. 'Queue for my desktop' now sits inside the not-installed branch of CrossPostNotice in listing-kit.tsx, calling useEnqueueExtensionWork with kind 'list'. The web had only ever called it with kind 'delist' from pending-delist-banner.tsx while ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift had been enqueuing .list since US-2481 - the parity gap ran the wrong way. No server work was needed: the hook already posts source 'web' to POST /api/flipdesk/extension-queue, the route is already user-scoped, and background.js drainQueue already runs list rows, so nothing new touches a multi-tenant table. Deliberately confined to the not-installed branch: offering it beside a working Send button would be two paths to the same listing. The copy is QUEUED_NOTICE verbatim (the sentence web, iOS, Android and the edge already share) and a guard asserts it, because a queued job described as listed is exactly the belief that produces a double sale. 3 guards in src/test/cross-post-setup.test.ts."
-    },
-    {
       "id": "US-2727",
       "passes": false,
       "title": "listings.listed_at is NOT NULL but the code writes null for a draft, so the extension writeback INSERT has never succeeded",
@@ -2372,7 +2246,8 @@
         "AC4 CONFIRMED STILL OPEN, and this is the finding that matters. All four columns are STILL NOT NULL in production while every migration declares them nullable: agent_proposals.evidence, agent_proposals.summary, agent_run_steps.name, agent_runs.trigger. Each appears in its table's `required` array in the OpenAPI document.",
         "AC5's danger is therefore live: prod is STRICTER than the repo, so an agent path writing a null into any of these raises 23502 in production only, and CI can never see it - the local stack built from the same migrations permits the null. AC6's decision (relax prod to match the repo, or tighten the repo to match prod) is still the owner's and is now the only thing blocking this story."
       ],
-      "priority": 5
+      "priority": 5,
+      "notes": "AC6 DECIDED AND RECORDED 2026-08-21, which was the only thing this story was waiting on that was not an operator action. THE REPO WINS, and the evidence forces it rather than a preference: the code writes NULL into three of the four columns on purpose. agent-policy.ts dispatchWriteIntent builds EVERY proposal with 'summary: intent.summary ?? null' and 'evidence: intent.evidence ?? null', and coerceWriteIntent requires only action_class + title - so a model that proposes without a summary produces exactly the row prod refuses. agent-kernel.ts declares AgentStep.name as 'string | null' (line 252) and inserts it straight into agent_run_steps. agent_runs.trigger is passed through from the caller. So prod's stricter constraint is a 23502 that can only ever fire in production, which is AC5's danger stated as a live code path rather than as a risk.\n\nTightening the repo instead would mean pinning those write paths non-null FIRST, and that is a product change - what is a proposal with no summary? - not a schema correction. Relaxing is safe for every existing row, because dropping NOT NULL cannot invalidate data that already satisfied it.\n\nMIGRATION 00642 (HELD) does it: four ALTER COLUMN ... DROP NOT NULL, idempotent by construction (a DROP NOT NULL on an already-nullable column is a no-op, which is why it is also a no-op on any environment whose schema came from 00357). Carries the US-1108 triple: EXPECTED_SCHEMA_VERSION 00641 -> 00642 in the same commit, self-record footer, manifest regenerated (385 footer-era entries). This also fixes the durable-record complaint AC7's sibling raised about the 00134 repair: applied_migrations will show 00642, so a future audit can tell a repaired prod from a drifted one.\n\nVERIFIED AGAINST A REAL POSTGRES: applied twice to the local stack, four ALTER TABLEs both times and INSERT 0 1 then INSERT 0 0 on the footer; information_schema reports all four is_nullable = YES; and an agent_runs insert with an explicit null trigger succeeds (rolled back).\n\nNEW GUARD services/edge-functions/src/tests/agent-column-nullability_test.ts holds the decision so it cannot silently revert - no migration may put SET NOT NULL back on any of the four, and 00642 must CONTAIN the four DROP NOT NULL statements rather than describe them in a comment. Sabotage-checked 4 of 4 with the control green either side: a later migration re-tightening, 00642 dropping one of the four, the relaxation surviving only as a comment, and 00642 deleted entirely.\n\nSTILL OPEN: apply 00642 to prod (operator), then re-read the OpenAPI 'required' arrays to confirm the four columns have left them. AC1/AC2/AC3 were already closed. Nothing else in this story is code-actionable. | STATUS CORRECTION 2026-08-21: the HELD claim above is STALE. 00641 and 00642 were applied to production by the owner and are on origin/main (verified by asking the database rather than this file: GET /health/ready reported applied 00642 with no missing key, and PENDING_MIGRATIONS.md now records both as APPLIED). Nothing in this story is holding the branch. What remains open is the confirmation read only: re-read the OpenAPI required arrays and confirm the four agent columns have left them."
     },
     {
       "id": "US-2736",
@@ -2425,7 +2300,8 @@
         "A REAL DEFECT CAME OUT OF WRITING THE TEST: an Infinity step produced NaN, because Math.round(price / Infinity) is 0 and 0 * Infinity is NaN - so a nonsense step turned a real price into NaN and put it on the row. stepPrice now returns the price untouched for any non-finite step or price.",
         "AC6 REMAINS THE ONLY OPEN ITEM and it needs a live Poshmark form: whether the units were the ONLY thing stopping the price. Nothing in the code can answer that."
       ],
-      "priority": 8
+      "priority": 8,
+      "notes": "2026-08-21, FROM A LIVE REPORT: the founder cross-posted one item to Poshmark on 2026-08-20 and THE PRICE WAS STILL EMPTY. So the whole-dollar units were not what was stopping it, and AC6 is answered in the unhelpful direction. Both price fixes ARE in the build that ran: 7d68e9ede (fill the dialog, not the form field) and 3677e2b1a (open the dialog before the photos) are both ancestors of the v0.10.0 release commit 92290ef9d.\n\nREADING THE PATH AGAIN FOUND TWO WAYS THE RUN CAN REPORT THE PRICE FILLED WHILE THE FIELD IS EMPTY. Neither is proven to be what happened - nothing here can see that page - but both are reachable, and a silent wrong success is the worst of the outcomes: the seller is told the price is set, looks at a blank Listing price, and has no reason to connect the two.\n\n(1) THE ALREADY-OPEN CHECK COULD MATCH THE CREATE FORM. fillPriceDialog starts with querySelector(cfg.price) to avoid clicking an opener while a dialog is up - correct, and the backdrop hazard it guards is real. But Poshmark's cfg.price is '#listing-price-modal-listing-price-input, input[aria-label=\"Listing Price\"]', and that second clause is unscoped. A create-form control carrying the same aria-label answers it with NO dialog open anywhere, so the check concludes 'already open', the modal is never opened, setValue writes into the opener - which does not hold the price - and the function returns true. FIXED: new GT.inPriceDialog gates the already-open match. The modal's own inputs are id-anchored and answer for themselves; anything else has to prove it by sitting inside [role=dialog] / [aria-modal=true] / .modal. When neither holds we fall through and click the opener, which is exactly what the function did before the already-open check existed, so the fix cannot make a run worse.\n\n(2) setValue SETTING A VALUE IS NOT THE INPUT KEEPING IT. GT.setValue returns true unconditionally after dispatching input+change. A React-controlled input can reject the assignment and re-render its old contents. FIXED: the value is read back and compared, so a rejected write now reports unfilled and the seller gets the loud 'could NOT set the price' banner instead of a success line.\n\nTESTS: two cases added to extension-unified/test/price-dialog.test.cjs (7 and 8), driving the REAL fillPriceDialog through a harness whose create-form control answers the aria-label clause, and through an input that rejects writes. Sabotage-checked 2 of 2 with a green control either side: reverting only the readback fails case 8, and making inPriceDialog accept any element fails case 7 with the price landing in the opener. The existing six cases still pass and all 40 extension test files pass.\n\nSTILL OPEN: which of the two it was, or whether it was neither. The distinguishing observation is the BANNER on the Poshmark page - 'including the price' means one of these two silent successes, 'could NOT set the price' means the dialog never opened and the cause is elsewhere.\n\nALSO FOUND, unrelated and now fixed: extension-unified/test/sync-poll.test.cjs failed on every Windows checkout. Its comment stripper split on '\\n' and then ran //.*$ per line, and in JS a '.' never matches '\\r' - so on CRLF the strip removed nothing and the guard failed on poll-plan.js's own header, which contains the words 'with no chrome.*'. sync-manifest and sync-observe already normalised CRLF first and carry a comment about the day the line endings changed; this copy was the one that missed it. Green on Linux CI, red on this box. | 2026-08-21, SECOND FINDING, and this one is measured rather than inferred. The founder confirmed the banner said 'could NOT set the price'. That is the honest branch: fillPriceDialog returned false, so the two silent successes fixed earlier today were NOT what happened, and - usefully - it also proves the WEB half is fine, because that banner only renders when payload.price is truthy. The price reached the extension. The dialog never opened.\n\nTHE PRICE DIALOG HAS NEVER BEEN PROBED, ON ANY RUN. selector-probe.js's list-flow walker pushed only STRING values off the flow config, and priceDialog is an OBJECT, so its three selectors were skipped in silence. Every deep report saying 'the Poshmark list flow probes clean' was true of nine selectors and blind to three - including priceDialog.open, which the selectors.js comment openly records as 'the one piece INFERRED rather than read off the page'. The single unmeasured selector in the flow is the one nothing was measuring, and it is the one the live run failed on.\n\nFIXED: the list branch now walks a declared allowlist of nested groups (LIST_GROUPS = ['priceDialog']) and reports them under dotted keys, so a miss names its group. An allowlist rather than 'every object-valued key' on purpose - the platform config also carries delist and engage, which are their own flows on their own pages, and walking them into the create-page report buries it under thirteen expected misses. POST_INTERACTION gains priceDialog.price and priceDialog.originalPrice: those live inside the modal and cannot resolve until it opens, so scoring them as failures would hide the one line that matters. priceDialog.open is deliberately NOT excused - it is a create-page control, and excusing it would excuse the exact miss this exists to catch.\n\nTESTS: a block in selector-probe.test.cjs pins all four properties. Sabotage-checked 4 of 4 with a green control either side: not walking groups at all, marking the opener post-interaction, un-marking the two modal inputs, and walking every object-valued key (which pulls in all thirteen delist/engage selectors). All 40 extension test files pass.\n\nWHAT THIS DOES NOT DO: it does not fix the selector. It makes the selector ANSWERABLE. The next step is a deep probe run on the Poshmark sell page, which will now report priceDialog.open as found or missed and, on a miss, offer candidate controls - the same two-step that produced every correct Poshmark selector and that every guess made before it failed. Guessing a replacement from here would repeat the mistake the story's own notes record."
     },
     {
       "id": "US-2743",
@@ -2460,51 +2336,6 @@
       "notes": "REFINEMENT 2026-08-20 after reading the Commerce Platform OVERVIEW page (the project guide read earlier is one page below it). The overview DOES name Marketplace as one of three selling surfaces alongside Shops and Instagram Shopping, so the flat claim 'Commerce API is not Marketplace' is too strong and is corrected here. What it is NOT is the consumer C2C flow: the platform is described for 'retailers and ecommerce businesses', built around Graph API seller onboarding, catalog and inventory, order management, finance reporting and customer communication, with Shops Ads using OFFSITE checkout - buyers discover on Facebook and Instagram and check out on the seller's own website. That is a catalogue-and-feed model for merchants with a product catalog, not a path for a reseller listing one used garment. THE OPEN QUESTION, and the only one worth spending time on: whether a used-goods reseller can be onboarded as a seller under Commerce Platform and reach the Marketplace surface that way. Nothing on the public pages answers it; it needs a question to Meta or an App Review submission, both of which are founder actions rather than code. Everything else in this story stands: the Seller app has no integration surface at all, and Marketplace Partnerships is EEA classifieds."
     },
     {
-      "id": "US-2765",
-      "passes": false,
-      "title": "Category is decided by rank 1 of a keyword search on AI-written text",
-      "description": "As a seller, I want the category chosen from evidence rather than from the first hit on a phrase the AI made up, so that hard-to-name garments stop landing in the wrong category.",
-      "acceptanceCriteria": [
-        "flipdesk-ai.ts resolveEbayPrep prefers the visual-match category vote over suggestCategories(query)[0] when a vote exists and the winning category is a proven leaf.",
-        "The keyword path stays as the fallback and is unchanged when no visual vote is available, so a stock deployment behaves exactly as today.",
-        "A category from the vote is only accepted if it passes the existing leaf check (categoryHasCachedLeafAspects or a subtree read); a non-leaf winner falls through to the next candidate, then to keywords.",
-        "Which path chose the category is recorded on the item so a wrong category can be traced to the method that picked it, not just to the id.",
-        "Tests cover: vote wins, vote is non-leaf so keywords win, no vote so keywords win."
-      ],
-      "priority": 3,
-      "notes": "PARTIAL as of 2026-08-21, 4 of 5 AC done in commit 3ca575882. AC1, AC2, AC3 and AC5 are met by services/edge-functions/src/lib/category-decision.ts (decideCategory, pickLeafVote, MIN_VOTE_SUPPORT = 2) with 177 lines of tests in category-decision_test.ts.\n\nAC4 IS NOT DONE. decideCategory returns method ('saved' | 'visual_consensus' | 'keyword' | 'none'), support and rejectedReason, and flipdesk-ai.ts console.logs a rejected vote - but nothing is RECORDED ON THE ITEM. AC4 asks for the deciding method to be traceable per item, and a log line is not that.\n\nIT NEEDS A MIGRATION, which is why it is split out rather than bodged. inventory_items has no free-form jsonb for provenance; the only jsonb is `attributes`, which is the CANONICAL garment attribute map (00182) and must not be polluted with decision metadata.\n\nALSO NOTE the path is live but DORMANT: visualLeafVotes is always empty until US-2768 runs the visual pass, so today every call takes the keyword branch and a stock deployment behaves exactly as before. AC4 has nothing to record until US-2768 lands, so doing it first would ship an always-'keyword' column.\n\nUPDATE 2026-08-21: the 'dormant until US-2768' caveat is now STALE. US-2768 is closed and flipdesk-ai.ts:400 feeds decideCategory real votes via visualLeafVotes, so the vote path is live. AC4 is tracked as US-2774."
-    },
-    {
-      "id": "US-2767",
-      "passes": false,
-      "title": "Claude is handed eBay's guess as fact instead of as a hypothesis to judge",
-      "description": "As a seller, I want the AI to weigh eBay's visual guess against what it can actually read on the tag, so that a confident wrong brand gets rejected instead of repeated.",
-      "acceptanceCriteria": [
-        "ExtractInput gains an optional block carrying the visual candidates (brand, category, type, style, each with its supporting count) clearly labelled as an UNVERIFIED external guess.",
-        "The prompt instructs the model to CONFIRM or REJECT each candidate against tag evidence and states the precedence explicitly: a decoded style code beats a legible tag wordmark, which beats the visual consensus, which beats the model's own product knowledge.",
-        "The model must return, per accepted candidate, which evidence accepted it; a candidate accepted with no stated evidence is dropped server-side, the same way research below RESEARCH_MIN_CONFIDENCE is dropped today.",
-        "A candidate the model REJECTS is recorded as rejected rather than silently discarded, so the visual provider's accuracy can be measured over time instead of assumed.",
-        "Tests assert that a candidate brand contradicted by a tag value in the same payload does not survive into suggestions."
-      ],
-      "priority": 3,
-      "notes": "PARTIAL as of 2026-08-21, now 4 of 5. AC3 and AC5 were wired and sabotage-checked (9 of 9 caught, control-first); only AC4 remains and it is tracked as US-2774.\n\nAC1 and AC2 ARE done: buildCandidateBlock in visual-candidates.ts emits the block headed 'UNVERIFIED EXTERNAL GUESS' with the four-level precedence spelled out (style code > readable wordmark > visual consensus > model knowledge), and it is concatenated into the prompt at ai-extract.ts:721. extract-prompt-candidates_test.ts covers the wording, including that the block never leans toward accepting.\n\nAC3 IS NOW WIRED. The prompt block had no OUTPUT CHANNEL - it said 'decide' and named no field to put the decision in, which is why nothing could read it. It now asks for visual_rulings, the tool schema declares it, and decodeExtraction runs parseRulings -> dropUnevidenced -> applyRulings. Order matters and is tested: dropping unevidenced acceptances BEFORE enforcing means an acceptance the server is about to discard is not present to shield a value.\n\nAC4 IS NOT DONE. CandidateVerdict is a type with no persistence behind it. Same blocker as US-2765 AC4: measuring the visual provider's accuracy over time needs a place to write the rulings, and that is a migration.\n\nAC5 PASSES. visual-rulings_test.ts drives the real decodeExtraction: a payload where the model rejects 'Lululemon' and then fills brand with 'Lululemon' comes back with no brand. The enforcement is value-scoped, so a model that rejects the candidate and reads a DIFFERENT brand off the tag keeps its own answer.\n\nREMAINING: AC4 only, split out to US-2774 together with US-2765's identical AC4. Both need one migration and neither should be closed by dropping it."
-    },
-    {
-      "id": "US-2769",
-      "passes": false,
-      "title": "Nothing tells a bulk uploader which photo is the front",
-      "description": "As a seller photographing a pile of items, I want the capture flow to tell me which shot it wants next, so that every item arrives with a front and a back tagged and the visual pass has something it can use.",
-      "acceptanceCriteria": [
-        "The iOS bulk upload and the web autolister both present the required shot list from REQUIRED_PHOTO_TYPES with on-screen wording naming the shot being captured, rather than relying on capture order.",
-        "A photo captured in a named slot is persisted with that flipdesk_photo_type; no inference from position.",
-        "An item missing a front is surfaced before it advances, using the existing REQUIRED_PHOTO_TYPES gate rather than a new parallel rule.",
-        "The overlay wording lives in one shared constant used by both surfaces, so the two cannot drift, and a parity test asserts it.",
-        "No new photo role or migration is needed: photo_role is plain text by design (vault/20-domain/listing-photos.md)."
-      ],
-      "priority": 4,
-      "notes": "PARTIAL as of 2026-08-21. AC4 and AC5 are done; AC1 is half done; AC2 and AC3 are effectively met already. Read this before starting - most of the story turned out to exist.\n\nAC4's 'one shared constant' ALREADY EXISTED and is not a constant: services/edge-functions/src/lib/photo-profiles.ts is server-authoritative, served by GET /api/flipdesk/photo-profiles, and BOTH clients fetch it and let it win once loaded. Its header claims the two clients 'can never drift from each other'. That is true of the served table and FALSE of the bundled fallbacks each client ships for first paint and offline, which are two hand-maintained copies in two languages.\n\nMEASURED DRIFT, 2026-08-21: the web fallback said 'The size itself, close enough to read' where iOS and the server both said '...without zooming', and dropped 'in even light' from the fabric hint. Two hints, both on the web side, both now aligned to the server. src/test/photo-profile-fallback-parity.test.ts holds it: required-set parity, front+back still required in BOTH, and identical label/hint for every slot both declare. Sabotage-checked 7 of 7, including reintroducing each original drift, dropping a required flag on either side, dropping 'front' from BOTH at once (agreement alone must not satisfy it), and changing the Swift literal shape so the regex parses nothing.\n\nTHE TEST DELIBERATELY DOES NOT ASSERT client == server. The fallbacks are abbreviated on purpose - the server hint for a brand label ends '- usually a separate neck or waistband tag' and the clients stop at 'The maker's logo or wordmark'. Eight roles follow that pattern. Asserting equality would fail on all eight and teach the next person to delete the test.\n\nAC1 IS HALF DONE. iOS already presents named slots with labels, hints and required flags (ios/GradeThread/Capture/PhotoProfile.swift + the Capture module). THE WEB DOES NOT: src/components/flipdesk/intake-photo-stager.tsx carries its OWN hardcoded INTAKE_TYPES list of four types (front/back/tag/detail) with labels and NO hints, and never touches the photo profile. It also assigns the type from a dropdown AFTER capture rather than naming the shot being taken. That is a FIFTH copy of this vocabulary and the real remaining work.\n\nAC2 is met by that same dropdown - the type is explicit, never inferred from position. AC3 is met in spirit: `missing` is computed from REQUIRED_PHOTO_TYPES and rendered as a 'Still missing X' notice. Narrow gap: the notice is gated on photos.length > 0, so an item with NO photos surfaces nothing at all.\n\nAC5 confirmed: nothing here needed a new photo role or a migration.\n\nREMAINING: point intake-photo-stager.tsx at usePhotoProfile() instead of INTAKE_TYPES, so the web presents the same named slots with the same hints as iOS; then extend the parity test to cover that surface too. Do not add a sixth list."
-    },
-    {
       "id": "US-2772",
       "passes": false,
       "title": "Ten super_admin mutations have no step-up, and two of them spend money",
@@ -2522,41 +2353,34 @@
       ]
     },
     {
-      "id": "US-2774",
-      "passes": false,
-      "title": "Identification provenance is computed on every run and written down nowhere",
-      "description": "As an operator, I want the method that chose a category and the verdicts on each visual candidate persisted per item, so that a wrong suggestion can be traced to the method that produced it and the visual provider's accuracy can be measured instead of assumed.",
+      "id": "US-2776",
+      "title": "Android has no in-app account deletion, and Play will not accept the app without one",
+      "description": "Settings > Delete account showed a notice telling the seller to email support@gradethread.com. Google Play's User Data policy names exactly that as insufficient: an app that lets people create an account must offer in-app deletion plus a public web URL describing it. Web has called POST /api/account/delete since US-194 and iOS calls the older delete_account RPC; Android called nothing. This blocked the first Play submission outright.",
       "acceptanceCriteria": [
-        "THIS IS THE SHARED AC4 of US-2765 and US-2767. Both stories are 4 of 5 and both are blocked on the same missing place to write to. Neither should be closed by dropping its AC4; this story is where that work lives.",
-        "decideCategory already returns method ('saved' | 'visual_consensus' | 'keyword' | 'none'), support, and rejectedReason, and flipdesk-ai.ts only console.logs them. decodeExtraction already returns visualRulings (accepted/rejected plus the evidence kind) and only the accepted half acts on anything. Both are computed correctly today and discarded.",
-        "It needs a migration; there is no existing column that can hold it honestly. inventory_items.attributes is the CANONICAL garment attribute map from 00182, and ai_enrichment_log.suggested_fields is keyed by FIELD NAME, so a '_visual_rulings' key inside it would read as a field to anything iterating the map. Both were considered and rejected for that reason.",
-        "The migration carries the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, self-record footer, and node scripts/gen-migration-manifest.mjs re-run.",
-        "Held-migration rule applies: commit locally, do NOT push until the owner has applied it to prod, and package it in PENDING_MIGRATIONS.md with the NOTIFY pgrst reload reminder.",
-        "A rejected candidate must be distinguishable from an absent one in the stored data. An ignored rejection and a candidate that was never offered look identical otherwise, and only one of them means the visual provider is wrong - which is the entire measurement this story exists to enable.",
-        "Tenant scoping per US-268 on any new table, plus a tenant-isolation_test.ts case, and rls-guard registration if it is service-role only."
+        "Settings > Delete account performs a real deletion through POST /api/account/delete, behind the same typed DELETE MY ACCOUNT confirmation the web dialog uses.",
+        "The password is requested only when the server asks for it (code password_required), so an OAuth account with no password can still delete.",
+        "On success the local session is torn down with the same wipe sign-out runs - rows, watermarks, push token, staged share photos, widget, caches - rather than a second hand-written copy of it.",
+        "A public /account-deletion page describes how to delete and what is retained, matching routes/account.ts and vault/10-ops/data-retention.md, registered in PUBLIC_ROUTES and the prerender entry.",
+        "Unit tests cover the confirm phrase, the password-required round trip, a wrong password, and the retention refusal that removes nothing."
       ],
-      "dependsOn": [
-        "US-2765",
-        "US-2767"
-      ]
+      "priority": 6,
+      "passes": false,
+      "notes": "[P0][Android/Play][Compliance] Found 2026-08-21 while preparing the first Play Console submission. See android/PLAY_STORE_SUBMISSION.md section 0 blocker 1."
     },
     {
-      "id": "US-2775",
+      "id": "US-2777",
       "passes": false,
-      "title": "The photo-attach fallback re-creates the shadow it was written to replace, and confirms itself",
-      "description": "As a seller cross-posting to a marketplace, I want the extension to only claim photos are attached when something other than itself says so, so that the silent false success US-2738 fixed cannot come back through the fallback path.",
+      "title": "Vinted's 22 country domains are built end to end and no client ever asks for one",
+      "description": "As a seller listing on Vinted outside the default domain, I want the Lister to open MY country's Vinted, so that a queued or direct cross-post does not land on a site I have no account on.",
       "acceptanceCriteria": [
-        "FOUND BY SABOTAGE 2026-08-21 while writing the US-2738 AC5 guard, not by reading the code. Removing the `input.value !== \"\"` witness from attachPhotos changed no test outcome, which is what exposed this: the witness is not load-bearing, because the fallback below it accepts unconditionally.",
-        "THE MECHANISM, at extension-unified/lister/common.js around line 236: after `Object.defineProperty(input, \"files\", { value: dt.files })` succeeds, acceptance is decided by `input.files && input.files.length === dt.files.length` - reading back exactly what the line above just wrote. It cannot fail when defineProperty succeeds. A guard that confirms itself.",
-        "WHY IT MATTERS: that is the same shadow US-2738 diagnosed. el.files reports eight, el.value stays empty, an uploader reading the real selection at submit time sees nothing, and the seller is told the photos are on. So on any host that swallows the direct assignment but permits defineProperty, the original false success is still reachable - through the very fallback added to make the report honest.",
-        "IT IS A REAL TRADE, NOT AN OVERSIGHT. Reporting the fallback as failed would raise a false alarm on hosts where the shadow genuinely works, and the extension covers seven platforms. This story is to DECIDE, per platform if need be, not to flip it silently.",
-        "OPTIONS TO WEIGH: (a) report the fallback as an explicit third state (attached-unverified) so photoNote can say 'we could not confirm these landed' rather than claiming success or failure; (b) find a real witness for the shadow path - anything the PAGE changes that we did not write; (c) accept the shadow only for platforms measured to work with it, and fail the rest.",
-        "extension-unified/test/attach-photos-accepted.test.cjs already pins the current behaviour with a comment saying it is pinned and not endorsed, plus an assertion that the fallback leaves value empty. Whoever changes the behaviour must change that assertion knowingly - it is not a test to quietly update.",
-        "Blocked on the same live check as US-2738 AC7: whether Poshmark accepts the direct assignment at all. If it does, this is latent rather than live; if it does not, this IS the live bug and US-2738 is not actually fixed."
+        "FOUND 2026-08-21 while verifying US-2722 AC3. US-2479 built locale support the whole way down: ListerPayload.locale (lib/lister-extension.ts:80), newListingUrlForLocale in extension-unified/lister/lister-guard.js:92, 22 country domains in the bundled selectors config, localesFor(), and a covered-locales error message that names the ones we support. Every piece works. Nothing ever supplies the input.",
+        "NO CLIENT SETS IT, checked in all four places. The web's DIRECT send calls buildListerPayload with platform, itemId, variant, photos and primaryId and no locale (listing-kit.tsx:430). The web's QUEUED send posts payload {}. ios ExtensionQueueService.enqueue is called with kind, platform and inventoryItemId. Android's ExtensionQueue is the same shape. grep for a caller assigning locale in src/ returns nothing outside the type definition itself.",
+        "THE SYMPTOM IS SILENT AND WRONG, not an error: newListingUrlForLocale returns the platform's stated default when the locale is absent or empty (lister-guard.js:97), so a French or German seller gets vinted.com. They see a working flow that filled a form on the wrong country's site. The fail-loud path that names the covered locales only runs when a locale IS supplied and is not covered - the case that cannot happen today.",
+        "THE MISSING PIECE IS A SOURCE OF TRUTH, which is why this is a story and not a patch. Nothing records which Vinted a seller uses: there is no setting, no column, and marketplace_connections has no row for an extension channel. Decide where it lives - a per-user setting beside cross_post_channels (US-2721 just added that pattern), or per-listing on the kit tab - and say why in the note.",
+        "Whatever is chosen, the DIRECT and the QUEUED paths must both carry it. They diverged silently for months precisely because the field was optional on both and set on neither, and a fix that wires only the direct send leaves the queue opening the wrong domain.",
+        "A guard fails if ListerPayload.locale has no producer. The unwired-module gate catches a module nobody imports; this is the same defect one level down - a FIELD nobody sets - and it survived because every layer that consumes it is correct."
       ],
-      "dependsOn": [
-        "US-2738"
-      ]
+      "priority": 31
     }
   ]
 }

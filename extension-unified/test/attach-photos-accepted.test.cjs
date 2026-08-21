@@ -190,36 +190,73 @@ const eight = ["1.jpg", "2.jpg", "3.jpg", "4.jpg", "5.jpg", "6.jpg", "7.jpg", "8
     assert.strictEqual(res.total, 8);
   }
 
-  // ── 4. the fallback path, and what it does NOT prove ──────────────────────
+  // ── 4. the fallback path reports what it actually knows (US-2775) ─────────
   {
     // A host that swallows the assignment but allows defineProperty takes the
-    // documented fallback and is reported as fully attached.
-    //
-    // PINNED AS CURRENT BEHAVIOUR, NOT ENDORSED. The fallback's own acceptance
-    // check is `input.files.length === dt.files.length` immediately after
-    // defineProperty WROTE input.files - it reads back what it just set, so it
-    // cannot fail when defineProperty succeeds. That is the same shadow, and the
-    // same unwitnessed success, that produced the original bug: el.files reports
+    // documented fallback. It used to be reported as fully attached, and the
+    // check that said so was `input.files.length === dt.files.length` run
+    // immediately after defineProperty WROTE input.files - reading back what it
+    // just set, so it could not fail. That is the same shadow, and the same
+    // unwitnessed success, that produced the original bug: el.files reports
     // eight, el.value is empty, the uploader sees nothing, and the seller is
     // told the photos are on.
     //
-    // Reporting it as failed instead would raise a false alarm on the hosts
-    // where the shadow genuinely works, so this is a real trade and not an
-    // oversight to silently flip. Recorded on US-2738 and split out rather than
-    // decided here. Whoever changes it should change this assertion knowingly.
+    // THE DECISION (US-2775, taken 2026-08-21): three states, not two.
+    // Reporting the fallback as FAILED would cry wolf on the hosts where the
+    // shadow genuinely works, across seven platforms. Reporting it as attached
+    // claims a confirmation nobody gave. `unverified` says the true thing on
+    // both kinds of host - the photos may well be there, and nothing outside
+    // this extension has said so.
     const g = loadGT({ mode: "shadow" });
     const res = await g.GT.attachPhotos("input", eight, 10);
     assert.strictEqual(
       res.attached, 8,
-      "current behaviour: the defineProperty fallback reports success. If this " +
-        "starts failing, someone tightened the fallback - read the note above " +
-        "before 'fixing' the test.",
+      "the fallback still reports the photos as attached - they probably are, " +
+        "and failing here would cry wolf on every host where the shadow works",
     );
-    assert.strictEqual(res.failed, 0);
+    assert.strictEqual(res.failed, 0, "the shadow path is not a failure");
+    assert.strictEqual(
+      res.unverified, 8,
+      "the fallback claimed a confirmation it does not have. Its acceptance " +
+        "check reads back what defineProperty just wrote, so it cannot fail - " +
+        "which is exactly how US-2738's silent false success came back.",
+    );
     assert.strictEqual(
       g.input.value, "",
       "the fallback leaves value empty - that is precisely why its success is " +
         "unwitnessed",
+    );
+  }
+
+  // ── 5. the confirmed path claims no doubt (US-2775) ───────────────────────
+  {
+    // The mirror of case 4, and the reason `unverified` is worth a field rather
+    // than a blanket warning. When the browser DOES confirm the assignment by
+    // populating value, there is nothing to hedge about - a run that warned
+    // every time would train the seller to ignore the warning that means
+    // something, the same trap priceNote's undefined rule avoids.
+    const g = loadGT({ mode: "accept" });
+    const res = await g.GT.attachPhotos("input", eight, 10);
+    assert.strictEqual(res.attached, 8);
+    assert.strictEqual(
+      res.unverified, 0,
+      "a browser-confirmed attach must carry no doubt",
+    );
+    assert.notStrictEqual(g.input.value, "", "harness check: the browser confirmed it");
+  }
+
+  // ── 6. a refused list is failed, not merely unverified (US-2775) ──────────
+  {
+    // The third state must not swallow the second. A host that refuses BOTH the
+    // assignment and defineProperty attached nothing, and "we could not confirm"
+    // would be a softer lie than the one this replaced.
+    const g = loadGT({ mode: "refuse" });
+    const res = await g.GT.attachPhotos("input", eight, 10);
+    assert.strictEqual(res.attached, 0, "nothing landed");
+    assert.strictEqual(res.failed, 8, "every photo must read as failed");
+    assert.strictEqual(
+      res.unverified, 0,
+      "a refusal is a failure, not an unconfirmed success",
     );
   }
 

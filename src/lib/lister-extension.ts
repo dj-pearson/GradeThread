@@ -113,6 +113,17 @@ export interface ListerResult {
    *  A partial attach must read as "6 of 8", never as success. */
   photosTotal?: number;
   photosFailed?: number;
+  /**
+   * US-2775: attached, but only through the shadow fallback — a subset of the
+   * attached count, not a fourth bucket.
+   *
+   * The browser confirms a direct FileList assignment by populating `value`.
+   * When a host refuses that and only `Object.defineProperty` works, `el.files`
+   * reports the list while the input's real selection stays empty, so an
+   * uploader reading it at submit time sees nothing. Absent means every attached
+   * photo was confirmed; older extensions never send it.
+   */
+  photosUnverified?: number;
   listingUrl?: string | null;
   manual?: boolean;
   needsConsent?: boolean;

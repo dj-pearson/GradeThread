@@ -214,6 +214,14 @@ assert.strictEqual(
 {
   const src = fs.readFileSync(path.join(dir, "sync/poll-plan.js"), "utf8");
   const code = src
+    // Normalise CRLF first, the same way sync-manifest and sync-observe already
+    // do. This copy was the one that missed it. In JS a `.` never matches `\r`
+    // — it is a line terminator — so on a CRLF checkout `//.*$` stops short of
+    // the line end and matches nothing, and every line comment survives the
+    // strip. poll-plan.js's own header says "with no chrome.*", so the guard
+    // failed on its own documentation: green on Linux CI, red on a Windows dev
+    // box, which is the worst place for a difference to live.
+    .replace(/\r\n/g, "\n")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))

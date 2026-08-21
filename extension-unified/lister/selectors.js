@@ -512,16 +512,28 @@ const GT_LISTER_SELECTORS = {
     },
   },
 
-  // ── Grailed — PHASE 3 (not yet enabled) ───────────────────────────────
+  // ── Grailed — PHASE 3 (LIST enabled; delist deliberately not) ─────────
   //
   // 2026-08-10: the LIST flow is verified. A probe report from
   // grailed.com/sell/new resolved all five selectors, page verdict included.
+  // It was switched ON on 2026-08-11 — see the note on the config below.
   //
-  // Still `enabled: false`, and the reason is the half that is NOT verified.
+  // ⚠ 2026-08-21: this heading said "not yet enabled" and the paragraph below
+  // said "Still `enabled: false`" for ten days, sitting directly above
+  // `enabled: true`. That is the SECOND time in this file: the Mercari block
+  // fifty lines up carries the same correction, for the same reason. A comment
+  // that contradicts the line it introduces is worse than no comment, because
+  // it is the thing a reader trusts when deciding whether a flow is safe to
+  // touch — and this one said a channel was off while sellers were listing to
+  // it.
+  //
+  // The original worry is preserved below because it is still the right rule;
+  // what changed is that the trade was made knowingly rather than avoided.
   // Turning listing on without a working delist is the oversell in Step 5 of
   // vault/30-platform/closing-a-coverage-gap.md: the item sells elsewhere, the
   // Grailed sibling stays live and purchasable, and the seller owes two people
-  // one garment.
+  // one garment. Grailed escapes that only because the seller is TOLD every
+  // time, which is the distinction the config note draws.
   //
   // ⛔ 2026-08-11: GRAILED AUTO-DELIST IS NOT POSSIBLE IN THIS DESIGN, and the
   // reason is not a selector we have failed to find.

@@ -1,6 +1,137 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
+import { latestPublication, recordPublication } from "../lib/listing-publications.ts";
+import { submitReturnFiles, uploadReturnFile } from "../lib/ebay-postorder.ts";
+import { matchComplaint, type ReportedDefect } from "../lib/complaint-match.ts";
+import { compositeReturnEvidenceSheet } from "../lib/defect-annotations.ts";
+import type { EvidenceStamp } from "../lib/evidence-pack.ts";
+import {
+  buildEvidencePlan,
+  type EvidencePlan,
+  type PublicationSnapshot,
+} from "../lib/dispute-evidence.ts";
+
+/**
+ * US-2706: how many images a return-evidence pack may carry.
+ *
+ * Not an eBay limit we have measured — a judgement. A pack that is mostly
+ * filler argues worse than one that is only the flaw and the disclosure, and
+ * the seller has already chosen what goes in it.
+ */
+const MAX_RETURN_EVIDENCE_FILES = 6;
+
+/**
+ * US-2706 / US-2707: the evidence verdict for one eBay order's item, or null.
+ *
+ * ONE planner for both case types. A return and a payment dispute are different
+ * eBay surfaces asking the same question - does the grade report back this
+ * seller - and two planners would be two answers, with the rarer path holding
+ * the one nobody re-checked.
+ *
+ * Null means "could not decide", never "nothing to worry about". Every lookup
+ * here is tenant-scoped by ownerId, and the chain is
+ * sale -> inventory item -> grading submission -> grade report, plus the
+ * listing's most recent publication snapshot.
+ */
+interface EvidenceContext {
+  plan: EvidencePlan;
+  /** US-2706 AC6: false means the pack can only argue from the grade report. */
+  hasSnapshot: boolean;
+  stamp: EvidenceStamp;
+  gradedAt: string | null;
+  defectCount: number;
+}
+
+async function planEvidence(
+  ownerId: string,
+  orderId: string,
+  complaint: string,
+): Promise<EvidenceContext | null> {
+  try {
+    const { data: sale } = await supabaseAdmin
+      .from("sales")
+      .select("inventory_item_id, listing_id")
+      .eq("user_id", ownerId)
+      .eq("platform_order_id", orderId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const itemId = (sale as { inventory_item_id?: string } | null)?.inventory_item_id;
+    if (!itemId) return null;
+
+    const { data: grading } = await supabaseAdmin
+      .from("flipdesk_grading_submissions")
+      .select("submission_id")
+      .eq("inventory_item_id", itemId)
+      .not("submission_id", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const submissionId = (grading as { submission_id?: string } | null)?.submission_id;
+    if (!submissionId) return null;
+
+    const { data: report } = await supabaseAdmin
+      .from("grade_reports")
+      .select("defects_found, certificate_id, overall_score, grade_tier, created_at")
+      .eq("submission_id", submissionId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const row = report as
+      | {
+        defects_found?: unknown;
+        certificate_id?: string | null;
+        overall_score?: number | string | null;
+        grade_tier?: string | null;
+        created_at?: string | null;
+      }
+      | null;
+    const defects = (row?.defects_found ?? []) as ReportedDefect[];
+    if (!Array.isArray(defects) || defects.length === 0) return null;
+
+    const listingId = (sale as { listing_id?: string } | null)?.listing_id ?? null;
+    // Through the funnel module, not straight at the table. US-2704's coverage
+    // guard caught the direct read here and was right to: one module owning the
+    // table is what keeps `published_at DESC` from being re-derived by a reader
+    // who would hand a dispute pack the wrong revision.
+    let snapshot: PublicationSnapshot | null = null;
+    if (listingId) {
+      const row = await latestPublication(supabaseAdmin, listingId, ownerId);
+      if (row) {
+        snapshot = {
+          description: row.description,
+          aspects: row.aspects,
+          publishedAt: row.published_at,
+          lastConfirmedAt: row.last_confirmed_at,
+        };
+      }
+    }
+
+    const { matches } = matchComplaint(complaint, defects);
+    const plan = buildEvidencePlan({ defects, snapshot, matches });
+    return {
+      plan,
+      hasSnapshot: snapshot !== null,
+      // The facts the evidence sheet burns in. Carried out of here because this
+      // is the only place that already loaded the report — a second read would
+      // be a second chance to pick a different revision of it.
+      stamp: {
+        certificateNumber: row?.certificate_id ?? null,
+        overallScore: Number(row?.overall_score ?? Number.NaN),
+        gradeTier: String(row?.grade_tier ?? ""),
+      },
+      gradedAt: row?.created_at ?? null,
+      defectCount: defects.length,
+    };
+  } catch (err) {
+    console.error(
+      "[ebay.returns.evidence] could not build the plan:",
+      err instanceof Error ? err.message : String(err),
+    );
+    return null;
+  }
+}
 import { trimTitleToLimit, trimTitleWithReport } from "../lib/title-trim.ts";
 import { lintTitle } from "../lib/title-lint.ts";
 // US-2677: near-duplicate titles across the seller's own live listings. A
@@ -4228,6 +4359,224 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
   return c.json({ ok: true });
 });
 
+// US-2706 AC5 / US-2707 AC4: POST /evidence/preview — what the pack WOULD say,
+// without sending anything.
+//
+// Reads only. It touches no eBay endpoint and writes nothing, which is what
+// lets the seller see the verdict, the citations and the sheet's own facts
+// before they decide. The send is a separate call behind a separate click;
+// there is no timer here and nothing auto-submits.
+//
+// NOT scoped to a return or a dispute, because the plan never depended on
+// either: it is built from the ORDER's graded item and the listing text we
+// published. Mounting a second copy under each case type would be two routes
+// that must agree about a verdict, and the one that drifted would be the rarer
+// path — which is the gap US-2707 exists to close.
+//
+// body { order_id, complaint }
+flipdeskEbayRoutes.post("/evidence/preview", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { order_id?: unknown; complaint?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const orderId = String(body.order_id ?? "").trim();
+  const complaint = String(body.complaint ?? "").trim();
+  if (!orderId || !complaint) {
+    return c.json({ error: "order_id and complaint are both required." }, 400);
+  }
+
+  const context = await planEvidence(ownerId, orderId, complaint);
+  if (!context) {
+    // No grade report, or nothing linking this order to a graded item. Said
+    // plainly rather than dressed up as a verdict: there is no evidence here,
+    // and the seller should know that before they plan around it.
+    return c.json({ available: false });
+  }
+
+  return c.json({
+    available: true,
+    verdict: context.plan.verdict,
+    reason: context.plan.reason,
+    mayAutoAssemble: context.plan.mayAutoAssemble,
+    citations: context.plan.citations,
+    // US-2706 AC6: whether the published listing text is on file at all. The
+    // surface labels a pack without one as the weaker case rather than showing
+    // it as equivalent — it can only argue from the grade report.
+    hasPublicationSnapshot: context.hasSnapshot,
+    certificateNumber: context.stamp.certificateNumber,
+    gradedAt: context.gradedAt,
+    defectCount: context.defectCount,
+    // A sheet is only composited for a CERTIFIED grade.
+    includesConditionSheet: Boolean(context.stamp.certificateNumber),
+  });
+});
+
+// US-2706: POST /returns/:returnId/evidence — attach the grade evidence to an
+// item-not-as-described return.
+//
+// Multipart: one or more `file` parts (images). The seller has already reviewed
+// the pack on the post-sale surface; this route sends it. There is no timer and
+// no auto-submit, and there is no path here that fires without a request.
+//
+// TWO EBAY CALLS, and the second is what makes the evidence real. `file/upload`
+// associates each image and returns a fileId; the files stay INERT until
+// `file/submit` activates them. Reporting success after the uploads alone would
+// tell a seller their evidence is on the case when eBay has not been shown it —
+// the same silent-success shape as a photo attach that never landed.
+//
+// TENANT SCOPE (US-268): every eBay call runs under the OWNER's own token
+// (`workspaceOwnerId ?? userId`), so a returnId belonging to another seller
+// reaches eBay as this seller's return and comes back 404/403 — there is no
+// query here that could read another tenant's row. The audit row is written
+// against the same owner.
+flipdeskEbayRoutes.post("/returns/:returnId/evidence", async (c) => {
+  if (!isEbayConfigured()) {
+    return c.json({ error: "eBay is not configured on this server." }, 503);
+  }
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  const returnId = c.req.param("returnId");
+
+  let form: FormData;
+  try {
+    form = await c.req.formData();
+  } catch {
+    return c.json({ error: "Invalid form data. Expected multipart/form-data." }, 400);
+  }
+  const files = form.getAll("file").filter((f): f is File => f instanceof File && f.size > 0);
+  if (files.length === 0) {
+    return c.json({ error: "Missing evidence file." }, 400);
+  }
+  // eBay caps what a return will carry, and a pack that is mostly filler argues
+  // worse than a pack that is only the flaw. The seller picked these already.
+  if (files.length > MAX_RETURN_EVIDENCE_FILES) {
+    return c.json(
+      { error: `Too many files — ${MAX_RETURN_EVIDENCE_FILES} is the limit.` },
+      400,
+    );
+  }
+
+  // US-2706 AC4: sniff the magic bytes rather than trusting the client MIME,
+  // and strip EXIF/GPS before anything leaves for a buyer-facing surface. Same
+  // order as the payment-dispute evidence route above.
+  const cleaned: Array<{ bytes: Uint8Array; filename: string }> = [];
+  for (const [i, file] of files.entries()) {
+    const rawBytes = new Uint8Array(await file.arrayBuffer());
+    const verdict = validateImageUpload(rawBytes, { allow: ["jpeg", "png"] });
+    if (!verdict.ok) {
+      return c.json({ error: `Invalid image: ${verdict.reason}` }, 400);
+    }
+    const { bytes } = stripImageMetadata(rawBytes, verdict.format);
+    cleaned.push({
+      bytes,
+      filename: file.name || `evidence-${i + 1}.${verdict.ext}`,
+    });
+  }
+
+  // US-2706 + the epic's standing safety constraint (US-2703 AC5): REFUSE when
+  // the grade report agrees with the buyer.
+  //
+  // The pack is assembled from the item's own grade report and the listing text
+  // GradeThread published (US-2704). When the report documents a flaw the
+  // listing did not disclose, sending this pack hands eBay a signed document
+  // proving our own user sold an undisclosed flaw. That is not a weak case, it
+  // is evidence for the other side, and the design says we do not send it.
+  //
+  // Best-effort in ONE direction only: if the report or the snapshot cannot be
+  // loaded, the plan is not built and the send proceeds on the seller's own
+  // judgement. A lookup failure must not silently become a refusal, and it must
+  // never become an assembly either — which is why the refusal is keyed on a
+  // verdict we actually computed rather than on the absence of one.
+  const complaint = String(form.get("complaint") ?? "").trim();
+  const orderId = String(form.get("order_id") ?? "").trim();
+  let context: EvidenceContext | null = null;
+  if (complaint && orderId) {
+    context = await planEvidence(ownerId, orderId, complaint);
+    if (context?.plan.verdict === "supported") {
+      return c.json(
+        {
+          error: "refused",
+          verdict: context.plan.verdict,
+          reason: context.plan.reason,
+        },
+        409,
+      );
+    }
+  }
+
+  // US-2706 AC3: the sheet goes FIRST, so the reviewer opening the pack reads
+  // what this is before they look at a close-up of a cuff. It is composited
+  // here rather than uploaded by the client because the certificate number and
+  // the grade date must come from the report, not from a form field a browser
+  // could be persuaded to change.
+  //
+  // Only when the grade is CERTIFIED: an uncertified report has no number to
+  // print, and a sheet whose certificate line reads "Not certified" argues
+  // against the seller on the one asset that exists to argue for them.
+  if (context?.stamp.certificateNumber) {
+    try {
+      cleaned.unshift({
+        bytes: await compositeReturnEvidenceSheet(
+          context.stamp,
+          context.defectCount,
+          context.gradedAt,
+        ),
+        filename: "condition-report.jpg",
+      });
+    } catch (err) {
+      // The photographs are still the evidence. A failed sheet costs the pack
+      // its cover page, not its argument.
+      console.error(
+        "[ebay.returns.evidence] sheet render failed:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+
+  const fileIds: string[] = [];
+  try {
+    for (const file of cleaned) {
+      fileIds.push(
+        await uploadReturnFile(ownerId, returnId, {
+          bytes: file.bytes,
+          filename: file.filename,
+          purpose: "ITEM_RELATED",
+        }),
+      );
+    }
+  } catch (err) {
+    return failSafe(c, 502, "eBay rejected the evidence upload.", err, "ebay.returns.evidence.upload");
+  }
+
+  let removedFileIds: string[] = [];
+  try {
+    // Submit activates by PURPOSE, not by id, so the whole pack goes up first
+    // and this runs once. A partial batch cannot be activated selectively.
+    ({ removedFileIds } = await submitReturnFiles(ownerId, returnId, "ITEM_RELATED"));
+  } catch (err) {
+    return failSafe(c, 502, "eBay accepted the files but would not activate them.", err, "ebay.returns.evidence.submit");
+  }
+
+  await writeAuditLog(c, {
+    action: "ebay.return.evidence",
+    targetType: "ebay_return",
+    targetId: returnId,
+    details: { files: fileIds.length, removed: removedFileIds.length },
+  });
+
+  // `removed` is reported rather than swallowed: eBay accepted the upload and
+  // then dropped the file at activation, so the pack on the case is smaller
+  // than the one the seller reviewed. Saying "sent" over that is the lie this
+  // route is here to avoid.
+  return c.json({
+    ok: true,
+    attached: fileIds.length - removedFileIds.length,
+    removed: removedFileIds.length,
+  });
+});
+
 // US-1978 (AC3): POST /orders/:orderId/refund — a PROACTIVE or PARTIAL refund,
 // outside any return case.
 //
@@ -5074,6 +5423,29 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
   }
   const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
 
+  // US-2707: FROM-PACK MODE. Present only when the caller sends order_id and
+  // complaint; without them this route behaves exactly as it did — one file,
+  // uploaded, attached. The rarer path must not be the one where the safety
+  // rule is missing, so the SAME refusal applies here as on returns: when the
+  // grade report documents a flaw the listing did not disclose, we do not hand
+  // eBay a signed document proving our own user sold it undisclosed.
+  const packOrderId = String(form.get("order_id") ?? "").trim();
+  const packComplaint = String(form.get("complaint") ?? "").trim();
+  let packContext: EvidenceContext | null = null;
+  if (packOrderId && packComplaint) {
+    packContext = await planEvidence(ownerId, packOrderId, packComplaint);
+    if (packContext?.plan.verdict === "supported") {
+      return c.json(
+        {
+          error: "refused",
+          verdict: packContext.plan.verdict,
+          reason: packContext.plan.reason,
+        },
+        409,
+      );
+    }
+  }
+
   let detail: PaymentDisputeDetail;
   try {
     detail = await getPaymentDispute(ownerId, disputeId);
@@ -5094,23 +5466,61 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
   }
 
   try {
-    const fileId = await uploadDisputeEvidenceFile(ownerId, disputeId, {
-      bytes: cleanBytes,
-      filename: file.name || `evidence.${verdict.ext}`,
-      contentType: verdict.contentType,
-    });
+    const fileIds: string[] = [];
+    // US-2707 AC3: the condition sheet joins the pack, and the evidence TYPE is
+    // still whatever the live dispute asked for. eBay requested a category of
+    // proof; sending it under a type of our choosing is answering a different
+    // question from the one it asked.
+    //
+    // Only for a CERTIFIED grade, same rule as the return path: a cover page
+    // reading "Not certified" argues against the seller on the one asset that
+    // exists to argue for them.
+    if (packContext?.stamp.certificateNumber) {
+      try {
+        const sheet = await compositeReturnEvidenceSheet(
+          packContext.stamp,
+          packContext.defectCount,
+          packContext.gradedAt,
+        );
+        fileIds.push(
+          await uploadDisputeEvidenceFile(ownerId, disputeId, {
+            bytes: sheet,
+            filename: "condition-report.jpg",
+            contentType: "image/jpeg",
+          }),
+        );
+      } catch (err) {
+        // The photograph is still the evidence.
+        console.error(
+          "[ebay.disputes.evidence] sheet render failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    fileIds.push(
+      await uploadDisputeEvidenceFile(ownerId, disputeId, {
+        bytes: cleanBytes,
+        filename: file.name || `evidence.${verdict.ext}`,
+        contentType: verdict.contentType,
+      }),
+    );
     const evidenceId = await addDisputeEvidence(ownerId, disputeId, {
       evidenceType,
-      fileIds: [fileId],
+      fileIds,
       lineItems,
     });
     await writeAuditLog(c, {
       action: "ebay.dispute.evidence",
       targetType: "ebay_payment_dispute",
       targetId: disputeId,
-      details: { evidence_type: evidenceType, evidence_id: evidenceId },
+      details: {
+        evidence_type: evidenceType,
+        evidence_id: evidenceId,
+        files: fileIds.length,
+        from_pack: packContext !== null,
+      },
     });
-    return c.json({ ok: true, evidenceId });
+    return c.json({ ok: true, evidenceId, attached: fileIds.length });
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the evidence upload.", err, "ebay.disputes.evidence");
   }
@@ -7834,6 +8244,25 @@ export async function publishItemForOwner(
       publish_failed_at: null,
     };
 
+    // US-2704: record the FIRST publish, here rather than at the wire.
+    //
+    // The wire-level funnel resolves a listing by inventory_sku or
+    // platform_offer_id, and neither is on the listings row until the persist
+    // below runs — createOrReplaceInventoryItem is step 2 and this is step 5.
+    // So the snapshot inside that call correctly skips, and the ORIGINAL
+    // description, which is the single most useful row this table will ever
+    // hold, would never be recorded at all. Deferred until after persist for
+    // the same reason: the row it attaches to has to exist first.
+    const recordFirstPublish = () =>
+      recordPublication(supabaseAdmin, {
+        ownerUserId: ownerId,
+        sku,
+        offerId,
+        description: ctx.summary.description,
+        aspects: ctx.summary.aspects,
+        price: Number(ctx.summary.priceValue),
+      });
+
     // US-783: the listing is LIVE on eBay now. A failure on the local writes
     // below is NOT a publish failure — retry, then fall back to a reconcile
     // marker (the pull-sync adopts the orphan by SKU) and return success with
@@ -7881,6 +8310,13 @@ export async function publishItemForOwner(
         );
       },
     });
+
+    // US-2704: now the listings row exists, so the snapshot has something to
+    // attach to. Awaited rather than fire-and-forget: this is the row a dispute
+    // pack is built from, and a publish is rare enough to pay one write for it.
+    // recordPublication swallows its own failures by contract, so this cannot
+    // turn a live listing into a failed publish.
+    await recordFirstPublish();
 
     // US-932: the listing is live → record it to the internal event stream (the
     // drip trigger substrate), alongside existing analytics. Fire-and-forget;

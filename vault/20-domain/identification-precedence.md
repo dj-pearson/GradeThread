@@ -11,6 +11,7 @@ code_refs:
   - services/edge-functions/src/lib/scout-identify.ts
   - services/edge-functions/src/lib/prospect-identify.ts
   - services/edge-functions/src/lib/ai-extract.ts
+  - services/edge-functions/src/lib/identification-provenance.ts
 reviewed: 2026-08-21
 tags: [identification, ebay, ai, category, contract]
 summary: Brand, style and category are decided by an ORDERING of evidence kinds - decoded style code, then tag wordmark, then visual consensus, then model knowledge - and not by whichever source reports the higher confidence.
@@ -155,6 +156,27 @@ mining them reads our own guesses back as corroboration.
 
 Also inherited: somebody else's **size** is never harvested. A visual match is a
 different physical garment that happens to be the same product.
+
+## Where the decisions are recorded
+
+Everything above is decided per run and would otherwise be recomputed and
+thrown away. `identification_provenance` (migration 00641) keeps one row per
+identification run: the category METHOD that won, the support behind a winning
+vote, the reason a losing one lost, and the model's verdict on every candidate.
+
+The row keeps **what was offered** as well as **what came back**, in two
+separate columns, and that is the only interesting thing about its shape. Three
+outcomes have to stay tellable apart:
+
+| In the data | What it means | What to do about it |
+|---|---|---|
+| no candidates offered | visual search found nothing, or never ran | look at the photo-role gate |
+| offered, no matching ruling | the model ignored the candidate | look at the prompt block |
+| offered, verdict `rejected` | refused on tag evidence | the provider was wrong — measure it |
+
+A table storing only the rulings would collapse the first and the third, which
+is exactly the question it exists to answer: is visual search earning its
+latency. Operator table, deny-all; nothing seller-facing reads it.
 
 ## Related
 

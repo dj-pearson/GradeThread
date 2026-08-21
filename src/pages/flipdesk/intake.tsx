@@ -83,6 +83,7 @@ import type {
 } from "@/types/database";
 import { deriveGarmentDefaults } from "@/lib/garment-mapping";
 import { todayLocalDate } from "@/lib/local-date";
+import { garmentDescriptorFor } from "@/lib/measurement-templates";
 
 // Form fields the AI extractor can fill.
 const AI_FILLABLE_FIELDS = [
@@ -459,6 +460,7 @@ export function FlipdeskIntakePage() {
               itemId: newId,
               ownerFolder: workspaceOwnerId,
               photoType: staged.photoType,
+              photoRole: staged.photoRole ?? null,
               sortOrder: i,
             });
             uploaded++;
@@ -843,6 +845,11 @@ export function FlipdeskIntakePage() {
             photos={stagedPhotos}
             onChange={setStagedPhotos}
             disabled={saving}
+            category={form.item_category || null}
+            garment={garmentDescriptorFor({
+              item_category: form.item_category || null,
+              title: form.title || null,
+            })}
           />
         </CardContent>
       </Card>

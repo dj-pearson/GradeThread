@@ -11,7 +11,7 @@ code_refs:
   - src/lib/listing-templates.ts
   - src/test/no-dead-column-writes.test.ts
   - src/components/flipdesk/composer/photos-card.tsx
-reviewed: 2026-08-19
+reviewed: 2026-08-21
 tags: [ebay, listings, grading, policy, contract]
 summary: A grade reaches a marketplace listing as text and a structured specific only — never burned into a photo, never as a QR slab image, never as a link.
 ---
@@ -23,6 +23,28 @@ summary: A grade reaches a marketplace listing as text and a structured specific
 > is about what a grade may become on a listing — text and a structured
 > specific, never burned into a photo, never a QR code — and nothing in either
 > commit writes an image or an aspect.
+>
+> **Re-reviewed 2026-08-21.** Drift flagged `flipdesk-ebay.ts` for the US-2704 /
+> US-2706 / US-2707 evidence work. This is the first change that renders grade
+> facts INTO AN IMAGE and sends that image to eBay, so it deserves a straight
+> answer rather than a "nothing to see here": the rule holds, because the rule
+> is scoped to **listings**, and none of this reaches one.
+>
+> US-2706 builds a condition sheet carrying the certificate number and grade
+> tier, and uploads it with the defect photographs. Every one of those calls —
+> `uploadReturnFile`, `submitReturnFiles`, `uploadDisputeEvidenceFile` — goes to
+> `apiHost()/post-order/v2` (see `services/edge-functions/src/lib/ebay-postorder.ts`).
+> That is the returns and payment-dispute API. It is a private channel between
+> the seller, the buyer and eBay's case handler, opened only once a case exists.
+> No listing photo is written, no aspect is added, no link goes on a listing.
+>
+> The distinction to keep, because the next reader will hit this and wonder: the
+> ban is on grading marks appearing where a BUYER BROWSES — the hero image, the
+> gallery, a QR code on the listing — which is what gets accounts suspended.
+> Handing a case handler an evidence document inside a dispute they are already
+> adjudicating is the opposite situation, and eBay's own API exists to receive
+> it. If a future story ever proposes attaching that sheet to the listing
+> itself, that is a NEW decision and this note says no.
 
 **Decision, 2026-06-25: a grade never touches a listing photo.** No badge burned
 into the hero image, no QR "digital slab" image attached to the listing.

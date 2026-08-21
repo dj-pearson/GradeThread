@@ -180,6 +180,106 @@ export async function issueReturnRefund(
   );
 }
 
+// ── Return evidence files (US-2706) ─────────────────────────────────
+//
+// TWO CALLS, and the second is not optional. `file/upload` associates a file
+// with the return and hands back a fileId; the file is INERT until
+// `file/submit` activates it. An implementation that stops after the upload
+// gets a 200, a fileId, and a seller who believes eBay has their evidence —
+// which is the same silent-success shape as the photo attach in the Lister.
+//
+// The submit call takes a filePurpose and NOT a list of fileIds: it activates
+// everything uploaded under that purpose. So a partial batch cannot be
+// activated selectively, which is why the caller uploads the whole pack before
+// submitting once.
+//
+// Verified against eBay's Post-Order v2 reference (Upload Return File / Submit
+// Return File, UploadFileRequest / SubmitFileRequest), not inferred from the
+// payment-dispute route next door — that is a different API on a different host
+// with a multipart body.
+
+/**
+ * What the file is for. eBay's FilePurposeEnum; these are the three the return
+ * flow uses.
+ */
+export type ReturnFilePurpose =
+  | "ITEM_RELATED" // the condition of the item — what an INAD defence attaches
+  | "REFUND_RELATED"
+  | "SHIPMENT_RELATED";
+
+export interface ReturnFileUpload {
+  bytes: Uint8Array;
+  /** eBay names the file by this. Extension matters; it sniffs the type. */
+  filename: string;
+  purpose?: ReturnFilePurpose;
+}
+
+/** base64 without a data: prefix, chunked so a large image cannot blow the stack. */
+function toBase64(bytes: Uint8Array): string {
+  // String.fromCharCode(...bytes) on a 2 MB image is ~2M arguments and throws
+  // RangeError. Chunked at 8 KB, which is well under every engine's limit.
+  let binary = "";
+  const CHUNK = 8192;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
+}
+
+/**
+ * Associate one file with a return. Returns eBay's fileId.
+ *
+ * The file is NOT visible to eBay's review until submitReturnFiles activates
+ * it. Callers must not report success on this alone.
+ */
+export async function uploadReturnFile(
+  userId: string,
+  returnId: string,
+  file: ReturnFileUpload,
+): Promise<string> {
+  const data = await postOrderFetch<{ fileId?: string }>(
+    userId,
+    `/return/${encodeURIComponent(returnId)}/file/upload`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: file.filename,
+        data: toBase64(file.bytes),
+        filePurpose: file.purpose ?? "ITEM_RELATED",
+      }),
+    },
+  );
+  const fileId = data.fileId;
+  if (!fileId) {
+    // eBay answered 2xx with no id. Treating that as success would activate
+    // nothing and tell the seller their evidence is on the case.
+    const err = new Error("eBay accepted the upload but returned no fileId");
+    (err as PostOrderError).status = 502;
+    throw err;
+  }
+  return fileId;
+}
+
+/**
+ * Activate every file uploaded under this purpose.
+ *
+ * Returns the ids eBay REMOVED during activation — a file it rejected after
+ * accepting the upload. The caller decides what to say about it; silently
+ * dropping the list would report a complete pack that is missing pages.
+ */
+export async function submitReturnFiles(
+  userId: string,
+  returnId: string,
+  purpose: ReturnFilePurpose = "ITEM_RELATED",
+): Promise<{ removedFileIds: string[] }> {
+  const data = await postOrderFetch<{ removedFileIds?: string[] }>(
+    userId,
+    `/return/${encodeURIComponent(returnId)}/file/submit`,
+    { method: "POST", body: JSON.stringify({ filePurpose: purpose }) },
+  );
+  return { removedFileIds: data.removedFileIds ?? [] };
+}
+
 // ── Cancellations ───────────────────────────────────────────────────
 
 export interface CancellationSummary {

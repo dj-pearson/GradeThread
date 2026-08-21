@@ -1,7 +1,7 @@
-# Store submission kit — GradeThread unified extension v0.9.0
+# Store submission kit — GradeThread unified extension v0.10.0
 
 Copy-paste source for the Chrome Web Store + Firefox AMO listings. Artifacts:
-`dist-ext/gradethread-v0.9.0-chrome.zip` · `dist-ext/gradethread-v0.9.0-firefox.zip`.
+`dist-ext/gradethread-v0.10.0-chrome.zip` · `dist-ext/gradethread-v0.10.0-firefox.zip`.
 
 ## Shared fields
 
@@ -229,7 +229,39 @@ event page (background.scripts); page↔extension messaging uses the gradethread
 content script gt-bridge.js (postMessage) in place of externally_connectable.
 ```
 
-## Version / release notes (v0.9.0)
+## Version / release notes (v0.10.0)
+
+```
+Cross-listing fills more of the form, and tells you the truth about the rest.
+
+New: your brand, style tags and price now carry across to Poshmark, and your
+brand carries across to Mercari. Before this, only the title and description
+did.
+
+New: every marketplace tab now lists the fields you still have to set yourself
+— the dropdowns and pickers whose options change per garment, which we leave to
+you rather than guessing. No more finding out after the form opens.
+
+Fixed: photos said they had been attached when the marketplace had not taken
+them. They now attach for real, and if a site refuses them you are told to drag
+them in instead of being congratulated.
+
+Fixed: photos are fetched all at once rather than one at a time, so a listing
+with a dozen images no longer runs past its own deadline and reports a timeout.
+
+Fixed: cross-listing could sit for two minutes before admitting it could not
+reach the extension. It now says so at once, and says which thing to check.
+
+Fixed: prices are sent in the units each marketplace accepts — whole amounts on
+Poshmark and Vinted, which reject anything smaller.
+
+Fixed: the selector check now describes what IS on a page, not only what is
+missing, so a broken form can be reported and repaired in one round instead of
+several.
+```
+
+<!-- The 0.9.0 notes, kept because the store shows the previous release
+     alongside the new one and reviewers read both. -->
 
 ```
 New: the popup is now three tabs — Reads, Selling and Settings — instead of one long

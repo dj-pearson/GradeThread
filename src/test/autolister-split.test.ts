@@ -16,8 +16,10 @@ const CEILINGS: Record<string, number> = {
   // which is the mechanism working: the file grew, and the answer was to take
   // something out rather than to make room. Lowered again from 3747 when
   // US-2621's selection bars pushed it to 3938 and the four toolbars moved into
-  // autolister/workbench-toolbars.tsx — same mechanism, same answer.
-  "src/pages/flipdesk/autolister.tsx": 3698,
+  // autolister/workbench-toolbars.tsx — same mechanism, same answer. Lowered
+  // again from 3698 when US-2769's missing-front check pushed it over and the
+  // whole pre-generate checkpoint moved into autolister/group-warnings.ts.
+  "src/pages/flipdesk/autolister.tsx": 3657,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   "src/pages/flipdesk/autolister-queue.tsx": 1120,
 };

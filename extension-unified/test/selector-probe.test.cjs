@@ -786,6 +786,65 @@ const matchNone = () => false;
   assert.deepStrictEqual(unknown.flows, []);
 }
 
+// ── US-2739: the price dialog is PROBED ────────────────────────────────────
+//
+// It was not, on any run, on any platform. The walker only pushed STRING values
+// and `priceDialog` is an object, so its three selectors were skipped in
+// silence while the deep report said the Poshmark list flow probed clean. The
+// one selector in the whole flow that was INFERRED rather than read off the
+// page is the one nothing was measuring - and a live send on 2026-08-20 came
+// back "could NOT set the price", which is what a dialog that never opened
+// looks like.
+{
+  const keys = P.selectorsFor(SELECTORS.poshmark, "list").map((e) => e.key);
+  assert.ok(
+    keys.includes("priceDialog.open"),
+    "priceDialog.open is not probed. It is the create-page control the seller " +
+      "clicks to reach the price, and the only inferred selector in the flow.",
+  );
+  assert.ok(
+    keys.includes("priceDialog.price"),
+    "the modal's own price input is not probed",
+  );
+
+  const entries = P.selectorsFor(SELECTORS.poshmark, "list");
+  const opener = entries.find((e) => e.key === "priceDialog.open");
+  assert.strictEqual(
+    opener.postInteraction,
+    false,
+    "the OPENER is a create-page control. Marking it post-interaction would " +
+      "excuse the exact miss this is here to catch.",
+  );
+  for (const key of ["priceDialog.price", "priceDialog.originalPrice"]) {
+    assert.strictEqual(
+      entries.find((e) => e.key === key).postInteraction,
+      true,
+      `${key} lives inside the modal and cannot resolve until it opens; ` +
+        "reporting it as a failure buries the one line that matters",
+    );
+  }
+
+  // The allowlist, not "every object-valued key". `delist` and `engage` are
+  // their own flows probed on their own pages, and walking them into the list
+  // report would bury it under two dozen expected misses.
+  const strays = keys.filter((k) => k.startsWith("delist.") || k.startsWith("engage."));
+  assert.deepStrictEqual(
+    strays,
+    [],
+    "the list probe walked another flow's selectors: " + strays.join(", "),
+  );
+
+  // Every other platform is unaffected: no groups, no new keys.
+  for (const plat of ["mercari", "grailed", "vinted", "facebook"]) {
+    const other = P.selectorsFor(SELECTORS[plat], "list").map((e) => e.key);
+    assert.deepStrictEqual(
+      other.filter((k) => k.includes(".")),
+      [],
+      `${plat} grew nested probe keys it does not declare`,
+    );
+  }
+}
+
 console.log(
   "✓ selector-probe: report carries no page content, states whether it was run " +
     "on the right page, returns candidate controls for a miss without reading " +

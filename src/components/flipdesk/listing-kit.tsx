@@ -55,6 +55,8 @@ import {
   sendToLister,
 } from "@/lib/lister-extension";
 import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
+import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
+import { filterChannels } from "@/lib/cross-post-channels";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   QUEUED_NOTICE,
@@ -856,14 +858,27 @@ export function photoNote(res: {
   photosAttached?: boolean;
   photosTotal?: number;
   photosFailed?: number;
+  photosUnverified?: number;
 }): string {
   const total = res.photosTotal ?? 0;
   const failed = res.photosFailed ?? 0;
   // Nothing to attach (no file input, or no photos on the item) — not a problem to
   // report. Falls back to the old boolean for an extension that predates the counts.
   if (total === 0) return res.photosAttached ? "" : " Drag your downloaded photos in.";
-  if (failed === 0) return "";
   const attached = total - failed;
+  // US-2775: a third state, between attached and failed.
+  //
+  // The page took the list only through the shadow fallback, where the only
+  // thing saying the photos landed is the extension reading back what it just
+  // wrote. Claiming success there is how US-2738's silent false success came
+  // back; claiming FAILURE would cry wolf on the hosts where the shadow works.
+  // So: say what is actually known. Checked before the clean-run return, since
+  // an unverified run has no failures either.
+  const unverified = res.photosUnverified ?? 0;
+  if (unverified > 0 && failed === 0) {
+    return " We couldn't confirm the photos attached — check the form before you post.";
+  }
+  if (failed === 0) return "";
   if (attached === 0) return " Photos didn't attach — drag your downloaded photos in.";
   return ` Attached ${attached} of ${total} photos — drag the rest in.`;
 }
@@ -964,6 +979,21 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // Resolving it at RENDER time fixes them all at once, with no regeneration
   // and no deploy ordering to get right. Same precedence as the generator and
   // the extension writeback: the eBay draft's price, else the item's target.
+  // US-2721: only the channels this seller cross-posts to. Narrowing here
+  // rather than at the tab render means generate() also stops spending AI calls
+  // on marketplaces they never open.
+  const { data: chosenChannels } = useCrossPostChannels();
+  const kitPlatforms = useMemo(
+    () => {
+      const narrowed = filterChannels(KIT_PLATFORMS, chosenChannels);
+      // Never render an empty kit: a selection that excludes every copy-paste
+      // channel (an eBay-and-Shopify seller) still gets the full set rather
+      // than a card with no tabs and no explanation.
+      return narrowed.length > 0 ? narrowed : KIT_PLATFORMS;
+    },
+    [chosenChannels],
+  );
+
   const { data: itemPrice } = useQuery({
     queryKey: ["item-target-price", itemId],
     queryFn: async () => {
@@ -1050,7 +1080,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
             size="sm"
             onClick={() => {
               gen.mutate(
-                { itemId, platforms: KIT_PLATFORMS },
+                { itemId, platforms: kitPlatforms },
                 {
                   onSuccess: () => {
                     toast.success("Marketplace fields generated");
@@ -1071,9 +1101,9 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
         </div>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue={KIT_PLATFORMS[0]}>
+        <Tabs defaultValue={kitPlatforms[0]}>
           <TabsList className="flex-wrap">
-            {KIT_PLATFORMS.map((p) => {
+            {kitPlatforms.map((p) => {
               const spec = getMarketplaceSpec(p);
               const v = variants[p];
               const hasErr = v ? !v.validation?.ok : false;

@@ -313,6 +313,14 @@ offsite dump on a scratch host. Record the result here so the drill has a home.
   Spanish catalogue. Anyone triaging "what is left before launch" will find a
   large Android surface that looks unfinished; it is unfinished, and it is
   deliberately not on this list.
+
+  **Update 2026-08-21: the Play listing now exists in the repo, and the
+  launch-gate decision above still stands.** The store copy, the Console form
+  answers, the product catalogue and the release mechanics are written up in
+  `android/PLAY_STORE_SUBMISSION.md`, and preparing them turned up one hard
+  policy blocker that was fixed rather than deferred (no in-app account
+  deletion, US-2776). Read that file as work done ahead of a post-launch
+  submission, not as a row that has to be ticked before web and iOS go live.
 - ☐ All blockers in `prd.json` (US-772…US-785) marked `passes:true`
 
 **Launch approved by:** ________________  **Date:** ____________

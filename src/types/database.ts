@@ -2158,6 +2158,10 @@ export interface FlipdeskSettingsRow {
   // Global default (US-766, migration 00180): attach the QR-bearing Digital
   // Slab as a supplementary image on graded listings by default.
   auto_slab_image: boolean;
+  // US-2721 (migration 00644): which marketplaces this seller cross-posts to.
+  // NULL means ALL — the setting narrows what is offered and can never turn
+  // cross-posting off. See src/lib/cross-post-channels.ts.
+  cross_post_channels: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -2167,6 +2171,7 @@ export interface FlipdeskSettingsInsert {
   auto_end_cross_listings?: boolean;
   auto_grade_badge?: boolean;
   auto_slab_image?: boolean;
+  cross_post_channels?: string[] | null;
 }
 
 export type FlipdeskSettingsUpdate = Partial<
