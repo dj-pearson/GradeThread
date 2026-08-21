@@ -20,12 +20,22 @@ struct GradeRequestSheet: View {
     // init, mirroring ItemCanvasState — constructing a @MainActor store in a
     // View initializer trips main-actor isolation.
     @State private var store: GradeRequestStore?
-    /// Presents the in-app StoreKit paywall (credit packs + plans) so the
-    /// seller can top up grade credits without leaving the app.
-    @State private var showCreditPaywall = false
-    /// US-809: presents the focused credit-pack purchase sheet from the blocked
-    /// banner (no plans) so credits can be bought without leaving this sheet.
-    @State private var showCreditPacks = false
+    /// The two billing surfaces this sheet can present over itself. One
+    /// optional driving ONE `.sheet(item:)`, because a view has a single sheet
+    /// slot and chaining two `.sheet(isPresented:)` modifiers makes them
+    /// compete for it — see ``ToolModule``.
+    @State private var creditSheet: CreditSheet?
+
+    /// Presented over the grading sheet when the seller needs credits.
+    private enum CreditSheet: String, Identifiable {
+        /// The in-app StoreKit paywall (credit packs + plans).
+        case paywall
+        /// US-809: the focused credit-pack purchase sheet, opened from the
+        /// blocked banner so credits can be bought without leaving here.
+        case packs
+
+        var id: String { rawValue }
+    }
     /// US-980: confirm before a tap spends paid grade credits, so a mis-tap
     /// can't charge real money with no undo. Free/Included grades skip this.
     @State private var showSpendConfirm = false
@@ -61,22 +71,28 @@ struct GradeRequestSheet: View {
             .onDisappear { store?.stop() }
         }
         .interactiveDismissDisabled(isWorking)
-        .sheet(isPresented: $showCreditPaywall, onDismiss: { Task { await store?.load() } }) {
-            if let userId = currentUserId {
-                NavigationStack { PaywallView(userId: userId) }
-            } else {
-                // US-1522: session expired between opening the sheet and tapping
-                // buy-credits — show a re-sign-in prompt, not a blank sheet.
-                SessionExpiredView { showCreditPaywall = false }
-            }
-        }
-        .sheet(isPresented: $showCreditPacks) {
-            if let userId = currentUserId {
-                CreditPackSheet(userId: userId) {
-                    Task { await store?.creditsPurchased() }
+        // Reloading on dismiss now covers BOTH surfaces rather than only the
+        // paywall. `creditsPurchased()` already refreshes after a pack purchase,
+        // so the extra load is a no-op there and closes the gap where a
+        // cancelled pack sheet left a stale credit count on screen.
+        .sheet(item: $creditSheet, onDismiss: { Task { await store?.load() } }) { which in
+            switch which {
+            case .paywall:
+                if let userId = currentUserId {
+                    NavigationStack { PaywallView(userId: userId) }
+                } else {
+                    // US-1522: session expired between opening the sheet and
+                    // tapping buy-credits — a re-sign-in prompt, not a blank sheet.
+                    SessionExpiredView { creditSheet = nil }
                 }
-            } else {
-                SessionExpiredView { showCreditPacks = false }
+            case .packs:
+                if let userId = currentUserId {
+                    CreditPackSheet(userId: userId) {
+                        Task { await store?.creditsPurchased() }
+                    }
+                } else {
+                    SessionExpiredView { creditSheet = nil }
+                }
             }
         }
     }
@@ -270,7 +286,7 @@ struct GradeRequestSheet: View {
     private var buyCreditsButton: some View {
         Button {
             AppRouter.haptic()
-            showCreditPaywall = true
+            creditSheet = .paywall
         } label: {
             Label("Buy grade credits", systemImage: "cart.badge.plus")
                 .font(.subheadline.weight(.semibold))
@@ -343,7 +359,7 @@ struct GradeRequestSheet: View {
     private var buyCreditsBannerButton: some View {
         Button {
             AppRouter.haptic()
-            showCreditPacks = true
+            creditSheet = .packs
         } label: {
             Label("Buy credits", systemImage: "cart.badge.plus")
                 .font(.caption.weight(.semibold))

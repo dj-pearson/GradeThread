@@ -23,7 +23,52 @@ struct DetailsIntakeView: View {
         case title, sku, brand, style, size, color, material, container, sourcedBy, purchasePrice
     }
     @FocusState private var focusedField: Field?
-    @State private var showingAddSourceSheet = false
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame — see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`.
+    @State private var sheet: IntakeSheet?
+
+    /// The duplicate-SKU combine-into-existing sheet. A function rather than
+    /// an inline case body so the `let sku` binding stays in ordinary Swift
+    /// rather than inside a result builder.
+    @ViewBuilder
+    private func skuMergeSheet(_ existing: ExistingSkuItem) -> some View {
+        let sku = form.sku.trimmingCharacters(in: .whitespacesAndNewlines)
+        MergeSkuSheet(
+            headerTitle: "SKU already in use",
+            explanation: "An item with SKU “\(sku)” already exists. Combine your new details into it instead of creating a duplicate? Pick which value to keep where they differ — your new entry is selected by default. Nothing is duplicated; the existing item is updated.",
+            currentHeading: "Your entry",
+            existingHeading: "Existing item",
+            confirmLabel: "Combine",
+            conflicts: skuMergeConflicts,
+            merging: isMergingSku,
+            errorMessage: skuMergeError,
+            onConfirm: { chosen in
+                Task { await confirmIntakeMerge(existing: existing, keepExisting: chosen) }
+            },
+            onCancel: {
+                guard !isMergingSku else { return }
+                sheet = nil
+                skuMergeError = nil
+            }
+        )
+    }
+
+    /// The sheets the details-first intake form presents.
+    private enum IntakeSheet: Identifiable {
+        /// Add a new source without leaving the form.
+        case addSource
+        /// Duplicate-SKU combine-into-existing (intake variant of the merge).
+        case skuMerge(ExistingSkuItem)
+
+        var id: String {
+            switch self {
+            case .addSource:              return "addSource"
+            case .skuMerge(let existing): return "skuMerge-\(existing.id)"
+            }
+        }
+    }
     @State private var isSaving = false
     @State private var bannerMessage: BannerMessage?
     /// US-646: a recoverable draft from a prior (background-killed) session.
@@ -54,7 +99,6 @@ struct DetailsIntakeView: View {
     // the entered SKU already belongs to an item we pre-check BEFORE inserting
     // and offer to combine the new details into that item instead of creating a
     // duplicate (which would trip idx_inventory_items_user_sku).
-    @State private var skuMergeExisting: ExistingSkuItem?
     @State private var skuMergeConflicts: [ItemMergeConflict] = []
     @State private var isMergingSku = false
     @State private var skuMergeError: String?
@@ -127,11 +171,16 @@ struct DetailsIntakeView: View {
         } message: { draft in
             Text("You have an unsaved \(draft.title.isEmpty ? "item" : "\"\(draft.title)\"") from \(draft.savedAt.formatted(.relative(presentation: .named))).")
         }
-        .sheet(isPresented: $showingAddSourceSheet) {
-            if let store = sourceStore, let userId = currentUserId() {
-                AddSourceSheet(store: store, userId: userId) { newId in
-                    form.sourceId = newId
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .addSource:
+                if let store = sourceStore, let userId = currentUserId() {
+                    AddSourceSheet(store: store, userId: userId) { newId in
+                        form.sourceId = newId
+                    }
                 }
+            case .skuMerge(let existing):
+                skuMergeSheet(existing)
             }
         }
         .fullScreenCover(isPresented: $showingBarcodeScanner) {
@@ -140,27 +189,6 @@ struct DetailsIntakeView: View {
             }
         }
         // Duplicate-SKU combine-into-existing (intake variant of the merge).
-        .sheet(item: $skuMergeExisting) { existing in
-            let sku = form.sku.trimmingCharacters(in: .whitespacesAndNewlines)
-            MergeSkuSheet(
-                headerTitle: "SKU already in use",
-                explanation: "An item with SKU “\(sku)” already exists. Combine your new details into it instead of creating a duplicate? Pick which value to keep where they differ — your new entry is selected by default. Nothing is duplicated; the existing item is updated.",
-                currentHeading: "Your entry",
-                existingHeading: "Existing item",
-                confirmLabel: "Combine",
-                conflicts: skuMergeConflicts,
-                merging: isMergingSku,
-                errorMessage: skuMergeError,
-                onConfirm: { chosen in
-                    Task { await confirmIntakeMerge(existing: existing, keepExisting: chosen) }
-                },
-                onCancel: {
-                    guard !isMergingSku else { return }
-                    skuMergeExisting = nil
-                    skuMergeError = nil
-                }
-            )
-        }
         .onDisappear {
             // Don't leave the audio engine running if the user swipes the
             // intake away mid-dictation.
@@ -396,7 +424,7 @@ struct DetailsIntakeView: View {
         .onChange(of: form.sourceId) { _, newValue in
             if newValue == "__add_new__" {
                 form.sourceId = nil
-                showingAddSourceSheet = true
+                sheet = .addSource
             }
         }
     }
@@ -552,7 +580,7 @@ struct DetailsIntakeView: View {
                 .filter { $0.field != .status }
             pendingMergeOutcome = outcome
             skuMergeError = nil
-            skuMergeExisting = existing  // presents the combine sheet
+            sheet = .skuMerge(existing)  // presents the combine sheet
             HapticFeedback.warning()
             return
         }
@@ -730,7 +758,7 @@ struct DetailsIntakeView: View {
 
         IntakeDraftStore.clear()
         isMergingSku = false
-        skuMergeExisting = nil
+        sheet = nil
         HapticFeedback.success()
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
         bannerMessage = BannerMessage(kind: .success, text: "Combined into the existing item.")

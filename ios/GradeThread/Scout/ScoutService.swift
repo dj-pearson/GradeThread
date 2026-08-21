@@ -25,9 +25,15 @@ final class ScoutService: ScoutScanning {
     private let baseURL: URL
     private let session: URLSession
 
-    // US-1407: bounded session (was `URLSession.shared` = 60s) so a user-tapped
-    // scout scan fails fast instead of hanging ~60s.
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
+    // A scan is an AI-INFERENCE call, not a normal request. The edge grades up
+    // to `MAX_CANDIDATES` listings from their photos and streams NOTHING until
+    // the ranked JSON is ready, so the connection sits legitimately idle for the
+    // whole run. US-1407 put this on the 20s-idle `EdgeNetwork.shared` to stop
+    // hangs; that ceiling is shorter than a SINGLE candidate's grade (~15-25s
+    // observed), so every scan timed out client-side while the server kept
+    // grading and billing. `aiSession` is the session built for exactly this
+    // shape — see `EdgeNetwork.aiRequestTimeout`.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
         self.baseURL = baseURL
         self.session = session
     }

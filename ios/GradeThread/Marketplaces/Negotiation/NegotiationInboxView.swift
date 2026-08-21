@@ -17,9 +17,29 @@ struct NegotiationInboxView: View {
 
     @State private var store = NegotiationStore()
     @State private var tab: Tab = .offers
-    @State private var countering: BestOffer?
-    @State private var replying: BuyerMessage?
-    @State private var showSendOffer = false
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame - see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`.
+    @State private var sheet: NegotiationSheet?
+
+    /// The sheets the negotiation inbox presents.
+    private enum NegotiationSheet: Identifiable {
+        /// Counter one buyer's best offer.
+        case counter(BestOffer)
+        /// Reply to one buyer message.
+        case reply(BuyerMessage)
+        /// US-1238: send a discount to every eligible watcher at once.
+        case sendOffer
+
+        var id: String {
+            switch self {
+            case .counter(let offer): return "counter-\(offer.id)"
+            case .reply(let message): return "reply-\(message.id)"
+            case .sendOffer:          return "sendOffer"
+            }
+        }
+    }
     // US-1160: accepting/declining an offer resolves the eBay best offer
     // irreversibly, so it's gated behind a confirmation showing the price.
     @State private var pendingOfferAction: PendingOfferAction?
@@ -102,7 +122,7 @@ struct NegotiationInboxView: View {
             // a reconnect would fix it, so the sheet can offer that fix.
             if tab == .offers && store.showSendOfferEntry {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showSendOffer = true } label: {
+                    Button { sheet = .sendOffer } label: {
                         Label("Send offer", systemImage: "paperplane")
                     }
                 }
@@ -116,23 +136,25 @@ struct NegotiationInboxView: View {
             await store.loadOffers()
             await store.loadMessages()
         }
-        .sheet(item: $countering) { offer in
-            // US-1168: the sheet awaits the result and dismisses only on success.
-            CounterOfferSheet(offer: offer) { price, message in
-                await store.counter(offer, price: price, message: message)
-            }
-        }
-        .sheet(item: $replying) { message in
-            MessageReplySheet(message: message) { body in
-                await store.reply(to: message, body: body)
-            }
-        }
-        .sheet(isPresented: $showSendOffer) {
-            // US-1238: blasting a discount to every interested buyer is an
-            // irreversible money action, so the sheet shows the eligible count up
-            // front and gates the send behind a confirmation (mirrors US-1160).
-            SendOfferSheet(checkEligible: { await store.checkEligible() }) { pct, message in
-                await store.sendOfferToAllEligible(discountPercentage: pct, message: message)
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .counter(let offer):
+                // US-1168: the sheet awaits the result and dismisses only on success.
+                CounterOfferSheet(offer: offer) { price, message in
+                    await store.counter(offer, price: price, message: message)
+                }
+            case .reply(let message):
+                MessageReplySheet(message: message) { body in
+                    await store.reply(to: message, body: body)
+                }
+            case .sendOffer:
+                // US-1238: blasting a discount to every interested buyer is an
+                // irreversible money action, so the sheet shows the eligible
+                // count up front and gates the send behind a confirmation
+                // (mirrors US-1160).
+                SendOfferSheet(checkEligible: { await store.checkEligible() }) { pct, message in
+                    await store.sendOfferToAllEligible(discountPercentage: pct, message: message)
+                }
             }
         }
         .confirmationDialog(
@@ -224,7 +246,7 @@ struct NegotiationInboxView: View {
             HStack(spacing: 10) {
                 Button("Accept") { pendingOfferAction = .accept(offer) }
                     .buttonStyle(.borderedProminent).tint(.brandEmerald)
-                Button("Counter") { countering = offer }
+                Button("Counter") { sheet = .counter(offer) }
                     .buttonStyle(.bordered)
                 Button("Decline", role: .destructive) { pendingOfferAction = .decline(offer) }
                     .buttonStyle(.bordered)
@@ -253,7 +275,7 @@ struct NegotiationInboxView: View {
                     // replied to in-app (has an item + sender) — otherwise show a
                     // non-interactive row, instead of failing after Send.
                     if isReplyable(message) {
-                        Button { replying = message } label: { messageRow(message) }
+                        Button { sheet = .reply(message) } label: { messageRow(message) }
                             .tint(.primary)
                     } else {
                         messageRow(message)

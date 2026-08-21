@@ -47,6 +47,18 @@ jobs:
       - name: Lint — no default URLSession=.shared in services (US-1407)
         run: python3 ios/Scripts/no-default-shared-session.py
 
+      - name: Lint — one .sheet modifier per view
+        # Two `.sheet` modifiers on one view compete for its single presentation
+        # slot; the loser opens and closes in the same frame. That is what broke
+        # "Prospect an item" and "What's it worth?", and it is invisible in review.
+        run: python3 ios/Scripts/check-chained-sheets.py
+
+      - name: Lint — AI-inference routes use the long-idle session
+        # These routes stream nothing until the model finishes, so the 20s-idle
+        # session kills a request the server completed AND billed. ScoutAI and
+        # Item Prospecting sat on the short session and failed every time.
+        run: python3 ios/Scripts/check-ai-session.py
+
       - name: Lint — no raw JPEG encode outside PhotoCompressor (US-2083)
         run: python3 ios/Scripts/no-raw-jpeg-encode.py
 

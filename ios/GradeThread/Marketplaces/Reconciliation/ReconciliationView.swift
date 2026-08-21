@@ -9,8 +9,26 @@ struct ReconciliationView: View {
     /// shows the now-mirrored listing (the merge lands the LocalListing row).
     @Environment(\.syncEngine) private var syncEngine
     @State private var store = ReconciliationStore()
-    @State private var creating: OrphanEbayListing?
-    @State private var linking: OrphanEbayListing?
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame — see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`.
+    @State private var sheet: ReconcileSheet?
+
+    /// What to do with one unmatched eBay listing.
+    private enum ReconcileSheet: Identifiable {
+        /// Create a new inventory item from the listing.
+        case create(OrphanEbayListing)
+        /// Link the listing to an item that already exists.
+        case link(OrphanEbayListing)
+
+        var id: String {
+            switch self {
+            case .create(let orphan): return "create-\(orphan.id)"
+            case .link(let orphan):   return "link-\(orphan.id)"
+            }
+        }
+    }
     @State private var bulkConfirming = false
 
     private let service = ReconciliationService()
@@ -43,17 +61,19 @@ struct ReconciliationView: View {
                 await store.refresh(userId: userId)
             }
         }
-        .sheet(item: $creating) { orphan in
-            CreateItemFromListingSheet(
-                orphan: orphan,
-                service: service
-            ) { outcome in
-                Task { await applyOutcome(outcome) }
-            }
-        }
-        .sheet(item: $linking) { orphan in
-            LinkItemSheet(orphan: orphan, service: service) { outcome in
-                Task { await applyOutcome(outcome) }
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .create(let orphan):
+                CreateItemFromListingSheet(
+                    orphan: orphan,
+                    service: service
+                ) { outcome in
+                    Task { await applyOutcome(outcome) }
+                }
+            case .link(let orphan):
+                LinkItemSheet(orphan: orphan, service: service) { outcome in
+                    Task { await applyOutcome(outcome) }
+                }
             }
         }
         .confirmationDialog(
@@ -135,7 +155,7 @@ struct ReconciliationView: View {
                         // Leading swipe → Create. Matches the AC explicitly.
                         .swipeActions(edge: .leading, allowsFullSwipe: true) {
                             Button {
-                                creating = orphan
+                                sheet = .create(orphan)
                             } label: {
                                 Label("Create item", systemImage: "plus.square")
                             }
@@ -149,7 +169,7 @@ struct ReconciliationView: View {
                                 Label("Ignore", systemImage: "eye.slash")
                             }
                             Button {
-                                linking = orphan
+                                sheet = .link(orphan)
                             } label: {
                                 Label("Link", systemImage: "link")
                             }

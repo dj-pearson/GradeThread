@@ -11,9 +11,27 @@ struct PostSaleView: View {
     // after load jump to whichever tab actually has items so the screen isn't
     // empty on arrival.
     @State private var tab: Tab = .returns
-    @State private var contesting: EbayPaymentDispute?
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame — see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`.
+    @State private var sheet: PostSaleSheet?
+
+    /// The sheets the post-sale screen presents.
+    private enum PostSaleSheet: Identifiable {
+        /// Contest a payment dispute.
+        case contest(EbayPaymentDispute)
+        /// Pick a photo to attach as evidence.
+        case evidencePicker
+
+        var id: String {
+            switch self {
+            case .contest(let dispute): return "contest-\(dispute.id)"
+            case .evidencePicker:       return "evidencePicker"
+            }
+        }
+    }
     @State private var evidenceTarget: EbayPaymentDispute?
-    @State private var showingEvidencePicker = false
     // US-1160: irreversible, money-moving actions are gated behind a single
     // confirmation dialog so a mis-tap can't refund/decline/cancel an order.
     @State private var pendingAction: PendingAction?
@@ -122,15 +140,17 @@ struct PostSaleView: View {
                 else if !store.disputes.isEmpty { tab = .disputes }
             }
         }
-        .sheet(item: $contesting) { dispute in
-            ContestSheet(dispute: dispute) { note in
-                // US-1192: await the result; the sheet only dismisses on success.
-                await store.contestDispute(dispute, note: note)
-            }
-        }
-        .sheet(isPresented: $showingEvidencePicker) {
-            PhotoLibraryPicker(selectionLimit: 1) { results in
-                handleEvidencePick(results)
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .contest(let dispute):
+                ContestSheet(dispute: dispute) { note in
+                    // US-1192: await the result; the sheet only dismisses on success.
+                    await store.contestDispute(dispute, note: note)
+                }
+            case .evidencePicker:
+                PhotoLibraryPicker(selectionLimit: 1) { results in
+                    handleEvidencePick(results)
+                }
             }
         }
         .confirmationDialog(
@@ -223,11 +243,11 @@ struct PostSaleView: View {
             HStack(spacing: 10) {
                 Button("Evidence") {
                     evidenceTarget = d
-                    showingEvidencePicker = true
+                    sheet = .evidencePicker
                 }
                 .buttonStyle(.bordered)
                 .disabled(store.evidenceUploadingId == d.paymentDisputeId)
-                Button("Contest") { contesting = d }
+                Button("Contest") { sheet = .contest(d) }
                     .buttonStyle(.bordered)
                 Button("Accept & refund", role: .destructive) { pendingAction = .acceptDispute(d) }
                     .buttonStyle(.borderedProminent)
@@ -346,7 +366,7 @@ struct PostSaleView: View {
     /// dispute evidence. The contest action is separate — evidence can be
     /// attached first, then the dispute contested.
     private func handleEvidencePick(_ results: [PHPickerResult]) {
-        showingEvidencePicker = false
+        sheet = nil
         guard let target = evidenceTarget, let result = results.first else { return }
         Task {
             // Route through PhotoCompressor rather than encoding here. Its own

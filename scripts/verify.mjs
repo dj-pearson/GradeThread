@@ -148,6 +148,8 @@ const IOS_GUARDS = [
   ["no new bare UI strings", "no-bare-strings.py"],
   ["no force unwrap", "no-force-unwrap.py"],
   ["ATS not relaxed", "check-ats.py"],
+  ["one sheet modifier per view", "check-chained-sheets.py"],
+  ["AI routes on the AI session", "check-ai-session.py"],
 ];
 
 const results = [];

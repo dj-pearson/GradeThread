@@ -4,19 +4,37 @@ import SwiftUI
 /// route to the per-consignor payout report.
 struct ConsignorsView: View {
     @State private var store = ConsignorStore()
-    @State private var editing: EditingTarget?
-    @State private var showReport = false
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame — see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`.
+    @State private var sheet: ConsignorSheet?
+
+    /// The sheets this screen presents.
+    enum ConsignorSheet: Identifiable {
+        /// Create a consignor, or edit an existing one.
+        case editor(EditingTarget)
+        /// The payout/consignment report across every consignor.
+        case report
+
+        var id: String {
+            switch self {
+            case .editor(let target): return "editor-\(target.id)"
+            case .report:             return "report"
+            }
+        }
+    }
 
     var body: some View {
         List {
             Section {
                 Button {
-                    editing = .new
+                    sheet = .editor(.new)
                 } label: {
                     Label("Add consignor", systemImage: "plus.circle")
                 }
                 Button {
-                    showReport = true
+                    sheet = .report
                 } label: {
                     Label("Payout report", systemImage: "chart.bar.doc.horizontal")
                 }
@@ -49,7 +67,7 @@ struct ConsignorsView: View {
                     Section {
                         ForEach(store.consignors) { consignor in
                             Button {
-                                editing = .existing(consignor)
+                                sheet = .editor(.existing(consignor))
                             } label: {
                                 consignorRow(consignor)
                             }
@@ -67,12 +85,14 @@ struct ConsignorsView: View {
         // that lands while one is already in flight, so the gesture can't kick
         // off a duplicate concurrent fetch.
         .refreshable { await store.load() }
-        .sheet(item: $editing) { target in
-            ConsignorEditorSheet(store: store, target: target)
-        }
-        .sheet(isPresented: $showReport) {
-            NavigationStack {
-                ConsignmentReportView(store: store)
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .editor(let target):
+                ConsignorEditorSheet(store: store, target: target)
+            case .report:
+                NavigationStack {
+                    ConsignmentReportView(store: store)
+                }
             }
         }
         .alert(

@@ -12,12 +12,11 @@ struct DashboardView: View {
     /// the shell; we only mutate `selection` / `showingAddSheet`.
     let router: AppRouter
 
-    /// US-613: presents the Snap-to-Value sheet.
-    @State private var showingSnap = false
-    /// ScoutAI: presents the "find underpriced deals" sheet.
-    @State private var showingScout = false
-    /// US-1107: presents the in-store Item Prospecting (snap → comps) sheet.
-    @State private var showingProspect = false
+    /// Which of Snap-to-Value (US-613), ScoutAI and Item Prospecting (US-1107)
+    /// is presented. One optional driving one sheet modifier — see
+    /// ``ToolModule``; three separate `.sheet(isPresented:)` modifiers on this
+    /// view is what made two of the three flash open and close again.
+    @State private var presentedModule: ToolModule?
     /// US-647: post-signup activation checklist.
     @State private var activation = ActivationChecklistStore()
 
@@ -69,15 +68,7 @@ struct DashboardView: View {
         .refreshable {
             NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
         }
-        .sheet(isPresented: $showingSnap) {
-            SnapView(router: router)
-        }
-        .sheet(isPresented: $showingScout) {
-            ScoutView()
-        }
-        .sheet(isPresented: $showingProspect) {
-            ProspectView(router: router)
-        }
+        .toolModulePresentation($presentedModule, router: router)
         // US-967: rebuild the 14-day trend series only when sales or items
         // change, not on every `body` re-evaluation (where it was read 3×).
         .onChange(of: trendSignature, initial: true) { _, _ in
@@ -385,7 +376,7 @@ struct DashboardView: View {
             // US-613: Snap-to-Value — the free "what's it worth?" scan.
             Button {
                 AppRouter.haptic()
-                showingSnap = true
+                presentedModule = .snap
             } label: {
                 Label("What's it worth?", systemImage: "sparkles")
             }
@@ -394,7 +385,7 @@ struct DashboardView: View {
             // US-1107: Item Prospecting — snap an item in-store, get comps.
             Button {
                 AppRouter.haptic()
-                showingProspect = true
+                presentedModule = .prospect
             } label: {
                 Label("Prospect an item", systemImage: "viewfinder.circle")
             }
@@ -403,7 +394,7 @@ struct DashboardView: View {
             // ScoutAI — find underpriced listings to buy and flip.
             Button {
                 AppRouter.haptic()
-                showingScout = true
+                presentedModule = .scout
             } label: {
                 Label("Scout deals", systemImage: "binoculars")
             }

@@ -659,7 +659,7 @@ struct MainShell: View {
                     count: reconcileBadge.orphanCount,
                     onTap: {
                         AppRouter.haptic()
-                        router.showingReconciliation = true
+                        router.shellSheet = .reconciliation
                     },
                     onSnooze: {
                         // US-1262: let the user dismiss/snooze the persistent
@@ -834,22 +834,26 @@ struct MainShell: View {
                 if appLock.state == .locked { Task { await appLock.authenticate() } }
             }
         }
-        // US-678: global search sheet, reachable from the Home toolbar.
-        .sheet(isPresented: $router.showingGlobalSearch) {
-            GlobalSearchView()
-        }
-        // US-749: the Tools hub, reachable from the toolbar on any tab.
-        .sheet(isPresented: $router.showingToolsHub) {
-            ToolsHubView(router: router, orphanCount: reconcileBadge.orphanCount)
-        }
-        // US-749: Reconciliation presented from the shell-level orphan banner.
-        .sheet(isPresented: $router.showingReconciliation, onDismiss: { refreshReconcileBadge() }) {
-            NavigationStack { ReconciliationView() }
-        }
-        // US-1136: native support inbox, opened by a support-reply deep link from
-        // any tab. Carries the referenced thread id when the push had one.
-        .sheet(isPresented: $router.showingSupport, onDismiss: { router.supportTicketId = nil }) {
-            SupportTicketsView(initialTicketId: router.supportTicketId)
+        // The shell's four sheets share ONE modifier — see `AppRouter.ShellSheet`
+        // for why that is not merely tidier. `onDismiss` fires for whichever was
+        // up, so it does the cleanup both of the old per-sheet handlers did:
+        // re-count orphan listings (Reconciliation may have resolved some) and
+        // drop the deep-linked support thread id so opening the inbox by hand
+        // next time doesn't reopen it.
+        .sheet(item: $router.shellSheet, onDismiss: {
+            refreshReconcileBadge()
+            router.supportTicketId = nil
+        }) { sheet in
+            switch sheet {
+            case .globalSearch:
+                GlobalSearchView()
+            case .toolsHub:
+                ToolsHubView(router: router, orphanCount: reconcileBadge.orphanCount)
+            case .reconciliation:
+                NavigationStack { ReconciliationView() }
+            case .support:
+                SupportTicketsView(initialTicketId: router.supportTicketId)
+            }
         }
         .fullScreenCover(item: $sharedIntakeBatch) { drained in
             NavigationStack {
@@ -1039,7 +1043,7 @@ struct MainShell: View {
             // US-1136: open the native support inbox over the shell, drilling into
             // the referenced thread when the push carried one.
             router.supportTicketId = ticketId
-            router.showingSupport = true
+            router.shellSheet = .support
         }
     }
 
@@ -1136,7 +1140,7 @@ private struct TabBarShell: View {
                         // US-678: global search across inventory/listings/sales/sources.
                         ToolbarItem(placement: .topBarTrailing) {
                             Button {
-                                router.showingGlobalSearch = true
+                                router.shellSheet = .globalSearch
                             } label: {
                                 Image(systemName: "magnifyingglass")
                             }
@@ -1476,19 +1480,36 @@ enum IntakeRoute: Hashable {
 final class AppRouter {
     var selection: AppSection = .home
     var showingAddSheet = false
-    /// US-678: presents the global search sheet.
-    var showingGlobalSearch = false
-    /// US-749: presents the Tools hub (Scout / Snap / AutoLister / Grades /
-    /// Reconcile / Referrals / Verified) — reachable from a toolbar on any tab.
-    var showingToolsHub = false
-    /// US-749: presents Reconciliation directly from the shell-level orphan
-    /// banner, so it's reachable regardless of which tab is active.
-    var showingReconciliation = false
-    /// US-1136: presents the native support inbox from the shell so a
-    /// `support.reply` deep link can open it (and the referenced thread) from
-    /// any tab. `supportTicketId` carries the thread to open, if any.
-    var showingSupport = false
+
+    /// Which shell-level sheet is up, if any.
+    ///
+    /// ONE optional rather than one boolean per surface, because a view gets
+    /// ONE sheet modifier. These four used to be four chained
+    /// `.sheet(isPresented:)` modifiers on the shell, which is undefined in
+    /// SwiftUI — see ``ToolModule``. It also makes the mutual exclusion
+    /// explicit: two of these can never sensibly be up at once, and with
+    /// booleans nothing said so.
+    var shellSheet: ShellSheet?
+
+    /// US-1136: the support thread a `support.reply` deep link asked for, opened
+    /// with ``ShellSheet/support``. Nil when the inbox was opened by hand.
     var supportTicketId: String?
+
+    /// The shell-level sheets, in the order the toolbar offers them.
+    enum ShellSheet: String, Identifiable {
+        /// US-678: global search.
+        case globalSearch
+        /// US-749: the Tools hub (Scout / Snap / AutoLister / Grades /
+        /// Reconcile / Referrals / Verified), reachable from any tab.
+        case toolsHub
+        /// US-749: Reconciliation, opened from the shell-level orphan banner so
+        /// it is reachable regardless of which tab is active.
+        case reconciliation
+        /// US-1136: the native support inbox.
+        case support
+
+        var id: String { rawValue }
+    }
 
     var homePath = NavigationPath()
     var inventoryPath = NavigationPath()
@@ -1605,7 +1626,7 @@ private struct ToolsButton: View {
     var body: some View {
         Button {
             AppRouter.haptic()
-            router.showingToolsHub = true
+            router.shellSheet = .toolsHub
         } label: {
             Image(systemName: "square.grid.2x2")
         }
@@ -1662,22 +1683,18 @@ struct SettingsView: View {
     /// to the default-ON value and synced from the injected service in
     /// `onAppear`, then written through on change.
     @State private var bgRefreshEnabled: Bool = true
-    @State private var showingFeedbackSheet = false
-    @State private var showingSupportTickets = false   // US-1136 native ticket inbox
-    @State private var showingDeleteAccountSheet = false
-    @State private var showingHelp = false
-    @State private var showingImport = false   // US-667 CSV / Sheets import
-    // US-818 account/info surfaces
-    @State private var showingChangePassword = false
-    // US-2671 in-app TOTP enrollment (the workspace 2FA policy blocks a member
-    // on every request, and there was nowhere on-device to fix it).
-    @State private var showingTwoFactor = false
-    @State private var showingGradingGuide = false
+    /// Which of Settings' sheets is up.
+    ///
+    /// Settings offers nine of them and used to chain nine
+    /// `.sheet(isPresented:)` modifiers onto one List. A view has ONE sheet
+    /// slot, so those nine modifiers were competing for it — see ``ToolModule``
+    /// for the symptom that produces. One optional, one modifier, and the
+    /// mutual exclusion is now stated rather than assumed.
+    @State private var sheet: SettingsSheet?
     // US-1201: confirm sign-out — it wipes local SwiftData + the offline
     // mutation queue, so an accidental tap shouldn't discard unsynced work.
     @State private var confirmingSignOut = false
     @State private var signingOut = false
-    @State private var legalLink: LegalLink?
     // US-648 preferences
     @State private var measurementUnit: MeasurementUnit = AppPreferences.measurementUnit
     @State private var currencyCode: String = AppPreferences.currencyCode ?? "device"
@@ -1690,8 +1707,40 @@ struct SettingsView: View {
     // links it). Keep this pointed at a route that ships.
     private static let helpURL = URL(string: "https://gradethread.com/faq")!
 
+    /// Every sheet Settings can present, in the order the list offers them.
+    enum SettingsSheet: Identifiable {
+        case changePassword
+        /// US-2671: in-app TOTP enrollment. The workspace 2FA policy blocks a
+        /// member on every request, and there was nowhere on-device to fix it.
+        case twoFactor
+        /// US-667: CSV / Sheets import.
+        case csvImport
+        /// US-1136: the native support ticket inbox.
+        case supportTickets
+        case feedback
+        case help
+        case gradingGuide
+        /// US-818: a legal surface App Review expects to find in-app.
+        case legal(LegalLink)
+        case deleteAccount
+
+        var id: String {
+            switch self {
+            case .changePassword:    return "changePassword"
+            case .twoFactor:         return "twoFactor"
+            case .csvImport:         return "csvImport"
+            case .supportTickets:    return "supportTickets"
+            case .feedback:          return "feedback"
+            case .help:              return "help"
+            case .gradingGuide:      return "gradingGuide"
+            case .legal(let link):   return "legal.\(link.id)"
+            case .deleteAccount:     return "deleteAccount"
+            }
+        }
+    }
+
     /// US-818: legal surfaces App Review expects to find in-app, opened via
-    /// ``SafariView``. An Identifiable wrapper drives a single `.sheet(item:)`.
+    /// ``SafariView``.
     struct LegalLink: Identifiable {
         let id: String
         let title: String
@@ -1728,7 +1777,7 @@ struct SettingsView: View {
                 }
                 // US-818: in-app change password (no email round-trip).
                 Button {
-                    showingChangePassword = true
+                    sheet = .changePassword
                 } label: {
                     Label("Change password", systemImage: "key")
                 }
@@ -1737,7 +1786,7 @@ struct SettingsView: View {
                 // member blocked by their workspace's 2FA policy to go to
                 // gradethread.com, because this row did not exist.
                 Button {
-                    showingTwoFactor = true
+                    sheet = .twoFactor
                 } label: {
                     Label("Two-factor authentication", systemImage: "lock.shield")
                 }
@@ -1791,7 +1840,7 @@ struct SettingsView: View {
             // ── Data ─────────────────────────────────────────────────
             Section {
                 Button {
-                    showingImport = true
+                    sheet = .csvImport
                 } label: {
                     Label("Import inventory (CSV / Sheets)", systemImage: "square.and.arrow.down")
                 }
@@ -1844,24 +1893,24 @@ struct SettingsView: View {
                 // US-1136: native ticket inbox — open a request + read threaded
                 // replies in-app instead of only emailing feedback.
                 Button {
-                    showingSupportTickets = true
+                    sheet = .supportTickets
                 } label: {
                     Label("Support tickets", systemImage: "bubble.left.and.bubble.right")
                 }
                 .accessibilityLabel("Support tickets")
                 Button {
-                    showingFeedbackSheet = true
+                    sheet = .feedback
                 } label: {
                     Label("Send feedback", systemImage: "envelope")
                 }
                 Button {
-                    showingHelp = true
+                    sheet = .help
                 } label: {
                     Label("Help & FAQ", systemImage: "questionmark.circle")
                 }
                 // US-818: native explainer of the 5 grading factors + tier scale.
                 Button {
-                    showingGradingGuide = true
+                    sheet = .gradingGuide
                 } label: {
                     Label("How grading works", systemImage: "checkmark.seal")
                 }
@@ -1873,13 +1922,13 @@ struct SettingsView: View {
             // ── Legal (US-818) ───────────────────────────────────────
             Section {
                 Button {
-                    legalLink = .privacy
+                    sheet = .legal(.privacy)
                 } label: {
                     Label("Privacy Policy", systemImage: "hand.raised")
                 }
                 .accessibilityLabel("Privacy Policy")
                 Button {
-                    legalLink = .terms
+                    sheet = .legal(.terms)
                 } label: {
                     Label("Terms of Service", systemImage: "doc.text")
                 }
@@ -1899,7 +1948,7 @@ struct SettingsView: View {
             // ── Danger zone (isolated) ───────────────────────────────
             Section {
                 Button(role: .destructive) {
-                    showingDeleteAccountSheet = true
+                    sheet = .deleteAccount
                 } label: {
                     Label("Delete account", systemImage: "trash")
                 }
@@ -1909,32 +1958,27 @@ struct SettingsView: View {
             }
         }
         .navigationTitle("Settings")
-        .sheet(isPresented: $showingFeedbackSheet) {
-            FeedbackSheet()
-        }
-        .sheet(isPresented: $showingSupportTickets) {
-            SupportTicketsView()
-        }
-        .sheet(isPresented: $showingDeleteAccountSheet) {
-            DeleteAccountSheet()
-        }
-        .sheet(isPresented: $showingHelp) {
-            SafariView(url: Self.helpURL).ignoresSafeArea()
-        }
-        .sheet(isPresented: $showingImport) {
-            CSVImportView()
-        }
-        .sheet(isPresented: $showingChangePassword) {
-            ChangePasswordSheet()
-        }
-        .sheet(isPresented: $showingTwoFactor) {
-            TwoFactorSheet()
-        }
-        .sheet(isPresented: $showingGradingGuide) {
-            GradingGuideSheet()
-        }
-        .sheet(item: $legalLink) { link in
-            SafariView(url: link.url).ignoresSafeArea()
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .changePassword:
+                ChangePasswordSheet()
+            case .twoFactor:
+                TwoFactorSheet()
+            case .csvImport:
+                CSVImportView()
+            case .supportTickets:
+                SupportTicketsView()
+            case .feedback:
+                FeedbackSheet()
+            case .help:
+                SafariView(url: Self.helpURL).ignoresSafeArea()
+            case .gradingGuide:
+                GradingGuideSheet()
+            case .legal(let link):
+                SafariView(url: link.url).ignoresSafeArea()
+            case .deleteAccount:
+                DeleteAccountSheet()
+            }
         }
         .task {
             if workspaceContext == nil, case let .signedIn(user) = authStore.phase {

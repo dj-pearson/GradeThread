@@ -63,8 +63,56 @@ struct ItemCanvasView: View {
     @State private var showingDiscardConfirmation = false
     // US-1575: the MeasureCard photo being edited (sheet item).
     @State private var measureEditorPhoto: LocalItemPhoto?
-    @State private var showingPublishDialog = false
-    @State private var showingPhotoManager = false
+    /// Which of the canvas's three sheets is up. One optional driving ONE
+    /// `.sheet(item:)` — a view has a single sheet slot, and three chained
+    /// `.sheet(isPresented:)` modifiers compete for it (see ``ToolModule``).
+    @State private var sheet: CanvasSheet?
+
+    /// Duplicate-SKU merge resolution (web parity). A function rather than an
+    /// inline case body so the `let sku` binding stays in ordinary Swift rather
+    /// than inside a result builder.
+    @ViewBuilder
+    private func skuMergeSheet(_ existing: ExistingSkuItem) -> some View {
+        let sku = (state.draft.sku.isEmpty ? (item.sku ?? "") : state.draft.sku)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        MergeSkuSheet(
+            explanation: "Another inventory record already uses SKU “\(sku)”. Merging combines both into this item — photos, listings, sales and grading history are kept from both, then the other record is removed. Pick which value to keep where they differ; this item’s values are selected by default.",
+            conflicts: mergeConflicts,
+            merging: isMerging,
+            errorMessage: mergeError,
+            onConfirm: { chosen in
+                Task { await confirmMerge(existing: existing, keepExisting: chosen) }
+            },
+            onCancel: {
+                guard !isMerging else { return }
+                sheet = nil
+                mergeError = nil
+                state.savePhase = .idle
+            }
+        )
+    }
+
+    /// The sheets the item canvas can present.
+    private enum CanvasSheet: Identifiable {
+        case publish
+        case photoManager
+        /// US-686: reversible review of the post-intake AI auto-fill.
+        case aiReview
+        /// US-650/US-687: add photos straight into THIS item (not a new intake).
+        case addPhotos
+        /// Duplicate-SKU merge resolution (web parity).
+        case skuMerge(ExistingSkuItem)
+
+        var id: String {
+            switch self {
+            case .publish:                return "publish"
+            case .photoManager:           return "photoManager"
+            case .aiReview:               return "aiReview"
+            case .addPhotos:              return "addPhotos"
+            case .skuMerge(let existing): return "skuMerge-\(existing.id)"
+            }
+        }
+    }
     // US-310: editing a GradeThread-published live listing is folded into Save —
     // "Save & sync to eBay" pushes the change in place (eBay blocks editing
     // inventory-based listings on its own site). This holds a soft warning when
@@ -80,7 +128,6 @@ struct ItemCanvasView: View {
     // US-686: reversible "AI filled N fields — review" entry point, populated
     // when the user lands here straight after an AI-extract auto-apply.
     @State private var aiReviewStore = AIFillReviewStore.shared
-    @State private var showingAIReview = false
     // US-2266: "Complete with AI" — re-run the extract on THIS item from its
     // persisted photos (web composer parity). The manager owns the run so it
     // survives this view going away; these two drive the local spinner + the
@@ -90,7 +137,6 @@ struct ItemCanvasView: View {
 
     // US-650 item-level actions
     @State private var showingDeleteConfirmation = false
-    @State private var showingAddPhotosPicker = false
     // US-687: camera capture straight into this item.
     @State private var showingCameraCapture = false
     @State private var isAddingPhotos = false
@@ -101,7 +147,6 @@ struct ItemCanvasView: View {
     // Duplicate-SKU merge: when a save trips idx_inventory_items_user_sku we
     // fetch the record that owns the SKU and offer to merge instead of
     // dead-ending on the raw Postgres error (web parity — MergeSkuDialog).
-    @State private var mergeExisting: ExistingSkuItem?
     @State private var mergeConflicts: [ItemMergeConflict] = []
     @State private var isMerging = false
     @State private var mergeError: String?
@@ -316,7 +361,7 @@ struct ItemCanvasView: View {
                let review = aiReviewStore.review(for: item.id),
                review.hasSomethingToReview {
                 aiReviewStore.markAutoPresented(item.id)
-                showingAIReview = true
+                sheet = .aiReview
             }
         }
         // US-682: when a sync pull (or realtime push) updates the underlying
@@ -424,7 +469,7 @@ struct ItemCanvasView: View {
                     }
                 }
                 Button {
-                    showingAddPhotosPicker = true
+                    sheet = .addPhotos
                 } label: {
                     Label("Add from library", systemImage: "photo.badge.plus")
                 }
@@ -553,29 +598,39 @@ struct ItemCanvasView: View {
         // (measurements from AI extract, required photos from upload sync, …).
         // Forward-only and best-effort — never blocks; `save()` reconciles too.
         .task(id: prepAdvanceSignature) { await autoAdvanceStatusIfNeeded() }
-        .sheet(isPresented: $showingPublishDialog) {
-            PublishDialog(
-                inventoryItemId: item.id,
-                acquiredCost: item.acquiredPrice,
-                // Relist when the item was previously listed; warn when a live
-                // listing still exists (the push ends it and creates a new one).
-                relist: isRelist,
-                listingActive: activeEbayListing != nil
-            ) { response in
-                // Optimistic local apply so the row flips to listed
-                // before the next sync pull lands.
-                item.status = "listed"
-                item.updatedAt = .now
-                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-                _ = response  // listing_id + url are tracked server-side
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .publish:
+                PublishDialog(
+                    inventoryItemId: item.id,
+                    acquiredCost: item.acquiredPrice,
+                    // Relist when the item was previously listed; warn when a
+                    // live listing still exists (the push ends it and creates a
+                    // new one).
+                    relist: isRelist,
+                    listingActive: activeEbayListing != nil
+                ) { response in
+                    // Optimistic local apply so the row flips to listed
+                    // before the next sync pull lands.
+                    item.status = "listed"
+                    item.updatedAt = .now
+                    NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                    _ = response  // listing_id + url are tracked server-side
+                }
+            case .photoManager:
+                PhotoManagerView(item: item, photos: allPhotos, liveListing: gtLiveListing)
+            case .aiReview:
+                AIFillReviewSheet(item: item)
+            case .addPhotos:
+                // selectionLimit 0 = unlimited, so users can add extra/detail
+                // shots beyond the standard slots.
+                PhotoLibraryPicker(selectionLimit: 0) { results in
+                    Task { await ingestAddedPhotos(results) }
+                }
+                .ignoresSafeArea()
+            case .skuMerge(let existing):
+                skuMergeSheet(existing)
             }
-        }
-        .sheet(isPresented: $showingPhotoManager) {
-            PhotoManagerView(item: item, photos: allPhotos, liveListing: gtLiveListing)
-        }
-        // US-686: reversible review of the post-intake AI auto-fill.
-        .sheet(isPresented: $showingAIReview) {
-            AIFillReviewSheet(item: item)
         }
         .alert(
             "eBay sync failed",
@@ -615,41 +670,12 @@ struct ItemCanvasView: View {
         } message: {
             Text(aiRerunMessage ?? "")
         }
-        // US-650/US-687: add photos straight into THIS item (not a new intake).
-        // selectionLimit 0 = unlimited, so users can add extra/detail shots
-        // beyond the standard slots.
-        .sheet(isPresented: $showingAddPhotosPicker) {
-            PhotoLibraryPicker(selectionLimit: 0) { results in
-                Task { await ingestAddedPhotos(results) }
-            }
-            .ignoresSafeArea()
-        }
         // US-687: camera capture into this item.
         .fullScreenCover(isPresented: $showingCameraCapture) {
             CameraPicker { image in
                 Task { await ingestCapturedImage(image) }
             }
             .ignoresSafeArea()
-        }
-        // Duplicate-SKU merge resolution (web parity).
-        .sheet(item: $mergeExisting) { existing in
-            let sku = (state.draft.sku.isEmpty ? (item.sku ?? "") : state.draft.sku)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            MergeSkuSheet(
-                explanation: "Another inventory record already uses SKU “\(sku)”. Merging combines both into this item — photos, listings, sales and grading history are kept from both, then the other record is removed. Pick which value to keep where they differ; this item’s values are selected by default.",
-                conflicts: mergeConflicts,
-                merging: isMerging,
-                errorMessage: mergeError,
-                onConfirm: { chosen in
-                    Task { await confirmMerge(existing: existing, keepExisting: chosen) }
-                },
-                onCancel: {
-                    guard !isMerging else { return }
-                    mergeExisting = nil
-                    mergeError = nil
-                    state.savePhase = .idle
-                }
-            )
         }
         .alert(
             "Delete item?",
@@ -764,9 +790,9 @@ struct ItemCanvasView: View {
         switch step {
         case .photos:
             if allPhotos.isEmpty {
-                showingAddPhotosPicker = true
+                sheet = .addPhotos
             } else {
-                showingPhotoManager = true
+                sheet = .photoManager
             }
         case .measurements, .comps, .grade, .draft:
             withAnimation { scroll.scrollTo(step, anchor: .top) }
@@ -1058,7 +1084,7 @@ struct ItemCanvasView: View {
         Section {
             Button {
                 AppRouter.haptic()
-                showingAIReview = true
+                sheet = .aiReview
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: "sparkles")
@@ -1264,7 +1290,7 @@ struct ItemCanvasView: View {
             if let review = aiReviewStore.review(for: item.id),
                review.hasSomethingToReview {
                 aiReviewStore.markAutoPresented(item.id)
-                showingAIReview = true
+                sheet = .aiReview
             } else {
                 aiRerunMessage =
                     "The AI didn't find anything new to add. Try a clearer tag or front photo."
@@ -1469,7 +1495,7 @@ struct ItemCanvasView: View {
             }
         }
         Button {
-            showingAddPhotosPicker = true
+            sheet = .addPhotos
         } label: {
             Label("Add from library", systemImage: "photo.badge.plus")
         }
@@ -1507,7 +1533,7 @@ struct ItemCanvasView: View {
                         Text("Add").font(.caption.weight(.semibold)).textCase(nil)
                     }
                     .disabled(isAddingPhotos || uploadService == nil)
-                    Button("Manage") { showingPhotoManager = true }
+                    Button("Manage") { sheet = .photoManager }
                         .font(.caption.weight(.semibold))
                         .textCase(nil)
                 }
@@ -2361,7 +2387,7 @@ struct ItemCanvasView: View {
                 dismissAfterMerge = dismissAfter
                 mergeError = nil
                 state.savePhase = .idle  // the merge sheet takes over; not a hard fail
-                mergeExisting = existing  // presents the sheet
+                sheet = .skuMerge(existing)  // presents the sheet
                 HapticFeedback.warning()
                 return false
             }
@@ -2474,7 +2500,7 @@ struct ItemCanvasView: View {
         // re-run the RPC (it would fail — the duplicate no longer exists). Close
         // the sheet and pull to reconcile the re-pointed photos/listings/sales.
         isMerging = false
-        mergeExisting = nil
+        sheet = nil
         NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
 
         // Phase 2 — persist the user's field choices. We write only the
@@ -2542,7 +2568,7 @@ struct ItemCanvasView: View {
         if pageIsDirty {
             guard await save(dismissAfter: false) else { return }
         }
-        showingPublishDialog = true
+        sheet = .publish
     }
 
     /// Encodable subset of inventory_items columns the canvas writes.

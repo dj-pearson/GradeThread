@@ -18,6 +18,9 @@
 
 import { createSharedJsonCache } from "./coherent-cache.ts";
 import { type BrowseCompsArgs, type BrowseCompsResult, searchBrowseComps } from "./ebay-client.ts";
+import { gradeToConditionId } from "./repricing.ts";
+import { type ItemKey, type ValueAtGradeOptions } from "./condition-value.ts";
+import { type ValueRange, valueRangeFromStats } from "./condition-value-math.ts";
 
 /**
  * How long a comp result stands.
@@ -91,4 +94,32 @@ export async function cachedSearchBrowseComps(
   const key = compsCacheKey(args);
   const { value, hit } = await cache.get(key, () => searchBrowseComps(args));
   return { result: value, hit };
+}
+
+/**
+ * `valueAtGrade`, served from the same cache.
+ *
+ * A comp query for a value range differs from the plain one in exactly one
+ * field: the eBay condition the grade maps to. There are only a handful of
+ * those, so a caller asking for a value at eight different grades is usually
+ * asking eBay two or three distinct questions, not eight. Scout's scan was
+ * paying full Browse latency for every candidate to learn that.
+ *
+ * The pure range maths stays in `condition-value-math.ts`; this only decides
+ * where the comps come from.
+ */
+export async function cachedValueAtGrade(
+  item: ItemKey,
+  gradeValue: number | null,
+  opts: ValueAtGradeOptions = {},
+): Promise<ValueRange> {
+  const { result } = await cachedSearchBrowseComps({
+    categoryId: item.categoryId,
+    q: item.q,
+    brand: item.brand,
+    size: item.size,
+    conditionId: gradeToConditionId(gradeValue),
+    limit: Math.min(Math.max(opts.limit ?? 25, 1), 50),
+  });
+  return valueRangeFromStats(result.stats, gradeValue, result.stats.currency);
 }

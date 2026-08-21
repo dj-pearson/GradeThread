@@ -6,7 +6,10 @@ import SwiftUI
 /// repricing-rules UX patterns (phase switch, banner, swipe + toolbar actions).
 struct AutomationsView: View {
     @State private var store = AutomationsStore()
-    @State private var editing: AutomationEditorTarget?
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame — see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`.
     @State private var sheet: AutomationRuleSheet?
     // US-1201: confirm before a swipe permanently deletes a configured rule.
     @State private var pendingDelete: AutomationRule?
@@ -32,7 +35,7 @@ struct AutomationsView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
-                        editing = .new
+                        sheet = .editor(.new)
                     } label: {
                         Image(systemName: "plus").accessibilityLabel("New rule")
                     }
@@ -40,11 +43,10 @@ struct AutomationsView: View {
             }
             .task { await store.load() }
             .refreshable { await store.load() }
-            .sheet(item: $editing) { target in
-                AutomationRuleEditorSheet(existing: target.rule, store: store)
-            }
             .sheet(item: $sheet) { item in
                 switch item {
+                case .editor(let target):
+                    AutomationRuleEditorSheet(existing: target.rule, store: store)
                 case .dryRun(let rule):
                     AutomationDryRunSheet(rule: rule, store: store)
                 case .activity(let rule):
@@ -119,7 +121,7 @@ struct AutomationsView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Button {
-                            editing = .new
+                            sheet = .editor(.new)
                         } label: {
                             Label("New rule", systemImage: "plus")
                         }
@@ -136,7 +138,7 @@ struct AutomationsView: View {
                             Task { await store.toggleActive(rule) }
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture { editing = .edit(rule) }
+                        .onTapGesture { sheet = .editor(.edit(rule)) }
                         .swipeActions(edge: .trailing) {
                             Button(role: .destructive) {
                                 pendingDelete = rule
@@ -164,7 +166,7 @@ struct AutomationsView: View {
                                 Label("Activity", systemImage: "clock.arrow.circlepath")
                             }
                             Button {
-                                editing = .edit(rule)
+                                sheet = .editor(.edit(rule))
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                             }
@@ -250,11 +252,14 @@ enum AutomationEditorTarget: Identifiable {
 
 /// Secondary per-rule sheets (dry-run preview, activity log).
 enum AutomationRuleSheet: Identifiable {
+    /// Create or edit a rule.
+    case editor(AutomationEditorTarget)
     case dryRun(AutomationRule)
     case activity(AutomationRule)
 
     var id: String {
         switch self {
+        case .editor(let t): return "edit-\(t.id)"
         case .dryRun(let r): return "dry-\(r.id)"
         case .activity(let r): return "act-\(r.id)"
         }

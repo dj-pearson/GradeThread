@@ -18,6 +18,7 @@ import "./_env.ts";
 import { assert, assertEquals } from "@std/assert";
 import { createSharedJsonCache, type SharedCacheStore } from "../lib/coherent-cache.ts";
 import { compsCacheKey, COMPS_CACHE_TTL_MS } from "../lib/comps-cache.ts";
+import { gradeToConditionId } from "../lib/repricing.ts";
 
 // ── an in-memory stand-in for edge_shared_cache ────────────────────────────
 
@@ -200,4 +201,28 @@ Deno.test("a load that throws propagates — the cache does not invent a value",
   }
   assert(threw, "a failed load was swallowed and something else returned");
   assertEquals(store.writes, 0, "a failed load was written to the cache");
+});
+
+// A Scout scan values every candidate it grades, and the ONLY field that varies
+// between those lookups is the eBay condition the grade maps to. There are four
+// of those, and the wide "Used" band covers 3.0 through 8.5, which is where
+// almost every shadow grade off a listing photo lands.
+//
+// So the eight value lookups in one scan are one or two distinct questions, not
+// eight. This is the property the scan's fan-out depends on: if these keys ever
+// stop collapsing, the scan quietly goes back to paying eBay per candidate.
+Deno.test("value lookups at different grades in one condition band share a key", () => {
+  const item = { categoryId: "155183", q: "carhartt detroit", brand: "Carhartt", limit: 25 };
+  const keyAt = (grade: number) =>
+    compsCacheKey({ ...item, conditionId: gradeToConditionId(grade) });
+
+  // The whole used band, which is where shadow grades cluster.
+  assertEquals(keyAt(3.0), keyAt(8.4));
+  assertEquals(keyAt(5.5), keyAt(7.9));
+
+  // And the bands that genuinely price differently must NOT collapse together,
+  // or a scan would value a new-with-tags find against used comps.
+  assert(keyAt(9.6) !== keyAt(8.0), "new with tags must not share used comps");
+  assert(keyAt(8.6) !== keyAt(8.0), "new without tags must not share used comps");
+  assert(keyAt(2.5) !== keyAt(8.0), "for-parts must not share used comps");
 });

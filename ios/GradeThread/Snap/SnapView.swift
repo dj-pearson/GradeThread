@@ -13,13 +13,26 @@ struct SnapView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthStore.self) private var authStore
     @State private var showCamera = false
-    @State private var showLibrary = false
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame - see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`. The camera is a
+    /// `fullScreenCover`, a different presentation kind, so it stays as it is.
+    @State private var sheet: SnapSheet?
+
+    /// The sheets Snap-to-Value presents.
+    private enum SnapSheet: String, Identifiable {
+        /// Pick a garment photo from the library.
+        case library
+        /// US-2152: in-app paywall when a cap-reached snap offers upgrading.
+        case paywall
+
+        var id: String { rawValue }
+    }
     // US-1181: recover gracefully when camera access was previously denied, and
     // surface a library pick that fails to load instead of a silent no-op.
     @State private var showCameraDeniedAlert = false
     @State private var loadError: String?
-    // US-2152: in-app paywall when a cap-reached snap offers the upgrade route.
-    @State private var showPaywall = false
 
     private var cameraAvailable: Bool {
         UIImagePickerController.isSourceTypeAvailable(.camera)
@@ -75,31 +88,32 @@ struct SnapView: View {
                     Button("Close") { dismiss() }
                 }
             }
-            .sheet(isPresented: $showLibrary) {
-                PhotoLibraryPicker(selectionLimit: 1) { results in
-                    showLibrary = false
-                    guard let first = results.first else { return }
-                    Task {
-                        if let img = await first.loadImage() {
-                            await MainActor.run { store.setImage(img) }
-                        } else {
-                            // US-1181: don't silently swallow a failed load.
-                            await MainActor.run {
-                                loadError = "Couldn't load that photo — it may still be downloading from iCloud. Try again or pick another."
-                            }
-                        }
-                    }
-                }
-                .ignoresSafeArea()
-            }
             .fullScreenCover(isPresented: $showCamera) {
                 CameraPicker { img in store.setImage(img) }
                     .ignoresSafeArea()
             }
-            // US-2152: in-app paywall when a cap-reached snap routes to upgrade.
-            .sheet(isPresented: $showPaywall) {
-                if let userId = currentUserId {
-                    NavigationStack { PaywallView(userId: userId) }
+            .sheet(item: $sheet) { presented in
+                switch presented {
+                case .library:
+                    PhotoLibraryPicker(selectionLimit: 1) { results in
+                        sheet = nil
+                        guard let first = results.first else { return }
+                        Task {
+                            if let img = await first.loadImage() {
+                                await MainActor.run { store.setImage(img) }
+                            } else {
+                                // US-1181: don't silently swallow a failed load.
+                                await MainActor.run {
+                                    loadError = "Couldn't load that photo — it may still be downloading from iCloud. Try again or pick another."
+                                }
+                            }
+                        }
+                    }
+                    .ignoresSafeArea()
+                case .paywall:
+                    if let userId = currentUserId {
+                        NavigationStack { PaywallView(userId: userId) }
+                    }
                 }
             }
             .alert("Camera access is off", isPresented: $showCameraDeniedAlert) {
@@ -160,7 +174,7 @@ struct SnapView: View {
             }
             Button {
                 AppRouter.haptic()
-                showLibrary = true
+                sheet = .library
             } label: {
                 Label("Library", systemImage: "photo.on.rectangle").frame(maxWidth: .infinity)
             }
@@ -204,7 +218,7 @@ struct SnapView: View {
             if store.isUpgradePrompt, currentUserId != nil {
                 Button {
                     AppRouter.haptic()
-                    showPaywall = true
+                    sheet = .paywall
                 } label: {
                     Label("Upgrade", systemImage: "sparkles")
                         .frame(maxWidth: .infinity)

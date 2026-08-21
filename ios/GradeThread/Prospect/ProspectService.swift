@@ -22,9 +22,13 @@ final class ProspectService: Prospecting {
     private let baseURL: URL
     private let session: URLSession
 
-    // US-1407: bounded session (was `URLSession.shared` = 60s) so a prospect run
-    // fails fast instead of hanging.
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
+    // A prospect run is an AI-INFERENCE call: the edge identifies the garment
+    // from the photos AND shadow-grades it before it comps anything, and it
+    // streams nothing until the whole result is ready. The 20s idle ceiling on
+    // `EdgeNetwork.shared` (US-1407) is shorter than that work, so a run that
+    // succeeded server-side surfaced as a network error in the app. Same
+    // reasoning as `SnapService`, which already uses this session.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.aiSession) {
         self.baseURL = baseURL
         self.session = session
     }

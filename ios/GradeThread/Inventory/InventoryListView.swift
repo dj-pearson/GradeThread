@@ -59,7 +59,37 @@ struct InventoryListView: View {
             _criteria = State(initialValue: seeded)
         }
     }
-    @State private var showingFilterSheet = false
+    /// Which of the list's three sheets is up. One optional driving ONE
+    /// `.sheet(item:)` — a view has a single sheet slot, and three chained
+    /// `.sheet(isPresented:)` modifiers compete for it (see ``ToolModule``).
+    @State private var sheet: InventorySheet?
+
+    /// The sheets the inventory list can present.
+    private enum InventorySheet: Identifiable {
+        /// The advanced-filter editor.
+        case filter
+        /// US-184: the eBay sync modal, which owns a poll task.
+        case sync
+        /// Bulk certified grading, not the confirmation-dialog path.
+        case bulkGrade
+        /// US-644: per-item failure detail for the last bulk action.
+        case failures
+        /// US-685: publish a single row to eBay without entering the canvas.
+        case publish(LocalInventoryItem)
+        /// US-685: quick price edit from the row.
+        case priceEdit(LocalInventoryItem)
+
+        var id: String {
+            switch self {
+            case .filter:              return "filter"
+            case .sync:                return "sync"
+            case .bulkGrade:           return "bulkGrade"
+            case .failures:            return "failures"
+            case .publish(let item):   return "publish-\(item.id)"
+            case .priceEdit(let item): return "priceEdit-\(item.id)"
+            }
+        }
+    }
     /// US-1017: memoizes the filtered list, per-stage counts, and facet index so
     /// an unrelated `@State` change (a sheet toggle, select mode, the refresh
     /// banner) doesn't re-run a full filter+sort / count / facet pass on the
@@ -81,16 +111,12 @@ struct InventoryListView: View {
     @State private var pendingSwipeDelete: LocalInventoryItem?
     // US-644 progress + per-item failures + undo
     @State private var actionProgress: (done: Int, total: Int)?
-    @State private var showingFailures = false
     @State private var undoContext: BulkUndoContext?
 
-    // Bulk certified grading (its own sheet, not the confirmation-dialog path).
-    @State private var showingBulkGrade = false
     @State private var bulkGradeTargetIds: [String] = []
 
     // US-184 sync
     @State private var syncStore = EbaySyncStore()
-    @State private var showingSyncModal = false
     // US-1007: retained so dismissing the modal cancels the poll loop promptly.
     @State private var syncTask: Task<Void, Never>?
     @Environment(\.modelContext) private var modelContext
@@ -102,8 +128,6 @@ struct InventoryListView: View {
 
     // US-685: per-row quick actions — publish to eBay + quick price edit
     // without pushing the full canvas.
-    @State private var publishItem: LocalInventoryItem?
-    @State private var priceEditItem: LocalInventoryItem?
 
     /// Statuses where listing to eBay makes sense (pre-list pipeline stages).
     private static let publishableStatuses: Set<String> = [
@@ -133,23 +157,49 @@ struct InventoryListView: View {
             selectToolbarItem
             syncToolbarItem
         }
-        .sheet(isPresented: $showingFilterSheet) {
-            InventoryFilterSheet(
-                criteria: $criteria,
-                facets: facets,
-                savedFilters: savedFilters,
-                resultCount: { resultCount(for: $0) }
-            )
-        }
-        .sheet(isPresented: $showingSyncModal, onDismiss: { cancelSync() }) {
-            EbaySyncModal(store: syncStore, onDismiss: { cancelSync() })
-        }
-        .sheet(isPresented: $showingBulkGrade) {
-            BulkGradeSheet(itemIds: bulkGradeTargetIds) {
-                // Clear selection + exit edit mode, then pull so the new
-                // grades land on each row.
-                if selection.isEditing { selection.toggleEditing() }
-                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .filter:
+                InventoryFilterSheet(
+                    criteria: $criteria,
+                    facets: facets,
+                    savedFilters: savedFilters,
+                    resultCount: { resultCount(for: $0) }
+                )
+            case .sync:
+                // US-1007: the poll loop is cancelled on the way out. Scoped to
+                // this case rather than a shared onDismiss, so closing the filter
+                // never resets the sync store, and hung on onDisappear so a
+                // swipe-to-dismiss (which never calls the modal's own callback)
+                // cancels it too. cancelSync() is idempotent.
+                EbaySyncModal(store: syncStore, onDismiss: { cancelSync() })
+                    .onDisappear { cancelSync() }
+            case .bulkGrade:
+                BulkGradeSheet(itemIds: bulkGradeTargetIds) {
+                    // Clear selection + exit edit mode, then pull so the new
+                    // grades land on each row.
+                    if selection.isEditing { selection.toggleEditing() }
+                    NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                }
+            case .failures:
+                if let result = actionResult {
+                    BulkFailuresView(
+                        result: result,
+                        items: allItems,
+                        // US-756: retry only the failed set (dismisses the sheet
+                        // via retryFailed); omitted for non-retryable actions.
+                        onRetry: Self.isRetryable(result.action)
+                            ? { Task { await retryFailed(result) } }
+                            : nil
+                    )
+                }
+            case .publish(let item):
+                PublishDialog(inventoryItemId: item.id, acquiredCost: item.acquiredPrice) { _ in
+                    NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
+                }
+            case .priceEdit(let item):
+                QuickPriceSheet(item: item)
+                    .presentationDetents([.height(220)])
             }
         }
         .fullScreenCover(isPresented: $showingDroppedIntake, onDismiss: {
@@ -173,7 +223,7 @@ struct InventoryListView: View {
                             // Grading has its own readiness + tier + credits
                             // sheet rather than the simple confirm dialog.
                             bulkGradeTargetIds = Array(selection.selected)
-                            showingBulkGrade = true
+                            sheet = .bulkGrade
                         } else {
                             pendingAction = action
                         }
@@ -219,7 +269,7 @@ struct InventoryListView: View {
                         Task { await retryFailed(result) }
                     }
                 }
-                Button("View details") { showingFailures = true }
+                Button("View details") { sheet = .failures }
             }
             Button("OK") {}
         }
@@ -238,31 +288,6 @@ struct InventoryListView: View {
             Button("Cancel", role: .cancel) {}
         } message: { item in
             Text("\(item.title) will be removed. This can't be undone.")
-        }
-        // US-644: per-item failure detail.
-        .sheet(isPresented: $showingFailures) {
-            if let result = actionResult {
-                BulkFailuresView(
-                    result: result,
-                    items: allItems,
-                    // US-756: retry only the failed set (dismisses the sheet via
-                    // retryFailed); omitted for non-retryable actions.
-                    onRetry: Self.isRetryable(result.action)
-                        ? { Task { await retryFailed(result) } }
-                        : nil
-                )
-            }
-        }
-        // US-685: publish a single row to eBay without entering the canvas.
-        .sheet(item: $publishItem) { item in
-            PublishDialog(inventoryItemId: item.id, acquiredCost: item.acquiredPrice) { _ in
-                NotificationCenter.default.post(name: .inventoryPullRequested, object: nil)
-            }
-        }
-        // US-685: quick price edit from the row.
-        .sheet(item: $priceEditItem) { item in
-            QuickPriceSheet(item: item)
-                .presentationDetents([.height(220)])
         }
         // US-644: progress HUD for longer multi-item batches.
         .overlay {
@@ -422,7 +447,7 @@ struct InventoryListView: View {
                     if Self.publishableStatuses.contains(item.status) {
                         Button {
                             HapticFeedback.light()
-                            publishItem = item
+                            sheet = .publish(item)
                         } label: {
                             Label("Publish", systemImage: "paperplane.fill")
                         }
@@ -433,13 +458,13 @@ struct InventoryListView: View {
                 .contextMenu {
                     if Self.publishableStatuses.contains(item.status) {
                         Button {
-                            publishItem = item
+                            sheet = .publish(item)
                         } label: {
                             Label("Publish to eBay", systemImage: "paperplane")
                         }
                     }
                     Button {
-                        priceEditItem = item
+                        sheet = .priceEdit(item)
                     } label: {
                         Label("Edit price", systemImage: "tag")
                     }
@@ -594,7 +619,7 @@ struct InventoryListView: View {
         let userId = user.id.uuidString
 
         syncStore.beginSync()
-        showingSyncModal = true
+        sheet = .sync
 
         let service = EbaySyncService(container: modelContext.container, syncEngine: syncEngine)
         let baseline = await service.snapshot(userId: userId)
@@ -685,7 +710,7 @@ struct InventoryListView: View {
         ToolbarItem(placement: .topBarTrailing) {
             Button {
                 AppRouter.haptic()
-                showingFilterSheet = true
+                sheet = .filter
             } label: {
                 Image(systemName: criteria.isActive
                       ? "line.3.horizontal.decrease.circle.fill"
@@ -912,7 +937,7 @@ struct InventoryListView: View {
         let failedIds = Self.failedItemIdsToRetry(result)
         let failedItems = allItems.filter { failedIds.contains($0.id) }
         guard !failedItems.isEmpty else { return }
-        showingFailures = false
+        sheet = nil
         await perform(result.action, items: failedItems, isBulk: true)
     }
 

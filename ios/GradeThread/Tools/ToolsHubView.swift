@@ -17,10 +17,11 @@ struct ToolsHubView: View {
     @Environment(AuthStore.self) private var authStore
     @Environment(\.dismiss) private var dismiss
 
-    // Sheet-owning modules (each wraps its own NavigationStack).
-    @State private var showingScout = false
-    @State private var showingSnap = false
-    @State private var showingProspect = false
+    /// The sheet-owning module currently presented over the hub (each wraps its
+    /// own NavigationStack). ONE optional, driving ONE sheet modifier — see
+    /// ``ToolModule`` for why three booleans and three `.sheet` modifiers is not
+    /// the same thing.
+    @State private var presentedModule: ToolModule?
 
     var body: some View {
         NavigationStack {
@@ -45,16 +46,14 @@ struct ToolsHubView: View {
                 destination(for: route)
             }
         }
-        .sheet(isPresented: $showingScout) { ScoutView() }
-        .sheet(isPresented: $showingSnap) { SnapView(router: router) }
-        .sheet(isPresented: $showingProspect) { ProspectView(router: router) }
+        .toolModulePresentation($presentedModule, router: router)
     }
 
     // MARK: - Sections
 
     private var sourcingSection: some View {
         Section {
-            Button { present { showingScout = true } } label: {
+            Button { present(.scout) } label: {
                 ToolRow(
                     icon: "binoculars",
                     title: "Scout deals",
@@ -62,7 +61,7 @@ struct ToolsHubView: View {
                 )
             }
             .buttonStyle(.plain)
-            Button { present { showingProspect = true } } label: {
+            Button { present(.prospect) } label: {
                 ToolRow(
                     icon: "viewfinder.circle",
                     title: "Prospect an item",
@@ -77,7 +76,7 @@ struct ToolsHubView: View {
 
     private var captureSection: some View {
         Section {
-            Button { present { showingSnap = true } } label: {
+            Button { present(.snap) } label: {
                 ToolRow(
                     icon: "sparkles",
                     title: "What's it worth?",
@@ -250,11 +249,11 @@ struct ToolsHubView: View {
         }
     }
 
-    /// Fire a haptic, then flip the module's presentation flag. The module sheet
-    /// stacks over the hub (SwiftUI sheet-on-sheet); dismissing returns here.
-    private func present(_ action: () -> Void) {
+    /// Fire a haptic, then name the module to present. The module sheet stacks
+    /// over the hub (SwiftUI sheet-on-sheet); dismissing returns here.
+    private func present(_ module: ToolModule) {
         AppRouter.haptic()
-        action()
+        presentedModule = module
     }
 
     private func currentUserId() -> String? {

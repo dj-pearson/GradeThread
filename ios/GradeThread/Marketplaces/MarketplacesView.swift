@@ -41,7 +41,6 @@ struct MarketplacesView: View {
 
     // US-184 sync
     @State private var syncStore = EbaySyncStore()
-    @State private var showingSyncModal = false
     // US-1007: retained so dismissing the modal cancels the poll loop promptly.
     @State private var syncTask: Task<Void, Never>?
     // US-1189: gate "Sync now" while a sync is live (prevents duplicate runs)
@@ -52,7 +51,27 @@ struct MarketplacesView: View {
     // Identifiable wrapper drives one .sheet(item:) - the same shape the
     // Settings legal links use - so a second web-managed channel needs no new
     // state.
-    @State private var webManagedChannel: WebManagedChannel?
+    /// One optional driving ONE `.sheet(item:)`. A view has a single sheet
+    /// slot, so two `.sheet` modifiers on it compete for that slot and the
+    /// loser presents and is torn down in the same frame — see ``ToolModule``
+    /// and `Scripts/check-chained-sheets.py`.
+    @State private var sheet: MarketplacesSheet?
+
+    /// The sheets the marketplaces tab presents.
+    private enum MarketplacesSheet: Identifiable {
+        /// US-2531: a web-managed channel, opened in-app rather than kicked
+        /// out to Safari, so the seller comes back to where they were.
+        case webChannel(WebManagedChannel)
+        /// US-184: the eBay sync modal, which owns a poll task.
+        case sync
+
+        var id: String {
+            switch self {
+            case .webChannel(let channel): return "web-\(channel.id)"
+            case .sync:                    return "sync"
+            }
+        }
+    }
 
     // US-186 reconciliation count badge — refreshed alongside connection
     // state so the link only shows up when there's actually orphan work.
@@ -151,16 +170,21 @@ struct MarketplacesView: View {
             // fired, so this subscription catches the wake signal.
             consumeReconnectRequest()
         }
-        // US-2531: opened in-app rather than kicked out to Safari, so the
-        // seller comes back to where they were instead of to a cold app launch.
-        .sheet(item: $webManagedChannel) { channel in
-            SafariView(url: channel.url).ignoresSafeArea()
-        }
-        .sheet(isPresented: $showingSyncModal, onDismiss: { cancelSync() }) {
-            EbaySyncModal(
-                store: syncStore,
-                onDismiss: { cancelSync() }
-            )
+        .sheet(item: $sheet) { presented in
+            switch presented {
+            case .webChannel(let channel):
+                SafariView(url: channel.url).ignoresSafeArea()
+            case .sync:
+                // The poll loop is cancelled on the way out. Scoped to this case
+                // rather than a shared onDismiss, and hung on onDisappear so a
+                // swipe-to-dismiss (which never calls the modal's own callback)
+                // cancels it too. cancelSync() is idempotent.
+                EbaySyncModal(
+                    store: syncStore,
+                    onDismiss: { cancelSync() }
+                )
+                .onDisappear { cancelSync() }
+            }
         }
         // US-1189: surface a failed disconnect (the store restores .connected).
         .alert(
@@ -560,10 +584,12 @@ struct MarketplacesView: View {
                     // a link to a connection page it has no place on.
                     if case .api = channel.tier, let url = Self.webMarketplacesURL {
                         Button {
-                            webManagedChannel = WebManagedChannel(
-                                id: channel.id,
-                                label: channel.label,
-                                url: url
+                            sheet = .webChannel(
+                                WebManagedChannel(
+                                    id: channel.id,
+                                    label: channel.label,
+                                    url: url
+                                )
                             )
                         } label: {
                             Label(
@@ -1011,7 +1037,7 @@ struct MarketplacesView: View {
         // Show the modal up front so the rotating-stage UI starts
         // before the network call returns.
         syncStore.beginSync()
-        showingSyncModal = true
+        sheet = .sync
 
         let service = EbaySyncService(container: modelContext.container, syncEngine: syncEngine)
         let baseline = await service.snapshot(userId: userId)

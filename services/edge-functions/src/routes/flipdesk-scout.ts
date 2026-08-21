@@ -34,7 +34,7 @@ import {
   SPECULATIVE_CONDITION_ID,
 } from "../lib/comp-speculation.ts";
 import { whichRefusal } from "../lib/gate-order.ts";
-import { cachedSearchBrowseComps } from "../lib/comps-cache.ts";
+import { cachedSearchBrowseComps, cachedValueAtGrade } from "../lib/comps-cache.ts";
 import {
   pickVisualImageIndex,
   planProspectIdentification,
@@ -53,6 +53,7 @@ import {
   rankCandidates,
   scoreCandidate,
   type ScoutCandidate,
+  type ScoutScored,
 } from "../lib/scout-scoring.ts";
 import {
   EXTENSION_MAX_IMAGES_ANON,
@@ -69,6 +70,18 @@ export const flipdeskScoutRoutes = new Hono<{
 
 // Hard cap on candidates graded per scan — bounds AI cost + eBay fan-out.
 const MAX_CANDIDATES = 8;
+
+// How many candidates are graded at once.
+//
+// One shadow grade is two model calls back to back and lands around 15-25s.
+// Run serially, a full scan therefore took two to three MINUTES and returned
+// nothing until the last candidate finished, which is longer than any client
+// will wait and was why the iOS scan always failed. Four at a time brings a
+// full scan to roughly one wave-and-a-half.
+//
+// Bounded rather than "all of them" on purpose: one user's scan should not be
+// able to hold eight model slots on a replica that is also grading submissions.
+const SCAN_CONCURRENCY = 4;
 
 flipdeskScoutRoutes.post("/", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
@@ -123,32 +136,57 @@ flipdeskScoutRoutes.post("/", async (c) => {
     return c.json({ candidates: [], scanned: 0, note: "No candidate listings matched that search." });
   }
 
-  const scored = [];
+  // A candidate with no photo cannot be shadow-graded, so it never enters the
+  // queue rather than being skipped inside it.
+  const queue = candidates.filter(
+    (cand): cand is ScoutCandidate & { imageUrl: string } => Boolean(cand.imageUrl),
+  );
+
+  const scored: ScoutScored[] = [];
   let graded = 0;
-  for (const cand of candidates) {
-    if (!cand.imageUrl) continue; // need a photo to shadow-grade
+  // Set when the AI cap refuses a reservation. Every worker checks it, so one
+  // refusal stops the whole scan instead of each worker discovering the cap
+  // separately and burning a round trip to do it.
+  let capHit = false;
 
-    // US-619: atomically reserve one AI action; stop cleanly when the cap is hit.
-    const reserved = await reserveAiActionSafe(userId, quota.limit);
-    if (reserved !== true) break;
+  await Promise.all(
+    Array.from({ length: Math.min(SCAN_CONCURRENCY, queue.length) }, async () => {
+      while (!capHit) {
+        const cand = queue.shift();
+        if (!cand) return;
 
-    try {
-      // US-616: PRIVATE shadow grade from the listing's own photo.
-      const grade = await quickGrade({
-        images: [{ url: cand.imageUrl, type: "front" }],
-        garment: { brand: brand ?? null, title: cand.title },
-      });
-      // US-610: condition-adjusted value at that grade, same search identity.
-      const value = await valueAtGrade({ categoryId, q, brand }, grade.overallScore);
-      // US-617: score by condition-adjusted margin.
-      scored.push(scoreCandidate(cand, grade.overallScore, grade.confidence, value));
-      graded += 1;
-    } catch (err) {
-      // Refund the reserved action on failure so a transient error isn't billed.
-      await refundAiAction(userId);
-      captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } });
-    }
-  }
+        // US-619: atomically reserve one AI action; stop cleanly when the cap is
+        // hit. The reservation is atomic, so concurrent workers cannot together
+        // reserve past the cap.
+        const reserved = await reserveAiActionSafe(userId, quota.limit);
+        if (reserved !== true) {
+          capHit = true;
+          return;
+        }
+
+        try {
+          // US-616: PRIVATE shadow grade from the listing's own photo.
+          const grade = await quickGrade({
+            images: [{ url: cand.imageUrl, type: "front" }],
+            garment: { brand: brand ?? null, title: cand.title },
+          });
+          // US-610: condition-adjusted value at that grade, same search
+          // identity. Through the cache: the only field that varies across
+          // candidates here is the condition the grade maps to, and there are
+          // about five of those, so a scan asks eBay a handful of questions
+          // rather than one per candidate.
+          const value = await cachedValueAtGrade({ categoryId, q, brand }, grade.overallScore);
+          // US-617: score by condition-adjusted margin.
+          scored.push(scoreCandidate(cand, grade.overallScore, grade.confidence, value));
+          graded += 1;
+        } catch (err) {
+          // Refund the reserved action on failure so a transient error isn't billed.
+          await refundAiAction(userId);
+          captureException(err, { level: "warn", route: "scout.grade", extra: { itemId: cand.itemId } });
+        }
+      }
+    }),
+  );
 
   recordMetric("scout.scan", graded, { actionable: String(scored.filter((s) => s.actionable).length) });
 
