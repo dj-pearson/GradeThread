@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] 00641 IS PENDING as of 2026-08-21. See the section directly below.
+> [!warning] 00641 AND 00642 ARE PENDING as of 2026-08-21. See the two sections below.
 > Everything through **00640** is applied. Verified by asking the database rather
 > than this file: `GET /health/ready` reports
 > `{"expected":"00639","applied":"00640","status":"ahead"}` with no `missing` key.
@@ -12,6 +12,57 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## HELD: 00642 — the four agent columns match the repo again (US-2729)
+
+**Risk: low.** Four `DROP NOT NULL`s. No data moves, nothing is rewritten, and
+dropping a constraint cannot invalidate a row that already satisfied it.
+
+### What it does
+
+The 2026-08-20 prod schema audit found four columns NOT NULL in production and
+nullable in every migration: `agent_proposals.evidence`,
+`agent_proposals.summary`, `agent_run_steps.name`, `agent_runs.trigger`. 00357
+declares all four without the constraint and no later migration adds it, so
+prod's copies of those tables did not come from the migration set.
+
+This relaxes prod to match. The repo wins because the code writes NULL into
+three of them deliberately — `dispatchWriteIntent` builds every proposal with
+`summary: intent.summary ?? null` and `evidence: intent.evidence ?? null`, and
+`AgentStep.name` is typed `string | null` — so the production constraint is a
+23502 that can only ever fire in production, where CI cannot see it. Tightening
+the repo instead would mean pinning those write paths non-null first, which is a
+product question (what is a proposal with no summary?) rather than a schema
+correction.
+
+### Apply
+
+1. `supabase/migrations/00642_agent_columns_match_the_repo.sql` — idempotent.
+2. No `NOTIFY pgrst` needed: nullability is not part of the schema cache
+   PostgREST keys on for routing. Harmless to send anyway, and it does refresh
+   the OpenAPI `required` array that this was measured through.
+3. Redeploy the edge (boot guard now expects `00642`).
+
+### Does the frontend read it?
+
+**No.** These are agent-runtime tables behind `/api/admin/agents/*`.
+
+### Verified locally
+
+Applied twice against the throwaway local stack: four `ALTER TABLE`s both times,
+`INSERT 0 1` then `INSERT 0 0` on the footer. `information_schema.columns`
+reports all four `is_nullable = YES`, and an `agent_runs` insert with an
+explicit null trigger succeeds (rolled back).
+
+`services/edge-functions/src/tests/agent-column-nullability_test.ts` holds the
+decision: no migration may put the constraint back, and 00642 must actually
+contain the four `DROP NOT NULL` statements rather than describe them.
+
+### Rollback
+
+Re-adding the constraint is what caused this, so there is no reason to roll it
+back. If you must: `ALTER TABLE … ALTER COLUMN … SET NOT NULL` will now fail on
+any row written since, which is the point.
 
 ## HELD: 00641 — identification_provenance (US-2774)
 
