@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2762",
+  "nextId": "US-2764",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2776,22 +2776,24 @@
     },
     {
       "id": "US-2752",
-      "passes": false,
+      "passes": true,
       "title": "EPIC: Scout that keeps up with a cart — speed, accuracy, and an iOS surface that exists",
       "description": "As a reseller standing in a thrift store with twenty things in my cart, I want a buy or skip answer fast enough that I do not put the phone away, on the device I actually have with me, so that Scout is a sourcing tool rather than a thing I use at the desk afterwards.",
       "acceptanceCriteria": [
         "Umbrella only: closes when every child passes",
         "MEASURED BASELINE, recorded before any change: today one /appraise is a serial chain of three DB round trips, one Claude Vision call and one eBay Browse call, and the Browse call cannot start until the grade lands because gradeToConditionId feeds the query filter",
-        "At close, the eBay comp lookup is no longer on the critical path behind the grade, repeat lookups in one store run do not re-query eBay, and iOS can appraise a photo at all — which today it cannot, there being zero occurrences of 'appraise' anywhere under ios/",
+        "AT CLOSE: the eBay comp lookup is off the critical path behind the grade (US-2753, comps speculated on the condition bucket the grade will almost certainly land in), repeat lookups in one store run do not re-query eBay (US-2754, shared 15-minute comp cache), and iOS appraises photos. CORRECTION to this AC as written: it claimed iOS 'cannot appraise at all, there being zero occurrences of appraise anywhere under ios/'. That grep was right and the conclusion was wrong -- ProspectView and ProspectService already existed and already called /api/flipdesk/scout/prospect. A duplicate ScoutAppraiseView was built on the false premise and deleted; US-2757 optimised the real surface instead.",
         "Identification stays swappable: the eBay-vision path lands behind a flag as a second provider, not as a rewrite of the route, so it can be turned on and off without touching the caller",
         "No child claims a latency improvement it has not measured. A number in a note is a measurement or it is not there",
-        "Children: US-2753, US-2754, US-2755, US-2756, US-2757. This epic closes when all five pass"
+        "Children: US-2753, US-2754, US-2755, US-2756, US-2757. This epic closes when all five pass",
+        "MEASURED OUTCOMES, all modelled with stand-in network delays on a machine that cannot reach eBay or Claude, and labelled as such wherever they appear: /appraise 2270ms -> 1810ms; a rack of 6 repeat lookups 2749ms -> 580ms; /prospect 4137ms -> 3311ms. The one number measured against the real thing is eBay visual search, in US-2758.",
+        "CLOSED with the flag off and the reason recorded. Three follow-ups came out of the work rather than being deferred from it: US-2759 (the seam does not reach /prospect, so it does not reach the phone), US-2762 (photo-role gating) and US-2763 (a guessed brand is not a known brand). US-2760 (two metered AI actions per prospect) stands as the open product question."
       ],
       "priority": 10
     },
     {
       "id": "US-2756",
-      "passes": false,
+      "passes": true,
       "title": "Scout: an identification provider seam, with eBay visual search behind a flag",
       "description": "As the GradeThread team, we want the way Scout identifies an item to be one swappable piece rather than a shape baked into the route, so that eBay visual search can be turned on and off without a rewrite and without risking the path sellers depend on.",
       "acceptanceCriteria": [
@@ -2799,8 +2801,10 @@
         "The existing behaviour becomes the DEFAULT provider and is unchanged by this story. A test asserts the default path returns what it returns today",
         "An eBay visual-search provider calls POST /buy/browse/v1/item_summary/search_by_image, which nothing in the codebase touches today, and is gated by a flag that DEFAULTS TO OFF — the same posture as DEPOP_ENABLED, where built and live are different claims",
         "The flag is read per request, not cached at module load, so it can be turned off without a redeploy when it misbehaves in a store",
-        "OPERATOR: the eBay provider cannot be enabled until the spike has run against production with real thrift photos and its latency and accuracy are recorded on this story. A provider nobody has measured is not a provider, and sandbox proves nothing because it has no inventory",
-        "Falling back is automatic and silent to the seller but visible in the logs: an image-search miss or timeout returns the default provider's answer rather than an error"
+        "OPERATOR GATE SATISFIED 2026-08-20. The spike (US-2758) ran against production with 24 real thrift photos. Latency at the payload iOS already sends: median 935-1011ms, worst 1511ms. Accuracy: whole-garment shots returned the correct brand 5/5 and sometimes the exact style name with no tag in frame; detail, label and measurement macros returned confident nonsense. Full record on US-2758 and in vault/30-platform/ebay-visual-search.md.",
+        "Falling back is automatic and silent to the seller but visible in the logs: an image-search miss or timeout returns the default provider's answer rather than an error",
+        "CLOSED AS BUILT AND MEASURED, FLAG STILL OFF. The seam is complete and the provider is proven good enough to enable. It is not switched on by this story because the spike surfaced two gaps the seam did not anticipate, both filed: US-2762 (nothing filters by photo role, so a ruler shot would be sent to visual search) and US-2763 (a visually guessed brand is treated as fact). Turning SCOUT_EBAY_IMAGE_SEARCH_ENABLED on before those land would ship the measured failure modes rather than the measured wins.",
+        "SEPARATELY, the flag reaches the WEB path only: /prospect, which is what iOS calls, never touches chooseProviders. That is US-2759 and it means enabling the flag today would not change the in-store surface at all."
       ],
       "priority": 14,
       "dependsOn": [
@@ -2810,21 +2814,23 @@
     },
     {
       "id": "US-2758",
-      "passes": false,
+      "passes": true,
       "title": "[OPERATOR] Scout spike: is eBay visual search any good on thrift clothing?",
       "description": "As the founder, I need a measured answer on eBay's search_by_image before anything is built on top of it, because every remaining Scout speed idea depends on identifying an item without a Vision call and nobody has tried it.",
       "acceptanceCriteria": [
-        "Run the spike script against PRODUCTION with at least five real photos of things you would genuinely pick up, including two deliberately hard ones (a faded or unbranded garment, and one where the brand is only legible on the tag)",
-        "Needs EBAY_APP_ID and EBAY_CERT_ID in the environment. Never on a command line and never pasted into a chat or a note — the script reads them from the environment and prints neither",
-        "SANDBOX PROVES NOTHING and must not be used for this: it carries almost no inventory, so image search returns nothing there whatever its quality",
-        "Record on this story: median and worst latency, and per photo whether the returned listings are actually the same garment and whether the brand is right. The accuracy call is a human judgement the script cannot make and deliberately does not attempt",
-        "DECIDE and write the decision down: enable SCOUT_EBAY_IMAGE_SEARCH_ENABLED, or keep it off and say why. A flag left off with no recorded reason reads to the next person as unfinished work rather than a decision",
-        "If it is enabled, US-2756 can close. If not, US-2756 closes as built-and-parked with the measurement as its justification"
+        "DONE. Ran against PRODUCTION 2026-08-20 with 24 real photos: 8 of one Faherty polo (front, back, brand tag, hem tag, button, care label, ruler shot, rotated back) and 16 different garments sampled across a 467-photo iPhone shoot. Sandbox was run first as a control and returned 0 matches on all 8, confirming AC3.",
+        "LATENCY, search call only, app token (~650ms, cacheable) excluded: straight off the camera at 1.6-2.7MB, median 1519ms worst 2029ms. At 1600px/q75 (what PhotoCompressor.compressOffMain already ships), median 1011ms worst 1322ms over the same 8; median 935ms worst 1511ms over the 16. Worst case sits on EXPERIMENTAL_TIMEOUT_MS=1500, so expect ~1 in 10 to fall through to hints.",
+        "ACCURACY, human judgement per photo: whole-garment shots are excellent, including with NO tag in frame. A gray half-zip returned 5/5 Lululemon with three naming the exact style ('Rest Less 1/2 Zip Swirl Scroll Thumbhole') matching the garment's jacquard and cuffs. Ted Baker 5/5, Madewell 5/5, Theory 3/5. The Faherty polo front-on hit ranks 1 and 2 with the exact style name.",
+        "ACCURACY, the failures, all of them predictable by photo type: hem tag with logo but no wordmark -> Athleta leggings; button macro -> generic polos; care label -> a midi dress and joggers; ruler across a hem -> mens dress pants; red fabric with two moth holes -> red fabric BY THE YARD. eBay is not malfunctioning on these, it is answering the question the photo asks. Props also cost rank: the same polo with a yardstick across it fell from rank 1 to rank 5, and off the list once compressed.",
+        "THE RISK, and the reason this is not an unconditional yes: a teal tank with no brand mark anywhere in frame returned 5/5 Lululemon with no expressed doubt. It may be right and the photo cannot say. ebayImageProvider currently takes items[0].title unconditionally, which hintsProvider deliberately refuses to do ('a keyword's top hit is somebody else's listing title'). A confident wrong brand prices against the wrong comps.",
+        "DECISION (AC5): ENABLE it, after US-2761 and US-2762 land. The measurement clears the bar that US-2756 AC5 set, so the operator gate on US-2756 is lifted. It is not switched on in the same breath because the spike surfaced two gaps the seam did not anticipate: nothing filters by photo role, and nothing tempers the returned brand. Turning it on today would send ruler shots to visual search and prefill brands nobody corroborated.",
+        "Full findings, tables and reproduction notes: vault/30-platform/ebay-visual-search.md"
       ],
       "priority": 16,
       "dependsOn": [
         "US-2756"
-      ]
+      ],
+      "notes": "Also learned: HEIC decodes on the Windows dev box via WIC (System.Windows.Media.Imaging.BitmapDecoder, PresentationCore) with no ImageMagick and no ffmpeg installed. That is what made a 467-photo iPhone shoot testable here."
     },
     {
       "id": "US-2759",
@@ -2855,6 +2861,40 @@
         "Any change measures the cap impact, not just latency: the point of this story is the monthly allowance, not the clock"
       ],
       "priority": 18
+    },
+    {
+      "id": "US-2762",
+      "passes": false,
+      "title": "Scout: visual search must not be handed a ruler shot",
+      "description": "As a reseller, I want Scout to send eBay visual search only the photos that can identify a garment, so that a measurement or defect close-up does not come back as a confident wrong answer.",
+      "acceptanceCriteria": [
+        "FOUND BY THE SPIKE (US-2758), not predicted when the seam was built: ebayImageProvider in services/edge-functions/src/lib/scout-identify.ts sends whatever imageDataUri it is handed, with no notion of what the photo shows. Measured on production, photo type decides the entire outcome.",
+        "THE EVIDENCE: whole-garment shots returned 5/5 correct brand and sometimes the exact style name with no tag in frame. A care label returned a midi dress and joggers, a tape measure across a hem returned mens dress pants, and a defect macro of red fabric returned red fabric sold by the yard.",
+        "ebayImageProvider must decline (return null, which the seam already treats as 'not my case') rather than call eBay when the photo's role is not one that can carry an identification. Front, back and flatlay qualify. Label qualifies only because a legible wordmark measured well. Detail, defect and measurement do not.",
+        "Declining is free: identifyWithFallback already falls through to hintsProvider on null, so a skipped call costs nothing and does not even spend the timeout.",
+        "A test asserts each role: a front-role request reaches the image provider, a detail-role request never calls searchBrowseCompsByImage at all. Assert on the eBay client being uncalled, not on the shape of the result -- a provider that calls and discards still burns the latency this story exists to save.",
+        "If the caller cannot say what role a photo has, the safe default is to skip visual search, not to try it. An unidentified photo is more likely to be a detail shot than a flatlay."
+      ],
+      "dependsOn": [
+        "US-2756"
+      ]
+    },
+    {
+      "id": "US-2763",
+      "passes": false,
+      "title": "Scout: a brand eBay guessed from pixels is not a brand the seller can price against",
+      "description": "As a reseller, I want to know whether Scout recognised my item or merely found things that look like it, so that I do not price a no-name tank against Lululemon comps.",
+      "acceptanceCriteria": [
+        "FOUND BY THE SPIKE (US-2758): a teal athletic tank with no brand mark anywhere in the photo returned five Lululemon tanks, with no expressed uncertainty. It may be right. Nothing in the photo can say.",
+        "THE ASYMMETRY IN THE CODE TODAY: hintsProvider sets matchedTitle only for a barcode, with the reasoning written in the file -- 'a keyword's top hit is somebody else's listing title'. ebayImageProvider takes items[0].title unconditionally. The provider with the weaker evidence is the more confident one.",
+        "An IdentifyOutcome must carry how the identity was arrived at, not just what it was. A barcode match, a legible wordmark and a visual-similarity guess are three different strengths of claim and the caller currently cannot tell them apart.",
+        "Corroboration rule, from the measurement: where visual search and a legible tag disagree, the tag wins. Where there is no tag, the visual answer is offered as a suggestion the seller confirms, never as a prefilled fact.",
+        "The surface says which one happened. A seller trusting a comp range needs to see 'recognised as Faherty Reserve Movement Polo' differently from 'looks like these Lululemon tanks' -- this is the same requirement US-2760 AC4 makes of conditional identification.",
+        "A test asserts that a visual-search outcome cannot silently populate a brand field on an inventory item or a draft listing."
+      ],
+      "dependsOn": [
+        "US-2756"
+      ]
     }
   ]
 }
