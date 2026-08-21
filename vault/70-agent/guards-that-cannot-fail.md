@@ -3,8 +3,10 @@ title: Guards that cannot fail
 type: learning
 status: current
 source_of_truth: vault
-code_refs: []
-reviewed: 2026-08-16
+code_refs:
+  - src/test/step-price.test.ts
+  - src/test/numeric-or.test.ts
+reviewed: 2026-08-21
 tags: [testing, ci, agent, verification]
 summary: This repo's most common defect is not a broken check but a check that passes for the wrong reason; here are the shapes it took, the two habits that catch them, and why a fixture that works exactly once is indistinguishable from one that works.
 ---
@@ -40,7 +42,7 @@ This note exists so the eighth instance gets recognised instead of rediscovered.
 > something the guard no longer checks. It was verified by making it fail on
 > purpose before it was committed, which is the habit below.
 
-## The eight shapes it took
+## The nine shapes it took
 
 1. **The gate that hid the other gates.** CI ran `lint` first with default step
    semantics, so three style errors meant type-check, tests, coverage, build and
@@ -99,6 +101,36 @@ This note exists so the eighth instance gets recognised instead of rediscovered.
    an import cannot satisfy) and scope the search to the **enclosing function**,
    not a character window. Derive the set you check from the source of truth
    rather than listing it by hand.
+
+9. **The mirror: a test that re-implements the rule and asserts the copy.**
+   The most convincing of the nine, because it looks exactly like a behavioural
+   test - real inputs, real expected values, six cases:
+
+   ```js
+   const step = (resolved, s) =>
+     s > 0 && resolved > 0 ? Math.max(s, Math.round(resolved / s) * s) : resolved;
+   expect(step(32.49, 1)).toBe(32);
+   ```
+
+   The file under test is never imported. Changing `listing-kit.tsx` to
+   `Math.floor` - the one thing US-2739 AC4 exists to prevent, because flooring
+   quietly costs the seller money on every cross-post - leaves all six green.
+   `numericOr` had the same thing (`const first = (a) => a.find(...)`).
+
+   Its quieter sibling is the **source scan**:
+   `expect(src).toContain("function numericOr(")`. That pins the NAME and the
+   CALL SITE, which is worth pinning, and says nothing about the body. On
+   2026-08-21 four stories were marked done on these two shapes, all in
+   `src/test/cross-post-setup.test.ts`, and three of the four survived being
+   reverted to the exact bug they were written for.
+
+   **A source scan is not automatically wrong.** US-2725's guard asserts "no
+   bare `c.json({error}, 500)` inside this handler" - a property of the text,
+   correctly scoped, and it holds up under sabotage in both directions. The test
+   is whether the property you care about IS syntactic. Rounding is not.
+
+   The fix in every case: export the function and call it. That is a smaller
+   cost than a green suite over a broken one.
 
 ## The habit that catches all of them
 
@@ -172,6 +204,25 @@ So the full habit is two questions, and the second is cheaper to skip:
 > design. And the tenant fixture died on a unique constraint the second time,
 > then on the next one along. **If a thing is only ever run against a fresh
 > database, "it works" and "it works once" are indistinguishable.**
+
+## The third habit: run a control, or the sabotage lies too
+
+Breaking the code proves nothing if the suite was already red.
+
+On 2026-08-21 a sabotage run reported that the old mirror test "caught" all
+three breakages of `stepPrice` - which would have made the whole finding above
+wrong. It had not. The refactor that exported `stepPrice` moved the expression
+that test scanned for, so it was failing before the first sabotage was applied,
+and a red suite "catches" everything you do to it.
+
+With a green control asserted first, the real numbers were: new test 4 of 4
+caught, old source scan 4 of 4 **missed**.
+
+So: assert every suite is GREEN before the first sabotage, and treat any run
+without that control as unread. The same trap turned up the same day probing
+whether a GoTrue admin route existed - the 401 read as "the route is there and
+refused me" until a deliberately nonexistent control route returned 401 too,
+because Kong was rejecting before GoTrue ever saw it.
 
 ## Corollary: a scoped search is not evidence of absence
 

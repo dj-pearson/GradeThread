@@ -353,10 +353,7 @@ function PlatformPanel({
   // Rounded to NEAREST rather than floored: flooring quietly costs the seller
   // money on every cross-post, and the number is shown in the row below before
   // they send it, so it is a visible adjustment rather than a silent one.
-  const step = spec.priceStep ?? 0;
-  const steppedPrice = step > 0 && resolvedPrice > 0
-    ? Math.max(step, Math.round(resolvedPrice / step) * step)
-    : resolvedPrice;
+  const steppedPrice = stepPrice(resolvedPrice, spec.priceStep ?? 0);
   const priced: PlatformKitVariant =
     steppedPrice === variant.price
       ? variant
@@ -1088,6 +1085,37 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
  * object — returns the fallback. Deliberately strict about what counts: a
  * price is money, and coercing junk into one would put it on a live listing.
  */
+/**
+ * A price in the units the marketplace actually accepts (US-2739).
+ *
+ * Poshmark's listing-price input is inputmode="numeric" pattern="[0-9]*" -
+ * digits only, no decimal point - so "32.49" is not a value that field can
+ * hold. Sending one is not a rounding nicety; it is handing the marketplace
+ * something it rejects.
+ *
+ * NEAREST, not floored. Flooring quietly costs the seller money on every
+ * cross-post, and the adjusted number is shown in the row before they send it,
+ * so it is a visible change rather than a silent one.
+ *
+ * EXPORTED FOR TEST. This lived inline, and the suite covering it re-implemented
+ * the same expression locally and asserted against the copy - so changing the
+ * real code to floor would have left every assertion green. Same shape as
+ * numericOr below.
+ *
+ * @param step 0 (or absent) means the platform keeps its cents.
+ */
+export function stepPrice(resolved: number, step: number): number {
+  // Non-finite guards, found by writing the test rather than by reading the
+  // code: an Infinity step makes Math.round(price / step) zero, and 0 * Infinity
+  // is NaN — so a nonsense step turned a real price into NaN and put that on the
+  // row. Leaving the price untouched is the only safe answer for a step we
+  // cannot use.
+  if (!Number.isFinite(step) || !Number.isFinite(resolved)) return resolved;
+  if (!(step > 0) || !(resolved > 0)) return resolved;
+  // Never below one step: a 40c item becomes $1, never $0.
+  return Math.max(step, Math.round(resolved / step) * step);
+}
+
 /**
  * A number, from a number or a numeric string, or the fallback.
  *

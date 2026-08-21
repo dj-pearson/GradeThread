@@ -271,7 +271,11 @@ describe("a draft with no stored price still cross-posts one (US-2736)", () => {
     // original object rather than a copy.
     const src = code(KIT);
     expect(src).toContain("const resolvedPrice = variant.price > 0 ? variant.price : fallbackPrice");
-    expect(src).toContain("step > 0 && resolvedPrice > 0");
+    // The step maths moved into the exported stepPrice (US-2739), where its
+    // "never invents a price" behaviour is asserted by CALLING it rather than by
+    // matching the expression: src/test/step-price.test.ts, "never goes below
+    // one step, and never invents a price".
+    expect(src).toContain("const steppedPrice = stepPrice(");
     expect(src).toContain("steppedPrice === variant.price");
   });
 });
@@ -288,27 +292,24 @@ describe("a price is sent in the units the marketplace accepts (US-2739)", () =>
 
   it("the step is applied where display and payload already agree", () => {
     // Rounding only in the payload would show the seller one number and send
-    // another, which is the class of bug this whole file guards against.
+    // another, which is the class of bug this whole file guards against. This is
+    // a placement check: ONE steppedPrice, computed before the row, the
+    // validation and the payload all read it.
     const src = code(KIT);
-    expect(src).toContain("spec.priceStep ?? 0");
-    expect(src).toContain("const steppedPrice =");
+    expect(src).toContain("const resolvedPrice = variant.price > 0 ? v");
+    expect(src).toContain("const steppedPrice = stepPrice(");
     expect(src).toContain("steppedPrice === variant.price");
   });
 
-  it("rounds to nearest and never below one step", () => {
-    const step = (resolved: number, s: number) =>
-      s > 0 && resolved > 0 ? Math.max(s, Math.round(resolved / s) * s) : resolved;
-    expect(step(32.49, 1)).toBe(32);
-    // Nearest, not floored: flooring quietly costs the seller money every time.
-    expect(step(32.51, 1)).toBe(33);
-    expect(step(19.99, 1)).toBe(20);
-    // A sub-dollar price becomes the minimum step, never 0.
-    expect(step(0.4, 1)).toBe(1);
-    // No step configured leaves cents alone.
-    expect(step(32.49, 0)).toBe(32.49);
-    // No price stays no price.
-    expect(step(0, 1)).toBe(0);
-  });
+  // THE ROUNDING RULE ITSELF IS TESTED IN src/test/step-price.test.ts, against
+  // the exported stepPrice.
+  //
+  // It used to be tested here, and it was not really tested at all: the case
+  // list re-implemented the expression inside the test and asserted against that
+  // copy. Changing listing-kit.tsx to FLOOR instead of round - the one thing AC4
+  // exists to prevent, because it quietly costs the seller money on every
+  // cross-post - left all six "pinned" cases green. Verified by sabotage, with a
+  // control run to be sure the failure was the sabotage and not the refactor.
 });
 
 describe("a numeric string is a price, not a zero (US-2740)", () => {
