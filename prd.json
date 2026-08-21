@@ -2372,7 +2372,7 @@
     },
     {
       "id": "US-2734",
-      "passes": false,
+      "passes": true,
       "title": "The selector probe's deep checkbox names only half of what it does, so the report that closes a coverage gap is the one nobody ticks",
       "description": "As someone reporting a broken marketplace form, I want the probe option that describes the real controls to be findable, so that a report comes back with what to use instead of just what is missing.",
       "acceptanceCriteria": [
@@ -2380,7 +2380,12 @@
         "The flag does two things. selector-probe.js: with deep on, candidates are computed for EVERY entry that missed; with it off, only for missing REQUIRED ones. The second effect is the one that closes a coverage gap, and the label never mentioned it.",
         "Relabelled to lead with the outcome - it now says it describes the real controls for every field we could not find, and that the post-click case is included rather than being the whole point.",
         "The probe's privacy contract is untouched: attribute names and values from the allowlist plus button label text, never a field's value. selector-probe.test.cjs still holds it.",
-        "FOLLOW-ON worth considering: the report itself could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than depending on someone remembering."
+        "FOLLOW-ON worth considering: the report itself could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than depending on someone remembering.",
+        "AC3's RELABEL HAD NO GUARD, added 2026-08-21. The label is the whole story: the code worked before and after, and the only thing that changed was whether a seller had a reason to tick the box. A revert to the old wording is therefore a silent regression - reports just quietly stop carrying candidates again, and the next person spends the round trip finding out. extension-unified/test/probe-deep-label.test.cjs holds it, discovered by scripts/test-extensions.mjs.",
+        "It asserts the HEADLINE - the span text before the <em> - because that is what a seller reads at a glance. Plus the every-field promise, that the post-click case is still mentioned without being the whole point, that deep still widens the candidate set from missing-REQUIRED to every miss (AC2's second effect), and that the report still states deep on every run so an empty candidate list is never ambiguous between 'nothing missed' and 'the box was unticked'.",
+        "SABOTAGE-CHECKED, control-first, all four caught: reverting the headline, dropping the every-field promise, making deep stop widening the set, and removing deep= from the report.",
+        "MY FIRST VERSION OF THE HEADLINE CHECK COULD NOT FAIL. It asserted the LABEL started with the old wording, but the slice begins at <label ...>, so the anchor never matched - it passed while a sabotage reverted the headline. Found by sabotaging the guard rather than by reading it, which is the only reason this AC is now actually held.",
+        "AC5 remains a follow-on and is NOT done: the report could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than by someone remembering."
       ],
       "priority": 20
     },
