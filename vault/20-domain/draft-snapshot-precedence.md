@@ -10,7 +10,7 @@ code_refs:
   - src/pages/flipdesk/grid.tsx
   - src/lib/title-sync-patch.ts
   - services/edge-functions/src/routes/flipdesk-ebay.ts
-reviewed: 2026-08-19
+reviewed: 2026-08-21
 tags: [flipdesk, listings, publishing, contract]
 summary: Publish prefers the listings-row snapshot over the item, so any surface writing the item's title, description or price must reach the draft row too.
 ---
@@ -29,6 +29,26 @@ summary: Publish prefers the listings-row snapshot over the item, so any surface
 > adds a QUANTITY to the revise patch and an out-of-stock banner; it touches
 > neither buildListingFields nor the publish-time resolution order. The
 > precedence rule still holds.
+>
+> **Re-reviewed 2026-08-21.** Drift flagged `flipdesk-ebay.ts` for the US-2704 /
+> US-2706 / US-2707 evidence work (`b7c59c1da`, `ffc009926`, `6f749fdaa`,
+> `ba017426a`, `2d1f046ae`). The rule holds, and the direction of the dependency
+> is worth writing down: this work **reads** the resolved publish payload, it
+> never writes one.
+>
+> US-2704 is the only one that touches the publish path at all. It adds a
+> `recordPublication` call after persist in `publishItemForOwner`, writing
+> `ctx.summary.description / aspects / priceValue` into the NEW
+> `listing_publications` table. That is a record of what was published — it
+> mutates neither the item nor the listings draft row, and it does not reorder
+> `assemblePublishContext`. The evidence builder then reads back through
+> `latestPublication()` rather than the table directly.
+>
+> Which makes `listing_publications` a downstream CONSUMER of the precedence
+> rule: what it stores is whatever the resolution above chose. So a bug in the
+> precedence order no longer just publishes the wrong text — it now also files
+> the wrong text as evidence in a dispute, asserted under our signature. Same
+> rule, higher cost of getting it wrong.
 
 ## The precedence
 
