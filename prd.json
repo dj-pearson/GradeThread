@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2777",
+  "nextId": "US-2778",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2231,25 +2231,6 @@
       "notes": "DONE 2026-08-20 (code). New src/hooks/use-extension-setup.ts (GT_PING round trip + the gt-bridge DOM marker) and src/components/flipdesk/cross-post-setup.tsx, rendered at the top of the extension tier on the Marketplaces page. FIVE steps, not the four the ACs named: the paid-plan gate turned out to be a separate observable fact from being signed in (capabilities.sellerEnabled vs capabilities.authenticated), and folding it into 'signed in' would have shown a green step to a free account whose first send then fails with needsUpgrade. extension-unified/background.js GT_PING now also returns tosAccepted, the manifest version, and a channels array carrying canList/canDelist read from GT_LISTER_SELECTORS - so the screen counts a channel ready only when that build's selectors are verified, rather than when the platform is merely accepted. Reporting acceptance is not granting it: no GT_TOS_ACCEPT exists and a guard asserts EXTERNAL_TYPES still has no accept type, because the clickwrap must render from the extension's own copy. An older extension that does not report tosAccepted reads as not-yet, never as done. The page's dead 'Install the GradeThread Lister browser extension' sentence - the only install instruction on the page, and not a link - is gone; the paragraph now describes the mechanism and the setup section carries the instruction. 8 guards in src/test/cross-post-setup.test.ts."
     },
     {
-      "id": "US-2722",
-      "passes": false,
-      "title": "The web cannot queue a cross-post for the desktop, but iOS can",
-      "description": "As a seller working on a machine without the extension, I want to queue a Poshmark listing for the browser that does have it, so that the desktop queue iOS already uses is not iOS-only.",
-      "acceptanceCriteria": [
-        "src/hooks/use-extension-queue.ts useEnqueueExtensionWork is called with kind 'list' from the Listing Kit. Today the web calls it only with kind 'delist', from src/components/flipdesk/pending-delist-banner.tsx, while ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift already enqueues .list.",
-        "The control appears on an extension-tier Listing Kit tab when isListerAvailable() is false, and its explanatory copy is QUEUED_NOTICE verbatim - the same sentence iOS, Android and the edge already share.",
-        "The enqueued row carries source 'web', the inventory item id, the platform and the locale key, matching the body ExtensionQueueService.enqueue posts, so background.js drainQueue runs it with no extension change.",
-        "ExtensionQueueSection on the Marketplaces page lists the queued list job and can cancel it, using the hooks that already exist.",
-        "A queued job is never described as listed. A vitest case asserts the rendered string is QUEUED_NOTICE and that no success wording appears before a completion result arrives.",
-        "No new edge route is added: POST /api/flipdesk/extension-queue already exists and is user-scoped. If one is added, it carries a tenant-isolation_test.ts case per US-268."
-      ],
-      "priority": 31,
-      "dependsOn": [
-        "US-2720"
-      ],
-      "notes": "DONE 2026-08-20. 'Queue for my desktop' now sits inside the not-installed branch of CrossPostNotice in listing-kit.tsx, calling useEnqueueExtensionWork with kind 'list'. The web had only ever called it with kind 'delist' from pending-delist-banner.tsx while ios/GradeThread/Marketplaces/ListingKit/ListingKitView.swift had been enqueuing .list since US-2481 - the parity gap ran the wrong way. No server work was needed: the hook already posts source 'web' to POST /api/flipdesk/extension-queue, the route is already user-scoped, and background.js drainQueue already runs list rows, so nothing new touches a multi-tenant table. Deliberately confined to the not-installed branch: offering it beside a working Send button would be two paths to the same listing. The copy is QUEUED_NOTICE verbatim (the sentence web, iOS, Android and the edge already share) and a guard asserts it, because a queued job described as listed is exactly the belief that produces a double sale. 3 guards in src/test/cross-post-setup.test.ts."
-    },
-    {
       "id": "US-2727",
       "passes": false,
       "title": "listings.listed_at is NOT NULL but the code writes null for a draft, so the extension writeback INSERT has never succeeded",
@@ -2405,6 +2386,21 @@
       "priority": 6,
       "passes": false,
       "notes": "[P0][Android/Play][Compliance] Found 2026-08-21 while preparing the first Play Console submission. See android/PLAY_STORE_SUBMISSION.md section 0 blocker 1."
+    },
+    {
+      "id": "US-2777",
+      "passes": false,
+      "title": "Vinted's 22 country domains are built end to end and no client ever asks for one",
+      "description": "As a seller listing on Vinted outside the default domain, I want the Lister to open MY country's Vinted, so that a queued or direct cross-post does not land on a site I have no account on.",
+      "acceptanceCriteria": [
+        "FOUND 2026-08-21 while verifying US-2722 AC3. US-2479 built locale support the whole way down: ListerPayload.locale (lib/lister-extension.ts:80), newListingUrlForLocale in extension-unified/lister/lister-guard.js:92, 22 country domains in the bundled selectors config, localesFor(), and a covered-locales error message that names the ones we support. Every piece works. Nothing ever supplies the input.",
+        "NO CLIENT SETS IT, checked in all four places. The web's DIRECT send calls buildListerPayload with platform, itemId, variant, photos and primaryId and no locale (listing-kit.tsx:430). The web's QUEUED send posts payload {}. ios ExtensionQueueService.enqueue is called with kind, platform and inventoryItemId. Android's ExtensionQueue is the same shape. grep for a caller assigning locale in src/ returns nothing outside the type definition itself.",
+        "THE SYMPTOM IS SILENT AND WRONG, not an error: newListingUrlForLocale returns the platform's stated default when the locale is absent or empty (lister-guard.js:97), so a French or German seller gets vinted.com. They see a working flow that filled a form on the wrong country's site. The fail-loud path that names the covered locales only runs when a locale IS supplied and is not covered - the case that cannot happen today.",
+        "THE MISSING PIECE IS A SOURCE OF TRUTH, which is why this is a story and not a patch. Nothing records which Vinted a seller uses: there is no setting, no column, and marketplace_connections has no row for an extension channel. Decide where it lives - a per-user setting beside cross_post_channels (US-2721 just added that pattern), or per-listing on the kit tab - and say why in the note.",
+        "Whatever is chosen, the DIRECT and the QUEUED paths must both carry it. They diverged silently for months precisely because the field was optional on both and set on neither, and a fix that wires only the direct send leaves the queue opening the wrong domain.",
+        "A guard fails if ListerPayload.locale has no producer. The unwired-module gate catches a module nobody imports; this is the same defect one level down - a FIELD nobody sets - and it survived because every layer that consumes it is correct."
+      ],
+      "priority": 31
     }
   ]
 }
