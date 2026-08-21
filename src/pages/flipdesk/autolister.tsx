@@ -117,6 +117,12 @@ import {
   FLIPDESK_PLANS,
 } from "@/lib/constants";
 import {
+  buildGroupWarnings,
+  groupPhotoType,
+  COVER_QA_REVIEW_THRESHOLD,
+  type GroupWarning,
+} from "@/pages/flipdesk/autolister/group-warnings";
+import {
   GenerateConfirmDialog,
   ProposeConfirmDialog,
   VerifyConfirmDialog,
@@ -341,7 +347,6 @@ function virtualItemsWithPin(
 
 // US-957: covers scoring below this (0-100 listing-readiness) get a non-blocking
 // "reshoot recommended" nudge before Generate. Advisory only — never blocks.
-const COVER_QA_REVIEW_THRESHOLD = 60;
 
 // US-530: collect Files from a drag-and-drop, recursing into dropped FOLDERS
 // (webkitGetAsEntry). Falls back to the flat file list when the entries API
@@ -2002,49 +2007,10 @@ export function FlipdeskAutolisterPage() {
   );
 
   /** US-1546 AC2: suspicious groups, each linkable/scrollable. */
-  interface GroupWarning {
-    key: string;
-    groupId: string;
-    label: string;
-  }
-  const groupWarnings = useMemo<GroupWarning[]>(() => {
-    const warnings: GroupWarning[] = [];
-    const nameOf = (g: Group) => g.name || "Untitled group";
-    for (const g of groups) {
-      if (g.photoIds.length === 1) {
-        warnings.push({
-          key: `single-${g.id}`,
-          groupId: g.id,
-          label: `“${nameOf(g)}” has a single photo`,
-        });
-      } else if (g.photoIds.length > 12) {
-        warnings.push({
-          key: `big-${g.id}`,
-          groupId: g.id,
-          label: `“${nameOf(g)}” has ${g.photoIds.length} photos — two items?`,
-        });
-      }
-      const score = coverScores[g.coverId];
-      if (score != null && score >= 0 && score < COVER_QA_REVIEW_THRESHOLD) {
-        warnings.push({
-          key: `cover-${g.id}`,
-          groupId: g.id,
-          label: `“${nameOf(g)}” cover scored ${score} — reshoot recommended`,
-        });
-      }
-    }
-    // Unresolved US-1544 AI suggestions count as open questions.
-    for (const s of groupSuggestions) {
-      const g = groups.find((x) => x.id === s.group_ids[0]);
-      if (!g) continue;
-      warnings.push({
-        key: `ai-${s.id}`,
-        groupId: g.id,
-        label: `AI suggestion open on “${nameOf(g)}” (${s.type})`,
-      });
-    }
-    return warnings;
-  }, [groups, coverScores, groupSuggestions]);
+  const groupWarnings = useMemo<GroupWarning[]>(
+    () => buildGroupWarnings(groups, coverScores, groupSuggestions),
+    [groups, coverScores, groupSuggestions],
+  );
 
   /** Scroll to a group card, mounting it first when it's outside the window. */
   function scrollToGroup(groupId: string) {
@@ -2609,10 +2575,7 @@ export function FlipdeskAutolisterPage() {
         // positional drop), THEIR order wins — it becomes sort_order verbatim
         // (cover still first; roles still label each photo).
         // US-2769: retyping the cover has to reach what ships, not just the UI.
-        const roleOf = (p: StagedPhoto): PhotoRole =>
-          p.id === g.coverId
-            ? (g.roles?.[p.id] ?? "front")
-            : (g.roles?.[p.id] ?? "detail");
+        const roleOf = (p: StagedPhoto): PhotoRole => groupPhotoType(g, p.id);
         // US-2461: the qualifier rides alongside the type. The cover is a
         // `front`, which takes none.
         // Same for the qualifier: a cover retyped "brand label" keeps it.

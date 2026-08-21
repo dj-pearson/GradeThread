@@ -30,6 +30,10 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  missingRequiredRoles,
+  type PhotoProfile,
+} from "@/lib/photo-profiles";
 
 const root = process.cwd();
 
@@ -129,5 +133,111 @@ describe("US-2769: the two bundled photo-profile fallbacks stay in step", () => 
         "The server table wins once it loads, so this is what a seller reads on " +
         "first paint and offline — fix the copy that disagrees with the server.",
     ).toEqual([]);
+  });
+});
+
+// ── The web intake surface (US-2769 AC1) ────────────────────────────────────
+//
+// The fallbacks above were never the whole story. src/components/flipdesk/
+// intake-photo-stager.tsx carried a FIFTH copy of this vocabulary: its own
+// four-entry INTAKE_TYPES list, with its own labels, no hints at all, and the
+// type chosen from a dropdown AFTER the shot was taken. So the one web surface
+// a seller photographs at never named the shot it wanted, while iOS has since
+// US-2134. It now resolves its slots through usePhotoProfile, the same call the
+// item page and the phone make.
+
+const stager = readFileSync(
+  resolve(root, "src/components/flipdesk/intake-photo-stager.tsx"),
+  "utf8",
+);
+
+describe("US-2769 AC1: the web intake stager speaks the shared vocabulary", () => {
+  it("reads the file it is asserting about", () => {
+    // Same anti-vacuous guard as above: a rename must fail this test loudly
+    // rather than turn every assertion below into a check on an empty string.
+    expect(stager.length, "intake-photo-stager.tsx is missing or empty").toBeGreaterThan(1000);
+    expect(stager).toContain("IntakePhotoStager");
+  });
+
+  it("resolves its slots through usePhotoProfile", () => {
+    expect(stager, "the intake stager no longer reads the photo profile").toMatch(
+      /usePhotoProfile\(/,
+    );
+  });
+
+  it("declares no photo vocabulary of its own", () => {
+    // A local list needs labels. The profile supplies them, so a `label:` here
+    // means a sixth copy has been started.
+    expect(
+      stager.match(/label:\s*"/g) ?? [],
+      "intake-photo-stager.tsx declares its own slot labels again",
+    ).toEqual([]);
+
+    // And nothing may echo a label the shared table already owns.
+    const echoed = [...new Set(web.map((r) => r.label))].filter((l) =>
+      stager.includes(`"${l}"`),
+    );
+    expect(echoed, "these slot labels are hardcoded in the intake stager").toEqual([]);
+  });
+
+  it("puts the profile's hint on screen, so the shot is named before it is taken", () => {
+    // The hint is the difference between "Tag" and "The size itself, close
+    // enough to read without zooming". Rendering the label alone would pass the
+    // checks above and still tell the seller nothing.
+    expect(stager, "the intake stager renders no hint").toMatch(/\.hint/);
+  });
+
+  it("does not re-gate the missing-shot notice on already having photos", () => {
+    // The notice used to render only when photos.length > 0. The helper below
+    // answers correctly for an empty set; this stops the old guard from being
+    // put back in front of it in the JSX, where the helper cannot see it.
+    expect(
+      stager,
+      "the missing-shot notice is gated on already having photos again",
+    ).not.toMatch(/photos\.length > 0 &&\s*missing/);
+  });
+
+  it("retags through the one shared picker, not its own type menu", () => {
+    expect(stager).toContain("PhotoTagSelect");
+    expect(
+      stager,
+      "the intake stager builds its own photo-type menu again — use PhotoTagSelect",
+    ).not.toMatch(/<SelectItem/);
+  });
+});
+
+describe("US-2769 AC3: the missing-required gate", () => {
+  const profile: PhotoProfile = {
+    category: "clothing",
+    label: "Clothing",
+    roles: [
+      { type: "front", label: "Front", hint: "h", required: true, icon: "shirt" },
+      { type: "back", label: "Back", hint: "h", required: true, icon: "shirt" },
+      { type: "tag", role: "size", label: "Size tag", hint: "h", required: false, icon: "tag" },
+    ],
+  };
+
+  it("names every required slot when there are no photos at all", () => {
+    // The bug this closes: the notice was gated on photos.length > 0, so the
+    // seller most likely to save an item with no front - the one who has taken
+    // nothing - was told nothing at all.
+    expect(missingRequiredRoles(profile, []).map((r) => r.type)).toEqual([
+      "front",
+      "back",
+    ]);
+  });
+
+  it("counts a photo by TYPE, whatever qualifier it carries", () => {
+    expect(
+      missingRequiredRoles(profile, [{ photoType: "front" }]).map((r) => r.type),
+    ).toEqual(["back"]);
+  });
+
+  it("never asks for an optional slot", () => {
+    const done = missingRequiredRoles(profile, [
+      { photoType: "front" },
+      { photoType: "back" },
+    ]);
+    expect(done).toEqual([]);
   });
 });

@@ -82,6 +82,24 @@ function fallbackProfile(category: string | null | undefined): PhotoProfile {
     : GENERIC_FALLBACK;
 }
 
+/**
+ * The required slots a set of photos does not cover yet.
+ *
+ * US-2769 AC3. The gate is per TYPE, not per (type, role): `front` and `back`
+ * are the only required roles and neither takes a qualifier, so "has a front"
+ * is the right question and a role-blind count is the right instrument — the
+ * same one PhotoUploader uses to advance an item to "photographed". Callers
+ * pass whatever they hold, stored rows or photos staged in memory before the
+ * item exists, so intake and the item page cannot answer this differently.
+ */
+export function missingRequiredRoles(
+  profile: PhotoProfile,
+  have: ReadonlyArray<{ photoType: FlipdeskPhotoType }>,
+): PhotoRole[] {
+  const types = new Set(have.map((p) => p.photoType));
+  return profile.roles.filter((r) => r.required && !types.has(r.type));
+}
+
 /** Fetches + caches the whole profile table. Static config → long stale time. */
 function usePhotoProfiles() {
   return useQuery({
