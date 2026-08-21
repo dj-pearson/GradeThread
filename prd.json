@@ -2524,7 +2524,7 @@
     },
     {
       "id": "US-2732",
-      "passes": false,
+      "passes": true,
       "title": "Photos are fetched one at a time, so a slow set can outlast the job's own deadline",
       "description": "As a seller cross-posting a listing with a dozen photos, I want the attach step bounded by one slow photo rather than by the sum of all of them, so that a slow connection does not read as a timed-out cross-post.",
       "acceptanceCriteria": [
@@ -2533,7 +2533,12 @@
         "ORDER IS PRESERVED and that is load-bearing: the first photo is the cover image. Promise.all resolves positionally, the results are indexed as the urls were, and the DataTransfer is built afterwards in that order - never in completion order. Verified against a mixed success/failure set: positions 2 and 4 of a 4-item list produce 02.png and 04.jpg with attached=2, failed=2.",
         "The per-photo failure accounting is unchanged: one bad photo still costs only itself, and the attached/failed/total counts the seller sees (US-1877) mean the same thing.",
         "SEPARATE FIX in the same change: GT.log, the login-wall notice and the RESULT delivery each wrapped chrome.runtime.sendMessage in a synchronous try/catch, which cannot catch what MV3 actually does - with no callback it returns a promise and a sleeping worker REJECTS it. Every fill on a page whose worker had slept printed 'Uncaught (in promise) Error: Could not establish connection. Receiving end does not exist.' into the marketplace console, seen live on poshmark.com/create-listing. All three now route through GT.tell, which swallows both the throw and the rejection.",
-        "NOT the cause of the reported 15-20s before the Poshmark form appears. That window is the marketplace tab loading (its own console shows GTM, a PayPal tag 410 and an ad killed for CPU) plus the flow's deliberate 6s probe budget, which is capped and concurrent already. Recorded so nobody re-hunts it as a regression."
+        "NOT the cause of the reported 15-20s before the Poshmark form appears. That window is the marketplace tab loading (its own console shows GTM, a PayPal tag 410 and an ad killed for CPU) plus the flow's deliberate 6s probe budget, which is capped and concurrent already. Recorded so nobody re-hunts it as a regression.",
+        "AC3 HAD NO AUTOMATED GUARD, added 2026-08-21. The story says order preservation was 'verified against a mixed success/failure set' - once, by hand. extension-unified/test/attach-photos-order.test.cjs now runs that verification every time, discovered by scripts/test-extensions.mjs so it is in verify:web and in CI (36 files pass).",
+        "WHY THIS PROPERTY AND NOT THE CONCURRENCY: concurrency is where order gets lost, and the FIRST photo is the seller's cover image. Promise.all resolving positionally is what makes the current code correct, but the natural 'improvement' to any concurrent pattern is to consume results as they settle - which reorders silently. Nothing fails, nothing warns, the cover is just a different photo.",
+        "The fake fetch resolves each url after a delay chosen so COMPLETION ORDER IS THE REVERSE of request order, so a positional bug inverts the assertion rather than passing by luck.",
+        "SABOTAGE-CHECKED, control-first, both caught: consuming results as they settle, and renumbering survivors to close the gap left by a failed photo. The second matters because the filename carries the original index - a gap has to stay visible rather than be closed.",
+        "Also covered: one bad photo costs only itself (AC4), the max cap bounds what is even fetched, and an empty set is not a partial failure."
       ],
       "priority": 12
     },
