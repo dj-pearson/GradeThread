@@ -30,6 +30,7 @@ import {
   SPECULATIVE_CONDITION_ID,
 } from "../lib/comp-speculation.ts";
 import { cachedSearchBrowseComps } from "../lib/comps-cache.ts";
+import { whichRefusal } from "../lib/gate-order.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { decideBuy, DECISION_FEE_RATE } from "../lib/scout-decision.ts";
 import {
@@ -160,9 +161,21 @@ const MAX_APPRAISE_IMAGE_BYTES = 12 * 1024 * 1024;
 flipdeskScoutRoutes.post("/appraise", async (c) => {
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  // Same paid gate + AI quota as the scan: appraising runs the AI grader.
-  const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
-  if (gate) return gate;
+  // US-2755: the plan gate and the AI quota both read the same users row and
+  // neither depends on the other, so they run together instead of one behind the
+  // other. Which refusal wins when BOTH fail is a named rule with a test
+  // (lib/gate-order.ts) rather than an accident of statement order — a seller on
+  // an expired plan told "monthly AI limit reached" is being sent to fix the
+  // wrong thing.
+  const [gate, quota] = await Promise.all([
+    requireFlipdesk(c, { feature: "compPulls", userId }),
+    checkQuota(userId),
+  ]);
+  // The rule decides whether the GATE wins; the narrowing below is what lets
+  // TypeScript see the quota union, and the two agree by construction because
+  // whichRefusal only returns "quota" when quota.ok is false.
+  if (whichRefusal(gate !== null, quota.ok) === "gate") return gate!;
+  if (!quota.ok) return c.json(quota.body, quota.status);
 
   let body: {
     image?: unknown;
@@ -204,11 +217,6 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
       400,
       "Provide a photo plus at least one of: barcode, a keyword (q), or an eBay category.",
     );
-  }
-
-  const quota = await checkQuota(userId);
-  if (!quota.ok) {
-    return c.json(quota.body, quota.status);
   }
 
   // 0) US-2753: START THE COMP QUERY NOW, before the grade exists.
@@ -421,9 +429,15 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
   // workspaceOwnerId ?? userId and never a bare userId.
   const userId = c.get("workspaceOwnerId") ?? c.get("userId");
 
-  // Same paid gate as /appraise: this runs the grader and pulls comps.
-  const gate = await requireFlipdesk(c, { feature: "compPulls", userId });
-  if (gate) return gate;
+  // Same paid gate as /appraise, and the same US-2755 pairing: both checks read
+  // one users row and neither depends on the other, so they run together and the
+  // named precedence rule decides which refusal a doubly-failing caller sees.
+  const [gate, quota] = await Promise.all([
+    requireFlipdesk(c, { feature: "compPulls", userId }),
+    checkQuota(userId),
+  ]);
+  if (whichRefusal(gate !== null, quota.ok) === "gate") return gate!;
+  if (!quota.ok) return c.json(quota.body, quota.status);
 
   let body: {
     imageUrls?: unknown;
@@ -459,9 +473,6 @@ flipdeskScoutRoutes.post("/appraise-url", async (c) => {
       "Provide the listing's title or brand so we can find comparable sales.",
     );
   }
-
-  const quota = await checkQuota(userId);
-  if (!quota.ok) return c.json(quota.body, quota.status);
 
   // 1) PRIVATE shadow grade from the listing's own photos. One AI action,
   //    reserved atomically and refunded if the grade fails.
