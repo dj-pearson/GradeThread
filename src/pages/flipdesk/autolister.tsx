@@ -2608,12 +2608,16 @@ export function FlipdeskAutolisterPage() {
         // US-1543: once the seller hand-placed photos (drag-reorder /
         // positional drop), THEIR order wins — it becomes sort_order verbatim
         // (cover still first; roles still label each photo).
+        // US-2769: retyping the cover has to reach what ships, not just the UI.
         const roleOf = (p: StagedPhoto): PhotoRole =>
-          p.id === g.coverId ? "front" : (g.roles?.[p.id] ?? "detail");
+          p.id === g.coverId
+            ? (g.roles?.[p.id] ?? "front")
+            : (g.roles?.[p.id] ?? "detail");
         // US-2461: the qualifier rides alongside the type. The cover is a
         // `front`, which takes none.
+        // Same for the qualifier: a cover retyped "brand label" keeps it.
         const qualifierOf = (p: StagedPhoto): string | null =>
-          p.id === g.coverId ? null : (g.photoRoles?.[p.id] ?? null);
+          g.photoRoles?.[p.id] ?? null;
         const ordered = [...photos].sort((a, b) => {
           if (a.id === g.coverId) return -1;
           if (b.id === g.coverId) return 1;
@@ -3569,27 +3573,19 @@ export function FlipdeskAutolisterPage() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
-                      {/* US-533: cover is the front; others show an editable role. */}
-                      {isCover ? (
-                        <span className="absolute inset-x-0 bottom-0 bg-brand-red/90 py-0.5 text-center text-[10px] font-semibold uppercase tracking-wide text-white">
-                          Front
-                        </span>
-                      ) : (
-                        // US-2461: the one picker, same as the photo manager.
-                        // The group NAME is the seller's own title, so it is the
-                        // best garment word available here — a group called
-                        // "Levi's 501 jeans" gets an inseam slot and a t-shirt
-                        // group does not. "Front" stays absent: the cover IS the
-                        // front, promoted via the star.
-                        <GroupPhotoTag
-                          groupName={g.name}
-                          photoType={g.roles?.[pid] ?? "detail"}
-                          photoRole={g.photoRoles?.[pid] ?? null}
-                          onChange={(type, role) =>
-                            setPhotoTag(g.id, pid, type, role)
-                          }
-                        />
-                      )}
+                      {/* US-2461 picker, US-2769 now on the cover too: cover
+                          DEFAULTS to front instead of being forced to it.
+                          Cover is a position; front is a fact, and
+                          identification gates on this label, so a tag-first
+                          shoot shipped a searchable "front" that is a tag. See
+                          vault/20-domain/identification-precedence.md.
+                          Group NAME is the garment word the profile reads. */}
+                      <GroupPhotoTag
+                        groupName={g.name}
+                        photoType={g.roles?.[pid] ?? (isCover ? "front" : "detail")}
+                        photoRole={g.photoRoles?.[pid] ?? null}
+                        onChange={(type, role) => setPhotoTag(g.id, pid, type, role)}
+                      />
                     </PhotoDragTile>
                   );
                 })}
