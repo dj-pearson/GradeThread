@@ -4,6 +4,8 @@ import { Input } from "@/components/ui/input";
 import { API_CROSS_LISTING_PLATFORMS, EXTENSION_CROSS_LISTING_PLATFORMS, MARKETPLACE_LABELS, MARKETPLACE_TIER, MARKETPLACE_TIER_LABEL } from "@/lib/constants";
 import type { CrossListingPlatform } from "@/lib/constants";
 import { cn } from "@/lib/utils";
+import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
+import { filterChannels } from "@/lib/cross-post-channels";
 
 import type React from "react";
 export interface PushToCardProps {
@@ -24,6 +26,15 @@ export function PushToCard({
   setPlatformPrices,
   price,
 }: PushToCardProps) {
+  // US-2721: only the channels this seller cross-posts to. A seller on two
+  // marketplaces should not be reading six rows on every draft.
+  const { data: chosenChannels } = useCrossPostChannels();
+  const apiPlatforms = filterChannels(API_CROSS_LISTING_PLATFORMS, chosenChannels);
+  const extensionPlatforms = filterChannels(
+    EXTENSION_CROSS_LISTING_PLATFORMS,
+    chosenChannels,
+  );
+
   return (
     <Card>
       <CardHeader>
@@ -34,7 +45,7 @@ export function PushToCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-2">
-        {API_CROSS_LISTING_PLATFORMS.map((p) => {
+        {apiPlatforms.map((p) => {
           // US-1114: a channel whose connector is built but awaiting
           // platform approval (tier "api_pending", e.g. Depop) has no
           // connect/publish path yet — publishing would 503. Show it
@@ -103,7 +114,7 @@ export function PushToCard({
             cross-push. */}
         <div className="rounded-md border border-dashed p-2.5">
           <div className="flex flex-wrap items-center gap-1.5 text-sm">
-            {EXTENSION_CROSS_LISTING_PLATFORMS.map((p) => (
+            {extensionPlatforms.map((p) => (
               <span key={p} className="font-medium">
                 {MARKETPLACE_LABELS[p]}
               </span>

@@ -90,6 +90,7 @@ import {
   useExtensionQueue,
 } from "@/hooks/use-extension-queue";
 import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
+import { CrossPostChannelPicker } from "@/components/flipdesk/cross-post-channel-picker";
 import {
   syncStateCopy,
   useDismissSyncReview,
@@ -1896,6 +1897,12 @@ export function FlipdeskMarketplacesPage() {
               disabled={autoEndSaving || autoEndSetting === undefined}
               onCheckedChange={(v) => void toggleAutoEnd(v)}
             />
+          </div>
+          {/* US-2721: which channels a draft is offered at all. Beside the
+              auto-end toggle because both answer "how does cross-listing
+              behave for me", and both write the same per-user settings row. */}
+          <div className="mt-3">
+            <CrossPostChannelPicker />
           </div>
         </section>
 

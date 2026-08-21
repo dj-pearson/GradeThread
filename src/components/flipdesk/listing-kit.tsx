@@ -55,6 +55,8 @@ import {
   sendToLister,
 } from "@/lib/lister-extension";
 import { MARKETPLACE_EXTENSION_FLOW } from "@/lib/constants";
+import { useCrossPostChannels } from "@/hooks/use-cross-post-channels";
+import { filterChannels } from "@/lib/cross-post-channels";
 import { edgeFetch } from "@/lib/edge-fetch";
 import {
   QUEUED_NOTICE,
@@ -977,6 +979,21 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
   // Resolving it at RENDER time fixes them all at once, with no regeneration
   // and no deploy ordering to get right. Same precedence as the generator and
   // the extension writeback: the eBay draft's price, else the item's target.
+  // US-2721: only the channels this seller cross-posts to. Narrowing here
+  // rather than at the tab render means generate() also stops spending AI calls
+  // on marketplaces they never open.
+  const { data: chosenChannels } = useCrossPostChannels();
+  const kitPlatforms = useMemo(
+    () => {
+      const narrowed = filterChannels(KIT_PLATFORMS, chosenChannels);
+      // Never render an empty kit: a selection that excludes every copy-paste
+      // channel (an eBay-and-Shopify seller) still gets the full set rather
+      // than a card with no tabs and no explanation.
+      return narrowed.length > 0 ? narrowed : KIT_PLATFORMS;
+    },
+    [chosenChannels],
+  );
+
   const { data: itemPrice } = useQuery({
     queryKey: ["item-target-price", itemId],
     queryFn: async () => {
@@ -1063,7 +1080,7 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
             size="sm"
             onClick={() => {
               gen.mutate(
-                { itemId, platforms: KIT_PLATFORMS },
+                { itemId, platforms: kitPlatforms },
                 {
                   onSuccess: () => {
                     toast.success("Marketplace fields generated");
@@ -1084,9 +1101,9 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
         </div>
       </CardHeader>
       <CardContent>
-        <Tabs defaultValue={KIT_PLATFORMS[0]}>
+        <Tabs defaultValue={kitPlatforms[0]}>
           <TabsList className="flex-wrap">
-            {KIT_PLATFORMS.map((p) => {
+            {kitPlatforms.map((p) => {
               const spec = getMarketplaceSpec(p);
               const v = variants[p];
               const hasErr = v ? !v.validation?.ok : false;

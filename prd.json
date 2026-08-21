@@ -2231,21 +2231,6 @@
       "notes": "DONE 2026-08-20 (code). New src/hooks/use-extension-setup.ts (GT_PING round trip + the gt-bridge DOM marker) and src/components/flipdesk/cross-post-setup.tsx, rendered at the top of the extension tier on the Marketplaces page. FIVE steps, not the four the ACs named: the paid-plan gate turned out to be a separate observable fact from being signed in (capabilities.sellerEnabled vs capabilities.authenticated), and folding it into 'signed in' would have shown a green step to a free account whose first send then fails with needsUpgrade. extension-unified/background.js GT_PING now also returns tosAccepted, the manifest version, and a channels array carrying canList/canDelist read from GT_LISTER_SELECTORS - so the screen counts a channel ready only when that build's selectors are verified, rather than when the platform is merely accepted. Reporting acceptance is not granting it: no GT_TOS_ACCEPT exists and a guard asserts EXTERNAL_TYPES still has no accept type, because the clickwrap must render from the extension's own copy. An older extension that does not report tosAccepted reads as not-yet, never as done. The page's dead 'Install the GradeThread Lister browser extension' sentence - the only install instruction on the page, and not a link - is gone; the paragraph now describes the mechanism and the setup section carries the instruction. 8 guards in src/test/cross-post-setup.test.ts."
     },
     {
-      "id": "US-2721",
-      "passes": false,
-      "title": "No account-level choice of which marketplaces to cross-post to",
-      "description": "As a seller who only sells on Poshmark and Mercari, I want to pick my channels once for the account, so that every draft stops offering six marketplaces I never use and the Listing Kit stops generating fields for them.",
-      "acceptanceCriteria": [
-        "flipdesk_settings gains a cross_post_channels column (text array, null meaning 'all'), added by a migration carrying the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the same commit, and the self-record footer.",
-        "The picker lives on the Marketplaces page Settings tab beside 'Auto-end cross-listings on sale', and is read and written with the same supabase upsert-on-user_id pattern the auto_end_cross_listings toggle already uses (RLS on flipdesk_settings scopes it, so no new edge route is needed).",
-        "src/components/flipdesk/composer/push-to-card.tsx and the Listing Kit's KIT_PLATFORMS both read the selection, so an unselected channel is not offered on an item.",
-        "A channel whose flow is off in MARKETPLACE_EXTENSION_FLOW cannot be selected and states why, rather than being silently absent.",
-        "Turning a channel off never hides an item already listed there: existing listings rows for that platform still render on the item and in Marketplaces. A vitest case asserts this.",
-        "Selecting nothing is treated as 'all', never as 'none' - a seller who has not visited the setting must not lose the channels they have today."
-      ],
-      "priority": 30
-    },
-    {
       "id": "US-2722",
       "passes": false,
       "title": "The web cannot queue a cross-post for the desktop, but iOS can",

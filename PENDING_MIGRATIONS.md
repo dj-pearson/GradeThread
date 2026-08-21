@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] 00643 IS PENDING as of 2026-08-21. See the section directly below.
+> [!warning] 00643 AND 00644 ARE PENDING as of 2026-08-21. See the two sections below.
 > Everything through **00642** is applied. Verified by asking the database
 > rather than this file: `GET /health/ready` reports
 > `{"expected":"00640","applied":"00642","status":"ahead","unexpected":["00641","00642"]}`
@@ -19,6 +19,63 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## HELD: 00644 — cross_post_channels (US-2721)
+
+**Risk: very low.** One nullable column on an existing per-user settings table.
+No backfill, no default, no constraint. Every existing row keeps NULL.
+
+### What it does
+
+Adds `flipdesk_settings.cross_post_channels text[]`, the marketplaces a seller
+cross-posts to. A seller on two channels was being offered six on every draft,
+and the Listing Kit was generating AI fields for all six.
+
+**NULL means ALL**, and that is the design rather than a convenience. Every
+existing row has no value and every new seller starts with none, so the default
+has to be "you keep what you have today". An empty array is treated the same
+way by the app: unticking the last box is never how somebody says "stop
+offering me marketplaces". The setting narrows; it cannot switch cross-posting
+off.
+
+Not an enum and not a foreign key — the platform vocabulary lives in
+`src/lib/constants.ts` and moves when a channel ships, and a DB enum would make
+that a migration every time.
+
+### Apply
+
+1. `supabase/migrations/00644_cross_post_channels.sql` — idempotent.
+2. `NOTIFY pgrst, 'reload schema';` — a new column, so PostgREST must be told,
+   and here it matters: **the SPA reads and writes this column directly**
+   through RLS, the same path the `auto_end_cross_listings` toggle uses.
+3. Redeploy the edge (boot guard now expects `00644`).
+
+### Does the frontend read it?
+
+**Yes — this one does.** Unlike 00641/00643, the column is read by
+`useCrossPostChannels` and written by the picker on the Marketplaces settings
+tab. So the ORDER matters more than usual: if Cloudflare deploys the frontend
+before the SQL is applied, the read returns a PostgREST error for an unknown
+column and the picker cannot save. Apply the SQL and reload the schema cache
+first.
+
+The read failure is not silent and not destructive — the query errors, the
+picker shows nothing saved, and no channel is lost, because absent still means
+all.
+
+### Verified locally
+
+Applied twice against the throwaway local stack: `ALTER TABLE` then
+`NOTICE … already exists, skipping`. 17 web tests cover the empty-means-all
+rule in both of its forms, the narrowing, the not-live channels, and that no
+surface rendering existing listings filters them by the selection.
+
+### Rollback
+
+`ALTER TABLE public.flipdesk_settings DROP COLUMN IF EXISTS cross_post_channels;`
+then `DELETE FROM public.applied_migrations WHERE version = '00644';`. Any
+seller selection is lost and everyone returns to all channels, which is the
+same state they are in today.
 
 ## HELD: 00643 — listing_publications (US-2704)
 
