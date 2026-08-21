@@ -83,6 +83,12 @@ const NOW = "2026-08-20T00:00:00.000Z";
   // Strip comments first — this file's own header NAMES the things it forbids,
   // and a guard its own documentation fails is a guard people delete.
   const code = src
+    // CRLF FIRST. In JavaScript `.` does not match \r, so on a CRLF file the
+    // line-comment strip below never reaches end-of-string and comments survive —
+    // at which point the guard scans its own documentation and fires on the very
+    // words it uses to describe what it forbids. Cost an hour on sync/content.js
+    // the day its line endings changed.
+    .replace(/\r\n/g, "\n")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))

@@ -34,7 +34,13 @@ const RAW = fs.readFileSync(
 // fired — so a naive scan matches the prose and "fails" on a correct file. Only
 // executable code is evidence of behaviour.
 const SRC = RAW
-  .replace(/\/\*[\s\S]*?\*\//g, "")
+  // CRLF FIRST. In JavaScript `.` does not match \r, so on a CRLF file the
+    // line-comment strip below never reaches end-of-string and comments survive —
+    // at which point the guard scans its own documentation and fires on the very
+    // words it uses to describe what it forbids. Cost an hour on sync/content.js
+    // the day its line endings changed.
+    .replace(/\r\n/g, "\n")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
   .split(/\r?\n/)
   .map((l) => l.replace(/(^|[^:])\/\/.*$/, "$1"))
   .join("\n");

@@ -176,6 +176,12 @@ for (const rel of syncFiles) {
   // Strip comments first: these files EXPLAIN what they refuse to do, and a
   // guard that its own documentation fails is a guard people delete.
   const code = raw
+    // CRLF FIRST. In JavaScript `.` does not match \r, so on a CRLF file the
+    // line-comment strip below never reaches end-of-string and comments survive —
+    // at which point the guard scans its own documentation and fires on the very
+    // words it uses to describe what it forbids. Cost an hour on sync/content.js
+    // the day its line endings changed.
+    .replace(/\r\n/g, "\n")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
@@ -218,6 +224,12 @@ for (const rel of syncFiles) {
 {
   const src = fs.readFileSync(path.join(dir, "sync/content.js"), "utf8");
   const code = src
+    // CRLF FIRST. In JavaScript `.` does not match \r, so on a CRLF file the
+    // line-comment strip below never reaches end-of-string and comments survive —
+    // at which point the guard scans its own documentation and fires on the very
+    // words it uses to describe what it forbids. Cost an hour on sync/content.js
+    // the day its line endings changed.
+    .replace(/\r\n/g, "\n")
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
