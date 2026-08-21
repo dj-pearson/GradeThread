@@ -2386,7 +2386,7 @@
     },
     {
       "id": "US-2724",
-      "passes": false,
+      "passes": true,
       "title": "An undeliverable 'Send to extension' hangs for 130 seconds and then blames the extension for not answering",
       "description": "As a seller whose click could never have reached the extension, I want to be told that immediately and accurately, so that I do not sit through two minutes of nothing and then read a message that points me at a tab that was never opened.",
       "acceptanceCriteria": [
@@ -2394,7 +2394,12 @@
         "The two transport failures are separated, because only one of them can have started a job. 'Could not establish connection. Receiving end does not exist' means nothing received the message and no job exists: settle immediately with a real error. 'The message port closed before a response was received' means the worker was suspended mid-job (the US-1874 case): keep waiting for the durable push, unchanged.",
         "The immediate error names the actual cause and the actual fix: the installed extension is not the one this site is configured to talk to, or it is disabled. It must NOT say the extension failed to report back, and must not mention a marketplace tab, since none was opened.",
         "A vitest case asserts a receiving-end-does-not-exist reply settles in well under the 130s timeout, and that a port-closed reply still does not settle - the US-1874 guarantee is preserved and tested, not traded away.",
-        "The same split applies to sendDelistToLister, since an unverified delist that silently hangs is worse: it leaves the US-1629 pending-delist stamp armed while telling the seller nothing."
+        "The same split applies to sendDelistToLister, since an unverified delist that silently hangs is worse: it leaves the US-1629 pending-delist stamp armed while telling the seller nothing.",
+        "AC1, AC2, AC3, AC5 were already implemented in src/lib/lister-extension.ts: isUndeliverable() splits 'receiving end does not exist' / 'could not establish connection' / 'extension context invalidated' from a dead port, sendListerJob settles immediately on undelivered with a message that names the extension rather than a marketplace tab, and sendDelistToLister inherits it by going through the same sender.",
+        "AC4 WAS NOT MET, and the gap was the same shape as US-2740's. cross-post-setup.test.ts 'covers' this with source scans - expect(src).toContain(\"if (r && r.undelivered)\") and expect(src).toContain(\"export function isUndeliverable\"). Those pin how the branch is SPELLED. AC4 asks for timing: one reply settles well under the 130s backstop and the other still does not settle, which no source scan can express.",
+        "DONE 2026-08-21: src/test/lister-undelivered.test.ts drives the real sender against a stubbed chrome.runtime and vitest fake timers. 7 tests. The undeliverable case settles at 0ms advanced; the dead-port case is asserted NOT settled after 1000ms and settled only at the backstop, so the US-1874 durable-push guarantee is tested rather than traded away.",
+        "SABOTAGE-CHECKED, five ways, all caught: removing the undelivered branch (back to the 130s hang), settling on a dead port too (which would trade away US-1874 and report a running job as failed), classifying a dead port as non-delivery, no longer recognising receiving-end-does-not-exist, and reverting the copy to blame the marketplace tab.",
+        "One thing vitest alone would have missed: the first draft's delist payload was missing platformLabel and listingId. Every test passed, because vitest does not typecheck. tsc -b caught it."
       ],
       "priority": 6,
       "dependsOn": [
