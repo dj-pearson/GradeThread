@@ -1,0 +1,138 @@
+// No source file carries a character that does not render.
+//
+// CLAUDE.md has mandated this since the vault sync ("Plain characters only ...
+// never emit an invisible or bidi character anywhere") and gave the ripgrep
+// command for it. Nothing enforced it, and on 2026-08-21 that cost a guard.
+//
+// WHAT HAPPENED. A test regex written through a heredoc had its word boundaries
+// turned into literal BACKSPACE bytes: `/\bpriceFilled\b/` became
+// `/<0x08>priceFilled<0x08>/`. It reads correctly in every editor and in the
+// diff. It matches nothing. Four sabotages that had been CAUGHT silently became
+// NOT CAUGHT while the suite stayed green — a guard strengthened into a no-op,
+// and only re-running the sabotage found it.
+//
+// That is the whole argument for this file. These characters are dangerous
+// precisely because review cannot see them, so review is the wrong tool and a
+// scan is the right one.
+//
+// Fixed at the same time: three source files held LITERAL NUL bytes as a join
+// separator rather than a u0000 escape. They
+// worked, and they were invisible in every editor and diff. Same behaviour,
+// written so a human can see it.
+
+import { describe, expect, it } from "vitest";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, extname } from "node:path";
+
+const ROOT = ".";
+const EXT = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".sql", ".yml", ".yaml"]);
+const SKIP = new Set([
+  "node_modules", ".git", "dist", "dist-ext", "build", ".vite", "coverage",
+  "ios-screenshots", ".next", "playwright-report", "test-results",
+]);
+
+/**
+ * C0 control characters, except the three that belong in text: tab (09),
+ * newline (0A) and carriage return (0D).
+ */
+const C0 = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
+
+/**
+ * Characters that occupy no visual space, or that reorder what follows.
+ *
+ * The bidi controls (202A-202E, 2066-2069) and the Unicode tag block
+ * (E0000-E007F) are the ones that matter most: a tag-block sequence encodes
+ * arbitrary ASCII invisibly, and is the usual carrier for text a reviewer
+ * cannot see.
+ */
+const INVISIBLE = new RegExp(
+  '[\\u00AD\\u034F\\u061C\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]',
+);
+const TAG_BLOCK = /[\u{E0000}-\u{E007F}]/u;
+
+/**
+ * Files that legitimately contain one of these, with the reason.
+ *
+ * SHRINK-ONLY in spirit: an entry whose file stops containing the character
+ * fails below, so a cleaned-up file cannot leave a stale exemption behind for
+ * the next one to hide under.
+ */
+const ALLOWED: Array<[file: string, why: string]> = [
+  ["scripts/check-bundle-budget.mjs", "ANSI colour escapes (U+001B) in terminal output"],
+  ["services/edge-functions/scripts/coverage-floor.mjs", "ANSI colour escapes in terminal output"],
+  ["services/edge-functions/src/lib/csv-parse.ts", "strips a UTF-8 BOM, so it must name one"],
+  ["services/edge-functions/src/lib/agent-tools.ts", "control character in a sanitisation test vector"],
+  ["services/edge-functions/src/tests/content-sanitize_test.ts", "control characters ARE the fixture"],
+  ["services/edge-functions/src/tests/upload-validation_test.ts", "control bytes in a magic-byte fixture"],
+];
+
+function walk(dir: string, out: string[] = []): string[] {
+  for (const e of readdirSync(dir)) {
+    if (SKIP.has(e)) continue;
+    const p = join(dir, e);
+    let st;
+    try { st = statSync(p); } catch { continue; }
+    if (st.isDirectory()) walk(p, out);
+    else if (EXT.has(extname(e))) out.push(p);
+  }
+  return out;
+}
+
+function offenders(): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const f of walk(ROOT)) {
+    let src: string;
+    try { src = readFileSync(f, "utf8"); } catch { continue; }
+    if (!C0.test(src) && !INVISIBLE.test(src) && !TAG_BLOCK.test(src)) continue;
+    const rel = f.replace(/\\/g, "/").replace(/^\.\//, "");
+    const points = new Set<string>();
+    src.split("\n").forEach((line, i) => {
+      for (const ch of line) {
+        const cp = ch.codePointAt(0)!;
+        const bad =
+          (cp <= 0x1f && cp !== 0x09 && cp !== 0x0d) ||
+          INVISIBLE.test(ch) ||
+          (cp >= 0xe0000 && cp <= 0xe007f);
+        if (bad) points.add(`U+${cp.toString(16).toUpperCase().padStart(4, "0")} line ${i + 1}`);
+      }
+    });
+    out.set(rel, [...points]);
+  }
+  return out;
+}
+
+describe("no source file carries a character that does not render", () => {
+  it("the scanner still reaches the tree", () => {
+    // Guard the guard: if the walk or the extension list breaks, every
+    // assertion below passes by scanning nothing.
+    expect(walk(ROOT).length).toBeGreaterThan(3000);
+  });
+
+  it("finds no unexplained invisible or control characters", () => {
+    const allowed = new Set(ALLOWED.map(([f]) => f));
+    const novel = [...offenders().entries()]
+      .filter(([f]) => !allowed.has(f))
+      .map(([f, pts]) => `${f}  (${pts.slice(0, 4).join(", ")})`)
+      .sort();
+
+    expect(
+      novel,
+      "These files contain characters that do not render. A backspace inside a " +
+        "regex, a zero-width space inside an identifier, or a Unicode tag " +
+        "sequence anywhere all survive review because review cannot see them — " +
+        "one of them silently turned a working guard into a no-op on 2026-08-21. " +
+        "Use an escape (\\u0000, \\b) instead of the literal byte, or add an " +
+        "entry with a reason to ALLOWED.",
+    ).toEqual([]);
+  });
+
+  it("no exemption outlives the thing it exempts", () => {
+    const found = new Set(offenders().keys());
+    const stale = ALLOWED.map(([f]) => f).filter((f) => !found.has(f)).sort();
+    expect(
+      stale,
+      `these are exempted but no longer contain any such character: ${stale.join(", ")}. ` +
+        `Delete the entries — a stale exemption is a hiding place for the next one.`,
+    ).toEqual([]);
+  });
+});

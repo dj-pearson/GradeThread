@@ -669,7 +669,7 @@ export function reverseProjectAspectColumns(
         .map((v) => String(v).trim())
         .filter((v) => v.length > 0);
       const next = entry.multi ? values : [values[0]!];
-      const differs = next.join(" ") !== currentArr.join(" ");
+      const differs = next.join("\u0000") !== currentArr.join("\u0000");
       const blank = currentArr.length === 0;
       if ((blank || provenance === "manual") && differs) {
         attributes[entry.attribute] = entry.multi ? next : next[0]!;

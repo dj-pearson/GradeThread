@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2773",
+  "nextId": "US-2774",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2971,6 +2971,20 @@
       "dependsOn": [
         "US-2356"
       ]
+    },
+    {
+      "id": "US-2773",
+      "passes": true,
+      "title": "Nothing enforced the plain-characters rule, and an invisible byte disarmed a guard",
+      "description": "As whoever reviews this code, I want a character that does not render to fail a test rather than pass a review, because review is exactly the tool these characters defeat.",
+      "acceptanceCriteria": [
+        "DONE 2026-08-21. src/test/no-invisible-characters.test.ts scans every .ts/.tsx/.js/.mjs/.cjs/.json/.sql/.yml for C0 controls (except tab, LF, CR), the invisible and bidi set CLAUDE.md names, and the Unicode tag block U+E0000-U+E007F.",
+        "WHY IT EXISTS: a test regex written through a heredoc had its word boundaries turned into literal BACKSPACE bytes. It read as /priceFilled/ in the editor and in the diff, matched nothing, and silently turned four CAUGHT sabotages into NOT CAUGHT while the suite stayed green. CLAUDE.md has mandated this scan since the vault sync and nothing ran it.",
+        "FIXED IN PASSING: three source files held LITERAL NUL bytes as a join separator rather than an escape - src/lib/ebay-prefill.ts, services/edge-functions/src/lib/measure-eval-stats.ts and scripts/doc-refs.mjs. Same behaviour, now visible to a human.",
+        "Six files are exempted with a reason each: ANSI colour escapes in two terminal scripts, BOM handling in csv-parse.ts, and control-character fixtures in three sanitisation tests. An exemption whose file stops containing the character FAILS, so a cleaned file cannot leave a hiding place behind.",
+        "SABOTAGE-CHECKED, four ways, all caught: backspace bytes in a regex (the original incident), a zero-width space inside an identifier, a Unicode tag-block character, and a stale exemption naming a clean file."
+      ],
+      "priority": 5
     }
   ]
 }
