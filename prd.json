@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2764",
+  "nextId": "US-2772",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2734,14 +2734,21 @@
     },
     {
       "id": "US-2759",
-      "passes": false,
+      "passes": true,
       "title": "Scout: the provider seam does not reach the in-store path",
       "description": "As the GradeThread team, we want the identification seam to cover /prospect and not only /appraise, so that turning eBay visual search on actually changes the surface a reseller uses in a shop.",
       "acceptanceCriteria": [
         "THE GAP, found while doing US-2757: chooseProviders is wired into /appraise only. /prospect does its own identification via extractMatchHints and never reaches the seam, so flipping SCOUT_EBAY_IMAGE_SEARCH_ENABLED today changes the WEB path and leaves the phone exactly as it is",
         "This is NOT simply wiring the same call in. /prospect already identifies from photos, so adding a second photo-identification mechanism in front of it needs a decision about which one wins and when — visual search naming the garment, or extractMatchHints reading the tag, or one falling back to the other",
         "Whatever is decided, the two-AI-action cost per prospect is re-examined as part of it: if visual search identifies the item, extractMatchHints may not need to run at all, which would halve both the latency and the metered cost",
-        "Gated on the spike: there is no point designing the merge until we know whether eBay visual search is worth merging in"
+        "Gated on the spike: there is no point designing the merge until we know whether eBay visual search is worth merging in",
+        "DONE 2026-08-21. /prospect now accepts body.imageRoles positionally alongside body.images and reaches the seam. lib/prospect-identify.ts holds the decision as a pure function so it is readable and testable without a route.",
+        "AC2 DECIDED, and the rule follows WHAT THE SELLER DID rather than which mechanism we prefer - that is the one signal neither can fake. Tag or label in frame -> extractMatchHints, because text printed on the garment beats a similarity match and it is what they went to the trouble of photographing. Front/back/flatlay only -> eBay visual search, because there is no text to read and US-2758 measured that as exactly the case visual search is strongest on. Unlabelled or unrecognised -> today's path untouched, the same posture US-2762 takes.",
+        "AC3 ANSWERED WITH A NUMBER: when visual search carries the identification, extractMatchHints does not run at all, so a prospect costs ONE metered AI action instead of two. Over US-2760's cart of twenty that is 40 actions down to 20. The grade still costs its action - nothing here ships an ungraded answer. A test asserts runHints is false for a garment-only prospect, so the saving cannot silently regress.",
+        "A visual search that declines or finds nothing falls back to hints and pays the ordinary action. Silent to the seller, visible in the reason field.",
+        "IdentitySource gained a third value, 'tag'. A tag read is text on the garment: stronger than similarity, weaker than a barcode, because OCR misreads and a tag can name a parent brand or a licensee. It is offered, never saved - a first draft of this labelled a tag read as 'barcode', which would have let it name an inventory item.",
+        "The prospect response now carries identitySource and identityIsAuthoritative (US-2763 AC5), and identifyConfidence is 0.5 for a visual match rather than borrowed from hints - US-2758 measured visual search being equally confident when right and when wrong, so the number must not read like a measurement.",
+        "10 tests. SABOTAGE-CHECKED five ways: removing the tag-wins rule, running hints speculatively anyway, letting unlabelled photos through, defaulting the photo picker to index 0 instead of -1, and removing the flag check each fail. Seven Scout/route suites green; deno lint and deno check clean."
       ],
       "priority": 17,
       "dependsOn": [
@@ -2804,6 +2811,115 @@
       "dependsOn": [
         "US-2756"
       ]
+    },
+    {
+      "id": "US-2764",
+      "passes": false,
+      "title": "eBay visual matches carry a category and we throw it away",
+      "description": "As a seller, I want the category taken from what visually similar listings actually sit in, so that my listing lands in the right place without me correcting it.",
+      "acceptanceCriteria": [
+        "searchBrowseCompsByImage parses itemSummaries[].categories[] into BrowseComp.categories (categoryId + categoryName); today the mapper reads title, price, image, condition and buyingOptions and silently drops categories.",
+        "BrowseCompsResult gains categoryVotes: an array of { categoryId, categoryName, count } sorted by count descending, computed over the returned items.",
+        "A tie in the vote is reported as a tie (two entries with equal count) and never broken arbitrarily by array order.",
+        "A unit test in src/tests/ feeds a fixture payload with five summaries across two categories and asserts the vote counts, including the tie case."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2765",
+      "passes": false,
+      "title": "Category is decided by rank 1 of a keyword search on AI-written text",
+      "description": "As a seller, I want the category chosen from evidence rather than from the first hit on a phrase the AI made up, so that hard-to-name garments stop landing in the wrong category.",
+      "acceptanceCriteria": [
+        "flipdesk-ai.ts resolveEbayPrep prefers the visual-match category vote over suggestCategories(query)[0] when a vote exists and the winning category is a proven leaf.",
+        "The keyword path stays as the fallback and is unchanged when no visual vote is available, so a stock deployment behaves exactly as today.",
+        "A category from the vote is only accepted if it passes the existing leaf check (categoryHasCachedLeafAspects or a subtree read); a non-leaf winner falls through to the next candidate, then to keywords.",
+        "Which path chose the category is recorded on the item so a wrong category can be traced to the method that picked it, not just to the id.",
+        "Tests cover: vote wins, vote is non-leaf so keywords win, no vote so keywords win."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2766",
+      "passes": false,
+      "title": "Read the item specifics of the visual matches, not their titles",
+      "description": "As a seller, I want brand and style taken from the structured fields of visually similar listings, so that the suggestion carries the weight of someone who read the tag rather than someone who guessed.",
+      "acceptanceCriteria": [
+        "A new lib aggregates eBay item specifics across the top N visual matches by calling the existing getItem aspects path, reusing the CODE_ASPECTS / NAME_ASPECTS vocabulary already in style-code-aspects.ts rather than a second copy of it.",
+        "It returns per-aspect consensus with the supporting count (e.g. Brand: Lululemon, 4 of 5) and returns null for any aspect where the matches disagree, on the same rule aspectEvidence already uses.",
+        "Our own listings are excluded by platform_listing_id, exactly as the style-code sweep does, so our AI-written listings cannot corroborate themselves.",
+        "The call is bounded: at most N getItem calls per identification, N is a named constant, and a failure of any single getItem degrades to fewer votes rather than failing the identification.",
+        "Unit tests cover consensus, disagreement, own-listing exclusion, and a getItem failure."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2767",
+      "passes": false,
+      "title": "Claude is handed eBay's guess as fact instead of as a hypothesis to judge",
+      "description": "As a seller, I want the AI to weigh eBay's visual guess against what it can actually read on the tag, so that a confident wrong brand gets rejected instead of repeated.",
+      "acceptanceCriteria": [
+        "ExtractInput gains an optional block carrying the visual candidates (brand, category, type, style, each with its supporting count) clearly labelled as an UNVERIFIED external guess.",
+        "The prompt instructs the model to CONFIRM or REJECT each candidate against tag evidence and states the precedence explicitly: a decoded style code beats a legible tag wordmark, which beats the visual consensus, which beats the model's own product knowledge.",
+        "The model must return, per accepted candidate, which evidence accepted it; a candidate accepted with no stated evidence is dropped server-side, the same way research below RESEARCH_MIN_CONFIDENCE is dropped today.",
+        "A candidate the model REJECTS is recorded as rejected rather than silently discarded, so the visual provider's accuracy can be measured over time instead of assumed.",
+        "Tests assert that a candidate brand contradicted by a tag value in the same payload does not survive into suggestions."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2768",
+      "passes": false,
+      "title": "Visual identification exists only in Scout and never reaches a listing",
+      "description": "As a seller, I want the same visual identification that Scout uses to run when I build a listing, so that the accuracy work pays off where the listing is actually written.",
+      "acceptanceCriteria": [
+        "The listing extraction path can run the eBay visual pass CONCURRENTLY with the Claude call rather than before it, so the added wall-clock is the slower of the two and not their sum.",
+        "It reuses roleCanIdentify from scout-identify.ts as the input gate; a detail, measurement or defect photo is never sent, and the reason is the measured one recorded in vault/30-platform/ebay-visual-search.md.",
+        "It is behind SCOUT_EBAY_IMAGE_SEARCH_ENABLED or a sibling flag that defaults to off, and reads the flag per call, so it can be switched off from a phone without a redeploy.",
+        "A visual pass that times out, errors or returns nothing leaves the extraction identical to today's output; the flag off path is byte-identical to current behaviour.",
+        "The route is tenant-scoped per US-268 and gains a tenant-isolation_test.ts case."
+      ],
+      "priority": 4
+    },
+    {
+      "id": "US-2769",
+      "passes": false,
+      "title": "Nothing tells a bulk uploader which photo is the front",
+      "description": "As a seller photographing a pile of items, I want the capture flow to tell me which shot it wants next, so that every item arrives with a front and a back tagged and the visual pass has something it can use.",
+      "acceptanceCriteria": [
+        "The iOS bulk upload and the web autolister both present the required shot list from REQUIRED_PHOTO_TYPES with on-screen wording naming the shot being captured, rather than relying on capture order.",
+        "A photo captured in a named slot is persisted with that flipdesk_photo_type; no inference from position.",
+        "An item missing a front is surfaced before it advances, using the existing REQUIRED_PHOTO_TYPES gate rather than a new parallel rule.",
+        "The overlay wording lives in one shared constant used by both surfaces, so the two cannot drift, and a parity test asserts it.",
+        "No new photo role or migration is needed: photo_role is plain text by design (vault/20-domain/listing-photos.md)."
+      ],
+      "priority": 4
+    },
+    {
+      "id": "US-2770",
+      "passes": false,
+      "title": "eBay optional item specifics stay empty when the matches already answer them",
+      "description": "As a seller, I want the optional eBay fields filled from what similar listings declare, so that my listing is more findable without me typing twenty fields.",
+      "acceptanceCriteria": [
+        "Aspects with a consensus from the visual matches prefill the corresponding eBay item specifics for the resolved category, restricted to aspects that category actually exposes.",
+        "A prefilled aspect is marked as a suggestion needing confirmation, never written as seller-declared fact, matching the identityIsAuthoritative posture already stated in scout-identify.ts.",
+        "An aspect the seller has already set is never overwritten.",
+        "Values are truncated and validated against the category's aspect spec before use, so the 65-character limit that produced stuck offers cannot recur (vault/30-platform/ebay-aspect-value-limit.md).",
+        "Tests cover: fills an empty aspect, skips a seller-set aspect, skips an aspect the category does not expose, and refuses an over-length value."
+      ],
+      "priority": 5
+    },
+    {
+      "id": "US-2771",
+      "passes": false,
+      "title": "The dual identification system has no note saying how it decides",
+      "description": "As the next person to touch identification, I want one note that states the precedence and what each source is trusted for, so that a later change cannot quietly reorder it.",
+      "acceptanceCriteria": [
+        "A vault note under 20-domain states the full precedence (decoded style code, tag wordmark, visual consensus, model knowledge) with code_refs to every file that implements a step.",
+        "It links to the existing ebay-visual-search learning note rather than restating its measurements, per the no-duplicate-facts rule in vault/CONTRACT.md.",
+        "npm run vault:index and npm run vault:lint pass, with vault:lint in --strict as CI runs it."
+      ],
+      "priority": 6
     }
   ]
 }

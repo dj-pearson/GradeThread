@@ -42,7 +42,14 @@ function stub(
       if (behaviour === "pass") return Promise.resolve(null);
       if (behaviour === "hang") return new Promise(() => {});
       return Promise.resolve({
-        comps: { items: [], total: 0, stats: { count: 0, currency: "USD", min: null, p25: null, median: null, p75: null, max: null } },
+        comps: {
+          items: [],
+          total: 0,
+          stats: { count: 0, currency: "USD", min: null, p25: null, median: null, p75: null, max: null },
+          // US-2764 made these required on BrowseCompsResult.
+          categoryVotes: [],
+          leafCategoryVotes: [],
+        },
         matchedTitle: `${name} title`,
         // US-2763: provenance travels with every outcome.
         identitySource: null,
@@ -171,7 +178,14 @@ Deno.test("the default provider is NOT subject to the experiment's deadline", as
         setTimeout(
           () =>
             r({
-              comps: { items: [], total: 0, stats: { count: 0, currency: "USD", min: null, p25: null, median: null, p75: null, max: null } },
+              comps: {
+          items: [],
+          total: 0,
+          stats: { count: 0, currency: "USD", min: null, p25: null, median: null, p75: null, max: null },
+          // US-2764 made these required on BrowseCompsResult.
+          categoryVotes: [],
+          leafCategoryVotes: [],
+        },
               matchedTitle: null,
               identitySource: null,
               identityIsAuthoritative: false,

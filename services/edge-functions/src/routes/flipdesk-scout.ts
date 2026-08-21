@@ -36,7 +36,14 @@ import {
 import { whichRefusal } from "../lib/gate-order.ts";
 import { cachedSearchBrowseComps } from "../lib/comps-cache.ts";
 import {
+  pickVisualImageIndex,
+  planProspectIdentification,
+} from "../lib/prospect-identify.ts";
+import {
   chooseProviders,
+  ebayImageProvider,
+  ebayImageSearchEnabled,
+  type IdentitySource,
   identifyWithFallback,
   type IdentifyRequest,
 } from "../lib/scout-identify.ts";
@@ -312,13 +319,13 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   // US-2763: the title travels with HOW it was arrived at. A barcode pins a
   // product; a visual match names something that looks like it. Only the first
   // may be written into a field without the seller confirming it.
-  let identitySource: "barcode" | "visual" | null = null;
+  let identitySource: IdentitySource | null = null;
   let identityIsAuthoritative = false;
   const matchedCategoryId: string | null = categoryId || null;
   const speculated = await speculativeComps;
   let compsReused = false;
   let requeryTitle: string | null = null;
-  let requerySource: "barcode" | "visual" | null = null;
+  let requerySource: IdentitySource | null = null;
   let requeryAuthoritative = false;
   let identifiedBy: string = "hints";
   if (speculated.ok) identifiedBy = speculated.outcome.provider;
@@ -704,6 +711,10 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   let body: {
     image?: unknown;
     images?: unknown;
+    // US-2759: what each photo SHOWS, parallel to `images`. Optional, and its
+    // absence keeps today's path — a client that does not label its photos
+    // never reaches visual search, which is the US-2762 posture.
+    imageRoles?: unknown;
     costCents?: unknown;
     lat?: unknown;
     lng?: unknown;
@@ -733,7 +744,16 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
   } else if (typeof body.image === "string" && body.image.length > 0) {
     rawImages.push(body.image);
   }
+  // Roles travel positionally with `images`. A short or missing array simply
+  // leaves the later photos unlabelled, which is the safe state.
+  const rawRoles: (string | null)[] = [];
+  if (Array.isArray(body.imageRoles)) {
+    for (const v of body.imageRoles) {
+      rawRoles.push(typeof v === "string" && v.trim() ? v.trim() : null);
+    }
+  }
   const capped = rawImages.slice(0, 2);
+  const cappedRoles = capped.map((_, i) => rawRoles[i] ?? null);
   if (capped.length === 0) {
     return jsonError(c, 400, "Provide a photo (front and/or the brand tag).");
   }
@@ -762,35 +782,100 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
       ? Math.round(body.costCents)
       : null;
 
-  // 1) IDENTIFY — read the brand/size tag and pull short matching keywords
-  //    (US-285 primitive). One AI action; the comp search is meaningless
-  //    without it, so a failure here is terminal for this call.
-  {
-    const reserved = await reserveAiActionSafe(userId, quota.limit);
-    if (reserved !== true) {
-      return jsonError(
-        c,
-        429,
-        "Monthly AI action limit reached — upgrade or wait for the reset.",
-      );
+  // 1) IDENTIFY. US-2759: who does this depends on what the seller photographed.
+  //
+  //   tag in frame        -> extractMatchHints. Text on the garment beats a
+  //                          similarity match, and it is what they went to the
+  //                          trouble of photographing.
+  //   garment only        -> eBay visual search. No text to read, and this is
+  //                          the case US-2758 measured it best on. Costs NO AI
+  //                          action, which is the whole of US-2760's complaint.
+  //   unlabelled / off    -> exactly today's path.
+  //
+  // The rule itself lives in lib/prospect-identify.ts so it can be read and
+  // tested without a route.
+  const idPlan = planProspectIdentification({
+    visualEnabled: ebayImageSearchEnabled(),
+    imageRoles: cappedRoles,
+  });
+
+  let brand: string | null = null;
+  let keywords: string[] = [];
+  let identitySource: IdentitySource | null = null;
+  let identityIsAuthoritative = false;
+  let visualComps: Awaited<ReturnType<typeof identifyWithFallback>> = null;
+  // How sure the IDENTIFICATION is, on the 0-1 scale the response has always
+  // used. Visual search reports no confidence of its own - US-2758 measured it
+  // being equally confident when right and when wrong - so a matched title gets
+  // a fixed, deliberately unflattering 0.5. It is a suggestion, and the number
+  // should not read like a measurement.
+  let identifyConfidence = 0;
+
+  if (idPlan.useVisual) {
+    const vIdx = pickVisualImageIndex(cappedRoles);
+    // -1 would mean the plan and the picker disagree; a unit test pins that they
+    // cannot, and this stays as the runtime floor rather than a default of 0.
+    if (vIdx >= 0) {
+      const parsed = splitImageInput(capped[vIdx]!);
+      if (parsed) {
+        visualComps = await identifyWithFallback(
+          [ebayImageProvider],
+          {
+            imageDataUri: `data:${parsed.mediaType};base64,${parsed.base64}`,
+            imageRole: cappedRoles[vIdx],
+            barcode: "",
+            q: "",
+            brand: "",
+            categoryId: "",
+            size: "",
+          },
+          SPECULATIVE_CONDITION_ID,
+        ).catch(() => null);
+      }
     }
   }
-  let hints;
-  try {
-    hints = await extractMatchHints(visionImages);
-  } catch (err) {
-    await refundAiAction(userId);
-    return failSafe(
-      c,
-      502,
-      "Couldn't read that photo. Try a clearer shot of the item and its tag.",
-      err,
-      "scout.prospect.identify",
-    );
-  }
 
-  const brand = hints.brand?.trim() || null;
-  const keywords = hints.keywords.map((k) => k.trim()).filter(Boolean);
+  if (visualComps?.matchedTitle) {
+    // Visual search carried it. NO AI action was spent here.
+    identitySource = visualComps.identitySource;
+    identityIsAuthoritative = visualComps.identityIsAuthoritative;
+    keywords = visualComps.matchedTitle.split(/\s+/).filter(Boolean).slice(0, 8);
+    identifyConfidence = 0.5;
+  } else {
+    // Either the plan chose hints, or visual search declined / found nothing.
+    // Falling back is silent to the seller and costs the ordinary AI action.
+    {
+      const reserved = await reserveAiActionSafe(userId, quota.limit);
+      if (reserved !== true) {
+        return jsonError(
+          c,
+          429,
+          "Monthly AI action limit reached — upgrade or wait for the reset.",
+        );
+      }
+    }
+    let hints;
+    try {
+      hints = await extractMatchHints(visionImages);
+    } catch (err) {
+      await refundAiAction(userId);
+      return failSafe(
+        c,
+        502,
+        "Couldn't read that photo. Try a clearer shot of the item and its tag.",
+        err,
+        "scout.prospect.identify",
+      );
+    }
+    brand = hints.brand?.trim() || null;
+    keywords = hints.keywords.map((k) => k.trim()).filter(Boolean);
+    identifyConfidence = hints.confidence;
+    // A tag read is TEXT on the garment, which is stronger than a similarity
+    // match and weaker than a barcode: OCR misreads, and a tag can name a parent
+    // brand or a licensee. Offered, not saved.
+    identitySource = brand ? "tag" : null;
+    identityIsAuthoritative = false;
+  }
   const query = [brand, ...keywords].filter(Boolean).join(" ").trim();
   const displayTitle = titleizeWords([brand ?? "", ...keywords].filter(Boolean));
 
@@ -800,7 +885,7 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
     recordMetric("scout.prospect", 1, { identified: "false" });
     return c.json({
       identified: false,
-      item: { brand: null, title: null, keywords: [], identifyConfidence: hints.confidence },
+      item: { brand: null, title: null, keywords: [], identifyConfidence },
       category: null,
       grade: null,
       stats: null,
@@ -960,7 +1045,12 @@ flipdeskScoutRoutes.post("/prospect", async (c) => {
       brand,
       title: displayTitle || null,
       keywords,
-      identifyConfidence: hints.confidence,
+      identifyConfidence,
+      // US-2763 AC5: the seller has to be able to tell "we read this off the
+      // tag" from "it looks like these". A comp range is only trustworthy if
+      // you know what it was matched against.
+      identitySource,
+      identityIsAuthoritative,
     },
     category: categoryId ? { id: categoryId, path: categoryPath } : null,
     grade: shadowGrade != null

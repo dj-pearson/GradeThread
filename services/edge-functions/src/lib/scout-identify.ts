@@ -95,12 +95,16 @@ export function roleCanIdentify(role: string | null | undefined): boolean {
  *
  *   barcode  a GTIN pins one manufactured product. There is nothing to be
  *            uncertain about.
+ *   tag      a brand tag was READ. The words are printed on the garment, which
+ *            is the strongest evidence short of a barcode - but OCR misreads,
+ *            and a tag can be from a parent brand or a licensee, so it is still
+ *            offered rather than saved.
  *   visual   eBay returned listings that LOOK like this. The spike measured a
  *            teal tank with no brand mark anywhere in frame returning five
  *            Lululemon tanks, with no expressed doubt. It may be right, and the
  *            photo cannot say.
  */
-export type IdentitySource = "barcode" | "visual";
+export type IdentitySource = "barcode" | "tag" | "visual";
 
 export interface IdentifyOutcome {
   /** Comps to value against. */
