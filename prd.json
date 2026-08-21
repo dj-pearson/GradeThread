@@ -2785,7 +2785,7 @@
     },
     {
       "id": "US-2763",
-      "passes": false,
+      "passes": true,
       "title": "Scout: a brand eBay guessed from pixels is not a brand the seller can price against",
       "description": "As a reseller, I want to know whether Scout recognised my item or merely found things that look like it, so that I do not price a no-name tank against Lululemon comps.",
       "acceptanceCriteria": [
@@ -2794,7 +2794,12 @@
         "An IdentifyOutcome must carry how the identity was arrived at, not just what it was. A barcode match, a legible wordmark and a visual-similarity guess are three different strengths of claim and the caller currently cannot tell them apart.",
         "Corroboration rule, from the measurement: where visual search and a legible tag disagree, the tag wins. Where there is no tag, the visual answer is offered as a suggestion the seller confirms, never as a prefilled fact.",
         "The surface says which one happened. A seller trusting a comp range needs to see 'recognised as Faherty Reserve Movement Polo' differently from 'looks like these Lululemon tanks' -- this is the same requirement US-2760 AC4 makes of conditional identification.",
-        "A test asserts that a visual-search outcome cannot silently populate a brand field on an inventory item or a draft listing."
+        "A test asserts that a visual-search outcome cannot silently populate a brand field on an inventory item or a draft listing.",
+        "DONE 2026-08-21. IdentifyOutcome now carries identitySource ('barcode' | 'visual' | null) and identityIsAuthoritative. hintsProvider: authoritative ONLY for a barcode. ebayImageProvider: identitySource 'visual', authoritative NEVER, however clean the match looks. The route ships both fields beside matchedTitle so a client can tell 'recognised as X' from 'looks like these' (AC3, AC5).",
+        "AC6 DONE ON BOTH SIDES, and the web half was the one that mattered. scout-buy.tsx:152 read result.matchedTitle straight into the saved item title, so the spike's teal tank - no brand mark anywhere in frame, five Lululemon results - would have been SAVED as a Lululemon. It now gates on identityIsAuthoritative, and what the seller typed beats a guess. A server that labels its guess correctly to a client that ignores the label has changed nothing.",
+        "AC4 PARTIAL: the not-a-fact half is enforced (a visual match is offered, never written). The tag-beats-visual-on-disagreement half needs both signals present at once, which only happens once /prospect reaches the seam - that is US-2759, and it is where the merge rule belongs rather than here.",
+        "An absent flag reads as NOT authoritative, so an older edge build or any response omitting it cannot be read as permission.",
+        "13 tests (7 edge, 6 web). Sabotage-checked three ways: claiming a visual match is authoritative, making a keyword match authoritative, and reverting the web prefill to read matchedTitle directly each fail. Both providers gained an injectable dependency (createHintsProvider, createEbayImageProvider) because ES modules are immutable and this contract was otherwise untestable without credentials."
       ],
       "dependsOn": [
         "US-2756"

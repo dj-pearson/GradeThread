@@ -52,6 +52,17 @@ export interface AppraiseResult {
   costCents: number | null;
   decision: AppraiseDecision;
   matchedTitle: string | null;
+  /**
+   * How matchedTitle was arrived at (US-2763). "barcode" pins a manufactured
+   * product; "visual" means eBay returned listings that LOOK like the photo.
+   */
+  identitySource?: "barcode" | "visual" | null;
+  /**
+   * May matchedTitle be saved without the seller confirming it? Only a barcode
+   * may. A visual match is a suggestion, and saving one silently is how a
+   * no-name tank ends up named after a Lululemon listing.
+   */
+  identityIsAuthoritative?: boolean;
   matchedCategoryId: string | null;
   disclaimer?: string;
 }

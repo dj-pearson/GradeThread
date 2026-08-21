@@ -87,11 +87,42 @@ export function roleCanIdentify(role: string | null | undefined): boolean {
   return IDENTIFYING_PHOTO_ROLES.has(role.trim().toLowerCase());
 }
 
+/**
+ * HOW an identity was arrived at (US-2763).
+ *
+ * Not a confidence score, because these are different KINDS of claim rather than
+ * different amounts of the same one:
+ *
+ *   barcode  a GTIN pins one manufactured product. There is nothing to be
+ *            uncertain about.
+ *   visual   eBay returned listings that LOOK like this. The spike measured a
+ *            teal tank with no brand mark anywhere in frame returning five
+ *            Lululemon tanks, with no expressed doubt. It may be right, and the
+ *            photo cannot say.
+ */
+export type IdentitySource = "barcode" | "visual";
+
 export interface IdentifyOutcome {
   /** Comps to value against. */
   comps: BrowseCompsResult;
   /** A product title this provider recognised, for prefilling /buy. */
   matchedTitle: string | null;
+  /** How that title was arrived at, or null when nothing was identified. */
+  identitySource: IdentitySource | null;
+  /**
+   * May `matchedTitle` be written into a field WITHOUT the seller confirming it?
+   *
+   * Only a barcode may. This exists because the two providers had opposite
+   * postures and the wrong one was confident: hintsProvider already refused to
+   * prefill from a keyword hit, on the stated grounds that "a keyword's top hit
+   * is somebody else's listing title", while ebayImageProvider took
+   * `items[0].title` unconditionally from a pure similarity match. The provider
+   * with the weaker evidence was the more assertive one.
+   *
+   * A wrong brand does not merely mislabel the item; it prices it against the
+   * wrong comps.
+   */
+  identityIsAuthoritative: boolean;
   provider: ProviderName;
 }
 
@@ -231,35 +262,62 @@ export async function identifyWithFallback(
  * size — through the shared comp cache (US-2754). This is the path that works,
  * and nothing about the seam is allowed to alter it.
  */
-export const hintsProvider: IdentifyProvider = {
-  name: "hints",
-  async identify(req, conditionId) {
-    const args = req.barcode
-      ? {
-        gtin: req.barcode,
-        categoryId: req.categoryId || undefined,
-        brand: req.brand || undefined,
-        limit: 25,
-        conditionId,
-      }
-      : {
-        categoryId: req.categoryId,
-        q: req.q || undefined,
-        brand: req.brand || undefined,
-        size: req.size || undefined,
-        limit: 25,
-        conditionId,
-      };
-    const { result } = await cachedSearchBrowseComps(args);
-    return {
-      comps: result,
+/** The comp lookup hintsProvider uses. A parameter so a test can stand here. */
+export type CompFetcher = typeof cachedSearchBrowseComps;
+
+/**
+ * Build the hints provider over a given comp lookup.
+ *
+ * The fetcher is injectable only because ES modules are immutable and there is
+ * otherwise nowhere for a test to stand: the barcode-vs-keyword distinction this
+ * provider exists to make cannot be exercised without reaching Supabase and
+ * eBay. Production uses the default and behaves exactly as before.
+ */
+export function createHintsProvider(
+  fetchComps: CompFetcher = cachedSearchBrowseComps,
+): IdentifyProvider {
+  return {
+    name: "hints",
+    async identify(req, conditionId) {
+      const args = req.barcode
+        ? {
+          gtin: req.barcode,
+          categoryId: req.categoryId || undefined,
+          brand: req.brand || undefined,
+          limit: 25,
+          conditionId,
+        }
+        : {
+          categoryId: req.categoryId,
+          q: req.q || undefined,
+          brand: req.brand || undefined,
+          size: req.size || undefined,
+          limit: 25,
+          conditionId,
+        };
+      const { result } = await fetchComps(args);
       // Only a barcode pins an exact product, so only a barcode match is worth
       // prefilling from. A keyword's top hit is somebody else's listing title.
-      matchedTitle: req.barcode ? (result.items[0]?.title ?? null) : null,
-      provider: "hints",
-    };
-  },
-};
+      const byBarcode = Boolean(req.barcode);
+      return {
+        comps: result,
+        matchedTitle: byBarcode ? (result.items[0]?.title ?? null) : null,
+        identitySource: byBarcode ? "barcode" : null,
+        identityIsAuthoritative: byBarcode,
+        provider: "hints",
+      };
+    },
+  };
+}
+
+/**
+ * TODAY'S BEHAVIOUR, unchanged, and the floor under every experiment.
+ *
+ * Comps from the hints the seller supplied - barcode, keyword, brand, category,
+ * size - through the shared comp cache (US-2754). This is the path that works,
+ * and nothing about the seam is allowed to alter it.
+ */
+export const hintsProvider: IdentifyProvider = createHintsProvider();
 
 /**
  * THE EXPERIMENT. Visually similar live listings, straight from the photo.
@@ -268,34 +326,66 @@ export const hintsProvider: IdentifyProvider = {
  * match" is an ordinary outcome for a garment eBay has never seen, not a fault.
  * Either way the caller falls back to hints.
  */
-export const ebayImageProvider: IdentifyProvider = {
-  name: "ebay-image",
-  async identify(req, conditionId) {
-    if (!req.imageDataUri) return null;
-    // US-2762: the gate is BEFORE the call, not after it.
-    //
-    // A detail, defect or measurement shot does not produce a weak answer that
-    // could be filtered downstream — it produces a confident one about the
-    // wrong thing. There is nothing in the response to filter on, so the only
-    // place this can be decided is here, on the input.
-    if (!roleCanIdentify(req.imageRole)) return null;
-    // eBay wants raw base64; a data: prefix is rejected.
-    const comma = req.imageDataUri.indexOf(",");
-    const base64 = comma === -1 ? req.imageDataUri : req.imageDataUri.slice(comma + 1);
-    if (!base64) return null;
+/** The image search createEbayImageProvider uses. A parameter so a test can stand here. */
+export type ImageSearch = typeof searchBrowseCompsByImage;
 
-    const result = await searchBrowseCompsByImage({
-      imageBase64: base64,
-      categoryId: req.categoryId || undefined,
-      conditionId,
-      limit: 25,
-    });
-    // Nothing similar, or nothing priced: not an identification.
-    if (result.items.length === 0 || result.stats.count === 0) return null;
-    return {
-      comps: result,
-      matchedTitle: result.items[0]?.title ?? null,
-      provider: "ebay-image",
-    };
-  },
-};
+/**
+ * Build the visual-search provider over a given image search.
+ *
+ * Injectable for the same reason hints is: ES modules are immutable, and the
+ * contract worth testing here — that no answer from this provider is ever
+ * authoritative — cannot be exercised against a network the test has no
+ * credentials for.
+ */
+export function createEbayImageProvider(
+  search: ImageSearch = searchBrowseCompsByImage,
+): IdentifyProvider {
+  return {
+    name: "ebay-image",
+    async identify(req, conditionId) {
+      if (!req.imageDataUri) return null;
+      // US-2762: the gate is BEFORE the call, not after it.
+      //
+      // A detail, defect or measurement shot does not produce a weak answer that
+      // could be filtered downstream — it produces a confident one about the
+      // wrong thing. There is nothing in the response to filter on, so the only
+      // place this can be decided is here, on the input.
+      if (!roleCanIdentify(req.imageRole)) return null;
+      // eBay wants raw base64; a data: prefix is rejected.
+      const comma = req.imageDataUri.indexOf(",");
+      const base64 = comma === -1 ? req.imageDataUri : req.imageDataUri.slice(comma + 1);
+      if (!base64) return null;
+
+      const result = await search({
+        imageBase64: base64,
+        categoryId: req.categoryId || undefined,
+        conditionId,
+        limit: 25,
+      });
+      // Nothing similar, or nothing priced: not an identification.
+      if (result.items.length === 0 || result.stats.count === 0) return null;
+      return {
+        comps: result,
+        matchedTitle: result.items[0]?.title ?? null,
+        // A LOOK-ALIKE, offered for confirmation, never written as fact.
+        //
+        // The top hit here is a real listing that resembles the photo, which is a
+        // genuinely useful thing to show a seller and a dangerous thing to save
+        // for them. US-2758 measured this returning five Lululemon tanks for a
+        // garment carrying no brand mark at all.
+        identitySource: "visual",
+        identityIsAuthoritative: false,
+        provider: "ebay-image",
+      };
+    },
+  };
+}
+
+/**
+ * THE EXPERIMENT. Visually similar live listings, straight from the photo.
+ *
+ * Returns null rather than throwing when it finds nothing, because "no visual
+ * match" is an ordinary outcome for a garment eBay has never seen, not a fault.
+ * Either way the caller falls back to hints.
+ */
+export const ebayImageProvider: IdentifyProvider = createEbayImageProvider();

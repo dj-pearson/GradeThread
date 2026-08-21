@@ -149,7 +149,13 @@ function DecisionCard({
             disabled={buy.isPending || buy.isSuccess}
             onClick={() =>
               buy.mutate({
-                title: result.matchedTitle || keyword.trim() || "Scout item",
+                // US-2763: only an AUTHORITATIVE match may name the item.
+                // A visual match is a look-alike listing's title, and saving it
+                // silently is how a garment with no brand mark in frame ends up
+                // named after somebody else's Lululemon tank. What the seller
+                // typed wins over a guess; the guess is shown, not stored.
+                title: (result.identityIsAuthoritative ? result.matchedTitle : null) ||
+                  keyword.trim() || "Scout item",
                 brand: brand.trim() || undefined,
                 size: size.trim() || undefined,
                 costCents: costCents ?? undefined,

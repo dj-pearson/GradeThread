@@ -44,6 +44,9 @@ function stub(
       return Promise.resolve({
         comps: { items: [], total: 0, stats: { count: 0, currency: "USD", min: null, p25: null, median: null, p75: null, max: null } },
         matchedTitle: `${name} title`,
+        // US-2763: provenance travels with every outcome.
+        identitySource: null,
+        identityIsAuthoritative: false,
         provider: name,
       } as IdentifyOutcome);
     },
@@ -170,6 +173,8 @@ Deno.test("the default provider is NOT subject to the experiment's deadline", as
             r({
               comps: { items: [], total: 0, stats: { count: 0, currency: "USD", min: null, p25: null, median: null, p75: null, max: null } },
               matchedTitle: null,
+              identitySource: null,
+              identityIsAuthoritative: false,
               provider: "hints",
             }),
           150,

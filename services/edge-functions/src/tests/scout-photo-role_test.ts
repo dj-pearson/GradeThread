@@ -129,7 +129,10 @@ Deno.test("declining falls straight through to hints without spending the timeou
   let imageCalls = 0;
   const image = {
     name: "ebay-image" as const,
-    identify: (r: typeof req extends (x: never) => infer _ ? never : Parameters<typeof ebayImageProvider.identify>[0], c: string) => {
+    identify: (
+      r: Parameters<typeof ebayImageProvider.identify>[0],
+      c: string,
+    ) => {
       imageCalls++;
       return ebayImageProvider.identify(r, c);
     },
@@ -140,6 +143,8 @@ Deno.test("declining falls straight through to hints without spending the timeou
       Promise.resolve({
         comps: { items: [], stats: { count: 0 } } as never,
         matchedTitle: null,
+        identitySource: null,
+        identityIsAuthoritative: false,
         provider: "hints" as const,
       }),
   };

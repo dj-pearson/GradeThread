@@ -309,10 +309,17 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   //    (from the barcode match) so /buy can prefill the inventory item.
   let value: ValueRange;
   let matchedTitle: string | null = null;
+  // US-2763: the title travels with HOW it was arrived at. A barcode pins a
+  // product; a visual match names something that looks like it. Only the first
+  // may be written into a field without the seller confirming it.
+  let identitySource: "barcode" | "visual" | null = null;
+  let identityIsAuthoritative = false;
   const matchedCategoryId: string | null = categoryId || null;
   const speculated = await speculativeComps;
   let compsReused = false;
   let requeryTitle: string | null = null;
+  let requerySource: "barcode" | "visual" | null = null;
+  let requeryAuthoritative = false;
   let identifiedBy: string = "hints";
   if (speculated.ok) identifiedBy = speculated.outcome.provider;
   try {
@@ -326,6 +333,8 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
         const outcome = await identifyWithFallback(providers, identifyReq, conditionId);
         if (!outcome) throw new Error("no provider could value this item");
         requeryTitle = outcome.matchedTitle;
+        requerySource = outcome.identitySource;
+        requeryAuthoritative = outcome.identityIsAuthoritative;
         identifiedBy = outcome.provider;
         return outcome.comps;
       },
@@ -337,6 +346,12 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     matchedTitle = reused
       ? (speculated.ok ? speculated.outcome.matchedTitle : null)
       : requeryTitle;
+    identitySource = reused
+      ? (speculated.ok ? speculated.outcome.identitySource : null)
+      : requerySource;
+    identityIsAuthoritative = reused
+      ? (speculated.ok ? speculated.outcome.identityIsAuthoritative : false)
+      : requeryAuthoritative;
   } catch (err) {
     return failSafe(
       c,
@@ -385,6 +400,11 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     costCents,
     decision,
     matchedTitle,
+    // US-2763 AC5: the client must be able to tell "recognised as X" from
+    // "looks like these". Sending the title without this is what let a pure
+    // similarity guess become an item's saved name.
+    identitySource,
+    identityIsAuthoritative,
     matchedCategoryId,
     disclaimer:
       "This is a private AI estimate from your photo — not a GradeThread certificate. Resale, sell-through, and ROI are estimates from condition-matched eBay comps. Verify condition before buying.",
