@@ -39,6 +39,18 @@ const GRANT_FN =
   /GRANT\s+EXECUTE\s+ON\s+FUNCTION\s+(?:public\.)?"?([a-zA-Z0-9_]+)"?/gi;
 const REVOKE_FN =
   /REVOKE\s+(?:ALL|EXECUTE)[^;]*?\s+ON\s+FUNCTION\s+(?:public\.)?"?([a-zA-Z0-9_]+)"?/gi;
+const DROP_FN =
+  /DROP\s+FUNCTION\s+(?:IF\s+EXISTS\s+)?(?:public\.)?"?([a-zA-Z0-9_]+)"?/gi;
+
+/**
+ * The shared guard helper introduced by 00640.
+ *
+ * A function calling this refuses anyone who is not service_role (or an admin,
+ * or — for the 'authenticated' tier — a signed-in user). The helper's own body
+ * is asserted below, so routing the check through it cannot become a way to
+ * claim a guard without having one.
+ */
+const GUARD_HELPER = "gt_require_role";
 
 interface Fn {
   files: string[];
@@ -85,6 +97,38 @@ function securityDefinerFunctions(): Map<string, Fn> {
       out.set(name, entry);
     }
   }
+  // A function DROPPED by a LATER migration than its last CREATE is gone from
+  // the surface, and leaving it here would keep it on the debt list for ever.
+  // 00640 drops increment_grades_used while 00004 still holds the CREATE.
+  //
+  // ORDER IS THE WHOLE RULE. A first version deleted any name that appeared in
+  // any DROP, and removed grant_appstore_credits — which is dropped and then
+  // immediately recreated with a changed signature, the ordinary way to alter
+  // one. Dropped-then-recreated is not dropped.
+  for (const [name, entry] of out) {
+    const lastCreate = entry.files[entry.files.length - 1]!;
+    const lastDrop = dropsByName().get(name) ?? null;
+    if (lastDrop && lastDrop > lastCreate) out.delete(name);
+  }
+  return out;
+}
+
+/**
+ * name -> the LAST migration filename that drops it.
+ *
+ * Built once. The first version was a per-name lookup that re-read all 640
+ * migrations for every function it was asked about, which is O(n squared) and
+ * timed the suite out at 30s rather than failing on anything real.
+ */
+let dropIndex: Map<string, string> | null = null;
+function dropsByName(): Map<string, string> {
+  if (dropIndex) return dropIndex;
+  const out = new Map<string, string>();
+  for (const f of migrationFiles()) {
+    const src = readFileSync(join(MIGRATIONS_DIR, f), "utf8");
+    for (const m of src.matchAll(DROP_FN)) out.set(m[1]!, f);
+  }
+  dropIndex = out;
   return out;
 }
 
@@ -143,19 +187,32 @@ function namesMatching(re: RegExp): Set<string> {
  * See vault/20-domain/postgres-revoke-from-anon-is-a-noop.md.
  */
 const BODY_GUARDED = [
+  // 00619 / 00620
   "sweep_mcp_tool_calls",
   "sweep_oauth_expired",
+  // 00640 (US-2282). Each of these delegates to gt_require_role, whose own
+  // body is asserted by "the shared guard helper actually refuses" below.
+  "buyer_growth_metrics",
+  "channel_attribution",
+  "claim_grade_lease",
+  "community_benchmarks",
+  "get_or_create_source",
+  "increment_ai_actions",
+  "increment_certificate_view",
+  "merge_inventory_items",
+  "record_style_code_name",
+  "record_style_code_submission",
+  "reserve_ai_action",
+  "reserve_buyer_meter",
+  "style_code_sweep_candidates",
 ];
 
 const UNGRANTED_DEBT = [
-  "claim_grade_lease",
   "debit_api_credits",
   "grant_api_credits",
   "grant_appstore_credits",
   "grant_buyer_reward_credit",
   "grant_grade_credits",
-  "increment_ai_actions",
-  "increment_grades_used",
   "is_admin",
   "is_reviewer_or_admin",
   "is_super_admin",
@@ -164,8 +221,6 @@ const UNGRANTED_DEBT = [
   "refund_ai_action",
   "refund_buyer_meter",
   "refund_buyer_reward_credit",
-  "reserve_ai_action",
-  "reserve_buyer_meter",
 ];
 
 describe("US-2282 AC4: SECURITY DEFINER functions declare who may execute them", () => {
@@ -225,11 +280,30 @@ describe("US-2282 AC4: SECURITY DEFINER functions declare who may execute them",
 
     const unguarded = BODY_GUARDED.filter((name) => {
       const bodies = fns.get(name)?.bodies ?? [];
-      // EVERY definition must guard, not just the newest. An older CREATE OR
-      // REPLACE without the check is still reachable if it is applied last.
-      return !bodies.every((b) =>
-        /auth\.role\(\)/i.test(b) && /42501/.test(b) && /service_role/i.test(b)
-      );
+      // THE NEWEST DEFINITION, which is the one that wins.
+      //
+      // This said "every definition must guard, not just the newest", on the
+      // reasoning that an older unguarded CREATE OR REPLACE is still reachable
+      // if it is applied last. Migrations apply in NNNNN order and
+      // apply-prod-migrations.sh re-runs the whole directory in that order, so
+      // the newest always wins and nothing can apply an older one afterwards.
+      //
+      // The rule also could not be satisfied. Adding a guard to a function that
+      // already exists necessarily creates a SECOND definition, and the older
+      // one will never contain the check — so under "every", no function with
+      // history could ever join this list. It passed only because the two
+      // original entries happened to have exactly one definition each. 00640
+      // guards thirteen functions that all have history, which is what exposed
+      // it.
+      //
+      // What the rule was actually protecting against is a future CREATE OR
+      // REPLACE that quietly drops the guard. Checking the newest catches that
+      // exactly: the new definition becomes the newest, and it fails here.
+      const newest = bodies[bodies.length - 1] ?? "";
+      const inline = /auth\.role\(\)/i.test(newest) && /42501/.test(newest) &&
+        /service_role/i.test(newest);
+      const viaHelper = new RegExp(`${GUARD_HELPER}\\s*\\(`, "i").test(newest);
+      return !(inline || viaHelper);
     }).sort();
     expect(
       unguarded,
@@ -244,6 +318,30 @@ describe("US-2282 AC4: SECURITY DEFINER functions declare who may execute them",
     // deliberately body-guarded, and claiming both hides which one is true.
     const both = BODY_GUARDED.filter((n) => UNGRANTED_DEBT.includes(n)).sort();
     expect(both, `listed in BOTH lists: ${both.join(", ")}`).toEqual([]);
+  });
+
+  it("the shared guard helper actually refuses", () => {
+    // Thirteen functions delegate their check to gt_require_role, so the check
+    // above accepts a call to it as proof of a guard. That is only sound while
+    // the helper itself refuses — otherwise the indirection becomes a way to
+    // claim a guard without having one, which is the exact failure BODY_GUARDED
+    // exists to prevent, one level down.
+    const src = migrationFiles()
+      .map((f) => readFileSync(join(MIGRATIONS_DIR, f), "utf8"))
+      .find((s) => new RegExp(`FUNCTION\\s+(?:public\\.)?${GUARD_HELPER}\\s*\\(`, "i").test(s));
+
+    expect(src, `no migration defines ${GUARD_HELPER}, but BODY_GUARDED entries call it`)
+      .toBeDefined();
+
+    const def = src!.slice(
+      src!.search(new RegExp(`CREATE\\s+OR\\s+REPLACE\\s+FUNCTION\\s+(?:public\\.)?${GUARD_HELPER}`, "i")),
+    );
+    // It must raise 42501, and it must decide on the ROLE rather than merely on
+    // the presence of a uid — a JWT claiming role=anon while carrying a sub is a
+    // shape the client controls.
+    expect(def, `${GUARD_HELPER} does not raise 42501`).toMatch(/42501/);
+    expect(def, `${GUARD_HELPER} does not check auth.role()`).toMatch(/auth\.role\(\)/i);
+    expect(def, `${GUARD_HELPER} does not admit service_role`).toMatch(/service_role/i);
   });
   it("the ungranted-debt list is shrink-only", () => {
     const fns = securityDefinerFunctions();

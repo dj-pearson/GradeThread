@@ -1,22 +1,87 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!note] NOTHING IS PENDING as of 2026-08-20.
-> Every migration through **00639** is applied. Verified by asking the database
-> rather than this file: `GET /health/ready` reports
-> `{"expected":"00634","applied":"00639","status":"ahead"}` with no `missing`
-> key, which means every version up to 00639 landed — `status:"ahead"` only says
-> the RUNNING edge build is older than the schema, which the next edge deploy
-> resolves.
->
-> The `unexpected` list showing 00635/00638/00639 is the same thing from the
-> other side: that build's manifest predates them. It is NOT a phantom report.
-> 00636 and 00637 have dropped off it, which is how we know 00638's cleanup of
-> their bookkeeping rows ran.
+> [!warning] ONE MIGRATION IS HELD: **00640**.
+> Everything through **00639** is applied. 00640 is committed to local `main` and
+> **must not be pushed** until it has been applied to prod.
 >
 > This file records INTENT; only the database records STATE. It has gone stale in
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
-> asked. One unauthenticated GET settles it.
+> asked. One unauthenticated GET settles it:
+> `curl -fsS https://functions.gradethread.com/health/ready | jq .schema`
+
+## HELD: 00640 — body guards for the 13 SECURITY DEFINER functions that had none (US-2282)
+
+**Risk: MEDIUM.** It rewrites 13 live functions and drops a 14th. Nothing about
+the change is subtle, but the blast radius is the metering path and two analytics
+RPCs, so apply it when you can watch the edge for a few minutes afterwards.
+
+### What it does
+
+Adds one authorization check to each function that lacked one. Measured against
+prod 2026-08-21: 96 SECURITY DEFINER functions, 55 reachable by `anon`, 40
+already guarded by 00514 and 00611–00617. These are the remaining 15, minus one
+that is dropped and one that is deliberately public.
+
+* **Ten get a `service_role` check** (the edge is their only caller):
+  `claim_grade_lease`, `increment_ai_actions`, `reserve_ai_action`,
+  `reserve_buyer_meter`, `record_style_code_submission`, `record_style_code_name`,
+  `increment_certificate_view`, `channel_attribution`,
+  `style_code_sweep_candidates`, `buyer_growth_metrics`.
+* **Three get an `authenticated` check** (the browser genuinely calls these, so a
+  service-role check would break the app): `get_or_create_source`,
+  `merge_inventory_items`, `community_benchmarks`.
+* **`increment_grades_used` is DROPPED.** It has no callers anywhere — not the
+  edge, web, iOS, Android, extension or a script. Recreating it is one `CREATE`
+  from 00004 if it is ever wanted.
+* **`peek_workspace_invitation` is deliberately left open**, because
+  accept-invite reads it before the invitee has signed in.
+
+### Why a body check and never a REVOKE
+
+A revoke makes the call permission-denied, and a denied call segfaults this
+Postgres image and restarts the database (US-2403). **00527 stays `.BLOCKED`.**
+This file contains no `REVOKE` and no new `GRANT` except on the helper.
+
+### Verified before being held
+
+Applied twice to the local stack (idempotent). Guard matrix, with the JWT claims
+PostgREST actually sets:
+
+| caller | service-role tier | authenticated tier |
+|---|---|---|
+| `service_role` | allowed | allowed |
+| `authenticated` | refused 42501 | allowed |
+| `anon` | refused 42501 | refused 42501 |
+
+`src/test/security-definer-grants.test.ts` 5/5, sabotage-checked: removing a
+guard call, and making the helper return true instead of raising, each fail it.
+
+### Apply
+
+```bash
+psql "$PROD_URL" -v ON_ERROR_STOP=1 -f supabase/migrations/00640_security_definer_body_guards.sql
+```
+
+Then **`NOTIFY pgrst, 'reload schema';`** — a function signature changed
+(`increment_grades_used` is gone) and PostgREST caches those.
+
+### Then check, in this order
+
+1. `curl -fsS https://functions.gradethread.com/health/ready | jq .schema` → expect `applied: "00640"`.
+2. Anon is refused. This is the point of the migration:
+   `POST /rest/v1/rpc/channel_attribution` with the anon key should now answer
+   **401 / 42501**, where before it returned real UTM data.
+3. **The edge still works.** Grade one item and list one item — that exercises
+   `reserve_ai_action`, `increment_ai_actions` and `get_or_create_source`. If the
+   edge starts 42501-ing, `auth.role()` is not reaching the function and the
+   rollback below is immediate.
+
+### Rollback
+
+Re-run the previous definition of any function from the migration named in the
+comment above it; each one records where its body came from. The helper
+`gt_require_role` can stay — nothing calls it once the bodies are reverted.
 
 ## ✅ APPLIED 2026-08-20: 00639 — remove the names derived from listing titles (US-2751)
 
