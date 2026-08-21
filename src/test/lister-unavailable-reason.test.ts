@@ -19,7 +19,7 @@
 // shape, not the mapping. The function is importable, so the mapping can just be
 // exercised.
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 async function reasonWith({
   flag,

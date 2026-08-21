@@ -35,6 +35,10 @@ const SKIP = new Set([
  * C0 control characters, except the three that belong in text: tab (09),
  * newline (0A) and carriage return (0D).
  */
+// Matching control characters IS the point of this file. The rule guards
+// against them appearing by accident, which is the same goal from the
+// other side, so a scoped disable is right and weakening the class is not.
+// eslint-disable-next-line no-control-regex
 const C0 = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
 
 /**
@@ -46,6 +50,7 @@ const C0 = new RegExp('[\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F]');
  * cannot see.
  */
 const INVISIBLE = new RegExp(
+  // eslint-disable-next-line no-misleading-character-class
   '[\\u00AD\\u034F\\u061C\\u180E\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u2064\\u2066-\\u2069\\uFEFF]',
 );
 const TAG_BLOCK = /[\u{E0000}-\u{E007F}]/u;
