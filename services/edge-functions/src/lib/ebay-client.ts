@@ -4389,6 +4389,105 @@ export async function searchBrowseComps(
   };
 }
 
+// ── Visual comps via Browse search_by_image (US-2756) ───────────────────
+//
+// Post a photo, get visually similar LIVE listings back. It is the closest
+// thing on this API to what a reseller means when they say "just look at it" —
+// identity and comps arrive in one call, with no Vision model and no metered AI
+// action.
+//
+// UNPROVEN, AND GATED FOR THAT REASON. Nobody has measured it on thrift
+// clothing. eBay's index is dominated by retail inventory, so a current-season
+// jacket may match beautifully and a faded 1990s one may match nothing. The
+// caller keeps it behind SCOUT_EBAY_IMAGE_SEARCH_ENABLED (default off) until a
+// spike says otherwise — see lib/scout-identify.ts.
+//
+// Returns the SAME BrowseCompsResult shape as searchBrowseComps so the two are
+// interchangeable to everything downstream, including the value maths.
+export interface BrowseImageCompsArgs {
+  /** Raw base64 — no data: prefix. eBay rejects the prefixed form. */
+  imageBase64: string;
+  categoryId?: string;
+  conditionId?: string;
+  limit?: number;
+}
+
+export async function searchBrowseCompsByImage(
+  args: BrowseImageCompsArgs,
+): Promise<BrowseCompsResult> {
+  const token = await getAppAccessToken();
+
+  const params = new URLSearchParams();
+  if (args.categoryId) params.set("category_ids", args.categoryId);
+  const filters: string[] = [];
+  if (args.conditionId) filters.push(`conditionIds:{${args.conditionId}}`);
+  if (filters.length) params.set("filter", filters.join(","));
+  params.set("limit", String(Math.min(Math.max(args.limit ?? 12, 1), 50)));
+
+  const url =
+    `${apiHost()}/buy/browse/v1/item_summary/search_by_image?${params.toString()}`;
+  const res = await ebayFetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "X-EBAY-C-MARKETPLACE-ID": getMarketplaceId(),
+    },
+    body: JSON.stringify({ image: args.imageBase64 }),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `eBay Browse image search failed (${res.status}): ${text.slice(0, 300)}`,
+    );
+  }
+
+  const payload = (await res.json()) as {
+    itemSummaries?: Array<{
+      itemId?: string;
+      title?: string;
+      price?: { value?: string; currency?: string };
+      image?: { imageUrl?: string };
+      thumbnailImages?: Array<{ imageUrl?: string }>;
+      itemWebUrl?: string;
+      condition?: string;
+      buyingOptions?: string[];
+    }>;
+    total?: number;
+  };
+
+  const summaries = payload.itemSummaries ?? [];
+  const items: BrowseComp[] = summaries.map((s) => ({
+    itemId: s.itemId ?? "",
+    title: s.title ?? "",
+    price: s.price?.value ? Number(s.price.value) : null,
+    currency: s.price?.currency ?? "USD",
+    imageUrl: s.image?.imageUrl ?? s.thumbnailImages?.[0]?.imageUrl ?? null,
+    itemWebUrl: s.itemWebUrl ?? null,
+    condition: s.condition ?? null,
+    buyingOptions: s.buyingOptions ?? [],
+  }));
+
+  const prices = items
+    .map((i) => i.price)
+    .filter((p): p is number => p != null && p > 0)
+    .sort((a, b) => a - b);
+
+  return {
+    items,
+    total: payload.total ?? items.length,
+    stats: {
+      count: prices.length,
+      currency: items[0]?.currency ?? "USD",
+      min: prices[0] ?? null,
+      p25: percentile(prices, 0.25),
+      median: percentile(prices, 0.5),
+      p75: percentile(prices, 0.75),
+      max: prices[prices.length - 1] ?? null,
+    },
+  };
+}
+
 // ── Sold/realized comps via eBay Marketplace Insights (US-542) ──────────
 //
 // Browse returns ACTIVE asking prices, which systematically over-state value.

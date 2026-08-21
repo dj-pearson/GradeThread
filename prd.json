@@ -2933,7 +2933,8 @@
       "priority": 14,
       "dependsOn": [
         "US-2753"
-      ]
+      ],
+      "notes": "BUILT AND FLAG-OFF 2026-08-20. lib/scout-identify.ts is the seam: a provider takes a photo plus hints and returns candidate identity plus comps, and the route no longer knows which implementation answered. The hints provider IS today's behaviour, cached, and is always last in the chain — the floor under every experiment. ebay-client.ts gains searchBrowseCompsByImage, calling POST /buy/browse/v1/item_summary/search_by_image, which nothing in this codebase had ever touched. The flag is SCOUT_EBAY_IMAGE_SEARCH_ENABLED, default off, exact-match 'true' so a stale 'false' or an operator's '1' leaves it off, and it is read PER REQUEST rather than at module load — the difference between switching a misbehaving experiment off from a phone in a shop and needing a redeploy. The experimental provider also carries a 1500ms deadline and the default provider deliberately does not: cutting off the path sellers rely on to protect them from the unproven one would be the wrong trade. Sabotage-checked five ways, all caught: flag defaulting on, flag captured at load, hints dropped as the fallback, a throwing provider failing the request, and the default provider being timed out. 48 tests across five scout suites. OPERATOR, AND THIS IS THE GATE: the flag must not be switched on until the spike has run against PRODUCTION with real thrift photos and its latency and accuracy are recorded here. The spike script is written and needs only EBAY_APP_ID / EBAY_CERT_ID in the environment and a folder of photos. Sandbox proves nothing — it has no inventory, so image search returns nothing there regardless of quality. Until that measurement exists this is built, not live, and those are different claims."
     },
     {
       "id": "US-2757",

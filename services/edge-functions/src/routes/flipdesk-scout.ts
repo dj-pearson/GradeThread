@@ -29,8 +29,12 @@ import {
   resolveComps,
   SPECULATIVE_CONDITION_ID,
 } from "../lib/comp-speculation.ts";
-import { cachedSearchBrowseComps } from "../lib/comps-cache.ts";
 import { whichRefusal } from "../lib/gate-order.ts";
+import {
+  chooseProviders,
+  identifyWithFallback,
+  type IdentifyRequest,
+} from "../lib/scout-identify.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { decideBuy, DECISION_FEE_RATE } from "../lib/scout-decision.ts";
 import {
@@ -230,31 +234,32 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   // The query issued here is IDENTICAL to the one the sequential code issued —
   // same filter, same limit — so a hit returns exactly what today returns. See
   // lib/comp-speculation.ts for why this beats bucketing an unfiltered result.
-  const compArgs = barcode
-    ? {
-      gtin: barcode,
-      categoryId: categoryId || undefined,
-      brand: brand || undefined,
-      limit: 25,
-    }
-    : {
-      categoryId,
-      q: q || undefined,
-      brand: brand || undefined,
-      size: size || undefined,
-      limit: 25,
-    };
-
   // Settled, never rejecting. The grade block below can return early on failure,
   // and an in-flight promise nobody awaits is the unhandled rejection that takes
   // the whole worker down (vault/10-ops/edge-hang-vs-crash-loop.md).
-  // US-2754: through the cache. A rack of six similar jackets asks eBay the
-  // same question six times; the second through sixth now cost a Postgres read.
-  const speculativeComps = cachedSearchBrowseComps({
-    ...compArgs,
-    conditionId: SPECULATIVE_CONDITION_ID,
-  })
-    .then((out) => ({ ok: true as const, result: out.result, hit: out.hit }))
+  // US-2756: through the provider chain. With the experiment flag off — the
+  // default, and every stock deployment — this resolves to the hints provider,
+  // which is the same cached comp query US-2754 introduced. Nothing changes.
+  const identifyReq: IdentifyRequest = {
+    imageDataUri: image,
+    barcode,
+    q,
+    brand,
+    categoryId,
+    size,
+  };
+  const providers = chooseProviders();
+
+  const speculativeComps = identifyWithFallback(
+    providers,
+    identifyReq,
+    SPECULATIVE_CONDITION_ID,
+  )
+    .then((outcome) =>
+      outcome
+        ? { ok: true as const, result: outcome.comps, outcome }
+        : { ok: false as const, err: new Error("no provider identified the item") }
+    )
     .catch((err: unknown) => ({ ok: false as const, err }));
 
   // 1) Private shadow grade from the photo (US-616 primitive). Barcode-only
@@ -302,8 +307,9 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   const matchedCategoryId: string | null = categoryId || null;
   const speculated = await speculativeComps;
   let compsReused = false;
-  let requeryCacheHit = false;
-  let compsCacheHit = false;
+  let requeryTitle: string | null = null;
+  let identifiedBy: string = "hints";
+  if (speculated.ok) identifiedBy = speculated.outcome.provider;
   try {
     // The reuse decision lives in lib/comp-speculation.ts and is unit-tested by
     // COUNTING fetches, so "a hit issues no second call" is held by a test rather
@@ -312,15 +318,20 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
       speculated,
       shadowGrade,
       async (conditionId) => {
-        const out = await cachedSearchBrowseComps({ ...compArgs, conditionId });
-        requeryCacheHit = out.hit;
-        return out.result;
+        const outcome = await identifyWithFallback(providers, identifyReq, conditionId);
+        if (!outcome) throw new Error("no provider could value this item");
+        requeryTitle = outcome.matchedTitle;
+        identifiedBy = outcome.provider;
+        return outcome.comps;
       },
     );
     compsReused = reused;
-    compsCacheHit = reused ? (speculated.ok ? speculated.hit : false) : requeryCacheHit;
     value = valueRangeFromStats(search.stats, shadowGrade, search.stats.currency);
-    if (barcode) matchedTitle = search.items[0]?.title ?? null;
+    // The provider decides what a matched title means: only a barcode pins an
+    // exact product on the hints path, while a visual match names what it saw.
+    matchedTitle = reused
+      ? (speculated.ok ? speculated.outcome.matchedTitle : null)
+      : requeryTitle;
   } catch (err) {
     return failSafe(
       c,
@@ -350,9 +361,10 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     // sellers actually produce, which is the number that decides whether the
     // speculation is worth keeping.
     compsReused: String(compsReused),
-    // US-2754: did the comps come from the shared cache rather than eBay? The
-    // pair of these two says which of the speedups actually paid, per request.
-    compsCacheHit: String(compsCacheHit),
+    // US-2756: which provider actually answered. With the flag off this is
+    // always "hints"; once the experiment is on it is the only way to see how
+    // often visual search is carrying its weight.
+    identifiedBy,
   });
 
   return c.json({
