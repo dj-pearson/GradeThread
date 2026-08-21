@@ -14,6 +14,7 @@ import { assert, assertEquals } from "@std/assert";
 import type { ImageAnnotations, PhotoAnnotation } from "../lib/disclosure.ts";
 import {
   certificateCardCopy,
+  returnEvidenceCardCopy,
   DEFAULT_MAX_DEFECT_CROPS,
   evidenceStampLine,
   expandCropBox,
@@ -264,4 +265,88 @@ Deno.test("the private label shot is still excluded from every asset", async () 
   );
   const cropCall = src.indexOf("selectDefectCrops(groups");
   assert(cropCall > -1, "crops must be selected from the already-filtered groups");
+});
+
+// ── US-2706: the sheet that goes to an eBay return case ────────────────────
+
+Deno.test("US-2706: the return sheet carries the grade DATE", () => {
+  // The whole argument is that the flaw was documented BEFORE the sale. A card
+  // naming the certificate and not the date says the documentation exists
+  // without saying it predates anything, which is the half carrying no weight.
+  const copy = returnEvidenceCardCopy(
+    { certificateNumber: "GT-000123", overallScore: 8.5, gradeTier: "Excellent" },
+    2,
+    "2026-07-04T10:22:00.000Z",
+  );
+  assert(copy.verify.includes("2026-07-04"), `no grade date in: ${copy.verify}`);
+  assertEquals(copy.certificate, "GT-000123");
+  assertEquals(copy.defects, "2 flaws documented");
+});
+
+Deno.test("US-2706: the return sheet carries NO off-eBay link", () => {
+  // certificateCardCopy prints gradethread.com/verify, which is right on a
+  // listing image and wrong here: eBay is deciding a case, and a domain on the
+  // evidence is an off-site link into the middle of it. The instruction
+  // survives without the address - a certificate number IS the lookup.
+  const stamp = { certificateNumber: "GT-000123", overallScore: 8.5, gradeTier: "Excellent" };
+  const listing = certificateCardCopy(stamp, 2);
+  assert(listing.verify.includes("gradethread.com"), "harness check: the listing card does link");
+
+  const sheet = returnEvidenceCardCopy(stamp, 2, "2026-07-04T10:22:00.000Z");
+  for (const line of Object.values(sheet)) {
+    assertEquals(
+      /https?:\/\/|www\.|\.com|\.co/i.test(line),
+      false,
+      `the return sheet carries an off-eBay link: ${line}`,
+    );
+  }
+});
+
+Deno.test("US-2706: no grade date still produces an instruction, not a blank", () => {
+  const copy = returnEvidenceCardCopy(
+    { certificateNumber: "GT-000123", overallScore: 8.5, gradeTier: "Excellent" },
+    1,
+    null,
+  );
+  assertEquals(copy.verify, "Verify by certificate number");
+});
+
+Deno.test("US-2706: an unparseable date says so rather than printing garbage", () => {
+  const copy = returnEvidenceCardCopy(
+    { certificateNumber: "GT-000123", overallScore: 8.5, gradeTier: "Excellent" },
+    1,
+    "not-a-date",
+  );
+  assert(copy.verify.includes("date unavailable"), copy.verify);
+  assertEquals(/NaN|Invalid/.test(copy.verify), false);
+});
+
+Deno.test("US-2706: the sheet never says the seller wins", () => {
+  // The epic's standing honesty constraint, on the one asset eBay actually
+  // reads. Checked over EVERY line, not just the one that was edited.
+  const copy = returnEvidenceCardCopy(
+    { certificateNumber: "GT-000123", overallScore: 9.0, gradeTier: "Near Mint" },
+    0,
+    "2026-07-04T10:22:00.000Z",
+  );
+  for (const line of Object.values(copy)) {
+    assertEquals(
+      /win|guarantee|dispute (will|should)/i.test(line),
+      false,
+      `the sheet asserts an outcome we do not control: ${line}`,
+    );
+  }
+});
+
+Deno.test("US-2706: one compositor draws both cards", () => {
+  // Two renderers would drift, and the one that drifted would be the one
+  // nobody looks at until a case is open.
+  const src = Deno.readTextFileSync(
+    new URL("../lib/defect-annotations.ts", import.meta.url),
+  );
+  assert(src.includes("compositeReturnEvidenceSheet"), "the return sheet has no renderer");
+  assert(
+    src.includes("drawCertificateCard"),
+    "the drawing is no longer shared between the listing card and the return sheet",
+  );
 });

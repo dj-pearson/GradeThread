@@ -207,3 +207,47 @@ export function certificateCardCopy(
     verify: "gradethread.com/verify",
   };
 }
+
+/**
+ * US-2706: the copy for the sheet that goes to an eBay RETURN case.
+ *
+ * A sibling of certificateCardCopy rather than a flag on it, because the two
+ * differ on the one line that matters and merging them would put an off-eBay
+ * URL in front of a marketplace reviewing a case.
+ *
+ * TWO DIFFERENCES, both required by the story:
+ *
+ *   THE GRADE DATE. The whole argument is that the flaw was documented BEFORE
+ *   the sale. A card that names the certificate and not the date asserts the
+ *   documentation exists without saying it predates anything, which is the half
+ *   that carries no weight.
+ *
+ *   NO URL. certificateCardCopy prints "gradethread.com/verify", which is
+ *   correct on a listing image and wrong here: eBay is deciding a case, and a
+ *   domain on the evidence is an off-site link into the middle of it. The
+ *   instruction survives without the address - a certificate number IS the
+ *   lookup, and anyone holding it can find it.
+ *
+ * It also says nothing about who should win. eBay decides.
+ */
+export function returnEvidenceCardCopy(
+  stamp: EvidenceStamp,
+  defectCount: number,
+  gradedAtIso: string | null,
+): CertificateCardCopy {
+  const base = certificateCardCopy(stamp, defectCount);
+  return {
+    ...base,
+    heading: "Condition documented before sale",
+    verify: gradedAtIso
+      ? `Graded ${formatGradeDate(gradedAtIso)} · verify by certificate number`
+      : "Verify by certificate number",
+  };
+}
+
+/** YYYY-MM-DD, in UTC. Unambiguous to a reviewer in any country. */
+function formatGradeDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "date unavailable";
+  return d.toISOString().slice(0, 10);
+}

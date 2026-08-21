@@ -4,6 +4,8 @@ import { supabaseAdmin } from "../lib/supabase.ts";
 import { latestPublication, recordPublication } from "../lib/listing-publications.ts";
 import { submitReturnFiles, uploadReturnFile } from "../lib/ebay-postorder.ts";
 import { matchComplaint, type ReportedDefect } from "../lib/complaint-match.ts";
+import { compositeReturnEvidenceSheet } from "../lib/defect-annotations.ts";
+import type { EvidenceStamp } from "../lib/evidence-pack.ts";
 import {
   buildEvidencePlan,
   type EvidencePlan,
@@ -27,11 +29,18 @@ const MAX_RETURN_EVIDENCE_FILES = 6;
  * sale -> inventory item -> grading submission -> grade report, plus the
  * listing's most recent publication snapshot.
  */
+interface ReturnEvidenceContext {
+  plan: EvidencePlan;
+  stamp: EvidenceStamp;
+  gradedAt: string | null;
+  defectCount: number;
+}
+
 async function planReturnEvidence(
   ownerId: string,
   orderId: string,
   complaint: string,
-): Promise<EvidencePlan | null> {
+): Promise<ReturnEvidenceContext | null> {
   try {
     const { data: sale } = await supabaseAdmin
       .from("sales")
@@ -57,13 +66,21 @@ async function planReturnEvidence(
 
     const { data: report } = await supabaseAdmin
       .from("grade_reports")
-      .select("defects_found")
+      .select("defects_found, certificate_id, overall_score, grade_tier, created_at")
       .eq("submission_id", submissionId)
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    const defects = ((report as { defects_found?: unknown } | null)?.defects_found ??
-      []) as ReportedDefect[];
+    const row = report as
+      | {
+        defects_found?: unknown;
+        certificate_id?: string | null;
+        overall_score?: number | string | null;
+        grade_tier?: string | null;
+        created_at?: string | null;
+      }
+      | null;
+    const defects = (row?.defects_found ?? []) as ReportedDefect[];
     if (!Array.isArray(defects) || defects.length === 0) return null;
 
     const listingId = (sale as { listing_id?: string } | null)?.listing_id ?? null;
@@ -85,7 +102,20 @@ async function planReturnEvidence(
     }
 
     const { matches } = matchComplaint(complaint, defects);
-    return buildEvidencePlan({ defects, snapshot, matches });
+    const plan = buildEvidencePlan({ defects, snapshot, matches });
+    return {
+      plan,
+      // The facts the evidence sheet burns in. Carried out of here because this
+      // is the only place that already loaded the report — a second read would
+      // be a second chance to pick a different revision of it.
+      stamp: {
+        certificateNumber: row?.certificate_id ?? null,
+        overallScore: Number(row?.overall_score ?? Number.NaN),
+        gradeTier: String(row?.grade_tier ?? ""),
+      },
+      gradedAt: row?.created_at ?? null,
+      defectCount: defects.length,
+    };
   } catch (err) {
     console.error(
       "[ebay.returns.evidence] could not build the plan:",
@@ -4398,16 +4428,46 @@ flipdeskEbayRoutes.post("/returns/:returnId/evidence", async (c) => {
   // verdict we actually computed rather than on the absence of one.
   const complaint = String(form.get("complaint") ?? "").trim();
   const orderId = String(form.get("order_id") ?? "").trim();
+  let context: ReturnEvidenceContext | null = null;
   if (complaint && orderId) {
-    const plan = await planReturnEvidence(ownerId, orderId, complaint);
-    if (plan?.verdict === "supported") {
+    context = await planReturnEvidence(ownerId, orderId, complaint);
+    if (context?.plan.verdict === "supported") {
       return c.json(
         {
           error: "refused",
-          verdict: plan.verdict,
-          reason: plan.reason,
+          verdict: context.plan.verdict,
+          reason: context.plan.reason,
         },
         409,
+      );
+    }
+  }
+
+  // US-2706 AC3: the sheet goes FIRST, so the reviewer opening the pack reads
+  // what this is before they look at a close-up of a cuff. It is composited
+  // here rather than uploaded by the client because the certificate number and
+  // the grade date must come from the report, not from a form field a browser
+  // could be persuaded to change.
+  //
+  // Only when the grade is CERTIFIED: an uncertified report has no number to
+  // print, and a sheet whose certificate line reads "Not certified" argues
+  // against the seller on the one asset that exists to argue for them.
+  if (context?.stamp.certificateNumber) {
+    try {
+      cleaned.unshift({
+        bytes: await compositeReturnEvidenceSheet(
+          context.stamp,
+          context.defectCount,
+          context.gradedAt,
+        ),
+        filename: "condition-report.jpg",
+      });
+    } catch (err) {
+      // The photographs are still the evidence. A failed sheet costs the pack
+      // its cover page, not its argument.
+      console.error(
+        "[ebay.returns.evidence] sheet render failed:",
+        err instanceof Error ? err.message : String(err),
       );
     }
   }
