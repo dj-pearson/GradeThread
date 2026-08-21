@@ -152,6 +152,42 @@ something that is not syntactic** (a rounding rule, a coercion) or **reads sourc
 from a hand-written list** (which only defends what someone remembered). Both
 failed here; the two that asserted genuinely structural properties held up.
 
+### Writing the harness is where the next one hides
+
+Three extension guards were added on 2026-08-21 by loading `lister/common.js`
+into a `new Function` with the browser surface stubbed. Every one of them
+passed on a broken harness first, and each failure mode is reusable:
+
+**The stub that cannot express the failure.** `commitTags` dispatches keydown,
+keypress AND keyup per tag. The first harness counted Enter *events*, so "the
+second tag sticks" actually meant "the second keystroke of the first tag
+sticks" — and the third keystroke cleared it anyway. All three cases passed
+against a model with no way to represent the bug. It counts value *writes* now.
+
+**The stub that skips the code path.** `GT.setValue` walks
+`HTMLInputElement.prototype` for the native value setter and calls it directly,
+which is the React-safe way to set a controlled input. A plain-object stub has
+no prototype to walk, so the test exercised a branch the extension never takes.
+The harness defines real classes.
+
+**Multi-line anchors do not match a CRLF tree.** Two sabotages reported SKIP
+because the anchor used a bare `\n`. They read as "the property is not
+implemented" until you notice both skipped for the same reason. Use single-line
+anchors, and treat SKIP as loudly as NOT CAUGHT.
+
+**Escapes die on the way in.** One regex took three attempts: a character class
+that truncated at the first inner quote, a backreference that arrived as a
+literal `U+0001`, and a broken string literal. The `U+0001` was caught by
+the invisible-character guard (src/test/no-invisible-characters.test.ts) naming the file and line. Where a scan will do, a
+line scan beats a regex — it has nothing to escape.
+
+And the one that is not about harnesses: **a sabotage can land in the wrong
+place.** Several "NOT CAUGHT" results this session were edits that never touched
+the code under test — a `return false;` replaced at the first occurrence rather
+than the intended branch, an `el.click()` inserted past the end of the function.
+A NOT CAUGHT is a hypothesis; confirm the edit actually changed the thing before
+recording a gap.
+
 ## The habit that catches all of them
 
 **Break it on purpose and watch it fail.**
