@@ -40172,6 +40172,29 @@
         "VERIFIED: full edge suite 8106 passed / 0 failed; 19 tests in visual-identify-pass_test.ts; the route path was checked against the mount (app.route('/api/flipdesk/ai') + post('/extract')) and the body key against the handler (item_id), because a wrong path would 404 for the wrong reason and assertDenied would have accepted it as a pass."
       ],
       "priority": 4
+    },
+    {
+      "id": "US-2770",
+      "passes": true,
+      "title": "eBay optional item specifics stay empty when the matches already answer them",
+      "description": "As a seller, I want the optional eBay fields filled from what similar listings declare, so that my listing is more findable without me typing twenty fields.",
+      "acceptanceCriteria": [
+        "Aspects with a consensus from the visual matches prefill the corresponding eBay item specifics for the resolved category, restricted to aspects that category actually exposes.",
+        "A prefilled aspect is marked as a suggestion needing confirmation, never written as seller-declared fact, matching the identityIsAuthoritative posture already stated in scout-identify.ts.",
+        "An aspect the seller has already set is never overwritten.",
+        "Values are truncated and validated against the category's aspect spec before use, so the 65-character limit that produced stuck offers cannot recur (vault/30-platform/ebay-aspect-value-limit.md).",
+        "Tests cover: fills an empty aspect, skips a seller-set aspect, skips an aspect the category does not expose, and refuses an over-length value.",
+        "ALL FIVE AC MET by services/edge-functions/src/lib/visual-aspect-prefill.ts (pure, no network/clock/DB) plus 16 tests in visual-aspect-prefill_test.ts. WIRED IN THE SAME CHANGE, at two call sites in resolveEbayPrep - a lib nobody calls is the exact mistake US-2767 AC3 shipped with, and it is not repeated here.",
+        "THE SECOND CALL SITE IS THE VALUABLE ONE. The aiSpecs.length === 0 early return fires when the category exposes nothing worth an AI call, and it returned no suggestions at all. A prefill there costs ZERO AI actions because no model runs on that path, and it was the easiest place in the story to overlook.",
+        "AC2 is honoured structurally, not by a flag: nothing here reaches inventory_items.ebay_aspects, the column that becomes the published listing and is therefore seller-declared fact. Values land in the SUGGESTIONS block beside the model's own, carrying source=visual_consensus and a confidence CAPPED at 0.55 - because forty agreeing listings are still forty listings that could not see the tag, and an uncapped score would let a visual value outrank something read off the garment, which is the inversion US-2767 exists to prevent.",
+        "AC4 DEVIATES DELIBERATELY, and this is the record of it. The AC says values are 'truncated and validated'; AC5 says the test 'refuses an over-length value'. They conflict, and refusal is right HERE: truncating produces a value the seller never chose, off a garment that is not theirs. The model's own values are still truncated by the existing helper; only visually-derived ones are refused. A gap is honest, a mangled guess is not. Boundary is tested both sides - 65 accepted, 66 refused - so the check cannot silently become >=.",
+        "SELECTION_ONLY values are checked against allowedValues too, which the AC list does not name but the same failure demands: an unknown aspect NAME and a disallowed aspect VALUE are both rejected by eBay at PUBLISH, and that surfaces as the unrelated 'already has active offer' error in vault/30-platform/ebay-aspect-value-limit.md. The seller gets a stuck offer and no reason.",
+        "Every refusal is RECORDED with its reason rather than dropped, on the same rule as US-2764's losing category vote: 'no suggestions' and 'four suggestions we discarded' look identical afterwards, and only one of them means the feature is not working.",
+        "SABOTAGE-CHECKED, control-first, 11 of 11 caught: truncating instead of refusing, the off-by-one length check, offering an unexposed aspect, overwriting a seller-set value, losing to the model, dropping the SELECTION_ONLY check, removing the confidence cap, keying on the match's spelling instead of the category's, accepting a lone listing as consensus, offering a disagreed aspect, and discarding the skip reasons.",
+        "A TWELFTH SABOTAGE READ 'NOT CAUGHT' AND WAS A BAD TEST, NOT A GAP: it added an unused function and changed no behaviour, so nothing could have caught it. Rewritten to actually return an empty skipped list, it was caught. A NOT CAUGHT is a hypothesis about the guard OR about the sabotage.",
+        "VERIFIED: full edge suite 8122 passed / 0 failed (up 16), deno lint clean over 1714 files, deno check clean."
+      ],
+      "priority": 5
     }
   ]
 }

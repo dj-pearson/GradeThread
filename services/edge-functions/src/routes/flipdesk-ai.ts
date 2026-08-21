@@ -41,6 +41,8 @@ import {
 import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
 import { decideCategory } from "../lib/category-decision.ts";
 import { startVisualPass } from "../lib/visual-identify-pass.ts";
+import { visualAspectPrefill } from "../lib/visual-aspect-prefill.ts";
+import type { VisualAspectEvidence } from "../lib/visual-aspect-consensus.ts";
 import type { BrowseCompCategoryVote } from "../lib/ebay-client.ts";
 import { grantReward } from "../lib/rewards-engine.ts";
 import { verifyIdentificationAgainstMarket } from "../lib/identification-verify.ts";
@@ -398,6 +400,8 @@ flipdeskAiRoutes.post("/extract", async (c) => {
           // same promise before it built its prompt - so reading it here is
           // free and adds no latency to a phase that already ran the search.
           visualLeafVotes: (await visualPass).leafCategoryVotes,
+          // Same already-resolved promise, same zero added latency (US-2770).
+          visualEvidence: (await visualPass).evidence,
         });
       } catch (err) {
         console.error(
@@ -765,8 +769,23 @@ async function runEbayAspectsPhase(args: {
    * search, which is what ran here before. US-2768 supplies them.
    */
   visualLeafVotes?: readonly BrowseCompCategoryVote[];
+  /**
+   * Per-aspect consensus from the same visual pass (US-2770).
+   *
+   * Absent means no prefill and today's behaviour exactly, which is also what
+   * the flag-off path produces.
+   */
+  visualEvidence?: VisualAspectEvidence | null;
 }): Promise<{ block: EbayAspectsBlock | null; actionsSpent: number }> {
-  const { userId, itemId, limit, photos, extraction, visualLeafVotes } = args;
+  const {
+    userId,
+    itemId,
+    limit,
+    photos,
+    extraction,
+    visualLeafVotes,
+    visualEvidence,
+  } = args;
 
   // Ownership gate — this phase WRITES to the item.
   const { data: item } = await supabaseAdmin
@@ -836,12 +855,20 @@ async function runEbayAspectsPhase(args: {
       .update(buildEbayPrepUpdate({ categoryId, status: "no_specs" }))
       .eq("id", itemId)
       .eq("user_id", userId);
+    // US-2770: "nothing worth an AI call" is not "nothing worth filling". The
+    // category can still expose optional specifics, and the visual matches may
+    // already answer them - at no AI cost on this path, since no model runs.
+    const freePrefill = visualAspectPrefill({
+      evidence: visualEvidence ?? null,
+      specs: allSpecs,
+      existing: existingAspects,
+    });
     return {
       block: {
         category_id: categoryId,
         category_path: categoryPath,
         aspects: existingAspects,
-        suggestions: {},
+        suggestions: freePrefill.suggestions,
         refill_needed: false,
       },
       actionsSpent: 0,
@@ -980,12 +1007,33 @@ async function runEbayAspectsPhase(args: {
     },
   });
 
+  // US-2770. `existing: merged` rather than existingAspects, so an aspect the
+  // model just filled is already excluded - and modelSuggestions on top of that,
+  // because the two record different reasons and a reader wants to know which.
+  const prefill = visualAspectPrefill({
+    evidence: visualEvidence ?? null,
+    specs: allSpecs,
+    existing: merged,
+    modelSuggestions: aspectResult.suggestions,
+  });
+  if (prefill.skipped.length > 0) {
+    // A refused prefill and an absent one look identical in the data otherwise,
+    // and only one of them means the visual pass is not earning its latency.
+    console.log(
+      "[ebay-prep] visual aspect prefill skipped:",
+      JSON.stringify(prefill.skipped.map((s) => `${s.aspect}:${s.reason}`)),
+    );
+  }
+
   return {
     block: {
       category_id: categoryId,
       category_path: categoryPath,
       aspects: merged,
-      suggestions: aspectResult.suggestions,
+      // Spread order is the precedence: the model looked at THIS garment, the
+      // prefill looked at listings that resemble it. The lib already refuses an
+      // aspect the model answered; this makes that true structurally too.
+      suggestions: { ...prefill.suggestions, ...aspectResult.suggestions },
       refill_needed: false,
     },
     actionsSpent: 1,

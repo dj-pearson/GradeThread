@@ -2499,20 +2499,6 @@
       "priority": 4
     },
     {
-      "id": "US-2770",
-      "passes": false,
-      "title": "eBay optional item specifics stay empty when the matches already answer them",
-      "description": "As a seller, I want the optional eBay fields filled from what similar listings declare, so that my listing is more findable without me typing twenty fields.",
-      "acceptanceCriteria": [
-        "Aspects with a consensus from the visual matches prefill the corresponding eBay item specifics for the resolved category, restricted to aspects that category actually exposes.",
-        "A prefilled aspect is marked as a suggestion needing confirmation, never written as seller-declared fact, matching the identityIsAuthoritative posture already stated in scout-identify.ts.",
-        "An aspect the seller has already set is never overwritten.",
-        "Values are truncated and validated against the category's aspect spec before use, so the 65-character limit that produced stuck offers cannot recur (vault/30-platform/ebay-aspect-value-limit.md).",
-        "Tests cover: fills an empty aspect, skips a seller-set aspect, skips an aspect the category does not expose, and refuses an over-length value."
-      ],
-      "priority": 5
-    },
-    {
       "id": "US-2772",
       "passes": false,
       "title": "Ten super_admin mutations have no step-up, and two of them spend money",
