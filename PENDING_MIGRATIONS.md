@@ -1,7 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] 00641 AND 00642 ARE PENDING as of 2026-08-21. See the two sections below.
-> Everything through **00640** is applied. Verified by asking the database rather
+> [!note] NOTHING IS PENDING as of 2026-08-21.
+> Everything through **00642** is applied. Verified by asking the database
+> rather than this file: `GET /health/ready` reports
+> `{"expected":"00640","applied":"00642","status":"ahead","unexpected":["00641","00642"]}`
+> with no `missing` key. `ahead` and the `unexpected` pair only say the RUNNING
+> edge build predates the schema, which the next edge deploy resolves.
+>
+> Superseded text follows, kept because this file's history is how a stale
+> claim gets caught: everything through **00640** was applied. Verified by asking the database rather
 > than this file: `GET /health/ready` reports
 > `{"expected":"00639","applied":"00640","status":"ahead"}` with no `missing` key.
 > `status:"ahead"` and `unexpected:["00640"]` only say the RUNNING edge build
@@ -13,7 +20,9 @@
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
 
-## HELD: 00642 — the four agent columns match the repo again (US-2729)
+## APPLIED 2026-08-21: 00642 — the four agent columns match the repo again (US-2729)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
 
 **Risk: low.** Four `DROP NOT NULL`s. No data moves, nothing is rewritten, and
 dropping a constraint cannot invalidate a row that already satisfied it.
@@ -64,7 +73,9 @@ Re-adding the constraint is what caused this, so there is no reason to roll it
 back. If you must: `ALTER TABLE … ALTER COLUMN … SET NOT NULL` will now fail on
 any row written since, which is the point.
 
-## HELD: 00641 — identification_provenance (US-2774)
+## APPLIED 2026-08-21: 00641 — identification_provenance (US-2774)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
 
 **Risk: low.** One new table, two indexes, no change to any existing table, no
 backfill, no data movement. Nothing reads it yet.
