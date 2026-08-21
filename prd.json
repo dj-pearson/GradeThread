@@ -2300,7 +2300,7 @@
     },
     {
       "id": "US-2720",
-      "passes": false,
+      "passes": true,
       "title": "The Listing Kit hides the cross-post button instead of saying why it is missing",
       "description": "As a seller without the extension installed, I want the Listing Kit to tell me cross-posting needs the extension and where to set it up, so that I do not conclude the feature was never built.",
       "acceptanceCriteria": [
@@ -2309,7 +2309,11 @@
         "The manual fallback stays visible and unchanged in both cases: Copy all fields, Open <platform>, Download photos.",
         "A needsUpgrade result from sendToLister renders an upgrade link to /pricing rather than a bare error toast, since the seller gate is an active paid FlipDesk plan (resolveSellerEntitlement in the edge's lib/buyer-entitlements.ts).",
         "A channel whose extension flow is off in MARKETPLACE_EXTENSION_FLOW (Facebook today) says 'list manually for now' on its own tab rather than offering a send that the background will refuse.",
-        "A vitest case asserts the notice renders for a lister platform with the bridge absent and does not render on a non-extension platform."
+        "A vitest case asserts the notice renders for a lister platform with the bridge absent and does not render on a non-extension platform.",
+        "AC6 DONE 2026-08-21 as a behavioural test rather than a source scan. src/test/lister-unavailable-reason.test.ts drives listerUnavailableReason() and isListerAvailable() against stubbed VITE_LISTER_EXTENSION, the gt-bridge DOM marker and a stubbed chrome.runtime. 6 tests.",
+        "AC2 IS THE ONE WORTH EXERCISING - 'it never states a cause it cannot verify'. The two causes need opposite actions from the seller: 'disabled' means nothing they install will help, 'not-installed' means installing fixes it. Telling an unsupported seller to install something is worse than the silence this replaced. The mapping is now pinned in both directions, plus the flag being exact-match so a stale '1' or 'yes' does not enable it.",
+        "A REAL GAP THE OLD COVERAGE MISSED, found by sabotage: dropping the !!listerExtensionId() check from isListerAvailable makes a FOREIGN chrome.runtime - present because of somebody else's extension - count as our transport, so the kit would tell a seller the extension is installed when it is not. The new test catches it; the source scan in cross-post-setup does not.",
+        "Swapping the two causes is caught by both suites. One sabotage was skipped on an anchor mismatch and is recorded as unproven rather than as a pass."
       ],
       "priority": 13,
       "dependsOn": [
@@ -2664,13 +2668,15 @@
     },
     {
       "id": "US-2771",
-      "passes": false,
+      "passes": true,
       "title": "The dual identification system has no note saying how it decides",
       "description": "As the next person to touch identification, I want one note that states the precedence and what each source is trusted for, so that a later change cannot quietly reorder it.",
       "acceptanceCriteria": [
         "A vault note under 20-domain states the full precedence (decoded style code, tag wordmark, visual consensus, model knowledge) with code_refs to every file that implements a step.",
         "It links to the existing ebay-visual-search learning note rather than restating its measurements, per the no-duplicate-facts rule in vault/CONTRACT.md.",
-        "npm run vault:index and npm run vault:lint pass, with vault:lint in --strict as CI runs it."
+        "npm run vault:index and npm run vault:lint pass, with vault:lint in --strict as CI runs it.",
+        "VERIFIED 2026-08-21. AC1: vault/20-domain/identification-precedence.md states the full ordering, and its code_refs now cover every step including prospect-identify.ts, which was missing - the note adjudicated between evidence that EXISTS and said nothing about which mechanism runs at all. AC2: it LINKS to ebay-visual-search three times and restates none of its measurements (grep for the figures returns zero). AC3: vault:index and vault:lint pass, 197 notes, links resolve, no orphans.",
+        "The half added 2026-08-21: the /prospect routing rule (tag photographed -> read the tag; garment only -> visual search at no metered AI action; unlabelled -> unchanged), the photo-role gate and why it is on the INPUT rather than the output, and the identitySource/identityIsAuthoritative provenance fields."
       ],
       "priority": 6
     },
