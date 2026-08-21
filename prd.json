@@ -2397,7 +2397,7 @@
     },
     {
       "id": "US-2723",
-      "passes": false,
+      "passes": true,
       "title": "The extension's own token is rejected by every FlipDesk route it calls, so the desktop queue and sold-sync have never worked",
       "description": "As a FlipDesk seller, I want the extension's calls to GradeThread to be accepted, so that queued cross-posts actually drain and sold-sync observations actually arrive.",
       "acceptanceCriteria": [
@@ -2407,7 +2407,8 @@
         "A shared middleware accepts EITHER credential and sets userId identically: Supabase JWT via authMiddleware's path, or a valid extension token via verifyExtensionToken. An invalid token of either kind still 401s; an extension token never grants more than the account it names.",
         "Tenant scoping is unchanged and re-asserted: userId comes from the verified token only, never from the body, and the existing tenant-isolation_test.ts cases for both route groups still pass with an extension token as the credential.",
         "A deno test posts an extension token to /api/flipdesk/extension-queue/claim and to /api/flipdesk/sync/observations and asserts 200 rather than 401, so this cannot regress silently again.",
-        "Every endpoint the extension calls is enumerated in one place and each is asserted reachable with an extension token. Today the ones that work are all under /api/grading/public/* and the two that do not are the two under /api/flipdesk/* - that split was accidental, not designed."
+        "Every endpoint the extension calls is enumerated in one place and each is asserted reachable with an extension token. Today the ones that work are all under /api/grading/public/* and the two that do not are the two under /api/flipdesk/* - that split was accidental, not designed.",
+        "VERIFIED 2026-08-20: middleware/extension-or-user-auth.ts is mounted on both /api/flipdesk/extension-queue and /api/flipdesk/sync in main.ts. src/tests/extension-auth_test.ts (7) plus flipdesk-auth-coverage_test.ts (3) pass, 10/10, and cover AC4 (either credential, identical userId), AC5 (tenant scoping re-asserted, no assurance claims on an extension token), AC6 and AC7 (every route group the extension calls is enumerated and asserted reachable). The guard that plain authMiddleware has NOT been left on those groups is the one that stops this regressing."
       ],
       "priority": 5,
       "notes": "DONE 2026-08-20 (code; needs an edge redeploy to take effect). New middleware/extension-or-user-auth.ts accepts EITHER credential and nothing more; main.ts now uses it on the two route groups the extension calls, replacing plain authMiddleware. The extension token is tried FIRST, and that order is a cost decision rather than a preference: it is a local HMAC compare against our own secret while getUser() is a network round trip, and a Supabase JWT cannot pass an HMAC check, so there is no wrong-branch-wins case. The extension branch is NOT the weaker door - it re-reads the account via auth.admin.getUserById and enforces email_confirmed_at exactly as authMiddleware does, because the token lives 30 days by default and must not outlive the account it names. It sets authClaims to an explicit empty NO_ASSURANCE rather than decoding, so a step-up or AAL2 gate can never be satisfied by an extension token. Two existing auth-coverage guards had to learn the new name or they would have reported both routers as unauthenticated: the FlipDesk one and the broader US-1639 /api one, both in flipdesk-auth-coverage_test.ts - and the SECOND one caught it, which is the guard working. New src/tests/extension-auth_test.ts (6 cases) asserts the wiring both ways: every prefix the extension calls uses the wrapper, plain authMiddleware is NOT left registered alongside it (Hono would run both and the stricter one would 401 first), and the wrapper is mounted NOWHERE else - widening extension-token acceptance across the authed surface has to be a deliberate act. Also round-trips a minted token and asserts a one-character signature flip and an expired exp both fail. deno check + lint clean; tenant-isolation 17 passed / 0 failed."
@@ -2483,7 +2484,7 @@
     },
     {
       "id": "US-2728",
-      "passes": false,
+      "passes": true,
       "title": "A successful cross-post 500s the composer's duplicate-title panel, because title-conflicts assumed one listing per item",
       "description": "As a seller who just cross-posted to Poshmark, I want the composer to keep working, so that succeeding at cross-listing does not break the screen I did it from.",
       "acceptanceCriteria": [
@@ -2491,7 +2492,9 @@
         "The route selected from listings filtered only on inventory_item_id + user_id and called maybeSingle(). That held only while cross-listing was broken; the Poshmark row made it two, and it 500s for exactly the sellers who just succeeded.",
         "Fixed by pinning to the eBay base draft (.eq platform ebay, order created_at desc, limit 1) — the row the composer edits and the only one carrying platform_category_id, which fetchComparableListings compares within. Ordering newest-first WITHOUT pinning the platform would pick the Poshmark row, whose category is null, and return 'no conflicts' forever: a silent wrong answer, worse than the 500.",
         "The rest of the codebase was scanned for the same one-listing-per-item assumption. Of 13 candidate sites, 12 are false positives that filter on the listings primary key or already pin a platform; this route was the only real one. Do not re-audit them without new evidence.",
-        "A deno test covers an item with an eBay draft plus a Poshmark cross-listing and asserts the route returns 200 with the eBay title's conflicts, not a 500."
+        "A deno test covers an item with an eBay draft plus a Poshmark cross-listing and asserts the route returns 200 with the eBay title's conflicts, not a 500.",
+        "AC5 DONE 2026-08-20, and it was the one thing still missing. The fix had shipped untested because the query sat inside the handler reaching for the module-level service-role client, so there was nowhere for a test to stand. Extracted to lib/title-conflict-base-draft.ts with the db as a parameter, the way lib/api-listings.ts already does. src/tests/title-conflict-base-draft_test.ts: 7 tests over a fake that re-implements the four PostgREST behaviours that interact to cause this, including maybeSingle's refusal to collapse two rows. One test deliberately reproduces PGRST116 on the pre-fix query, so the fake cannot quietly lose its teeth.",
+        "SABOTAGE-CHECKED, not merely green: removing the platform pin, removing limit(1), removing the tenant filter, and flipping the sort direction each fail, and each fails the test that names that property. A guard nobody has tried to break is a guard nobody has tested."
       ],
       "priority": 5
     },
