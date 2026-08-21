@@ -38,6 +38,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PlatformCoverageNote } from "@/components/flipdesk/platform-coverage-note";
 import { CaseItemSummary } from "@/components/flipdesk/case-item-summary";
+import { ReturnEvidencePanel } from "@/components/flipdesk/return-evidence-panel";
 import {
   caseItemKey,
   ebayOrderUrl,
@@ -407,6 +408,9 @@ function ReturnsCard() {
   const [busy, setBusy] = useState<string | null>(null);
   // US-2227: which return's partial-refund row is open, and what is typed in it.
   const [partialFor, setPartialFor] = useState<string | null>(null);
+  // US-2706: which return's evidence panel is open. One at a time — two open
+  // packs is two complaint boxes and a good way to send the wrong one.
+  const [evidenceFor, setEvidenceFor] = useState<string | null>(null);
   const [partialAmount, setPartialAmount] = useState("");
   const partialOrderId = useMemo(
     () => returns.find((r) => r.returnId === partialFor)?.orderId ?? null,
@@ -621,7 +625,22 @@ function ReturnsCard() {
                 >
                   Partial…
                 </Button>
+                {/* US-2706: the grade evidence. Opens a review panel and sends
+                    nothing until the seller reads the verdict and clicks — the
+                    useful outcome of this feature is often "do not fight". */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={!!busy}
+                  onClick={() =>
+                    setEvidenceFor(evidenceFor === r.returnId ? null : r.returnId)}
+                >
+                  Evidence…
+                </Button>
               </div>
+              )}
+              {evidenceFor === r.returnId && !showClosed && (
+                <ReturnEvidencePanel returnId={r.returnId} orderId={r.orderId} />
               )}
               {partialFor === r.returnId && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">

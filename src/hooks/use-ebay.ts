@@ -1930,6 +1930,90 @@ export function useEbayReturns(enabled = true) {
   });
 }
 
+/**
+ * US-2706: what the grade-evidence pack would say for one return.
+ *
+ * A read. It calls no eBay endpoint and writes nothing — the send is a separate
+ * mutation behind a separate click, because the seller has to be able to look
+ * at the verdict before it goes anywhere.
+ */
+export interface ReturnEvidencePlan {
+  available: boolean;
+  verdict?: "contradicted" | "supported" | "not_covered";
+  reason?: string;
+  mayAutoAssemble?: boolean;
+  citations?: Array<{
+    defectType: string;
+    location: string;
+    severity: string;
+    reportText: string;
+    disclosedIn: "description" | "aspects";
+    disclosureQuote: string;
+  }>;
+  hasPublicationSnapshot?: boolean;
+  certificateNumber?: string | null;
+  gradedAt?: string | null;
+  defectCount?: number;
+  includesConditionSheet?: boolean;
+}
+
+export function useEbayReturnEvidencePlan() {
+  return useMutation<
+    ReturnEvidencePlan,
+    Error,
+    { returnId: string; orderId: string; complaint: string }
+  >({
+    mutationFn: async ({ returnId, orderId, complaint }) => {
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/evidence/preview`,
+        {
+          method: "POST",
+          headers: await ebayHeaders(),
+          body: JSON.stringify({ order_id: orderId, complaint }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Couldn't read the evidence plan.");
+      return json as ReturnEvidencePlan;
+    },
+  });
+}
+
+/**
+ * US-2706: send the pack. Refuses with 409 when the grade report agrees with
+ * the buyer — that refusal carries the plain-language reason and is surfaced
+ * rather than swallowed, because it is the one answer the seller most needs.
+ */
+export function useEbaySendReturnEvidence() {
+  return useMutation<
+    { ok: true; attached: number; removed: number },
+    Error,
+    { returnId: string; orderId: string; complaint: string; files: File[] }
+  >({
+    mutationFn: async ({ returnId, orderId, complaint, files }) => {
+      const form = new FormData();
+      for (const file of files) form.append("file", file);
+      form.append("order_id", orderId);
+      form.append("complaint", complaint);
+      const headers = await ebayHeaders();
+      // FormData sets its own multipart boundary; a JSON content-type here
+      // makes the route reject the request before it reads a file.
+      delete (headers as Record<string, string>)["Content-Type"];
+      const res = await fetch(
+        `${edgeApiUrl()}/api/flipdesk/ebay/returns/${encodeURIComponent(returnId)}/evidence`,
+        { method: "POST", headers, body: form },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(
+          json.reason || json.error || "eBay rejected the evidence.",
+        );
+      }
+      return json;
+    },
+  });
+}
+
 export function useEbayDecideReturn() {
   return useMutation<
     { ok: true },

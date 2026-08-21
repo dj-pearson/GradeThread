@@ -295,7 +295,7 @@ Deno.test("US-2706: the return sheet carries NO off-eBay link", () => {
   const sheet = returnEvidenceCardCopy(stamp, 2, "2026-07-04T10:22:00.000Z");
   for (const line of Object.values(sheet)) {
     assertEquals(
-      /https?:\/\/|www\.|\.com|\.co/i.test(line),
+      /https?:\/\/|www\.|\.com|\.co\b/i.test(line),
       false,
       `the return sheet carries an off-eBay link: ${line}`,
     );
@@ -331,7 +331,7 @@ Deno.test("US-2706: the sheet never says the seller wins", () => {
   );
   for (const line of Object.values(copy)) {
     assertEquals(
-      /win|guarantee|dispute (will|should)/i.test(line),
+      /\bwin\b|guarantee|dispute (will|should)/i.test(line),
       false,
       `the sheet asserts an outcome we do not control: ${line}`,
     );

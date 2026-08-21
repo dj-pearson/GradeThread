@@ -31,6 +31,8 @@ const MAX_RETURN_EVIDENCE_FILES = 6;
  */
 interface ReturnEvidenceContext {
   plan: EvidencePlan;
+  /** US-2706 AC6: false means the pack can only argue from the grade report. */
+  hasSnapshot: boolean;
   stamp: EvidenceStamp;
   gradedAt: string | null;
   defectCount: number;
@@ -105,6 +107,7 @@ async function planReturnEvidence(
     const plan = buildEvidencePlan({ defects, snapshot, matches });
     return {
       plan,
+      hasSnapshot: snapshot !== null,
       // The facts the evidence sheet burns in. Carried out of here because this
       // is the only place that already loaded the report — a second read would
       // be a second chance to pick a different revision of it.
@@ -4349,6 +4352,55 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
     details: { order_id: body.order_id ?? null },
   });
   return c.json({ ok: true });
+});
+
+// US-2706 AC5: POST /returns/:returnId/evidence/preview — what the pack WOULD
+// say, without sending anything.
+//
+// Reads only. It touches no eBay endpoint and writes nothing, which is what
+// lets the seller see the verdict, the citations and the sheet's own facts
+// before they decide. The send route is a separate call behind a separate
+// click; there is no timer here and nothing auto-submits.
+//
+// body { order_id, complaint }
+flipdeskEbayRoutes.post("/returns/:returnId/evidence/preview", async (c) => {
+  const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
+  let body: { order_id?: unknown; complaint?: unknown };
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body." }, 400);
+  }
+  const orderId = String(body.order_id ?? "").trim();
+  const complaint = String(body.complaint ?? "").trim();
+  if (!orderId || !complaint) {
+    return c.json({ error: "order_id and complaint are both required." }, 400);
+  }
+
+  const context = await planReturnEvidence(ownerId, orderId, complaint);
+  if (!context) {
+    // No grade report, or nothing linking this order to a graded item. Said
+    // plainly rather than dressed up as a verdict: there is no evidence here,
+    // and the seller should know that before they plan around it.
+    return c.json({ available: false });
+  }
+
+  return c.json({
+    available: true,
+    verdict: context.plan.verdict,
+    reason: context.plan.reason,
+    mayAutoAssemble: context.plan.mayAutoAssemble,
+    citations: context.plan.citations,
+    // US-2706 AC6: whether the published listing text is on file at all. The
+    // surface labels a pack without one as the weaker case rather than showing
+    // it as equivalent — it can only argue from the grade report.
+    hasPublicationSnapshot: context.hasSnapshot,
+    certificateNumber: context.stamp.certificateNumber,
+    gradedAt: context.gradedAt,
+    defectCount: context.defectCount,
+    // A sheet is only composited for a CERTIFIED grade.
+    includesConditionSheet: Boolean(context.stamp.certificateNumber),
+  });
 });
 
 // US-2706: POST /returns/:returnId/evidence — attach the grade evidence to an

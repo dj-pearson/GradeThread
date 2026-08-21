@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2776",
+  "nextId": "US-2777",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2070,27 +2070,6 @@
       "priority": 20
     },
     {
-      "id": "US-2706",
-      "passes": false,
-      "title": "eBay return evidence: attach the pack to an INAD return",
-      "description": "As a FlipDesk seller with an item-not-as-described return open, I want to review a drafted response and send the grade evidence to eBay in one click, so that I answer within the deadline with something better than a screenshot.",
-      "acceptanceCriteria": [
-        "services/edge-functions/src/lib/ebay-postorder.ts gains file upload and evidence attachment for a return, extending the existing Post-Order v2 client rather than adding a second one",
-        "New route POST /api/flipdesk/ebay/returns/:returnId/evidence assembles the pack from the evidence plan and submits it. Every query is scoped to workspaceOwnerId ?? userId per US-268, with a case added to services/edge-functions/src/tests/tenant-isolation_test.ts",
-        "The evidence sheet is rendered by reusing the compositor in services/edge-functions/src/lib/defect-annotations.ts, and carries the certificate number, the grade date, and the verify instruction. It never carries an off-eBay link",
-        "Uploaded imagery goes through validateImageUpload magic-byte sniffing and stripImageMetadata before it leaves, matching the existing payment-dispute evidence route",
-        "src/pages/flipdesk/post-sale.tsx shows the drafted response and the exact pack contents before anything is sent. Nothing reaches eBay without a seller click, and there is no timer and no auto-submit",
-        "An item with no listing_publications snapshot renders the grade-report-only argument and labels it as the weaker case rather than presenting it as equivalent",
-        "No surface added by this story claims the evidence wins the case",
-        "npm run ui:check stays at zero findings for src/"
-      ],
-      "priority": 23,
-      "dependsOn": [
-        "US-2705"
-      ],
-      "notes": "PARTIAL 2026-08-21. The EDGE half is done and wired; the SHEET RENDERER and the WEB SURFACE are not, and I am not claiming otherwise.\n\nDONE — AC1: ebay-postorder.ts gains uploadReturnFile and submitReturnFiles, extending the existing v2 client rather than adding a second one. TWO CALLS, and the second is not optional: file/upload associates a file and returns a fileId, and the file stays INERT until file/submit activates it. Stopping after the upload gets a 200, a fileId, and a seller who believes eBay has their evidence - the same silent-success shape as the Lister photo attach fixed earlier today. submit activates by filePurpose and NOT by fileIds, so the whole pack uploads before one submit; a partial batch cannot be activated selectively. It returns removedFileIds - files eBay accepted and then dropped at activation - and the route reports that count rather than swallowing it.\n\nTHE CONTRACT WAS VERIFIED, NOT INFERRED. eBay blocks direct fetches (403) and the doc pages time out through WebFetch, so this came from eBay's own Post-Order v2 reference via search: UploadFileRequest is { fileName, data (base64), filePurpose }, SubmitFileRequest is { filePurpose }, SubmitFileResponse carries removedFileIds. It is deliberately NOT modelled on the payment-dispute route next door - that is a different API, on a different host, with a multipart body. base64 is chunked at 8 KB because String.fromCharCode(...bytes) on a 2 MB image throws RangeError.\n\nDONE — AC2: POST /api/flipdesk/ebay/returns/:returnId/evidence. Every eBay call runs under the OWNER's token (workspaceOwnerId ?? userId), so another seller's returnId reaches eBay as THIS seller's return and comes back denied - there is no local query that could read across tenants. A case is added to tenant-isolation_test.ts posting a real one-pixel PNG (so the magic-byte sniff passes and the request reaches the eBay call rather than 400ing for the wrong reason), gated on TEST_USER_A_EBAY_RETURN_ID and classified in KNOWN_UNSEEDED as an external dependency, alongside the other eBay ids. THIS ALSO SETTLES US-2704's DEFERRED AC6, which said the isolation case belonged with the first read surface.\n\nDONE — AC4: validateImageUpload magic-byte sniffing then stripImageMetadata, per file, before anything leaves. Capped at 6 files.\n\nDONE, AND IT IS THE EPIC'S SAFETY CONSTRAINT RATHER THAN AC-driven: the route REFUSES with 409 when the evidence plan returns supported. It builds the plan from the item's own grade report and the US-2704 snapshot - sale -> inventory item -> grading submission -> grade_reports.defects_found, plus the listing's latest publication. When the report documents a flaw the listing did not disclose, sending the pack would hand eBay a signed document proving our own user sold an undisclosed flaw. Best-effort in ONE direction only: a lookup failure yields no plan and the send proceeds on the seller's judgement, because a failed read must never become a silent refusal - and never an assembly either, which is why the refusal keys on a verdict actually computed.\n\nMY OWN US-2704 GUARD CAUGHT MY OWN CODE, and it was right. The route read listing_publications directly and the coverage test failed. The read moved into lib/listing-publications.ts as latestPublication() - one module owning the table is what stops a reader re-deriving published_at DESC and handing a dispute pack the wrong revision. The unwired-module gate also caught dispute-evidence.ts having no production caller; wiring the refusal is what fixed it, which is the honest fix rather than an allowlist entry.\n\nNOT DONE, and each needs real work rather than a finishing touch:\n  AC3 - the evidence sheet rendered through defect-annotations.ts, carrying the certificate number, grade date and verify instruction, with no off-eBay link. The route currently sends the images the seller chose; it does not composite a sheet.\n  AC5 - src/pages/flipdesk/post-sale.tsx showing the drafted response and the exact pack contents before anything is sent. The route already cannot fire without a request, so the no-timer/no-auto-submit half holds by construction, but there is no review surface yet.\n  AC6 - the no-snapshot case is handled in the PLAN (findDisclosure returns null, so the verdict is supported and the send is refused) but not LABELLED as the weaker case anywhere a seller can read, because there is no surface.\n  AC8 - ui:check is unaffected so far, since no src/ file changed.\n\nVERIFIED: deno lint and check clean, full edge suite 8169 passed / 0 failed, unwired-module gate green."
-    },
-    {
       "id": "US-2707",
       "passes": false,
       "title": "Payment dispute evidence: reuse the pack on the route that exists",
@@ -2442,6 +2421,21 @@
       "dependsOn": [
         "US-2356"
       ]
+    },
+    {
+      "id": "US-2776",
+      "title": "Android has no in-app account deletion, and Play will not accept the app without one",
+      "description": "Settings > Delete account showed a notice telling the seller to email support@gradethread.com. Google Play's User Data policy names exactly that as insufficient: an app that lets people create an account must offer in-app deletion plus a public web URL describing it. Web has called POST /api/account/delete since US-194 and iOS calls the older delete_account RPC; Android called nothing. This blocked the first Play submission outright.",
+      "acceptanceCriteria": [
+        "Settings > Delete account performs a real deletion through POST /api/account/delete, behind the same typed DELETE MY ACCOUNT confirmation the web dialog uses.",
+        "The password is requested only when the server asks for it (code password_required), so an OAuth account with no password can still delete.",
+        "On success the local session is torn down with the same wipe sign-out runs - rows, watermarks, push token, staged share photos, widget, caches - rather than a second hand-written copy of it.",
+        "A public /account-deletion page describes how to delete and what is retained, matching routes/account.ts and vault/10-ops/data-retention.md, registered in PUBLIC_ROUTES and the prerender entry.",
+        "Unit tests cover the confirm phrase, the password-required round trip, a wrong password, and the retention refusal that removes nothing."
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "[P0][Android/Play][Compliance] Found 2026-08-21 while preparing the first Play Console submission. See android/PLAY_STORE_SUBMISSION.md section 0 blocker 1."
     }
   ]
 }
