@@ -40100,6 +40100,60 @@
         "The half added 2026-08-21: the /prospect routing rule (tag photographed -> read the tag; garment only -> visual search at no metered AI action; unlabelled -> unchanged), the photo-role gate and why it is on the INPUT rather than the output, and the identitySource/identityIsAuthoritative provenance fields."
       ],
       "priority": 6
+    },
+    {
+      "id": "US-2734",
+      "passes": true,
+      "title": "The selector probe's deep checkbox names only half of what it does, so the report that closes a coverage gap is the one nobody ticks",
+      "description": "As someone reporting a broken marketplace form, I want the probe option that describes the real controls to be findable, so that a report comes back with what to use instead of just what is missing.",
+      "acceptanceCriteria": [
+        "OBSERVED 2026-08-20: a probe report came back with brand, tags, price and originalPrice all marked missing and no candidate signatures, because the run had deep off. The checkbox read 'I have already opened the menu or dialog', which gives a seller checking an ordinary sell form no reason to tick it.",
+        "The flag does two things. selector-probe.js: with deep on, candidates are computed for EVERY entry that missed; with it off, only for missing REQUIRED ones. The second effect is the one that closes a coverage gap, and the label never mentioned it.",
+        "Relabelled to lead with the outcome - it now says it describes the real controls for every field we could not find, and that the post-click case is included rather than being the whole point.",
+        "The probe's privacy contract is untouched: attribute names and values from the allowlist plus button label text, never a field's value. selector-probe.test.cjs still holds it.",
+        "FOLLOW-ON worth considering: the report itself could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than depending on someone remembering.",
+        "AC3's RELABEL HAD NO GUARD, added 2026-08-21. The label is the whole story: the code worked before and after, and the only thing that changed was whether a seller had a reason to tick the box. A revert to the old wording is therefore a silent regression - reports just quietly stop carrying candidates again, and the next person spends the round trip finding out. extension-unified/test/probe-deep-label.test.cjs holds it, discovered by scripts/test-extensions.mjs.",
+        "It asserts the HEADLINE - the span text before the <em> - because that is what a seller reads at a glance. Plus the every-field promise, that the post-click case is still mentioned without being the whole point, that deep still widens the candidate set from missing-REQUIRED to every miss (AC2's second effect), and that the report still states deep on every run so an empty candidate list is never ambiguous between 'nothing missed' and 'the box was unticked'.",
+        "SABOTAGE-CHECKED, control-first, all four caught: reverting the headline, dropping the every-field promise, making deep stop widening the set, and removing deep= from the report.",
+        "MY FIRST VERSION OF THE HEADLINE CHECK COULD NOT FAIL. It asserted the LABEL started with the old wording, but the slice begins at <label ...>, so the anchor never matched - it passed while a sabotage reverted the headline. Found by sabotaging the guard rather than by reading it, which is the only reason this AC is now actually held.",
+        "AC5 remains a follow-on and is NOT done: the report could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than by someone remembering."
+      ],
+      "priority": 20
+    },
+    {
+      "id": "US-2764",
+      "passes": true,
+      "title": "eBay visual matches carry a category and we throw it away",
+      "description": "As a seller, I want the category taken from what visually similar listings actually sit in, so that my listing lands in the right place without me correcting it.",
+      "acceptanceCriteria": [
+        "searchBrowseCompsByImage parses itemSummaries[].categories[] into BrowseComp.categories (categoryId + categoryName); today the mapper reads title, price, image, condition and buyingOptions and silently drops categories.",
+        "BrowseCompsResult gains categoryVotes: an array of { categoryId, categoryName, count } sorted by count descending, computed over the returned items.",
+        "A tie in the vote is reported as a tie (two entries with equal count) and never broken arbitrarily by array order.",
+        "A unit test in src/tests/ feeds a fixture payload with five summaries across two categories and asserts the vote counts, including the tie case.",
+        "ALL FOUR AC MET. searchBrowseCompsByImage and searchBrowseComps now share ONE mapper (toBrowseCompsResult), which is why categories was parsed by neither before - each had its own copy of the same nine lines. categoryVotes and leafCategoryVotes are both tallied; ties come back as ties.",
+        "MEASURED, not inferred: a production probe on 2026-08-21 showed Browse returns leafCategoryIds as its own field alongside the ancestor chain, so the leaf needs no guessing. Five Lululemon half-zips voted 5-0 for the ancestor Women's Clothing while splitting 3-1-1 across three leaves - which is exactly why the two tallies are kept separate rather than merged.",
+        "SABOTAGE-CHECKED, control-first, 5 of 5 caught after a gap was closed: breaking a tie by array order, double-counting a repeated category, dropping the sort, letting an omitted id become a blank vote, and the leaf tally falling back to the ancestor chain.",
+        "THE FIFTH ONE INITIALLY GOT THROUGH. The existing empty-leaf test passed [] for BOTH leafCategoryIds and categories, so an ancestor-chain fallback produced [] either way and the test could not tell the two apart. Two cases were added: an ancestor chain with no leaf must vote on nothing, and no leaf vote may ever elect a category no listing declared as its leaf. That second one is an invariant, so a future fallback fails it even if it keeps the empty case empty."
+      ],
+      "priority": 3
+    },
+    {
+      "id": "US-2766",
+      "passes": true,
+      "title": "Read the item specifics of the visual matches, not their titles",
+      "description": "As a seller, I want brand and style taken from the structured fields of visually similar listings, so that the suggestion carries the weight of someone who read the tag rather than someone who guessed.",
+      "acceptanceCriteria": [
+        "A new lib aggregates eBay item specifics across the top N visual matches by calling the existing getItem aspects path, reusing the CODE_ASPECTS / NAME_ASPECTS vocabulary already in style-code-aspects.ts rather than a second copy of it.",
+        "It returns per-aspect consensus with the supporting count (e.g. Brand: Lululemon, 4 of 5) and returns null for any aspect where the matches disagree, on the same rule aspectEvidence already uses.",
+        "Our own listings are excluded by platform_listing_id, exactly as the style-code sweep does, so our AI-written listings cannot corroborate themselves.",
+        "The call is bounded: at most N getItem calls per identification, N is a named constant, and a failure of any single getItem degrades to fewer votes rather than failing the identification.",
+        "Unit tests cover consensus, disagreement, own-listing exclusion, and a getItem failure.",
+        "ALL FIVE AC MET by services/edge-functions/src/lib/visual-aspect-consensus.ts, 14 tests in visual-aspect-consensus_test.ts covering consensus, tie, own-listing exclusion, bounded reads, a failed read, a thrown read and a total outage.",
+        "AC1 DEVIATES DELIBERATELY and this is the honest record of it. The AC said to reuse CODE_ASPECTS / NAME_ASPECTS from style-code-aspects.ts. Those are module-private and answer a NARROWER question - which aspect names carry a style code, and which carry a product name. This lib needs the aspects that identify a PRODUCT, so it declares IDENTITY_ASPECTS instead: Brand, Department, Type, Style, Model, Product Line, Material, Pattern.",
+        "Size is deliberately EXCLUDED from that list, and there is a test named for it. A visual match is a different physical garment that happens to be the same product, so copying its size across would be actively wrong - which is the one thing blind vocabulary reuse would have done.",
+        "MAX_ASPECT_READS = 5 is the named bound in AC4. It is a latency budget, not a sampling choice: every read is a round trip on a path a seller is waiting on."
+      ],
+      "priority": 3
     }
   ]
 }

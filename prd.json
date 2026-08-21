@@ -2371,25 +2371,6 @@
       "priority": 5
     },
     {
-      "id": "US-2734",
-      "passes": true,
-      "title": "The selector probe's deep checkbox names only half of what it does, so the report that closes a coverage gap is the one nobody ticks",
-      "description": "As someone reporting a broken marketplace form, I want the probe option that describes the real controls to be findable, so that a report comes back with what to use instead of just what is missing.",
-      "acceptanceCriteria": [
-        "OBSERVED 2026-08-20: a probe report came back with brand, tags, price and originalPrice all marked missing and no candidate signatures, because the run had deep off. The checkbox read 'I have already opened the menu or dialog', which gives a seller checking an ordinary sell form no reason to tick it.",
-        "The flag does two things. selector-probe.js: with deep on, candidates are computed for EVERY entry that missed; with it off, only for missing REQUIRED ones. The second effect is the one that closes a coverage gap, and the label never mentioned it.",
-        "Relabelled to lead with the outcome - it now says it describes the real controls for every field we could not find, and that the post-click case is included rather than being the whole point.",
-        "The probe's privacy contract is untouched: attribute names and values from the allowlist plus button label text, never a field's value. selector-probe.test.cjs still holds it.",
-        "FOLLOW-ON worth considering: the report itself could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than depending on someone remembering.",
-        "AC3's RELABEL HAD NO GUARD, added 2026-08-21. The label is the whole story: the code worked before and after, and the only thing that changed was whether a seller had a reason to tick the box. A revert to the old wording is therefore a silent regression - reports just quietly stop carrying candidates again, and the next person spends the round trip finding out. extension-unified/test/probe-deep-label.test.cjs holds it, discovered by scripts/test-extensions.mjs.",
-        "It asserts the HEADLINE - the span text before the <em> - because that is what a seller reads at a glance. Plus the every-field promise, that the post-click case is still mentioned without being the whole point, that deep still widens the candidate set from missing-REQUIRED to every miss (AC2's second effect), and that the report still states deep on every run so an empty candidate list is never ambiguous between 'nothing missed' and 'the box was unticked'.",
-        "SABOTAGE-CHECKED, control-first, all four caught: reverting the headline, dropping the every-field promise, making deep stop widening the set, and removing deep= from the report.",
-        "MY FIRST VERSION OF THE HEADLINE CHECK COULD NOT FAIL. It asserted the LABEL started with the old wording, but the slice begins at <label ...>, so the anchor never matched - it passed while a sabotage reverted the headline. Found by sabotaging the guard rather than by reading it, which is the only reason this AC is now actually held.",
-        "AC5 remains a follow-on and is NOT done: the report could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than by someone remembering."
-      ],
-      "priority": 20
-    },
-    {
       "id": "US-2736",
       "passes": false,
       "title": "Every platform variant is priced from the eBay draft alone, so an item priced on the item generates a kit with no price at all",
@@ -2474,19 +2455,6 @@
       "notes": "REFINEMENT 2026-08-20 after reading the Commerce Platform OVERVIEW page (the project guide read earlier is one page below it). The overview DOES name Marketplace as one of three selling surfaces alongside Shops and Instagram Shopping, so the flat claim 'Commerce API is not Marketplace' is too strong and is corrected here. What it is NOT is the consumer C2C flow: the platform is described for 'retailers and ecommerce businesses', built around Graph API seller onboarding, catalog and inventory, order management, finance reporting and customer communication, with Shops Ads using OFFSITE checkout - buyers discover on Facebook and Instagram and check out on the seller's own website. That is a catalogue-and-feed model for merchants with a product catalog, not a path for a reseller listing one used garment. THE OPEN QUESTION, and the only one worth spending time on: whether a used-goods reseller can be onboarded as a seller under Commerce Platform and reach the Marketplace surface that way. Nothing on the public pages answers it; it needs a question to Meta or an App Review submission, both of which are founder actions rather than code. Everything else in this story stands: the Seller app has no integration surface at all, and Marketplace Partnerships is EEA classifieds."
     },
     {
-      "id": "US-2764",
-      "passes": false,
-      "title": "eBay visual matches carry a category and we throw it away",
-      "description": "As a seller, I want the category taken from what visually similar listings actually sit in, so that my listing lands in the right place without me correcting it.",
-      "acceptanceCriteria": [
-        "searchBrowseCompsByImage parses itemSummaries[].categories[] into BrowseComp.categories (categoryId + categoryName); today the mapper reads title, price, image, condition and buyingOptions and silently drops categories.",
-        "BrowseCompsResult gains categoryVotes: an array of { categoryId, categoryName, count } sorted by count descending, computed over the returned items.",
-        "A tie in the vote is reported as a tie (two entries with equal count) and never broken arbitrarily by array order.",
-        "A unit test in src/tests/ feeds a fixture payload with five summaries across two categories and asserts the vote counts, including the tie case."
-      ],
-      "priority": 3
-    },
-    {
       "id": "US-2765",
       "passes": false,
       "title": "Category is decided by rank 1 of a keyword search on AI-written text",
@@ -2498,21 +2466,8 @@
         "Which path chose the category is recorded on the item so a wrong category can be traced to the method that picked it, not just to the id.",
         "Tests cover: vote wins, vote is non-leaf so keywords win, no vote so keywords win."
       ],
-      "priority": 3
-    },
-    {
-      "id": "US-2766",
-      "passes": false,
-      "title": "Read the item specifics of the visual matches, not their titles",
-      "description": "As a seller, I want brand and style taken from the structured fields of visually similar listings, so that the suggestion carries the weight of someone who read the tag rather than someone who guessed.",
-      "acceptanceCriteria": [
-        "A new lib aggregates eBay item specifics across the top N visual matches by calling the existing getItem aspects path, reusing the CODE_ASPECTS / NAME_ASPECTS vocabulary already in style-code-aspects.ts rather than a second copy of it.",
-        "It returns per-aspect consensus with the supporting count (e.g. Brand: Lululemon, 4 of 5) and returns null for any aspect where the matches disagree, on the same rule aspectEvidence already uses.",
-        "Our own listings are excluded by platform_listing_id, exactly as the style-code sweep does, so our AI-written listings cannot corroborate themselves.",
-        "The call is bounded: at most N getItem calls per identification, N is a named constant, and a failure of any single getItem degrades to fewer votes rather than failing the identification.",
-        "Unit tests cover consensus, disagreement, own-listing exclusion, and a getItem failure."
-      ],
-      "priority": 3
+      "priority": 3,
+      "notes": "PARTIAL as of 2026-08-21, 4 of 5 AC done in commit 3ca575882. AC1, AC2, AC3 and AC5 are met by services/edge-functions/src/lib/category-decision.ts (decideCategory, pickLeafVote, MIN_VOTE_SUPPORT = 2) with 177 lines of tests in category-decision_test.ts.\n\nAC4 IS NOT DONE. decideCategory returns method ('saved' | 'visual_consensus' | 'keyword' | 'none'), support and rejectedReason, and flipdesk-ai.ts console.logs a rejected vote - but nothing is RECORDED ON THE ITEM. AC4 asks for the deciding method to be traceable per item, and a log line is not that.\n\nIT NEEDS A MIGRATION, which is why it is split out rather than bodged. inventory_items has no free-form jsonb for provenance; the only jsonb is `attributes`, which is the CANONICAL garment attribute map (00182) and must not be polluted with decision metadata.\n\nALSO NOTE the path is live but DORMANT: visualLeafVotes is always empty until US-2768 runs the visual pass, so today every call takes the keyword branch and a stock deployment behaves exactly as before. AC4 has nothing to record until US-2768 lands, so doing it first would ship an always-'keyword' column."
     },
     {
       "id": "US-2767",
@@ -2526,7 +2481,8 @@
         "A candidate the model REJECTS is recorded as rejected rather than silently discarded, so the visual provider's accuracy can be measured over time instead of assumed.",
         "Tests assert that a candidate brand contradicted by a tag value in the same payload does not survive into suggestions."
       ],
-      "priority": 3
+      "priority": 3,
+      "notes": "PARTIAL as of 2026-08-21, 2 of 5 AC done in commit 3ca575882.\n\nAC1 and AC2 ARE done: buildCandidateBlock in visual-candidates.ts emits the block headed 'UNVERIFIED EXTERNAL GUESS' with the four-level precedence spelled out (style code > readable wordmark > visual consensus > model knowledge), and it is concatenated into the prompt at ai-extract.ts:721. extract-prompt-candidates_test.ts covers the wording, including that the block never leans toward accepting.\n\nAC3 IS WRITTEN BUT NOT WIRED. dropUnevidenced() exists at visual-candidates.ts:126 and does the right thing, but ai-extract.ts imports only buildCandidateBlock and VisualCandidate - the function is never called. Nothing parses CandidateRuling out of the model response, so today the model is ASKED to name its evidence and is never held to it.\n\nAC4 IS NOT DONE. CandidateVerdict is a type with no persistence behind it. Same blocker as US-2765 AC4: measuring the visual provider's accuracy over time needs a place to write the rulings, and that is a migration.\n\nAC5 CANNOT PASS UNTIL AC3 IS WIRED - a contradicted brand cannot be asserted not to survive while nothing reads the verdict.\n\nNEXT STEP is the response side: give the extract schema a rulings array, run it through dropUnevidenced, and only then write the AC5 test. Do not close this on the prompt half alone; a prompt that asks for evidence is not a check that evidence was given."
     },
     {
       "id": "US-2768",

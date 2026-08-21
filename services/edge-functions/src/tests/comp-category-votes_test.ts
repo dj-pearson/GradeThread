@@ -187,3 +187,45 @@ Deno.test("sold comps carry no leaf, so they vote on nothing", () => {
   // source cannot say", never "the listings disagreed".
   assertEquals(tallyLeafCategoryVotes([comp("1", []), comp("2", [])]), []);
 });
+
+Deno.test("an ancestor chain with no leaf votes on NOTHING, not on the chain", () => {
+  // The sabotage this exists to catch: falling back to `categories` when
+  // `leafCategoryIds` is empty. It looks generous - some answer beats none -
+  // and it is the one wrong answer that cannot be recovered from, because
+  // "Women's Clothing" is an ANCESTOR. Nothing can be listed into it.
+  //
+  // The pre-existing empty-leaf case passed [] for both fields, so the fallback
+  // produced [] either way and the test could not tell the two apart. Found by
+  // sabotage, not by reading.
+  const WOMENS: [string, string] = ["15724", "Women's Clothing"];
+  const votes = tallyLeafCategoryVotes([
+    comp("1", [WOMENS, TOPS, ACTIVEWEAR]),
+    comp("2", [WOMENS, TOPS, ACTIVEWEAR]),
+  ]);
+  assertEquals(
+    votes,
+    [],
+    "a listing whose leaf eBay did not send voted its ancestor chain instead - " +
+      "the winner of a leaf vote must always be listable",
+  );
+});
+
+Deno.test("a leaf vote never elects a category no listing named as its leaf", () => {
+  // The same rule stated as an invariant rather than as one fixture: whatever
+  // comes back must be a leaf SOMEBODY sent, so a future fallback that mixes
+  // ancestors in fails here even if it keeps the empty case empty.
+  const items = [
+    comp("1", [["15724", "Women's Clothing"], TOPS], [TOPS[0]]),
+    comp("2", [["15724", "Women's Clothing"], ACTIVEWEAR], [ACTIVEWEAR[0]]),
+    comp("3", [["15724", "Women's Clothing"], TOPS], []),
+  ];
+  const declared = new Set(items.flatMap((i) => i.leafCategoryIds));
+  for (const v of tallyLeafCategoryVotes(items)) {
+    assertEquals(
+      declared.has(v.categoryId),
+      true,
+      `${v.categoryId} (${v.categoryName}) won leaf votes but no listing sent ` +
+        `it as a leaf`,
+    );
+  }
+});
