@@ -1088,7 +1088,18 @@ export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: st
  * object — returns the fallback. Deliberately strict about what counts: a
  * price is money, and coercing junk into one would put it on a live listing.
  */
-function numericOr(value: unknown, fallback: number): number {
+/**
+ * A number, from a number or a numeric string, or the fallback.
+ *
+ * EXPORTED FOR TEST (US-2740). It was private, and the suite covering it could
+ * only assert that the name appeared in the source — which passed happily while
+ * the body was reverted to the strict `typeof` check that caused the original
+ * bug. A source scan cannot see behaviour; this needs to be callable.
+ *
+ * Deliberately strict about what counts as a number. A price is money, and
+ * coercing '', 'TBD', NaN or an object into one puts it on a live listing.
+ */
+export function numericOr(value: unknown, fallback: number): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : fallback;
   if (typeof value === "string" && value.trim() !== "") {
     const n = Number(value);

@@ -2628,7 +2628,7 @@
     },
     {
       "id": "US-2740",
-      "passes": false,
+      "passes": true,
       "title": "A numeric string is read as a zero, so a draft with a price shows none",
       "description": "As a seller, I want a price that exists in the data to appear in the kit and reach the marketplace, so that a stored value is not silently discarded.",
       "acceptanceCriteria": [
@@ -2637,7 +2637,12 @@
         "The same coercion gap made the fallback behave inconsistently: '32.49' > 0 is TRUE by coercion while typeof === 'number' is FALSE, so one real price read as present in one comparison and absent in the next.",
         "Both now go through numericOr(), which accepts a number or a numeric string and returns the fallback for anything else. Confidence uses it too - it had the identical type check.",
         "Deliberately strict about what counts: '', 'TBD', null, NaN and an object all return 0. A price is money, and coercing junk into one would put it on a live listing. Seven cases pinned; 41 tests pass.",
-        "This is the ROOT cause of the blank price. The four earlier fixes stand on their own merits - the generator ignored the item's price, the kit needed a render-time fallback, Poshmark takes whole dollars, and the writeback swallowed its errors - but none of them could ever have fixed this one."
+        "This is the ROOT cause of the blank price. The four earlier fixes stand on their own merits - the generator ignored the item's price, the kit needed a render-time fallback, Poshmark takes whole dollars, and the writeback swallowed its errors - but none of them could ever have fixed this one.",
+        "AC5's COVERAGE WAS NOT REAL, found 2026-08-21 by sabotaging it rather than reading it. The 'seven cases pinned' were SOURCE SCANS in cross-post-setup.test.ts - expect(src).toContain('function numericOr('), expect(src).toContain('price: numericOr(raw.price, 0)') - which assert the name exists and the call sites are spelled a certain way. They cannot see behaviour. Reverting numericOr's body to the exact strict typeof check that CAUSED this bug passed all 50 tests. So did letting junk strings coerce, and so did treating an empty string as a number.",
+        "One of those tests re-implements the rule locally and asserts against the copy (const first = (a) => a.find((p) => p != null && p > 0) ?? 0), which tests the mirror rather than the code.",
+        "FIXED: numericOr is exported and src/test/numeric-or.test.ts calls it. 8 tests over the real function - numeric strings, plain numbers, the junk set, non-finite numbers, the caller's fallback, and the two comparisons that used to disagree. The source assertions in the other suite stay, because pinning the CALL SITES is a different and still-useful thing.",
+        "SABOTAGE-CHECKED, five ways, all caught: reverting to the strict typeof check, coercing junk strings, accepting an empty string, ignoring the caller's fallback, and accepting a non-finite number. Note the third only became detectable once the fallback was NON-ZERO: Number('') is 0, so with a fallback of 0 the sabotaged and correct versions return the same value and the assertion proves nothing. The first draft of this test file had exactly that hole.",
+        "tsc -b clean; numeric-or and cross-post-setup 58/58."
       ],
       "priority": 5
     },
