@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2772",
+  "nextId": "US-2773",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2950,6 +2950,23 @@
         "npm run vault:index and npm run vault:lint pass, with vault:lint in --strict as CI runs it."
       ],
       "priority": 6
+    },
+    {
+      "id": "US-2772",
+      "passes": false,
+      "title": "Ten super_admin mutations have no step-up, and two of them spend money",
+      "description": "As whoever holds a super_admin session, I want the actions that change live spend to need a second factor, so that a stolen or borrowed admin session cannot alter ad campaigns unchallenged.",
+      "acceptanceCriteria": [
+        "MEASURED 2026-08-21 across services/edge-functions/src/routes: 57 handlers check super_admin, 52 of them mutate, 42 of those carry a step-up and 10 do not. This is the same INCONSISTENCY US-2356 was about - the bar an action clears depends on which router it happens to live in - not a blanket omission.",
+        "THE TWO THAT MATTER MOST: admin-ads.ts POST /recommendations/:id/apply and POST /recommendations/:id/revert change a LIVE Google Ads campaign, which is real money leaving the account. Neither asks for a second factor.",
+        "The other eight: POST /analyze (spends API quota), POST /conversions/upload (uploads conversion data to Google), the three recommendation decision routes (approve / dismiss / snooze), POST /apple/sync and POST /google/sync (pull data), and admin-passport-integrity.ts POST /scan.",
+        "DECIDE PER ROUTE rather than in bulk. A step-up on every one of these would make the Ads Command Center unusable for its normal loop, which is how a second factor becomes something people work around. The apply/revert pair is the clear yes; the decision-recording routes are plausibly fine as they are.",
+        "Whatever is decided, the outcome is recorded in KNOWN_GAPS in services/edge-functions/src/tests/step-up-coverage_test.ts - either the entry is deleted because the route gained a step-up, or its reason string says why it does not need one.",
+        "The guard already stops this growing: step-up-coverage_test.ts derives every super_admin mutation from the routes directory and fails on any NEW one without a step-up. KNOWN_GAPS is shrink-only, so a route that gains a step-up fails the suite until its entry is removed."
+      ],
+      "dependsOn": [
+        "US-2356"
+      ]
     }
   ]
 }
