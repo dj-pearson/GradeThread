@@ -1,11 +1,14 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] 00643 AND 00644 ARE PENDING as of 2026-08-21. See the two sections below.
-> Everything through **00642** is applied. Verified by asking the database
+> [!note] NOTHING IS PENDING as of 2026-08-21.
+> Everything through **00644** is applied. Verified by asking the database
 > rather than this file: `GET /health/ready` reports
-> `{"expected":"00640","applied":"00642","status":"ahead","unexpected":["00641","00642"]}`
+> `{"expected":"00642","applied":"00644","status":"ahead","unexpected":["00643","00644"]}`
 > with no `missing` key. `ahead` and the `unexpected` pair only say the RUNNING
 > edge build predates the schema, which the next edge deploy resolves.
+>
+> Superseded: everything through **00642** was applied, verified the same way
+> at `{"expected":"00640","applied":"00642"}`.
 >
 > Superseded text follows, kept because this file's history is how a stale
 > claim gets caught: everything through **00640** was applied. Verified by asking the database rather
@@ -20,7 +23,15 @@
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
 
-## HELD: 00644 — cross_post_channels (US-2721)
+## APPLIED 2026-08-21: 00644 — cross_post_channels (US-2721)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
+
+> [!important] The edge still reports `expected: 00642`, so the running build
+> predates this column. The SPA reads `cross_post_channels` DIRECTLY through
+> RLS rather than through the edge, so the picker works as soon as PostgREST
+> has reloaded its schema cache — it does not wait for an edge deploy. If the
+> picker cannot save, `NOTIFY pgrst, 'reload schema';` is the thing to check.
 
 **Risk: very low.** One nullable column on an existing per-user settings table.
 No backfill, no default, no constraint. Every existing row keeps NULL.
@@ -77,7 +88,15 @@ then `DELETE FROM public.applied_migrations WHERE version = '00644';`. Any
 seller selection is lost and everyone returns to all channels, which is the
 same state they are in today.
 
-## HELD: 00643 — listing_publications (US-2704)
+## APPLIED 2026-08-21: 00643 — listing_publications (US-2704)
+
+**APPLIED, owner-confirmed and then verified against `/health/ready`.**
+
+> [!note] Snapshots start from the first publish AFTER the edge redeploys,
+> not from now. The table exists, but the funnel that writes it ships in the
+> edge build, and the running one still reports `expected: 00642`. Coverage
+> cannot be backfilled — a description that was never snapshotted is gone —
+> so the redeploy is what starts the clock.
 
 **Risk: low.** One new table, one index, no change to any existing table, no
 backfill. Nothing reads it yet.
