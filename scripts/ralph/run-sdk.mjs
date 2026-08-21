@@ -37,11 +37,12 @@ import {
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { comparePriority } from "../lib/prd-priority.mjs";
-import { markDone, serialize } from "../prd-story.mjs";
+import { archiveNow, markDone, serialize } from "../prd-story.mjs";
 
 const HERE = import.meta.dirname;
 const ROOT = path.resolve(HERE, "..", "..");
 const PRD = path.join(ROOT, "prd.json");
+const ARCHIVE = path.join(ROOT, "prd.archive.json");
 const PROMPT = path.join(HERE, "CLAUDE.md");
 const CURRENT_STORY = path.join(HERE, "current-story.json");
 const PROGRESS = path.join(HERE, "progress.txt");
@@ -484,6 +485,12 @@ for (let i = 1; i <= maxIterations; i++) {
     markDone(fresh, [story.id], "");
     writeFileSync(PRD, serialize(fresh));
     console.log(`  ${story.id} marked passes:true.`);
+    // Archive in the same breath as closing. The loop closes a story every few
+    // minutes, and prd-archive-integrity fails the build for as long as a
+    // finished story sits in prd.json — so deferring this to a batch run left
+    // that lane red between runs. archiveNow never throws; a failed move leaves
+    // the story closed-but-unarchived, which the batch script still fixes.
+    archiveNow();
   } catch (err) {
     console.error(`  Failed to update prd.json for ${story.id}: ${err.message}`);
     console.error("  Leaving passes:false so the story is retried.");
@@ -494,7 +501,7 @@ for (let i = 1; i <= maxIterations; i++) {
     PROGRESS,
     `## ${story.id}: ${story.title}\n- Status: COMPLETE\n- Timestamp: ${new Date().toISOString()}\n- Cost: $${(result?.total_cost_usd ?? 0).toFixed(4)} over ${result?.num_turns ?? 0} turns\n---\n`,
   );
-  git("add", PRD, PROGRESS);
+  git("add", PRD, ARCHIVE, PROGRESS);
   git("commit", "-m", `chore(${story.id}): mark story complete`);
 
   const remaining = readJson(PRD, { userStories: [] }).userStories.filter(

@@ -27,6 +27,7 @@ Write the note yourself from **evidence**, not from what the user typed:
 5. If the story's notes carry an unresolved `DEFERRED`/`BLOCKED` marker, your new
    segment must contain an uppercase closing token (`DONE`, `SHIPPED`,
    `RESOLVED`, `VERIFIED`) or `prd-lint` will flag it.
-6. Finish with `npm run prd:lint` and report the result.
+6. Closing also MOVES the story to `prd.archive.json` (the script does it; `prd-archive-integrity` fails the build while a finished story sits in `prd.json`). So expect both files in `git status`, and note that `show` will report the story as coming from the archive afterwards. Pass `--no-archive` only for a bulk close you intend to archive in one batch.
+7. Finish with `npm run prd:lint` and report the result.
 
 Do not commit unless asked.

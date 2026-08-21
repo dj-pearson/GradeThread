@@ -9,7 +9,7 @@
 // Usage:
 //   node scripts/prd-story.mjs new  --title "…" --description "…" \
 //                                   --ac "…" --ac "…" [--priority N] [--depends US-1]
-//   node scripts/prd-story.mjs done US-1234 [US-1235 …] --note "Done 2026-07-27. …"
+//   node scripts/prd-story.mjs done US-1234 [US-1235 …] --note "Done 2026-07-27. …" [--no-archive]
 //   node scripts/prd-story.mjs note US-1234 --note "Partial: …"
 //   node scripts/prd-story.mjs ac   US-1234 --ac "OPERATOR: run … against prod"
 //   node scripts/prd-story.mjs show US-1234
@@ -22,9 +22,11 @@
 // Pure functions are exported for the vitest suite; the CLI at the bottom only
 // runs when this file is the entrypoint.
 import { readFileSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const PRD_URL = new URL("../prd.json", import.meta.url);
+const ARCHIVE_URL = new URL("../prd.archive.json", import.meta.url);
 
 /** prd.json is written 2-space + trailing newline; keep diffs to real changes. */
 export const serialize = (prd) => JSON.stringify(prd, null, 2) + "\n";
@@ -152,6 +154,45 @@ export function parseArgs(argv) {
 
 const asArray = (v) => (v === undefined ? [] : [].concat(v).filter((x) => x !== true));
 
+/**
+ * Move every finished story to prd.archive.json, right after closing one.
+ *
+ * WHY THIS RUNS HERE. Closing and archiving used to be two steps, and the second
+ * one was a chore nobody did until CI complained: `prd-archive-integrity` fails
+ * the build the moment a `passes:true` story sits in prd.json. With more than
+ * one agent closing stories, that guard was red more often than green, and a
+ * lane that is usually red teaches people to ignore it. Closing a story is the
+ * only moment anyone reliably touches the backlog, so the move belongs there.
+ *
+ * It SHELLS OUT rather than reimplementing the move. archive-passing-stories.mjs
+ * owns every safety check worth having — duplicate-id refusal, count
+ * reconciliation, the `nextId` invariant, backups, and a post-write re-read —
+ * and a second copy of that logic would be free to drift from the one CI runs.
+ *
+ * CONCURRENCY, since two agents share this tree: an agent holding a stale
+ * prd.json in memory can write a story back after it was archived. That is the
+ * clobber CLAUDE.md warns about, and it stays LOUD rather than silent — the next
+ * archive run hits the duplicate-id check and refuses, naming the ids. Recover
+ * by deleting the restored copy from prd.json; the archive holds the real one.
+ *
+ * A failure here does NOT fail the close. The story is already written and
+ * `passes:true` is the fact that matters; an un-archived story is a tidiness
+ * problem that the batch script fixes later.
+ */
+export function archiveNow() {
+  try {
+    process.stdout.write(
+      execFileSync("node", ["scripts/archive-passing-stories.mjs"], {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        encoding: "utf8",
+      }),
+    );
+  } catch (err) {
+    console.error(`prd-story: closed, but archiving failed — ${err.message}`);
+    console.error("prd-story: run `node scripts/archive-passing-stories.mjs` by hand.");
+  }
+}
+
 // ── CLI ─────────────────────────────────────────────────────────────────────
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const { positional, flags } = parseArgs(process.argv.slice(2));
@@ -176,6 +217,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       const { touched } = markDone(prd, ids, note);
       writeFileSync(PRD_URL, serialize(prd));
       console.log(`passes:true → ${touched.join(", ")}${note ? " (note appended)" : ""}`);
+      if (flags["no-archive"]) console.log("--no-archive: left in prd.json");
+      else archiveNow();
     } else if (cmd === "note") {
       if (ids.length !== 1) throw new Error("usage: prd-story.mjs note US-#### --note '…'");
       addNote(prd, ids[0], note);
@@ -191,8 +234,16 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
           : `nothing appended → ${ids[0]} (already present)`,
       );
     } else if (cmd === "show") {
-      const story = prd.userStories.find((s) => s.id === ids[0]);
-      if (!story) throw new Error(`story not found in prd.json: ${ids[0]}`);
+      let story = prd.userStories.find((s) => s.id === ids[0]);
+      // Closing now moves the story to prd.archive.json in the same breath, so
+      // `show` on anything already finished would otherwise report it missing —
+      // which reads as "that story never existed", the worst possible answer.
+      if (!story) {
+        const archive = JSON.parse(readFileSync(ARCHIVE_URL, "utf8"));
+        story = archive.userStories.find((s) => s.id === ids[0]);
+        if (story) console.log("// from prd.archive.json (completed)");
+      }
+      if (!story) throw new Error(`story not found in prd.json or prd.archive.json: ${ids[0]}`);
       console.log(JSON.stringify(story, null, 2));
     } else {
       console.error(readFileSync(new URL(import.meta.url), "utf8").split("\n").slice(6, 18).join("\n"));
