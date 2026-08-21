@@ -2669,7 +2669,7 @@
     },
     {
       "id": "US-2741",
-      "passes": false,
+      "passes": true,
       "title": "Poshmark's create-form price field is a button that looks like a field, so filling it reports success and prices the listing at nothing",
       "description": "As a seller, I want the price set where Poshmark actually keeps it, so that a number appearing on screen means the listing is priced.",
       "acceptanceCriteria": [
@@ -2679,13 +2679,16 @@
         "Now: when a flow declares a priceDialog with a price selector, THAT is the price. The form field is skipped rather than filled and then contradicted, and the dialog runs unconditionally.",
         "A failed dialog fill gets the same loud banner the form-field miss has had since US-2477 - a price we could not set is the one thing a seller must not discover after publishing.",
         "Order is unchanged and still matters: title, brand, tags, photos, THEN the dialog. An open modal sits over the file input, so photos go first.",
-        "3 guards in src/test/cross-post-setup.test.ts, including one asserting the !priceFilled gate is gone; 44 pass."
+        "3 guards in src/test/cross-post-setup.test.ts, including one asserting the !priceFilled gate is gone; 44 pass.",
+        "AC7's GUARD WAS PINNED TO ONE SPELLING, found 2026-08-21. It asserted not.toContain('flow.priceDialog && !priceFilled') - the exact phrasing the bug had. Re-introducing the identical bug as a plain `if (!priceFilled)` on the line above the call passed. A guard that names one phrasing of a mistake defends against that phrasing, not against the mistake.",
+        "FIXED: the guard now slices runFlow, finds the fillPriceDialog call, and asserts nothing in the 200 characters before it mentions priceFilled at all. Four spellings sabotaged and all four caught: the original, a bare if, `priceFilled === false`, and an inline `!priceFilled &&`.",
+        "AND THE FIX ITSELF SHIPPED BROKEN ONCE. Written through a Python heredoc, the regex's word boundaries became literal BACKSPACE bytes (0x08) - it read /priceFilled/ on screen, matched nothing, and all four sabotages went from caught to uncaught while the suite stayed green. This is the trap recorded in the backticks-in-shell-args memory. The regex is now a character class with no backslash in it, and the file is verified free of 0x08."
       ],
       "priority": 8
     },
     {
       "id": "US-2742",
-      "passes": false,
+      "passes": true,
       "title": "The price dialog runs after the photos, and Poshmark's own photo modal then blocks it from ever opening",
       "description": "As a seller, I want the price dialog reached before anything else covers the page, so that attaching photos does not cost me the price.",
       "acceptanceCriteria": [
@@ -2694,7 +2697,8 @@
         "THE ORDER WAS MINE AND THE REASONING WAS WRONG. I put photos first because 'an open modal sits over the file input' - but attachPhotos never clicks. It resolves the input with querySelector and assigns .files, and an overlay blocks pointer events, not property assignment. The hazard I sequenced around could not happen; the one that could, I created.",
         "The dialog now runs BEFORE the photos. Two guards hold it: one asserts fillPriceDialog appears before attachPhotos inside runFlow, and one asserts attachPhotos contains no .click() - because that is the fact the order depends on, and if it ever gains one the order has to be revisited.",
         "Leaving the price dialog open while photos attach is therefore safe for the same reason: nothing in the photo path needs to be clickable.",
-        "46 tests pass."
+        "46 tests pass.",
+        "AC4's TWO GUARDS VERIFIED 2026-08-21 by sabotage, control-first, both caught: moving attachPhotos back before fillPriceDialog inside runFlow, and giving attachPhotos a .click(). The second is the one that matters - the order is only safe BECAUSE attachPhotos assigns .files rather than clicking, and an overlay blocks pointer events, not property assignment."
       ],
       "priority": 8
     },

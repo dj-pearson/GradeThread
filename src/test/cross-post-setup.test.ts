@@ -370,7 +370,29 @@ describe("a price dialog is the price, not a fallback (US-2741)", () => {
     // dialog entirely -- which is exactly how the price went missing.
     const src = read(COMMON);
     expect(src).toContain("if (usesPriceDialog && payload.price) {");
-    expect(src).not.toContain("flow.priceDialog && !priceFilled");
+
+    // NOT pinned to one spelling of the gate. This asserted only
+    //   not.toContain("flow.priceDialog && !priceFilled")
+    // and re-introducing the identical bug as a plain `if (!priceFilled)` on the
+    // line above the call sailed straight through it -- verified by sabotage.
+    // A guard that names one phrasing of a mistake defends against that
+    // phrasing, not against the mistake.
+    //
+    // So: look at what actually precedes the call, and match the VARIABLE
+    // rather than an operator. A first attempt matched /!\s*priceFilled/ and
+    // `if (priceFilled === false)` walked straight past it - the same mistake
+    // one negation away. priceFilled does not match `dialogPriceFilled`,
+    // which is the legitimate assignment on the call line.
+    const body = src.slice(src.indexOf("GT.runFlow"), src.indexOf("GT.runDelistFlow"));
+    const call = body.indexOf("GT.fillPriceDialog(");
+    expect(call, "the price dialog is no longer called from runFlow").toBeGreaterThan(-1);
+    const preceding = body.slice(Math.max(0, call - 200), call);
+    expect(
+      preceding,
+      "the price-dialog call is gated on priceFilled again. A form fill that " +
+        "'succeeds' against Poshmark's display field would skip the dialog, " +
+        "which is how the listing ended up priced at nothing (US-2741).",
+    ).not.toMatch(/(^|[^a-zA-Z])priceFilled([^a-zA-Z]|$)/);
   });
 
   it("the dialog runs BEFORE the photos", () => {
