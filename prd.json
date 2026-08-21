@@ -2866,7 +2866,7 @@
     },
     {
       "id": "US-2753",
-      "passes": false,
+      "passes": true,
       "title": "Scout: take the eBay comp lookup off the critical path behind the grade",
       "description": "As a reseller waiting on an appraisal, I want the comp search and the photo grade to happen at the same time instead of one after the other, so that the wait is the longer of the two rather than the sum.",
       "acceptanceCriteria": [
@@ -2881,11 +2881,11 @@
       "dependsOn": [
         "US-2752"
       ],
-      "notes": "APPROACH CHANGED 2026-08-20, before implementation. The story was written to fetch comps unfiltered and bucket them by BrowseComp.condition locally. Reading gradeToConditionId showed why that is the worse trade: it collapses to four buckets and everything from 3.0 to 8.4 is '3000', so the common case needs no bucketing at all — it needs the query it was always going to issue, started earlier. Bucketing an unfiltered result would also have changed the POPULATION (eBay's relevance ranking without a condition filter is not a representative sample per condition), which is an accuracy change smuggled in as a speedup. Speculation cannot change the answer because it issues the identical query."
+      "notes": "APPROACH CHANGED 2026-08-20, before implementation. The story was written to fetch comps unfiltered and bucket them by BrowseComp.condition locally. Reading gradeToConditionId showed why that is the worse trade: it collapses to four buckets and everything from 3.0 to 8.4 is '3000', so the common case needs no bucketing at all — it needs the query it was always going to issue, started earlier. Bucketing an unfiltered result would also have changed the POPULATION (eBay's relevance ranking without a condition filter is not a representative sample per condition), which is an accuracy change smuggled in as a speedup. Speculation cannot change the answer because it issues the identical query. | DONE 2026-08-20. The comp query starts concurrently with the grade, at the condition gradeToConditionId returns for a null grade. MEASURED, MODELLED at grade=1800ms comps=450ms: 2270ms sequential, 1810ms on a hit (20 percent off), 2267ms on a miss — a miss costs nothing because the wasted call overlapped the grade. Stand-in delays measuring the restructure, not production; the route records compsReused so the real hit rate is observable against the grades sellers actually produce. Applied to /appraise here and to /prospect under US-2757. The AC was amended before implementation: bucketing an unfiltered result would have changed the comp POPULATION, which is an accuracy change wearing a speedup's clothes. Speculation issues the identical query, so the answer cannot move."
     },
     {
       "id": "US-2754",
-      "passes": false,
+      "passes": true,
       "title": "Scout: a repeat comp lookup in the same store run should not re-query eBay",
       "description": "As a reseller scanning five similar jackets off the same rack, I want the second, third and fourth lookups to come back instantly, so that Scout gets faster as I work rather than charging me the same wait every time.",
       "acceptanceCriteria": [
@@ -2899,11 +2899,12 @@
       "priority": 12,
       "dependsOn": [
         "US-2752"
-      ]
+      ],
+      "notes": "DONE 2026-08-20. searchBrowseComps results are cached in edge_shared_cache via a new createSharedJsonCache beside the token cache. CLUSTER-SHARED rather than a module-level Map, per vault/10-ops/edge-runtime-invariants.md: two replicas disagreeing would mean the same seller getting two prices for one jacket. TTL 15 minutes, reasoned in the code. MEASURED, MODELLED over a rack of six identical queries at eBay=450ms and a shared-store read of 8ms: 2749ms to 580ms, 79 percent off. Stand-in delays. Sabotage-checked five ways — a field dropped from the key, gtin dropped, case-normalisation removed, TTL stretched to a day, and a tenant id in the key. A wrapper rather than caching inside searchBrowseComps, because other callers want freshness over speed."
     },
     {
       "id": "US-2755",
-      "passes": false,
+      "passes": true,
       "title": "Scout: stop paying three sequential database round trips before any work starts",
       "description": "As a reseller, I want the plan check and the quota check to happen at the same time, so that a lookup does not spend its first moments on bookkeeping.",
       "acceptanceCriteria": [
@@ -2915,7 +2916,8 @@
       "priority": 13,
       "dependsOn": [
         "US-2752"
-      ]
+      ],
+      "notes": "DONE 2026-08-20. The plan gate and the AI quota run concurrently on /appraise, /appraise-url and /prospect. They read the same users row with different columns and neither depends on the other. The scan and prospect-adjacent handlers that are not on the in-store path keep their sequential pair. The substance was PRECEDENCE, not concurrency: sequentially the plan gate refused first and the quota was never reached, so lib/gate-order.ts names the rule and a test pins the both-fail case to the gate. Getting it wrong means a seller on an expired plan told 'monthly AI limit reached' — a message about a different problem with a different fix. The AI reservation stays AFTER both checks, with a test, because reserving for a request about to be refused charges for work that never runs. Saves one round trip per success at the cost of one wasted quota read per refusal."
     },
     {
       "id": "US-2756",
@@ -2934,7 +2936,7 @@
       "dependsOn": [
         "US-2753"
       ],
-      "notes": "BUILT AND FLAG-OFF 2026-08-20. lib/scout-identify.ts is the seam: a provider takes a photo plus hints and returns candidate identity plus comps, and the route no longer knows which implementation answered. The hints provider IS today's behaviour, cached, and is always last in the chain — the floor under every experiment. ebay-client.ts gains searchBrowseCompsByImage, calling POST /buy/browse/v1/item_summary/search_by_image, which nothing in this codebase had ever touched. The flag is SCOUT_EBAY_IMAGE_SEARCH_ENABLED, default off, exact-match 'true' so a stale 'false' or an operator's '1' leaves it off, and it is read PER REQUEST rather than at module load — the difference between switching a misbehaving experiment off from a phone in a shop and needing a redeploy. The experimental provider also carries a 1500ms deadline and the default provider deliberately does not: cutting off the path sellers rely on to protect them from the unproven one would be the wrong trade. Sabotage-checked five ways, all caught: flag defaulting on, flag captured at load, hints dropped as the fallback, a throwing provider failing the request, and the default provider being timed out. 48 tests across five scout suites. OPERATOR, AND THIS IS THE GATE: the flag must not be switched on until the spike has run against PRODUCTION with real thrift photos and its latency and accuracy are recorded here. The spike script is written and needs only EBAY_APP_ID / EBAY_CERT_ID in the environment and a folder of photos. Sandbox proves nothing — it has no inventory, so image search returns nothing there regardless of quality. Until that measurement exists this is built, not live, and those are different claims."
+      "notes": "BUILT AND FLAG-OFF 2026-08-20. lib/scout-identify.ts is the seam: a provider takes a photo plus hints and returns candidate identity plus comps, and the route no longer knows which implementation answered. The hints provider IS today's behaviour, cached, and is always last in the chain — the floor under every experiment. ebay-client.ts gains searchBrowseCompsByImage, calling POST /buy/browse/v1/item_summary/search_by_image, which nothing in this codebase had ever touched. The flag is SCOUT_EBAY_IMAGE_SEARCH_ENABLED, default off, exact-match 'true' so a stale 'false' or an operator's '1' leaves it off, and it is read PER REQUEST rather than at module load — the difference between switching a misbehaving experiment off from a phone in a shop and needing a redeploy. The experimental provider also carries a 1500ms deadline and the default provider deliberately does not: cutting off the path sellers rely on to protect them from the unproven one would be the wrong trade. Sabotage-checked five ways, all caught: flag defaulting on, flag captured at load, hints dropped as the fallback, a throwing provider failing the request, and the default provider being timed out. 48 tests across five scout suites. OPERATOR, AND THIS IS THE GATE: the flag must not be switched on until the spike has run against PRODUCTION with real thrift photos and its latency and accuracy are recorded here. The spike script is written and needs only EBAY_APP_ID / EBAY_CERT_ID in the environment and a folder of photos. Sandbox proves nothing — it has no inventory, so image search returns nothing there regardless of quality. Until that measurement exists this is built, not live, and those are different claims. | GAP FOUND 2026-08-20 while doing US-2757, and NOT fixed here. The provider seam is wired into /appraise only. /prospect — the surface ProspectView on iOS actually calls, and the one that matters in a shop — does its own identification via extractMatchHints and does not go through chooseProviders at all. So flipping SCOUT_EBAY_IMAGE_SEARCH_ENABLED today would change the WEB path and leave the in-store path exactly as it is. That is arguably the right shape for now — prospect already identifies from photos, so putting a second photo-identification mechanism in front of it needs a decision about which one wins, not just a flag. But it means this story's payoff does not reach the surface the epic was about, and enabling the flag should not be mistaken for making the phone faster. Worth its own story once the spike says whether eBay visual search is any good."
     },
     {
       "id": "US-2757",
