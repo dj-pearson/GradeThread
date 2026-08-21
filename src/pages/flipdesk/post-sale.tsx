@@ -151,6 +151,10 @@ function DisputesCard() {
   );
   const visible = showClosed ? closedDisputes : openDisputes;
   const [contestNote, setContestNote] = useState("");
+  // US-2707: which dispute's grade-pack panel is open. One at a time, same as
+  // returns — two open packs is two complaint boxes and a good way to send the
+  // wrong one.
+  const [packFor, setPackFor] = useState<string | null>(null);
 
   async function runResolve(
     d: EbayPaymentDispute,
@@ -262,6 +266,20 @@ function DisputesCard() {
                 {!showClosed && (
                 <div className="flex shrink-0 gap-2">
                   <EvidenceUploader disputeId={d.paymentDisputeId} disabled={!!busy} />
+                  {/* US-2707: the same review-before-send pack the returns list
+                      offers. The rarer path is not the one where GradeThread
+                      hands the seller a file picker and no verdict. */}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!!busy}
+                    onClick={() =>
+                      setPackFor(
+                        packFor === d.paymentDisputeId ? null : d.paymentDisputeId,
+                      )}
+                  >
+                    Grade pack…
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -289,6 +307,13 @@ function DisputesCard() {
                     Accept &amp; refund
                   </Button>
                 </div>
+                )}
+                {packFor === d.paymentDisputeId && !showClosed && (
+                  <ReturnEvidencePanel
+                    caseId={d.paymentDisputeId}
+                    orderId={d.orderId}
+                    kind="dispute"
+                  />
                 )}
               </div>
             );
@@ -640,7 +665,11 @@ function ReturnsCard() {
               </div>
               )}
               {evidenceFor === r.returnId && !showClosed && (
-                <ReturnEvidencePanel returnId={r.returnId} orderId={r.orderId} />
+                <ReturnEvidencePanel
+                  caseId={r.returnId}
+                  orderId={r.orderId}
+                  kind="return"
+                />
               )}
               {partialFor === r.returnId && (
                 <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border bg-muted/30 p-2">

@@ -154,6 +154,7 @@ const KNOWN_UNSEEDED: Record<string, string> = {
   TEST_USER_A_EBAY_OFFER_ID: "needs a live eBay sandbox offer — external dependency",
   TEST_USER_A_EBAY_ORDER_ID: "needs a live eBay sandbox order — external dependency",
   TEST_USER_A_EBAY_RETURN_ID: "needs a live eBay sandbox RETURN — external dependency",
+  TEST_USER_A_EBAY_DISPUTE_ID: "needs a live eBay sandbox payment DISPUTE — external dependency",
   TEST_USER_A_EBAY_SKU: "needs a published eBay inventory item — external dependency",
   TEST_USER_A_FULFILLMENT_POLICY_ID: "needs eBay business policies — external dependency",
   TEST_USER_A_PUSH_ENDPOINT: "needs a real Web Push subscription endpoint",
@@ -633,6 +634,39 @@ Deno.test({
     );
     await res.body?.cancel();
     assertDenied(res.status, "POST eBay return evidence");
+  },
+});
+
+Deno.test({
+  // US-2707 AC5: the from-pack mode on the payment-dispute evidence route.
+  //
+  // The plain single-file upload was already covered by the owner's-token
+  // argument; from-pack mode adds LOCAL reads — the sale, the graded item, the
+  // grade report and the publication snapshot — and every one is scoped by
+  // workspaceOwnerId ?? userId. An order id from tenant A carried in B's
+  // request must resolve to nothing rather than to A's grade report.
+  name: "B cannot build an evidence pack from A's order on the dispute route",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_EBAY_DISPUTE_ID") ||
+    !Deno.env.get("TEST_USER_A_EBAY_ORDER_ID"),
+  fn: async () => {
+    const disputeId = Deno.env.get("TEST_USER_A_EBAY_DISPUTE_ID")!;
+    const orderId = Deno.env.get("TEST_USER_A_EBAY_ORDER_ID")!;
+    const png = Uint8Array.from(atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    ), (ch) => ch.charCodeAt(0));
+    const form = new FormData();
+    form.append("file", new File([png], "evidence.png", { type: "image/png" }));
+    // The from-pack fields, carrying ANOTHER tenant's order.
+    form.append("order_id", orderId);
+    form.append("complaint", "There is a stain on the cuff.");
+    const headers = authHeaders(B_JWT!) as Record<string, string>;
+    delete headers["Content-Type"];
+    const res = await fetch(
+      `${BASE}/api/flipdesk/ebay/payment-disputes/${encodeURIComponent(disputeId)}/evidence`,
+      { method: "POST", headers, body: form },
+    );
+    await res.body?.cancel();
+    assertDenied(res.status, "POST eBay dispute evidence (from pack)");
   },
 });
 

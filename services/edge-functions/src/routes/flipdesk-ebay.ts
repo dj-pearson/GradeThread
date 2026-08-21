@@ -22,14 +22,19 @@ import {
 const MAX_RETURN_EVIDENCE_FILES = 6;
 
 /**
- * US-2706: the evidence verdict for one eBay order's item, or null.
+ * US-2706 / US-2707: the evidence verdict for one eBay order's item, or null.
+ *
+ * ONE planner for both case types. A return and a payment dispute are different
+ * eBay surfaces asking the same question - does the grade report back this
+ * seller - and two planners would be two answers, with the rarer path holding
+ * the one nobody re-checked.
  *
  * Null means "could not decide", never "nothing to worry about". Every lookup
  * here is tenant-scoped by ownerId, and the chain is
  * sale -> inventory item -> grading submission -> grade report, plus the
  * listing's most recent publication snapshot.
  */
-interface ReturnEvidenceContext {
+interface EvidenceContext {
   plan: EvidencePlan;
   /** US-2706 AC6: false means the pack can only argue from the grade report. */
   hasSnapshot: boolean;
@@ -38,11 +43,11 @@ interface ReturnEvidenceContext {
   defectCount: number;
 }
 
-async function planReturnEvidence(
+async function planEvidence(
   ownerId: string,
   orderId: string,
   complaint: string,
-): Promise<ReturnEvidenceContext | null> {
+): Promise<EvidenceContext | null> {
   try {
     const { data: sale } = await supabaseAdmin
       .from("sales")
@@ -4354,16 +4359,22 @@ flipdeskEbayRoutes.post("/returns/:returnId/refund", async (c) => {
   return c.json({ ok: true });
 });
 
-// US-2706 AC5: POST /returns/:returnId/evidence/preview — what the pack WOULD
-// say, without sending anything.
+// US-2706 AC5 / US-2707 AC4: POST /evidence/preview — what the pack WOULD say,
+// without sending anything.
 //
 // Reads only. It touches no eBay endpoint and writes nothing, which is what
 // lets the seller see the verdict, the citations and the sheet's own facts
-// before they decide. The send route is a separate call behind a separate
-// click; there is no timer here and nothing auto-submits.
+// before they decide. The send is a separate call behind a separate click;
+// there is no timer here and nothing auto-submits.
+//
+// NOT scoped to a return or a dispute, because the plan never depended on
+// either: it is built from the ORDER's graded item and the listing text we
+// published. Mounting a second copy under each case type would be two routes
+// that must agree about a verdict, and the one that drifted would be the rarer
+// path — which is the gap US-2707 exists to close.
 //
 // body { order_id, complaint }
-flipdeskEbayRoutes.post("/returns/:returnId/evidence/preview", async (c) => {
+flipdeskEbayRoutes.post("/evidence/preview", async (c) => {
   const ownerId = c.get("workspaceOwnerId") ?? c.get("userId");
   let body: { order_id?: unknown; complaint?: unknown };
   try {
@@ -4377,7 +4388,7 @@ flipdeskEbayRoutes.post("/returns/:returnId/evidence/preview", async (c) => {
     return c.json({ error: "order_id and complaint are both required." }, 400);
   }
 
-  const context = await planReturnEvidence(ownerId, orderId, complaint);
+  const context = await planEvidence(ownerId, orderId, complaint);
   if (!context) {
     // No grade report, or nothing linking this order to a graded item. Said
     // plainly rather than dressed up as a verdict: there is no evidence here,
@@ -4480,9 +4491,9 @@ flipdeskEbayRoutes.post("/returns/:returnId/evidence", async (c) => {
   // verdict we actually computed rather than on the absence of one.
   const complaint = String(form.get("complaint") ?? "").trim();
   const orderId = String(form.get("order_id") ?? "").trim();
-  let context: ReturnEvidenceContext | null = null;
+  let context: EvidenceContext | null = null;
   if (complaint && orderId) {
-    context = await planReturnEvidence(ownerId, orderId, complaint);
+    context = await planEvidence(ownerId, orderId, complaint);
     if (context?.plan.verdict === "supported") {
       return c.json(
         {
@@ -5412,6 +5423,29 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
   }
   const { bytes: cleanBytes } = stripImageMetadata(rawBytes, verdict.format);
 
+  // US-2707: FROM-PACK MODE. Present only when the caller sends order_id and
+  // complaint; without them this route behaves exactly as it did — one file,
+  // uploaded, attached. The rarer path must not be the one where the safety
+  // rule is missing, so the SAME refusal applies here as on returns: when the
+  // grade report documents a flaw the listing did not disclose, we do not hand
+  // eBay a signed document proving our own user sold it undisclosed.
+  const packOrderId = String(form.get("order_id") ?? "").trim();
+  const packComplaint = String(form.get("complaint") ?? "").trim();
+  let packContext: EvidenceContext | null = null;
+  if (packOrderId && packComplaint) {
+    packContext = await planEvidence(ownerId, packOrderId, packComplaint);
+    if (packContext?.plan.verdict === "supported") {
+      return c.json(
+        {
+          error: "refused",
+          verdict: packContext.plan.verdict,
+          reason: packContext.plan.reason,
+        },
+        409,
+      );
+    }
+  }
+
   let detail: PaymentDisputeDetail;
   try {
     detail = await getPaymentDispute(ownerId, disputeId);
@@ -5432,23 +5466,61 @@ flipdeskEbayRoutes.post("/payment-disputes/:id/evidence", async (c) => {
   }
 
   try {
-    const fileId = await uploadDisputeEvidenceFile(ownerId, disputeId, {
-      bytes: cleanBytes,
-      filename: file.name || `evidence.${verdict.ext}`,
-      contentType: verdict.contentType,
-    });
+    const fileIds: string[] = [];
+    // US-2707 AC3: the condition sheet joins the pack, and the evidence TYPE is
+    // still whatever the live dispute asked for. eBay requested a category of
+    // proof; sending it under a type of our choosing is answering a different
+    // question from the one it asked.
+    //
+    // Only for a CERTIFIED grade, same rule as the return path: a cover page
+    // reading "Not certified" argues against the seller on the one asset that
+    // exists to argue for them.
+    if (packContext?.stamp.certificateNumber) {
+      try {
+        const sheet = await compositeReturnEvidenceSheet(
+          packContext.stamp,
+          packContext.defectCount,
+          packContext.gradedAt,
+        );
+        fileIds.push(
+          await uploadDisputeEvidenceFile(ownerId, disputeId, {
+            bytes: sheet,
+            filename: "condition-report.jpg",
+            contentType: "image/jpeg",
+          }),
+        );
+      } catch (err) {
+        // The photograph is still the evidence.
+        console.error(
+          "[ebay.disputes.evidence] sheet render failed:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
+    }
+    fileIds.push(
+      await uploadDisputeEvidenceFile(ownerId, disputeId, {
+        bytes: cleanBytes,
+        filename: file.name || `evidence.${verdict.ext}`,
+        contentType: verdict.contentType,
+      }),
+    );
     const evidenceId = await addDisputeEvidence(ownerId, disputeId, {
       evidenceType,
-      fileIds: [fileId],
+      fileIds,
       lineItems,
     });
     await writeAuditLog(c, {
       action: "ebay.dispute.evidence",
       targetType: "ebay_payment_dispute",
       targetId: disputeId,
-      details: { evidence_type: evidenceType, evidence_id: evidenceId },
+      details: {
+        evidence_type: evidenceType,
+        evidence_id: evidenceId,
+        files: fileIds.length,
+        from_pack: packContext !== null,
+      },
     });
-    return c.json({ ok: true, evidenceId });
+    return c.json({ ok: true, evidenceId, attached: fileIds.length });
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the evidence upload.", err, "ebay.disputes.evidence");
   }

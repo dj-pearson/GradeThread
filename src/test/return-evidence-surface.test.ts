@@ -95,12 +95,31 @@ describe("US-2706: the return-evidence surface", () => {
     // The upload succeeded and activation removed it, so the pack on the case
     // is smaller than the one just reviewed. Saying "sent" over that is the
     // silent success this epic keeps running into.
-    expect(panel).toMatch(/removed > 0/);
+    // `?? 0` because the dispute route reports no removed count of its own -
+    // eBay's dispute API does not drop files at activation the way the return
+    // API does. Absent must read as none, never as "do not mention it".
+    expect(panel).toMatch(/res\.removed/);
+    expect(panel).toMatch(/eBay dropped/);
   });
 
   it("is reachable from the returns list, and only on an open case", () => {
     const page = copy(PAGE);
     expect(page).toContain("ReturnEvidencePanel");
     expect(page).toMatch(/evidenceFor === r\.returnId && !showClosed/);
+  });
+
+  it("US-2707: the DISPUTE list offers the same panel, on open cases only", () => {
+    // The rarer path is not the one where GradeThread hands the seller a file
+    // picker and no verdict. One panel, so the refusal cannot be present on one
+    // surface and missing on the other.
+    const page = copy(PAGE);
+    expect(page).toMatch(/packFor === d\.paymentDisputeId && !showClosed/);
+    expect(page).toMatch(/kind="dispute"/);
+    expect(page).toMatch(/kind="return"/);
+    const mounts = page.match(/<ReturnEvidencePanel/g) ?? [];
+    expect(
+      mounts.length,
+      "both surfaces must mount the SAME panel component",
+    ).toBe(2);
   });
 });

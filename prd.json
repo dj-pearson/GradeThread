@@ -2067,24 +2067,8 @@
         "At close, an eBay INAD return on an item graded and published through FlipDesk produces a drafted response and an attachable evidence pack from the post-sale surface with no manual file assembly",
         "Children: US-2704, US-2705, US-2706, US-2707. This epic closes when all four pass"
       ],
-      "priority": 20
-    },
-    {
-      "id": "US-2707",
-      "passes": false,
-      "title": "Payment dispute evidence: reuse the pack on the route that exists",
-      "description": "As a FlipDesk seller in an eBay payment dispute, I want the same one-click evidence pack I get on returns, so that the rarer path is not the one where GradeThread abandons me.",
-      "acceptanceCriteria": [
-        "POST /payment-disputes/:id/evidence in routes/flipdesk-ebay.ts gains a from-pack mode that assembles from the evidence plan, keeping the existing manual single-file upload working unchanged",
-        "The same three verdicts and the same refusal-to-assemble rule apply. A deno test asserts a supported verdict blocks assembly on this path too",
-        "The evidence type sent to eBay is derived from the live dispute as it already is, and the pack does not override an eBay-requested evidence type",
-        "src/pages/flipdesk/post-sale.tsx offers the pack on the dispute surface with the same review-before-send flow as returns",
-        "A tenant-isolation case covers the from-pack path"
-      ],
-      "priority": 24,
-      "dependsOn": [
-        "US-2706"
-      ]
+      "priority": 20,
+      "notes": "ALL FOUR CHILDREN PASS as of 2026-08-21: US-2704 (publication snapshots), US-2705 (matcher, plan, three verdicts), US-2706 (return evidence + the review surface), US-2707 (payment-dispute parity). AC7's condition is met.\n\nTHE EPIC STAYS OPEN ON AC6, which is not a coding task. AC6 asks that a real eBay INAD return on a real graded, published item produce a drafted response and an attachable pack from the post-sale surface. Nothing here has been driven against a live eBay case: the Post-Order file contract (upload then submit, UploadFileRequest / SubmitFileRequest, activation by filePurpose) was verified from eBay's own reference, not exercised. Closing this epic on the children alone would assert an end-to-end result nobody has seen.\n\nTHE STANDING CONSTRAINTS HELD, and each is enforced by a test rather than by intent:\n  AC3 (no outcome claims) - the panel is scanned for win/guarantee/proves your case/eBay will side, and every line of the sheet copy is scanned separately.\n  AC4 (the model proposes, code decides) - matches are filtered against the real defect list BEFORE the verdict logic, and an out-of-range index is dropped rather than clamped. Driven with a snapshot whose text would have supported the fabrication.\n  AC5 (refuse when the report agrees with the buyer) - refused server-side on BOTH case types, with a parity guard that walks each handler body, and refused on the surface too, where the Send button is not rendered at all.\n\nAC2's same-commit rule: the design document needed no change. The one place the implementation departed from it is recorded on US-2704 - the wire-level funnel cannot record a FIRST publish, because the listings row does not carry inventory_sku or platform_offer_id until step 5 while the inventory item is PUT at step 2, so the publish route records it after persist.\n\nWHAT TO DO WHEN A REAL CASE ARRIVES: open the return or dispute on the post-sale page, press Evidence (or Grade pack), paste the buyer's words, and read the verdict before sending. If it says the report agrees with the buyer, that is the feature working."
     },
     {
       "id": "US-2708",

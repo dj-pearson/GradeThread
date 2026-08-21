@@ -30,12 +30,20 @@ const VERDICT_LABEL: Record<string, string> = {
 };
 
 export function ReturnEvidencePanel({
-  returnId,
+  caseId,
   orderId,
+  kind,
 }: {
-  returnId: string;
-  /** Null when the return carries no order id — nothing to look the item up by. */
+  caseId: string;
+  /** Null when the case carries no order id — nothing to look the item up by. */
   orderId: string | null;
+  /**
+   * US-2707: which eBay surface this is. It changes the send endpoint and
+   * nothing else — the plan, the refusal and the wording are the same question
+   * asked of the same grade report, and a second panel would be a second place
+   * for the refusal to go missing.
+   */
+  kind: "return" | "dispute";
 }) {
   const [complaint, setComplaint] = useState("");
   const [plan, setPlan] = useState<ReturnEvidencePlan | null>(null);
@@ -47,7 +55,8 @@ export function ReturnEvidencePanel({
   if (!orderId) {
     return (
       <p className="text-xs text-muted-foreground">
-        This return has no order id, so we can't find the graded item behind it.
+        This {kind === "return" ? "return" : "dispute"} has no order id, so we
+        can't find the graded item behind it.
       </p>
     );
   }
@@ -57,7 +66,6 @@ export function ReturnEvidencePanel({
     try {
       setPlan(
         await preview.mutateAsync({
-          returnId,
           orderId: orderId!,
           complaint: complaint.trim(),
         }),
@@ -70,7 +78,8 @@ export function ReturnEvidencePanel({
   async function submit() {
     try {
       const res = await send.mutateAsync({
-        returnId,
+        caseId,
+        kind,
         orderId: orderId!,
         complaint: complaint.trim(),
         files,
@@ -78,7 +87,7 @@ export function ReturnEvidencePanel({
       // The removed count is eBay dropping a file AFTER accepting it, so the
       // pack on the case is smaller than the one just reviewed. Saying "sent"
       // over that is the lie this whole surface exists to avoid.
-      if (res.removed > 0) {
+      if ((res.removed ?? 0) > 0) {
         toast.warning(
           `Sent ${res.attached}, but eBay dropped ${res.removed}. Check the case.`,
         );
@@ -97,11 +106,11 @@ export function ReturnEvidencePanel({
   return (
     <div className="mt-2 space-y-3 rounded-md border bg-muted/30 p-3">
       <div className="space-y-1.5">
-        <Label htmlFor={`complaint-${returnId}`} className="text-xs">
+        <Label htmlFor={`complaint-${caseId}`} className="text-xs">
           What the buyer said
         </Label>
         <Textarea
-          id={`complaint-${returnId}`}
+          id={`complaint-${caseId}`}
           value={complaint}
           onChange={(e) => setComplaint(e.target.value)}
           rows={2}
