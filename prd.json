@@ -1522,26 +1522,6 @@
       "notes": "BLOCKED ON OPERATOR 2026-08-10: needs the Etsy app keystring and ETSY_ENABLED set in Coolify. The code half is then MARKETPLACE_TIER.etsy -> api, etsy into LIVE_CROSS_LISTING_PLATFORMS, and moving Etsy on src/pages/legal/trademarks.tsx from the named-but-not-integrated section into the licensed-API section, all in one commit."
     },
     {
-      "id": "US-2478",
-      "passes": false,
-      "title": "Grailed lister flow: enable phase 3 in the unified extension",
-      "description": "As a FlipDesk seller, I want to publish a draft to Grailed from my own logged-in tab, so that menswear inventory reaches the channel that pays best for it without me retyping the listing.",
-      "acceptanceCriteria": [
-        "The Grailed entries in extension-unified/lister/selectors.js flip enabled:false to true only after every required selector is re-verified against the live sell form, with version bumped and lastVerified set",
-        "probe() aborts with the manual-listing message and the selector version when a required selector is missing; the form is never half-filled",
-        "A successful publish writes one listings row with platform='grailed' and listing_url",
-        "A Grailed sibling queued as DelistMethod 'extension' is ended through use-pending-delists.ts and its delist_requested_at clears",
-        "The Grailed delist host is in the selectors.js hosts allowlist and passes lister-guard host matching",
-        "Fixes mirrored into extension/ in the same commit; extension-unified/test/legacy-parity.test.cjs passes",
-        "OPERATOR: re-verify every required Grailed selector against the live sell form while logged in, then flip enabled:false to true with version bumped and lastVerified set (AC1). Run: node scripts/verify-lister-selectors.mjs --checklist grailed."
-      ],
-      "priority": 36,
-      "dependsOn": [
-        "US-2472"
-      ],
-      "notes": "IN PROGRESS 2026-08-10: same state as US-2477. Grailed hosts, guard coverage, parity and README done; the enable itself needs a logged-in human against the live Grailed sell form. Run: node scripts/verify-lister-selectors.mjs --checklist grailed."
-    },
-    {
       "id": "US-2479",
       "passes": false,
       "title": "Vinted lister flow: publish and delist via the unified extension",
