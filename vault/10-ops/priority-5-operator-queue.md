@@ -20,26 +20,49 @@ nobody has run yet. One needs a product decision before any code makes sense.
 So the bottleneck is not engineering capacity. It is a queue of production
 actions, and this is that queue, ordered so each session opens one thing.
 
+> [!warning] An `OPERATOR:` criterion is not automatically correct.
+> US-2284's told the owner to rotate a Chrome Web Store signing key that does
+> not exist, and they went looking for the button before anyone questioned the
+> instruction. These lines were written by whoever found the problem, often
+> without access to the system they describe. Check the premise before spending
+> an evening on the task.
+
 Related: [[migrations-process]], [[key-rotation]], [[backups]].
 
-## Do this one first, on its own
+## US-2284 — closed, and the instruction it carried was wrong
 
-**US-2284 — the Chrome Web Store signing key is in git history and pushed.**
+This story used to head the queue with "rotate the Chrome Web Store signing
+key". **There is no such key to rotate**, and the owner lost time looking for
+the control. Recording why, because the mistake is an easy one to repeat.
 
-`extension.pem` was committed on 2026-07-13 and removed on 2026-08-20, but
-removal is not un-leaking: it is still readable at the earlier commit by anyone
-who clones. The code half is done (untracked, `*.pem`/`*.crx` ignored, a weekly
-full-history gitleaks scan at `.github/workflows/secret-scan-history.yml`).
+`extension.pem` is generated LOCALLY by Chrome's *Pack extension* button. It
+signs a self-hosted `.crx` and derives an extension id from its public key. When
+a ZIP is uploaded to the Web Store, **Google signs it with Google's key** and the
+Web Store assigns the item id. The local pem never enters that path, which is
+why the Developer Dashboard has no rotation control.
 
-1. Rotate the signing key in the Chrome Web Store and revoke the old one.
-2. Record where the new key lives in [[key-rotation]]. **The location, never the
-   value.**
-3. Decide burn-vs-rewrite for git history and write the decision on the story.
-   Rewriting rewrites every open PR, so "treat it as burned" is a legitimate
-   answer once the key is rotated.
+Three things would each have made the leak serious. Checked 2026-08-21, all
+three negative:
 
-Do it before US-1757 publishes. Rotation is cheap now and expensive once that
-extension id is an installed identity.
+| check | result |
+|---|---|
+| a `"key"` field in any manifest | **none** in `extension/`, `extension-condition/` or `extension-unified/`, so no shipping extension id derives from that keypair |
+| an `update_url` in any manifest | **none**, so there is no self-hosted update channel to push a malicious update through |
+| published to the store | **no** — US-1757 has not shipped |
+
+The key signs nothing that exists. Resolution: treat it as burned, never pack
+with it again, delete the local copy so a future *Pack extension* cannot pick it
+up, and **do not rewrite git history** — that rewrites every open PR to scrub a
+key which authorises nothing.
+
+**At publish time (US-1757):** let the Web Store assign the item id and do not
+add a `key` field to the manifest. Adding one would pin the published id to a
+locally-held keypair and recreate exactly this exposure, for real.
+
+What stays is the code half, which was always the durable part: the file
+untracked, `*.pem`/`*.crx` gitignored, and a weekly full-history gitleaks sweep
+at `.github/workflows/secret-scan-history.yml`. Per-push scanning cannot find a
+secret already in history, which is why this sat green for a month.
 
 ## One psql session against prod
 
