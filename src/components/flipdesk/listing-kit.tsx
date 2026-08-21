@@ -856,14 +856,27 @@ export function photoNote(res: {
   photosAttached?: boolean;
   photosTotal?: number;
   photosFailed?: number;
+  photosUnverified?: number;
 }): string {
   const total = res.photosTotal ?? 0;
   const failed = res.photosFailed ?? 0;
   // Nothing to attach (no file input, or no photos on the item) — not a problem to
   // report. Falls back to the old boolean for an extension that predates the counts.
   if (total === 0) return res.photosAttached ? "" : " Drag your downloaded photos in.";
-  if (failed === 0) return "";
   const attached = total - failed;
+  // US-2775: a third state, between attached and failed.
+  //
+  // The page took the list only through the shadow fallback, where the only
+  // thing saying the photos landed is the extension reading back what it just
+  // wrote. Claiming success there is how US-2738's silent false success came
+  // back; claiming FAILURE would cry wolf on the hosts where the shadow works.
+  // So: say what is actually known. Checked before the clean-run return, since
+  // an unverified run has no failures either.
+  const unverified = res.photosUnverified ?? 0;
+  if (unverified > 0 && failed === 0) {
+    return " We couldn't confirm the photos attached — check the form before you post.";
+  }
+  if (failed === 0) return "";
   if (attached === 0) return " Photos didn't attach — drag your downloaded photos in.";
   return ` Attached ${attached} of ${total} photos — drag the rest in.`;
 }

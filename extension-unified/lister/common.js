@@ -160,7 +160,11 @@
     const urls = Array.isArray(photoUrls)
       ? photoUrls.slice(0, max || photoUrls.length)
       : [];
-    const result = { attached: 0, failed: 0, total: urls.length };
+    // US-2775: `unverified` is a SUBSET of `attached`, not a fourth bucket —
+    // attached + failed still equals total. It counts photos the page took only
+    // through the shadow fallback, where nothing outside this extension has
+    // confirmed they landed.
+    const result = { attached: 0, failed: 0, total: urls.length, unverified: 0 };
     try {
       const input = document.querySelector(fileInputSelector);
       if (!input || urls.length === 0) {
@@ -233,9 +237,31 @@
         accepted = false;
       }
       if (!accepted) {
+        // US-2775: the fallback shadow, reported as UNVERIFIED rather than as
+        // attached.
+        //
+        // This used to decide acceptance with
+        // `input.files.length === dt.files.length` immediately after
+        // defineProperty had WRITTEN input.files — reading back exactly what the
+        // line above set, so it could not fail. A guard that confirms itself,
+        // and it re-created the very silent success US-2738 removed: el.files
+        // reports eight, el.value stays empty, an uploader reading the real
+        // selection at submit time sees nothing, and the seller is told the
+        // photos are on.
+        //
+        // Three states, not two. Flipping this to FAILED would raise a false
+        // alarm on the hosts where the shadow genuinely works, across seven
+        // platforms. Saying "we could not confirm" is the only reading that is
+        // true on both kinds of host: the photos may well be there, and nothing
+        // outside this extension has said so.
         try {
           Object.defineProperty(input, "files", { value: dt.files, configurable: true });
-          accepted = input.files && input.files.length === dt.files.length;
+          if (input.files && input.files.length === dt.files.length) {
+            accepted = true;
+            result.unverified = result.attached;
+            GT.log("photo list set by shadow on " + (input.id || "the uploader") +
+              " — the browser did not confirm it");
+          }
         } catch (_e) { /* nothing more to try */ }
       }
 
@@ -255,7 +281,7 @@
       return result;
     } catch (_e) {
       // The marketplace rejected the programmatic drop outright — nothing landed.
-      return { attached: 0, failed: urls.length, total: urls.length };
+      return { attached: 0, failed: urls.length, total: urls.length, unverified: 0 };
     }
   };
 
@@ -622,6 +648,10 @@
       // AC4: the counts the SaaS renders as "attached 6 of 8 — drag the rest in".
       photosTotal: photos.total,
       photosFailed: photos.failed,
+      // US-2775: how many of the attached ones nothing but us has confirmed.
+      // Sent only when it is non-zero, so an ordinary run carries no new field
+      // and an older SaaS build reads exactly what it read before.
+      photosUnverified: photos.unverified > 0 ? photos.unverified : undefined,
       // The listing URL only exists after the seller submits; the SaaS records
       // the cross-listing from the "filled" signal and the seller can paste the
       // final URL later. If the platform navigates to the live listing in this

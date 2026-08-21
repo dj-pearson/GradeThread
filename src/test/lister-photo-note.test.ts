@@ -47,6 +47,43 @@ describe("US-1877: photo attach reporting", () => {
     expect(photoNote({ photosAttached: true, photosTotal: 0, photosFailed: 0 })).toBe("");
   });
 
+  it("US-2775: an unconfirmed attach neither claims success nor cries wolf", () => {
+    // The page took the file list only through the shadow fallback, where the
+    // only thing saying the photos landed is the extension reading back what it
+    // just wrote. Silence would repeat US-2738's silent false success; "didn't
+    // attach" would be a different lie, on hosts where the shadow works fine.
+    const note = photoNote({
+      photosAttached: true,
+      photosTotal: 8,
+      photosFailed: 0,
+      photosUnverified: 8,
+    });
+    expect(note).not.toBe("");
+    expect(note).toMatch(/couldn't confirm/i);
+    // Not a failure claim: nothing here tells them to drag anything in.
+    expect(note).not.toMatch(/drag/i);
+  });
+
+  it("US-2775: a real failure still reads as a failure, not as a doubt", () => {
+    // The third state must not swallow the second. A refusal reports every photo
+    // failed AND unverified 0, and the seller has to be told to drag them in.
+    const note = photoNote({
+      photosAttached: false,
+      photosTotal: 8,
+      photosFailed: 8,
+      photosUnverified: 0,
+    });
+    expect(note).toMatch(/didn't attach/i);
+  });
+
+  it("US-2775: a confirmed attach carries no hedge", () => {
+    // The mirror. A run the browser confirmed must stay silent, or the warning
+    // fires on every ordinary send and stops meaning anything.
+    expect(
+      photoNote({ photosAttached: true, photosTotal: 8, photosFailed: 0, photosUnverified: 0 }),
+    ).toBe("");
+  });
+
   it("falls back to the old boolean for an extension that predates the counts", () => {
     // A seller on the previous build sends no counts. Undefined totals must not be
     // read as "0 of 0 attached" — fall back to the boolean rather than inventing a
