@@ -49,6 +49,40 @@ PUBLIC entry. Both count. The distinction only matters when choosing the fix.
 
 The 40 are the work of 00514 and 00611-00617 and they hold up. The gap is 15.
 
+## The anon key being public is correct, and it is not what this is about
+
+Worth stating plainly, because it is the first and most reasonable objection:
+**the anon key is designed to be published.** It ships in the frontend bundle by
+design, and RLS is the security boundary. That is the Supabase model and it is
+right.
+
+`SECURITY DEFINER` is the documented exception to it. Such a function runs as its
+OWNER, not as the caller, which is the entire reason it exists — it is how
+`handle_new_user` writes a profile row the new user could not write themselves.
+The consequence is that **RLS is never in the path.** The only thing standing
+between `anon` and the function's body is the EXECUTE grant, and PUBLIC holds it.
+
+This is not a new class of problem for this codebase; 00615 already established
+the fix. It is that 15 functions did not get it. The A/B, same anon key, same
+minute, against production:
+
+```
+POST /rest/v1/rpc/increment_grades_used   {"user_id_param": "000...000"}
+  -> HTTP 204
+
+POST /rest/v1/rpc/grant_grade_credits     {"p_user_id": "000...000", ...}
+  -> HTTP 401  {"code":"42501","message":"grant_grade_credits: service role required"}
+```
+
+Both are SECURITY DEFINER. Both write to `public.users`. RLS protected neither.
+The body check 00615 added protected one of them. `increment_grades_used` ran its
+`UPDATE public.users SET grades_used_this_month = grades_used_this_month + 1
+WHERE id = $1` and returned 204; it changed nothing only because the nil UUID
+matches no row. With a real user id it burns that user's monthly allowance.
+
+(That particular function has **no callers anywhere in the codebase**, so
+dropping it is a legitimate alternative to guarding it.)
+
 ## It is not theoretical
 
 Three of the unguarded reads were called against production with nothing but the
