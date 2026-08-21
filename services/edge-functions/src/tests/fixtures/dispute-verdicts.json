@@ -1,0 +1,254 @@
+{
+  "_readme": [
+    "US-2705 AC7. Labelled complaint-and-report pairs with the verdict each MUST",
+    "produce. This is the gate: a matcher change that starts calling stretches",
+    "'contradicted' fails here rather than shipping, because the cost of that",
+    "error is a signed document handed to eBay arguing a case the report does",
+    "not support.",
+    "Adding a case is cheap and welcome. CHANGING an expected verdict is not - it",
+    "is a change to what GradeThread is willing to assert, and it belongs in a",
+    "commit that says so."
+  ],
+  "cases": [
+    {
+      "name": "the stain the listing disclosed, in the place the buyer names",
+      "complaint": "There is a mark on the left cuff that was not mentioned.",
+      "defects": [
+        {
+          "issue": "Small stain near the left cuff",
+          "defect_type": "stain",
+          "severity": "minor",
+          "size_bucket": "small",
+          "location": "left cuff",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Great condition overall. There is a small stain on the left cuff, shown in the photos.",
+        "aspects": null
+      },
+      "expect": "contradicted"
+    },
+    {
+      "name": "the same stain, disclosed in an item specific instead of the description",
+      "complaint": "Arrived with a stain on the cuff.",
+      "defects": [
+        {
+          "issue": "Small stain near the cuff",
+          "defect_type": "stain",
+          "severity": "minor",
+          "location": "cuff",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Classic fit, soft cotton.",
+        "aspects": {
+          "Condition Description": [
+            "Minor stain at the cuff"
+          ]
+        }
+      },
+      "expect": "contradicted"
+    },
+    {
+      "name": "the report documents it and the listing never said so",
+      "complaint": "There is a hole in the elbow.",
+      "defects": [
+        {
+          "issue": "Hole at the right elbow",
+          "defect_type": "hole_puncture",
+          "severity": "moderate",
+          "size_bucket": "small",
+          "location": "right elbow",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Excellent used condition, no flaws to note.",
+        "aspects": null
+      },
+      "expect": "supported"
+    },
+    {
+      "name": "the report has nothing on it",
+      "complaint": "The zipper is broken.",
+      "defects": [
+        {
+          "issue": "Light pilling across the back",
+          "defect_type": "pilling",
+          "severity": "minor",
+          "location": "back",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Some light pilling on the back, pictured.",
+        "aspects": null
+      },
+      "expect": "not_covered"
+    },
+    {
+      "name": "same defect type, wrong end of the garment",
+      "complaint": "Big stain on the collar.",
+      "defects": [
+        {
+          "issue": "Small stain near the left cuff",
+          "defect_type": "stain",
+          "severity": "minor",
+          "location": "left cuff",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Small stain on the left cuff, shown in the photos.",
+        "aspects": null
+      },
+      "expect": "not_covered"
+    },
+    {
+      "name": "manufactured distressing is never a documented flaw",
+      "complaint": "The knees are ripped.",
+      "defects": [
+        {
+          "issue": "Factory distressing at both knees",
+          "defect_type": "rip_tear",
+          "severity": "minor",
+          "location": "knee",
+          "is_intentional": true
+        }
+      ],
+      "snapshot": {
+        "description": "Distressed denim, ripped knees as designed.",
+        "aspects": null
+      },
+      "expect": "not_covered"
+    },
+    {
+      "name": "no snapshot at all — an older listing, published before US-2704",
+      "complaint": "There is a stain on the cuff.",
+      "defects": [
+        {
+          "issue": "Small stain near the left cuff",
+          "defect_type": "stain",
+          "severity": "minor",
+          "location": "cuff",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": null,
+      "expect": "supported"
+    },
+    {
+      "name": "one flaw disclosed and one not — not half a win",
+      "complaint": "There is a stain on the cuff and a hole in the elbow.",
+      "defects": [
+        {
+          "issue": "Small stain near the cuff",
+          "defect_type": "stain",
+          "severity": "minor",
+          "location": "cuff",
+          "is_intentional": false
+        },
+        {
+          "issue": "Hole at the elbow",
+          "defect_type": "hole_puncture",
+          "severity": "moderate",
+          "location": "elbow",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Small stain on the cuff, shown in the photos.",
+        "aspects": null
+      },
+      "expect": "supported"
+    },
+    {
+      "name": "a boilerplate 'no stains' line is not a disclosure of a stain",
+      "complaint": "There is a stain on the cuff.",
+      "defects": [
+        {
+          "issue": "Small stain near the cuff",
+          "defect_type": "stain",
+          "severity": "minor",
+          "location": "cuff",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "No stains, no holes. Cuff to shoulder measures 24 inches.",
+        "aspects": null
+      },
+      "expect": "supported"
+    },
+    {
+      "name": "the smell case — the buyer's words and the taxonomy do not overlap",
+      "complaint": "It smells strongly of smoke.",
+      "defects": [
+        {
+          "issue": "Smoke odor detected",
+          "defect_type": "odor_indicator",
+          "severity": "moderate",
+          "location": "overall",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Please note: this piece has a smoke odor overall.",
+        "aspects": null
+      },
+      "expect": "contradicted"
+    },
+    {
+      "name": "no location, and the report documents three stains - names none of them",
+      "complaint": "There is a stain on it.",
+      "defects": [
+        {
+          "issue": "Small stain near the left cuff",
+          "defect_type": "stain",
+          "severity": "minor",
+          "location": "left cuff",
+          "is_intentional": false
+        },
+        {
+          "issue": "Faint stain on the collar",
+          "defect_type": "stain",
+          "severity": "minor",
+          "location": "collar",
+          "is_intentional": false
+        },
+        {
+          "issue": "Stain at the hem",
+          "defect_type": "stain",
+          "severity": "moderate",
+          "location": "hem",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Small stain on the left cuff, a faint stain on the collar and a stain at the hem - all pictured.",
+        "aspects": null
+      },
+      "expect": "not_covered"
+    },
+    {
+      "name": "no location, and the report documents exactly one hole - names that one",
+      "complaint": "There is a hole in it.",
+      "defects": [
+        {
+          "issue": "Hole at the right elbow",
+          "defect_type": "hole_puncture",
+          "severity": "moderate",
+          "location": "right elbow",
+          "is_intentional": false
+        }
+      ],
+      "snapshot": {
+        "description": "Note the hole at the right elbow, shown close up.",
+        "aspects": null
+      },
+      "expect": "contradicted"
+    }
+  ]
+}

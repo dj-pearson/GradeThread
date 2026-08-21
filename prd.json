@@ -2070,26 +2070,6 @@
       "priority": 20
     },
     {
-      "id": "US-2705",
-      "passes": false,
-      "title": "Dispute evidence core: the complaint matcher, the evidence plan and the three verdicts",
-      "description": "As a FlipDesk seller, I want GradeThread to compare what the buyer is complaining about against the flaw map in my grade report and tell me honestly whether I have a case, so that I fight the ones I should and refund the ones I should not.",
-      "acceptanceCriteria": [
-        "New pure module services/edge-functions/src/lib/complaint-match.ts maps buyer complaint text onto DetectedIssue entries from the item's grade report, using defect_type, location, severity and size_bucket",
-        "New pure module services/edge-functions/src/lib/dispute-evidence.ts takes the grade report, the listing_publications snapshot and the match, and returns an evidence plan: which photos, which flaws, which citations, and one of three verdicts",
-        "Verdict contradicted requires the flaw to be documented in the report AND present in the snapshot description or aspect map. Verdict supported is returned when the report documents a flaw the snapshot did not disclose. Verdict not_covered is returned when the report has nothing on the complaint",
-        "Ambiguity resolves to not_covered and never to contradicted. A deno test asserts a weak or partial match does not produce a contradicted verdict",
-        "A citation naming a defect absent from the grade report is dropped, not softened. A deno test drives the pure layer with a matcher stub that invents a defect and asserts zero citations survive",
-        "Verdict supported returns a refusal to auto-assemble plus the plain-language reason, per the epic safety constraint",
-        "A labelled fixture set of complaint-and-report pairs with expected verdicts is committed and gated, so a prompt change that starts calling stretches contradicted fails rather than ships",
-        "Neither module imports the supabase client and both are unit-tested with no DB, mirroring the split in lib/cross-listing-sale.ts"
-      ],
-      "priority": 22,
-      "dependsOn": [
-        "US-2704"
-      ]
-    },
-    {
       "id": "US-2706",
       "passes": false,
       "title": "eBay return evidence: attach the pack to an INAD return",
