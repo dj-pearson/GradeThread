@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2775",
+  "nextId": "US-2776",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2400,7 +2400,8 @@
         "Both input and change are dispatched, in the order a real selection fires them - some uploaders listen for one, some for the other.",
         "STILL UNPROVEN until tested live: whether Poshmark's uploader accepts the assignment at all. If it does not, the honest report is now the deliverable and the next step is a different mechanism, not a louder claim."
       ],
-      "priority": 8
+      "priority": 8,
+      "notes": "AC5 IS NOW HELD BY A TEST, 2026-08-21. It said 'Verified against three cases: accepted 8/0, refused 0/8, partial 6/2' and nothing ran that verification again. extension-unified/test/attach-photos-accepted.test.cjs does, plus AC6's event order, and it opens by proving its own refusing stub can actually refuse - otherwise the whole file would pass against the original broken code.\n\nSABOTAGE-CHECKED, control-first, 6 of 7 caught: restoring the original defineProperty-and-assume-success, dropping the refusal-to-failed conversion, dispatching only `change`, dispatching in the wrong order, and removing the fallback.\n\nTHE SEVENTH IS A REAL GAP AND IS NOW US-2775. Removing the `input.value !== \"\"` witness changed no outcome, because the fallback beneath it decides acceptance with `input.files.length === dt.files.length` immediately after defineProperty WROTE input.files. It reads back what it just set and cannot fail. So on a host that swallows the direct assignment but permits defineProperty, the original silent false success is still reachable - through the fallback added to make the report honest.\n\nNOT FIXED HERE ON PURPOSE: reporting the fallback as failed would raise a false alarm on hosts where the shadow works, across seven platforms. That is a decision, not a typo. The test pins current behaviour with a comment saying so.\n\nAC7 STILL BLOCKS CLOSURE and is unchanged: nobody has put this in front of a live Poshmark form. If Poshmark accepts the direct assignment, US-2775 is latent; if it does not, US-2775 IS the live bug and this story is not actually fixed."
     },
     {
       "id": "US-2739",
@@ -2533,6 +2534,24 @@
       "dependsOn": [
         "US-2765",
         "US-2767"
+      ]
+    },
+    {
+      "id": "US-2775",
+      "passes": false,
+      "title": "The photo-attach fallback re-creates the shadow it was written to replace, and confirms itself",
+      "description": "As a seller cross-posting to a marketplace, I want the extension to only claim photos are attached when something other than itself says so, so that the silent false success US-2738 fixed cannot come back through the fallback path.",
+      "acceptanceCriteria": [
+        "FOUND BY SABOTAGE 2026-08-21 while writing the US-2738 AC5 guard, not by reading the code. Removing the `input.value !== \"\"` witness from attachPhotos changed no test outcome, which is what exposed this: the witness is not load-bearing, because the fallback below it accepts unconditionally.",
+        "THE MECHANISM, at extension-unified/lister/common.js around line 236: after `Object.defineProperty(input, \"files\", { value: dt.files })` succeeds, acceptance is decided by `input.files && input.files.length === dt.files.length` - reading back exactly what the line above just wrote. It cannot fail when defineProperty succeeds. A guard that confirms itself.",
+        "WHY IT MATTERS: that is the same shadow US-2738 diagnosed. el.files reports eight, el.value stays empty, an uploader reading the real selection at submit time sees nothing, and the seller is told the photos are on. So on any host that swallows the direct assignment but permits defineProperty, the original false success is still reachable - through the very fallback added to make the report honest.",
+        "IT IS A REAL TRADE, NOT AN OVERSIGHT. Reporting the fallback as failed would raise a false alarm on hosts where the shadow genuinely works, and the extension covers seven platforms. This story is to DECIDE, per platform if need be, not to flip it silently.",
+        "OPTIONS TO WEIGH: (a) report the fallback as an explicit third state (attached-unverified) so photoNote can say 'we could not confirm these landed' rather than claiming success or failure; (b) find a real witness for the shadow path - anything the PAGE changes that we did not write; (c) accept the shadow only for platforms measured to work with it, and fail the rest.",
+        "extension-unified/test/attach-photos-accepted.test.cjs already pins the current behaviour with a comment saying it is pinned and not endorsed, plus an assertion that the fallback leaves value empty. Whoever changes the behaviour must change that assertion knowingly - it is not a test to quietly update.",
+        "Blocked on the same live check as US-2738 AC7: whether Poshmark accepts the direct assignment at all. If it does, this is latent rather than live; if it does not, this IS the live bug and US-2738 is not actually fixed."
+      ],
+      "dependsOn": [
+        "US-2738"
       ]
     }
   ]
