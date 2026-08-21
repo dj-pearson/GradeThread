@@ -2299,29 +2299,6 @@
       "notes": "DONE 2026-08-20 (code). New src/hooks/use-extension-setup.ts (GT_PING round trip + the gt-bridge DOM marker) and src/components/flipdesk/cross-post-setup.tsx, rendered at the top of the extension tier on the Marketplaces page. FIVE steps, not the four the ACs named: the paid-plan gate turned out to be a separate observable fact from being signed in (capabilities.sellerEnabled vs capabilities.authenticated), and folding it into 'signed in' would have shown a green step to a free account whose first send then fails with needsUpgrade. extension-unified/background.js GT_PING now also returns tosAccepted, the manifest version, and a channels array carrying canList/canDelist read from GT_LISTER_SELECTORS - so the screen counts a channel ready only when that build's selectors are verified, rather than when the platform is merely accepted. Reporting acceptance is not granting it: no GT_TOS_ACCEPT exists and a guard asserts EXTERNAL_TYPES still has no accept type, because the clickwrap must render from the extension's own copy. An older extension that does not report tosAccepted reads as not-yet, never as done. The page's dead 'Install the GradeThread Lister browser extension' sentence - the only install instruction on the page, and not a link - is gone; the paragraph now describes the mechanism and the setup section carries the instruction. 8 guards in src/test/cross-post-setup.test.ts."
     },
     {
-      "id": "US-2720",
-      "passes": true,
-      "title": "The Listing Kit hides the cross-post button instead of saying why it is missing",
-      "description": "As a seller without the extension installed, I want the Listing Kit to tell me cross-posting needs the extension and where to set it up, so that I do not conclude the feature was never built.",
-      "acceptanceCriteria": [
-        "On a Poshmark, Mercari, Grailed, Vinted or Facebook tab, when isListerAvailable() is false, src/components/flipdesk/listing-kit.tsx renders an inline notice naming the reason and linking to the Marketplaces cross-posting setup, instead of rendering nothing at all (today showSend simply gates the button out).",
-        "The notice distinguishes the two causes it can actually tell apart: the extension is not installed (no gt-bridge marker) versus cross-posting is switched off for this deployment (VITE_LISTER_EXTENSION not 'true'). It never states a cause it cannot verify.",
-        "The manual fallback stays visible and unchanged in both cases: Copy all fields, Open <platform>, Download photos.",
-        "A needsUpgrade result from sendToLister renders an upgrade link to /pricing rather than a bare error toast, since the seller gate is an active paid FlipDesk plan (resolveSellerEntitlement in the edge's lib/buyer-entitlements.ts).",
-        "A channel whose extension flow is off in MARKETPLACE_EXTENSION_FLOW (Facebook today) says 'list manually for now' on its own tab rather than offering a send that the background will refuse.",
-        "A vitest case asserts the notice renders for a lister platform with the bridge absent and does not render on a non-extension platform.",
-        "AC6 DONE 2026-08-21 as a behavioural test rather than a source scan. src/test/lister-unavailable-reason.test.ts drives listerUnavailableReason() and isListerAvailable() against stubbed VITE_LISTER_EXTENSION, the gt-bridge DOM marker and a stubbed chrome.runtime. 6 tests.",
-        "AC2 IS THE ONE WORTH EXERCISING - 'it never states a cause it cannot verify'. The two causes need opposite actions from the seller: 'disabled' means nothing they install will help, 'not-installed' means installing fixes it. Telling an unsupported seller to install something is worse than the silence this replaced. The mapping is now pinned in both directions, plus the flag being exact-match so a stale '1' or 'yes' does not enable it.",
-        "A REAL GAP THE OLD COVERAGE MISSED, found by sabotage: dropping the !!listerExtensionId() check from isListerAvailable makes a FOREIGN chrome.runtime - present because of somebody else's extension - count as our transport, so the kit would tell a seller the extension is installed when it is not. The new test catches it; the source scan in cross-post-setup does not.",
-        "Swapping the two causes is caught by both suites. One sabotage was skipped on an anchor mismatch and is recorded as unproven rather than as a pass."
-      ],
-      "priority": 13,
-      "dependsOn": [
-        "US-2718"
-      ],
-      "notes": "DONE 2026-08-20. src/lib/lister-extension.ts gains listerUnavailableReason(), which splits the single false that isListerAvailable() used to return into 'disabled' (this deployment never switched the bridge on) and 'not-installed' (it did, and the extension is not in this browser). The flag is checked FIRST and a guard asserts that ordering, because with the feature off 'install the extension' is a false trail - nothing the seller installs makes the button appear. listing-kit.tsx renders CrossPostNotice in place of the nothing it used to render, plus a third case for a channel whose MARKETPLACE_EXTENSION_FLOW is 'verifying' (Facebook today), which says list-it-yourself BEFORE the click rather than after the extension refuses. needsUpgrade from the extension now renders a /pricing link instead of a bare toast, and is set only by an explicit answer from the extension - never inferred from the plan the web thinks the account is on, since the extension is the thing enforcing it. Copy all fields / Open <platform> / Download photos are untouched in every case. 4 guards in src/test/cross-post-setup.test.ts."
-    },
-    {
       "id": "US-2721",
       "passes": false,
       "title": "No account-level choice of which marketplaces to cross-post to",
@@ -2394,41 +2371,6 @@
       "priority": 5
     },
     {
-      "id": "US-2731",
-      "passes": true,
-      "title": "A developer build can never connect its account: an unpacked id falls through to the store id and the token goes nowhere",
-      "description": "As someone testing the extension from an unpacked build, I want to connect it to my account, so that I can exercise the seller flows before a store release.",
-      "acceptanceCriteria": [
-        "OBSERVED 2026-08-20 on an unpacked build: /connect-extension reported the extension could not be reached. connect-extension.tsx accepts ?ext only when it EQUALS the configured store id, and otherwise sends to listerExtensionId() anyway - so the token is addressed to a store extension that may not be installed, giving 'Could not establish connection. Receiving end does not exist'.",
-        "The original rule is right and stays: a token must never be posted to an arbitrary id from a query parameter. targetExtId is still only ever set when the id matches the configured one.",
-        "A mismatching id now selects the BRIDGE rather than a wrong address. gt-bridge.js is our own content script, injected only by our own extension, so the token reaches the install in front of the user and cannot reach a third party; the untrusted ?ext value is used as a SIGNAL that the configured id is wrong, never as a destination.",
-        "sendExtensionMessage gains opts.preferBridge, which selects sendViaBridge when the bridge marker is present. It does not weaken the default path: with no preferBridge the id-addressed transport is still preferred exactly as before.",
-        "3 guards in src/test/cross-post-setup.test.ts assert the signal is a boolean rather than an address, that targetExtId still requires equality, and that preferBridge routes only to sendViaBridge.",
-        "Follow-on, NOT done here: a manifest \"key\" field in extension-unified/manifest.json would give an unpacked build the same id as the store build and remove this whole class of problem. It needs the public half of the store signing key, which was untracked under US-2284 and is not in the repo.",
-        "AC5's three guards VERIFIED 2026-08-21 by sabotage, control-first, all three caught: making targetExtId accept a non-matching query id, turning preferBridge from a boolean into the untrusted id, and routing preferBridge to an id-addressed send instead of the bridge.",
-        "The first of those is the security rule AC2 keeps, and it is the one worth the guard: a token must never be posted to an arbitrary id from a query parameter. The mismatching id is a SIGNAL that the configured id is wrong, never a destination.",
-        "AC6 stands as filed and is not done here: a manifest 'key' field would give an unpacked build the store id and remove the class. It needs the public half of the store signing key, which is not in the repo - and under US-2284 that key is treated as burned, so the follow-on should use the key that replaces it."
-      ],
-      "priority": 12
-    },
-    {
-      "id": "US-2733",
-      "passes": true,
-      "title": "Reloading the extension orphans the page's relay, and the site waits 130 seconds for a reply that can never come",
-      "description": "As someone developing against an unpacked build, I want a reload to fail fast and tell me to refresh the tab, so that I do not sit through a two-minute spinner every time I change the extension.",
-      "acceptanceCriteria": [
-        "OBSERVED 2026-08-20 right after reloading an unpacked build: GradeThread spun for 20+ seconds and then reported the extension could not be reached, on a page where it had worked a minute earlier.",
-        "CAUSE: reloading an unpacked extension orphans the content scripts already running in open tabs. gt-bridge.js writes its marker as a DOM attribute at document_start, so the attribute SURVIVES and bridgeAvailable() keeps returning true, while every sendMessage from that orphaned script throws 'Extension context invalidated'.",
-        "That is non-delivery - nothing received the message and no push is coming - but it arrived as a plain transportError, which a job send deliberately does NOT settle on (US-1874, so a suspended worker's live job is never falsely failed). So it ran to the full 130s EXTENSION_TIMEOUT_MS backstop.",
-        "isUndeliverable now also matches 'extension context invalidated', and gt-bridge.js sets undelivered on all THREE paths it can fail on: the Chromium lastError callback, the promise rejection, and the synchronous throw. A guard counts all three.",
-        "The US-1874 guarantee is untouched: a plain transportError with no undelivered flag still does not settle, and that is separately asserted.",
-        "The message now leads with the fix that actually works - reload the page - rather than sending the reader to their extensions page, which is the wrong place when the extension is installed and fine and only this tab is stale.",
-        "VERIFIED 2026-08-21 by sabotage, control-first, both caught. Removing 'extension context invalidated' from isUndeliverable fails src/test/lister-undelivered.test.ts, which drives the real sender against a stubbed chrome.runtime and asserts an undeliverable reply settles at 0ms advanced rather than at the 130s backstop. Renaming one of the three `undelivered: isDead(` sites in gt-bridge.js fails the count guard in cross-post-setup.test.ts - so AC4's 'a guard counts all three' is real.",
-        "AC5's guarantee is separately asserted and separately sabotaged: a plain transportError with no undelivered flag is still NOT settled after 1000ms and only settles at the backstop, so US-1874's durable-push behaviour was not traded away to fix this."
-      ],
-      "priority": 12
-    },
-    {
       "id": "US-2734",
       "passes": false,
       "title": "The selector probe's deep checkbox names only half of what it does, so the report that closes a coverage gap is the one nobody ticks",
@@ -2441,28 +2383,6 @@
         "FOLLOW-ON worth considering: the report itself could say 'run again with the box ticked' whenever a non-required selector missed and deep was off, so the next round trip is prompted by the artifact rather than depending on someone remembering."
       ],
       "priority": 20
-    },
-    {
-      "id": "US-2735",
-      "passes": true,
-      "title": "Poshmark's price lives in a dialog, so every cross-post has told the seller we could not set it",
-      "description": "As a seller cross-posting to Poshmark, I want the price carried across, so that the one field deciding what I get paid is not the one I always have to type myself.",
-      "acceptanceCriteria": [
-        "CAUSE: both amounts live in listing-price-suggestion-modal, not on the create form. Every price selector in the config has therefore missed since Poshmark rebuilt the editor, and US-2477 made that miss loud - so the seller was correctly but relentlessly told 'the price was NOT filled in' on every single run.",
-        "The two inputs are the best anchors on the page and were read off the live DOM, not guessed: #listing-price-modal-listing-price-input (aria-label 'Listing Price') and #listing-price-modal-original-price-input. Real ids, no placeholder text, no English.",
-        "GT.fillPriceDialog clicks the opener, waits up to 2s for the dialog, sets the listing price and the optional original price. It runs AFTER the photos: an open modal sits over the file input, and attaching photos matters more than price.",
-        "It never submits. The only elements touched are the opener and the two inputs, and the dialog is left OPEN on success on purpose - Poshmark commits through its own Apply control, and clicking that for the seller would be GradeThread deciding the price is right. Leaving it open puts the number in front of them while they can still change it.",
-        "Every step is optional and non-fatal: no opener, no dialog, or no input returns false and the run reports the price unfilled exactly as before. Nothing here can make a cross-post worse than not having it.",
-        "The ONE inferred piece is the opener selector - input.ff--no-increment-input:not([id^=listing-price-modal]) - taken from the deep probe's create-page input. The :not() is what keeps it honest: it can never match the modal's own inputs, so a wrong inference opens nothing rather than typing into the wrong box. Confirm it against the live page and replace it with a test attribute the moment one appears.",
-        "priceFilled now reports the dialog result too, so the SaaS toast stops warning about a price that did in fact get set.",
-        "AC3 IS NOW STALE and should not be followed: it says the dialog runs AFTER the photos. US-2742 reversed that, correctly - attachPhotos never clicks, it resolves the input and assigns .files, and an overlay blocks pointer events rather than property assignment. The real hazard ran the other way: Poshmark opens its own confirmation modal once photos attach, and that backdrop swallowed the click that opens the price dialog.",
-        "GUARDED 2026-08-21 by extension-unified/test/price-dialog.test.cjs, discovered by scripts/test-extensions.mjs so it runs in verify:web and CI (38 files pass). Six cases: it fills both amounts, it clicks ONLY the opener, it leaves the dialog open, it does nothing when one is already open, every failure path reports unfilled, and the original price stays optional.",
-        "AC4 IS THE ONE WORTH A TEST and it is asserted directly: the set of clicked element ids must be exactly [the opener]. Poshmark commits through its own Apply control, and clicking it would be GradeThread deciding the price is right. The dialog is left OPEN so the number sits in front of the seller.",
-        "The already-open guard is asserted too, because it looks like a micro-optimisation and would get simplified away: clicking the opener while a dialog is up lands on the backdrop and DISMISSES the dialog it was about to fill.",
-        "SABOTAGE-CHECKED, control-first, 3 of 4 caught: clicking the opener when already open, submitting after filling, and dropping the :not() guard from the opener selector. The fourth - throwing instead of returning false - is uncatchable BY DESIGN, because fillPriceDialog's try/catch already converts a throw into the required unfilled report (AC5). Recorded rather than chased."
-      ],
-      "priority": 11,
-      "notes": "HARDENED 2026-08-20 from the founder's next paste. The offered element was [data-test=modal].modal-backdrop - the dialog's BACKDROP, not its opener, so it does not answer the open question. It did surface a real hazard though: a dialog renders over a backdrop that swallows clicks, so clicking the opener while a dialog is already up either does nothing or lands on the backdrop and DISMISSES the dialog we were about to fill. fillPriceDialog now checks for the price input FIRST and only clicks when there is no dialog - faster, and the only version that cannot close a dialog the seller opened themselves. cfg.open is now optional: with the dialog already open the fill works without any opener at all, which also means a wrong opener selector costs nothing on a page where the seller opened it by hand. STILL NEEDED: the element on the create form that a seller CLICKS to make the price dialog appear - the Listing Price row itself, captured BEFORE the popup opens. | SOLVED PROPERLY 2026-08-20. The price IS on the create form; the earlier reading that it lived only in a dialog was wrong. The anchor is data-vv-name=listingPrice, and it was on the element in every report we had already looked at - invisible because data-vv-name was not in PROBE_ATTRS. Poshmark's editor is Vue + vee-validate (its own console warns about fields missing a name), and vee-validate stamps each validated field with the SITE'S OWN model name: semantic, stable across restyles, and free of English, which is more than any other anchor on that page offers. Two rounds were spent on placeholder text because the probe never asked for it. FIXED BOTH ENDS: price and originalPrice now lead with the data-vv-name clause (modal ids kept as a second clause, since the same amount is editable in two places and a selector that works either way costs nothing), and PROBE_ATTRS gained data-vv-name + data-vv-as so the next report on any Vue marketplace carries them. The privacy contract is unchanged - a model name is UI chrome, never a field's value. The priceDialog path stays as the fallback it now is, already guarded so it never clicks while a dialog is open."
     },
     {
       "id": "US-2736",
@@ -2479,27 +2399,6 @@
       ],
       "priority": 8,
       "notes": "RENDER-TIME FALLBACK ADDED 2026-08-20, after the server fix alone did not clear it. The server fix is correct but only affects NEWLY generated variants: a variant's price is written once, at generation, so every draft made before it carries the stored 0 and stays broken until someone thinks to press Regenerate. That is the wrong dependency for a field this important. listing-kit.tsx now resolves the price at RENDER: it reads the eBay draft's listing_price alongside platform_fields and the item's target_price, applying the same draft-then-target precedence the generator and the extension writeback use, so all three agree about what an item costs. The resolved variant is used in THREE places deliberately - the displayed row, the live validation that decides Ready to list, and buildListerPayload - because patching only the render would show the seller a filled-in price while still handing the extension an empty string, which is exactly the failure this whole thread has been about. It never invents a price: fallbackPrice 0 leaves the variant exactly as stored. 3 guards in src/test/cross-post-setup.test.ts; 34 pass. This fixes every existing draft with no regeneration and no deploy ordering to get right. | THIRD SOURCE 2026-08-20, and it was the one that mattered. After both earlier fixes were confirmed LIVE in the deployed bundle (priceStep, target_price and fallbackPrice all present in composer-COhLjvXk.js) the Listing price row was still blank - so the fallback was resolving to 0, which meant the price was in neither place I had checked. It was in the third: inventory_items.list_price. The composer has always read all three, [listing.listing_price, item.target_price, item.list_price] with the FIRST POSITIVE winning (composer.tsx), and my fallback implemented two thirds of that rule while its own comment claimed the surfaces agreed. Now copied whole into all three places that resolve a price - listing-kit.tsx, ai-listing.ts and the extension writeback - so the claim is true rather than aspirational. First-positive rather than first-non-null is the load-bearing half: a stale 0 on a draft row must not shadow a real price further down, which is exactly the shape of row this item had. Guards: 4 more cases in platform-variants_test.ts (13 pass) and the kit guard now asserts all three sources by name plus the positive test (38 pass). | REGRESSION I CAUSED, AND FIXED, 2026-08-20. The 'third source' change added list_price to three inventory_items SELECTs. inventory_items HAS NO SUCH COLUMN - list_price is a column on the items_full VIEW, where it aliases a listing's own listing_price. Production proved it: '42703: column i.list_price does not exist'. Consequences were worse than the blank price it was meant to fix: PostgREST fails the WHOLE query, so the kit lost target_price too; the edge generator's item select throws 'Item not found for this workspace', which would have broken platform-field generation outright; and the extension writeback would have 500'd on every call. All three reverted. The kit now reads the equivalent third source from a table that actually has it - any of the item's listings rows carrying a positive listing_price - and the two edge paths are deliberately TWO-source with a comment saying why, rather than pretending to agree. The edge test that asserted the three-source rule now asserts the two-source one and records the 42703 as the reason. LESSON WORTH KEEPING: I read item.list_price in composer.tsx and assumed the column was on the table the composer's item object came from. It came from a view. A column name seen in application code is not evidence that a table has it."
-    },
-    {
-      "id": "US-2737",
-      "passes": true,
-      "title": "Style tags are typed into Poshmark's tag box but never committed, so a field that looks filled holds nothing",
-      "description": "As a seller cross-posting to Poshmark, I want my style tags to become real tags, so that the field either carries them or is honestly empty rather than holding uncommitted text.",
-      "acceptanceCriteria": [
-        "A tag box is not a text box: setting its value types the word and stops there, and the tag only exists once Enter turns it into a chip. That is why tags was declared with a verified selector (input.listing-editor__tag__input) and deliberately left unfilled until now - uncommitted text in a field that looks finished is worse than an empty one.",
-        "GT.commitTags sets each value then dispatches keydown/keypress/keyup Enter, and WAITS a tick for the framework to build the chip.",
-        "WITNESSED BY THE FIELD ITSELF: a committed chip clears the input, so the input going empty is the site confirming it accepted the entry. Nothing is counted that we cannot see land.",
-        "An entry that does NOT clear stops the loop rather than continuing - typing the next word on top of uncommitted text would concatenate them into one nonsense tag. Verified against three cases: all commit, the second sticks, the first sticks.",
-        "Reported as tagsCommitted / tagsTotal, counts rather than a boolean, for the same reason photos are counted: '2 of 3' is the difference between fixing it now and finding out later.",
-        "tagsMax 3 comes from Poshmark's own cap ('Add up to 3 tags'), configured per platform rather than hard-coded, so a fourth entry is never attempted.",
-        "COLOUR is declared for the probe and NOT filled, the same two-step that produced the brand and price anchors. The data-vv-name clauses are the informed guess; the deep sweep showed no colour text input and the kit's label is 'Color (up to 2)', so it is most likely a SWATCH PICKER - the same class as size and category, where a wrong pick is worse than an empty field. If the next report says picker, it stays unfilled and that is the finding.",
-        "AC4 HAD NO AUTOMATED GUARD, added 2026-08-21. The story says the stop-on-stick behaviour was 'verified against three cases: all commit, the second sticks, the first sticks'. Once, by hand. extension-unified/test/commit-tags.test.cjs runs those three every time, plus the cap and the nothing-to-do cases. Discovered by scripts/test-extensions.mjs, so it is in verify:web and CI (37 files pass).",
-        "THE FAILURE IT GUARDS IS NOT A MISSING TAG. If an entry sticks and the loop carries on, the next word is typed ON TOP of the uncommitted text and the two concatenate into one nonsense tag - 'vintagedenim' on a live listing. Stopping leaves fewer tags, which is recoverable and honest.",
-        "SABOTAGE-CHECKED, control-first: continuing past an uncommitted tag is caught, and ignoring the marketplace cap is caught.",
-        "THE HARNESS WAS WRONG FIRST AND WOULD HAVE PASSED EVERYTHING. It counted Enter EVENTS, but commitTags dispatches keydown, keypress and keyup per tag - so 'the second tag sticks' actually meant 'the second keystroke of the first tag sticks', and the third keystroke cleared it anyway. All three cases passed against a model that could not express the failure. It counts value WRITES now."
-      ],
-      "priority": 12,
-      "notes": "COLOUR ANSWERED 2026-08-20: the founder confirmed on the live form that colour is a SELECTION, not a text input - which is what the deep sweep implied when it found no colour text box. The declaration has been REMOVED rather than left unfilled: a selector that can never match reports 'missing' in every future probe, and a permanent miss reads as a broken channel when nothing is broken. The finding is recorded in the config comment instead. Colour therefore joins size, category and condition as an option list whose choices vary per garment, where a wrong pick is worse than an empty field; Poshmark requires category and size before it will publish anyway, so the seller is on that screen regardless. Filling pickers is its own story with its own verification, not a line added to the field list. TAGS shipped in this change and are unaffected."
     },
     {
       "id": "US-2738",
@@ -2665,20 +2564,6 @@
         "Tests cover: fills an empty aspect, skips a seller-set aspect, skips an aspect the category does not expose, and refuses an over-length value."
       ],
       "priority": 5
-    },
-    {
-      "id": "US-2771",
-      "passes": true,
-      "title": "The dual identification system has no note saying how it decides",
-      "description": "As the next person to touch identification, I want one note that states the precedence and what each source is trusted for, so that a later change cannot quietly reorder it.",
-      "acceptanceCriteria": [
-        "A vault note under 20-domain states the full precedence (decoded style code, tag wordmark, visual consensus, model knowledge) with code_refs to every file that implements a step.",
-        "It links to the existing ebay-visual-search learning note rather than restating its measurements, per the no-duplicate-facts rule in vault/CONTRACT.md.",
-        "npm run vault:index and npm run vault:lint pass, with vault:lint in --strict as CI runs it.",
-        "VERIFIED 2026-08-21. AC1: vault/20-domain/identification-precedence.md states the full ordering, and its code_refs now cover every step including prospect-identify.ts, which was missing - the note adjudicated between evidence that EXISTS and said nothing about which mechanism runs at all. AC2: it LINKS to ebay-visual-search three times and restates none of its measurements (grep for the figures returns zero). AC3: vault:index and vault:lint pass, 197 notes, links resolve, no orphans.",
-        "The half added 2026-08-21: the /prospect routing rule (tag photographed -> read the tag; garment only -> visual search at no metered AI action; unlabelled -> unchanged), the photo-role gate and why it is on the INPUT rather than the output, and the identitySource/identityIsAuthoritative provenance fields."
-      ],
-      "priority": 6
     },
     {
       "id": "US-2772",
