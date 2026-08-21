@@ -40,6 +40,7 @@ import {
 } from "../lib/ebay-client.ts";
 import { buildEbayPrepUpdate } from "../lib/ebay-prep.ts";
 import { decideCategory } from "../lib/category-decision.ts";
+import { startVisualPass } from "../lib/visual-identify-pass.ts";
 import type { BrowseCompCategoryVote } from "../lib/ebay-client.ts";
 import { grantReward } from "../lib/rewards-engine.ts";
 import { verifyIdentificationAgainstMarket } from "../lib/identification-verify.ts";
@@ -217,6 +218,15 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     })
   );
 
+  // US-2768: start the visual pass NOW, before the quota round trips and long
+  // before the model call. Nothing awaits it here - the promise is handed to
+  // extractItemFields, which only awaits it after every photo is fetched and
+  // inlined. That is where the concurrency comes from: it overlaps the
+  // network-bound preparation instead of being bolted on in front of it.
+  //
+  // Flag off means this returns immediately without fetching a thing.
+  const visualPass = startVisualPass(cappedPhotos);
+
   // Enablement + monthly cap check.
   const quota = await checkQuota(userId);
   if (!quota.ok) return c.json(quota.body, quota.status);
@@ -237,6 +247,12 @@ flipdeskAiRoutes.post("/extract", async (c) => {
       text,
       photos: cappedPhotos,
       knownFields,
+      visualCandidates: visualPass.then((v) => {
+        if (v.declined) {
+          console.log(`[flipdesk-ai] visual pass declined: ${v.declined}`);
+        }
+        return v.candidates;
+      }),
     });
   } catch (err) {
     await refundAiAction(userId);
@@ -378,6 +394,10 @@ flipdeskAiRoutes.post("/extract", async (c) => {
           limit,
           photos: cappedPhotos,
           extraction: result,
+          // US-2765: already resolved by now - extractItemFields awaited this
+          // same promise before it built its prompt - so reading it here is
+          // free and adds no latency to a phase that already ran the search.
+          visualLeafVotes: (await visualPass).leafCategoryVotes,
         });
       } catch (err) {
         console.error(

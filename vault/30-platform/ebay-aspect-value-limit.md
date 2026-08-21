@@ -6,12 +6,20 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-08-20
+reviewed: 2026-08-21
 tags: [ebay, publishing, gotcha]
 summary: eBay rejects aspect values over 65 chars at publish, not at upload - which is why the error surfaces as an unrelated "already has active offer".
 ---
 
 # eBay 65-character aspect-value limit
+
+> **Re-reviewed 2026-08-21.** Drift flagged `ebay-client.ts` for `3ca575882`,
+> which teaches the comp mappers to keep the categories eBay files a listing
+> under. `git show` over that diff contains the word `aspect` **zero** times.
+> Third time this file has tripped the guard on something unrelated, for the
+> reason given below. Re-verified while here: the constant is now at
+> `ebay-client.ts:2307` and `capAspectValuesForEbay` at `:2328` — both moved by
+> six lines and are otherwise unchanged, and this note said 2301/2322.
 
 > **Re-reviewed 2026-08-20.** Drift flagged `ebay-client.ts` again, for
 > `5f542210`. That commit extracts title tokenisation into `title-tokens.ts`
@@ -29,8 +37,8 @@ summary: eBay rejects aspect values over 65 chars at publish, not at upload - wh
 
 eBay hard-rejects any item-specific (aspect) **value** longer than 65 characters.
 Enforced in `ebay-client.ts` via `EBAY_ASPECT_VALUE_MAX_LEN = 65` and
-`capAspectValuesForEbay()` (verified 2026-08-08: the constant at
-`ebay-client.ts:2301`, the function at `ebay-client.ts:2322`).
+`capAspectValuesForEbay()` (verified 2026-08-21: the constant at
+`ebay-client.ts:2307`, the function at `ebay-client.ts:2328`).
 
 ## Why this is worth a note rather than a comment
 

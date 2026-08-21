@@ -316,7 +316,7 @@ export interface ExtractInput {
    * ground truth: it returns a confident brand for a garment with no brand
    * mark anywhere in frame (vault/30-platform/ebay-visual-search.md).
    */
-  visualCandidates?: VisualCandidate[];
+  visualCandidates?: VisualCandidate[] | Promise<VisualCandidate[]>;
 }
 
 export interface FieldConflict {
@@ -653,7 +653,57 @@ const EXTRACT_TOOL: Anthropic.Tool = {
 // Exported for the prompt-assembly tests (US-2767). The framing of the two
 // outside-information blocks is the whole mechanism, so it is asserted
 // rather than trusted to survive editing.
-export function buildUserPrompt(input: ExtractInput): string {
+/**
+ * How long the visual pass gets once everything else is ready (US-2768).
+ *
+ * Small, and it is a SECOND deadline rather than the provider's own: by the
+ * time this is awaited the photos are inlined and the model call is the only
+ * thing left, so every millisecond spent here is a millisecond the seller
+ * waits for nothing. scout-identify.ts uses 1500ms as the provider's own bound;
+ * this is the residual after the overlap, so it is shorter on purpose.
+ */
+export const VISUAL_CANDIDATE_DEADLINE_MS = 800;
+
+/**
+ * Resolve the caller's visual pass, or give up on it.
+ *
+ * Three ways to get nothing, all identical downstream: not supplied, threw, or
+ * took too long. The extraction must be unable to tell the difference, because
+ * the alternative is that an experiment degrades the path that works.
+ */
+export async function resolveVisualCandidates(
+  pending: VisualCandidate[] | Promise<VisualCandidate[]> | undefined,
+  deadlineMs: number = VISUAL_CANDIDATE_DEADLINE_MS,
+): Promise<VisualCandidate[]> {
+  if (!pending) return [];
+  if (Array.isArray(pending)) return pending;
+  try {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), deadlineMs);
+    });
+    const winner = await Promise.race([pending, timeout]);
+    if (timer !== undefined) clearTimeout(timer);
+    if (winner == null) {
+      console.log("[ai-extract] visual candidates missed the deadline");
+      // The promise is abandoned, not cancelled. Attach a catch so a later
+      // rejection cannot surface as an unhandled rejection and crash-loop the
+      // container (vault/10-ops/edge-hang-vs-crash-loop.md).
+      void Promise.resolve(pending).catch(() => {});
+      return [];
+    }
+    return winner;
+  } catch (err) {
+    console.error("[ai-extract] visual candidates failed:", err);
+    return [];
+  }
+}
+
+export function buildUserPrompt(
+  input: Omit<ExtractInput, "visualCandidates"> & {
+    visualCandidates?: VisualCandidate[];
+  },
+): string {
   const parts: string[] = [];
   if (input.text && input.text.trim()) {
     parts.push(`ITEM DESCRIPTION:\n${input.text.trim()}`);
@@ -866,7 +916,25 @@ export async function extractItemFields(
   // whole call); each block is captioned with its slot (tag/front/…).
   const content: Anthropic.ContentBlockParam[] = await buildPhotoContent(photos);
   if (packBlock) content.push({ type: "text", text: packBlock });
-  content.push({ type: "text", text: buildUserPrompt(input) });
+
+  // US-2768: the visual pass is handed in as a PROMISE, started by the caller
+  // before this function was entered, and only awaited here.
+  //
+  // It cannot run truly concurrently with the model call, because its whole
+  // purpose is to be IN the prompt for the model to rule on. But it can run
+  // concurrently with everything before the prompt - fetching and inlining
+  // every photo, and loading the brand pack - which are the network-bound
+  // parts. Measured at ~1s against those, most of it is already paid for.
+  //
+  // A failure or a timeout yields no candidates, which is a prompt identical
+  // to today's. An unproven provider must never be able to break extraction.
+  const resolvedCandidates = await resolveVisualCandidates(
+    input.visualCandidates,
+  );
+  content.push({
+    type: "text",
+    text: buildUserPrompt({ ...input, visualCandidates: resolvedCandidates }),
+  });
 
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
     ? { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } }
