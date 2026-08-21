@@ -551,6 +551,7 @@ function decodedFrom(
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
   };
 }
 

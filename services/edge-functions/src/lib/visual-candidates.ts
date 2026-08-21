@@ -110,6 +110,16 @@ export function buildCandidateBlock(
     "- Rejecting is a correct and expected outcome, not a failure to be helpful.",
     "- Never copy a candidate into a field you would otherwise have left empty",
     "  purely because it was offered.",
+    "",
+    // WITHOUT THIS the block asks for a decision and gives it nowhere to go.
+    // The rules above were unenforceable for exactly that reason: the model was
+    // told to name its evidence and had no field to name it in.
+    "Report every decision in visual_rulings, one entry per candidate above:",
+    "  field, value, verdict (\"accepted\" or \"rejected\"), and on an",
+    "  acceptance, evidence — one of: style_code, tag_wordmark,",
+    "  visual_consensus, model_knowledge.",
+    "An acceptance naming no evidence is discarded, so leaving it out is the",
+    "same as rejecting it.",
   ].join("\n");
 }
 
@@ -123,6 +133,72 @@ export function buildCandidateBlock(
  * trusted to self-censor. An unevidenced acceptance is exactly the anchoring
  * this module exists to prevent, so it is removed here where it cannot argue.
  */
+/**
+ * Read the model's rulings out of a tool payload, defensively.
+ *
+ * Anything malformed is DROPPED rather than coerced. A ruling is only ever used
+ * to remove a suggestion, so a half-parsed one can only cause a wrong removal -
+ * and silently discarding a garbled rejection is the safer of the two failures.
+ */
+export function parseRulings(raw: unknown): CandidateRuling[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CandidateRuling[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const r = entry as Record<string, unknown>;
+    const field = typeof r.field === "string" ? r.field.trim() : "";
+    const value = typeof r.value === "string" ? r.value.trim() : "";
+    if (!field || !value) continue;
+    const verdict = r.verdict === "accepted" || r.verdict === "rejected"
+      ? r.verdict
+      : null;
+    if (!verdict) continue;
+    const ev = typeof r.evidence === "string" ? r.evidence : "";
+    const evidence = (EVIDENCE_PRECEDENCE as readonly string[]).includes(ev)
+      ? (ev as EvidenceKind)
+      : null;
+    out.push({ field, value, verdict, evidence });
+  }
+  return out;
+}
+
+/**
+ * Remove any suggestion the model itself rejected.
+ *
+ * THIS IS THE ENFORCEMENT, and the reason the rest of the module is worth
+ * anything. A model that writes "rejected: Lululemon" and then puts Lululemon
+ * in the brand field has told us two things and we were believing the wrong
+ * one - the free-text verdict costs it nothing, while the field is what reaches
+ * the seller's listing.
+ *
+ * Matching is trimmed and case-insensitive, because "lululemon" and
+ * "Lululemon" are the same rejection. It is also VALUE-SCOPED: a rejected brand
+ * only clears the brand field when the field still holds that same brand, so a
+ * model that rejects the candidate and independently reads a DIFFERENT brand off
+ * the tag keeps its own answer.
+ */
+export function applyRulings<T extends { value: string }>(
+  suggestions: Record<string, T>,
+  rulings: readonly CandidateRuling[],
+): Record<string, T> {
+  const rejected = new Map<string, Set<string>>();
+  for (const r of rulings) {
+    if (r.verdict !== "rejected") continue;
+    const key = r.field.trim().toLowerCase();
+    if (!rejected.has(key)) rejected.set(key, new Set());
+    rejected.get(key)!.add(r.value.trim().toLowerCase());
+  }
+  if (rejected.size === 0) return suggestions;
+
+  const out: Record<string, T> = {};
+  for (const [field, suggestion] of Object.entries(suggestions)) {
+    const bad = rejected.get(field.trim().toLowerCase());
+    if (bad && bad.has(String(suggestion.value).trim().toLowerCase())) continue;
+    out[field] = suggestion;
+  }
+  return out;
+}
+
 export function dropUnevidenced(
   rulings: readonly CandidateRuling[],
 ): CandidateRuling[] {

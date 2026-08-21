@@ -16,7 +16,12 @@ import {
 } from "./brand-knowledge.ts";
 import { decodeTagCode, type DecodeResult } from "./brand-decoders.ts";
 import {
+  applyRulings,
   buildCandidateBlock,
+  type CandidateRuling,
+  dropUnevidenced,
+  EVIDENCE_PRECEDENCE,
+  parseRulings,
   type VisualCandidate,
 } from "./visual-candidates.ts";
 // US-2677: the same seller-text sanitizer the grading prompts use. One
@@ -370,6 +375,16 @@ export interface ExtractionResult {
   /** Short eBay Taxonomy search query (e.g. "men's flannel shirt") so the
    * caller can resolve a leaf category without a second AI call. */
   ebayCategoryQuery: string | null;
+  /**
+   * US-2767: what the model decided about each visual candidate, AFTER
+   * unevidenced acceptances were dropped.
+   *
+   * Kept on the result rather than consumed and forgotten, because a rejection
+   * is the only measurement of whether the visual provider is any good. An
+   * ignored rejection and an absent candidate look identical otherwise, and
+   * only one of them means the provider is wrong.
+   */
+  visualRulings: CandidateRuling[];
   model: string;
   tokensIn: number;
   tokensOut: number;
@@ -625,6 +640,21 @@ const EXTRACT_TOOL: Anthropic.Tool = {
             photo_value: { type: "string" },
           },
           required: ["field", "text_value", "photo_value"],
+        },
+      },
+      visual_rulings: {
+        type: "array",
+        description:
+          "US-2767. One entry per candidate in the UNVERIFIED EXTERNAL GUESS block, if that block was present. An acceptance with no evidence is discarded server-side.",
+        items: {
+          type: "object",
+          properties: {
+            field: { type: "string" },
+            value: { type: "string" },
+            verdict: { type: "string", enum: ["accepted", "rejected"] },
+            evidence: { type: "string", enum: [...EVIDENCE_PRECEDENCE] },
+          },
+          required: ["field", "value", "verdict"],
         },
       },
       measurements: {
@@ -1175,14 +1205,21 @@ export function decodeExtraction(
     }
   }
 
+  // US-2767. Order matters: drop the unevidenced ACCEPTANCES first, then let
+  // what survives act on the suggestions. Doing it the other way round would
+  // let an acceptance the server is about to discard protect a value from a
+  // rejection in the same payload.
+  const visualRulings = dropUnevidenced(parseRulings(raw.visual_rulings));
+
   return {
-    suggestions,
+    suggestions: applyRulings(suggestions, visualRulings),
     attributes,
     research,
     conditionSummary,
     conflicts,
     measurements: Object.keys(measurements).length > 0 ? measurements : null,
     ebayCategoryQuery,
+    visualRulings,
   };
 }
 

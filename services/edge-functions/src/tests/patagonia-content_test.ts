@@ -89,6 +89,7 @@ Deno.test("US-1723: a Patagonia style number confirms the canonical brand 'Patag
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
   };
   const { decoded: out } = enrichExtractionWithBrandKnowledge(decoded, seededPatagoniaPack());
   assertEquals(out.suggestions.brand?.value, "Patagonia");

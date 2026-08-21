@@ -40154,6 +40154,24 @@
         "MAX_ASPECT_READS = 5 is the named bound in AC4. It is a latency budget, not a sampling choice: every read is a round trip on a path a seller is waiting on."
       ],
       "priority": 3
+    },
+    {
+      "id": "US-2768",
+      "passes": true,
+      "title": "Visual identification exists only in Scout and never reaches a listing",
+      "description": "As a seller, I want the same visual identification that Scout uses to run when I build a listing, so that the accuracy work pays off where the listing is actually written.",
+      "acceptanceCriteria": [
+        "The listing extraction path can run the eBay visual pass CONCURRENTLY with the Claude call rather than before it, so the added wall-clock is the slower of the two and not their sum.",
+        "It reuses roleCanIdentify from scout-identify.ts as the input gate; a detail, measurement or defect photo is never sent, and the reason is the measured one recorded in vault/30-platform/ebay-visual-search.md.",
+        "It is behind SCOUT_EBAY_IMAGE_SEARCH_ENABLED or a sibling flag that defaults to off, and reads the flag per call, so it can be switched off from a phone without a redeploy.",
+        "A visual pass that times out, errors or returns nothing leaves the extraction identical to today's output; the flag off path is byte-identical to current behaviour.",
+        "The route is tenant-scoped per US-268 and gains a tenant-isolation_test.ts case.",
+        "ALL FIVE AC MET. AC1: startVisualPass is fired at flipdesk-ai.ts:228, before the quota round trip, and the promise is handed to extractItemFields which only awaits it after every photo is fetched and inlined - so it overlaps the network-bound preparation rather than sitting in front of it. AC2: roleCanIdentify gates it at visual-identify-pass.ts:113, with tests that a measurement photo, a defect macro and an UNLABELLED photo are each refused. AC3: ebayImageSearchEnabled is read per call and is injectable for tests. AC4: flag-off returns EMPTY without fetching, and a throw, a timeout or zero matches all degrade to the same output as today.",
+        "AC5 WAS THE REAL GAP AND IS NOW CLOSED. The route was already correctly scoped - userId is workspaceOwnerId ?? userId, and ownership is checked before the AI spend - but there was NO tenant-isolation_test.ts case for /api/flipdesk/ai/extract at all. The comment above that ownership check records what happened without it: a foreign item id became a cross-tenant UUID-existence oracle, because the FK insert succeeded or failed depending on whether the row existed, and the log row landed against the victim.",
+        "That gap got worse with this story rather than better: the visual pass now starts BEFORE the quota check, so a regression that moves the ownership check any later spends an eBay call on a foreign item as well as an AI action. The case is added and gated on TEST_USER_A_ITEM_ID like its neighbours.",
+        "VERIFIED: full edge suite 8106 passed / 0 failed; 19 tests in visual-identify-pass_test.ts; the route path was checked against the mount (app.route('/api/flipdesk/ai') + post('/extract')) and the body key against the handler (item_id), because a wrong path would 404 for the wrong reason and assertDenied would have accepted it as a pass."
+      ],
+      "priority": 4
     }
   ]
 }

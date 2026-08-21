@@ -91,6 +91,7 @@ Deno.test("US-1724: a TNF style code confirms 'The North Face'", () => {
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
   };
   const { decoded: out } = enrichExtractionWithBrandKnowledge(decoded, seededTnfPack());
   assertEquals(out.suggestions.brand?.value, "The North Face");

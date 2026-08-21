@@ -109,6 +109,7 @@ Deno.test("US-1719: a Nike style code confirms the CANONICAL brand 'Nike' (not l
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
   };
   const { decoded: out } = enrichExtractionWithBrandKnowledge(decoded, seededNikePack());
   assertEquals(out.suggestions.brand?.value, "Nike"); // canonical, from pack.brand

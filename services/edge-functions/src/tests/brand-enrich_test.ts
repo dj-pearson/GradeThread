@@ -50,6 +50,7 @@ function decoded(over: Partial<DecodedExtraction> = {}): DecodedExtraction {
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
     ...over,
   };
 }

@@ -98,6 +98,7 @@ Deno.test("US-1720: an adidas article code confirms the canonical brand 'adidas'
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
   };
   const { decoded: out } = enrichExtractionWithBrandKnowledge(decoded, seededAdidasPack());
   assertEquals(out.suggestions.brand?.value, "adidas");

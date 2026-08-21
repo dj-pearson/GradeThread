@@ -91,6 +91,7 @@ Deno.test("US-1722: a Carhartt style code confirms the canonical brand 'Carhartt
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
   };
   const { decoded: out } = enrichExtractionWithBrandKnowledge(decoded, seededCarharttPack());
   assertEquals(out.suggestions.brand?.value, "Carhartt");

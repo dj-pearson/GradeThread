@@ -90,6 +90,7 @@ Deno.test("US-1721: a Levi's fit number confirms the canonical brand \"Levi's\""
     conflicts: [],
     measurements: null,
     ebayCategoryQuery: null,
+    visualRulings: [],
   };
   const { decoded: out } = enrichExtractionWithBrandKnowledge(decoded, seededLevisPack());
   assertEquals(out.suggestions.brand?.value, "Levi's");

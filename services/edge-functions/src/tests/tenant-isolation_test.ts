@@ -334,6 +334,36 @@ Deno.test({
 });
 
 Deno.test({
+  // US-2768 AC5. The extract route spends a paid AI action against an item id
+  // from the body, writes an ai_enrichment_log row keyed on it, and persists
+  // canonical attributes onto it. Every one of those is a write on A's tenant
+  // driven by a value B controls.
+  //
+  // The route checks ownership BEFORE the spend, and the comment above that
+  // check records what happened when it did not: the FK insert succeeded or
+  // failed depending on whether the row existed, which made a foreign item id a
+  // cross-tenant UUID-existence oracle, and the log row landed against A.
+  //
+  // That check had no test. The visual pass added in US-2768 starts BEFORE the
+  // quota round trip, so a regression that moves the ownership check any later
+  // now also spends an eBay call on a foreign item.
+  name: "B cannot run AI extraction against A's item",
+  ignore: !CONFIGURED || !Deno.env.get("TEST_USER_A_ITEM_ID"),
+  fn: async () => {
+    const itemId = Deno.env.get("TEST_USER_A_ITEM_ID")!;
+    const res = await fetch(`${BASE}/api/flipdesk/ai/extract`, {
+      method: "POST",
+      headers: authHeaders(B_JWT!),
+      body: JSON.stringify({
+        item_id: itemId,
+        text: "attacker-supplied description",
+      }),
+    });
+    await res.body?.cancel();
+    assertDenied(res.status, "POST ai/extract (foreign item_id)");
+  },
+});
+Deno.test({
   // The aspects write-back folds specifics-editor values into an item's
   // Brand/Size/Color/Material/Style COLUMNS. Unscoped, B could overwrite the
   // identity of A's garment — and those columns are the write-authority at
