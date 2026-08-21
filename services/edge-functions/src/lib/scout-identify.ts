@@ -27,11 +27,64 @@ import { cachedSearchBrowseComps } from "./comps-cache.ts";
 
 export interface IdentifyRequest {
   imageDataUri: string | null;
+  /**
+   * What the photo SHOWS, when the caller knows — "front", "tag", "detail" and
+   * so on. Optional, and its absence is meaningful: see roleCanIdentify.
+   */
+  imageRole?: string | null;
   barcode: string;
   q: string;
   brand: string;
   categoryId: string;
   size: string;
+}
+
+/**
+ * Photo roles a visual search can actually identify from (US-2762).
+ *
+ * MEASURED, NOT GUESSED. The US-2758 spike put 24 real thrift photos through
+ * eBay's search_by_image against production, and the photo's TYPE decided the
+ * entire outcome:
+ *
+ *   whole-garment shot   5/5 correct brand, sometimes the exact style name,
+ *                        with no tag anywhere in the frame
+ *   brand-tag close-up   correct at rank 1, provided the WORDMARK is legible
+ *   care/composition label  a midi dress, joggers and a mini skirt
+ *   tape measure on a hem   mens dress pants
+ *   defect macro of red fabric   red fabric sold BY THE YARD
+ *
+ * The failures are not eBay malfunctioning. It answers the question the photo
+ * asks, and a frame containing only red fabric is a question about fabric. So
+ * this is a gate on the INPUT, not a confidence filter on the output: there is
+ * no signal in the result that says "this came from a ruler shot".
+ *
+ * `label` and `tag` are in because the brand-tag macro measured well. That is
+ * the one entry here that is a judgement call rather than a clean result: a hem
+ * tag carrying only a logo and no wordmark returned Athleta leggings for a
+ * Faherty polo. The wordmark is what works, and we cannot tell from the role
+ * alone whether the tag in the frame has one.
+ */
+export const IDENTIFYING_PHOTO_ROLES: ReadonlySet<string> = new Set([
+  "front",
+  "back",
+  "flatlay",
+  "label",
+  "tag",
+]);
+
+/**
+ * May visual search be shown a photo in this role?
+ *
+ * UNKNOWN MEANS NO (AC6). An absent or unrecognised role is not treated as
+ * permission: a photo nobody labelled is likelier to be a detail shot than a
+ * flatlay, and the cost of guessing wrong is not a miss but a confident wrong
+ * answer that gets priced against. Declining is free — identifyWithFallback
+ * reads a null as "not my case" and goes straight to hints without even
+ * spending the timeout.
+ */
+export function roleCanIdentify(role: string | null | undefined): boolean {
+  if (typeof role !== "string") return false;
+  return IDENTIFYING_PHOTO_ROLES.has(role.trim().toLowerCase());
 }
 
 export interface IdentifyOutcome {
@@ -219,6 +272,13 @@ export const ebayImageProvider: IdentifyProvider = {
   name: "ebay-image",
   async identify(req, conditionId) {
     if (!req.imageDataUri) return null;
+    // US-2762: the gate is BEFORE the call, not after it.
+    //
+    // A detail, defect or measurement shot does not produce a weak answer that
+    // could be filtered downstream — it produces a confident one about the
+    // wrong thing. There is nothing in the response to filter on, so the only
+    // place this can be decided is here, on the input.
+    if (!roleCanIdentify(req.imageRole)) return null;
     // eBay wants raw base64; a data: prefix is rejected.
     const comma = req.imageDataUri.indexOf(",");
     const base64 = comma === -1 ? req.imageDataUri : req.imageDataUri.slice(comma + 1);

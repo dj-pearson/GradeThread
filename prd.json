@@ -2764,7 +2764,7 @@
     },
     {
       "id": "US-2762",
-      "passes": false,
+      "passes": true,
       "title": "Scout: visual search must not be handed a ruler shot",
       "description": "As a reseller, I want Scout to send eBay visual search only the photos that can identify a garment, so that a measurement or defect close-up does not come back as a confident wrong answer.",
       "acceptanceCriteria": [
@@ -2773,7 +2773,11 @@
         "ebayImageProvider must decline (return null, which the seam already treats as 'not my case') rather than call eBay when the photo's role is not one that can carry an identification. Front, back and flatlay qualify. Label qualifies only because a legible wordmark measured well. Detail, defect and measurement do not.",
         "Declining is free: identifyWithFallback already falls through to hintsProvider on null, so a skipped call costs nothing and does not even spend the timeout.",
         "A test asserts each role: a front-role request reaches the image provider, a detail-role request never calls searchBrowseCompsByImage at all. Assert on the eBay client being uncalled, not on the shape of the result -- a provider that calls and discards still burns the latency this story exists to save.",
-        "If the caller cannot say what role a photo has, the safe default is to skip visual search, not to try it. An unidentified photo is more likely to be a detail shot than a flatlay."
+        "If the caller cannot say what role a photo has, the safe default is to skip visual search, not to try it. An unidentified photo is more likely to be a detail shot than a flatlay.",
+        "DONE 2026-08-21. IDENTIFYING_PHOTO_ROLES = {front, back, flatlay, label, tag} and roleCanIdentify() in lib/scout-identify.ts; ebayImageProvider returns null before touching the network when the role does not qualify. Every entry is a measured US-2758 result rather than an opinion, and a test pins the set so it cannot grow without one.",
+        "AC5 SATISFIED AS WRITTEN: the assertion is on the NETWORK BOUNDARY, not the return value. globalThis.fetch is replaced with a counter, and a detail-role and an unlabelled request each leave it at zero. The mirror test proves a front-role request DOES reach it - without that, a gate refusing everything would pass every other case.",
+        "AC6 SATISFIED: undefined, null, empty, whitespace and unrecognised roles are all refused. The route bodies carry no role today (/appraise takes body.image, /prospect takes body.images, both bare strings), so this default is currently load-bearing - visual search stays off until a caller starts labelling photos, which is US-2759's job.",
+        "SABOTAGE-CHECKED: removing the gate, treating an unknown role as permission, and adding 'detail' to the allowlist each fail. 8 tests; the existing scout-identify and comp-speculation suites still pass 29/29."
       ],
       "dependsOn": [
         "US-2756"
