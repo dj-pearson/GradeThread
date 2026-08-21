@@ -9,6 +9,7 @@ code_refs:
   - services/edge-functions/src/lib/visual-aspect-consensus.ts
   - services/edge-functions/src/lib/category-decision.ts
   - services/edge-functions/src/lib/scout-identify.ts
+  - services/edge-functions/src/lib/prospect-identify.ts
   - services/edge-functions/src/lib/ai-extract.ts
 reviewed: 2026-08-21
 tags: [identification, ebay, ai, category, contract]
@@ -46,6 +47,55 @@ gets replaced by a plausible one.
 > match with forty supporting listings still loses to one legible tag — and it
 > would win on any number, because it has forty of something. Replacing the
 > ordering with a score silently inverts it.
+
+## Before the ordering: which mechanism runs at all
+
+The table above adjudicates between evidence that EXISTS. A separate decision
+comes first — whether visual search is consulted for this item, and whether the
+tag is read. It is made in `prospect-identify.ts` and it follows **what the
+seller photographed**, which is the one signal neither mechanism can fake.
+
+| What is in frame | What runs | Why |
+|---|---|---|
+| a `tag` or `label` photo | `extractMatchHints` reads the tag | Text printed on the garment is row 2, and it is what they went to the trouble of photographing. |
+| `front` / `back` / `flatlay` only | eBay visual search | There is no text to read, so hints would be looking for something that is not there. Costs no metered AI action. |
+| anything else, or unlabelled | the hints path, unchanged | An unlabelled photo is likelier to be a detail shot than a flatlay. |
+
+When visual search carries it, `extractMatchHints` does not run at all — one
+metered AI action per prospect instead of two. A visual search that declines or
+finds nothing falls back to hints and pays the ordinary action; that fallback is
+silent to the seller and visible in the `reason` field.
+
+### Visual search is never shown a photo it cannot identify from
+
+`roleCanIdentify` in `scout-identify.ts` gates the call on the photo's role, and
+`IDENTIFYING_PHOTO_ROLES` is `{front, back, flatlay, label, tag}`. Every entry is
+a measured result, not an opinion — see [[ebay-visual-search]].
+
+This is a gate on the INPUT rather than a filter on the output, and that is the
+whole design. A care label, a tape measure across a hem and a defect macro do
+not return weak answers that could be filtered downstream; they return confident
+ones about the wrong thing, indistinguishable in the response from the correct
+ones. There is nothing to filter on, so the only place to decide is before the
+call.
+
+**An unknown role is refused, not permitted.** Neither route labels its photos
+yet, so that default is currently what keeps visual search off on unlabelled
+input.
+
+### A guessed identity is never written as fact
+
+Every `IdentifyOutcome` carries `identitySource` (`barcode` | `tag` | `visual`)
+and `identityIsAuthoritative`. Only a barcode is authoritative. A tag read is
+strong — row 2 — but still offered rather than saved, because OCR misreads and a
+tag can name a parent brand or a licensee.
+
+The two providers had opposite postures and the weaker one was the more
+confident: `hintsProvider` already refused to prefill from a keyword hit, while
+`ebayImageProvider` took `items[0].title` unconditionally from a pure similarity
+match. `identifyConfidence` for a visual match is a flat 0.5 rather than a
+borrowed number, because the measurement showed visual search being equally
+confident when right and when wrong.
 
 ## What each source is trusted for
 
