@@ -196,4 +196,8 @@ assets/*
 # CI clone, which is the worst shape a fix can have.
 !assets/measure-card/
 gradethread.com-Performance-on-Search-2026-08-18.zip
-.env.production
+
+# NOT .env.production. It is committed on purpose and un-ignored at the top of
+# this file; re-listing it here re-ignored a TRACKED file, because a later rule
+# wins. That is precisely the state check-tracked-ignored.mjs exists to catch,
+# and it has failed the web lane on every commit since it was added.

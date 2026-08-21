@@ -6,7 +6,7 @@ status: current
 source_of_truth: code
 code_refs:
   - services/edge-functions/src/tests/rls-guard_test.ts
-reviewed: 2026-08-19
+reviewed: 2026-08-21
 tags: [security, rls, tenant-isolation, contract]
 summary: rls-guard discovers tenant tables by regex on the CREATE TABLE block, so an operator table must be registered AND must avoid the literal token user_id; the same file also enforces the (select auth.uid()) initplan form, with a two-entry exemption list that carries repayment triggers.
 ---
@@ -26,6 +26,12 @@ delete from anon, authenticated`, and zero policies.
 > This note is about TABLES. For `SECURITY DEFINER` functions the edge calls,
 > see [[admin-rpc-guards]] — `is_admin()` is always false for the service role,
 > so a bare `is_admin()` guard rejects every call the edge makes.
+
+> **Re-reviewed 2026-08-21.** Drift flagged `rls-guard_test.ts`. The change is
+> one new entry in `SERVICE_ROLE_ONLY` — `identification_provenance` (US-2774,
+> migration 00641) — added by following the two rules below rather than by
+> changing them: it owns an `owner_user_id` and keeps the literal token out of
+> its `CREATE TABLE` block. The rule this note states did not move.
 
 ## Two things to get right when adding one
 

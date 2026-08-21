@@ -39,9 +39,15 @@ function swiftString(name: string): string | null {
 }
 
 /** `static let name = <numeric expression>` — evaluated, so `60 * 1024 * 1024`
- *  is compared as a NUMBER. Comparing the text would pass on `60 * 1024` too. */
+ *  is compared as a NUMBER. Comparing the text would pass on `60 * 1024` too.
+ *
+ *  The line end is `\r?\n`, not `\n`. On a CRLF checkout the `\r` sits between
+ *  the numeric run and the newline, so the anchor matched nothing and this
+ *  returned null for EVERY number — failing the file on a Windows working tree
+ *  while staying green on Linux CI. Same shape as the one in
+ *  extension-unified/test/sync-poll.test.cjs, found the same afternoon. */
 function swiftNumber(name: string): number | null {
-  const m = new RegExp(`static let ${name}\\s*=\\s*([0-9_ */+.]+)\\n`).exec(swift());
+  const m = new RegExp(`static let ${name}\\s*=\\s*([0-9_ */+.]+)\\r?\\n`).exec(swift());
   if (!m) return null;
   const expr = m[1]!.trim().replace(/_/g, "");
   if (!/^[0-9 */+.]+$/.test(expr)) return null;
