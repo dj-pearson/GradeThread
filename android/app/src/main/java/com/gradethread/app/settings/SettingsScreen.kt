@@ -9,9 +9,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -26,6 +29,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gradethread.app.BuildConfig
@@ -344,18 +351,12 @@ fun SettingsScreen(
                 },
             )
 
-            SettingsViewModel.Confirm.DELETE_ACCOUNT -> AlertDialog(
-                onDismissRequest = viewModel::cancelConfirm,
-                title = { Text(stringResource(R.string.settings_delete_your_account)) },
-                text = {
-                    Text(stringResource(R.string.settings_delete_account_body))
-                },
-                confirmButton = {
-                    TextButton(onClick = viewModel::confirmDeleteAccount) { Text(stringResource(R.string.settings_continue)) }
-                },
-                dismissButton = {
-                    TextButton(onClick = viewModel::cancelConfirm) { Text(stringResource(R.string.settings_cancel)) }
-                },
+            SettingsViewModel.Confirm.DELETE_ACCOUNT -> DeleteAccountDialog(
+                state = state,
+                onConfirmTextChange = viewModel::deleteConfirmTextChanged,
+                onPasswordChange = viewModel::deletePasswordChanged,
+                onCancel = viewModel::cancelDelete,
+                onDelete = viewModel::confirmDeleteAccount,
             )
         }
     }
@@ -373,12 +374,7 @@ private fun SectionHeader(title: String) {
 }
 
 @Composable
-private fun SettingRow(
-    title: String,
-    subtitle: String,
-    enabled: Boolean = true,
-    onClick: (() -> Unit)? = null,
-) {
+private fun SettingRow(title: String, subtitle: String, enabled: Boolean = true, onClick: (() -> Unit)? = null) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -404,12 +400,7 @@ private fun SettingRow(
 }
 
 @Composable
-private fun ToggleRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
-) {
+private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     val spoken = stringResource(
         R.string.settings_toggle_spoken,
         title,
@@ -445,4 +436,115 @@ private fun ToggleRow(
                 .defaultMinSize(minHeight = MinTouchTarget),
         )
     }
+}
+
+/**
+ * US-2776: the delete-account dialog, with the typed-phrase gate the web dialog
+ * uses.
+ *
+ * A plain "are you sure" is one mis-tap from erasing a seller's whole business,
+ * and the SERVER requires the phrase anyway - it rejects a delete whose body does
+ * not carry it. A confirm button that could send a request the server will refuse
+ * is a button that lies about what it does.
+ *
+ * Its own Composable rather than inline in [SettingsScreen]: at this size it took
+ * that function past detekt's complexity threshold, and a destructive
+ * confirmation with three fields of its own is a unit of UI in its own right. It
+ * takes callbacks rather than the view model, so it renders in a preview or a
+ * screenshot test with no Hilt graph.
+ */
+@Composable
+private fun DeleteAccountDialog(
+    state: SettingsViewModel.State,
+    onConfirmTextChange: (String) -> Unit,
+    onPasswordChange: (String) -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!state.deleting) onCancel() },
+        title = { Text(stringResource(R.string.settings_delete_your_account)) },
+        text = {
+            Column {
+                Text(stringResource(R.string.settings_delete_account_body))
+                Spacer(Modifier.height(Spacing.xs))
+                Text(
+                    stringResource(R.string.settings_delete_account_export_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(Spacing.sm))
+                OutlinedTextField(
+                    value = state.deleteConfirmText,
+                    onValueChange = onConfirmTextChange,
+                    enabled = !state.deleting,
+                    singleLine = true,
+                    label = { Text(stringResource(R.string.settings_delete_account_phrase_label)) },
+                    placeholder = { Text(AccountDeletionService.CONFIRM_PHRASE) },
+                    supportingText = {
+                        Text(
+                            stringResource(
+                                R.string.settings_delete_account_confirm_hint,
+                                AccountDeletionService.CONFIRM_PHRASE,
+                            ),
+                        )
+                    },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                // Shown only once the server has asked for it. Demanding
+                // a password up front would block every Google account,
+                // which has none.
+                if (state.deletePasswordRequired) {
+                    Spacer(Modifier.height(Spacing.sm))
+                    OutlinedTextField(
+                        value = state.deletePassword,
+                        onValueChange = onPasswordChange,
+                        enabled = !state.deleting,
+                        singleLine = true,
+                        label = { Text(stringResource(R.string.settings_delete_account_password_label)) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done,
+                        ),
+                        supportingText = {
+                            Text(stringResource(R.string.settings_delete_account_password_help))
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                state.deleteError?.let { error ->
+                    Spacer(Modifier.height(Spacing.xs))
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onDelete,
+                enabled = state.deleteConfirmed &&
+                    !state.deleting &&
+                    (!state.deletePasswordRequired || state.deletePassword.isNotEmpty()),
+            ) {
+                Text(
+                    if (state.deleting) {
+                        stringResource(R.string.settings_delete_account_working)
+                    } else {
+                        stringResource(R.string.settings_delete_account_action)
+                    },
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onCancel,
+                enabled = !state.deleting,
+            ) { Text(stringResource(R.string.settings_cancel)) }
+        },
+    )
 }

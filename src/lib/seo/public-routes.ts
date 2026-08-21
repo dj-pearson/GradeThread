@@ -190,6 +190,7 @@ const ROUTE_LAST_MODIFIED: Record<string, string> = {
   "/cookies": "2026-04-01",
   "/acceptable-use": "2026-08-19",
   "/refund": "2026-07-02",
+  "/account-deletion": "2026-08-21",
   "/imprint": "2026-07-02",
   "/dpa": "2026-06-12",
   "/subprocessors": "2026-08-14",
@@ -548,6 +549,14 @@ export const PUBLIC_ROUTES: PublicRoute[] = [
     title: "Acceptable Use Policy",
     description:
       "What is and isn't allowed when using GradeThread's clothing-grading and reseller platform.",
+    changefreq: "yearly",
+    priority: 0.3,
+  },
+  {
+    path: "/account-deletion",
+    title: "Delete your account",
+    description:
+      "How to permanently delete your GradeThread or FlipDesk account and what happens to your data — the deletion URL Google Play requires.",
     changefreq: "yearly",
     priority: 0.3,
   },

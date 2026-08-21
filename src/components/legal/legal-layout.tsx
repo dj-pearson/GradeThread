@@ -21,6 +21,7 @@ const legalNav = [
   { to: "/cookies", label: "Cookie Policy" },
   { to: "/acceptable-use", label: "Acceptable Use" },
   { to: "/refund", label: "Refund & Cancellation" },
+  { to: "/account-deletion", label: "Delete your account" },
   { to: "/dpa", label: "Data Processing Addendum" },
   { to: "/subprocessors", label: "Subprocessors" },
   { to: "/dmca", label: "Copyright / DMCA" },

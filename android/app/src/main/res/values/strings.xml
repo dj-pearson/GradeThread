@@ -313,6 +313,14 @@
     <string name="settings_edge_endpoint">Edge endpoint</string>
     <string name="settings_sign_out_body">This clears the copy of your inventory, sales and queued changes stored on this device. Anything that hasn\'t synced yet will be lost.</string>
     <string name="settings_delete_account_body">This removes your account, your inventory and your grade history permanently. It can\'t be undone.</string>
+    <!-- US-2776: in-app account deletion, required by Google Play's User Data policy. -->
+    <string name="settings_delete_account_confirm_hint">Type %1$s to confirm</string>
+    <string name="settings_delete_account_phrase_label">Confirmation</string>
+    <string name="settings_delete_account_password_label">Password</string>
+    <string name="settings_delete_account_password_help">This account signs in with a password, so we need it before we delete anything.</string>
+    <string name="settings_delete_account_export_hint">Want a copy first? Close this and use Export my data.</string>
+    <string name="settings_delete_account_action">Delete permanently</string>
+    <string name="settings_delete_account_working">Deleting…</string>
 
     <!-- Snap. -->
     <string name="snap_intro">Snap a photo of any garment for an instant AI condition grade and a resale value range.</string>

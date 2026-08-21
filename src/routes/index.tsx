@@ -82,6 +82,7 @@ const TermsPage = lazy(() => import("@/pages/legal/terms").then(m => ({ default:
 const CookiesPage = lazy(() => import("@/pages/legal/cookies").then(m => ({ default: m.CookiesPage })));
 const AcceptableUsePage = lazy(() => import("@/pages/legal/acceptable-use").then(m => ({ default: m.AcceptableUsePage })));
 const RefundPage = lazy(() => import("@/pages/legal/refund").then(m => ({ default: m.RefundPage })));
+const AccountDeletionPage = lazy(() => import("@/pages/legal/account-deletion").then(m => ({ default: m.AccountDeletionPage })));
 const ImprintPage = lazy(() => import("@/pages/legal/imprint").then(m => ({ default: m.ImprintPage })));
 const DpaPage = lazy(() => import("@/pages/legal/dpa").then(m => ({ default: m.DpaPage })));
 const SubprocessorsPage = lazy(() => import("@/pages/legal/subprocessors").then(m => ({ default: m.SubprocessorsPage })));
@@ -468,6 +469,7 @@ export const router = createBrowserRouter([
       { path: "/cookies", element: <SuspenseWrapper><CookiesPage /></SuspenseWrapper> },
       { path: "/acceptable-use", element: <SuspenseWrapper><AcceptableUsePage /></SuspenseWrapper> },
       { path: "/refund", element: <SuspenseWrapper><RefundPage /></SuspenseWrapper> },
+      { path: "/account-deletion", element: <SuspenseWrapper><AccountDeletionPage /></SuspenseWrapper> },
       { path: "/imprint", element: <SuspenseWrapper><ImprintPage /></SuspenseWrapper> },
       { path: "/dpa", element: <SuspenseWrapper><DpaPage /></SuspenseWrapper> },
       { path: "/subprocessors", element: <SuspenseWrapper><SubprocessorsPage /></SuspenseWrapper> },

@@ -1,4 +1,4 @@
-First release of FlipDesk for Android.
+First release of GradeThread for Android.
 
 - Photo-first capture with AI that reads the tag for you
 - Standardised 1-10 condition grades with a shareable certificate
