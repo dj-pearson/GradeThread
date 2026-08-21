@@ -325,6 +325,29 @@
   //      amount through its own Apply control, and clicking that for the seller
   //      would be us deciding the price is right. Leaving it open puts the
   //      number in front of them at the moment they can still change it.
+  // Is this element actually IN the dialog, or does it just answer to the same
+  // selector?
+  //
+  // US-2739 (2026-08-21): the already-open check below is `querySelector(
+  // cfg.price)`, and Poshmark's cfg.price ends in a bare
+  // `input[aria-label="Listing Price"]` clause. A create-form control carrying
+  // that same label matches it with no dialog open anywhere — so the check said
+  // "already open", the modal was never opened, the value went into the opener,
+  // and the run reported the price FILLED. A silent wrong success, which is the
+  // worst of the three outcomes: the seller is told the price is set, sees a
+  // blank Listing price, and has no reason to connect the two.
+  //
+  // The modal's own inputs are id-anchored, so they answer for themselves.
+  // Anything else has to prove it by sitting inside a dialog container. When
+  // neither holds we fall through and click the opener, which is exactly what
+  // this function did before the already-open check existed.
+  GT.inPriceDialog = function (el) {
+    if (!el) return false;
+    if (typeof el.id === "string" && el.id.indexOf("modal") !== -1) return true;
+    if (typeof el.closest !== "function") return false;
+    return !!el.closest('[role="dialog"], [aria-modal="true"], .modal');
+  };
+
   GT.fillPriceDialog = async function (cfg, payload) {
     if (!cfg || !cfg.price) return false;
     try {
@@ -336,6 +359,10 @@
       // first is both faster and the only version that cannot close a dialog
       // the seller opened themselves.
       let input = document.querySelector(cfg.price);
+      if (input && !GT.inPriceDialog(input)) {
+        GT.log("price selector matched outside the dialog — opening it instead");
+        input = null;
+      }
       if (!input) {
         if (!cfg.open) return false;
         const opener = document.querySelector(cfg.open);
@@ -350,7 +377,15 @@
         return false;
       }
 
-      const filled = GT.setValue(input, String(payload.price));
+      // setValue reports that it SET the value, not that the value STUCK. A
+      // React-controlled input can reject one and re-render its old contents,
+      // and reporting that as filled tells the seller the price is handled when
+      // the field is empty. Read it back.
+      GT.setValue(input, String(payload.price));
+      const filled = String(input.value ?? "") === String(payload.price);
+      if (!filled) {
+        GT.log("price dialog input did not hold the value on " + payload.platform);
+      }
       if (cfg.originalPrice && payload.originalPrice) {
         GT.fill(cfg.originalPrice, payload.originalPrice);
       }

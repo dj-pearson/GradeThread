@@ -38,29 +38,58 @@ const CFG = {
  * `dialogOpen` starts with the modal inputs already present. Otherwise they
  * appear only after the opener is clicked, and only if `opensOnClick`.
  */
-function loadGT({ dialogOpen = false, opensOnClick = true, hasOpener = true } = {}) {
+function loadGT({
+  dialogOpen = false,
+  opensOnClick = true,
+  hasOpener = true,
+  // US-2739: the create-form control answers cfg.price's bare aria-label clause
+  // even with no dialog open. This is the Poshmark page as it really is.
+  formAnswersPriceSelector = false,
+  // A React-controlled input that re-renders its old contents.
+  rejectsValue = false,
+} = {}) {
   const src = fs.readFileSync(SRC, "utf8");
   const clicked = [];
 
   class HTMLTextAreaElement {}
   class HTMLInputElement {
-    constructor(id) { this.id = id; this._value = ""; }
+    constructor(id, opts) {
+      this.id = id;
+      this._value = "";
+      this._rejects = !!(opts && opts.rejects);
+      this._ancestors = (opts && opts.ancestors) || [];
+    }
     get value() { return this._value; }
-    set value(v) { this._value = v; }
+    set value(v) { if (!this._rejects) this._value = v; }
     dispatchEvent() { return true; }
     click() { clicked.push(this.id); if (opensOnClick) present = true; }
+    // Only the modal inputs sit inside a dialog container.
+    closest(sel) {
+      return this._ancestors.some((a) => sel.includes(a)) ? { tagName: "DIV" } : null;
+    }
   }
   // Anything the code might click that it must NOT: the Apply/submit control.
   const apply = new HTMLInputElement("apply-button");
 
   let present = dialogOpen;
-  const priceInput = new HTMLInputElement("listing-price-modal-listing-price-input");
-  const origInput = new HTMLInputElement("listing-price-modal-original-price-input");
+  const priceInput = new HTMLInputElement("listing-price-modal-listing-price-input", {
+    rejects: rejectsValue,
+    ancestors: ['[role="dialog"]'],
+  });
+  const origInput = new HTMLInputElement("listing-price-modal-original-price-input", {
+    ancestors: ['[role="dialog"]'],
+  });
+  // No dialog ancestor and no "modal" in its id: it is on the create form.
   const opener = new HTMLInputElement("create-page-price");
 
   const document = {
     querySelector(sel) {
-      if (sel === CFG.price) return present ? priceInput : null;
+      if (sel === CFG.price) {
+        if (present) return priceInput;
+        // The real Poshmark selector ends in a bare aria-label clause, and the
+        // create-form control answers it with no dialog open anywhere.
+        return formAnswersPriceSelector ? opener : null;
+      }
       if (sel === CFG.originalPrice) return present ? origInput : null;
       if (sel === CFG.open) return hasOpener ? opener : null;
       // Anything else on the page, including the Apply control.
@@ -83,7 +112,7 @@ function loadGT({ dialogOpen = false, opensOnClick = true, hasOpener = true } = 
     { log: () => {}, warn: () => {}, error: () => {}, debug: () => {}, info: () => {} },
     { chrome: undefined, browser: undefined },
   );
-  return { GT, clicked, priceInput, origInput, isOpen: () => present };
+  return { GT, clicked, priceInput, origInput, opener, isOpen: () => present };
 }
 
 (async () => {
@@ -209,6 +238,56 @@ function loadGT({ dialogOpen = false, opensOnClick = true, hasOpener = true } = 
     assert.ok(
       fs.readFileSync(SRC, "utf8").includes("GT.fillPriceDialog"),
       "fillPriceDialog is gone",
+    );
+  }
+
+  // ── 7. US-2739: a form control that merely SHARES the label is not the dialog
+  {
+    // Poshmark's cfg.price ends in `input[aria-label="Listing Price"]`, and the
+    // create-form price control answers it. Before this, the already-open check
+    // matched that control, the modal was never opened, the value went into the
+    // opener, and the run reported the price FILLED — a silent wrong success.
+    // The seller is told the price is set and looks at a blank Listing price.
+    const { GT, clicked, priceInput, opener } = loadGT({ formAnswersPriceSelector: true });
+    const ok = await GT.fillPriceDialog(CFG, { price: 42, platform: "poshmark" });
+    assert.strictEqual(
+      ok,
+      true,
+      "it should have opened the dialog and filled the modal's own input",
+    );
+    assert.strictEqual(
+      priceInput.value,
+      "42",
+      "the MODAL input is where the price has to land — Poshmark keeps it there",
+    );
+    assert.deepStrictEqual(
+      clicked,
+      ["create-page-price"],
+      "it never opened the dialog: it treated a create-form control that shares " +
+        "the aria-label as proof the dialog was already up",
+    );
+    assert.strictEqual(
+      opener.value,
+      "",
+      "the price was typed into the OPENER — that field does not hold it, so the " +
+        "seller gets a blank Listing price and a run that claimed success",
+    );
+  }
+
+  // ── 8. US-2739: setValue setting it is not the input KEEPING it ────────────
+  {
+    // A React-controlled input can reject the assignment and re-render its old
+    // contents. setValue returns true either way, so trusting it reports a
+    // filled price over an empty field — the same silent wrong success as
+    // above, arrived at from the other direction.
+    const { GT, priceInput } = loadGT({ dialogOpen: true, rejectsValue: true });
+    const ok = await GT.fillPriceDialog(CFG, { price: 42, platform: "poshmark" });
+    assert.strictEqual(priceInput.value, "", "harness check: the input rejects writes");
+    assert.strictEqual(
+      ok,
+      false,
+      "the input did not keep the value and the run still reported the price " +
+        "filled, so the seller is never warned",
     );
   }
 
