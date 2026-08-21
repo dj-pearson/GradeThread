@@ -2391,7 +2391,7 @@
     },
     {
       "id": "US-2731",
-      "passes": false,
+      "passes": true,
       "title": "A developer build can never connect its account: an unpacked id falls through to the store id and the token goes nowhere",
       "description": "As someone testing the extension from an unpacked build, I want to connect it to my account, so that I can exercise the seller flows before a store release.",
       "acceptanceCriteria": [
@@ -2400,13 +2400,16 @@
         "A mismatching id now selects the BRIDGE rather than a wrong address. gt-bridge.js is our own content script, injected only by our own extension, so the token reaches the install in front of the user and cannot reach a third party; the untrusted ?ext value is used as a SIGNAL that the configured id is wrong, never as a destination.",
         "sendExtensionMessage gains opts.preferBridge, which selects sendViaBridge when the bridge marker is present. It does not weaken the default path: with no preferBridge the id-addressed transport is still preferred exactly as before.",
         "3 guards in src/test/cross-post-setup.test.ts assert the signal is a boolean rather than an address, that targetExtId still requires equality, and that preferBridge routes only to sendViaBridge.",
-        "Follow-on, NOT done here: a manifest \"key\" field in extension-unified/manifest.json would give an unpacked build the same id as the store build and remove this whole class of problem. It needs the public half of the store signing key, which was untracked under US-2284 and is not in the repo."
+        "Follow-on, NOT done here: a manifest \"key\" field in extension-unified/manifest.json would give an unpacked build the same id as the store build and remove this whole class of problem. It needs the public half of the store signing key, which was untracked under US-2284 and is not in the repo.",
+        "AC5's three guards VERIFIED 2026-08-21 by sabotage, control-first, all three caught: making targetExtId accept a non-matching query id, turning preferBridge from a boolean into the untrusted id, and routing preferBridge to an id-addressed send instead of the bridge.",
+        "The first of those is the security rule AC2 keeps, and it is the one worth the guard: a token must never be posted to an arbitrary id from a query parameter. The mismatching id is a SIGNAL that the configured id is wrong, never a destination.",
+        "AC6 stands as filed and is not done here: a manifest 'key' field would give an unpacked build the store id and remove the class. It needs the public half of the store signing key, which is not in the repo - and under US-2284 that key is treated as burned, so the follow-on should use the key that replaces it."
       ],
       "priority": 12
     },
     {
       "id": "US-2733",
-      "passes": false,
+      "passes": true,
       "title": "Reloading the extension orphans the page's relay, and the site waits 130 seconds for a reply that can never come",
       "description": "As someone developing against an unpacked build, I want a reload to fail fast and tell me to refresh the tab, so that I do not sit through a two-minute spinner every time I change the extension.",
       "acceptanceCriteria": [
@@ -2415,7 +2418,9 @@
         "That is non-delivery - nothing received the message and no push is coming - but it arrived as a plain transportError, which a job send deliberately does NOT settle on (US-1874, so a suspended worker's live job is never falsely failed). So it ran to the full 130s EXTENSION_TIMEOUT_MS backstop.",
         "isUndeliverable now also matches 'extension context invalidated', and gt-bridge.js sets undelivered on all THREE paths it can fail on: the Chromium lastError callback, the promise rejection, and the synchronous throw. A guard counts all three.",
         "The US-1874 guarantee is untouched: a plain transportError with no undelivered flag still does not settle, and that is separately asserted.",
-        "The message now leads with the fix that actually works - reload the page - rather than sending the reader to their extensions page, which is the wrong place when the extension is installed and fine and only this tab is stale."
+        "The message now leads with the fix that actually works - reload the page - rather than sending the reader to their extensions page, which is the wrong place when the extension is installed and fine and only this tab is stale.",
+        "VERIFIED 2026-08-21 by sabotage, control-first, both caught. Removing 'extension context invalidated' from isUndeliverable fails src/test/lister-undelivered.test.ts, which drives the real sender against a stubbed chrome.runtime and asserts an undeliverable reply settles at 0ms advanced rather than at the 130s backstop. Renaming one of the three `undelivered: isDead(` sites in gt-bridge.js fails the count guard in cross-post-setup.test.ts - so AC4's 'a guard counts all three' is real.",
+        "AC5's guarantee is separately asserted and separately sabotaged: a plain transportError with no undelivered flag is still NOT settled after 1000ms and only settles at the backstop, so US-1874's durable-push behaviour was not traded away to fix this."
       ],
       "priority": 12
     },
