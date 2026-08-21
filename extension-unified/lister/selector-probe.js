@@ -61,8 +61,22 @@
       "shareInternal", "shareToFollowers", "offerPriceInput", "offerSubmit",
       "actionConfirmed",
     ],
-    list: [],
+    // US-2739: the price dialog. `priceDialog.open` is a create-page control and
+    // must resolve; its two inputs live inside the modal and cannot, until it is
+    // opened. Reporting those two as failures would bury the one line that
+    // matters.
+    list: ["priceDialog.price", "priceDialog.originalPrice"],
   };
+
+  /**
+   * Nested selector groups that belong to the LIST flow.
+   *
+   * An allowlist, not "every object-valued key". The platform config also holds
+   * `delist` and `engage`, which are their own flows probed on their own pages —
+   * walking them here would bury the create-page report under two dozen misses
+   * that are all expected.
+   */
+  var LIST_GROUPS = ["priceDialog"];
 
   /**
    * The selectors a flow declares, flattened to {key, selector, required}.
@@ -93,6 +107,27 @@
       var fields = (cfg && cfg.fields) || {};
       Object.keys(fields).forEach(function (k) { push(k, fields[k]); });
       push("submit", cfg && cfg.submit);
+      // US-2739: nested selector GROUPS, of which `priceDialog` is the first.
+      //
+      // The walker below only ever pushed STRING values, so an object-valued key
+      // was skipped in silence — and priceDialog is an object. Its three
+      // selectors have therefore never been probed, on any run, while the deep
+      // report said the Poshmark list flow probed clean. The one selector in the
+      // whole flow that was INFERRED rather than read off the page is the one
+      // nothing was measuring.
+      //
+      // Keys are dotted (`priceDialog.open`) so a miss names which group it came
+      // from, and so POST_INTERACTION can speak about one member of a group.
+      LIST_GROUPS.forEach(function (k) {
+        var group = cfg && cfg[k];
+        if (!group || typeof group !== "object" || Array.isArray(group)) return;
+        Object.keys(group).forEach(function (gk) {
+          if (typeof group[gk] !== "string") return;
+          if (/Pattern$/.test(gk) || /Url$/.test(gk) || /^navigatesTo$/.test(gk)) return;
+          if (gk === "version" || gk === "lastVerified" || gk === "enabled") return;
+          push(k + "." + gk, group[gk]);
+        });
+      });
     } else {
       // Every string on a flow used to be treated as a selector, with two names
       // hard-coded out. That is backwards: adding ANY new string key to a flow
