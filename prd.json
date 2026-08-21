@@ -2468,7 +2468,7 @@
     },
     {
       "id": "US-2737",
-      "passes": false,
+      "passes": true,
       "title": "Style tags are typed into Poshmark's tag box but never committed, so a field that looks filled holds nothing",
       "description": "As a seller cross-posting to Poshmark, I want my style tags to become real tags, so that the field either carries them or is honestly empty rather than holding uncommitted text.",
       "acceptanceCriteria": [
@@ -2478,7 +2478,11 @@
         "An entry that does NOT clear stops the loop rather than continuing - typing the next word on top of uncommitted text would concatenate them into one nonsense tag. Verified against three cases: all commit, the second sticks, the first sticks.",
         "Reported as tagsCommitted / tagsTotal, counts rather than a boolean, for the same reason photos are counted: '2 of 3' is the difference between fixing it now and finding out later.",
         "tagsMax 3 comes from Poshmark's own cap ('Add up to 3 tags'), configured per platform rather than hard-coded, so a fourth entry is never attempted.",
-        "COLOUR is declared for the probe and NOT filled, the same two-step that produced the brand and price anchors. The data-vv-name clauses are the informed guess; the deep sweep showed no colour text input and the kit's label is 'Color (up to 2)', so it is most likely a SWATCH PICKER - the same class as size and category, where a wrong pick is worse than an empty field. If the next report says picker, it stays unfilled and that is the finding."
+        "COLOUR is declared for the probe and NOT filled, the same two-step that produced the brand and price anchors. The data-vv-name clauses are the informed guess; the deep sweep showed no colour text input and the kit's label is 'Color (up to 2)', so it is most likely a SWATCH PICKER - the same class as size and category, where a wrong pick is worse than an empty field. If the next report says picker, it stays unfilled and that is the finding.",
+        "AC4 HAD NO AUTOMATED GUARD, added 2026-08-21. The story says the stop-on-stick behaviour was 'verified against three cases: all commit, the second sticks, the first sticks'. Once, by hand. extension-unified/test/commit-tags.test.cjs runs those three every time, plus the cap and the nothing-to-do cases. Discovered by scripts/test-extensions.mjs, so it is in verify:web and CI (37 files pass).",
+        "THE FAILURE IT GUARDS IS NOT A MISSING TAG. If an entry sticks and the loop carries on, the next word is typed ON TOP of the uncommitted text and the two concatenate into one nonsense tag - 'vintagedenim' on a live listing. Stopping leaves fewer tags, which is recoverable and honest.",
+        "SABOTAGE-CHECKED, control-first: continuing past an uncommitted tag is caught, and ignoring the marketplace cap is caught.",
+        "THE HARNESS WAS WRONG FIRST AND WOULD HAVE PASSED EVERYTHING. It counted Enter EVENTS, but commitTags dispatches keydown, keypress and keyup per tag - so 'the second tag sticks' actually meant 'the second keystroke of the first tag sticks', and the third keystroke cleared it anyway. All three cases passed against a model that could not express the failure. It counts value WRITES now."
       ],
       "priority": 12,
       "notes": "COLOUR ANSWERED 2026-08-20: the founder confirmed on the live form that colour is a SELECTION, not a text input - which is what the deep sweep implied when it found no colour text box. The declaration has been REMOVED rather than left unfilled: a selector that can never match reports 'missing' in every future probe, and a permanent miss reads as a broken channel when nothing is broken. The finding is recorded in the config comment instead. Colour therefore joins size, category and condition as an option list whose choices vary per garment, where a wrong pick is worse than an empty field; Poshmark requires category and size before it will publish anyway, so the seller is on that screen regardless. Filling pickers is its own story with its own verification, not a line added to the field list. TAGS shipped in this change and are unaffected."
