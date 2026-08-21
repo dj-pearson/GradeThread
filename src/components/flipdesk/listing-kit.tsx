@@ -498,12 +498,15 @@ function PlatformPanel({
       // and showing only the louder one would hide the other.
       const priceMsg = priceNote(res);
       const photoMsg = photoNote(res);
-      if (priceMsg) {
-        toast.warning(`${spec.label} prefilled in a new tab.${priceMsg}${photoMsg}`);
+      // US-2730: brand and tags compose in too. A run can miss the price, drop
+      // photos AND fail the brand; showing only the loudest hides the rest.
+      const brandMsg = brandNote(res);
+      const tagsMsg = tagsNote(res);
+      const problems = `${priceMsg}${photoMsg}${brandMsg}${tagsMsg}`;
+      if (problems) {
+        toast.warning(`${spec.label} prefilled in a new tab.${problems}`);
       } else {
-        toast.success(
-          `${spec.label} prefilled in a new tab — review and submit.` + photoMsg,
-        );
+        toast.success(`${spec.label} prefilled in a new tab — review and submit.`);
       }
       // The seller now has a draft row they can promote once they've published —
       // see the "I published it" control below.
@@ -879,6 +882,36 @@ export function priceNote(res: { priceFilled?: boolean }): string {
   return res.priceFilled === false
     ? " The price was NOT filled in — set it yourself before you post."
     : "";
+}
+
+
+// US-2730 AC5: what to tell the seller about BRAND and TAGS.
+//
+// The story added the first two fields the Lister has ever filled beyond title
+// and description, and made runFlow report each honestly -- brandFilled and
+// tagsCommitted go into the result. Nothing read them. They were declared on
+// ListerResult and consumed by no surface, so a brand that did not fill was
+// exactly the silent no-op US-2477 exists to prevent, one field along.
+//
+// Same undefined rule as priceNote, for the same reason: an older extension
+// sends neither field, and warning on every run of every older install trains
+// the seller to ignore the warning that means something.
+export function brandNote(res: { brandFilled?: boolean }): string {
+  return res.brandFilled === false
+    ? ' The brand was NOT filled in -- set it yourself before you post.'
+    : '';
+}
+
+// Partial is the interesting case and the reason this is a count rather than a
+// boolean. Poshmark caps tags at three; committing two of three is a real
+// outcome that neither "worked" nor "failed" describes.
+export function tagsNote(res: { tagsCommitted?: number; tagsTotal?: number }): string {
+  const { tagsCommitted: done, tagsTotal: total } = res;
+  if (done === undefined || total === undefined || total === 0) return '';
+  if (done >= total) return '';
+  return done === 0
+    ? ` None of your ${total} tags were added -- add them yourself before you post.`
+    : ` Only ${done} of ${total} tags were added -- check them before you post.`;
 }
 
 export function ListingKit({ itemId, baseName }: { itemId: string; baseName?: string }) {
