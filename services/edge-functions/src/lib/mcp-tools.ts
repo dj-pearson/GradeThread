@@ -173,6 +173,31 @@ export interface McpToolDefinition {
    * action. A tool that wants a human should have both.
    */
   humanConfirmation?: (args: Record<string, unknown>) => string | null;
+
+  /**
+   * US-2752: refuse BEFORE asking a person, when the request is not theirs.
+   *
+   * The dispatcher's confirmation block states its own rule — "there is no
+   * point asking a person to approve something the plan, the scope or the
+   * budget was going to refuse anyway" — and then asks anyway on a
+   * cross-tenant call, because ownership is checked inside the handler and the
+   * handler runs after the prompt. The tenant-isolation suite caught it:
+   * gradethread_reprice_apply answered a request for ANOTHER tenant's listing
+   * with "Change the price on 1 live listing(s) now?".
+   *
+   * Nothing leaked — the question is built from the caller's own arguments and
+   * the write still fails at token redemption — but a human should never be
+   * shown an approval for someone else's data, and a prompt that always ends
+   * in refusal trains people to click through.
+   *
+   * Return a refusal message, or null to proceed. Runs after every dispatcher
+   * gate and before humanConfirmation. Keep it CHEAP: it is on the hot path of
+   * every acting call, and it must not consume a single-use token.
+   */
+  preConfirmCheck?: (
+    args: Record<string, unknown>,
+    ctx: McpToolContext,
+  ) => Promise<string | null>;
   annotations: McpToolAnnotations;
   handler: McpToolHandler;
 }

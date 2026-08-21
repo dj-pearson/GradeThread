@@ -699,6 +699,19 @@ async function callTool(
   // It runs AFTER every gate above and BEFORE the handler, deliberately: there
   // is no point asking a person to approve something the plan, the scope or the
   // budget was going to refuse anyway.
+  // US-2752: ownership is checked in the HANDLER, which runs after the prompt
+  // below — so a cross-tenant acting call used to be answered with an approval
+  // question instead of a refusal. This closes that gap on the same principle
+  // the block below already states, and runs for EVERY era: a legacy client
+  // reaching for another tenant's row should be refused too.
+  if (tool.preConfirmCheck) {
+    const refusal = await tool.preConfirmCheck(args, ctx);
+    if (refusal) {
+      audit("refused", "not_your_row");
+      return { result: { content: [{ type: "text", text: refusal }], isError: true } };
+    }
+  }
+
   if (era === "modern" && tool.humanConfirmation) {
     const question = tool.humanConfirmation(args);
     if (question) {

@@ -66,6 +66,20 @@ export const KNOWN_GAPS = new Map([
   ["00014", "never authored — no file in any commit."],
   ["00479", "never authored — no file in any commit."],
   [
+    "00636",
+    "authored, APPLIED to production, then withdrawn. 00636/00637 created a " +
+      "lulufanatics.com crawler; the owner had it removed because that site's " +
+      "terms prohibit scrapers. 00638 drops what they built AND deletes their " +
+      "applied_migrations rows, so the applied set matches the shipped set and " +
+      "neither is a phantom. The numbers are technically free again — nothing " +
+      "would read 'applied' off a stale row — but they stay skipped because " +
+      "reusing them would confuse anyone reading this history.",
+  ],
+  [
+    "00637",
+    "the second half of the withdrawn lulufanatics crawler — see 00636.",
+  ],
+  [
     "00527",
     "held on purpose: 00527_revoke_public_function_execute.sql.BLOCKED. The " +
       "suffix is the safety mechanism (US-2403 — a denied function call " +

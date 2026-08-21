@@ -277,6 +277,30 @@ export const repriceApplyTool: McpToolDefinition = {
     const n = Array.isArray(args.items) ? args.items.length : 1;
     return `Change the price on ${n} live listing(s) now?`;
   },
+  // US-2752: prove the listings are the caller's BEFORE a person is asked to
+  // approve changing them. impl.preview is already tenant-scoped, so a listing
+  // belonging to someone else simply does not come back — no extra query shape
+  // to keep in step with the handler's own check, which still runs.
+  preConfirmCheck: async (args, ctx) => {
+    const requested = readItems(args.items);
+    if (!requested || requested.length === 0) return null; // the handler says why
+    const impl = repricerImpl();
+    if (!impl) return null; // the handler reports the outage
+    try {
+      const scoped = await impl.preview(ctx.tenantId, requested.map((r) => r.listing_id));
+      const mine = new Set(scoped.items.map((i) => i.listing_id));
+      const foreign = requested.filter((r) => !mine.has(r.listing_id));
+      if (foreign.length === 0) return null;
+      // Says WHICH ids, because they are ids the caller already sent us — and
+      // deliberately does not say whether they exist for somebody else.
+      return `Refused: ${foreign.length} of ${requested.length} listing(s) are not yours — ` +
+        foreign.map((f) => f.listing_id).join(", ");
+    } catch {
+      // A read failure is not proof of ownership either way. Fall through and
+      // let the handler's own tenant-scoped path decide.
+      return null;
+    }
+  },
   annotations: { destructiveHint: true, idempotentHint: false, openWorldHint: true },
   handler: async (args, ctx) => {
     const requested = readItems(args.items);
