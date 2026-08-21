@@ -29,6 +29,7 @@ import {
   resolveComps,
   SPECULATIVE_CONDITION_ID,
 } from "../lib/comp-speculation.ts";
+import { cachedSearchBrowseComps } from "../lib/comps-cache.ts";
 import { forecastSellThrough } from "../lib/sell-through.ts";
 import { decideBuy, DECISION_FEE_RATE } from "../lib/scout-decision.ts";
 import {
@@ -239,11 +240,13 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   // Settled, never rejecting. The grade block below can return early on failure,
   // and an in-flight promise nobody awaits is the unhandled rejection that takes
   // the whole worker down (vault/10-ops/edge-hang-vs-crash-loop.md).
-  const speculativeComps = searchBrowseComps({
+  // US-2754: through the cache. A rack of six similar jackets asks eBay the
+  // same question six times; the second through sixth now cost a Postgres read.
+  const speculativeComps = cachedSearchBrowseComps({
     ...compArgs,
     conditionId: SPECULATIVE_CONDITION_ID,
   })
-    .then((result) => ({ ok: true as const, result }))
+    .then((out) => ({ ok: true as const, result: out.result, hit: out.hit }))
     .catch((err: unknown) => ({ ok: false as const, err }));
 
   // 1) Private shadow grade from the photo (US-616 primitive). Barcode-only
@@ -291,6 +294,8 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
   const matchedCategoryId: string | null = categoryId || null;
   const speculated = await speculativeComps;
   let compsReused = false;
+  let requeryCacheHit = false;
+  let compsCacheHit = false;
   try {
     // The reuse decision lives in lib/comp-speculation.ts and is unit-tested by
     // COUNTING fetches, so "a hit issues no second call" is held by a test rather
@@ -298,9 +303,14 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     const { result: search, reused } = await resolveComps(
       speculated,
       shadowGrade,
-      (conditionId) => searchBrowseComps({ ...compArgs, conditionId }),
+      async (conditionId) => {
+        const out = await cachedSearchBrowseComps({ ...compArgs, conditionId });
+        requeryCacheHit = out.hit;
+        return out.result;
+      },
     );
     compsReused = reused;
+    compsCacheHit = reused ? (speculated.ok ? speculated.hit : false) : requeryCacheHit;
     value = valueRangeFromStats(search.stats, shadowGrade, search.stats.currency);
     if (barcode) matchedTitle = search.items[0]?.title ?? null;
   } catch (err) {
@@ -332,6 +342,9 @@ flipdeskScoutRoutes.post("/appraise", async (c) => {
     // sellers actually produce, which is the number that decides whether the
     // speculation is worth keeping.
     compsReused: String(compsReused),
+    // US-2754: did the comps come from the shared cache rather than eBay? The
+    // pair of these two says which of the speedups actually paid, per request.
+    compsCacheHit: String(compsCacheHit),
   });
 
   return c.json({

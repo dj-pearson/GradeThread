@@ -116,6 +116,81 @@ const defaultStore: SharedCacheStore = {
   },
 };
 
+// ── 0. Shared JSON value cache (US-2754) ─────────────────────────────────────
+//
+// A cluster-shared, TTL'd cache for values that are neither secret nor
+// invalidated by an event — they simply age. eBay comps are the motivating case:
+// public market data, slow-moving, and expensive to fetch.
+//
+// WHY SHARED RATHER THAN A MODULE-LEVEL MAP. The invariant at the top of this
+// file gives the test: "would two replicas disagreeing about it be a bug?" For
+// comps it would. A seller scanning the same rack twice would get two different
+// values depending on which replica answered, and "the app gave me two prices
+// for one jacket" is exactly the kind of inconsistency that makes a number
+// untrustworthy. It is also simply a better cache: with N replicas a local one
+// has roughly a 1-in-N hit rate for any given query.
+//
+// UNLIKE the token cache below, nothing here is encrypted. These are public
+// listing prices; encrypting them would buy nothing and cost a key operation on
+// every read.
+//
+// FAIL-SAFE THROUGHOUT. A cache that can take a request down with it is worse
+// than no cache, so every store call is wrapped: a DB blip degrades to a plain
+// fetch. The one thing that is NOT swallowed is a failing loader — that error is
+// the caller's to see, and a cache must never invent a value to paper over it.
+
+export interface SharedJsonCache<T> {
+  /**
+   * Return the cached value for `key`, or load and store one.
+   *
+   * `hit` is reported rather than hidden so callers can record their real hit
+   * rate in production instead of inferring it.
+   */
+  get(key: string, load: () => Promise<T>): Promise<{ value: T; hit: boolean }>;
+}
+
+export function createSharedJsonCache<T>(opts: {
+  /** Prefixes every key, so two caches cannot collide in one table. */
+  namespace: string;
+  ttlMs: number;
+  store?: SharedCacheStore;
+  /** Injectable clock, so TTL behaviour is testable without waiting. */
+  now?: () => number;
+}): SharedJsonCache<T> {
+  const store = opts.store ?? defaultStore;
+  const now = opts.now ?? (() => Date.now());
+
+  return {
+    async get(key, load) {
+      const fullKey = `${opts.namespace}:${key}`;
+
+      try {
+        const row = await store.readValue(fullKey);
+        if (row && (row.expiresAt == null || row.expiresAt > now())) {
+          try {
+            return { value: JSON.parse(row.value) as T, hit: true };
+          } catch {
+            // A row we cannot parse is a miss, not a crash. Falls through.
+          }
+        }
+      } catch {
+        // Store unavailable — fall through and fetch.
+      }
+
+      // Deliberately outside the try: a failing loader is a real error and the
+      // caller must see it. Nothing is written when it throws.
+      const value = await load();
+
+      try {
+        await store.writeValue(fullKey, JSON.stringify(value), now() + opts.ttlMs);
+      } catch {
+        // Could not persist. The caller still gets its value.
+      }
+      return { value, hit: false };
+    },
+  };
+}
+
 // ── 1. Shared bearer-token cache ─────────────────────────────────────────────
 
 export interface MintedToken {

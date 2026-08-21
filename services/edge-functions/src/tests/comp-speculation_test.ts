@@ -186,7 +186,10 @@ Deno.test("the /appraise handler starts comps before it grades", async () => {
   assert(start !== -1 && end > start, "could not isolate the /appraise handler");
   const handler = src.slice(start, end);
 
-  const speculativeAt = handler.indexOf("const speculativeComps = searchBrowseComps(");
+  // Matches the assignment, not the callee, so routing the query through the
+  // cache (US-2754) does not read as the speculation being removed. What this
+  // guard is about is WHEN the query starts, not who answers it.
+  const speculativeAt = handler.indexOf("const speculativeComps = ");
   const gradeAt = handler.indexOf("await quickGrade(");
   const awaitAt = handler.indexOf("await speculativeComps");
 
