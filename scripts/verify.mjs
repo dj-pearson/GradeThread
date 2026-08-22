@@ -292,6 +292,7 @@ if (on("web")) {
   // behind this has found a real defect every time a human remembered to run
   // it, which is why it now runs here instead of on memory.
   run("web: unwired edge modules", "node scripts/check-unwired-modules.mjs");
+  run("web: unwired src modules", "node scripts/check-web-unwired.mjs");
   run("web: npm audit (high)", "npm audit --audit-level=high");
 }
 

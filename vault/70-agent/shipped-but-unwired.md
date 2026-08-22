@@ -13,6 +13,7 @@ code_refs:
   - src/test/waitlist-capture-reachable.test.ts
   - scripts/audit-unwired-exports.mjs
   - scripts/check-unwired-modules.mjs
+  - scripts/check-web-unwired.mjs
 reviewed: 2026-08-22
 tags: [quality, testing, dead-code, gotcha]
 summary: Modules that pass their tests while nothing calls them; one was a real unenforced guarantee now half-wired, one was ruled uncalled-by-design and that ruling turned out to be wrong, one was a policy retirement that got deleted once a live switch started promising it, one was assumed correct because being unwired hid a broken table, and one was a UI component whose absence left a lockout switch armed — telling the shapes apart is the point.
@@ -360,6 +361,31 @@ be caught by it. Components have a guard now
 `useFeatureFlag` (US-2361) and `useListingCopy` (US-2442) are both sitting there
 today.
 
+> [!note] The web gap is closed at MODULE granularity (2026-08-22)
+> `scripts/check-web-unwired.mjs` asks the same question of `src/`, in the verify
+> web lane and in CI beside its edge twin. A module no production file imports
+> fails unless it is allowlisted with a verdict, and an allowlist entry that
+> stops matching fails too.
+>
+> **Why the audit that already sweeps `src/` could not find this.**
+> `audit-file-local-exports.mjs` works one export at a time and protects a class
+> it labels `imported ONLY by tests <- must NOT be un-exported` — 415 of them.
+> That instruction is right; un-exporting one breaks the test and shrinks
+> nothing. But it means a module whose *every* export is test-only reads as 415
+> correct entries rather than as one module that does not run. The audit asks
+> whether an export keyword is load-bearing. The gate asks whether the module is.
+>
+> First run found `src/lib/list-sort.ts` — US-1651's client-side grade sort, made
+> unnecessary when US-2196 denormalised `overall_score` onto `submissions`
+> (migration 00494) so the page could order server-side. Deleted with its nine
+> tests. Its header still described how the submissions list sorts, which had
+> not been true since 00494.
+>
+> **The granularity limit, so nobody reads more into a green run than is there.**
+> This gate sees whole modules. A live module carrying one dead export is
+> invisible to it and stays the audit's job — which currently names eight,
+> including two in `video-grading-contract.ts`.
+
 > [!note] One of the two was resolved by DELETING it (2026-08-15)
 > `useFeatureFlag` is gone, with `client-experiments.ts` and its tests, on the
 > owner's call. It had been re-verified as having zero callers three times over
@@ -368,9 +394,12 @@ today.
 > The alternative — wiring it to an experiment invented to justify the code —
 > would have been worse than either keeping or removing it.
 >
-> `useListingCopy` is still there. The asymmetry is the useful part: unwired code
-> is not automatically wrong, and the question is always which of the two things
-> was meant to exist. See [[experimentation]] for the reasoning that was kept.
+> `useListingCopy` is WIRED now — `src/pages/flipdesk/composer.tsx:477` calls it,
+> and the sweep above confirms it, so this line saying "still there" outlived the
+> thing it described by some weeks. The asymmetry it drew is still the useful
+> part: unwired code is not automatically wrong, and the question is always which
+> of the two things was meant to exist. One of these was deleted and one was
+> wired, and both were right. See [[experimentation]] for the reasoning kept.
 
 ## The habit this argues for
 

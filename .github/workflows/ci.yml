@@ -227,6 +227,15 @@ jobs:
       - name: Unwired edge modules
         if: ${{ !cancelled() }}
         run: node scripts/check-unwired-modules.mjs
+      # The same question asked of the React app, which had nothing. The
+      # exports audit that already sweeps src/ cannot answer it: it protects
+      # test-only exports as a class (415 of them, correctly - un-exporting one
+      # breaks the test and shrinks nothing), so a module whose every export is
+      # test-only reads as correct rather than as code that does not run. First
+      # run found src/lib/list-sort.ts, superseded by US-2196.
+      - name: Unwired src modules
+        if: ${{ !cancelled() }}
+        run: node scripts/check-web-unwired.mjs
       # US-417: guard the eager (landing/cold-load) chunk graph — fail the build
       # if the entry/eager gz size regresses past budget, or if a heavy primitive
       # (radix Dialog/Select/Popover, TipTap) stops being code-split and rides
