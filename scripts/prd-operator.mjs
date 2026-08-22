@@ -134,6 +134,20 @@ export const UNDECLARED_PATTERNS = [
   // the HOST. This one is about the code itself, and it read as a limitation
   // rather than as a request, which is why it went unactioned.
   /\bnothing (?:in the code|here|we can write) can answer\b/i,
+
+  // ── Fifth measurement, same day, and it is the cheapest lesson of the five ──
+  //
+  // US-1882 AC4 says "needs a real browser on a real marketplace" and was
+  // invisible to every pattern above. The reason is one word: each noun pattern
+  // required its noun to follow "a" IMMEDIATELY, so a single adjective defeated
+  // all of them at once.
+  //
+  // That is the kind of gap that survives longest, because the phrase reads as
+  // though it obviously matches — you do not re-check a pattern you are sure of.
+  // Both of the previous two rounds were found the same way: by testing the
+  // detector against a story whose answer was already known, never by re-reading
+  // the regexes.
+  /\bneeds? an? (?:\w+\s+)?(?:device|phone|emulator|browser|marketplace|account|login)\b/i,
 ];
 
 /** Sentence around `idx`, trimmed to something a terminal line can hold. */
