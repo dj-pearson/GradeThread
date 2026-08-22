@@ -2,7 +2,13 @@
 // display-scale mapping, endpoint hit-testing, and default placements. These
 // functions are the spec the iOS/Android editor ports mirror.
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
+  NUDGE_COARSE_MULTIPLE,
+  type NudgeDirection,
+  nudgeStep,
+  nudged,
   applyHomography,
   defaultLinePlacement,
   fitScale,
@@ -125,5 +131,78 @@ describe("shared fixture (web ↔ Android)", () => {
       expect(got.e1).toEqual(c.e1);
       expect(got.e2).toEqual(c.e2);
     }
+  });
+});
+
+// ── US-2686: moving an endpoint without a pointer ──────────────────────────
+//
+// The drag is reachable by exactly one input method. These pin the maths behind
+// the keyboard alternative, and pin it against the iOS twin, because the two
+// clients log correction deltas into the same table: if one press means a
+// different distance on each, the deltas are not comparable.
+
+describe("nudge (US-2686)", () => {
+  const F = fixture as typeof fixture & {
+    nudgeStep: Array<{ imgW: number; imgH: number; out: number }>;
+    nudged: Array<{
+      point: [number, number];
+      direction: NudgeDirection;
+      step: number;
+      imgW: number;
+      imgH: number;
+      out: [number, number];
+    }>;
+  };
+
+  it("step is proportional to the SHORT edge, floored at 1", () => {
+    for (const c of F.nudgeStep) {
+      expect(nudgeStep(c.imgW, c.imgH), `${c.imgW}x${c.imgH}`).toBe(c.out);
+    }
+  });
+
+  it("a degenerate image still yields a step that MOVES something", () => {
+    // A zero step is a control that reports success and moves nothing, which is
+    // worse than no control at all. Not in the fixture as a formula case
+    // because these are the inputs the formula does not define.
+    for (const [w, h] of [[0, 0], [NaN, 100], [Infinity, Infinity], [-1, -1]]) {
+      expect(nudgeStep(w!, h!)).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("nudged moves one step and clamps at the image edge", () => {
+    for (const c of F.nudged) {
+      expect(
+        nudged(c.point, c.direction, c.step, c.imgW, c.imgH),
+        `${c.direction} from ${c.point.join(",")}`,
+      ).toEqual(c.out);
+    }
+  });
+
+  it("the coarse step is a whole multiple of the fine one", () => {
+    // "Shift is five nudges" is a sentence someone can hold. Two independently
+    // derived numbers is something they have to discover.
+    expect(Number.isInteger(NUDGE_COARSE_MULTIPLE)).toBe(true);
+    expect(NUDGE_COARSE_MULTIPLE).toBeGreaterThan(1);
+  });
+
+  it("iOS spells the SAME step formula (US-2534 twin)", () => {
+    // A cross-platform assertion in a unit test, and it earns the place: the
+    // fixture cannot reach Swift, and this number is the one thing the two
+    // clients must agree on. Reading the source is weaker than running it and
+    // is what is available on Windows — iOS CI compiles the file, this pins the
+    // constant it compiles.
+    const swift = readFileSync(
+      resolve(import.meta.dirname, "../../../ios/GradeThread/Measure/MeasureNudge.swift"),
+      "utf8",
+    );
+    const code = swift.split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+    expect(
+      code,
+      "MeasureNudge.swift no longer derives the step from the short edge — the " +
+        "two clients would disagree about what one press moves, and their " +
+        "logged correction deltas would stop being comparable",
+    ).toContain("min(imgW, imgH)");
+    expect(code).toContain("0.005");
+    expect(code, "the iOS floor of 1 is gone — a zero step moves nothing").toContain("max(1,");
   });
 });

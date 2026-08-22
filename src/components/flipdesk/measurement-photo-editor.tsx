@@ -28,13 +28,17 @@ import {
   measurementGroupFor,
 } from "@/lib/measurement-templates";
 import {
+  NUDGE_COARSE_MULTIPLE,
   defaultLinePlacement,
   fitScale,
   formatQuarter,
   hitEndpoint,
   inchesBetween,
+  nudgeStep,
+  nudged,
   type EditorLine,
   type EndpointHit,
+  type NudgeDirection,
 } from "@/lib/measure-editor-math";
 
 interface StoredLine {
@@ -172,6 +176,14 @@ export function MeasurementPhotoEditor({
   const [lines, setLines] = useState<EditorLine[]>([]);
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [imgDims, setImgDims] = useState<[number, number] | null>(null);
+  /**
+   * US-2686: what the screen reader is told after a keyboard move.
+   *
+   * Declared HERE with the other hooks rather than beside the handler that
+   * feeds it: this component returns early while the photo loads, and a
+   * useState below that return is called conditionally.
+   */
+  const [announcement, setAnnouncement] = useState("");
   const [busy, setBusy] = useState<
     "calibrate" | "extract" | "save" | "find" | "download" | null
   >(null);
@@ -563,6 +575,64 @@ export function MeasurementPhotoEditor({
     dragRef.current = null;
   }
 
+  // ── US-2686: the keyboard path ──────────────────────────────────────────
+  //
+  // A pointer drag on an SVG is reachable by exactly one input method. There is
+  // no keyboard equivalent and nothing for a screen reader to hold, so a
+  // keyboard-only user could not set a measurement at all.
+  //
+  // NOT A PORT OF THE iOS FIX. US-2534 gave iOS four nudge buttons per
+  // endpoint, which is the right answer for touch and the wrong one here: on a
+  // keyboard the endpoint is the thing you focus and the arrows are the thing
+  // you press. The STEP RULE is shared (measure-editor-math nudgeStep, the same
+  // formula as MeasureNudge.swift) because the two clients log correction
+  // deltas into one table.
+  //
+  // The drag stays. This is an alternative, not a replacement.
+
+  const ARROW_DIRECTION: Record<string, NudgeDirection> = {
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    ArrowUp: "up",
+    ArrowDown: "down",
+  };
+
+  function onEndpointKeyDown(
+    e: React.KeyboardEvent,
+    lineIndex: number,
+    end: "e1" | "e2",
+  ) {
+    const direction = ARROW_DIRECTION[e.key];
+    if (!direction || !imgDims) return;
+    // The page scrolls on arrow keys otherwise, so the endpoint moves and the
+    // view runs away from it.
+    e.preventDefault();
+
+    const line = lines[lineIndex];
+    if (!line) return;
+    // Shift is a whole multiple of the fine step rather than a second formula,
+    // so "shift is five nudges" is a sentence rather than a discovery.
+    const step =
+      nudgeStep(imgDims[0], imgDims[1]) * (e.shiftKey ? NUDGE_COARSE_MULTIPLE : 1);
+    const moved = nudged(line[end], direction, step, imgDims[0], imgDims[1]);
+    const nextLine = { ...line, [end]: moved } as EditorLine;
+
+    setLines((prev) => prev.map((l, i) => (i === lineIndex ? nextLine : l)));
+    // US-2686 AC3: the SAME touched-marking the drag does. Without it the
+    // keyboard path would move the line on screen and save nothing, which is an
+    // accessible alternative in appearance only — the exact failure the iOS
+    // half had to fix.
+    setTouched((prev) => new Set(prev).add(line.key));
+
+    // AC4: announced as the measurement. Coordinates are true and useless to
+    // somebody setting a chest measurement.
+    setAnnouncement(
+      `${line.label.split(" (")[0]} ${displayVal(
+        inchesBetween(calib!.homography, nextLine.e1, nextLine.e2),
+      )}`,
+    );
+  }
+
   const missing = fields.filter((f) => !lines.some((l) => l.key === f.key));
   const displayVal = (inches: number): string =>
     unit === "cm"
@@ -687,9 +757,9 @@ export function MeasurementPhotoEditor({
                 onPointerMove={onPointerMove}
                 onPointerUp={onPointerUp}
                 role="application"
-                aria-label="Drag measurement endpoints"
+                aria-label="Measurement endpoints. Focus one and use the arrow keys to move it; hold shift for a larger step."
               >
-                {lines.map((line) => {
+                {lines.map((line, lineIndex) => {
                   const src = aiSources?.[`measurements.${line.key}`] as
                     | { flagged?: boolean }
                     | undefined;
@@ -702,18 +772,32 @@ export function MeasurementPhotoEditor({
                     <g key={line.key}>
                       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#fff" strokeWidth={5} />
                       <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={2.5} />
-                      {[[x1, y1], [x2, y2]].map(([cx, cy], i) => (
-                        <circle
-                          key={i}
-                          cx={cx}
-                          cy={cy}
-                          r={7}
-                          fill="#fff"
-                          stroke={color}
-                          strokeWidth={2.5}
-                          className="cursor-grab"
-                        />
-                      ))}
+                      {([["e1", x1, y1], ["e2", x2, y2]] as const).map(
+                        ([end, cx, cy], i) => (
+                          <circle
+                            key={i}
+                            cx={cx}
+                            cy={cy}
+                            r={7}
+                            fill="#fff"
+                            stroke={color}
+                            strokeWidth={2.5}
+                            /* US-2686. tabIndex on an SVG element is honoured by
+                               every browser we support; role="button" is what
+                               makes a screen reader announce it as operable
+                               rather than reading the label and stopping.
+                               focus-visible so a mouse user never sees a ring
+                               they did not ask for. */
+                            tabIndex={0}
+                            role="button"
+                            aria-label={`${line.label.split(" (")[0]}, ${
+                              end === "e1" ? "start" : "end"
+                            } point, ${displayVal(inches)}. Arrow keys move it; hold shift for a larger step.`}
+                            className="cursor-grab outline-none focus-visible:stroke-brand-red focus-visible:[stroke-width:4]"
+                            onKeyDown={(e) => onEndpointKeyDown(e, lineIndex, end)}
+                          />
+                        ),
+                      )}
                       <g transform={`translate(${(x1 + x2) / 2}, ${(y1 + y2) / 2 - 12})`}>
                         <rect x={-44} y={-11} width={88} height={20} rx={4} fill="#ffffffee" />
                         <text
@@ -748,8 +832,16 @@ export function MeasurementPhotoEditor({
               ))}
             </div>
           )}
+          {/* US-2686 AC4: the change is announced as the MEASUREMENT. A polite
+              live region rather than assertive, because a held arrow key fires
+              repeatedly and an assertive region would interrupt itself into
+              noise. Visually hidden: sighted users already see the chip move. */}
+          <p aria-live="polite" role="status" className="sr-only">
+            {announcement}
+          </p>
           <p className="text-[11px] text-muted-foreground">
-            Drag the circles onto the garment. Values are estimated from the
+            Drag the circles onto the garment, or focus one and use the arrow
+            keys (hold shift to move further). Values are estimated from the
             photo via the MeasureCard — review each before listing. Saving
             updates the item&apos;s measurements and regenerates the
             buyer-facing measurements photo.

@@ -64,5 +64,32 @@
     { "key": "chest", "imgW": 1000, "imgH": 800, "e1": [300, 400], "e2": [700, 400] },
     { "key": "waist", "imgW": 1000, "imgH": 800, "e1": [300, 400], "e2": [700, 400] },
     { "key": "not_a_canonical_key", "imgW": 1000, "imgH": 800, "e1": [300, 400], "e2": [700, 400] }
+  ],
+
+  "_nudge": "US-2686. Moving an endpoint by keyboard (web) or by nudge button (iOS). SHARED WITH iOS ios/GradeThread/Measure/MeasureNudge.swift, which is the one place these numbers must agree: two clients that disagree about what one press moves are two clients whose logged correction deltas cannot be compared. ANDROID DOES NOT IMPLEMENT NUDGE and therefore does not read these two sections - MeasureGeometryTest.kt pulls sections BY NAME rather than iterating the file, so nothing there breaks and nothing there is stubbed. When Android grows a keyboard or switch-access path, these are already here.",
+  "_nudgeStep": "Proportional to the SHORT edge, rounded, floored at 1. A fixed step is a visible jump on a 1600px phone photo and imperceptible on a 4000px camera one. The floor matters more than it looks: a step of 0 is a control that reports success and moves nothing.",
+  "nudgeStep": [
+    { "imgW": 4000, "imgH": 3000, "out": 15 },
+    { "imgW": 3000, "imgH": 4000, "out": 15 },
+    { "imgW": 1600, "imgH": 1200, "out": 6 },
+    { "imgW": 1000, "imgH": 1000, "out": 5 },
+    { "imgW": 100, "imgH": 100, "out": 1 },
+    { "imgW": 40, "imgH": 40, "out": 1 },
+    { "imgW": 0, "imgH": 0, "out": 1 },
+    { "imgW": -5, "imgH": 100, "out": 1 }
+  ],
+
+  "_nudged": "CLAMPED to the image, not refused - the same thing the drag path does. Refusing would leave someone pressing a key that silently does nothing near the border, indistinguishable from a bug. `down` increases y: these are top-left-origin image pixels, and naming the directions by what the user sees is what keeps the labels and the maths from disagreeing.",
+  "nudged": [
+    { "point": [500, 400], "direction": "left", "step": 15, "imgW": 1000, "imgH": 800, "out": [485, 400] },
+    { "point": [500, 400], "direction": "right", "step": 15, "imgW": 1000, "imgH": 800, "out": [515, 400] },
+    { "point": [500, 400], "direction": "up", "step": 15, "imgW": 1000, "imgH": 800, "out": [500, 385] },
+    { "point": [500, 400], "direction": "down", "step": 15, "imgW": 1000, "imgH": 800, "out": [500, 415] },
+    { "point": [5, 400], "direction": "left", "step": 15, "imgW": 1000, "imgH": 800, "out": [0, 400] },
+    { "point": [995, 400], "direction": "right", "step": 15, "imgW": 1000, "imgH": 800, "out": [1000, 400] },
+    { "point": [500, 5], "direction": "up", "step": 15, "imgW": 1000, "imgH": 800, "out": [500, 0] },
+    { "point": [500, 795], "direction": "down", "step": 15, "imgW": 1000, "imgH": 800, "out": [500, 800] },
+    { "point": [0, 0], "direction": "left", "step": 15, "imgW": 1000, "imgH": 800, "out": [0, 0] },
+    { "point": [500, 400], "direction": "right", "step": 75, "imgW": 1000, "imgH": 800, "out": [575, 400] }
   ]
 }

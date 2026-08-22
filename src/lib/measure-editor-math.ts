@@ -108,3 +108,77 @@ export function defaultLinePlacement(
   const span = imgW * 0.4;
   return { e1: [cx - span / 2, cy], e2: [cx + span / 2, cy] };
 }
+
+// ── US-2686: moving an endpoint without a pointer ───────────────────────────
+//
+// The editor positions endpoints with a pointer drag on an SVG. A drag has no
+// keyboard equivalent and no screen-reader equivalent, so a keyboard-only user
+// could not set a measurement at all. The web answer is a keyboard model —
+// focus an endpoint, arrow keys to move — rather than iOS's four nudge buttons,
+// because those are a touch answer to the same gap (US-2534).
+//
+// THE STEP RULE IS SHARED WITH iOS and is deliberately identical to
+// ios/GradeThread/Measure/MeasureNudge.swift. Two clients that disagree about
+// what one press moves are two clients whose corrections cannot be compared,
+// and the correction deltas are logged. src/test/fixtures/measure-editor-math-cases.json
+// carries the cases; src/lib/__tests__/measure-editor-math.test.ts asserts them
+// and separately asserts that the Swift file still spells the same formula.
+//
+// ANDROID DOES NOT IMPLEMENT NUDGE YET and therefore does not read those
+// fixture sections — MeasureGeometryTest.kt pulls named sections rather than
+// iterating the file, so this adds nothing there. When Android grows a keyboard
+// or switch-access path, the sections are already waiting.
+
+/** How far one nudge moves an endpoint, in ORIGINAL image pixels. */
+export function nudgeStep(imgW: number, imgH: number): number {
+  // Proportional to the SHORT edge rather than a fixed count, so one press
+  // covers the same fraction of the garment on a 1600px phone photo and a
+  // 4000px camera one. A fixed 8px would be a visible step on the first and
+  // imperceptible on the second, turning "nudge until it lines up" into forty
+  // presses.
+  const short = Math.min(imgW, imgH);
+  // Floored at 1: a step of zero is a control that reports success and moves
+  // nothing, which is worse than no control.
+  if (!Number.isFinite(short) || short <= 0) return 1;
+  return Math.max(1, Math.round(short * 0.005));
+}
+
+/**
+ * The coarse step, for holding Shift.
+ *
+ * A whole multiple of the fine step, not a second formula. "Shift is five
+ * nudges" is a sentence a user can hold; two independently-derived numbers is
+ * a thing they have to discover.
+ */
+export const NUDGE_COARSE_MULTIPLE = 5;
+
+/** Screen directions. `down` increases y because these are top-left-origin image px. */
+export type NudgeDirection = "left" | "right" | "up" | "down";
+
+const NUDGE_DELTA: Record<NudgeDirection, Point> = {
+  left: [-1, 0],
+  right: [1, 0],
+  up: [0, -1],
+  down: [0, 1],
+};
+
+/**
+ * Move `point` one step in `direction`, clamped inside the image.
+ *
+ * CLAMPED, not refused — the same thing the drag path does. Refusing would
+ * leave someone pressing a key that silently does nothing near the border,
+ * with no way to tell that from a bug.
+ */
+export function nudged(
+  point: Point,
+  direction: NudgeDirection,
+  step: number,
+  imgW: number,
+  imgH: number,
+): Point {
+  const [dx, dy] = NUDGE_DELTA[direction];
+  return [
+    Math.max(0, Math.min(imgW, point[0] + dx * step)),
+    Math.max(0, Math.min(imgH, point[1] + dy * step)),
+  ];
+}
