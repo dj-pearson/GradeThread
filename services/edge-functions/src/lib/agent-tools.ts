@@ -212,6 +212,18 @@ interface OpsEventRow {
   created_at: string;
   acknowledged_at: string | null;
 }
+/**
+ * The NORMALISED shape the agent reports, deliberately not either table's
+ * row shape — the two disagree on both fields. webhook_dead_letters carries
+ * `error_message` (00124) and `replay_attempts` (00206); email_deliveries
+ * carries `last_error` and `attempts` (00095).
+ *
+ * US-2804: this interface used to name `last_error` and `attempt_count`, and
+ * both queries selected those literally. `attempt_count` has never existed in
+ * any migration, so PostgREST answered 42703 and the throw below fired on
+ * every call. The comment on each read explains why an empty queue must never
+ * be reported from a failed read; the read failed every time.
+ */
 interface DeadLetterRow {
   id: string | null;
   provider: string | null;
@@ -219,6 +231,28 @@ interface DeadLetterRow {
   attempt_count: number | null;
   created_at: string;
 }
+
+/** One dead-letter row as the two tables actually store it. */
+interface RawDeadLetter {
+  id: string | null;
+  provider?: string | null;
+  error_message?: string | null;
+  last_error?: string | null;
+  replay_attempts?: number | null;
+  attempts?: number | null;
+  created_at: string;
+}
+
+const normalizeDeadLetter = (
+  r: RawDeadLetter,
+  provider: string,
+): DeadLetterRow => ({
+  id: r.id,
+  provider: r.provider ?? provider,
+  last_error: r.error_message ?? r.last_error ?? null,
+  attempt_count: r.replay_attempts ?? r.attempts ?? null,
+  created_at: r.created_at,
+});
 interface ConnRow {
   marketplace: string | null;
   is_active: boolean | null;
@@ -384,7 +418,7 @@ export function prodToolIO(): ToolIO {
     fetchWebhookDeadLetters: async (limit) => {
       const { data, error } = await supabaseAdmin
         .from("webhook_dead_letters")
-        .select("id, provider, last_error, attempt_count, created_at")
+        .select("id, provider, error_message, replay_attempts, created_at")
         .eq("status", "unresolved")
         .order("created_at", { ascending: true })
         .limit(limit);
@@ -393,12 +427,13 @@ export function prodToolIO(): ToolIO {
       // able to say it. Throwing surfaces a tool_error instead; the dispatcher
       // wraps every handler, so this cannot crash the run.
       if (error) throw new Error(`fetchWebhookDeadLetters failed: ${error.message}`);
-      return (data ?? []) as DeadLetterRow[];
+      return ((data ?? []) as RawDeadLetter[])
+        .map((r) => normalizeDeadLetter(r, "webhook"));
     },
     fetchEmailDeadLetters: async (limit) => {
       const { data, error } = await supabaseAdmin
         .from("email_deliveries")
-        .select("id, last_error, attempt_count, created_at")
+        .select("id, last_error, attempts, created_at")
         .eq("status", "dead_letter")
         .order("created_at", { ascending: true })
         .limit(limit);
@@ -407,10 +442,8 @@ export function prodToolIO(): ToolIO {
       // able to say it. Throwing surfaces a tool_error instead; the dispatcher
       // wraps every handler, so this cannot crash the run.
       if (error) throw new Error(`fetchEmailDeadLetters failed: ${error.message}`);
-      return ((data ?? []) as Array<Omit<DeadLetterRow, "provider">>).map((r) => ({
-        provider: "email",
-        ...r,
-      }));
+      return ((data ?? []) as RawDeadLetter[])
+        .map((r) => normalizeDeadLetter(r, "email"));
     },
     countSupportTickets: async (status) => {
       const { count, error: e0 } = await supabaseAdmin

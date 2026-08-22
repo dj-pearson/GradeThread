@@ -171,7 +171,7 @@ export function FlipdeskAutolisterQueuePage() {
       for (let i = 0; i < itemIds.length; i += CHUNK) {
         const { data: rows } = await supabase
           .from("inventory_items")
-          .select("id, title, photo_qa_score, photo_qa_issues, measurements, category, status")
+          .select("id, title, photo_qa_score, photo_qa_issues, measurements, item_category, status")
           .in("id", itemIds.slice(i, i + CHUNK));
         for (
           const r of (rows ?? []) as Array<{
@@ -180,7 +180,7 @@ export function FlipdeskAutolisterQueuePage() {
             photo_qa_score: number | null;
             photo_qa_issues: PhotoQaIssue[] | null;
             measurements: Record<string, unknown> | null;
-            category: ItemCategory | null;
+            item_category: ItemCategory | null; // US-2804: was `category`
             status: ItemStatus | null;
           }>
         ) {
@@ -190,7 +190,7 @@ export function FlipdeskAutolisterQueuePage() {
             qaIssues: r.photo_qa_issues ?? [],
             hasMeasurements: !!r.measurements &&
               Object.keys(r.measurements).length > 0,
-            category: r.category ?? null,
+            category: r.item_category ?? null,
             status: r.status ?? null,
           };
         }

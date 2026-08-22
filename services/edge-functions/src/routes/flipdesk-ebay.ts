@@ -4616,9 +4616,29 @@ flipdeskEbayRoutes.post("/orders/:orderId/refund", async (c) => {
 
   // Ownership FIRST — before any eBay call, and before any parsing that could
   // leak the order's existence through a differently-shaped error.
+  // PostgREST returns an embed as an object for a to-one relationship and an
+  // array for a to-many, and which one you get depends on how it reads the FK.
+  // Handling both is cheaper than being wrong about it in a route that a seller
+  // only reaches while trying to refund somebody.
+  const saleConnectionId = (row: unknown): string | undefined => {
+    const l = (row as { listings?: unknown } | null)?.listings;
+    const one = Array.isArray(l) ? l[0] : l;
+    const id = (one as { marketplace_connection_id?: string | null } | null)
+      ?.marketplace_connection_id;
+    return id ?? undefined;
+  };
+
+  // US-2804: `sales` has NO marketplace_connection_id column — it lives on
+  // `listings` (00338), and sales reaches it through listing_id. Selecting it
+  // directly answered 42703, so this ownership check errored on every call and
+  // the refund route returned 500 to every seller who tried it.
+  //
+  // It fails CLOSED, which is the one piece of luck here: the check errored
+  // rather than passing, so no foreign order was ever reachable. The route was
+  // dead, not open.
   const { data: sale, error: saleErr } = await supabaseAdmin
     .from("sales")
-    .select("id, marketplace_connection_id")
+    .select("id, listings(marketplace_connection_id)")
     .eq("user_id", ownerId)
     .eq("platform_order_id", orderId)
     .maybeSingle();
@@ -4669,7 +4689,10 @@ flipdeskEbayRoutes.post("/orders/:orderId/refund", async (c) => {
       ownerId,
       orderId,
       input,
-      sale.marketplace_connection_id ?? undefined,
+      // Through the embed, since the column is on `listings`. A sale with no
+      // linked listing yields undefined, which is the same fallback the old
+      // (never-reached) expression had: use the default connection.
+      saleConnectionId(sale),
     );
   } catch (err) {
     return failSafe(c, 502, "eBay rejected the refund.", err, "ebay.orders.refund");
@@ -4841,7 +4864,7 @@ flipdeskEbayRoutes.delete("/offers/:offerId", async (c) => {
   // that doesn't exist.
   const { data: listing, error: lErr } = await supabaseAdmin
     .from("listings")
-    .select("id, marketplace_connection_id, status")
+    .select("id, marketplace_connection_id, listing_status")
     .eq("user_id", ownerId)
     .eq("platform_offer_id", offerId)
     .maybeSingle();
@@ -4888,7 +4911,7 @@ flipdeskEbayRoutes.delete("/offers/:offerId", async (c) => {
     action: "ebay.offer.delete",
     targetType: "ebay_offer",
     targetId: offerId,
-    details: { listing_id: listing.id, listing_status: listing.status },
+    details: { listing_id: listing.id, listing_status: listing.listing_status },
   });
   return c.json({ ok: true });
 });

@@ -322,6 +322,11 @@ if (on("web")) {
   // where every visible piece is alive and the missing piece is in another
   // language in another directory, leaving no trace at all.
   run("web: unfed form fields", "node scripts/check-unfed-form-fields.mjs");
+  // US-2804: a .select() naming a column no migration declares. PostgREST
+  // answers 42703 and the whole query fails, so the route never worked — the
+  // first run found seven, two of them US-268 ownership checks that had been
+  // answering 500 to every caller. Reads migrations and sources only.
+  run("web: select columns exist", "node scripts/check-select-columns.mjs");
   // US-2437: BEFORE eslint, deliberately. The bug that filed that story was
   // eslint linting supabase/.temp/start-secrets/ — 189 errors in generated,
   // minified code nobody wrote — which only appears once you run `supabase

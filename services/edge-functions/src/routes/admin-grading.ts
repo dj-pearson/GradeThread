@@ -1265,7 +1265,7 @@ const DECODER_CONTRADICTION_CAP = 200;
 adminGradingRoutes.get("/authenticity/decoder-contradictions", async (c) => {
   const { data, error } = await supabaseAdmin
     .from("grade_reports")
-    .select("id, submission_id, created_at, authenticity_verdict, authenticity_assessment")
+    .select("id, submission_id, created_at, authenticity_assessment")
     // The key is absent on every report where nothing fired, which is almost
     // all of them — so filter in the DATABASE rather than pulling every report
     // and discarding it here.
@@ -1286,8 +1286,11 @@ adminGradingRoutes.get("/authenticity/decoder-contradictions", async (c) => {
     id: string;
     submission_id: string;
     created_at: string;
-    authenticity_verdict: string | null;
+    // US-2804: there is no authenticity_verdict COLUMN. The verdict lives in
+    // the assessment jsonb, which is how grade-adjustment.ts, the certificate
+    // backfill, and line ~960 of this same file already read it.
     authenticity_assessment: {
+      verdict?: string | null;
       verdict_confidence?: number;
       brand_assessed?: string | null;
       decoder_contradictions?: Array<{ code: string; message: string }>;
@@ -1302,7 +1305,7 @@ adminGradingRoutes.get("/authenticity/decoder-contradictions", async (c) => {
       grade_report_id: r.id,
       submission_id: r.submission_id,
       created_at: r.created_at,
-      verdict: r.authenticity_verdict,
+      verdict: r.authenticity_assessment?.verdict ?? null,
       verdict_confidence: r.authenticity_assessment?.verdict_confidence ?? null,
       brand: r.authenticity_assessment?.brand_assessed ?? null,
       flags: r.authenticity_assessment?.decoder_contradictions ?? [],

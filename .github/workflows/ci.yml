@@ -211,6 +211,17 @@ jobs:
       - name: Unfed form fields
         if: ${{ !cancelled() }}
         run: node scripts/check-unfed-form-fields.mjs
+      # US-2804: a .select() naming a column that does not exist. Not a silent
+      # null — PostgREST answers 42703 and the whole query fails, so the route
+      # never worked. Seven were found on the first run, including the eBay
+      # refund route and the offer-delete ownership check, both answering 500
+      # to every caller since the day they were written. tsc cannot see this:
+      # the repo casts supabase results with `as Array<{...}>` because the
+      # generated types resolve to `never`, and a cast asserts whatever shape
+      # you write.
+      - name: Select columns exist
+        if: ${{ !cancelled() }}
+        run: node scripts/check-select-columns.mjs
       # US-2437: a file that is both tracked and gitignored. The ignore silently
       # does nothing, so the file reads as modified in every working tree forever
       # and each person who notices adds another dead ignore line — one path here

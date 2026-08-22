@@ -63,7 +63,7 @@ function compConfidence(count: number): number {
 
 interface ItemRow {
   id: string;
-  item_title: string | null;
+  title: string | null;
   brand: string | null;
   item_category: string | null;
   garment_category: string | null;
@@ -121,7 +121,7 @@ export async function computeEquityForOwner(owner: string) {
     personalSellThroughDays(owner),
     supabaseAdmin
       .from("inventory_items")
-      .select("id, item_title, brand, item_category, garment_category, grade_value, comp_set, created_at")
+      .select("id, title, brand, item_category, garment_category, grade_value, comp_set, created_at")
       .eq("user_id", owner)
       .not("status", "in", REALIZED_STATUSES)
       .limit(INVENTORY_CAP),
@@ -169,7 +169,7 @@ export async function computeEquityForOwner(owner: string) {
     const brand = (it.brand ?? "").trim() || null;
     return {
       id: it.id,
-      title: it.item_title,
+      title: it.title,
       category,
       brand,
       gradeValue: grade,
