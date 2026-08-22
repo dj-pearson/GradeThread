@@ -12,6 +12,7 @@ import {
   GROUND_ADVANTAGE_BY_POUND,
   GROUND_ADVANTAGE_UNDER_1LB,
   USPS_RATES_EFFECTIVE_FROM,
+  USPS_RATES_RETRIEVED_ON,
   ZONE_BANDS,
   estimateZone,
   quoteShipping,
@@ -99,11 +100,12 @@ export function EbayShippingCalculatorPage() {
           <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">{CALC.h1}</h1>
           <p className="mt-6 text-lg text-foreground">{intro}</p>
           <p className="mt-4 text-sm text-muted-foreground">
-            USPS commercial prices, effective {USPS_RATES_EFFECTIVE_FROM}. That is
-            the tier you pay buying a label through eBay or any online provider,
-            not the Post Office counter price, which runs 30 to 40 percent
-            higher. eBay&apos;s own rates are at or below this, so read a result
-            as a ceiling rather than a quote.
+            USPS commercial prices, effective {USPS_RATES_EFFECTIVE_FROM} and
+            cross-checked against the published tables on {USPS_RATES_RETRIEVED_ON}.
+            That is the tier you pay buying a label through eBay or any online
+            provider, not the Post Office counter price, which runs 30 to 40
+            percent higher. eBay&apos;s own rates are at or below this, so read a
+            result as a ceiling rather than a quote.
           </p>
         </div>
       </section>

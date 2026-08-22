@@ -14,6 +14,9 @@ import {
   VIDEO_SUBMIT_MAX_BYTES,
   VIDEO_SUBMIT_MAX_DURATION_SECONDS,
   videoSubmitRejection,
+  VIDEO_DURATION_MUST_BE_READABLE,
+  VIDEO_EXCLUDES_PHOTOS,
+  VIDEO_UPLOAD_COMPLETE_IS_NOT_GRADED,
 } from "@/lib/video-grading-contract";
 
 // US-2504 AC2. The TypeScript contract was written so a native client would have
@@ -144,16 +147,28 @@ describe("the Swift video-grading contract mirrors the TypeScript one", () => {
   });
 
   it("keeps the three behavioural flags the recorder has to honour", () => {
-    // These are prose in TypeScript and constants in Swift, so they cannot be
-    // compared by value. What CAN be checked is that the Swift side still
-    // declares them — deleting one is how the rule quietly stops being a rule.
+    // ⚠ THIS COMMENT USED TO SAY the flags "are prose in TypeScript and
+    // constants in Swift, so they cannot be compared by value", and checked only
+    // that Swift declared them. They are NOT prose: all three are exported
+    // constants in video-grading-contract.ts. So the comparison this file exists
+    // to make was being skipped on its own premise, and two of the three
+    // TypeScript constants had no reader at all — which is how they turned up on
+    // the dead-export list, filed as code to delete rather than as a check that
+    // was only ever run on one side.
+    //
+    // Both sides are asserted now. A flag flipped to false in TypeScript, or
+    // deleted from Swift, fails here.
     const source = swift();
-    for (const flag of [
-      "durationMustBeReadable",
-      "excludesPhotos",
-      "uploadCompleteIsNotGraded",
-    ]) {
-      expect(source, flag).toContain(`static let ${flag} = true`);
+    const pairs: Array<[boolean, string]> = [
+      [VIDEO_DURATION_MUST_BE_READABLE, "durationMustBeReadable"],
+      [VIDEO_EXCLUDES_PHOTOS, "excludesPhotos"],
+      [VIDEO_UPLOAD_COMPLETE_IS_NOT_GRADED, "uploadCompleteIsNotGraded"],
+    ];
+    for (const [ts, swiftName] of pairs) {
+      expect(ts, `${swiftName}: the TypeScript side`).toBe(true);
+      expect(source, `${swiftName}: the Swift side`).toContain(
+        `static let ${swiftName} = true`,
+      );
     }
   });
 });

@@ -20,7 +20,17 @@ const STATUS_PATH = "/api/waitlist/status";
 let cached: boolean | null = null;
 let inFlight: Promise<boolean> | null = null;
 
-/** Reset between tests. Not used in production code. */
+/**
+ * Clears the module cache `useWaitlistGating` keeps.
+ *
+ * NOTHING CALLS THIS, and the reason is worth a line rather than a deletion.
+ * The suite next door tests `readWaitlistGating`, the UNCACHED read, which is
+ * where the fail-closed rule lives and where a regression would be
+ * user-visible. The cached hook has no test at all, so nothing has ever needed
+ * to reset it. Kept because writing that test is the fix, and this is the tool
+ * it would need; the previous comment said "reset between tests" as though a
+ * test already did.
+ */
 export function resetWaitlistGatingCache(): void {
   cached = null;
   inFlight = null;

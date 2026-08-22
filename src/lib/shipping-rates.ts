@@ -30,6 +30,13 @@ export const RATE_EFFECTIVE_FROM = "2026-07-12";
 /** The zone these prices are for. See the header on why it is representative. */
 export const RATE_ZONE = "4";
 
+/**
+ * Where these prices come from. Read by nothing in the app on purpose: the
+ * citation belongs beside the numbers for whoever next has to re-check them,
+ * and docs/shipping/usps-rates-CONFIRMED.csv carries the same URL with the date
+ * and the confidence column. Deleting it would leave the table in this file
+ * with no source at all.
+ */
 export const RATE_SOURCE_URL = "https://pe.usps.com/text/dmm300/Notice123.htm";
 
 /**
