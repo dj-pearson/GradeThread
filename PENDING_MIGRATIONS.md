@@ -1,6 +1,7 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] HELD: 00645 and 00647. 00646 is APPLIED and verified (2026-08-21),
+> [!warning] HELD: 00645. 00646 and 00647 are both APPLIED and verified
+> (2026-08-21),
 > and the
 > 00627 tail (US-2729) is fully resolved — both its functions are confirmed
 > present, one of them against pg_proc directly. Everything through 00644 is
@@ -27,9 +28,19 @@
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
 
-## HELD: 00647 — style_code_brand_candidates (US-2786)
+## APPLIED 2026-08-21: 00647 — style_code_brand_candidates (US-2786)
 
-**NOT APPLIED. Do not push the commit that carries it until this has run.**
+**APPLIED, owner-confirmed and verified rather than taken on trust.**
+`GET /health/ready` reports
+`{"expected":"00646","applied":"00647","status":"ahead","unexpected":["00647"]}`
+with no `missing` key, and the PostgREST OpenAPI read lists all four new
+objects: `/style_code_brand_candidates`, `/style_code_prospect_state`,
+`/rpc/record_style_code_brand_candidate` and `/rpc/record_style_code_prospect`.
+Presence in that document is conclusive; absence would not have been (see the
+00627 note further down).
+
+`expected: 00646` only says the RUNNING edge build predates the schema, which the
+next Coolify deploy resolves.
 
 **Risk: LOW.** Two new tables with no foreign keys and two new functions. Nothing
 existing is altered, dropped or backfilled.
