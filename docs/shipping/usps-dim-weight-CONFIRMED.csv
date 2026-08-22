@@ -1,0 +1,10 @@
+rule,value,source_url,read_on
+dim_weight_threshold_cubic_inches,1728,https://pe.usps.com/text/dmm300/123.htm,2026-08-22
+dim_weight_divisor,139,https://pe.usps.com/text/dmm300/123.htm,2026-08-22
+dim_weight_zones,1-9,https://pe.usps.com/text/dmm300/123.htm,2026-08-22
+dim_weight_nonrectangular_factor,0.785,https://pe.usps.com/text/dmm300/123.htm,2026-08-22
+dim_weight_rounding,round up to whole pounds,https://pe.usps.com/text/dmm300/123.htm,2026-08-22
+ground_advantage_threshold_cubic_inches,1728,https://pe.usps.com/text/dmm300/283.htm,2026-08-22
+ground_advantage_divisor,139,https://pe.usps.com/text/dmm300/283.htm,2026-08-22
+ground_advantage_zones,1-9,https://pe.usps.com/text/dmm300/283.htm,2026-08-22
+ground_advantage_nonrectangular_factor,0.785,https://pe.usps.com/text/dmm300/283.htm,2026-08-22

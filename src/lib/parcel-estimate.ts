@@ -128,6 +128,75 @@ export const PACKAGING_WEIGHT_OZ = {
 
 export type PackKind = keyof typeof PACKAGING_WEIGHT_OZ;
 
+/** Outside dimensions in inches, used for dimensional weight. Seeded, like the
+ *  weights above — these are ordinary mailer and shoebox sizes, not measured. */
+export const PACK_DIMENSIONS: Record<
+  PackKind,
+  { lengthIn: number; widthIn: number; heightIn: number }
+> = {
+  mailer_small: { lengthIn: 10, widthIn: 13, heightIn: 1 },
+  mailer_large: { lengthIn: 14, widthIn: 19, heightIn: 3 },
+  box_small: { lengthIn: 12, widthIn: 9, heightIn: 4 },
+  box_medium: { lengthIn: 16, widthIn: 12, heightIn: 8 },
+};
+
+// ⚠ 139, NOT 166. The design draft carried 166 with a note to verify it against
+// the carrier before trusting it. Verified 2026-08-22 against USPS's own
+// Domestic Mail Manual — Priority Mail DMM 123 and Ground Advantage DMM 283
+// both publish 139 — and recorded in docs/shipping/usps-dim-weight-CONFIRMED.csv
+// with the URLs and the date. 166 is the UPS/FedEx retail divisor.
+//
+// The error ran in the expensive direction, which is why the sourcing step is
+// a step: a LARGER divisor yields a SMALLER dimensional weight, so the parcel
+// bills lighter than it will, the margin floor sits lower than it should, and
+// the seller loses the difference. That is the same failure this whole module
+// exists to stop, arriving through the fix.
+export const DIM_DIVISOR = 139;
+export const DIM_THRESHOLD_CU_IN = 1728;
+
+/**
+ * Billable dimensional weight in ounces, or 0 when the rule does not apply.
+ *
+ * USPS publishes this as whole POUNDS, rounded UP — "divide the result by 139
+ * and round up ... to determine the dimensional weight in pounds" — so the
+ * ceiling is applied before converting to ounces rather than after. Rounding
+ * in ounces would under-report by up to 15 oz on a parcel that is already the
+ * expensive kind.
+ *
+ * The threshold is strict: the rule engages only ABOVE 1,728 cubic inches
+ * (one cubic foot), so a parcel exactly at it bills on actual weight.
+ */
+export function dimensionalWeightOzForCubicInches(cubicInches: number): number {
+  // Number.isFinite first, and it is load-bearing rather than defensive
+  // decoration: Infinity > 1728 is TRUE, so an infinite volume would sail past
+  // the threshold and return Infinity ounces, which Math.max then makes the
+  // billable weight, which reaches the margin floor. Found by a test case, not
+  // by reading. US-2739 hit the same shape in stepPrice, where an Infinity step
+  // turned a real price into NaN.
+  if (!Number.isFinite(cubicInches)) return 0;
+  if (!(cubicInches > DIM_THRESHOLD_CU_IN)) return 0;
+  return Math.ceil(cubicInches / DIM_DIVISOR) * 16;
+}
+
+/**
+ * The same rule for a named pack.
+ *
+ * ⚠ TAKES CUBIC INCHES SEPARATELY ON PURPOSE. This started as one function
+ * over PackKind, and a sabotage run showed the arithmetic was UNREACHABLE: no
+ * seeded pack exceeds a cubic foot, so every call returned 0 and swapping the
+ * round-up for a round-nearest, or making the threshold inclusive, changed
+ * nothing that any test could see. The only cases covering the formula were
+ * re-implementing it inline, which is a test asserting against its own copy of
+ * the thing it checks.
+ *
+ * Splitting it means the rule is exercised at sizes that trip it, today,
+ * without inventing a pack size to make that happen.
+ */
+export function dimensionalWeightOz(pack: PackKind): number {
+  const d = PACK_DIMENSIONS[pack];
+  return dimensionalWeightOzForCubicInches(d.lengthIn * d.widthIn * d.heightIn);
+}
+
 export interface ParcelInput {
   garmentCategory: ParcelGarmentCategory | null;
   material: string | null;
@@ -138,7 +207,8 @@ export interface ParcelInput {
 export interface ParcelEstimate {
   /** Predicted actual weight in ounces, packaging included. */
   weightOz: number;
-  /** max(actual, dimensional). Equal to weightOz until the pack model lands. */
+  /** max(actual, dimensional). Equal to weightOz whenever the parcel is under
+   *  one cubic foot, which every current pack is - see the test. */
   billableWeightOz: number;
   pack: PackKind;
   /** "good" when measurements and material both informed the number. */
@@ -185,16 +255,23 @@ export function sizeFactor(input: ParcelInput): number | null {
   return clamp(ratio, SIZE_FACTOR_MIN, SIZE_FACTOR_MAX);
 }
 
-// A later task replaces this with real per-category pack selection, which is
-// when it gains the input and the garment weight it will need. It takes no
-// arguments today rather than unused underscore-prefixed ones, because
-// @typescript-eslint/no-unused-vars is configured without an argsIgnorePattern
-// here and would reject them.
-//
-// Every parcel is a small mailer until then, which keeps the weight test
-// honest without pretending the pack model exists.
-function selectPack(): PackKind {
-  return "mailer_small";
+/** Categories that ship rigid, in a box rather than a mailer. */
+const BOXED: ReadonlySet<string> = new Set([
+  "sneakers",
+  "boots",
+  "sandals",
+  "bag",
+]);
+
+/** Above this many ounces of garment, a small mailer stops fitting. */
+const LARGE_MAILER_OZ = 18;
+
+function selectPack(input: ParcelInput, garmentOz: number): PackKind {
+  const cat = input.garmentCategory;
+  if (cat != null && BOXED.has(cat)) {
+    return garmentOz > 36 ? "box_medium" : "box_small";
+  }
+  return garmentOz > LARGE_MAILER_OZ ? "mailer_large" : "mailer_small";
 }
 
 export function estimateParcel(input: ParcelInput): ParcelEstimate {
@@ -210,12 +287,20 @@ export function estimateParcel(input: ParcelInput): ParcelEstimate {
   if (mult != null) basis.push("material");
 
   const garmentOz = base * (factor ?? 1) * (mult ?? 1);
-  const pack = selectPack();
+  const pack = selectPack(input, garmentOz);
   const weightOz = garmentOz + PACKAGING_WEIGHT_OZ[pack];
+
+  // The bulky-and-light case, which is where sellers lose the most and see it
+  // the least: a puffer weighs almost nothing and bills like a brick. `basis`
+  // gains "dimensional" only when it actually WON, so the UI can say which
+  // number it is showing rather than implying both were considered equally.
+  const dimOz = dimensionalWeightOz(pack);
+  const billableWeightOz = Math.max(weightOz, dimOz);
+  if (dimOz > weightOz) basis.push("dimensional");
 
   return {
     weightOz,
-    billableWeightOz: weightOz,
+    billableWeightOz,
     pack,
     confidence: factor != null && mult != null ? "good" : "rough",
     basis,

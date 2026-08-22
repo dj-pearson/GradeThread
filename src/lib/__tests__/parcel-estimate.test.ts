@@ -14,7 +14,12 @@ import { GARMENT_CATEGORIES } from "@/lib/constants";
 import type { GarmentCategory } from "@/types/database";
 import {
   BASE_WEIGHT_OZ,
+  DIM_DIVISOR,
+  DIM_THRESHOLD_CU_IN,
+  dimensionalWeightOz,
+  dimensionalWeightOzForCubicInches,
   estimateParcel,
+  PACK_DIMENSIONS,
   PACKAGING_WEIGHT_OZ,
   type ParcelGarmentCategory,
 } from "../parcel-estimate";
@@ -248,5 +253,136 @@ describe("US-2790: the edge mirror does not drift", () => {
         .toBeGreaterThan(0);
     }
     expect(Object.keys(BASE_WEIGHT_OZ).sort()).toEqual([...GARMENT_CATEGORIES].sort());
+  });
+});
+
+describe("US-2790: pack selection", () => {
+  it("puts footwear in a box, not a mailer", () => {
+    const r = estimateParcel({
+      garmentCategory: "boots",
+      material: null,
+      measurements: null,
+      size: null,
+    });
+    expect(r.pack).toBe("box_medium");
+  });
+
+  it("puts a t-shirt in a small mailer", () => {
+    const r = estimateParcel({
+      garmentCategory: "t-shirt",
+      material: null,
+      measurements: null,
+      size: null,
+    });
+    expect(r.pack).toBe("mailer_small");
+  });
+
+  it("upgrades to a large mailer once the garment is bulky", () => {
+    const r = estimateParcel({
+      garmentCategory: "coat",
+      material: "wool",
+      measurements: null,
+      size: null,
+    });
+    expect(r.pack).toBe("mailer_large");
+  });
+
+  it("EVERY boxed category is boxed, not just the two spot-checked", () => {
+    // Sabotage found this: removing "sneakers" from BOXED changed nothing,
+    // because the cases below happen to use boots and sandals.
+    for (const cat of ["sneakers", "boots", "sandals", "bag"] as const) {
+      const r = estimateParcel({
+        garmentCategory: cat,
+        material: null,
+        measurements: null,
+        size: null,
+      });
+      expect(r.pack, `${cat} should be boxed`).toMatch(/^box_/);
+    }
+  });
+
+  it("a lighter boot still gets the small box", () => {
+    const r = estimateParcel({
+      garmentCategory: "sandals",
+      material: null,
+      measurements: null,
+      size: null,
+    });
+    expect(r.pack).toBe("box_small");
+  });
+});
+
+describe("US-2790: dimensional weight, against the published USPS rule", () => {
+  // Divisor 139, threshold 1,728 cubic inches, rounded UP to whole pounds.
+  // Read 2026-08-22 from USPS's own Domestic Mail Manual (Priority DMM 123 and
+  // Ground Advantage DMM 283) and recorded in
+  // docs/shipping/usps-dim-weight-CONFIRMED.csv. The design draft said 166,
+  // which is the UPS/FedEx divisor.
+
+  it("uses 139 and a one-cubic-foot threshold, not the UPS numbers", () => {
+    expect(DIM_DIVISOR).toBe(139);
+    expect(DIM_THRESHOLD_CU_IN).toBe(1728);
+  });
+
+  it("⚠ NO CURRENT PACK TRIPS THE RULE — every one is under a cubic foot", () => {
+    // This is the finding, pinned so it cannot change silently. The seeded
+    // pack sizes top out at box_medium (16 x 12 x 8 = 1,536 cu in), which is
+    // BELOW the 1,728 threshold, so dimensional weight never engages today.
+    //
+    // That is correct behaviour for these sizes — USPS genuinely bills a
+    // sub-cubic-foot parcel on actual weight — and it means the "bulky and
+    // light" case the spec calls out as where sellers lose the most is NOT yet
+    // covered. Making it engage needs a real pack size read off a real box,
+    // not a number invented to satisfy a test.
+    for (const pack of Object.keys(PACK_DIMENSIONS) as Array<keyof typeof PACK_DIMENSIONS>) {
+      const d = PACK_DIMENSIONS[pack];
+      const cubic = d.lengthIn * d.widthIn * d.heightIn;
+      expect(cubic, `${pack} is ${cubic} cu in`).toBeLessThanOrEqual(DIM_THRESHOLD_CU_IN);
+      expect(dimensionalWeightOz(pack), `${pack}`).toBe(0);
+    }
+  });
+
+  it("no estimate reports a dimensional basis while that holds", () => {
+    for (const cat of GARMENT_CATEGORIES) {
+      const r = estimateParcel({
+        garmentCategory: cat as ParcelGarmentCategory,
+        material: "down",
+        measurements: null,
+        size: null,
+      });
+      expect(r.basis, `${cat}`).not.toContain("dimensional");
+      expect(r.billableWeightOz, `${cat}`).toBeCloseTo(r.weightOz, 6);
+    }
+  });
+
+  it("CALLS the rule at a size that trips it, rather than re-deriving it", () => {
+    // 3,840 cu in / 139 = 27.6 lb, rounded up to 28 lb = 448 oz.
+    // With the design's 166 it would be 24 lb — 4 lb light, and light is the
+    // direction that costs the seller.
+    expect(dimensionalWeightOzForCubicInches(20 * 16 * 12)).toBe(448);
+  });
+
+  it("rounds UP to whole pounds before converting, as published", () => {
+    // 1,729 cu in / 139 = 12.44 lb. Published rule rounds up to 13 lb = 208 oz.
+    // Rounding in OUNCES instead gives 199 and under-reports by 9. This case
+    // calls the function, so replacing the ceiling with a round fails here —
+    // it did not when the expectation re-computed the formula itself.
+    expect(dimensionalWeightOzForCubicInches(1729)).toBe(208);
+  });
+
+  it("the threshold is strict — exactly one cubic foot bills on actual weight", () => {
+    // Published as "exceeding 1 cubic foot", so 1,728 is out and 1,729 is in.
+    // An inclusive comparison here would silently start billing a whole class
+    // of parcels on size.
+    expect(dimensionalWeightOzForCubicInches(DIM_THRESHOLD_CU_IN)).toBe(0);
+    expect(dimensionalWeightOzForCubicInches(DIM_THRESHOLD_CU_IN + 1)).toBeGreaterThan(0);
+  });
+
+  it("refuses a nonsense volume rather than returning NaN ounces", () => {
+    for (const cu of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const r = dimensionalWeightOzForCubicInches(cu);
+      expect(Number.isFinite(r) || r === 0, `cu ${cu}`).toBe(true);
+    }
+    expect(dimensionalWeightOzForCubicInches(Number.NaN)).toBe(0);
   });
 });
