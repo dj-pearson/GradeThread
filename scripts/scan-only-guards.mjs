@@ -194,7 +194,12 @@ for (const f of files) {
   if (scans < 6 || calls > 0) continue;
   if (isCorpusGuard(f.src)) continue;
 
-  const subjects = [...new Set([...f.src.matchAll(SUBJECT)].map((m) => m[1]))];
+  const subjects = [...new Set([...f.src.matchAll(SUBJECT)].map((m) => m[1]))]
+    // A subject the guard PARSES is being used as data, not scanned as text —
+    // `JSON.parse(read("…/ebay-aspect-registry.json"))` is the JSON equivalent
+    // of importing and calling. Flagging it says "nothing exercises this file"
+    // about a file the test is actively driving.
+    .filter((s) => !(s.endsWith(".json") && /JSON\.parse/.test(f.src)));
   const uncovered = subjects
     .filter((s) => !importedTails.has(tailOf(s)))
     .filter(isLiftable);
@@ -208,7 +213,20 @@ for (const f of files) {
 }
 
 const showAll = process.argv.includes("--all");
-const candidates = rows.filter((r) => !r.covered);
+/**
+ * A candidate has at least one uncovered library subject to act on.
+ *
+ * NOT `!covered`, which was the earlier test and produced six entries reading
+ * "0 uncovered" — guards whose subjects the path regex never matched at all
+ * (they name files through a helper, or build the path from a variable). Those
+ * listed as work with nothing beside them to do, which is the same noise the
+ * page-subject and corpus-walker exclusions removed.
+ *
+ * A guard the regex cannot read is invisible here rather than falsely flagged.
+ * That is the safe direction for a worklist: a missed candidate costs one guard
+ * left as it is, a false one costs somebody's afternoon.
+ */
+const candidates = rows.filter((r) => r.uncovered.length > 0);
 const shown = showAll ? rows : candidates;
 shown.sort((a, b) => b.uncovered.length - a.uncovered.length || b.scans - a.scans);
 
