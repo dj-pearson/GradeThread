@@ -155,6 +155,50 @@ for (const f of files) {
   }
 }
 
+// ── Writes: the object keys of .insert() / .update() / .upsert() ────────────
+//
+// The last surface, and it came back CLEAN on its first run — 3155 references,
+// zero findings. It is folded in anyway, because the value of a guard is what
+// it stops arriving, not what it found on the day it was written, and a wrong
+// column in a WRITE is worse than in a read: the write fails and the caller
+// usually reports a success-shaped nothing.
+//
+// TOP-LEVEL KEYS ONLY. A nested object is a jsonb VALUE, and its keys are not
+// columns — counting them would flag every settings blob in the repo.
+const WRITE = /\.from\(\s*["']([a-z0-9_]+)["']\s*\)\s*\n?\s*\.(?:insert|update|upsert)\(\s*\{/g;
+
+for (const f of files) {
+  const src = readFileSync(f, "utf8");
+  for (const m of src.matchAll(WRITE)) {
+    const table = m[1].toLowerCase();
+    const known = cols.get(table);
+    if (!known || views.has(table) || matviews.has(table)) continue;
+    let depth = 0, end = -1;
+    const start = m.index + m[0].length - 1;
+    for (let k = start; k < src.length; k++) {
+      if (src[k] === "{") depth++;
+      else if (src[k] === "}") { depth--; if (depth === 0) { end = k; break; } }
+    }
+    if (end < 0) continue;
+    let d = 0;
+    for (const line of src.slice(start + 1, end).split("\n")) {
+      const key = /^\s*([a-z_][a-z0-9_]*)\s*:/.exec(line);
+      if (d === 0 && key) {
+        checked++;
+        if (!known.has(key[1].toLowerCase())) {
+          findings.push({
+            file: relative(R, f).replaceAll("\\", "/"), table, col: key[1].toLowerCase(),
+          });
+        }
+      }
+      for (const ch of line) {
+        if (ch === "{" || ch === "[" || ch === "(") d++;
+        else if (ch === "}" || ch === "]" || ch === ")") d--;
+      }
+    }
+  }
+}
+
 const byKey = new Map();
 for (const f of findings) {
   const k = `${f.table}.${f.col}`;
@@ -168,11 +212,14 @@ for (const f of findings) {
 // completely green. These floors are well under the real numbers (5395 / 307)
 // and exist only to make "found nothing" impossible to confuse with "found
 // nothing wrong".
-// Raised from 3000 when US-2805 added the filter/order surface and the count
-// went 5395 -> 9934. A floor that lags the real number by 3x stops being a
-// floor; if either half of the scan breaks, only a number near the truth
-// notices.
-const MIN_REFS = 7000;
+// Raised twice, and both raises were load-bearing rather than bookkeeping.
+// 3000 -> 7000 when the filter surface arrived (5395 -> 9934): the sabotage
+// that breaks the filter matcher leaves the select half's 5395 still flowing,
+// so the old floor passed a guard with half its coverage gone. 7000 -> 11000
+// when writes arrived (9934 -> 13089), for the same reason. A floor that lags
+// the truth by a whole surface has quietly stopped guarding; keep it close
+// enough that losing any ONE of the three trips it.
+const MIN_REFS = 11000;
 const MIN_TABLES = 200;
 if (checked < MIN_REFS || cols.size < MIN_TABLES) {
   console.error(
