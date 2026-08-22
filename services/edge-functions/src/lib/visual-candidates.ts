@@ -53,6 +53,22 @@ export interface VisualCandidate {
   support: number;
   /** How many declared that field at all, so 2-of-5 reads differently to 2-of-2. */
   outOf: number;
+  /**
+   * How many of the searched photos surfaced a listing declaring this (US-2780).
+   *
+   * A SECOND KIND OF EVIDENCE, not more of the first. Five listings agreeing off
+   * one flatlay is the teal-tank case from
+   * vault/30-platform/ebay-visual-search.md: no brand mark in frame, five
+   * confident Lululemon results, and no way to tell from the photo. Five
+   * agreeing across three angles is a different claim, and the listing count
+   * alone cannot express the difference.
+   *
+   * Absent on candidates built from a single photo (US-2778), which is why the
+   * clause is omitted rather than printed as "1 of 1".
+   */
+  photosAgreeing?: number;
+  /** How many photos were searched at all. */
+  photosSearched?: number;
 }
 
 export type CandidateVerdict = "accepted" | "rejected";
@@ -79,10 +95,15 @@ export function buildCandidateBlock(
   const usable = candidates.filter((c) => c.field && c.value && c.support > 0);
   if (usable.length === 0) return "";
 
-  const lines = usable.map(
-    (c) =>
-      `- ${c.field}: "${c.value}" (declared by ${c.support} of ${c.outOf} similar listings)`,
-  );
+  const lines = usable.map((c) => {
+    // US-2780: only when more than one photo was actually searched. "on 1 of 1
+    // photos searched" is noise - it is the only thing it could say - and
+    // printing it would change every single-photo prompt for no reason.
+    const across = (c.photosSearched ?? 0) > 1
+      ? `, on ${c.photosAgreeing ?? 0} of ${c.photosSearched} photos searched`
+      : "";
+    return `- ${c.field}: "${c.value}" (declared by ${c.support} of ${c.outOf} similar listings${across})`;
+  });
 
   return [
     "UNVERIFIED EXTERNAL GUESS — eBay visual match.",
@@ -110,6 +131,13 @@ export function buildCandidateBlock(
     "- Rejecting is a correct and expected outcome, not a failure to be helpful.",
     "- Never copy a candidate into a field you would otherwise have left empty",
     "  purely because it was offered.",
+    // US-2780. Stated as a fact about what the number MEANS, not as a
+    // threshold: a threshold here would be this block filtering on the model's
+    // behalf, which is the one thing it is built not to do.
+    "- Where a candidate was searched on several photos, the photo count is a",
+    "  second kind of evidence. Many listings agreeing off ONE angle can all be",
+    "  answering the silhouette rather than the garment; agreement across angles",
+    "  is harder to get by accident. Weigh it, do not treat it as a cutoff.",
     "",
     // WITHOUT THIS the block asks for a decision and gives it nowhere to go.
     // The rules above were unenforceable for exactly that reason: the model was

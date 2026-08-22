@@ -1,5 +1,6 @@
 import { handleEbaySearchTermsCron } from "./routes/jobs-ebay-search-terms.ts";
 import { handleStyleCodeSweepCron } from "./routes/jobs-style-code-sweep.ts";
+import { handleStyleCodeDiscoveryCron } from "./routes/jobs-style-code-discovery.ts";
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { cors } from "hono/cors";
@@ -89,6 +90,7 @@ import { adminPricingRoutes } from "./routes/admin-pricing.ts";
 import { adminConfigRoutes } from "./routes/admin-config.ts";
 import { adminCategoryMapRoutes } from "./routes/admin-category-map.ts";
 import { adminListingCoverageRoutes } from "./routes/admin-listing-coverage.ts";
+import { adminIdentificationProvenanceRoutes } from "./routes/admin-identification-provenance.ts";
 import { adminWaitlistRoutes } from "./routes/admin-waitlist.ts";
 import { waitlistRoutes } from "./routes/waitlist.ts";
 import { accessGateMiddleware } from "./lib/access-gate.ts";
@@ -1360,6 +1362,7 @@ app.post("/api/jobs/ebay-search-terms", (c) => handleEbaySearchTermsCron(c));
 // US-2690: fill the learned style-code index from the market instead of waiting
 // for a seller to photograph each tag.
 app.post("/api/jobs/style-code-sweep", (c) => handleStyleCodeSweepCron(c));
+app.post("/api/jobs/style-code-discovery", (c) => handleStyleCodeDiscoveryCron(c));
 // US-672 repricing-automation cron — applies owner-defined rules. Same
 // X-Internal-Job-Secret gate as reprice-scan.
 app.post("/api/jobs/reprice-rules", (c) => handleRepriceRulesCron(c));
@@ -1405,6 +1408,8 @@ app.route("/api/admin/config", adminConfigRoutes);
 app.route("/api/admin/category-map", adminCategoryMapRoutes);
 // US-2425: median eBay-aspect coverage of generated drafts, by leaf category.
 app.route("/api/admin/listing-coverage", adminListingCoverageRoutes);
+// US-2779: what the visual pass offered and what the model ruled, in aggregate.
+app.route("/api/admin/identification-provenance", adminIdentificationProvenanceRoutes);
 // US-585 waitlist/beta-gating admin surface (admin JWT + AAL2 via /api/admin/*).
 app.route("/api/admin/waitlist", adminWaitlistRoutes);
 app.route("/api/admin/grading", adminGradingRoutes);

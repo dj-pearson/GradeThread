@@ -372,6 +372,9 @@ flipdeskAiRoutes.post("/extract", async (c) => {
     enrichmentLogId: (logRow as { id: string } | null)?.id ?? null,
     candidates: result.visualCandidates,
     rulings: result.visualRulings,
+    // US-2779: already resolved — extractItemFields awaited this same promise
+    // before it built its prompt, so reading it costs nothing.
+    visualDeclined: (await visualPass).declined,
   });
 
   // US-821: persist the canonical attributes + condition_summary +

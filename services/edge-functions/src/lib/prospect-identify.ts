@@ -117,3 +117,65 @@ export function pickVisualImageIndex(
   }
   return -1;
 }
+
+/**
+ * Roles a visual search should be shown FIRST, best-measured first (US-2780).
+ *
+ * The order is the spike's result, not a preference. Whole-garment shots landed
+ * the brand five times out of five; a tag macro works only when the WORDMARK is
+ * legible, and a hem tag carrying just a logo returned Athleta leggings for a
+ * Faherty polo. So `tag` and `label` stay eligible - they measured well often
+ * enough to keep - but they never displace a garment shot.
+ */
+const VISUAL_ROLE_PRIORITY = ["front", "back", "flatlay", "label", "tag"] as const;
+
+/**
+ * How many photos one identification searches.
+ *
+ * Three, because three is how many genuinely different angles a garment shoot
+ * produces. A fourth would be another crop of one of these, and two shots of
+ * the same angle agreeing is one opinion counted twice.
+ */
+export const MAX_VISUAL_PHOTOS = 3;
+
+/**
+ * Which photos should visual search be shown, best first (US-2780).
+ *
+ * ONE PER ROLE. Two front shots of one garment are one angle photographed
+ * twice: they will agree, and the agreement means nothing. The whole value of
+ * a second search is that it is a second LOOK, so the de-duplication is on the
+ * role rather than on the file.
+ *
+ * Returns [] when nothing qualifies. That is "do not search", never "search
+ * index 0" - unknown roles are not permission, for the reason roleCanIdentify
+ * documents.
+ */
+export function pickVisualImageIndices(
+  imageRoles: readonly (string | null | undefined)[],
+  max: number = MAX_VISUAL_PHOTOS,
+): number[] {
+  const seenRoles = new Set<string>();
+  const picked: Array<{ index: number; rank: number }> = [];
+
+  for (let i = 0; i < imageRoles.length; i++) {
+    const raw = imageRoles[i];
+    if (!roleCanIdentify(raw)) continue;
+    const role = String(raw).trim().toLowerCase();
+    if (seenRoles.has(role)) continue;
+    seenRoles.add(role);
+    const rank = VISUAL_ROLE_PRIORITY.indexOf(
+      role as (typeof VISUAL_ROLE_PRIORITY)[number],
+    );
+    // A role that passes the gate but is not in the priority list sorts last
+    // rather than being dropped: roleCanIdentify is the authority on
+    // eligibility, and this list only decides the order.
+    picked.push({ index: i, rank: rank < 0 ? VISUAL_ROLE_PRIORITY.length : rank });
+  }
+
+  return picked
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .slice(0, Math.max(0, max))
+    // Back into photo order, so the caller's logs read the way the shoot does.
+    .map((p) => p.index)
+    .sort((a, b) => a - b);
+}

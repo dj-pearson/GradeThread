@@ -6,7 +6,9 @@ source_of_truth: vault
 code_refs:
   - services/edge-functions/src/lib/scout-identify.ts
   - services/edge-functions/src/lib/ebay-client.ts
-reviewed: 2026-08-20
+  - services/edge-functions/src/lib/visual-identify-pass.ts
+  - services/edge-functions/src/lib/visual-style-names.ts
+reviewed: 2026-08-21
 tags: [ebay, scout, comps, identification, measurement]
 summary: Measured on production - eBay search_by_image names the exact style from a garment photo with no tag visible, and returns confident nonsense from a measurement or defect macro.
 ---
@@ -128,6 +130,43 @@ designed behaviour and costs the seller nothing but the timeout.
    carries almost no inventory, so every call returns zero matches whatever the
    quality. Confirmed directly: the same eight photos returned 0 results each on
    sandbox and 5/5 relevant results on production.
+
+## Where all three now live (2026-08-21)
+
+All three are implemented. `roleCanIdentify` owns (1); the candidate block in
+`visual-candidates.ts` owns (2), handing the model an explicitly unverified
+guess under a precedence ladder a legible tag always wins; (3) stays a warning
+about how to evaluate, not something code can enforce.
+
+Four stories closed the remaining gaps, US-2778 to US-2781:
+
+- **AutoLister calls the pass.** Until US-2778 it did not. `generateListing`
+  is what the batch worker runs and it never touched any of this, so every
+  batch-generated listing was produced with no eBay corroboration at all. The
+  pass now starts right after the photos load and is awaited only at the
+  generation call, so it overlaps the tag-OCR, size-estimate and demand-term
+  passes rather than adding a second to each of 300 items.
+- **Three angles, not one.** The teal-tank case above -- no brand mark in
+  frame, five confident Lululemon results -- is exactly what a second angle
+  catches. Up to three photos are searched concurrently, one per role, and a
+  candidate carries how many of them backed it. It is reported, never used as a
+  cutoff: the model can see the photos and the pass cannot.
+- **Style lines are recovered from titles, and confirmed elsewhere.** The
+  "Rest Less 1/2 Zip Swirl Scroll Thumbhole" result above is a name that lives
+  in comp TITLES, which `style-code-aspects.ts` rightly refuses to trust. The
+  rule that resolves this is one word wide: a title may GENERATE a candidate
+  and may never CONFIRM one. Confirmation comes from a `brand_styles` row, a
+  style code decoded off this garment's own tag, or a `Model` item specific.
+- **The provider is measurable.** `identification_provenance` records what was
+  offered and what the model ruled, and `/api/admin/identification-provenance`
+  reads it back. The bucket to watch is *offered and never ruled on*, which is
+  a prompt defect rather than a quality signal and is invisible the moment it
+  is counted as a rejection.
+
+Latency: three concurrent searches cost roughly what one costs, at the medians
+in the table above. The expensive half is the aspect reads -- one extra Browse
+call each, because `item_summary` carries no `localizedAspects` -- and that
+budget stayed a **total** across all photos rather than becoming per-photo.
 
 ## Reproducing
 

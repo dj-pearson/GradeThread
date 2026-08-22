@@ -31,6 +31,15 @@ export interface ExtractionProvenanceInput {
   enrichmentLogId?: string | null;
   candidates: readonly VisualCandidate[];
   rulings: readonly CandidateRuling[];
+  /**
+   * Why the pass offered nothing, when it offered nothing (US-2779).
+   *
+   * Null on a run that produced candidates. Without it, "the gate refused to
+   * search a ruler shot" and "eBay has nothing that looks like this garment"
+   * are the same empty array — the same collapse this file exists to prevent,
+   * one level down.
+   */
+  visualDeclined?: string | null;
 }
 
 /**
@@ -57,6 +66,7 @@ export function buildExtractionRow(
       verdict: r.verdict,
       evidence: r.evidence,
     })),
+    visual_declined: input.visualDeclined ?? null,
   };
 }
 

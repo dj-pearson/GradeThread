@@ -40,6 +40,7 @@ const AdminUsersPage = lazy(() => import("@/pages/admin/users").then(m => ({ def
 const AdminBulkPage = lazy(() => import("@/pages/admin/bulk").then(m => ({ default: m.AdminBulkPage })));
 const AdminCategoryMapPage = lazy(() => import("@/pages/admin/category-map").then(m => ({ default: m.AdminCategoryMapPage })));
 const AdminListingCoveragePage = lazy(() => import("@/pages/admin/listing-coverage").then(m => ({ default: m.AdminListingCoveragePage })));
+const AdminIdentificationProvenancePage = lazy(() => import("@/pages/admin/identification-provenance").then(m => ({ default: m.AdminIdentificationProvenancePage })));
 const AdminBrandKnowledgePage = lazy(() => import("@/pages/admin/brand-knowledge").then(m => ({ default: m.AdminBrandKnowledgePage })));
 const AdminSubmissionsPage = lazy(() => import("@/pages/admin/submissions").then(m => ({ default: m.AdminSubmissionsPage })));
 const AdminGradingQueuePage = lazy(() => import("@/pages/admin/grading").then(m => ({ default: m.AdminGradingQueuePage })));
@@ -110,6 +111,7 @@ export function AdminRoutes() {
       <Route path="bulk" element={<SuspenseWrapper><AdminBulkPage /></SuspenseWrapper>} />
       <Route path="category-map" element={<SuspenseWrapper><AdminCategoryMapPage /></SuspenseWrapper>} />
       <Route path="listing-coverage" element={<SuspenseWrapper><AdminListingCoveragePage /></SuspenseWrapper>} />
+      <Route path="identification-provenance" element={<SuspenseWrapper><AdminIdentificationProvenancePage /></SuspenseWrapper>} />
       <Route path="brand-knowledge" element={<SuspenseWrapper><AdminBrandKnowledgePage /></SuspenseWrapper>} />
       <Route path="users/:id" element={<SuspenseWrapper><AdminUserDetailPage /></SuspenseWrapper>} />
       <Route path="submissions" element={<SuspenseWrapper><AdminSubmissionsPage /></SuspenseWrapper>} />

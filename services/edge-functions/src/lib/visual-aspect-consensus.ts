@@ -75,6 +75,16 @@ export interface AspectConsensus {
   declared: number;
   /** Distinct values seen, most-supported first. Present even when value is null. */
   candidates: Array<{ value: string; count: number }>;
+  /**
+   * The listings that declared the winning value (US-2780).
+   *
+   * Empty when the listings disagreed, because there is no winner to attribute.
+   * The caller maps these back to the PHOTOS that surfaced them, which is how
+   * "five listings agreed, but only one angle found them" becomes sayable.
+   * Computed by the gatherer, not by tallyAspect - the tally counts strings and
+   * has no idea which listing each came from.
+   */
+  winningListingIds?: string[];
 }
 
 export interface VisualAspectEvidence {
@@ -201,7 +211,17 @@ export async function gatherVisualAspectEvidence(
     // "evidence that disagreed", and only the second is a reason for a human
     // to look.
     if (values.length === 0) continue;
-    aspects[name] = tallyAspect(values);
+    const consensus = tallyAspect(values);
+    // US-2780: attribute the winner back to the listings that carried it, so
+    // the caller can ask which PHOTOS surfaced them. A null value has no
+    // winner and therefore nothing to attribute.
+    if (consensus.value) {
+      const want = consensus.value.toLowerCase();
+      consensus.winningListingIds = listings
+        .filter((l) => (readAspect(l.aspects, name) ?? "").toLowerCase() === want)
+        .map((l) => l.itemId);
+    }
+    aspects[name] = consensus;
   }
 
   return {

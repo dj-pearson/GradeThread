@@ -313,6 +313,13 @@ export const ADMIN_ROUTER_SCOPES: AdminRouterScope[] = [
     rationale: "Garment→eBay category mappings feed every seller's listing generation.",
   },
   {
+    file: "admin-identification-provenance.ts",
+    scope: "marketplace:write",
+    mode: "router",
+    rationale:
+      "Cross-tenant read of what eBay's visual search offered and what the model ruled; same pipeline and same absent marketplace:read as admin-listing-coverage.",
+  },
+  {
     file: "admin-listing-coverage.ts",
     scope: "marketplace:write",
     mode: "router",

@@ -1,6 +1,8 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!note] NOTHING IS PENDING as of 2026-08-21.
+> [!warning] HELD: 00645 and 00646, plus one operator step that is not a
+> migration at all (the tail of 00627, US-2729). Everything through 00644
+> is applied.
 > Everything through **00644** is applied. Verified by asking the database
 > rather than this file: `GET /health/ready` reports
 > `{"expected":"00642","applied":"00644","status":"ahead","unexpected":["00643","00644"]}`
@@ -22,6 +24,144 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## HELD: 00646 — style_code_discovery (US-2783)
+
+**NOT APPLIED. Do not push the commit that carries it until this has run.**
+
+**Risk: LOW.** One new table with no foreign keys, two new functions, and one
+CHECK constraint widened to admit an extra value. No backfill, no existing row
+touched, nothing dropped that anything reads.
+
+### What it does
+
+Adds `style_code_discovery_state`: one row per brand holding where the nightly
+brand-first style-code crawl (US-2784) stopped paging. Without it the crawl
+re-reads eBay's first page every night, finds the same codes, and reports
+success.
+
+Adds two functions:
+
+- `record_style_code_discovery(...)` — upserts a pass and accumulates the
+  counters server-side, so two overlapping ticks cannot erase each other.
+- `style_code_discovery_brands(p_limit)` — the brand rotation, `brand_knowledge`
+  left-joined to the state table, least recently crawled first.
+
+Widens `style_code_observations_source_check` to admit `'discovery'`. Existing
+values (`market_verify`, `own_sale`, `admin`) all stay valid, so no row can fail
+the new constraint.
+
+### The one thing that breaks if the order is wrong
+
+The edge writes observations with `source: 'discovery'` the moment the discovery
+cron first fires. Against a database without this migration that write fails the
+CHECK constraint. It is a CRON, not a user path, so nothing a seller does breaks,
+but the job's first run would report zeros and log constraint errors.
+
+Nothing in the SPA reads any of this before an edge deploy: the admin crawl
+table goes through `/api/admin/brand-knowledge/style-codes/discovery`, an edge
+route, so the frontend auto-deploy on push cannot get ahead of the schema.
+
+### Apply
+
+1. Run `supabase/migrations/00646_style_code_discovery.sql`.
+2. `NOTIFY pgrst, 'reload schema';` — two new RPCs and a new table.
+3. Redeploy the edge on Coolify (its boot guard now expects `00646`).
+4. Add the Coolify scheduled task for the new cron: `10 3 * * *` against
+   `/api/jobs/style-code-discovery`. See `services/edge-functions/CRON_SETUP.md`.
+5. Then OK the push.
+
+### Verify
+
+```sql
+select to_regclass('public.style_code_discovery_state');          -- not null
+select proname from pg_proc
+where proname in ('record_style_code_discovery', 'style_code_discovery_brands');
+-- expect both rows
+
+select pg_get_constraintdef(oid) from pg_constraint
+where conname = 'style_code_observations_source_check';           -- must include 'discovery'
+
+select count(*) from public.style_code_discovery_brands(10);      -- runs, returns brands
+```
+
+---
+
+## OPERATOR STEP (no new migration): re-run the TAIL of 00627 — US-2729
+
+**This is not a new file. It is the half of 00627 that never applied in prod,
+and it is the reason `/api/jobs/style-code-sweep` has errored on every hourly
+run since it shipped.** The discovery crawl above is worth much less while the
+sweep is dead, so run this first.
+
+The prod schema audit (2026-08-20) found `style_code_sweeps`, both its indexes
+and `record_style_code_sweep` all present, and the LAST two objects the file
+creates both missing. The file aborted partway.
+
+**Run ONLY these two statements. Do NOT re-run the whole file.** Both are
+idempotent on their own; re-running the whole file is how a partial apply gets
+repeated rather than fixed.
+
+1. The `CREATE OR REPLACE FUNCTION public.style_code_sweep_candidates` block
+   from `supabase/migrations/00627_style_code_sweeps.sql`, plus its `GRANT`.
+2. `CREATE INDEX IF NOT EXISTS inventory_items_style_code_idx ON
+   public.inventory_items ((attributes->>'style_code')) WHERE
+   attributes->>'style_code' IS NOT NULL;`
+
+Then `NOTIFY pgrst, 'reload schema';`.
+
+### Verify
+
+```sql
+select proname from pg_proc where proname = 'style_code_sweep_candidates';  -- one row
+select indexname from pg_indexes where indexname = 'inventory_items_style_code_idx';
+select count(*) from public.style_code_sweep_candidates(10);               -- runs
+```
+
+Then watch one hourly tick of `/api/jobs/style-code-sweep`: it should return
+`{ok:true, considered, swept, ...}` with `considered` above zero instead of
+logging "Could not find the function public.style_code_sweep_candidates".
+
+---
+
+## HELD: 00645 — why a visual run offered nothing (US-2779)
+
+**Risk: LOW.** One nullable column, one CHECK constraint, one partial index. No
+backfill, no data rewritten, nothing dropped. The column defaults to NULL and
+every existing row stays valid.
+
+**What it does.** Adds `visual_declined` to `identification_provenance`.
+`visual_candidates = '[]'` currently means both "the role gate refused to search
+a ruler shot" and "eBay has nothing that looks like this garment". Those are
+different findings with different fixes, and the operator report added in
+US-2779 cannot separate them without this column.
+
+**Apply order.** After 00644. Idempotent, so re-running the tail is safe.
+
+```
+psql -f supabase/migrations/00645_provenance_decline_reason.sql
+NOTIFY pgrst, 'reload schema';
+```
+
+The `NOTIFY` matters here: a new column is invisible to PostgREST until the
+schema cache reloads, and the write goes through PostgREST.
+
+**Does the frontend read it before the edge deploys?** No. The new column is
+read only by `/api/admin/identification-provenance`, an edge route, and the
+admin page reaches it through the edge. Cloudflare Pages auto-deploying the
+frontend on push cannot break anything here on its own.
+
+**What happens if the push lands before the SQL.** Nothing user-visible, and
+this is deliberate. `generateListing` skips the provenance write entirely when
+the visual pass reports `disabled`, which is what it reports while
+`SCOUT_EBAY_IMAGE_SEARCH_ENABLED` is unset — the flag's current state. So with
+the flag off, no insert carrying the new column is ever attempted. The order
+that matters is not push-vs-SQL, it is **SQL before the flag goes on**.
+
+Turning the flag on before applying this would leave every provenance insert
+failing on an unknown column. It is best-effort and would not break a
+generation, but the whole US-2779 measurement would silently record nothing —
+which is the failure mode the report exists to prevent.
 
 ## APPLIED 2026-08-21: 00644 — cross_post_channels (US-2721)
 

@@ -40411,6 +40411,87 @@
         "US-2472"
       ],
       "notes": "IN PROGRESS 2026-08-10: same state as US-2477. Grailed hosts, guard coverage, parity and README done; the enable itself needs a logged-in human against the live Grailed sell form. Run: node scripts/verify-lister-selectors.mjs --checklist grailed. | CLOSED ON VERIFICATION 2026-08-21. The note said IN PROGRESS and 'needs a logged-in human'; that human flipped it on 2026-08-11 and nobody came back to the story.\n\nAC1 and AC7 are DONE: grailed.enabled is true in extension-unified/lister/selectors.js with version 2026.08.0 and lastVerified 2026-08-10, and verify-lister-selectors reports grailed among the enabled platforms. AC5 passes in that same script (hosts non-empty, liveListingUrlPattern present and not matching the create page). AC6: all 40 extension test files pass, legacy-parity included.\n\nAC4 IS NOT DONE AND CANNOT BE, and that is a finding rather than a gap. It asks that a Grailed sibling queued as DelistMethod 'extension' be ENDED through use-pending-delists.ts. Grailed confirms a delete with a NATIVE browser dialog - window.confirm, drawn by Chrome outside the document - which blocks the page's JavaScript and cannot be answered by anything running in it. The only way through would be overriding window.confirm in the page's own world to defeat a deletion confirmation the seller is being shown, silently, which is exactly what the ADR's bright lines refuse. So delist.enabled stays false permanently and the seller gets US-2165's delist_unresolved path: a durable marker plus one notification per sale. Grailed stays in EXTENSION_DELIST_PLATFORMS precisely so that reminder reaches them. All of this was already recorded in the selectors comment; what was missing was the story saying its own AC had been superseded.\n\nFIXED WHILE VERIFYING: the Grailed section heading still read 'PHASE 3 (not yet enabled)' and the paragraph under it 'Still enabled: false', sitting directly above enabled: true, for ten days. That is the SECOND time in this one file - the Mercari block fifty lines up carries the same correction from 2026-08-11. It matters more than tidiness: these headings are what a reader consults before deciding whether a flow is safe to touch, and this one said a channel was off while sellers were listing to it.\n\nSO IT IS NOW A GATE. scripts/verify-lister-selectors.mjs gains checkHeadingHonesty: for any platform with enabled: true, the comment block introducing it may not claim the flow is off. Deliberately narrow - it looks for the phrases a stale heading actually uses, it stops at the first mention of 'delist' (Grailed's block discusses its permanently-disabled delist at length and correctly), and it strips QUOTED text, because a correction quotes the wording it is correcting. That last exemption was not foresight: the first run failed Mercari on its own note explaining the earlier fix - the guard firing on the record of the fix.\n\nSABOTAGE-CHECKED 5 of 5, control green either side: re-staling the Grailed heading, a heading saying the list flow 'stays off', an unquoted 'is not enabled', a QUOTED mention (must still pass), and a heading on the one channel that is genuinely disabled saying so (must still pass).\n\nAND THE SABOTAGE CAUGHT A DEFECT IN THE GUARD ITSELF. Two of its four patterns had shipped as literal U+0008 bytes where word boundaries were meant - the shell-heredoc mangling that has now produced a dead guard three times in this session. Both patterns matched nothing, so 'is not enabled' and 'stays off' sailed through. I first read that failure as a bad probe. It was not: the probe was right and the guard was broken. Repaired and re-sabotaged."
+    },
+    {
+      "id": "US-2778",
+      "passes": true,
+      "title": "AutoLister generates every batch listing with no eBay corroboration — the visual pass has one caller and it is not this one",
+      "description": "As a reseller running a batch through AutoLister, I want each item checked against eBay's visual search the same way a single captured item is, so that a brand or style Claude inferred from a photo is either backed by live listings or visibly unsupported before it becomes my listing.",
+      "acceptanceCriteria": [
+        "generateListing (services/edge-functions/src/lib/ai-listing.ts) calls startVisualPass immediately after loadItemPhotoUrls and does NOT await it there — it is awaited just before generateListingFields, so it overlaps the MeasureCard, tag-OCR and size-estimate passes that already run in between and adds no wall clock in the common case",
+        "ListingGenInput gains an optional visualCandidates field; generateListingFields renders it with the EXISTING buildCandidateBlock from lib/visual-candidates.ts and appends it to the lines array. The block's wording, precedence ladder and per-candidate verdict instruction are unchanged — no second adjudication mechanism is introduced",
+        "LISTING_GEN_TOOL gains an optional visual_rulings array (field, value, verdict, evidence) mirroring the one extractItemFields already has. Without it the block asks for a decision and gives it nowhere to go, which is the exact failure recorded at lib/visual-candidates.ts:113. Absent array parses as empty, so a prompt version that never sees a candidate block is unaffected",
+        "generateListing writes identification_provenance through the existing buildExtractionRow in lib/identification-provenance.ts, carrying BOTH what was offered and what was ruled, keyed to the item and the ai_enrichment_log row generation already writes. Best-effort: a failed provenance write never fails a generation",
+        "ownItemIds is passed to the pass so a seller's own live eBay listings cannot corroborate their own item, matching what routes/flipdesk-ai.ts already does",
+        "With SCOUT_EBAY_IMAGE_SEARCH_ENABLED unset or not exactly 'true', generateListing makes zero eBay image calls and the assembled prompt content is byte-identical to today. A test captures the content array and asserts it",
+        "A decline (role_not_identifying, no_matches), a timeout, or an eBay outage produces no block and no error — generation proceeds exactly as it does today. Never a partial application",
+        "US-268: the provenance row's owner_user_id comes from generateListing's ownerId argument, never from a request body, and a case in src/tests/tenant-isolation_test.ts pins that the row lands on the owning workspace"
+      ],
+      "priority": 40,
+      "notes": "Done 2026-08-21. generateListing starts startVisualPass right after loadItemPhotoUrls and awaits it only at step 4, so it overlaps the MeasureCard, tag-OCR, size-estimate, category-aspect and demand-term passes; no added wall clock on the common path. ListingGenInput.visualCandidates renders through the EXISTING buildCandidateBlock. LISTING_GEN_TOOL gained an optional visual_rulings array so the block has somewhere to put a verdict. Provenance is written through recordExtractionProvenance, best-effort, and SKIPPED when the pass reports 'disabled' - a flag that is off decided nothing, and a row per generation saying so would be the largest population in the table with no finding in it. ownEbayListingIds is owner-scoped through the inventory_items inner join (listings has no user_id) and handed over as an unawaited promise, so the DB read overlaps the search instead of preceding it. The prompt assembly was lifted into a pure buildListingUserLines so the flag-off 'byte-identical' claim is asserted rather than hoped. 7 new tests in src/tests/autolister-visual-pass_test.ts."
+    },
+    {
+      "id": "US-2779",
+      "passes": true,
+      "title": "identification_provenance has a writer and no reader — every tuning decision about visual search is currently a guess",
+      "description": "As the GradeThread team, we want to read back what the visual pass offered and what the model ruled, so that we can tell an offer that was refused from one that was never made and fix the right thing.",
+      "acceptanceCriteria": [
+        "An admin endpoint under the existing routes/admin-* surface reports over a date range: candidates offered by field, and verdicts by field",
+        "Never-ruled is its OWN bucket, separate from rejected: a candidate that was offered and is absent from visual_rulings is a prompt bug, not a model judgement, and counting it as a rejection hides the difference the table was built to preserve. A test with a candidate missing from the rulings array asserts the bucketing",
+        "Acceptances are broken down by the evidence kind the model named, so visual_consensus acceptances are separable from ones a style_code or tag_wordmark backed",
+        "Runs that produced no candidates at all are reported by decline reason, so role_not_identifying and no_matches are distinguishable",
+        "The aggregation is a pure function over rows, unit-tested with no database",
+        "Admin-gated with the same MFA step-up as the other admin reads (see vault/10-ops/mfa.md)",
+        "Read-only: this story writes nothing to identification_provenance"
+      ],
+      "priority": 41,
+      "dependsOn": [
+        "US-2778"
+      ],
+      "notes": "Done 2026-08-21. /api/admin/identification-provenance + the Visual Identification admin page. summarizeIdentification is pure. Never-ruled is its own bucket and a ruling on a value that was never offered counts as never-ruled rather than inflating the accept rate. NEEDED A MIGRATION the ACs did not anticipate: visual_candidates='[]' meant both 'the gate refused a ruler shot' and 'eBay had nothing', so 00645 adds identification_provenance.visual_declined. HELD per the standing rule and packaged in PENDING_MIGRATIONS.md - note the order that matters is SQL before the FLAG goes on, not SQL before the push, because the write is skipped entirely while the flag is off. Registered in admin-scope-map.ts under marketplace:write. 8 tests."
+    },
+    {
+      "id": "US-2780",
+      "passes": true,
+      "title": "Visual search sees one photo, so a confident wrong answer has nothing to contradict it",
+      "description": "As a reseller, I want the visual pass to search more than one angle of the same garment, so that a brand supported by only one photo is offered as weak rather than as five agreeing listings.",
+      "acceptanceCriteria": [
+        "The pass searches up to three photos instead of one: front, then back, then flatlay, at most one per role, hard cap of three. label and tag stay eligible only when fewer than three garment shots exist, because the measured tag result depends on a legible wordmark the role alone cannot confirm (vault/30-platform/ebay-visual-search.md)",
+        "Photo selection is a PURE function, unit-tested against role lists including duplicates, unrecognised roles, and empty. Unknown role still means no, per roleCanIdentify",
+        "A value must win a majority of the photos that returned anything, computed with the EXISTING tallyAspect — it already refuses ties, and a tie across photos is dropped for the same reason it is dropped across listings",
+        "VisualCandidate gains photosAgreeing and photosSearched; buildCandidateBlock renders both, e.g. 'declared by 3 of 5 similar listings, on 2 of 3 photos searched'",
+        "A 1-of-3 candidate is OFFERED with that number attached, not suppressed. The model can see the photos and this module cannot; hiding a weak signal decides on its behalf, which is what the block exists to avoid",
+        "Aspect reads stay capped at MAX_ASPECT_READS in TOTAL across all photos, not per photo. Those are the expensive half (one extra Browse call each, since item_summary carries no localizedAspects) and a test asserts the total is never exceeded",
+        "The three searches run concurrently and photo fetches are deduplicated — one download per distinct URL however many roles map to it",
+        "With one usable photo the behaviour is identical to US-2778, asserted by a test"
+      ],
+      "priority": 42,
+      "dependsOn": [
+        "US-2779"
+      ],
+      "notes": "Done 2026-08-21. pickVisualImageIndices (pure) picks up to 3 angles, one per role, front/back/flatlay first; label+tag stay eligible but never displace a garment shot. Searches run concurrently, photo fetches dedupe by URL, and mergeSearches ranks a listing by HOW MANY angles found it - which is what decides who gets one of the scarce aspect reads. MAX_ASPECT_READS stays a TOTAL across all photos, asserted. AC CORRECTION, and it is worth reading: two of the ACs contradicted each other. One said a value 'must win a majority of the photos that returned anything'; another said a 1-of-3 candidate is offered with the number attached, not suppressed. The second is right and is what shipped - a majority rule would be this module filtering on the model's behalf, which is the one thing the adjudication block exists not to do. Also fixed a regression the multi-photo rewrite introduced: every search failing now reports 'error', not 'no_matches', because an eBay outage filed under 'nothing looks like this garment' would corrupt the one report where the provider gets judged. 16 tests."
+    },
+    {
+      "id": "US-2781",
+      "passes": true,
+      "title": "The style line is in the comp titles and the pipeline throws it away — thrift sellers do not fill eBay's Model field",
+      "description": "As a reseller, I want the named style of a garment recovered from the listings that visually match it, so that the title leads with the token buyers actually search, without a marketing title ever becoming a fact.",
+      "acceptanceCriteria": [
+        "A new PURE module lib/visual-style-names.ts mines candidate names from comp titles: strips brand, size tokens, condition tokens (EUC, NWT and friends) and colourway noise, then collects word groups of two to five words appearing in at least two listings. Our own listing ids are excluded first using the ownItemIds set the pass already carries",
+        "A title may GENERATE a candidate and may NEVER confirm one. This does not overturn the refusal recorded at the top of lib/style-code-aspects.ts — a consensus over guesses is still a confident guess, and our own AI-written titles coming back as three witnesses is still one witness",
+        "A mined name survives only with a second source that is not a title: an existing brand_styles row for that brand, a brand_style_codes decoder hit from a style code the tag-OCR pass read (resolveStyleCode, lib/brand-normalize.ts:1818), or the Model / Product Line aspect consensus lib/visual-aspect-consensus.ts already computes",
+        "Corroborated, it becomes a style candidate in the same block with evidence kind visual_consensus, and the model can still reject it against the photos. A test asserts a name with NO second source never reaches visualCandidates",
+        "Uncorroborated, it is written to the EXISTING US-2216 style-code review queue (routes/admin-brand-knowledge.ts, lib/style-code-review.ts) as a candidate name for the owner to approve — never to the listing. An approved name becomes a brand_styles row and corroborates the next garment itself",
+        "Queue writes are best-effort and never fail a generation",
+        "The miner does not run with the flag off",
+        "US-268: the review-queue write from the batch path is tenant-scoped and covered by a case in src/tests/tenant-isolation_test.ts",
+        "If a column is needed for the queue's source, it carries the US-1108 triple (idempotent SQL, EXPECTED_SCHEMA_VERSION bumped same commit, self-record footer), goes in PENDING_MIGRATIONS.md, and is not pushed until the owner has applied it"
+      ],
+      "priority": 43,
+      "dependsOn": [
+        "US-2780"
+      ],
+      "notes": "Done 2026-08-21. lib/visual-style-names.ts is pure: mineStyleNames pulls 2-5 word phrases from comp titles after stripping brand, size, condition, department and colour tokens, requires 2 distinct non-own listings, and excludes our own ids BEFORE the tally rather than after. corroborateStyleName then demands a source that is NOT a title - a brand_styles row, a style code decoded off this garment's own tag, or a Model / Product Line item specific. Only a corroborated name becomes a style candidate, and the model can still reject it. This does not overturn the refusal at the top of style-code-aspects.ts; the change is one word wide, a title may GENERATE a candidate and may never CONFIRM one. AC NARROWED, deliberately: the AC said every uncorroborated name goes to the US-2216 review queue. That queue is keyed on a style code, so a name mined off a garment with no legible code has nothing to be filed UNDER and no way for a human to adjudicate it later. Uncorroborated names are filed against the code when the tag gave one, and otherwise dropped with a count in the log rather than written to a row nobody can ever resolve. 12 tests."
     }
   ]
 }

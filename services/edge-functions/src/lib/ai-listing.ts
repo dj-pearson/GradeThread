@@ -49,6 +49,19 @@ import {
   type ItemPhotoUrlRow,
   itemPhotoAiUrls,
 } from "./item-photo-storage.ts";
+import {
+  buildCandidateBlock,
+  type CandidateRuling,
+  dropUnevidenced,
+  EVIDENCE_PRECEDENCE,
+  parseRulings,
+  type VisualCandidate,
+} from "./visual-candidates.ts";
+import { startVisualPass } from "./visual-identify-pass.ts";
+import { corroborateStyleName } from "./visual-style-names.ts";
+import { resolveBrandKnowledgePack } from "./brand-knowledge.ts";
+import { recordStyleCodeObservations } from "./style-code-observations.ts";
+import { recordExtractionProvenance } from "./identification-provenance.ts";
 import { withRetry } from "./retry.ts";
 import { supabaseAdmin } from "./supabase.ts";
 import { ensurePassportForGradeReport } from "./passport-write.ts";
@@ -229,6 +242,14 @@ export interface ListingGenInput {
   // identified style and the description gets line/fabric/MSRP context.
   // Absent → the prompt is byte-identical to today.
   identification?: ListingIdentification | null;
+  // US-2778: what eBay's visual search thinks this garment is.
+  //
+  // NOT ground truth, and deliberately not merged into knownFields or
+  // tagGroundTruth, which are the blocks that mean "do not contradict". These
+  // get their own block with the opposite instruction, rendered by the same
+  // buildCandidateBlock the extract path uses — see the reasoning at the top of
+  // visual-candidates.ts. Empty or absent leaves the prompt untouched.
+  visualCandidates?: VisualCandidate[];
 }
 
 // US-1529: identification context for listing generation, parsed from the
@@ -346,6 +367,11 @@ export interface ListingGenResult {
   promptVersion: string;
   tokensIn: number;
   tokensOut: number;
+  // US-2778: the model's verdict on each visual candidate it was shown. Empty
+  // when no block was rendered AND when one was rendered and ignored — the two
+  // are told apart by identification_provenance, which keeps both what was
+  // offered and what came back.
+  visualRulings: CandidateRuling[];
 }
 
 // Exported for US-2674: the v2 rollout tests compare v1 against v2 directly,
@@ -546,6 +572,25 @@ export const LISTING_GEN_TOOL: Anthropic.Tool = {
         minimum: 0,
         maximum: 1,
       },
+      // US-2778. The extract tool has had this since US-2767; without it here,
+      // the candidate block asks for a decision and gives it nowhere to go —
+      // exactly the failure recorded at visual-candidates.ts:113. Optional, so
+      // a generation that never saw the block still satisfies the tool.
+      visual_rulings: {
+        type: "array",
+        description:
+          "One entry per candidate in the UNVERIFIED EXTERNAL GUESS block, if that block was present. An acceptance with no evidence is discarded server-side.",
+        items: {
+          type: "object",
+          properties: {
+            field: { type: "string" },
+            value: { type: "string" },
+            verdict: { type: "string", enum: ["accepted", "rejected"] },
+            evidence: { type: "string", enum: [...EVIDENCE_PRECEDENCE] },
+          },
+          required: ["field", "value", "verdict"],
+        },
+      },
     },
     required: [
       "title",
@@ -703,32 +748,20 @@ function coerceItemSpecifics(raw: unknown): Record<string, string[]> {
 }
 
 /**
- * Core Claude call: photos (+ optional context) -> a structured eBay listing
- * object. Uses the listing_gen prompt (DB override or code default) and forces
- * the create_ebay_listing tool. Orchestration (category resolution, pricing,
- * draft write, quota/logging) lives in US-312's generateListing.
+ * The user-turn text blocks, in order, as one pure function (US-2778).
+ *
+ * Lifted out of generateListingFields unchanged so the prompt can be asserted
+ * without a network or an API key. That matters more than usual here: the
+ * flag-off guarantee for the visual pass is "byte-identical to today", and a
+ * guarantee nobody can test is a hope.
+ *
+ * ORDER IS DELIBERATE at exactly one point. The visual block goes LAST, after
+ * the tag ground truth it must never override. The precedence ladder inside
+ * the block is what actually enforces that, but printing an unverified guess
+ * above the ground truth reads as the more authoritative of the two and costs
+ * nothing to get right.
  */
-export async function generateListingFields(
-  input: ListingGenInput,
-): Promise<ListingGenResult> {
-  enterAiFeature("autolister"); // US-894 spend attribution
-  if (!input.photos || input.photos.length === 0) {
-    throw new Error("generateListingFields requires at least one photo");
-  }
-
-  const client = getAnthropicClient();
-  const temperature = getAiTemperature();
-  const prompt = await resolveListingPrompt(input.promptSelectKey ?? null);
-
-  const content: Anthropic.ContentBlockParam[] = [];
-  input.photos.forEach((photo, i) => {
-    content.push({
-      type: "text",
-      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
-    });
-    content.push({ type: "image", source: { type: "url", url: photo.url } });
-  });
-
+export function buildListingUserLines(input: ListingGenInput): string[] {
   const lines: string[] = [];
   if (input.tagGroundTruth && Object.keys(input.tagGroundTruth).length > 0) {
     lines.push(
@@ -761,8 +794,44 @@ export async function generateListingFields(
         input.demandTerms.map((t) => `- ${t}`).join("\n"),
     );
   }
+  // US-2778. buildCandidateBlock returns "" when there is nothing to
+  // adjudicate, which is what makes an empty array and an absent field the
+  // same prompt.
+  const candidateBlock = buildCandidateBlock(input.visualCandidates ?? []);
+  if (candidateBlock) lines.push(candidateBlock);
+
   lines.push("Call create_ebay_listing with the finished listing.");
-  content.push({ type: "text", text: lines.join("\n\n") });
+  return lines;
+}
+
+/**
+ * Core Claude call: photos (+ optional context) -> a structured eBay listing
+ * object. Uses the listing_gen prompt (DB override or code default) and forces
+ * the create_ebay_listing tool. Orchestration (category resolution, pricing,
+ * draft write, quota/logging) lives in US-312's generateListing.
+ */
+export async function generateListingFields(
+  input: ListingGenInput,
+): Promise<ListingGenResult> {
+  enterAiFeature("autolister"); // US-894 spend attribution
+  if (!input.photos || input.photos.length === 0) {
+    throw new Error("generateListingFields requires at least one photo");
+  }
+
+  const client = getAnthropicClient();
+  const temperature = getAiTemperature();
+  const prompt = await resolveListingPrompt(input.promptSelectKey ?? null);
+
+  const content: Anthropic.ContentBlockParam[] = [];
+  input.photos.forEach((photo, i) => {
+    content.push({
+      type: "text",
+      text: `Photo ${i + 1}${photo.type ? ` (${photo.type})` : ""}:`,
+    });
+    content.push({ type: "image", source: { type: "url", url: photo.url } });
+  });
+
+  content.push({ type: "text", text: buildListingUserLines(input).join("\n\n") });
 
   const systemBlock: Anthropic.TextBlockParam = isCachingEnabled()
     ? { type: "text", text: prompt.text, cache_control: { type: "ephemeral" } }
@@ -906,8 +975,174 @@ async function callListingModel(
       (response.usage.cache_read_input_tokens ?? 0) +
       (response.usage.cache_creation_input_tokens ?? 0),
     tokensOut: response.usage.output_tokens,
+    // US-2778: same parse as the extract path, same discard rule. An
+    // acceptance that names no evidence is dropped — the block's whole demand
+    // is "say what accepted it", and an unevidenced yes is the model being
+    // agreeable, which is the failure the block exists to prevent.
+    visualRulings: dropUnevidenced(parseRulings(raw.visual_rulings)),
   };
 }
+
+/**
+ * Decide which mined style names may be offered, and file the rest (US-2781).
+ *
+ * ── The two outcomes, and why the second is not "drop it" ────────────────────
+ * A name backed by something that is not a title becomes a candidate the model
+ * still has to accept. A name backed only by titles cannot become one - that is
+ * the rule visual-style-names.ts exists to enforce - but it is not worthless
+ * either: several sellers holding the garment wrote the same words.
+ *
+ * So when the tag gave us a STYLE CODE, an unconfirmed name is filed against
+ * that code in the existing US-2216 observation queue, where a human decides
+ * whether it becomes permanent brand_styles knowledge. Approved, it corroborates
+ * the next garment by itself, and the knowledge base gets denser from real
+ * listings without a machine ever promoting its own guess.
+ *
+ * With no style code there is nothing to file it UNDER, and an observation with
+ * no key is a row nobody can ever adjudicate. Those are dropped and counted, so
+ * a silent zero stays visible in the log.
+ *
+ * Best-effort throughout: a queue write must never fail a generation.
+ */
+async function corroborateMinedStyleNames(args: {
+  mined: readonly { name: string; support: number }[];
+  aspectProductNames: readonly string[];
+  brand: string | null;
+  decodedStyleName: string | null;
+  styleCodeRaw: string | null;
+}): Promise<VisualCandidate[]> {
+  if (args.mined.length === 0) return [];
+
+  // brand_styles for this brand, via the cached pack. A read failure is an
+  // empty list: one fewer corroborating source, not a failed generation.
+  let knownStyleNames: string[] = [];
+  if (args.brand) {
+    try {
+      const pack = await resolveBrandKnowledgePack(args.brand);
+      knownStyleNames = (pack?.styles ?? []).flatMap(
+        (st) => [st.styleName, ...st.aliases],
+      );
+    } catch (err) {
+      console.error("[AI Listing] brand pack read failed (non-fatal):", err);
+    }
+  }
+
+  const offered: VisualCandidate[] = [];
+  const unconfirmed: Array<{ title: string }> = [];
+  for (const candidate of args.mined) {
+    const backing = corroborateStyleName(candidate.name, {
+      knownStyleNames,
+      decodedStyleName: args.decodedStyleName,
+      aspectProductNames: args.aspectProductNames,
+    });
+    if (!backing) {
+      unconfirmed.push({ title: candidate.name });
+      continue;
+    }
+    offered.push({
+      field: "style",
+      value: candidate.name,
+      support: candidate.support,
+      // Mined names are counted over listings that CARRIED the phrase, so the
+      // denominator is the same population as the numerator.
+      outOf: candidate.support,
+    });
+    // One is enough. A second style name would be a second answer to a
+    // question with one right answer, and the block has no way to say "or".
+    break;
+  }
+
+  if (unconfirmed.length > 0) {
+    if (args.styleCodeRaw && args.brand) {
+      try {
+        await recordStyleCodeObservations({
+          brandKey: args.brand.toLowerCase().replace(/[^a-z0-9]+/g, ""),
+          styleCodeRaw: args.styleCodeRaw,
+          titles: unconfirmed,
+          source: "market_verify",
+        });
+      } catch (err) {
+        console.error("[AI Listing] style-name queue write failed:", err);
+      }
+    } else {
+      console.log(
+        `[AI Listing] ${unconfirmed.length} mined style name(s) dropped: ` +
+          "no style code to file them under",
+      );
+    }
+  }
+
+  return offered;
+}
+
+/** The slice of the Supabase client ownEbayListingIds uses, so a test can be one. */
+export interface OwnListingReader {
+  from(table: string): {
+    select(cols: string): {
+      eq(col: string, val: unknown): {
+        eq(col: string, val: unknown): {
+          not(col: string, op: string, val: unknown): {
+            limit(n: number): Promise<
+              { data: unknown; error: { message: string } | null }
+            >;
+          };
+        };
+      };
+    };
+  };
+}
+
+/**
+ * This workspace's own live eBay listing ids (US-2778).
+ *
+ * Our sellers publish to eBay with titles and item specifics our own AI wrote.
+ * Reading those back as independent market corroboration counts three copies of
+ * one guess as three witnesses — the same trap style-code-aspects.ts documents,
+ * and the consensus threshold does nothing about it because the copies
+ * genuinely agree.
+ *
+ * SCOPED TO THE OWNER (US-268). `listings` has no user_id; it descends from
+ * inventory_items, so the ownership filter goes through the join. The
+ * platform-wide read that jobs-style-code-sweep.ts does is right for a
+ * background sweep and wrong here, where this runs inside one seller's request.
+ *
+ * A read failure returns an EMPTY set rather than throwing. Losing the
+ * exclusion weakens the evidence; losing the pass removes it.
+ */
+export async function ownEbayListingIds(
+  ownerId: string,
+  // Injected for tests. The scoping is the whole point of this function, and a
+  // scoping rule that cannot be asserted is a comment.
+  client: OwnListingReader = supabaseAdmin as unknown as OwnListingReader,
+): Promise<ReadonlySet<string>> {
+  const { data, error } = await client
+    .from("listings")
+    .select("platform_listing_id, inventory_items!inner(user_id)")
+    .eq("platform", "ebay")
+    .eq("inventory_items.user_id", ownerId)
+    .not("platform_listing_id", "is", null)
+    .limit(OWN_LISTING_SCAN_LIMIT);
+  if (error) {
+    console.error("[AI Listing] own-listing read failed:", error.message);
+    return new Set();
+  }
+  return new Set(
+    ((data ?? []) as Array<{ platform_listing_id: string | null }>)
+      .map((r) => (r.platform_listing_id ?? "").trim())
+      .filter(Boolean),
+  );
+}
+
+/**
+ * How many of the seller's own eBay listings to load for the exclusion.
+ *
+ * A cap rather than the full set: the visual search returns at most
+ * VISUAL_SEARCH_LIMIT matches and only MAX_ASPECT_READS of them are read, so
+ * the exclusion only has to cover ids that could plausibly come back. A seller
+ * with more live listings than this is the case where a truncated set costs one
+ * excluded listing, not the case where it costs the identification.
+ */
+const OWN_LISTING_SCAN_LIMIT = 500;
 
 // ── US-312: end-to-end single-item generation orchestration ───────────
 // photos → generateListingFields → resolve real eBay leaf category →
@@ -1574,6 +1809,24 @@ export async function generateListing(
   }
   const visionPhotos = selectListingPhotos(photos);
 
+  // 2a. US-2778: start the eBay visual pass NOW, and do not await it here.
+  //
+  // Everything between this line and step 4 is network-bound and already runs:
+  // the MeasureCard autofill, the tag-OCR pass, the size estimate, the category
+  // aspect fetch, the demand-term mine. The pass overlaps all of it, so on the
+  // common path it costs no wall clock at all. Bolting it on in front of them
+  // would cost a full second per item across a 300-item batch.
+  //
+  // Flag off returns immediately without fetching a byte. Every failure path
+  // inside returns an empty result whose only content is WHY, so the worst case
+  // here is the prompt AutoLister builds today.
+  // The own-listing read is handed over UNAWAITED for the same reason. It is
+  // only needed once the search comes back, so awaiting it here would put a
+  // database round trip in front of a call that has not started yet.
+  const visualPass = startVisualPass(visionPhotos, {
+    ownItemIds: ownEbayListingIds(ownerId),
+  });
+
   const knownFields: Record<string, unknown> = {};
   for (
     const [k, v] of Object.entries({
@@ -1723,6 +1976,28 @@ export async function generateListing(
   const demandTerms = demandTermDetail.map((t) => t.term);
 
   // 4. Generate (on the cost-disciplined photo subset).
+  //
+  // US-2778: the visual pass is awaited HERE, at the last possible moment, so
+  // everything above overlapped it. `declined` is logged rather than swallowed:
+  // role_not_identifying and no_matches are different findings with different
+  // fixes, and a run that produced nothing must not look like a run that never
+  // happened.
+  const visual = await visualPass;
+  if (visual.declined) {
+    console.log(
+      `[AI Listing] visual pass declined on item ${itemId}: ${visual.declined}`,
+    );
+  }
+
+  // US-2781: the style line, if anything that is not a title backs it.
+  const styleFromVisual = await corroborateMinedStyleNames({
+    mined: visual.styleNameCandidates,
+    aspectProductNames: visual.aspectProductNames,
+    brand: normalizedBrand,
+    decodedStyleName: styleResolution?.aspects.Model?.[0] ?? null,
+    styleCodeRaw: styleResolution?.styleCode ?? null,
+  });
+
   const gen = await generateListingFields({
     photos: visionPhotos,
     knownFields: Object.keys(knownFields).length > 0 ? knownFields : undefined,
@@ -1732,6 +2007,10 @@ export async function generateListing(
     demandTerms: demandTerms.length > 0 ? demandTerms : undefined,
     // US-1529: identified-product context (title leads with the style name).
     identification,
+    // US-2778: eBay's guess, in its own block, under the precedence ladder.
+    // US-2781 appends any style name a non-title source confirmed; the model
+    // can still reject it against the photos, like every other candidate.
+    visualCandidates: [...visual.candidates, ...styleFromVisual],
     // US-547: split this item between champion / A/B-challenger prompt.
     promptSelectKey: itemId,
   });
@@ -2395,8 +2674,9 @@ export async function generateListing(
     measureTokensIn + sizeTokensIn;
   const totalTokensOut = gen.tokensOut + extractTokensOut + tagOcrTokensOut +
     measureTokensOut + sizeTokensOut;
+  let enrichmentLogId: string | null = null;
   try {
-    await supabaseAdmin.from("ai_enrichment_log").insert({
+    const { data: logRow } = await supabaseAdmin.from("ai_enrichment_log").insert({
       user_id: ownerId,
       inventory_item_id: itemId,
       model: gen.model,
@@ -2437,7 +2717,8 @@ export async function generateListing(
             : null,
         },
       },
-    });
+    }).select("id").maybeSingle();
+    enrichmentLogId = (logRow as { id: string } | null)?.id ?? null;
     // US-527: the AutoLister worker (the sole caller) now atomically RESERVES
     // the AI action against the monthly cap BEFORE calling generateListing
     // (reserve_ai_action) and refunds on failure, so the counter is no longer
@@ -2445,6 +2726,34 @@ export async function generateListing(
     // parallel-batch cap-bypass race this story fixes.
   } catch (err) {
     console.error("[AI Listing] usage logging failed (non-fatal):", err);
+  }
+
+  // 10b. US-2778: what was offered and what came back, on the batch path too.
+  //
+  // BOTH HALVES, ALWAYS. Nothing offered, offered-and-ignored, and
+  // offered-and-refused are three different findings with three different
+  // fixes, and a row that stored only the rulings would collapse them into one.
+  // The write is unconditional for that reason — a run where the pass declined
+  // is a reading, not an absence.
+  //
+  // Best-effort: the record of a decision is worth less than the decision.
+  //
+  // The one run NOT recorded is `disabled`. A flag that is off did not decide
+  // anything, and a row per generation saying so would be the largest
+  // population in the table while carrying no finding at all.
+  if (visual.declined !== "disabled") {
+    try {
+      await recordExtractionProvenance(supabaseAdmin, {
+        ownerUserId: ownerId,
+        itemId,
+        enrichmentLogId,
+        candidates: visual.candidates,
+        rulings: gen.visualRulings,
+        visualDeclined: visual.declined,
+      });
+    } catch (err) {
+      console.error("[AI Listing] provenance write failed (non-fatal):", err);
+    }
   }
 
   return {
