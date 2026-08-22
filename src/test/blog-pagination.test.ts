@@ -19,6 +19,7 @@ const blog = read("functions/blog/[[path]].ts");
 const stripComments = (src: string) =>
   src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 const blogCode = stripComments(blog);
+const nav = read("functions/_shared/blog-pagination.ts");
 const sitemap = read("functions/_shared/sitemap.ts");
 const edge = read("services/edge-functions/src/routes/content-public.ts");
 
@@ -32,8 +33,18 @@ describe("US-2099: crawlable blog pagination", () => {
 
   it("AC1: pagination links are real anchors, not JS", () => {
     // JS-only pagination is invisible to the crawlers this exists for.
-    expect(blog).toMatch(/<a rel="prev"/);
-    expect(blog).toMatch(/<a rel="next"/);
+    //
+    // US-2789: the nav MOVED to functions/_shared/blog-pagination.ts so a test
+    // could call it (src/test/blog-pagination-nav.test.ts, which holds what the
+    // links actually resolve to). This assertion follows it and keeps the
+    // property the call cannot see — that the markup is an anchor at all.
+    expect(nav).toMatch(/<a rel="prev"/);
+    expect(nav).toMatch(/<a rel="next"/);
+    // And that the route still USES it. A perfect nav nothing renders is the
+    // same missing crawl path.
+    expect(blog, "the blog route no longer renders the pagination nav").toMatch(
+      /paginationNav\(/,
+    );
   });
 
   it("AC2: tag pages paginate on the same scheme", () => {

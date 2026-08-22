@@ -47,6 +47,7 @@ import {
   type PublicPost,
   type PublicPostListItem,
 } from "../_shared/blog-render";
+import { paginationNav } from "../_shared/blog-pagination";
 import { buildPostMarkdown } from "../_shared/html-to-markdown";
 import { headOf } from "../_shared/head-of";
 
@@ -156,29 +157,6 @@ async function renderPostMarkdown(env: PagesEnv, slug: string): Promise<Response
 
 /** US-2099: posts per page on the hub and tag pages. */
 const BLOG_PAGE_SIZE = 20;
-
-/**
- * US-2099: crawlable prev/next links.
- *
- * Plain <a href> on purpose — JS-only pagination is invisible to the crawlers
- * this exists for. rel="prev"/"next" additionally tells an engine the pages are
- * one ordered series rather than near-duplicates.
- */
-function paginationNav(basePath: string, page: number, totalPages: number): string {
-  if (totalPages <= 1) return "";
-  const href = (n: number) => (n === 1 ? basePath : `${basePath}/page/${n}`);
-  const parts: string[] = [];
-  if (page > 1) {
-    parts.push(`<a rel="prev" href="${escape(href(page - 1))}">← Newer posts</a>`);
-  }
-  parts.push(`<span>Page ${page} of ${totalPages}</span>`);
-  if (page < totalPages) {
-    parts.push(`<a rel="next" href="${escape(href(page + 1))}">Older posts →</a>`);
-  }
-  return `<nav class="pagination" style="display:flex;gap:16px;align-items:center;justify-content:center;margin-top:32px">${parts.join(
-    "",
-  )}</nav>`;
-}
 
 async function renderIndex(env: PagesEnv, page = 1): Promise<Response> {
   const offset = (page - 1) * BLOG_PAGE_SIZE;
