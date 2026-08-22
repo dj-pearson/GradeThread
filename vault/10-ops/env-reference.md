@@ -282,6 +282,26 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `FORENSIC_ANALYSIS` / `FORENSIC_MAX_IMAGES` | ⬜ Coolify edge | Toggle + image cap for the forensic authentication pass. |
 | `SCOUT_EBAY_IMAGE_SEARCH_ENABLED` | ⬜ Coolify edge | Scout's eBay image-search identification path. OFF unless the value is exactly `true` — a stale `false`, a `1` or an operator's `yes` all leave it off, because a flag that guesses at intent turns an unproven path on in front of sellers by accident (`lib/scout-identify.ts`). |
 | `GRADING_BASELINES` / `GRADING_TAG_OCR` / `GRADING_SIZE_VERIFY` | ⬜ Coolify edge | Per-item dynamic-context toggles. Each one ON changes the prompt and so **suffixes `prompt_version`** (`+baseline`, `+tag`, `+size`), which is what lets accuracy tracking attribute an era. Flipping one mid-eval splits the sample. |
+
+> [!warning] `GRADING_SIZE_VERIFY` is GARMENT-ONLY, and the flag being on says nothing about footwear (US-2811, found 2026-08-22)
+> It fires on `sizeVerifyGradingEnabled() && hasMeasurementPhotos`, and
+> `isMeasurementPhoto` accepts a type starting `measurement` or equal to
+> `flatlay`. The grading `image_type` enum has exactly five measurement values —
+> chest, waist, length, sleeve, inseam — all garment tape measurements, and no
+> `flatlay` at all (that one belongs to `flipdesk_photo_type`, a different enum).
+> **A shoe submission cannot satisfy the second condition**, so the flag is inert
+> for footwear however it is set. `ai-size-estimate.ts` confirms it from the
+> other end: zero mentions of shoe, footwear or insole.
+>
+> A shoe's size travels a DIFFERENT path. `GRADING_TAG_OCR` fires on `label` /
+> `label_2`, which a grading submission requires, and its prompt already asks for
+> size "as printed (e.g. M, 32x34, 10, EU 42)". That is the footwear flag.
+>
+> Recorded because the wrong one was set first, on my own advice: the charts are
+> real, the flag is real, and the join between them is what does not exist. What
+> tag OCR yields is the digits on the stamp with no scale attached — US-2796
+> is the story that makes the number mean something.
+
 | `GRADING_CATEGORY_CRITERIA_V2` | ⬜ Coolify edge | Category-specific grading guidance for the eleven categories that had none: shirt, blouse, coat, skirt, sneakers, boots, sandals, hat, bag, belt, scarf (US-2222). **Default OFF, and off means byte-identical prompts** for all twenty categories. Suffixes `+cat2`. This block sits in the per-image USER message. Since US-2443 a **shadow** comparison can reach it (as a block candidate, if `PER_IMAGE_SHADOW_DAILY_VISION_CAP` is on); prompt version, canary and eval still cannot. So the flag is no longer the ONLY evidence available, but it is still the only gate. See [[grading-prompt-channels]] before flipping it. |
 | `PER_IMAGE_SHADOW_DAILY_VISION_CAP` | ⬜ Coolify edge | **The master switch AND the bill for per-image shadow grading (US-2443).** Unset, non-numeric or ≤ 0 means OFF, and off is the default. Set it to the maximum paid VISION calls per UTC day the per-image shadow may spend across every candidate — not rows, calls, because one row costs one call per photo plus one composite. Rough shape at 400 submissions/day and 6 photos: one candidate at a 3% sample rate is ~84 calls/day; two candidates at 10% is ~560. `projectedVisionCalls()` in `grading-shadow-per-image.ts` is the arithmetic. Turning it on is still not enough on its own — a candidate row also needs a non-zero `shadow_sample_rate` and `shadow_daily_cap`. See [[grading-prompt-channels]]. |
 | `GRADING_LIVE_CAPTURE_CONFIDENCE_BOOST` | ⬜ Coolify edge | Confidence bump for a live in-app capture, alongside the verified-capture and 360 boosts. All three clamp to the running confidence ceiling. |

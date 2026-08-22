@@ -87,9 +87,22 @@ function draftToInput(d: Draft): ChangelogInput {
 }
 
 // US-916: Admin "What's New" changelog. Author / curate structured release notes
-// that power the public /changelog feed AND the autonomous newsletter's
-// "what's new" section (published entries, audience-gated). Auto-capture drafts
-// entries from recently published blog posts for human-light curation.
+// that power the autonomous newsletter's "what's new" section (published
+// entries, audience-gated). Auto-capture drafts entries from recently published
+// blog posts for human-light curation.
+//
+// US-2809: this said the entries also power "the public /changelog feed". They
+// do not. There is no /changelog route and none in public-routes.ts, and
+// nothing on web, iOS or Android fetches /api/changelog —
+// src/hooks/use-changelog.ts only ever calls the ADMIN endpoint. The public API
+// itself IS built (changelogPublicRoutes, cursor-paginated, with an ?audience=
+// filter whose own comment describes an in-app panel nobody wrote), so the gap
+// is a reader, not a server.
+//
+// Corrected rather than left aspirational because this is the copy an ADMIN
+// reads while deciding whether to publish. Telling them a post goes somewhere
+// public when it does not is worse than telling them nothing. If the feed gets
+// built, this line comes back — US-2809 has both outcomes as live options.
 export function ChangelogPage() {
   const confirm = useConfirm();
   const { data: entries, isLoading } = useChangelogEntries();
@@ -137,10 +150,11 @@ export function ChangelogPage() {
         title="What's New"
         subtitle={
           <>
-            Product changelog powering the public feed and the autonomous
-            newsletter. Only <strong>published</strong> entries are sent or shown;
-            entries are audience-gated so grading-only users never get
-            FlipDesk-only news.
+            Product changelog powering the autonomous newsletter. Only{" "}
+            <strong>published</strong> entries are sent; entries are
+            audience-gated so grading-only users never get FlipDesk-only news.
+            There is no public changelog page yet, so publishing here reaches
+            subscribers and nobody else.
           </>
         }
         actions={
