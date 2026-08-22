@@ -59,15 +59,28 @@ final class DisputeFilingTests: XCTestCase {
         // `images` and `reason` are single words, so the strategy leaves them
         // alone - they were never at risk and are asserted because the pair is
         // the contract, not because it was in doubt.
-        let body = try json(
-            DisputeRequest(
-                gradeReportId: "gr-1",
-                reason: "r",
-                images: ["data:image/jpeg;base64,AAA"]
-            )
-        )
+        let data = try DisputeRequest(
+            gradeReportId: "gr-1",
+            reason: "r",
+            images: ["data:image/jpeg;base64,AAA"]
+        ).encodedForEdge()
+        let body = String(data: data, encoding: .utf8) ?? ""
+
+        // The KEY stays a bytes assertion. A renamed or re-cased key is the
+        // failure this whole file exists to catch, and only the bytes show it.
         XCTAssertTrue(body.contains("\"images\""), body)
-        XCTAssertTrue(body.contains("data:image/jpeg;base64,AAA"), body)
+
+        // The VALUE is asserted after DECODING, not against the raw bytes.
+        // JSONEncoder escapes the forward slashes in a data URI, so the body
+        // carries `data:image\/jpeg;base64,AAA`. That is valid JSON and the
+        // route's parser undoes it, but a substring search for the unescaped URI
+        // fails against a body that is perfectly correct.
+        //
+        // It did fail, and it took the whole Build + test job with it. The case
+        // was invisible from 19 Aug until now because the app did not compile,
+        // so the suite never ran to report it.
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        XCTAssertEqual(object?["images"] as? [String], ["data:image/jpeg;base64,AAA"], body)
     }
 
     @MainActor
