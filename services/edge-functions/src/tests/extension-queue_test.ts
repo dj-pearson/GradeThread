@@ -18,6 +18,7 @@ import {
   QUEUED_NOTICE,
   normalizeQueuePayload,
   planExpiry,
+  withSellerLocale,
 } from "../lib/extension-queue.ts";
 
 Deno.test("a clean instruction passes through unchanged", () => {
@@ -129,4 +130,67 @@ Deno.test("the credential list covers the obvious shapes", () => {
       `"${expected}" fell out of CREDENTIAL_KEYS`,
     );
   }
+});
+
+// ── US-2777: the seller's country domain on a queued job ──────────────────
+//
+// Vinted is one app on 22 country domains and `newListingUrlForLocale` silently
+// returns the platform default when a job names no locale — so a French seller
+// queued a cross-post that opened vinted.com and watched a form fill on a site
+// they have no account on. Web, iOS and Android all enqueue an empty payload,
+// so the edge is the only place that can know.
+
+Deno.test("the seller's stored locale is stamped onto an empty payload", () => {
+  const out = withSellerLocale({}, { vinted: "vinted.fr" }, "vinted");
+  assertEquals(out, { locale: "vinted.fr" });
+});
+
+Deno.test("a locale the caller supplied is NOT overwritten by the default", () => {
+  // The web's direct send reads the same setting itself, and a caller naming a
+  // locale is making a statement about this job. Overwriting it would make the
+  // field carry the account default and nothing else, forever.
+  const out = withSellerLocale({ locale: "vinted.it" }, { vinted: "vinted.fr" }, "vinted");
+  assertEquals(out.locale, "vinted.it");
+});
+
+Deno.test("no setting means no locale, which is exactly today's behaviour", () => {
+  // Every account has no setting on the day this ships. If the no-setting case
+  // started naming a domain, this change would move sellers who never asked.
+  for (const settings of [null, undefined, {}, [], "vinted.fr", 7]) {
+    assertEquals(withSellerLocale({}, settings, "vinted"), {});
+  }
+});
+
+Deno.test("a setting for another platform does not leak onto this one", () => {
+  assertEquals(withSellerLocale({}, { vinted: "vinted.fr" }, "poshmark"), {});
+});
+
+Deno.test("a non-string stored value is ignored rather than coerced", () => {
+  // A hand-written row or an older shape. None of these is a locale key, and
+  // asking the extension to resolve one would refuse a job for no reason.
+  for (const bad of [null, 7, true, { nested: "vinted.fr" }, [], ""]) {
+    assertEquals(withSellerLocale({}, { vinted: bad }, "vinted"), {});
+  }
+});
+
+Deno.test("an UNCOVERED key is passed through, not silently defaulted", () => {
+  // Deliberate. The extension's bundled map is the authority and it refuses a
+  // domain it does not cover BY NAME (US-2479 AC2). Filtering here would turn
+  // that loud refusal back into the silent wrong-country page this fixes.
+  assertEquals(
+    withSellerLocale({}, { vinted: "vinted.xx" }, "vinted"),
+    { locale: "vinted.xx" },
+  );
+});
+
+Deno.test("stamping keeps the rest of the payload", () => {
+  const out = withSellerLocale({ shareCount: 200 }, { vinted: "vinted.de" }, "vinted");
+  assertEquals(out, { shareCount: 200, locale: "vinted.de" });
+});
+
+Deno.test("a stamped payload still passes the credential check", () => {
+  // The stamp runs AFTER normalizeQueuePayload, so this pins that it cannot
+  // introduce something the bright-line check would have refused.
+  const stamped = withSellerLocale({}, { vinted: "vinted.fr" }, "vinted");
+  assertEquals(normalizeQueuePayload(stamped).rejectedKey, null);
 });

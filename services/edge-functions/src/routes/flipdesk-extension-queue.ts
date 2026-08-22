@@ -10,6 +10,7 @@ import {
   QUEUED_NOTICE,
   normalizeQueuePayload,
   planExpiry,
+  withSellerLocale,
   type ExtensionQueueKind,
 } from "../lib/extension-queue.ts";
 
@@ -130,6 +131,45 @@ async function expireStale(ownerId: string, nowIso: string): Promise<void> {
   }
 }
 
+/**
+ * US-2777: add the seller's country domain to a queued job's payload.
+ *
+ * `flipdesk_settings.lister_locales` is a platform -> locale-key map, e.g.
+ * `{"vinted": "vinted.fr"}` (00648). The value is a KEY the extension resolves
+ * against its own bundled domain map, never a URL — the US-1876 rule that a
+ * navigation target comes from the extension's config and never from a message
+ * is what makes it safe to carry this through the database.
+ *
+ * Returns the payload unchanged whenever there is nothing to add: no settings
+ * row, no key for this platform, or a caller that already named a locale. That
+ * last case is the important one — an explicit locale in the request is a
+ * statement about this job and must not be replaced by an account default.
+ *
+ * A failure to read the settings row is swallowed. The locale is an
+ * IMPROVEMENT on today's behaviour, not a precondition for it: refusing to
+ * queue a cross-post because a settings lookup timed out would trade a
+ * wrong-country page for no page at all.
+ */
+async function stampLocale(
+  ownerId: string,
+  platform: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  // Skip the round trip entirely when the caller already decided. The decision
+  // itself lives in withSellerLocale and is re-checked there; this is only an
+  // early exit, not a second copy of the rule.
+  if (typeof payload.locale === "string" && payload.locale !== "") return payload;
+
+  const { data } = await supabaseAdmin
+    .from("flipdesk_settings")
+    .select("lister_locales")
+    .eq("user_id", ownerId) // US-268
+    .maybeSingle();
+
+  const settings = (data as { lister_locales?: unknown } | null)?.lister_locales;
+  return withSellerLocale(payload, settings, platform);
+}
+
 // POST / — enqueue one piece of extension work.
 //
 // Called from iOS, Android and the web dashboard. The desktop does NOT have to
@@ -205,6 +245,26 @@ flipdeskExtensionQueueRoutes.post("/", async (c) => {
     if (!data) return c.json({ error: "Listing not found." }, 404);
   }
 
+  // US-2777: stamp the seller's country domain onto the job.
+  //
+  // HERE, not in the clients. Vinted is one app on 22 country domains, and
+  // `newListingUrlForLocale` silently returns the platform default when the job
+  // names no locale — so a French seller queued a job that opened vinted.com.
+  // Web, iOS and Android all enqueue `payload: {}`, and asking each of them to
+  // look the setting up would be three copies of one lookup that only has to be
+  // wrong in one of them to reproduce this exactly.
+  //
+  // The stored key is passed through UNFILTERED. The extension's bundled map is
+  // the authority on which domains it can open and it already refuses one it
+  // does not cover, naming the domain (US-2479 AC2). Filtering here would turn
+  // that loud refusal into a silent fall back to the default, which is the
+  // failure being fixed.
+  //
+  // A locale the CLIENT supplied WINS. A caller that names one is making a
+  // statement about this job; overwriting it with the account default would
+  // make the field unusable for anything else, forever.
+  const payloadValue = await stampLocale(ownerId, platform, payload.value);
+
   const nowIso = new Date().toISOString();
   await expireStale(ownerId, nowIso);
 
@@ -237,7 +297,7 @@ flipdeskExtensionQueueRoutes.post("/", async (c) => {
       platform,
       inventory_item_id: itemId,
       listing_id: listingId,
-      payload: payload.value,
+      payload: payloadValue,
       source: normalizeSource((body as { source?: unknown }).source),
       expires_at: planExpiry(Date.now()),
     })

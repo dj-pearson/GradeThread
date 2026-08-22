@@ -2162,6 +2162,10 @@ export interface FlipdeskSettingsRow {
   // NULL means ALL — the setting narrows what is offered and can never turn
   // cross-posting off. See src/lib/cross-post-channels.ts.
   cross_post_channels: string[] | null;
+  // US-2777 (migration 00648): platform -> country-domain KEY, e.g.
+  // {"vinted": "vinted.fr"}. NULL or a missing key means that platform's
+  // default domain. Never a URL. See src/lib/lister-locales.ts.
+  lister_locales: Record<string, string> | null;
   created_at: string;
   updated_at: string;
 }
@@ -2172,6 +2176,7 @@ export interface FlipdeskSettingsInsert {
   auto_grade_badge?: boolean;
   auto_slab_image?: boolean;
   cross_post_channels?: string[] | null;
+  lister_locales?: Record<string, string> | null;
 }
 
 export type FlipdeskSettingsUpdate = Partial<

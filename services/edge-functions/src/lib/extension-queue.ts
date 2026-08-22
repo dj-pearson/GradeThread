@@ -168,3 +168,47 @@ export function planExpiry(nowMs: number): string {
 export const QUEUED_NOTICE =
   "This runs the next time you open your desktop browser with the GradeThread " +
   "extension installed. Nothing happens on the marketplace until then.";
+
+/**
+ * US-2777: merge the seller's country domain into a queued job's payload.
+ *
+ * The DB read lives in the route; this is the decision, so it can be tested
+ * without a database — the same split the rest of this file uses.
+ *
+ * `settings` is `flipdesk_settings.lister_locales` (00648): a platform ->
+ * locale-KEY map, e.g. `{"vinted": "vinted.fr"}`. The value is a key the
+ * extension resolves against its own bundled domain map, never a URL. That is
+ * the US-1876 rule, and it is what makes a value that travels through the
+ * database and three clients safe to act on.
+ *
+ * THREE REASONS IT RETURNS THE PAYLOAD UNTOUCHED, and each one is a real case:
+ *  - The caller already named a locale. An explicit locale is a statement about
+ *    THIS job; replacing it with an account default would make the field
+ *    unusable for anything but the default, permanently.
+ *  - No setting for this platform. Then the job names none, which is exactly
+ *    what every client sends today, and the extension uses the platform
+ *    default. Doing nothing has to stay the no-op.
+ *  - The stored value is not a non-empty string. A null, a number or a nested
+ *    object is a row somebody wrote by hand or an older shape; none of them is
+ *    a locale, and coercing one into a key would ask the extension to resolve
+ *    nonsense.
+ *
+ * A key the extension does not cover is passed THROUGH, deliberately. The
+ * bundled map is the authority and it already refuses an uncovered domain by
+ * name (US-2479 AC2). Filtering here would convert that loud refusal into a
+ * silent fall back to the default domain, which is the precise failure US-2777
+ * exists to end.
+ */
+export function withSellerLocale(
+  payload: Record<string, unknown>,
+  settings: unknown,
+  platform: string,
+): Record<string, unknown> {
+  if (typeof payload.locale === "string" && payload.locale !== "") return payload;
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
+    return payload;
+  }
+  const locale = (settings as Record<string, unknown>)[platform];
+  if (typeof locale !== "string" || locale === "") return payload;
+  return { ...payload, locale };
+}

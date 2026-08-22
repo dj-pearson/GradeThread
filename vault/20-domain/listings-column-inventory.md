@@ -8,12 +8,19 @@ code_refs:
   - src/test/listings-select-star.test.ts
   - src/test/listing-row-schema-parity.test.ts
   - src/types/database.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-22
 tags: [schema, listings, flipdesk, perf]
 summary: What the listings table's ninety-odd columns are for, why none of them is provably dead, and the rule for reading them.
 ---
 
 # The listings table — column inventory and read policy
+
+> **Re-reviewed 2026-08-22.** Drift flagged `src/types/database.ts`, and the
+> change was on a DIFFERENT TABLE: US-2777 added `lister_locales` to
+> `FlipdeskSettingsRow`. Nothing about `listings` moved. Recorded rather than
+> silently bumped, because `database.ts` types every table in the schema and so
+> will flag this note on any of them — a reader who assumes the flag means a
+> `listings` column changed will go looking for something that is not there.
 
 ## Why this note exists
 

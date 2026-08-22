@@ -62,6 +62,8 @@ import {
   QUEUED_NOTICE,
   useEnqueueExtensionWork,
 } from "@/hooks/use-extension-queue";
+import { useListerLocales } from "@/hooks/use-lister-locales";
+import { localeForPlatform } from "@/lib/lister-locales";
 
 // Copy-paste targets: the no-API platforms (Poshmark/Mercari/Grailed) plus
 // Depop until its partner API is live (US-712/713/714). Shopify + eBay push via
@@ -234,6 +236,11 @@ function PlatformPanel({
   // never inferred from the plan we think the account is on, because the
   // extension is the thing enforcing it.
   const [needsUpgrade, setNeedsUpgrade] = useState(false);
+  // US-2777: the seller's country domain per platform, for the DIRECT send.
+  // Read here rather than at the send, because a query cannot be started inside
+  // a click handler and a send that had to wait for it would be a send that
+  // sometimes went to the wrong country.
+  const { data: listerLocales } = useListerLocales();
 
   // US-1877 (AC1): the AUTOMATIC path — the extension saw the tab navigate to the
   // live listing, which means the seller submitted. Promote the draft and record
@@ -436,6 +443,12 @@ function PlatformPanel({
         variant: priced,
         photos,
         primaryId,
+        // US-2777: the seller's country domain for this platform. Undefined for
+        // everyone who has not picked one, which is the platform default and
+        // therefore exactly today's behaviour. The QUEUED path does NOT read
+        // this — the edge stamps it at enqueue time, so the phone clients get
+        // it without three copies of the lookup.
+        locale: localeForPlatform(listerLocales, platform),
       });
       const res = await sendToLister(payload);
       if (res.needsConsent) {

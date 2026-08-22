@@ -1,6 +1,6 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-> [!warning] HELD: none. 00646 and 00647 are both APPLIED and verified
+> [!warning] HELD: 00645 and 00648. 00646 and 00647 are both APPLIED and verified
 > (2026-08-21),
 > and the
 > 00627 tail (US-2729) is fully resolved — both its functions are confirmed
@@ -27,6 +27,49 @@
 > both directions before — claiming HELD when prod had applied, and claiming
 > applied when prod had not — and both times it was trusted and prod was not
 > asked. One unauthenticated GET settles it.
+
+## HELD: 00648_lister_locales.sql (US-2777)
+
+**Risk: LOW.** One nullable `jsonb` column added to `flipdesk_settings`. No
+backfill, no default, no constraint, no function, no data rewritten. Every
+existing row keeps a NULL, and NULL means "use the platform's default domain",
+which is the behaviour every account has today.
+
+**What it does.** `flipdesk_settings.lister_locales` holds a platform ->
+locale-KEY map, e.g. `{"vinted": "vinted.fr"}`. Vinted runs 22 country
+domains behind one app; until now nothing recorded which one a seller's account
+lives on, so every cross-post opened the platform default and a seller outside
+that market silently watched a form fill on the wrong country's site.
+
+**The value is a KEY, never a URL.** The extension resolves it against its own
+bundled domain map (US-1876), so a value that travels through the database and
+three clients cannot steer a navigation.
+
+**Client-side read risk: LOW, and here is the honest version of it.** The
+frontend auto-deploys on push, and the new build DOES read this column from the
+client: `src/hooks/use-lister-locales.ts` selects `lister_locales` from
+`flipdesk_settings` through PostgREST, and the picker on the Marketplaces page
+upserts it. Against a database without the column, PostgREST answers **42703**
+and the picker renders an error toast — the Marketplaces page still loads and
+nothing else on it breaks, because the query is scoped to that one component's
+hook. So the failure is a visible broken widget, not an outage. **Apply the SQL
+before the push anyway**, which is the standing rule and costs nothing here.
+
+**`NOTIFY pgrst, 'reload schema';` is REQUIRED.** A column changed. Without it
+PostgREST keeps a cache that has never heard of `lister_locales`, and both the
+SPA read and the edge's enqueue lookup answer 42703 — the enqueue lookup
+swallows its error by design (a queued cross-post must not fail because a
+settings read did), so that half would fail SILENTLY and every queued job would
+keep opening the default domain. That is the bug this migration exists to fix,
+still happening, with the migration applied.
+
+**Apply order:** 00648 -> `NOTIFY pgrst, 'reload schema';` -> edge redeploy
+(`EXPECTED_SCHEMA_VERSION` is bumped to 00648 in the same commit) -> push.
+
+**How to confirm it landed, read-only:** `GET /rest/v1/` with
+`Accept: application/openapi+json` and the anon key — `lister_locales` should
+appear in the `flipdesk_settings` definition's `properties`. Presence is
+conclusive; absence is not (see the 00627 note further down).
 
 ## APPLIED 2026-08-21: 00647 — style_code_brand_candidates (US-2786)
 

@@ -7,14 +7,22 @@ code_refs:
   - services/edge-functions/src/lib/coherent-cache.ts
   - services/edge-functions/src/lib/schema-version.ts
   - services/edge-functions/src/lib/circuit-breaker.ts
-reviewed: 2026-08-21
+reviewed: 2026-08-22
 tags: [edge, caching, deploy, contract]
 summary: The edge runs N replicas, migrations apply separately from the code roll, and a deadline must cover the response body — three facts that constrain what any edge module may assume.
 ---
 
 # Edge runtime invariants
 
-> **Re-reviewed 2026-08-21.** Drift flagged `schema-version.ts` again, and for
+> **Re-reviewed 2026-08-22.** Drift flagged `schema-version.ts` for the THIRD
+> consecutive time, and for the third time nothing in this note moved:
+> `EXPECTED_SCHEMA_VERSION` went 00647 -> 00648 with migration 00648, its bump in
+> the same commit. The note names the RULE, not a version. Three flags in a row
+> saying the same thing is itself the finding — a bump-only change to
+> `schema-version.ts` can never invalidate this note, and the next reader should
+> expect to confirm that rather than to re-derive it.
+>
+> Previously re-reviewed 2026-08-21. Drift flagged `schema-version.ts` then, and for
 > the same reason: `EXPECTED_SCHEMA_VERSION` moved 00640 -> 00642 across two
 > migrations (00641 and 00642), each with its bump in its own commit. That is
 > the US-1108 triple working exactly as this note describes. The note names the

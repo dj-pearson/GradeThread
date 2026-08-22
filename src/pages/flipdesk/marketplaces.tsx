@@ -91,6 +91,7 @@ import {
 } from "@/hooks/use-extension-queue";
 import { CrossPostSetup } from "@/components/flipdesk/cross-post-setup";
 import { CrossPostChannelPicker } from "@/components/flipdesk/cross-post-channel-picker";
+import { ListerLocalePicker } from "@/components/flipdesk/lister-locale-picker";
 import {
   syncStateCopy,
   useDismissSyncReview,
@@ -1903,6 +1904,13 @@ export function FlipdeskMarketplacesPage() {
               behave for me", and both write the same per-user settings row. */}
           <div className="mt-3">
             <CrossPostChannelPicker />
+          </div>
+          {/* US-2777: which country domain each multi-domain channel opens.
+              Directly under the channel picker: the two questions are "which
+              marketplaces" and "which of their sites", and they write the same
+              per-user settings row. */}
+          <div className="mt-3">
+            <ListerLocalePicker />
           </div>
         </section>
 
