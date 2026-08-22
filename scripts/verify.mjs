@@ -204,7 +204,7 @@ const on = (name) => flags.has(`--${name}`) || flags.has("--all") || !anyLaneFla
  * treating it as absent is both correct and the safe direction — the lanes it
  * gates are skipped rather than run against a broken daemon.
  */
-function dockerUp() {
+function dockerState() {
   const res = spawnSync("docker", ["info"], {
     stdio: "ignore",
     shell: true,
@@ -219,9 +219,31 @@ function dockerUp() {
         "unavailable. The daemon is running but wedged; restart Docker Desktop " +
         "if you need the db/security lanes.",
     );
-    return false;
+    return "wedged";
   }
-  return res.status === 0;
+  return res.status === 0 ? "up" : "down";
+}
+
+/**
+ * Why a Docker-gated lane skipped, phrased for the SUMMARY rather than for the
+ * scrollback.
+ *
+ * The warning inside dockerState() is printed at the moment of the call and
+ * then scrolls past behind four minutes of build output — the same way the
+ * missing-gitleaks notice did, which is why `degraded` exists in this file at
+ * all. The line people actually read is the skip in the summary, and until now
+ * it said "Docker daemon is not running — start Docker Desktop" for BOTH cases.
+ * For a wedge that is not just imprecise, it is wrong in the expensive
+ * direction: it sends the operator to start something that is already running,
+ * and Docker Desktop reports itself healthy while answering nothing.
+ */
+function dockerSkip(lane, cmd) {
+  const state = dockerState();
+  if (state === "up") return null;
+  return state === "wedged"
+    ? `${lane}: Docker is UP but WEDGED — \`docker info\` did not answer in 20s. ` +
+        `Restart Docker Desktop (starting it will not help; it is already running), then \`${cmd}\`.`
+    : `${lane}: Docker daemon is not running — start Docker Desktop, then \`${cmd}\`.`;
 }
 
 // The iOS text guards, and the workflow each one answers to. Exported shape is
@@ -258,7 +280,7 @@ const degraded = [];
 
 // US-2788: NO TIMEOUT HERE, AND THAT IS CORRECT.
 //
-// `dockerUp` needed one because it is a silent PROBE: stdio "ignore", a
+// `dockerState` needed one because it is a silent PROBE: stdio "ignore", a
 // sub-second expected answer, and a wedged daemon that prints nothing while it
 // hangs. These two run the WORK - a build, a full vitest pass, a deno suite -
 // with stdio "inherit". A legitimate run here takes minutes and the spread is
@@ -376,8 +398,9 @@ if (on("edge")) {
 
 // ── DB (Supabase, local throwaway stack) — mirrors db-migrations.yml ──────────
 if (on("db")) {
-  if (!dockerUp()) {
-    skipped.push("db: Docker daemon is not running — start Docker Desktop, then `npm run verify:db`.");
+  const dbDockerSkip = dockerSkip("db", "npm run verify:db");
+  if (dbDockerSkip) {
+    skipped.push(dbDockerSkip);
   } else {
     // config.toml interpolates the Google OAuth creds + Turnstile captcha secret
     // via env(); the CLI rejects an enabled provider/captcha with empty values.
@@ -569,8 +592,9 @@ if (on("android")) {
 
 // ── Security (Trivy image scan) — mirrors security.yml "trivy-edge-image" ─────
 if (on("security")) {
-  if (!dockerUp()) {
-    skipped.push("security: Docker daemon is not running — start Docker Desktop, then `npm run verify:security`.");
+  const secDockerSkip = dockerSkip("security", "npm run verify:security");
+  if (secDockerSkip) {
+    skipped.push(secDockerSkip);
   } else {
     run("security: npm audit (high)", "npm audit --audit-level=high");
     run("security: build edge image", "docker build -t gradethread-edge:scan services/edge-functions");
