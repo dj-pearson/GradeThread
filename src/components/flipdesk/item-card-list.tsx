@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { cn } from "@/lib/utils";
+import { itemRowLabel } from "@/lib/item-row-label";
 import { estimateListingProfit } from "@/lib/listing-profit";
 import { estimateParcel } from "@/lib/parcel-estimate";
 import { estimatePostage } from "@/lib/shipping-rates";
@@ -44,6 +45,7 @@ export function ItemCardList({
         // Cost is NOT a price fallback here (it used to be): showing what you
         // paid in the slot where the asking price goes reads as the asking
         // price. It gets its own labelled line below instead.
+        const rowLabel = itemRowLabel({ item_title: it.item_title, id: it.id });
         const price = money(it.target_price) ?? money(it.list_price);
         const cost = it.purchase_price;
         const askingPrice = it.target_price ?? it.list_price;
@@ -90,7 +92,7 @@ export function ItemCardList({
                   checked={isSel}
                   onChange={() => onToggleSelect?.(it.id)}
                   className="h-4 w-4 cursor-pointer"
-                  aria-label="Select item"
+                  aria-label={`Select ${rowLabel}`}
                 />
               </label>
             )}
@@ -163,7 +165,7 @@ export function ItemCardList({
                 type="button"
                 onClick={() => onQuickEdit(it)}
                 className="flex shrink-0 items-center px-3 text-muted-foreground transition-colors hover:text-foreground"
-                aria-label="Quick edit"
+                aria-label={`Quick edit ${rowLabel}`}
               >
                 <Pencil className="h-4 w-4" />
               </button>

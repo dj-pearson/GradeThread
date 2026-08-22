@@ -274,7 +274,7 @@ export function FlipdeskSourcesPage() {
                             notes: s.notes ?? "",
                           })
                         }
-                        aria-label="Edit source"
+                        aria-label={`Edit ${s.name}`}
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
@@ -283,7 +283,7 @@ export function FlipdeskSourcesPage() {
                         size="icon"
                         className="h-7 w-7 text-destructive"
                         onClick={() => setConfirmDelete(s)}
-                        aria-label="Delete source"
+                        aria-label={`Delete ${s.name}`}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

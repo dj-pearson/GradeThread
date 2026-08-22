@@ -531,7 +531,7 @@ export function ApiKeysPage() {
                           variant="ghost"
                           size="icon"
                           onClick={() => setRotateKey(key)}
-                          aria-label="Rotate API key"
+                          aria-label={`Rotate the ${key.name} API key`}
                           title="Rotate — issue a new secret, invalidate the old one"
                         >
                           <RefreshCw className="h-4 w-4" />
@@ -541,7 +541,7 @@ export function ApiKeysPage() {
                           size="icon"
                           className="text-destructive hover:text-destructive"
                           onClick={() => setRevokeKeyId(key.id)}
-                          aria-label="Revoke API key"
+                          aria-label={`Revoke the ${key.name} API key`}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
