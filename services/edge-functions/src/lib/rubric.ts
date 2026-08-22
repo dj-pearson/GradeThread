@@ -339,13 +339,20 @@ const ACCESSORIES: Rubric = {
 // carry real weight — but a cap with a perfect crown and brim and a grim
 // sweatband is still a cap, while the reverse is not.
 //
-// ⚠ INERT UNTIL item_category GAINS 'headwear'. This registry is keyed by
-// item_category and that enum value does not exist yet (US-2223 AC6), so
-// rubricForKey() can never select this today — exactly like the non-clothing
-// rubrics are inert until US-1997 Phase 2. The enum widening is deferred with
-// US-2224's, to keep the held-migration queue from growing while it is
-// unapplied. Recorded here rather than only in a story note, because a future
-// reader will find this rubric before they find the note.
+// ⚠ THE ENUM VALUE EXISTS NOW. Migration 00570 added 'headwear' to
+// item_category and was applied to production on 2026-08-09, so the paragraph
+// that used to stand here — "that enum value does not exist yet (US-2223 AC6)"
+// — became false and nobody noticed for two weeks (US-2797).
+//
+// What kept this rubric unreachable was NOT the enum. It was four hand-written
+// copies of the category list that never learned the value, the load-bearing
+// one being ai-extract.ts, which interpolates its copy into the extraction
+// prompt AND uses it as the model's JSON-schema enum. A hat was therefore
+// classified 'accessories' because that was the only answer available.
+//
+// Left as a correction rather than deleted, because a reader who remembers the
+// old comment needs to see that it changed. The non-clothing rubrics really are
+// still inert until US-1997 Phase 2; this one is not.
 const HEADWEAR: Rubric = {
   key: "headwear",
   label: "Hats & caps",

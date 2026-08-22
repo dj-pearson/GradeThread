@@ -1,4 +1,5 @@
 import type { ItemStatus, ItemCategory } from "@/types/database";
+import { ITEM_CATEGORIES } from "@/lib/constants";
 
 // FlipDesk fields the user can map a CSV column TO. "skip" excludes a column.
 export const IMPORT_FIELDS = [
@@ -159,6 +160,23 @@ const CATEGORY_HINTS: Record<string, ItemCategory> = {
   collect: "collectibles",
   electronic: "electronics",
   book: "books",
+  // US-2797. Four enum values had no hint and no direct match, so a column
+  // reading "Handbags" or "Baseball Cap" fell through to "other". Order
+  // matters here: this object is walked in insertion order and the FIRST
+  // substring hit wins, so these sit after the clothing hints - "jacket"
+  // must still beat nothing, and "cap" must not steal "capri".
+  hat: "headwear",
+  beanie: "headwear",
+  snapback: "headwear",
+  handbag: "bags",
+  purse: "bags",
+  backpack: "bags",
+  tote: "bags",
+  jewel: "jewelry",
+  ring: "jewelry",
+  necklace: "jewelry",
+  bracelet: "jewelry",
+  earring: "jewelry",
 };
 
 export function normalizeCategory(raw: string): ItemCategory | null {
@@ -167,12 +185,11 @@ export function normalizeCategory(raw: string): ItemCategory | null {
   for (const [hint, cat] of Object.entries(CATEGORY_HINTS)) {
     if (s.includes(hint)) return cat;
   }
-  // Direct match against the enum
-  if (
-    ["clothing", "shoes", "watches", "sports_cards", "collectibles", "electronics", "books", "other"].includes(
-      s,
-    )
-  ) {
+  // Direct match against the enum. US-2797: this used to be a hand-written
+  // copy of the values, and it was three enum widenings behind - jewelry,
+  // bags and accessories (00230) and headwear (00570) all fell through to
+  // "other". Reading the source list is what stops that recurring.
+  if ((ITEM_CATEGORIES as readonly string[]).includes(s)) {
     return s as ItemCategory;
   }
   return "other";

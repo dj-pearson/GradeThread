@@ -70,6 +70,13 @@ export const ITEM_CATEGORIES = [
   "books",
   "bags",
   "accessories",
+  // US-2797: migration 00570 added this on 2026-08-09 and this copy did not
+  // learn it for two weeks. This array is interpolated into the extraction
+  // prompt AND used as the model's JSON-schema enum, so a missing value is
+  // not a rejected answer - it is an answer the model was never permitted to
+  // give. rubric.ts, photo-profiles.ts and measurement-templates.ts all key a
+  // headwear entry off this value and sat unreachable the whole time.
+  "headwear",
   "other",
 ] as const;
 
@@ -417,7 +424,7 @@ You are given a free-text description and/or photos of a single second-hand item
 
 Hard rules:
 - Never guess. If the input does not support a field, omit it entirely.
-- item_category MUST be one of: ${ITEM_CATEGORIES.join(", ")}. Never invent a category. Classify from the FRONT photo first (what KIND of product is this?) — the client uses this to pick which photo slots to ask the seller for, so prefer the most specific fit: a handbag/purse is 'bags', a hat/belt/sunglasses sold on its own is 'accessories', a ring/necklace is 'jewelry', a graded or raw trading card is 'sports_cards'. Use 'other' only when nothing else fits.
+- item_category MUST be one of: ${ITEM_CATEGORIES.join(", ")}. Never invent a category. Classify from the FRONT photo first (what KIND of product is this?) — the client uses this to pick which photo slots to ask the seller for, so prefer the most specific fit: a handbag/purse is 'bags', a hat/cap/beanie sold on its own is 'headwear' (NOT 'accessories' - a cap is graded on the crown, brim and sweatband), a belt/scarf/sunglasses is 'accessories', a ring/necklace is 'jewelry', a graded or raw trading card is 'sports_cards'. Use 'other' only when nothing else fits.
 - garment_type and garment_category: fill these ONLY when item_category is 'clothing' (apparel that is graded on the clothing rubric). Omit both entirely for any other item_category. garment_type MUST be one of: ${GARMENT_TYPES.join(", ")}. garment_category MUST be one of: ${GARMENT_CATEGORIES.join(", ")} and must be consistent with garment_type (e.g. tops→t-shirt/shirt/blouse/sweater/hoodie; bottoms→jeans/pants/shorts/skirt; outerwear→jacket/coat; dresses→dress; footwear→sneakers/boots/sandals; accessories→hat/bag/belt/scarf/other). Classify from the front/flatlay photo. These power grading readiness, so prefer a confident best-fit over omission when the item is clearly clothing.
 - size: normalize to a common token (XS, S, M, L, XL, XXL, a numeric size, or a shoe size) only when unambiguous; otherwise omit it.
 - brand: the MANUFACTURER / maker of the item (e.g. Patagonia, Nike, Levi's, Lululemon) — usually the logo or wordmark on the brand tag (neck, waistband, or inside collar). A COLLECTION name, product line, style name, or model name is NOT the brand: "Better Sweater", "Dri-FIT", "511", "Heattech", "Sport" are styles/lines, not brands — put those in 'style', never in 'brand'. Care labels frequently print a collection/line name large with the actual maker small or as a tiny wordmark; pick the MAKER. If you can read a style/collection name but cannot confidently identify the actual manufacturer, set 'style' and OMIT 'brand' — do NOT promote a style name into the brand field. Never copy generic tag text ("MADE IN", "100% COTTON", "MACHINE WASH") into brand.

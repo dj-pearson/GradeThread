@@ -66,6 +66,14 @@ export const ITEM_CATEGORY_VALUES = [
   "collectibles",
   "electronics",
   "books",
+  // US-2797: jewelry/bags/accessories arrived with migration 00230 and
+  // headwear with 00570; this list learned none of them. A value absent here
+  // is not rejected loudly, it is dropped or refused while the database would
+  // have taken it.
+  "jewelry",
+  "bags",
+  "accessories",
+  "headwear",
   "other",
 ] as const;
 

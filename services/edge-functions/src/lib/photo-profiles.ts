@@ -434,7 +434,10 @@ const BAGS: PhotoProfile = {
 // Its label says so, because "Interior" alone does not tell a seller to
 // photograph the one thing a buyer checks first.
 //
-// Inert alongside the rubric until item_category gains 'headwear'.
+// US-2797: this said "inert alongside the rubric until item_category gains
+// 'headwear'". Migration 00570 gave it that value on 2026-08-09. What kept the
+// profile unreachable afterwards was ai-extract.ts's copy of the category list,
+// which could not offer the answer. See the note on rubric.ts HEADWEAR.
 const HEADWEAR: PhotoProfile = {
   category: "headwear",
   label: "Hats & caps",
