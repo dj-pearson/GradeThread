@@ -34,6 +34,14 @@ class WorkspaceViewModel @Inject constructor(
         val switching: Boolean = false,
         val pickerOpen: Boolean = false,
         val notice: String? = null,
+        /**
+         * US-2685: the edge refused with `workspace_mfa_required`.
+         *
+         * A FLAG, not a notice string, because the answer is a screen rather
+         * than a sentence — the member has to enter a code, and prose telling
+         * them so is what the web-link version already did badly.
+         */
+        val mfaRequired: Boolean = false,
     ) {
         val active: WorkspaceSummary?
             get() = selfId?.let { Workspaces.active(workspaces, activeOwnerId, it) }
@@ -63,8 +71,21 @@ class WorkspaceViewModel @Inject constructor(
                 if (event is WorkspaceScope.Event.AccessRevoked) {
                     _state.value = _state.value.copy(notice = Workspaces.ACCESS_REVOKED)
                 }
+                // US-2685 AC5: the block is ACTIONABLE, so the flag opens the
+                // enrollment screen rather than a notice pointing at a browser.
+                // A member refused for a missing code can fix it here in about
+                // fifteen seconds; sending them to gradethread.com to do it is
+                // the gap this story exists to close.
+                if (event is WorkspaceScope.Event.MfaRequired) {
+                    _state.value = _state.value.copy(mfaRequired = true)
+                }
             }
         }
+    }
+
+    /** US-2685: the member closed or completed the two-factor screen. */
+    fun clearMfaRequired() {
+        _state.value = _state.value.copy(mfaRequired = false)
     }
 
     fun load() {

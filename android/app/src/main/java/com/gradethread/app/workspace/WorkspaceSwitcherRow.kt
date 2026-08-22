@@ -136,6 +136,18 @@ fun WorkspaceSwitcherRow(viewModel: WorkspaceViewModel = hiltViewModel()) {
         }
     }
 
+    // US-2685 AC5: the workspace-MFA block opens the enrollment screen itself.
+    //
+    // NOT a notice with a link. The member is refused on every request until
+    // this session reaches aal2, and that is something they can fix right here
+    // — a sentence pointing at gradethread.com asks them to go and do on a
+    // desktop what the phone in their hand can do now.
+    if (state.mfaRequired) {
+        com.gradethread.app.settings.TwoFactorDialog(
+            onDismiss = viewModel::clearMfaRequired,
+        )
+    }
+
     state.notice?.let { notice ->
         AlertDialog(
             onDismissRequest = viewModel::dismissNotice,

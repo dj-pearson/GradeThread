@@ -85,6 +85,11 @@ fun SettingsScreen(
         context.startActivity(android.content.Intent.createChooser(send, exportChooserTitle))
         viewModel.exportShared()
     }
+    // US-2685: the two-factor dialog. Own flag rather than the Confirm enum -
+    // that enum is for destructive confirmations, and this is a setup flow.
+    var twoFactorOpen by androidx.compose.runtime.remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
     var languagePickerOpen by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf(false)
     }
@@ -303,6 +308,20 @@ fun SettingsScreen(
             subtitle = AppConfig.edgeApiUrl,
         )
 
+        // ── Security (US-2685) ───────────────────────────────────
+        //
+        // ABOVE the danger zone on purpose. A workspace member blocked by
+        // their owner's 2FA policy is looking for a way to comply, and burying
+        // that under Sign out and Delete account puts the fix in the section
+        // people are told not to touch.
+        SectionHeader("Security")
+        Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
+            TextButton(
+                onClick = { twoFactorOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Two-factor authentication") }
+        }
+
         // ── Danger zone ──────────────────────────────────────────────────────
         SectionHeader(stringResource(R.string.settings_section_danger))
         Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
@@ -316,6 +335,11 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.settings_delete_account)) }
         }
+    }
+
+    // US-2685: renders nothing until opened.
+    if (twoFactorOpen) {
+        TwoFactorDialog(onDismiss = { twoFactorOpen = false })
     }
 
     if (languagePickerOpen) {

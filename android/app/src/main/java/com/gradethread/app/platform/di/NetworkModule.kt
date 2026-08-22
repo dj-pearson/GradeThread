@@ -64,6 +64,7 @@ object NetworkModule {
         tokenRefresher = client.edgeTokenRefresher(),
         workspaceOwnerProvider = { WorkspaceScope.activeOwnerId },
         onWorkspaceRevoked = WorkspaceScope::handleAccessRevoked,
+        onMfaRequired = WorkspaceScope::handleMfaRequired,
         cacheOwnerProvider = tenantOwnerProvider(client),
     )
 
@@ -118,6 +119,7 @@ object NetworkModule {
         tokenRefresher = client.edgeTokenRefresher(),
         workspaceOwnerProvider = { WorkspaceScope.activeOwnerId },
         onWorkspaceRevoked = WorkspaceScope::handleAccessRevoked,
+        onMfaRequired = WorkspaceScope::handleMfaRequired,
         cacheOwnerProvider = tenantOwnerProvider(client),
     )
 }

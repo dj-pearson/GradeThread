@@ -36,6 +36,23 @@ sealed class EdgeApiError : Exception() {
     data class Forbidden(val detail: String?) : EdgeApiError()
 
     /**
+     * US-2685: this workspace requires two-factor for your role, and this
+     * session has not reached aal2.
+     *
+     * A 403 carrying `error_code: "workspace_mfa_required"` (edge
+     * lib/workspace-roles.ts:174). DISTINCT FROM [Forbidden] on purpose, and
+     * the distinction is the whole point: an ordinary permission refusal is
+     * something the member cannot fix, and this one they can fix in about
+     * fifteen seconds from Settings. Collapsed into Forbidden it rendered as
+     * "you do not have permission", which sends a member who simply has not
+     * entered a code to ask their owner for access they already have.
+     *
+     * Mirrors ios/GradeThread/Networking/EdgeAPIError.swift:170, which keys on
+     * the same discriminator.
+     */
+    object WorkspaceMfaRequired : EdgeApiError()
+
+    /**
      * US-2411: the month's AI actions are gone.
      *
      * A 429, but nothing like a rate limit: waiting a moment cannot help,
@@ -139,6 +156,11 @@ sealed class EdgeApiError : Exception() {
         Unauthorized -> "Your session expired. Sign in again to continue."
         // The server names the rule that was broken and who can break it; the
         // fallback only runs for a 403 whose message decoded to nothing.
+        // US-2685: names the fix rather than the refusal. The member is not
+        // missing permission, they are missing a code.
+        WorkspaceMfaRequired ->
+            "This workspace needs two-factor authentication for your role. " +
+                "Turn it on in Settings, then try again."
         is Forbidden -> detail ?: "You don't have permission to do that."
         EmailUnverified ->
             "Please confirm your email to use this feature. Check your inbox for the verification link we sent when you signed up."
@@ -272,6 +294,15 @@ sealed class EdgeApiError : Exception() {
             // Keyed on `error` specifically — that is the key every workspace
             // refusal uses, and it is absent from the empty body a dead token
             // produces, which must keep reading as a session problem.
+            // US-2685: BEFORE the generic 403 branch, because that branch
+            // would swallow it. A workspace-MFA refusal is the one 403 the
+            // member can act on themselves, and telling them it is a
+            // permissions problem sends them to their owner for access they
+            // already have.
+            if (statusCode == 403 && payload?.discriminator == "workspace_mfa_required") {
+                return WorkspaceMfaRequired
+            }
+
             if (statusCode == 403 && !payload?.error.isNullOrBlank()) {
                 return Forbidden(detail)
             }

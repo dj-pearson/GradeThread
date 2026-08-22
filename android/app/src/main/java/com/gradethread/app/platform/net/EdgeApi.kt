@@ -57,6 +57,8 @@ class EdgeApi(
      *  revoked — the scope layer drops the stale selection; the error still
      *  surfaces to the caller. */
     private val onWorkspaceRevoked: () -> Unit = {},
+    /** US-2685: the workspace demands 2FA and this session is aal1. */
+    private val onMfaRequired: () -> Unit = {},
     /**
      * US-2496: the tenant a cached GET belongs to - the active workspace owner
      * when one is selected, else the signed-in user. This is the CORRECTNESS
@@ -272,6 +274,17 @@ class EdgeApi(
                 // request runs under the personal tenant, then surface it.
                 if (error is EdgeApiError.WorkspaceAccessRevoked) {
                     onWorkspaceRevoked()
+                    throw error
+                }
+                // US-2685: surface the workspace-MFA block so the UI can offer
+                // the code box. Announced and RE-THROWN, never swallowed — the
+                // request did fail and the caller still has to handle that.
+                // `==` rather than `is`: WorkspaceMfaRequired is an object, so
+                // identity IS the test, and detekt's InstanceOfCheckForException
+                // (rightly) flags type checks inside a catch. The neighbours above
+                // predate that and sit in the baseline; this one does not need to.
+                if (error == EdgeApiError.WorkspaceMfaRequired) {
+                    onMfaRequired()
                     throw error
                 }
                 // One forced token refresh on a server 401 (US-1146): a token

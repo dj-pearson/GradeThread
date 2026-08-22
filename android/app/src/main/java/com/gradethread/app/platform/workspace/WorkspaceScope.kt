@@ -58,6 +58,19 @@ object WorkspaceScope {
         /** US-794: membership was revoked mid-session and the app
          *  auto-switched back to personal — the UI shows a one-time notice. */
         object AccessRevoked : Event()
+
+        /**
+         * US-2685: the edge refused with `workspace_mfa_required` — this
+         * workspace demands two-factor for the member's role and this session
+         * is still `aal1`.
+         *
+         * UNLIKE [AccessRevoked], NOTHING IS DROPPED. Revocation means the
+         * scope is gone and the app must fall back to personal; this means the
+         * scope is fine and the SESSION is not elevated. Clearing the workspace
+         * here would log a member out of a workspace they still belong to, over
+         * a code they can enter in fifteen seconds.
+         */
+        object MfaRequired : Event()
     }
 
     private val eventsFlow = MutableSharedFlow<Event>(extraBufferCapacity = 4)
@@ -100,6 +113,16 @@ object WorkspaceScope {
      * run under the personal tenant, trigger the same cache-reset a switch
      * does, and post the one-time notice. No-op without an active scope.
      */
+    /**
+     * US-2685: the edge answered `workspace_mfa_required`.
+     *
+     * Emit only. See [Event.MfaRequired] for why this does NOT touch the active
+     * scope the way [handleAccessRevoked] does.
+     */
+    fun handleMfaRequired() {
+        eventsFlow.tryEmit(Event.MfaRequired)
+    }
+
     fun handleAccessRevoked() {
         if (activeOwnerId == null) return
         store?.put(null)
