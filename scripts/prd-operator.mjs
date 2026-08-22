@@ -98,7 +98,14 @@ export const UNDECLARED_PATTERNS = [
   /\bneeds a prod (?:query|read|session)\b/i,
   /\bneeds a partner answer\b/i,
   // "a human with the product open", "a human with the Stripe Dashboard".
-  /\ba human with the\b/i,
+  //
+  // The trailing "the" was dropped on 2026-08-22: US-2702 says "a human with
+  // logged-in Grailed and Vinted accounts" and did not match. Same failure as
+  // the adjective one below — a pattern anchored one word too tightly, invisible
+  // because the phrase reads as though it obviously matches.
+  /\ba human with\b/i,
+  // "STILL OPEN, and it is one human sitting: log in to Poshmark" (US-2698).
+  /\bone human\b/i,
   /\bis a Stripe (?:D|d)ashboard(?:\/API)? setting\b/i,
   // Third measurement, same day: after the seven above, exactly two stories were
   // still invisible and both used this one phrase. Eleven other candidate
