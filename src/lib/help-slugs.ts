@@ -97,6 +97,3 @@ export const PRODUCT_HELP_SLUGS = [
 /** The union of slugs a <HelpLink> may name. A typo fails to compile. */
 export type ProductHelpSlugKey = (typeof PRODUCT_HELP_SLUGS)[number]["slug"];
 
-export function productHelpSlug(slug: ProductHelpSlugKey): ProductHelpSlug | undefined {
-  return PRODUCT_HELP_SLUGS.find((s) => s.slug === slug);
-}
