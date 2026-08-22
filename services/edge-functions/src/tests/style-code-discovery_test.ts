@@ -6,6 +6,11 @@
 // are not (US-2751), and the cheapest way to lose that is a well-meaning edit
 // that "also checks the title when the aspects are empty".
 
+// US-2379: FIRST import, before anything that reaches lib/supabase.ts. This
+// module reads env at import time, so a test file that pulls it in without
+// _env.ts first only passes when some earlier file happened to load it - which
+// makes the suite order-dependent and this file individually unrunnable.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import {
   type BrandOutcome,

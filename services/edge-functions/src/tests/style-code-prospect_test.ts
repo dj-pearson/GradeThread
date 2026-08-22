@@ -6,6 +6,11 @@
 // known-brand one, because a candidate row for a brand we already crawl is a
 // second record of the same brand with worse numbers.
 
+// US-2379: FIRST import, before anything that reaches lib/supabase.ts. This
+// module reads env at import time, so a test file that pulls it in without
+// _env.ts first only passes when some earlier file happened to load it - which
+// makes the suite order-dependent and this file individually unrunnable.
+import "./_env.ts";
 import { assertEquals } from "@std/assert";
 import type { DiscoveryStateRow } from "../lib/style-code-discovery.ts";
 import {
