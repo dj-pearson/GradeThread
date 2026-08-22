@@ -2297,21 +2297,6 @@
       ]
     },
     {
-      "id": "US-2776",
-      "title": "Android has no in-app account deletion, and Play will not accept the app without one",
-      "description": "Settings > Delete account showed a notice telling the seller to email support@gradethread.com. Google Play's User Data policy names exactly that as insufficient: an app that lets people create an account must offer in-app deletion plus a public web URL describing it. Web has called POST /api/account/delete since US-194 and iOS calls the older delete_account RPC; Android called nothing. This blocked the first Play submission outright.",
-      "acceptanceCriteria": [
-        "Settings > Delete account performs a real deletion through POST /api/account/delete, behind the same typed DELETE MY ACCOUNT confirmation the web dialog uses.",
-        "The password is requested only when the server asks for it (code password_required), so an OAuth account with no password can still delete.",
-        "On success the local session is torn down with the same wipe sign-out runs - rows, watermarks, push token, staged share photos, widget, caches - rather than a second hand-written copy of it.",
-        "A public /account-deletion page describes how to delete and what is retained, matching routes/account.ts and vault/10-ops/data-retention.md, registered in PUBLIC_ROUTES and the prerender entry.",
-        "Unit tests cover the confirm phrase, the password-required round trip, a wrong password, and the retention refusal that removes nothing."
-      ],
-      "priority": 6,
-      "passes": false,
-      "notes": "[P0][Android/Play][Compliance] Found 2026-08-21 while preparing the first Play Console submission. See android/PLAY_STORE_SUBMISSION.md section 0 blocker 1."
-    },
-    {
       "id": "US-2777",
       "passes": false,
       "title": "Vinted's 22 country domains are built end to end and no client ever asks for one",
