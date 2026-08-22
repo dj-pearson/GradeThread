@@ -30,9 +30,9 @@ import { cn } from "@/lib/utils";
 // happens beats hiding the step, because a seller who cannot find the switch
 // concludes the feature is broken rather than unaccepted.
 
-type StepState = "done" | "todo" | "blocked";
+export type StepState = "done" | "todo" | "blocked";
 
-interface Step {
+export interface Step {
   key: string;
   title: string;
   body: string;
@@ -78,7 +78,22 @@ function StepRow({ step, index }: { step: Step; index: number }) {
   );
 }
 
-function buildSteps(s: ExtensionSetupState): Step[] {
+/**
+ * The five steps and, for each, whether it is done.
+ *
+ * EXPORTED SO A TEST CAN CALL IT (US-2719 AC1/AC7). The guards for this screen
+ * were source scans asserting that strings like `caps.authenticated === true`
+ * appear in the hook, and a scan cannot tell a correct gate from an inverted
+ * one. Calling this is what actually holds "four ordered steps with real state"
+ * — the same fix US-2739 needed when its six pinned cases turned out to be
+ * asserting against a re-implementation of the code they were meant to guard.
+ *
+ * There are FIVE, not the four the story asked for. Being signed in and being
+ * on a paid plan are separate observable facts (capabilities.authenticated vs
+ * capabilities.sellerEnabled), and folding them together would show a green
+ * step to a free account whose first send then fails with needsUpgrade.
+ */
+export function buildSteps(s: ExtensionSetupState): Step[] {
   const storeUrl = extensionWebStoreUrl();
   const readyChannels = s.channels.filter((c) => c.canList);
 
