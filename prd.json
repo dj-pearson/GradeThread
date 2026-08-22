@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2790",
+  "nextId": "US-2791",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2223,6 +2223,23 @@
       ],
       "priority": 25,
       "notes": "2026-08-22 06:17 STILL WEDGED, roughly seven hours in, and now characterised precisely: EVERY docker subcommand hangs, not just `docker info`.  MEASURED with an explicit 12s timeout on each, reading the exit code of docker itself:   docker ps -a --format '{{.Names}}'          TIMEOUT   docker version --format '{{.Server.Version}}'  TIMEOUT   docker info --format '{{.ServerVersion}}'   TIMEOUT  ⚠ AND THE FIRST READING OF THIS WAS WRONG, which is worth recording because it is the same trap this story is about. An earlier probe appeared to show `docker ps` succeeding (exit 0) while `docker info` hung, which would have meant the wedge was partial and the verify liveness probe could switch to a subcommand that still answers. It was an artifact: the command was piped to `head`, and `$?` after a pipeline reports the LAST command's status, not docker's. head exits 0 on empty input, so a hung docker read as a healthy one.  THE CONCLUSION THAT SURVIVES: `docker info` is a fine liveness probe and the 20s timeout in scripts/verify.mjs dockerUp() is the right fix. There is no subcommand to switch to - the daemon answers nothing. Anyone tempted to make the probe cheaper should measure it with `timeout N docker ...` directly and read docker's own exit code, never through a pipe.  Practical effect today: the db and security lanes stayed skipped in a full verify (correctly, with the warning), and US-2403 AC3 cannot be written, because it needs a throwaway stack to prove a denied call fails cleanly rather than crashing."
+    },
+    {
+      "id": "US-2790",
+      "passes": false,
+      "title": "Predict the shipped parcel from the measurements we already took - the bulk margin floor prices postage at zero",
+      "description": "As a reseller bulk-pricing drafts, I want the margin floor to account for postage, so that flooring 40 drafts at 30% margin does not silently set a loss on every heavy garment.",
+      "acceptanceCriteria": [
+        "One pure, dependency-free module src/lib/parcel-estimate.ts turns an inventory item into a predicted parcel, mirrored BYTE-IDENTICAL to services/edge-functions/src/lib/parcel-estimate.ts because the edge cannot import from src/, with a guard test that fails the build if the copies drift. Copy the existing pattern exactly: src/lib/ebay-fees.ts and its test.",
+        "THE DEFECT THIS FIXES, and it is the reason to do it: autolister-bulk-edit.tsx:467 passes NO shipping to priceForMargin, so 'floor at 30% margin' across 40 drafts prices every one as if postage were free. On a wool coat that floor is a loss, applied in bulk, silently. The drafts list repeats it at :260 and :578, and the composer passes a hand-typed field that is usually null.",
+        "Three consumers read the predicted parcel: listing-profit.ts, the eBay publish path (which has never sent packageWeightAndSize), and the logistics rates route (where parseParcel reads a weight the seller retypes on every sale).",
+        "A jsonb column on sales records WHAT WAS PREDICTED, so it can be compared against what eBay actually charged. eBay's payout sync already writes the real cost to sales.shipping_cost, which is what makes the predicted-vs-actual loop cheap rather than a new pipeline.",
+        "PREDICT ONLY. Label buying already exists for eBay (US-2160); this story does not touch it.",
+        "Mirrored modules stay dependency-free - pure constants and pure functions only, so the file type-checks under both tsconfig and Deno. ASCII only in code.",
+        "The migration follows the US-1108 triple: idempotent SQL, EXPECTED_SCHEMA_VERSION bumped in the SAME commit, self-record footer, manifest regenerated. It is HELD from push until the owner applies it."
+      ],
+      "priority": 9,
+      "notes": "FILED 2026-08-22 from work that already existed and was invisible.  The design spec was committed on 2026-08-21 (d23592dec, docs/superpowers/specs/2026-08-21-shipping-truth-design.md). A 55-task implementation plan was written alongside it and left UNTRACKED at docs/superpowers/plans/2026-08-21-shipping-truth.md, with 0 of 55 tasks done. There was no story for any of it in prd.json or prd.archive.json, and src/lib/parcel-estimate.ts does not exist.  So a fully specified, fully planned piece of work sat in three states at once: spec in git, plan on disk only, story nowhere. A clean checkout would have kept the spec and lost the plan, and nothing in the backlog would have said the work was intended at all.  The plan file is committed in the same change as this story, so the two now travel together.  SCOPE NOTE: filed at the size the spec describes, not smaller. The plan's own global constraints are carried into the acceptance criteria because they are the parts most likely to be dropped - the byte-identical edge mirror with its drift guard, dependency-free mirrored modules, and ASCII-only code."
     }
   ]
 }
