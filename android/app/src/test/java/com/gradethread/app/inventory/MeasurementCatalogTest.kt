@@ -190,12 +190,42 @@ class MeasurementCatalogTest {
         assertNull(MeasurementCatalog.publishValue("chest", -3.0))
     }
 
+    /**
+     * US-2812: keys that are COLLECTED but map to no eBay aspect.
+     *
+     * Shrink-only, and every entry is here because the WEB has the same gap —
+     * `MEASUREMENT_SPECS` in src/lib/measurements.ts covers the same sixteen
+     * keys this catalog used to, and none of these eight. They live in
+     * MEASUREMENT_TEMPLATES, which is the form, not the aspect map.
+     *
+     * They were added here so a bag's depth and a belt's hole span can be
+     * MEASURED on iOS and Android at all — the web has asked for them since
+     * US-2224/US-2225 and the native catalogs never learned them. Mapping them
+     * to eBay aspects is separate work needing real category data (what does
+     * eBay call a hat's inside circumference?), and guessing a name here would
+     * put an invented aspect on a live listing.
+     */
+    private val NO_ASPECT_YET = setOf(
+        "height", "depth", "strap_drop", "handle_drop",
+        "hole_span", "circumference", "crown_height", "brim_length",
+    )
+
     @Test
     fun `every measurement key offers at least one aspect candidate`() {
         // A key with no candidates silently never auto-fills at publish.
         val missing = MeasurementCatalog.specs
             .map { it.key }
             .filter { MeasurementCatalog.aspectCandidates[it].isNullOrEmpty() }
+            .filter { it !in NO_ASPECT_YET }
         assertEquals(emptyList<String>(), missing)
+    }
+
+    @Test
+    fun `the no-aspect exemption list can only shrink`() {
+        // An entry that starts resolving must be REMOVED, so the list cannot
+        // quietly become the place unmapped keys go to be forgotten.
+        val nowMapped = NO_ASPECT_YET
+            .filter { !MeasurementCatalog.aspectCandidates[it].isNullOrEmpty() }
+        assertEquals(emptyList<String>(), nowMapped)
     }
 }

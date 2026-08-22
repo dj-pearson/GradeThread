@@ -44,6 +44,17 @@ enum MeasurementCatalog {
         Spec(key: "width", label: "Width", kind: .length),
         Spec(key: "insole", label: "Insole length", kind: .length),
         Spec(key: "size_us", label: "US size", kind: .shoe),
+        // US-2812: bags, belts and headwear. These existed on the web and in
+        // no native catalog, so suggestedKeys could not offer them and a key
+        // arriving from the server rendered with an auto-derived label.
+        Spec(key: "height", label: "Height", kind: .length),
+        Spec(key: "depth", label: "Depth", kind: .length),
+        Spec(key: "strap_drop", label: "Strap drop", kind: .length),
+        Spec(key: "handle_drop", label: "Handle drop", kind: .length),
+        Spec(key: "hole_span", label: "First to last hole (belts)", kind: .length),
+        Spec(key: "circumference", label: "Head circumference (inside)", kind: .length),
+        Spec(key: "crown_height", label: "Crown height", kind: .length),
+        Spec(key: "brim_length", label: "Brim length", kind: .length),
         Spec(key: "case_diameter", label: "Case diameter", kind: .mm),
         Spec(key: "lug_width", label: "Lug width", kind: .mm),
         Spec(key: "band_length", label: "Band length", kind: .mm),
@@ -72,10 +83,23 @@ enum MeasurementCatalog {
             return ["size_us", "insole"]
         case "watches", "watch":
             return ["case_diameter", "lug_width", "band_length"]
-        case "accessories", "bags", "other":
+        // US-2812: bags and accessories shared a branch returning length+width,
+        // and there was no headwear branch at all — so a hat fell to `default`
+        // and was offered a chest, a sleeve and an INSEAM. Harmless until
+        // US-2797 made `headwear` a producible item_category.
+        case "bags":
+            return ["width", "height", "depth", "strap_drop", "handle_drop"]
+        case "accessories":
+            return ["length", "width", "hole_span"]
+        case "headwear":
+            return ["circumference", "crown_height", "brim_length"]
+        case "other":
             return ["length", "width"]
         default:
             // Clothing and anything uncategorized: the common garment set.
+            // CLOTHING STAYS FLAT, deliberately — the web splits it five ways
+            // by resolving a GARMENT word, and this function only has the
+            // coarse item_category, which cannot tell a blazer from jeans.
             return ["chest", "length", "shoulder", "sleeve", "waist", "inseam", "rise", "hip"]
         }
     }

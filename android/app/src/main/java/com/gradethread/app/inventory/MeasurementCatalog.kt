@@ -41,6 +41,17 @@ object MeasurementCatalog {
         Spec("width", "Width", Kind.LENGTH),
         Spec("insole", "Insole length", Kind.LENGTH),
         Spec("size_us", "US size", Kind.SHOE),
+        // US-2812: bags, belts and headwear. These existed on the web and in
+        // no native catalog, so suggestedKeys could not offer them and a key
+        // arriving from the server rendered with an auto-derived label.
+        Spec("height", "Height", Kind.LENGTH),
+        Spec("depth", "Depth", Kind.LENGTH),
+        Spec("strap_drop", "Strap drop", Kind.LENGTH),
+        Spec("handle_drop", "Handle drop", Kind.LENGTH),
+        Spec("hole_span", "First to last hole (belts)", Kind.LENGTH),
+        Spec("circumference", "Head circumference (inside)", Kind.LENGTH),
+        Spec("crown_height", "Crown height", Kind.LENGTH),
+        Spec("brim_length", "Brim length", Kind.LENGTH),
         Spec("case_diameter", "Case diameter", Kind.MM),
         Spec("lug_width", "Lug width", Kind.MM),
         Spec("band_length", "Band length", Kind.MM),
@@ -109,12 +120,32 @@ object MeasurementCatalog {
     /** Unknown keys are treated as lengths — overwhelmingly the common case. */
     fun kind(key: String): Kind = byKey[key]?.kind ?: Kind.LENGTH
 
-    /** The keys worth offering first for a coarse item category. */
+    /**
+     * The keys worth offering first for a coarse item category.
+     *
+     * US-2812: mirrors MEASUREMENT_TEMPLATES in
+     * src/lib/measurement-templates.ts, which this had silently drifted from.
+     * `bags` and `accessories` shared a branch returning length+width, and
+     * there was no `headwear` branch at all — so a hat fell to the clothing
+     * default and was offered a chest, a sleeve and an INSEAM. That was
+     * harmless until US-2797 made `headwear` a producible item_category;
+     * before it, no item could carry the value.
+     *
+     * CLOTHING STAYS ONE FLAT LIST, deliberately. The web splits it five ways
+     * (top/bottom/dress/outerwear/suit) by resolving a GARMENT word, and this
+     * function only has the coarse item_category — `clothing` cannot tell a
+     * blazer from jeans. Offering the union is the honest answer here; a
+     * parity guard that demanded the web's five groups would be demanding
+     * information this caller does not have.
+     */
     fun suggestedKeys(category: String?): List<String> =
         when (category?.lowercase()) {
             "shoes", "footwear" -> listOf("size_us", "insole")
             "watches", "watch" -> listOf("case_diameter", "lug_width", "band_length")
-            "accessories", "bags", "other" -> listOf("length", "width")
+            "bags" -> listOf("width", "height", "depth", "strap_drop", "handle_drop")
+            "accessories" -> listOf("length", "width", "hole_span")
+            "headwear" -> listOf("circumference", "crown_height", "brim_length")
+            "other" -> listOf("length", "width")
             // Clothing and anything uncategorized.
             else -> listOf("chest", "length", "shoulder", "sleeve", "waist", "inseam", "rise", "hip")
         }
