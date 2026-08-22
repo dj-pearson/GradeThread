@@ -160,15 +160,75 @@ function commentText(src) {
   return out.join("\n");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// US-2800: THE PATH EXISTING IS NOT THE WHOLE CLAIM.
+//
+// Everything above proves a named file exists. Three bugs found on 2026-08-22
+// were one level past that: the path was real and the SYMBOL had moved or been
+// deleted, so a reader following the comment lands in a genuine file with no
+// such thing in it. That is the more expensive reading, because the file being
+// there makes the sentence look confirmed.
+//
+//   inventory-import.ts  "Mirrors FILL_ITEM_FIELDS in src/pages/flipdesk/
+//                        import.tsx" — US-2518 DELETED that list on purpose so
+//                        the edge is single-source. The comment survived the
+//                        refactor and now tells a reader to recreate the
+//                        duplicate that story removed.
+//   routes/grade.ts      "Mirror of STYLE_ATTRIBUTES in src/lib/constants.ts" —
+//                        no such constant, and never was.
+//
+// SAME LINE ONLY, and that is measured. A +/-1 line window produced 44 hits, of
+// which several were a symbol declared in the scanning file sitting next to an
+// unrelated vault path the comment never tied it to. Same-line gives 5, of
+// which 3 were real and 2 are the shapes excluded below.
+const SYMBOL_RE = /\b([A-Z][A-Z0-9]*(?:_[A-Z0-9]+){1,})\b/g;
+
+/**
+ * Sentences naming a path and a symbol that legitimately do not go together.
+ *
+ * Shrink-only like ALLOWED above: an entry that stops matching fails.
+ */
+const ALLOWED_SYMBOL_REFS = {
+  "src/components/verified/achievement-medals.tsx|TIER_COLOR":
+    "the sentence names TWO pairs — TIER_FILL in achievement-medals.tsx AND " +
+    "TIER_COLOR in the edge's cert-og-template.ts. Both claims are true; a " +
+    "same-line rule cannot tell which symbol belongs to which path. Splitting " +
+    "the sentence to satisfy a scanner would make it worse to read.",
+};
+
+/**
+ * A symbol that is just the file's own name (PUBLIC_API.md → PUBLIC_API,
+ * PLAY_STORE_SUBMISSION.md → PLAY_STORE_SUBMISSION). Naming a doc is not a
+ * claim about its contents.
+ */
+function isOwnBasename(ref, sym) {
+  const base = ref.split("/").pop().replace(/\.[^.]+$/, "");
+  return base === sym;
+}
+
 const files = ROOTS.flatMap((r) => walk(join(ROOT, r)));
 const SELF = fileURLToPath(import.meta.url);
 
 const found = new Map();
+const symbolMisses = [];
+const symbolHits = new Set();
 let refs = 0;
+let symRefs = 0;
+const bodyCache = new Map();
+/** The named file's text, from whichever package root resolves it. */
+function bodyOf(ref) {
+  if (!bodyCache.has(ref)) {
+    const base = BASES.find((b) => existsSync(join(b, ref)));
+    bodyCache.set(ref, base ? readFileSync(join(base, ref), "utf8") : null);
+  }
+  return bodyCache.get(ref);
+}
+
 for (const f of files) {
   if (f === SELF) continue; // its own allowlist names files that do not exist
+  const src = readFileSync(f, "utf8");
   const seen = new Set();
-  for (const m of commentText(readFileSync(f, "utf8")).matchAll(PATH_RE)) {
+  for (const m of commentText(src).matchAll(PATH_RE)) {
     const ref = m[1];
     if (seen.has(ref) || isIllustration(ref)) continue;
     seen.add(ref);
@@ -176,6 +236,34 @@ for (const f of files) {
     if (BASES.some((b) => existsSync(join(b, ref)))) continue;
     if (!found.has(ref)) found.set(ref, []);
     found.get(ref).push(rel(f));
+  }
+
+  // US-2800: the symbol half. Walk COMMENT LINES so a path and a symbol only
+  // pair up when they were written in the same sentence.
+  for (const raw of src.replace(/\r\n?/g, "\n").split("\n")) {
+    const i = raw.indexOf("//");
+    const star = raw.trimStart().startsWith("*") ? raw.indexOf("*") : -1;
+    const at = i >= 0 ? i : star;
+    if (at < 0) continue;
+    const line = raw.slice(at);
+    const paths = [...new Set([...line.matchAll(PATH_RE)].map((p) => p[1]))]
+      .filter((p) => !isIllustration(p));
+    if (paths.length === 0) continue;
+    const syms = [...new Set([...line.matchAll(SYMBOL_RE)].map((s) => s[1]))];
+    if (syms.length === 0) continue;
+    for (const ref of paths) {
+      const body = bodyOf(ref);
+      if (body == null) continue; // the missing-path pass above owns that case
+      for (const sym of syms) {
+        if (isOwnBasename(ref, sym)) continue;
+        symRefs++;
+        const key = `${ref}|${sym}`;
+        if (body.includes(sym)) continue;
+        symbolHits.add(key);
+        if (ALLOWED_SYMBOL_REFS[key]) continue;
+        symbolMisses.push({ where: rel(f), ref, sym, line: line.trim().slice(0, 120) });
+      }
+    }
   }
 }
 
@@ -191,12 +279,48 @@ if (process.argv.includes("--list")) {
 
 const unexplained = [...found].filter(([ref]) => !ALLOWED[ref]);
 const stale = Object.keys(ALLOWED).filter((ref) => !found.has(ref));
+const staleSymbols = Object.keys(ALLOWED_SYMBOL_REFS).filter(
+  (key) => !symbolHits.has(key),
+);
 
-if (unexplained.length === 0 && stale.length === 0) {
+if (
+  unexplained.length === 0 && stale.length === 0 &&
+  symbolMisses.length === 0 && staleSymbols.length === 0
+) {
   console.log(
-    `[comment-paths] OK  ${refs} reference(s) checked, ${found.size} accounted for.`,
+    `[comment-paths] OK  ${refs} path reference(s) and ${symRefs} ` +
+      `path+symbol claim(s) checked, ${found.size} accounted for.`,
   );
   process.exit(0);
+}
+
+if (symbolMisses.length > 0) {
+  console.error(
+    "\n[comment-paths] comment(s) naming a REAL file that does not contain " +
+      "the symbol they cite:\n",
+  );
+  for (const m of symbolMisses) {
+    console.error(`    ${m.where}`);
+    console.error(`        ${m.line}`);
+    console.error(`        -> ${m.sym} is not in ${m.ref}\n`);
+  }
+  console.error(
+    "  The file existing is what makes this expensive: the sentence reads as\n" +
+      "  confirmed. Check whether the symbol MOVED (fix the path), was RENAMED\n" +
+      "  (fix the name), or was deliberately DELETED — that last one is the\n" +
+      "  dangerous case, because the comment then tells the next reader to\n" +
+      "  recreate a duplicate that a story removed on purpose.\n" +
+      "  If the sentence names two pairs at once, add it to\n" +
+      "  ALLOWED_SYMBOL_REFS with the reason.\n",
+  );
+}
+
+if (staleSymbols.length > 0) {
+  console.error(
+    "\n[comment-paths] ALLOWED_SYMBOL_REFS entr(ies) that now resolve — drop them:\n",
+  );
+  for (const k of staleSymbols) console.error(`    ${k}`);
+  console.error("");
 }
 
 if (unexplained.length > 0) {

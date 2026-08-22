@@ -122,8 +122,22 @@ const MAX_VIDEO_DURATION_SECONDS = 45;
 
 // Optional seller-declared intentional design features. Passed to the grader
 // as a hint so factory distressing isn't read as damage. Allowlist keeps the
-// hint clean (free text would let sellers game the grade). Mirror of
-// STYLE_ATTRIBUTES in src/lib/constants.ts.
+// hint clean (free text would let sellers game the grade).
+//
+// ⚠ NO CLIENT SENDS THIS (US-2800). The line here claimed this list mirrored a
+// constant of the same name in the web constants module. There is no such
+// constant, and there never was. Nothing on web, iOS or Android appends
+// `style_attributes` to the submission form, so this allowlist has only ever
+// filtered an empty list.
+// RetakeBridgeState carries a `styleAttributes` field and new-submission.tsx
+// drops it, which is the closest anything comes.
+//
+// The parser is correct and is left alone: the moment a client offers the
+// picker, this works. What is missing is the picker, not this.
+//
+// NOT to be confused with grade_reports.detected_style_attributes, which is the
+// MODEL's own reading and is live — the certificate renders it. This constant
+// is the SELLER's declaration, which is the half that was never wired.
 const STYLE_ATTRIBUTES = [
   "distressed", "ripped", "raw-hem", "acid-wash", "bleached", "tie-dye",
   "cropped", "frayed", "patchwork", "painted", "vintage-wash", "garment-dyed",

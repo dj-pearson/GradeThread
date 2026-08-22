@@ -22,8 +22,16 @@ export const RUN_STALE_MS = 6 * 60 * 1000;
  *
  * Deliberately excludes the GradeThread-owned fields — `sku` (the match key),
  * `source_id`, `condition_notes`, `acquired_price`, `acquired_date` — which no
- * CSV may write over (vault/20-domain/sync-source-of-truth.md). Mirrors
- * FILL_ITEM_FIELDS in src/pages/flipdesk/import.tsx.
+ * CSV may write over (vault/20-domain/sync-source-of-truth.md).
+ *
+ * THIS IS THE ONLY COPY, and that is the point. The line here used to claim
+ * this list mirrored one in the browser import page. US-2518 made that false
+ * and nobody updated it: that story DELETED the browser-side list and moved the
+ * rule to where the writing happens, precisely so there is one source of truth
+ * for which columns a CSV may touch. The import page says so in a comment of
+ * its own. A reader following the old line found a real file with no such
+ * symbol in it, and would reasonably have recreated the duplicate US-2518
+ * removed on purpose (US-2800).
  */
 export const FILL_ITEM_FIELDS = [
   "title",
