@@ -105,12 +105,26 @@ final class AIAssistantStore {
 
     /// Monthly AI-action allowance per plan (mirrors FLIPDESK_PLANS
     /// aiActionsPerMonth in src/lib/constants.ts: free 25 / starter 200 /
-    /// pro 1000 / business 5000). Unknown → free.
+    /// pro 750 / business 2000). Unknown → free.
+    ///
+    /// US-2123: pro and business were 1000 and 5000 here, and the doc comment
+    /// above asserted those were the mirrored values. They were not, on either
+    /// count — measured 2026-08-22 against production's own `pricing_plans`
+    /// rows (pro ai_actions_per_month = 750, business = 2000) and against
+    /// src/lib/constants.ts, which agrees with production. So a Pro seller
+    /// opened Settings → AI Assistant, read a 1000-action monthly cap, and hit
+    /// the server's wall 250 actions early with nothing on screen explaining
+    /// why. The comment claiming to mirror was what made it survive review.
+    ///
+    /// src/test/ios-plan-quota-parity.test.ts now fails if these drift from
+    /// FLIPDESK_PLANS again. It runs in the web suite on purpose: Swift cannot
+    /// be compiled on the Windows box the work is done from, and a guard that
+    /// only runs on the macOS lane is one nobody sees until CI.
     static func planDefault(_ plan: String?) -> Int {
         switch plan?.lowercased() {
         case "starter": return 200
-        case "pro", "professional": return 1000
-        case "business", "enterprise": return 5000
+        case "pro", "professional": return 750
+        case "business", "enterprise": return 2000
         default: return 25
         }
     }
