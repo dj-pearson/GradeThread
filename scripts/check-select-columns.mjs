@@ -199,11 +199,58 @@ for (const f of files) {
   }
 }
 
+// ── The names themselves: .from("table") and .rpc("function") ───────────────
+//
+// A GAP I PUT HERE MYSELF. Every column pass above opens with
+// `if (!known) continue` — an unknown TABLE is skipped rather than reported,
+// because an incomplete migration parser would otherwise flag half the repo.
+// The cost of that caution is that a typo'd table name was invisible to the one
+// tool positioned to see it.
+//
+// Both came back clean on their first run (3466 .from() calls, 129 .rpc()
+// calls, zero unknown). They are folded in for the same reason the write
+// surface was: to keep it that way.
+const objects = new Set(cols.keys());
+for (const v of views) objects.add(v);
+for (const v of matviews) objects.add(v);
+for (const m of sql.matchAll(/create\s+table\s+(?:if\s+not\s+exists\s+)?([\w."]+)/gi)) {
+  objects.add(m[1].replace(/^public\./, "").replace(/"/g, "").toLowerCase());
+}
+const functions = new Set(
+  [...sql.matchAll(/create\s+(?:or\s+replace\s+)?function\s+([\w."]+)\s*\(/gi)]
+    .map((m) => m[1].replace(/^public\./, "").replace(/"/g, "").toLowerCase()),
+);
+
+const badNames = [];
+for (const f of files) {
+  const src = readFileSync(f, "utf8");
+  const rel_ = relative(R, f).replaceAll("\\", "/");
+  for (const m of src.matchAll(/\.from\(\s*["']([a-z0-9_]+)["']\s*\)/g)) {
+    // storage.from("bucket") is a different namespace and not a table.
+    if (/storage\s*\.?\s*$/.test(src.slice(Math.max(0, m.index - 40), m.index))) continue;
+    checked++;
+    if (!objects.has(m[1].toLowerCase())) {
+      badNames.push({ kind: "table", name: m[1], file: rel_ });
+    }
+  }
+  for (const m of src.matchAll(/\.rpc\(\s*["']([a-z0-9_]+)["']/g)) {
+    checked++;
+    if (!functions.has(m[1].toLowerCase())) {
+      badNames.push({ kind: "function", name: m[1], file: rel_ });
+    }
+  }
+}
+
 const byKey = new Map();
 for (const f of findings) {
   const k = `${f.table}.${f.col}`;
   if (!byKey.has(k)) byKey.set(k, new Set());
   byKey.get(k).add(f.file);
+}
+for (const b of badNames) {
+  const k = `${b.kind} "${b.name}"`;
+  if (!byKey.has(k)) byKey.set(k, new Set());
+  byKey.get(k).add(b.file);
 }
 
 // GUARDS THE GUARD. A sabotage that broke the from().select() matcher left this
@@ -219,7 +266,11 @@ for (const f of findings) {
 // when writes arrived (9934 -> 13089), for the same reason. A floor that lags
 // the truth by a whole surface has quietly stopped guarding; keep it close
 // enough that losing any ONE of the three trips it.
-const MIN_REFS = 11000;
+// 11000 -> 14000 with the table/function-name surface (13089 -> 16682).
+// MEASURED, not predicted: the sabotage that removes that surface reports
+// 13218, not the 13089 the deltas suggested. Apply that test on the next raise
+// — run the sabotage and read the number — rather than rounding up.
+const MIN_REFS = 14000;
 const MIN_TABLES = 200;
 if (checked < MIN_REFS || cols.size < MIN_TABLES) {
   console.error(
@@ -234,7 +285,7 @@ if (checked < MIN_REFS || cols.size < MIN_TABLES) {
   process.exit(1);
 }
 
-if (findings.length === 0) {
+if (findings.length === 0 && badNames.length === 0) {
   console.log(
     `[select-columns] OK  ${checked} column reference(s) against ${cols.size} table(s).`,
   );
@@ -242,7 +293,7 @@ if (findings.length === 0) {
 }
 
 console.error(
-  "\n[select-columns] a query names column(s) no migration declares:\n",
+  "\n[select-columns] a query names something no migration declares:\n",
 );
 for (const [k, where] of [...byKey].sort()) {
   console.error(`    ${k}`);
