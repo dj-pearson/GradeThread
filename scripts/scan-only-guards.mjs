@@ -45,6 +45,25 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 /** Directories holding vitest suites worth measuring. */
 const DIRS = ["src/test", "src/lib/__tests__"];
 
+/**
+ * Where COVERAGE can come from, which is a wider set than where the scans live.
+ *
+ * ⚠ THIS WAS WRONG AND THE TOOL RECOMMENDED WORK ALREADY DONE. Coverage was
+ * read from DIRS alone — the web suites — so an edge module tested by
+ * `services/edge-functions/src/tests/*_test.ts` still counted as uncovered.
+ * `ai-config.ts` was listed as a candidate immediately after a test importing
+ * it was written and committed.
+ *
+ * A worklist that cannot see finished work is worse than no worklist: it sends
+ * the next person to redo something, and the redundant second test then looks
+ * like evidence the first was missing.
+ */
+const COVERAGE_DIRS = [
+  "src/test",
+  "src/lib/__tests__",
+  "services/edge-functions/src/tests",
+];
+
 /** Reading source rather than exercising it. */
 const SCAN = /toContain\(|toMatch\(|readFileSync|\.test\(\s*(?:src|code|text)\b/g;
 
@@ -59,16 +78,25 @@ const CALL = /expect\(\s*(?:await\s+)?[a-z][A-Za-z0-9_]*\s*\(/g;
 /** Repo-relative paths a test names as a string — the files it reads. */
 const SUBJECT = /["'`]((?:src|functions|services|scripts|supabase|android|ios)\/[^"'`\n]+?\.[a-z]{2,4})["'`]/g;
 
-/** Modules a test IMPORTS, normalised toward a repo-relative-ish tail. */
-const IMPORT = /from\s+["']([^"']+)["']/g;
+/**
+ * Modules a test IMPORTS, normalised toward a repo-relative-ish tail.
+ *
+ * BOTH FORMS, and the second is not optional here. The edge suites cannot use a
+ * static import for anything that reaches `lib/supabase.ts`: that module reads
+ * env at load, so the tests set dummy credentials first and then
+ * `await import("../lib/ai-config.ts")`. Matching only `from "…"` therefore
+ * misses the entire Deno side and reports its modules as untested — which it
+ * did, for `ai-config.ts`, immediately after a test importing it was committed.
+ */
+const IMPORT = /(?:from\s+["']([^"']+)["']|\bimport\s*\(\s*["']([^"']+)["'])/g;
 
 function count(re, s) {
   return (s.match(re) ?? []).length;
 }
 
-function testFiles() {
+function testFiles(dirs) {
   const out = [];
-  for (const dir of DIRS) {
+  for (const dir of dirs) {
     let entries;
     try {
       entries = readdirSync(join(root, dir));
@@ -76,14 +104,19 @@ function testFiles() {
       continue; // may not exist in a partial checkout
     }
     for (const name of entries) {
-      if (!/\.(test|spec)\.tsx?$/.test(name)) continue;
+      // Deno suites are `*_test.ts`; vitest suites are `*.test.ts`.
+      if (!/(\.(test|spec)\.tsx?|_test\.ts)$/.test(name)) continue;
       out.push({ rel: `${dir}/${name}`, src: readFileSync(join(root, dir, name), "utf8") });
     }
   }
   return out;
 }
 
-const files = testFiles();
+/** The files examined for scan-only-ness. */
+const files = testFiles(DIRS);
+
+/** Every file that can COUNT as coverage, which is a wider set. */
+const coverageFiles = testFiles(COVERAGE_DIRS);
 
 /**
  * Every module tail any test imports.
@@ -95,9 +128,9 @@ const files = testFiles();
  * files do not collide with each other.
  */
 const importedTails = new Set();
-for (const f of files) {
+for (const f of coverageFiles) {
   for (const m of f.src.matchAll(IMPORT)) {
-    const spec = m[1].replace(/\.[tj]sx?$/, "");
+    const spec = (m[1] ?? m[2]).replace(/\.[tj]sx?$/, "");
     if (spec === "vitest" || spec.startsWith("node:")) continue;
     const parts = spec.split("/").filter((p) => p && p !== "." && p !== "..");
     if (parts.length) importedTails.add(parts.slice(-2).join("/"));
