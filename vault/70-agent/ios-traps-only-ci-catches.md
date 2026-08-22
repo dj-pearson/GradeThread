@@ -5,9 +5,9 @@ type: learning
 status: current
 source_of_truth: vault
 code_refs: []
-reviewed: 2026-08-17
+reviewed: 2026-08-22
 tags: [ios, swift, ci, agent]
-summary: Swift cannot be compiled on the Windows dev host, so six specific mistakes cost a full CI cycle each — two of them actor-isolation shapes, and one bricks app launch rather than failing the build.
+summary: Swift cannot be compiled on the Windows dev host, so seven specific mistakes cost a full CI cycle each - two actor-isolation shapes, one that bricks launch rather than failing the build, and one that hides every other error behind it.
 ---
 
 # iOS traps that only CI can catch
@@ -140,6 +140,60 @@ stores, a model change should just ride the single current version.** Never add 
 
 > Note which gate catches it: the **launch-smoke** step and the UI tests do.
 > An archive-only run does not — it builds fine and dies on a device.
+
+## 5. A trailing comma in a parameter list is a 5.9 parse error
+
+Swift allows a trailing comma after the last parameter from **6.1**. This target
+builds at `SWIFT_VERSION 5.9`, where it is a parse error - and the compiler
+reports it as a bare:
+
+```
+Unexpected ',' separator
+```
+
+with **no file and no line**. The surrounding log lines are whichever files
+happened to be compiling, which is worth nothing. It cost a full cycle to place.
+
+Easy to write, because every other language in the same day allows it and no
+formatter removes it. Now guarded: `ios/Scripts/no-trailing-comma.py`, in
+`npm run verify` and in `iOS CI`, zero baseline across the app.
+
+## 6. Lifting a view body into a method can rebind a shadowed name
+
+`ItemCanvasView` has `@State private var state: ItemCanvasState?` AND a
+`private func form(state: ItemCanvasState)` whose parameter shadows it. Any body
+written inside `form(state:)` sees the **non-optional** one.
+
+Extracting such a body into a new method - a routine, mechanical refactor -
+silently rebinds `state` to the optional property, and nothing but the Swift
+compiler notices. It reads identically in review.
+
+**Before extracting a SwiftUI body into a method, check whether the enclosing
+function has a parameter that shadows a stored property of the same name.** If
+it does, pass it in explicitly rather than relying on scope. No regex finds
+this; a scope check that a regex could do would be wrong. The cheap version is
+to diff the enclosing function of every body you move.
+
+## 7. Errors stack, so a fixed lane can still be red for an older reason
+
+The compiler reports **one** error and stops. So a pre-existing break sits
+invisible behind whatever was written most recently, and clearing your own
+mistakes is what exposes it.
+
+On 2026-08-22 the iOS lanes took four fixes in sequence to go green: two fresh
+mistakes, then an `@escaping` mismatch that had failed **every run since
+19 Aug**, then a test assertion that had been wrong for longer than that.
+
+The last one is the part to remember. **A suite that cannot run makes a wrong
+test look green.** `DisputeFilingTests` searched an encoded body for
+`data:image/jpeg;base64,AAA` while `JSONEncoder` writes
+`data:image\/jpeg;base64,AAA`. The request was always correct and the assertion
+never was; it simply had no opportunity to fail while the app did not compile.
+
+So when a lane goes red after a long red spell, **do not assume the newest
+commit owns every error in it.** Check whether the run before yours failed on
+the same line - `gh run view <id> --log-failed` on the prior run answers it in
+one command, and it is what proved the `@escaping` break was two days old.
 
 ## Related
 

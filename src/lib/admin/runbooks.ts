@@ -81,7 +81,17 @@ export const RUNBOOKS: Runbook[] = [
     // The three prior checks cost a date bump and no edit because this copy
     // names no counts and points at CRON_REGISTRY instead — that phrasing
     // working, not the check being noisy.
-    reviewed: "2026-08-19",
+    //
+    // Re-read 2026-08-21. Nothing to carry, and the same reason a fourth time:
+    // the whole diff is the cron count going 79 -> 80 for the style-code
+    // discovery crawl. Worth stating plainly now that the pattern is this
+    // consistent — the count is the ONLY line in deploy.md that moves often, and
+    // every shipped copy deliberately refuses to quote it, so the drift guard
+    // fires on the one fact none of them carry. That is the guard doing its job
+    // (it cannot know which line changed) and the phrasing doing its job. If a
+    // future copy is ever tempted to name the number, this is the four-check
+    // record of why not.
+    reviewed: "2026-08-21",
     title: "Production deploy order",
     category: "Deploy",
     summary:
