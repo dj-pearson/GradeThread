@@ -21,6 +21,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  extensionWebStoreUrl,
   isListerAvailable,
   sendToLister,
   type ListerPayload,
@@ -243,6 +244,48 @@ describe("US-1882: transport selection", () => {
       installMarker();
       installChrome((respond) => respond({ ok: true }));
       expect(isListerAvailable()).toBe(false);
+    });
+  });
+
+  // ── US-2718 AC4: the install link a seller without the extension is sent to ──
+  //
+  // This was the half of AC4 that only ever existed as a SOURCE SCAN
+  // (cross-post-setup.test.ts asserts the string "extensionWebStoreUrl()"
+  // appears). A scan cannot tell a working link from one that returns null,
+  // which is exactly what it did for as long as VITE_LISTER_EXTENSION_ID sat
+  // blank: the notice rendered with nowhere to go.
+
+  describe("extensionWebStoreUrl", () => {
+    it("builds a Chrome Web Store URL from the configured id", () => {
+      vi.stubEnv("VITE_LISTER_EXTENSION_ID", "apinefjjagmigmobdlbiilhbjebmjkdh");
+      expect(extensionWebStoreUrl()).toBe(
+        "https://chromewebstore.google.com/detail/apinefjjagmigmobdlbiilhbjebmjkdh",
+      );
+    });
+
+    it("is null with no id, so the caller renders no link rather than a broken one", () => {
+      // null is the honest answer and the callers check it. A URL ending in an
+      // empty path segment would be a link to the store's 404.
+      vi.stubEnv("VITE_LISTER_EXTENSION_ID", "");
+      vi.stubEnv("VITE_EXTENSION_WEBSTORE_URL", "");
+      expect(extensionWebStoreUrl()).toBeNull();
+    });
+
+    it("an explicit override wins, which is how Firefox gets an AMO link", () => {
+      // The id is Chrome's. Firefox reaches the extension through the bridge and
+      // never uses that id, so its install link cannot be derived from one.
+      vi.stubEnv("VITE_EXTENSION_WEBSTORE_URL", "https://addons.mozilla.org/addon/gradethread/");
+      vi.stubEnv("VITE_LISTER_EXTENSION_ID", "apinefjjagmigmobdlbiilhbjebmjkdh");
+      expect(extensionWebStoreUrl()).toBe("https://addons.mozilla.org/addon/gradethread/");
+    });
+
+    it("a whitespace-only override does not win", () => {
+      // An env var set to " " in a dashboard is set as far as the shell is
+      // concerned. Without the trim it would beat a perfectly good id and
+      // return a blank href.
+      vi.stubEnv("VITE_EXTENSION_WEBSTORE_URL", "   ");
+      vi.stubEnv("VITE_LISTER_EXTENSION_ID", "apinefjjagmigmobdlbiilhbjebmjkdh");
+      expect(extensionWebStoreUrl()).toContain("chromewebstore.google.com");
     });
   });
 });

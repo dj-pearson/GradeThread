@@ -129,6 +129,35 @@ summary: Every env var the codebase reads, which of the eight deployment surface
 
 Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 secret (never client-side).
 
+> [!note] The three extension variables, measured against production 2026-08-22 (US-2718)
+> Provisioning is a claim about a running deploy, so these were read from it
+> rather than taken from a dashboard screenshot.
+>
+> **The two Cloudflare Pages variables are SET.** Fetched the live chunk
+> `assets/lister-extension-*.js` from `gradethread.com`: `listerExtensionId()`
+> compiles to `return"apinefjjagmigmobdlbiilhbjebmjkdh"` (it used to be
+> `return""`), and `isListerAvailable()` compiles to
+> `return(p()||typeof M()?.sendMessage=="function")&&!0` — the
+> `VITE_LISTER_EXTENSION !== "true"` early return has been constant-folded away
+> entirely. On 2026-08-20 the same function was `return!1`. The button renders.
+>
+> **`EXTENSION_ALLOWED_ORIGINS` is EMPTY on the edge.** A CORS preflight to
+> `functions.gradethread.com` with
+> `Origin: chrome-extension://apinefjjagmigmobdlbiilhbjebmjkdh` comes back 204
+> with NO `access-control-allow-origin` header. The probe is calibrated:
+> `https://gradethread.com` gets the header back and `https://evil.example`
+> does not, so absence here is a real answer rather than a quiet endpoint.
+>
+> **What that does and does not break, stated separately because the second half
+> is not settled.** The variable is read by `isAllowedOrigin`, whose extension
+> case exists for the public grade-from-url endpoint (US-1754/1755). It does
+> NOT obviously break the FlipDesk queue drain: `extension-unified/manifest.json`
+> lists `https://*.gradethread.com/*` in `host_permissions`, which covers
+> `functions.gradethread.com`, and MV3 exempts a fetch to a host-permitted
+> origin from CORS. Whether that exemption covers every caller here has not been
+> tested from an actual extension context, so treat it as the open question and
+> set the variable regardless.
+
 ---
 
 ## 1. Cloudflare Pages — build (`VITE_*` ship to the browser)
@@ -158,8 +187,8 @@ Legend: ✅ required · 🟡 required for that feature · ⬜ optional · 🔒 s
 | `VITE_SAMPLE_CERTIFICATE_ID` | ⬜ CF Pages build | Cert ID linked from the landing page sample. |
 | `VITE_RETAIN_ORIGINALS` | ⬜ CF Pages build | Toggle keeping original (un-stripped) uploaded images on the submission flow. |
 | `VITE_LAUNCH_DATE` | ⬜ CF Pages build | Date driving the launch-countdown banner. |
-| `VITE_LISTER_EXTENSION_ID` | ⬜ CF Pages build | Chrome extension ID for the FlipDesk auto-lister bridge. |
-| `VITE_LISTER_EXTENSION` | ⬜ CF Pages build | Feature toggle for the lister-extension integration. |
+| `VITE_LISTER_EXTENSION_ID` | ⬜ CF Pages build | Chrome extension ID for the FlipDesk auto-lister bridge. **Provisioned** (measured 2026-08-22 — see the callout below). |
+| `VITE_LISTER_EXTENSION` | ⬜ CF Pages build | Feature toggle for the lister-extension integration. Unset ⇒ Vite folds `isListerAvailable()` to a constant `false` and the Send-to-extension button is compiled out of the bundle entirely. **Provisioned** (measured 2026-08-22). |
 | `VITE_EXTENSION_WEBSTORE_URL` | ⬜ CF Pages build | Public Chrome Web Store listing for the extension (US-2553). Optional: derived from `VITE_LISTER_EXTENSION_ID` when unset. |
 | `VITE_SOCIAL_X` / `_LINKEDIN` / `_INSTAGRAM` / `_CRUNCHBASE` | ⬜ CF Pages build | Brand social profile URLs (also read by Pages Functions for OG/footer). |
 | `VITE_TWITTER_SITE` | ⬜ CF Pages build | `@handle` for Twitter card meta. |
@@ -467,7 +496,7 @@ Set these in the same Pages env; the SSR functions in `functions/` read them per
 | `SALE_CURRENCY_RECORDED_SINCE` | ⬜ Coolify edge | Cutoff date before which sale rows have no recorded currency, so consignor payouts fall back rather than assume USD. |
 | `TENANT_ISOLATION_REQUIRED` | ⬜ Coolify edge | Hardens the tenant-isolation guard (fail-closed) when set. |
 | `EXTENSION_TOKEN_SECRET` 🔒 | 🟡 Coolify edge | Signs the short-lived tokens the FlipDesk lister browser extension presents. |
-| `EXTENSION_ALLOWED_ORIGINS` | 🟡 Coolify edge | Comma-separated origin allow-list for extension requests (CORS). |
+| `EXTENSION_ALLOWED_ORIGINS` | 🟡 Coolify edge | Comma-separated origin allow-list for extension requests (CORS); read by `isAllowedOrigin` in `lib/allowed-origins.ts`. **NOT provisioned** — measured 2026-08-22, see the callout below. |
 | `EXTENSION_FRAUD_FLAGS_ENABLED` | ⬜ Coolify edge | Surfaces fraud flags on the extension's public grading response. |
 | `API_IDEMPOTENCY_REQUIRED` | ⬜ Coolify edge | `true` makes an `Idempotency-Key` header **mandatory** on the charging public-API routes (`POST /api/v1/grades` and `/grades/batch`). Advisory by default so the middleware could ship without breaking live integrations; flip it once clients have adopted the header, and expect a 400 on any that have not. |
 | `ESG_EXPORT_ENABLED` | ⬜ Coolify edge | Enables the ESG/sustainability export on the public grading API. |
