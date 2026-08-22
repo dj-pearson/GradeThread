@@ -3,8 +3,10 @@ title: Uptime monitoring
 type: runbook
 status: current
 source_of_truth: vault
-code_refs: []
-reviewed: 2026-07-19
+code_refs:
+  - scripts/ops/uptime-cadence.mjs
+  - scripts/ops/uptime-check.mjs
+reviewed: 2026-08-22
 tags: [ops, monitoring, alerting]
 summary: The external checks, what they probe and where they alert.
 ---
@@ -38,8 +40,31 @@ on a single blip). On confirmed failure the run exits non-zero and alerts via:
 
 Manual run / drill: GitHub → Actions → **Uptime** → *Run workflow*.
 
-GitHub cron is best-effort (a run can start a few minutes late); 10-minute
-cadence is the launch baseline. Upgrade path below.
+> [!warning] Measured 2026-08-22: the cadence is ~17 minutes, not 10, and that
+> breaks the SEV1 ack target
+> This paragraph used to say GitHub cron is best-effort and "a run can start a
+> few minutes late". Over **99 consecutive scheduled runs** (2026-08-21 to
+> 2026-08-22) exactly **one** landed within 10 minutes of the previous one:
+>
+> | | interval |
+> |---|---|
+> | min | 9.8 min |
+> | median | 17.2 min |
+> | p90 | 24.4 min |
+> | max | 43.0 min |
+>
+> Detection latency is a full interval of blindness plus the 30s confirm delay
+> plus the run itself, so it is **~18 min at the median** against the **15-minute
+> SEV1 ack target** in [[incident-response]]. The alert typically arrives after
+> the deadline it feeds — not occasionally, typically.
+>
+> The 10-minute cadence stays as the launch baseline. What is no longer true is
+> that it MEETS the target. Either the target moves or the vendor check below
+> gets added; leaving both claims standing is the thing to avoid.
+>
+> **Re-measure rather than trusting these numbers** — GitHub's scheduler load
+> moves: `node scripts/ops/uptime-cadence.mjs` (read-only, one `gh run list`).
+> It exits non-zero while the target is unmet.
 
 ## 2. Status page — `gradethread.com/status`
 

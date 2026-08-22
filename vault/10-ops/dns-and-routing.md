@@ -6,14 +6,22 @@ source_of_truth: code
 code_refs:
   - services/edge-functions/src/main.ts
   - scripts/ops/edge-watchdog.sh
-reviewed: 2026-08-21
+reviewed: 2026-08-22
 tags: [ops, dns, edge, routing]
 summary: Two hostnames serve two different systems; calling an app route on the Supabase host 404s silently.
 ---
 
 # DNS and routing
 
-> **Re-reviewed 2026-08-20.** Drift flagged `main.ts`, which changed to mount
+> **Re-reviewed 2026-08-22.** Drift flagged `main.ts` again, and this time the
+> change added no route at all: US-2001 and US-2003 added two BOOT-TIME log
+> lines (an unread release-variable hint and a missing-alert-channel warning).
+> Nothing mounted, nothing renamed, no hostname touched. Recorded rather than
+> silently bumped, because `main.ts` is a 2000-line file that this note watches
+> for exactly one property - which host serves which path - and most edits to it
+> will not touch that property.
+>
+> Previously re-reviewed 2026-08-20. Drift flagged `main.ts`, which changed to mount
 > the US-2697 sold-sync intake and its auth + workspace middleware. That is a
 > new ROUTE on the existing edge app, not a new hostname or a change to which
 > host serves what - so the split this note exists to protect (`api.*` is Kong

@@ -10,9 +10,22 @@ name: Uptime
 #   - a GitHub issue labeled `uptime` (always-on fallback channel: opened on
 #     confirmed failure, commented while ongoing, auto-closed on recovery).
 #
-# Cadence: every 10 minutes. GitHub cron is best-effort (runs may start a few
-# minutes late under load) — acceptable as the launch baseline; the upgrade
-# path to 1-minute vendor checks is documented in vault/10-ops/uptime-monitoring.md.
+# Cadence: scheduled every 10 minutes, and MEASURED AT 17 (US-2003 AC4).
+#
+# This comment used to say GitHub cron is best-effort and "runs may start a few
+# minutes late under load". That understates it by enough to change a decision.
+# Over 99 consecutive scheduled runs (2026-08-21 to 2026-08-22) exactly ONE
+# landed within 10 minutes of the previous one: median gap 17.2 min, p90 24.4,
+# worst 43.0.
+#
+# So worst-case detection latency is ~18 min at the MEDIAN, against a 15-minute
+# SEV1 ack target - the alert typically arrives after the deadline it feeds.
+# Re-measure with `node scripts/ops/uptime-cadence.mjs` rather than trusting
+# these numbers; GitHub's scheduler load moves.
+#
+# The 10-minute cadence remains the launch baseline. What is no longer true is
+# that it MEETS the ack target. The upgrade path to 1-minute vendor checks is in
+# vault/10-ops/uptime-monitoring.md.
 # Thresholds + escalation: vault/10-ops/incident-response.md.
 
 on:
