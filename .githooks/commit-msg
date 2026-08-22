@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# A commit message may not announce a close that prd.json contradicts (US-2772).
+#
+# Enable once per clone (the repo's `prepare` script already does it):
+#   git config core.hooksPath .githooks
+#
+# WHY THIS EXISTS. Commit 68b3f103a is titled "docs(prd): close US-2729,
+# US-2686 and US-2772". The first two were archived by it; the third stayed in
+# prd.json at passes:false with zero notes while its code was already live in
+# production. markDone() writes all-or-nothing, so nothing partially failed —
+# the id was simply never passed to it, and the subject line asserted an
+# outcome nobody checked.
+#
+# The cost is not a tidy backlog. That story was picked up again weeks later
+# BECAUSE it looked untouched, and the only thing that stopped a second
+# implementation of shipped work was a test file whose header described it. A
+# backlog entry that lies in the direction of MORE work left is the expensive
+# direction, because it spends an afternoon before it is noticed.
+#
+# Audited across the whole history when it was found: 105 ids are announced as
+# closed in the log and exactly one was still open. Rare, not zero, and
+# invisible unless something looks.
+#
+# Scoped to the SUBJECT line and to the close clause. A body may discuss any
+# story freely, and a subject may say "close US-1 and US-2; note US-3" without
+# US-3 being checked.
+
+set -euo pipefail
+
+MSG_FILE="$1"
+[ -f "$MSG_FILE" ] || exit 0
+
+# Skip merges, fixups, squashes and reverts — their subjects are not authored.
+SUBJECT="$(head -1 "$MSG_FILE")"
+case "$SUBJECT" in
+  Merge\ *|fixup!\ *|squash!\ *|amend!\ *|Revert\ *) exit 0 ;;
+esac
+
+command -v node >/dev/null 2>&1 || exit 0
+
+node scripts/check-close-claims.mjs "$MSG_FILE" || exit 1

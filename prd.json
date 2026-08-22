@@ -2236,23 +2236,6 @@
       "notes": "REFINEMENT 2026-08-20 after reading the Commerce Platform OVERVIEW page (the project guide read earlier is one page below it). The overview DOES name Marketplace as one of three selling surfaces alongside Shops and Instagram Shopping, so the flat claim 'Commerce API is not Marketplace' is too strong and is corrected here. What it is NOT is the consumer C2C flow: the platform is described for 'retailers and ecommerce businesses', built around Graph API seller onboarding, catalog and inventory, order management, finance reporting and customer communication, with Shops Ads using OFFSITE checkout - buyers discover on Facebook and Instagram and check out on the seller's own website. That is a catalogue-and-feed model for merchants with a product catalog, not a path for a reseller listing one used garment. THE OPEN QUESTION, and the only one worth spending time on: whether a used-goods reseller can be onboarded as a seller under Commerce Platform and reach the Marketplace surface that way. Nothing on the public pages answers it; it needs a question to Meta or an App Review submission, both of which are founder actions rather than code. Everything else in this story stands: the Seller app has no integration surface at all, and Marketplace Partnerships is EEA classifieds."
     },
     {
-      "id": "US-2772",
-      "passes": false,
-      "title": "Ten super_admin mutations have no step-up, and two of them spend money",
-      "description": "As whoever holds a super_admin session, I want the actions that change live spend to need a second factor, so that a stolen or borrowed admin session cannot alter ad campaigns unchallenged.",
-      "acceptanceCriteria": [
-        "MEASURED 2026-08-21 across services/edge-functions/src/routes: 57 handlers check super_admin, 52 of them mutate, 42 of those carry a step-up and 10 do not. This is the same INCONSISTENCY US-2356 was about - the bar an action clears depends on which router it happens to live in - not a blanket omission.",
-        "THE TWO THAT MATTER MOST: admin-ads.ts POST /recommendations/:id/apply and POST /recommendations/:id/revert change a LIVE Google Ads campaign, which is real money leaving the account. Neither asks for a second factor.",
-        "The other eight: POST /analyze (spends API quota), POST /conversions/upload (uploads conversion data to Google), the three recommendation decision routes (approve / dismiss / snooze), POST /apple/sync and POST /google/sync (pull data), and admin-passport-integrity.ts POST /scan.",
-        "DECIDE PER ROUTE rather than in bulk. A step-up on every one of these would make the Ads Command Center unusable for its normal loop, which is how a second factor becomes something people work around. The apply/revert pair is the clear yes; the decision-recording routes are plausibly fine as they are.",
-        "Whatever is decided, the outcome is recorded in KNOWN_GAPS in services/edge-functions/src/tests/step-up-coverage_test.ts - either the entry is deleted because the route gained a step-up, or its reason string says why it does not need one.",
-        "The guard already stops this growing: step-up-coverage_test.ts derives every super_admin mutation from the routes directory and fails on any NEW one without a step-up. KNOWN_GAPS is shrink-only, so a route that gains a step-up fails the suite until its entry is removed."
-      ],
-      "dependsOn": [
-        "US-2356"
-      ]
-    },
-    {
       "id": "US-2777",
       "passes": false,
       "title": "Vinted's 22 country domains are built end to end and no client ever asks for one",
