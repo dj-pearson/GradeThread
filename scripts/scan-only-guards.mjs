@@ -165,11 +165,34 @@ function isLiftable(path) {
   );
 }
 
+/**
+ * Does this guard assert a property across a whole TREE rather than about one
+ * module?
+ *
+ * A corpus guard walks a directory and checks something of everything it finds:
+ * "no browser file uploads straight to storage", "no site compares a confidence
+ * against a literal", "no private-bucket signed URL exceeds 900s". Those are
+ * NEGATIVES OVER A SET, and no unit test can express one — you cannot call a
+ * function to prove that nothing anywhere does a thing.
+ *
+ * They are also the best guards in the repo. signed-url-ttl.test.ts scans real
+ * call sites across three trees, refuses a TTL that is not statically checkable,
+ * and asserts it found call sites AT ALL so it cannot pass by matching nothing.
+ * Listing those as debt would be exactly backwards.
+ *
+ * Detected by the walk itself. A file reaching for readdirSync is not examining
+ * one module, whatever its subjects list says.
+ */
+function isCorpusGuard(src) {
+  return /readdirSync|globSync|walkSync|readdir\(/.test(src);
+}
+
 const rows = [];
 for (const f of files) {
   const scans = count(SCAN, f.src);
   const calls = count(CALL, f.src);
   if (scans < 6 || calls > 0) continue;
+  if (isCorpusGuard(f.src)) continue;
 
   const subjects = [...new Set([...f.src.matchAll(SUBJECT)].map((m) => m[1]))];
   const uncovered = subjects
@@ -195,13 +218,17 @@ if (process.argv.includes("--count")) {
 }
 
 console.log(
-  `\nScan-only guards: ${rows.length}\n` +
+  `\nScan-only guards, excluding corpus walkers: ${rows.length}\n` +
     `Of those, reading a LIBRARY module no test ever calls: ${candidates.length}\n\n` +
     "Not a failure list. A scan is right for WIRING and wrong for LOGIC — the\n" +
     "question per file is which it holds.\n\n" +
-    "Only LIBRARY subjects count. A guard reading a page or a route is very often\n" +
-    "correct forever: the property is structural and there is nothing to lift out.\n" +
-    "Counting those gave a total nobody could move.\n",
+    "Two exclusions, each because counting them made the number unactionable:\n" +
+    "  • CORPUS guards (they walk a tree) assert a negative over a SET — nothing\n" +
+    "    anywhere uploads to storage, no site compares against a literal. You\n" +
+    "    cannot call a function to prove an absence. These are the repo's best\n" +
+    "    guards, not its debt.\n" +
+    "  • PAGE and ROUTE subjects. The property there is structural and there is\n" +
+    "    no pure function to lift out.\n",
 );
 for (const r of shown) {
   const flag = r.covered ? "covered" : `${r.uncovered.length} uncovered`;
