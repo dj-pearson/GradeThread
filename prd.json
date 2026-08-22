@@ -2279,20 +2279,6 @@
       "priority": 12
     },
     {
-      "id": "US-2795",
-      "passes": false,
-      "title": "The public API doc describes 4 of the 16 endpoints a paying customer gets",
-      "description": "As a Business-plan customer with an API key, I want the documentation to describe every endpoint my key can call, so that I do not have to read the OpenAPI JSON to discover two thirds of what I am paying for.",
-      "acceptanceCriteria": [
-        "MEASURED 2026-08-22 against the LIVE spec, not the repo: GET https://functions.gradethread.com/api/v1/openapi.json serves 16 paths and docs/PUBLIC_API.md described four. The words sandbox, price-guide, usage, listings, sales, items and batch appeared in it ZERO times.",
-        "Twelve paths need a prose section with request shape, scope and an example, in the style of the four that have one: POST /grades/batch and GET /grades/batch/{id}, GET /items and /items/{id}, GET /listings, GET /sales, GET /usage, GET /price-guide and /price-guide/{slug}, and the four /sandbox/* paths. The shapes are all in the served spec, so this is writing rather than discovery.",
-        "THE SANDBOX SURFACE IS THE HIGHEST VALUE and should go first. Four of the twelve are /sandbox/* — an integrator's first hour is spent looking for exactly that, and a sandbox nobody can find is a sandbox nobody uses. GET /usage is second: it is how a customer sees their own consumption against the rate tier the doc already explains in detail.",
-        "Each path moves OUT of the \"Not yet written up\" table as its section lands, so the table shrinks to nothing. src/test/public-api-doc-coverage.test.ts already fails if a served path is neither written up nor listed, so the two cannot drift apart while this is in progress.",
-        "WHY THE EXISTING GUARD MISSED IT, worth keeping: api-v1-surface-parity.test.ts compares the SPEC to the ROUTES and both are correct - 16 and 16, and the live spec matches the committed one exactly. The doc is a THIRD copy nothing compared to either. Two artefacts held in lockstep while a third drifts beside them is the recurring shape in this repo."
-      ],
-      "priority": 1993
-    },
-    {
       "id": "US-2796",
       "passes": false,
       "title": "Footwear: record which size SCALE a shoe size is on",

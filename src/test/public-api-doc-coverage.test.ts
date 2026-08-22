@@ -20,7 +20,12 @@ import { resolve } from "node:path";
 // THE BAR IS DELIBERATELY LOW: a path must be MENTIONED. Prose quality is not
 // something a test can judge, and demanding a full section per path would have
 // left this failing on arrival and then been switched off. Naming the gap is
-// what turns twelve invisible endpoints into twelve known ones.
+// what turned twelve invisible endpoints into twelve known ones.
+//
+// ALL TWELVE NOW HAVE A REAL SECTION (US-2795), so the "Not yet written up"
+// table this test was written to permit is gone. The low bar stays anyway: it
+// is what keeps the SEVENTEENTH path from shipping undocumented, and that is
+// the case this guard actually has to survive to.
 
 const ROOT = process.cwd();
 const DOC = resolve(ROOT, "docs/PUBLIC_API.md");
@@ -62,7 +67,9 @@ describe("the public API doc covers what the API serves", () => {
       missing,
       `these paths are served and appear nowhere in docs/PUBLIC_API.md: ` +
         `${missing.join(", ")}. A customer cannot use an endpoint they cannot ` +
-        `find. Write it up, or add it to the "Not yet written up" table.`,
+        `find. Write it a section under ## Endpoints, in the style of its ` +
+        `neighbours: what it takes, what it returns, and the one thing that ` +
+        `surprises people.`,
     ).toEqual([]);
   });
 
