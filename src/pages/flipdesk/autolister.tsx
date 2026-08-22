@@ -90,6 +90,7 @@ import {
 } from "@/lib/autolister-telemetry";
 import { tileLabel } from "@/lib/item-row-label";
 import { stagedSortName } from "./autolister/staged-sort-name";
+import { filesFromDataTransfer } from "./autolister/files-from-data-transfer";
 import {
   type StagedPhoto,
   type StagedUploadResult,
@@ -338,40 +339,6 @@ function virtualItemsWithPin(
 // US-957: covers scoring below this (0-100 listing-readiness) get a non-blocking
 // "reshoot recommended" nudge before Generate. Advisory only — never blocks.
 
-// US-530: collect Files from a drag-and-drop, recursing into dropped FOLDERS
-// (webkitGetAsEntry). Falls back to the flat file list when the entries API
-// isn't available.
-async function filesFromDataTransfer(dt: DataTransfer): Promise<File[]> {
-  const roots: FileSystemEntry[] = [];
-  for (let i = 0; i < dt.items.length; i++) {
-    const entry = dt.items[i]?.webkitGetAsEntry?.();
-    if (entry) roots.push(entry);
-  }
-  if (roots.length === 0) return Array.from(dt.files);
-
-  const out: File[] = [];
-  async function walk(entry: FileSystemEntry): Promise<void> {
-    if (entry.isFile) {
-      const file = await new Promise<File>((res, rej) =>
-        (entry as FileSystemFileEntry).file(res, rej),
-      );
-      out.push(file);
-      return;
-    }
-    if (entry.isDirectory) {
-      const reader = (entry as FileSystemDirectoryEntry).createReader();
-      const readBatch = () =>
-        new Promise<FileSystemEntry[]>((res, rej) => reader.readEntries(res, rej));
-      let batch = await readBatch();
-      while (batch.length > 0) {
-        for (const e of batch) await walk(e);
-        batch = await readBatch(); // readEntries pages; loop until empty
-      }
-    }
-  }
-  for (const e of roots) await walk(e);
-  return out;
-}
 
 export function FlipdeskAutolisterPage() {
   const user = useAuthStore((s) => s.user);
@@ -3134,6 +3101,7 @@ export function FlipdeskAutolisterPage() {
                     <button
                       type="button"
                       title="Undo background removal"
+                      aria-label={`Undo background removal on ${photoName}`}
                       onClick={() => undoBg(p.id)}
                       className="absolute bottom-1 left-1 z-10 inline-flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                     >
@@ -3145,6 +3113,7 @@ export function FlipdeskAutolisterPage() {
                       <button
                         type="button"
                         title="Clean background"
+                      aria-label={`Clean the background of ${photoName}`}
                         onClick={() => applyBgToPhoto(p.id, bgMode)}
                         disabled={processing || bgBusy}
                         className="absolute bottom-1 left-1 z-10 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
@@ -3154,6 +3123,7 @@ export function FlipdeskAutolisterPage() {
                       <button
                         type="button"
                         title="Auto-enhance"
+                      aria-label={`Auto-enhance ${photoName}`}
                         onClick={() => void enhancePhoto(p.id)}
                         disabled={processing || enhanceBusy}
                         className="absolute bottom-1 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/55 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
@@ -3166,6 +3136,7 @@ export function FlipdeskAutolisterPage() {
                   <button
                     type="button"
                     title="Edit photo"
+                    aria-label={`Edit ${photoName}`}
                     onClick={() => setEditingPhotoId(p.id)}
                     disabled={processing}
                     className="absolute bottom-1 right-1 z-10 rounded-full bg-black/50 p-1 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100 disabled:opacity-30"
@@ -3340,6 +3311,7 @@ export function FlipdeskAutolisterPage() {
           {groupRows.map((row) => {
             const g = shownGroups[row.index];
             if (!g) return null;
+            const groupName = g.name.trim() || `group ${row.index + 1}`;
             return (
             <div
               key={row.key}
@@ -3362,14 +3334,14 @@ export function FlipdeskAutolisterPage() {
                       return next;
                     })
                   }
-                  aria-label={`Select group ${g.name}`}
+                  aria-label={`Select ${groupName}`}
                   className="h-4 w-4"
                 />
                 <Input
                   value={g.name}
                   onChange={(e) => updateGroup(g.id, { name: e.target.value })}
                   className="h-8 max-w-xs"
-                  aria-label={`Item name for group ${g.name || row.index + 1}`}
+                  aria-label={`Item name for ${groupName}`}
                   placeholder="Item name"
                 />
                 <Input
@@ -3377,6 +3349,7 @@ export function FlipdeskAutolisterPage() {
                   onChange={(e) => updateGroup(g.id, { sku: e.target.value })}
                   className="h-8 w-28"
                   placeholder="SKU / #"
+                  aria-label={`SKU for ${groupName}`}
                   title="Your inventory SKU. If it matches an existing item, the AI draft is reconciled against it."
                 />
                 <Badge variant="secondary">{g.photoIds.length} photos</Badge>
@@ -3409,6 +3382,7 @@ export function FlipdeskAutolisterPage() {
                     variant="ghost"
                     onClick={() => openGenerateConfirm([g.id])}
                     disabled={busy || uploading > 0 || !entitled || g.photoIds.length === 0}
+                    aria-label={`Generate ${groupName}`}
                     title="Send just this item to the AI now. The rest of your session stays here."
                   >
                     <Sparkles className="mr-1 h-4 w-4" />
@@ -3419,6 +3393,7 @@ export function FlipdeskAutolisterPage() {
                     variant="ghost"
                     onClick={() => autoTagGroup(g.id)}
                     disabled={taggingGroups.has(g.id) || taggingAll}
+                    aria-label={`Auto-tag ${groupName}`}
                     title="Pick the best cover and tag each photo's role with AI"
                   >
                     {taggingGroups.has(g.id) ? (
@@ -3432,6 +3407,7 @@ export function FlipdeskAutolisterPage() {
                     size="sm"
                     variant="ghost"
                     onClick={() => ungroupGroup(g.id)}
+                    aria-label={`Ungroup ${groupName}`}
                     title="Break this group up — its photos go back to Ungrouped. Nothing is deleted."
                   >
                     <Ungroup className="mr-1 h-4 w-4" />
@@ -3474,10 +3450,15 @@ export function FlipdeskAutolisterPage() {
               )}
               {!groupsCollapsed && (
               <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
-                {g.photoIds.map((pid) => {
+                {g.photoIds.map((pid, photoIndex) => {
                   const p = stagedById.get(pid);
                   if (!p) return null;
                   const isCover = g.coverId === pid;
+                  const photoName = tileLabel(
+                    stagedSortName(p),
+                    "photo",
+                    photoIndex + 1,
+                  );
                   return (
                     <PhotoDragTile
                       key={pid}
@@ -3498,6 +3479,7 @@ export function FlipdeskAutolisterPage() {
                       <button
                         type="button"
                         title="Set as cover"
+                        aria-label={`Set as cover: ${photoName}`}
                         onClick={() => setCover(g.id, pid)}
                         className={cn(
                           "absolute left-1 top-1 rounded-full p-0.5",
@@ -3511,6 +3493,7 @@ export function FlipdeskAutolisterPage() {
                       <button
                         type="button"
                         title="Remove from group"
+                        aria-label={`Remove from this group: ${photoName}`}
                         onClick={() => removePhotoFromGroup(g.id, pid)}
                         className="absolute right-1 top-1 rounded-full bg-black/40 p-0.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       >
@@ -3529,6 +3512,7 @@ export function FlipdeskAutolisterPage() {
                       <button
                         type="button"
                         title="Edit photo"
+                        aria-label={`Edit ${photoName}`}
                         onClick={() => setEditingPhotoId(pid)}
                         className="absolute left-1/2 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black/55 p-1.5 text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
                       >

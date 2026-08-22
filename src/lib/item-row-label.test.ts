@@ -271,13 +271,56 @@ describe("the AutoLister photo grid and chips name themselves (US-2450)", () => 
     ).toEqual([]);
   });
 
-  it("the photo name is derived once per tile and shared by both controls", () => {
+  it("the photo name is derived once per grid and shared by every control on the tile", () => {
     expect(AUTO_SRC).toContain('from "@/lib/item-row-label"');
-    expect((AUTO_SRC.match(/const photoName = tileLabel\(/g) ?? []).length).toBe(1);
-    // Select and Delete sit on the same tile; if they derive separately they can
-    // disagree, which is the row-introduces-itself-twice bug in miniature.
+    // TWO derivations, not one: this page has two independent photo grids — the
+    // ungrouped staging grid and the grid inside each group card — and they
+    // count position differently, because position within a group is what a
+    // seller means there. One per grid is the rule; a third would mean two
+    // controls on the SAME tile deriving separately, which is how a tile ends up
+    // introducing itself two ways.
+    expect((AUTO_SRC.match(/const photoName = tileLabel\(/g) ?? []).length).toBe(2);
     expect(AUTO_SRC).toContain("`Select ${photoName} (Shift-click selects the range)`");
     expect(AUTO_SRC).toContain("`Delete ${photoName}`");
+  });
+
+  it("the icon buttons named only by a tooltip carry a real name too", () => {
+    // THE SUB-CLASS BOTH SWEEPS MISSED. These are icon-only buttons with a
+    // `title` and no aria-label, so the title IS the accessible name — which
+    // means an aria-label scan reports them clean and audit-control-labels
+    // counts them as labelled, while every photo on screen says "Clean
+    // background". The title stays as the visual tooltip; the aria-label is what
+    // is read.
+    for (const spoken of [
+      "`Clean the background of ${photoName}`",
+      "`Auto-enhance ${photoName}`",
+      "`Undo background removal on ${photoName}`",
+      "`Edit ${photoName}`",
+      "`Set as cover: ${photoName}`",
+      "`Remove from this group: ${photoName}`",
+    ]) {
+      expect(AUTO_SRC, `${spoken} is missing`).toContain(spoken);
+    }
+  });
+
+  it("a group's controls name the group, and unnamed groups still differ", () => {
+    // `Select group ${g.name}` shipped and was the same defect one line from its
+    // own fix: g.name is EMPTY for a fresh group, so a screen of them all
+    // announced "Select group " with nothing after it, while the name field one
+    // line below already used a positional fallback. One derivation now.
+    expect((AUTO_SRC.match(/const groupName = /g) ?? []).length).toBe(1);
+    expect(AUTO_SRC).toContain("g.name.trim() || `group ${row.index + 1}`");
+    expect(AUTO_SRC).not.toContain("`Select group ${g.name}`");
+    for (const spoken of [
+      "`Select ${groupName}`",
+      "`Item name for ${groupName}`",
+      "`SKU for ${groupName}`",
+      "`Generate ${groupName}`",
+      "`Auto-tag ${groupName}`",
+      "`Ungroup ${groupName}`",
+    ]) {
+      expect(AUTO_SRC, `${spoken} is missing`).toContain(spoken);
+    }
   });
 
   it("the position counts across the whole grid, not within one row", () => {

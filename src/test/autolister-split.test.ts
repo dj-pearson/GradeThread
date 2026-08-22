@@ -21,8 +21,11 @@ const CEILINGS: Record<string, number> = {
   // whole pre-generate checkpoint moved into autolister/group-warnings.ts.
   // Lowered again from 3657 when US-2450's per-photo labels pushed it over and
   // stagedSortName moved into autolister/staged-sort-name.ts — a pure function
-  // that had just gained a second caller and now has its own tests.
-  "src/pages/flipdesk/autolister.tsx": 3655,
+  // that had just gained a second caller and now has its own tests. Lowered a
+  // fourth time from 3655 in the same story's next batch, when the ten
+  // tooltip-named icon buttons needed labels and filesFromDataTransfer moved
+  // into autolister/files-from-data-transfer.ts.
+  "src/pages/flipdesk/autolister.tsx": 3639,
   "src/pages/flipdesk/autolister-bulk-edit.tsx": 2010,
   "src/pages/flipdesk/autolister-queue.tsx": 1120,
 };
