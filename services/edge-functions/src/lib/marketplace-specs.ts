@@ -229,8 +229,24 @@ export const MARKETPLACE_SPECS: Record<MarketplacePlatform, MarketplaceSpec> = {
     ],
     tags: { max: 3, required: false, help: "Up to 3 hashtags for discovery" },
     // Confirmed on the live form 2026-08-20: condition is a selection and size
-    // a dropdown. Category and brand DO fill, so they are deliberately not here.
-    manualFields: ["condition", "size"],
+    // a dropdown. BRAND fills — its selector was verified the same day and
+    // runFlow has filled `f.brand` for any channel declaring one since US-2730.
+    //
+    // ⚠ CATEGORY DOES NOT, and this line used to say it did. Nothing in the
+    // extension can fill it: no channel in lister/selectors.js declares a
+    // `category` selector, runFlow fills only title, description, brand, price
+    // and photos, and common.js:626 says so outright ("there is no option to:
+    // category/size/condition"). A live run saw a category on the finished
+    // listing, and the story took that as the extension's doing — Mercari
+    // derives one from the title, or the seller had set it.
+    //
+    // Leaving it out of this list was the expensive half. Category is REQUIRED
+    // on Mercari, and the kit renders this array as "You'll set these yourself"
+    // — so a field absent from it reads as handled, and the seller has no
+    // reason to look at the one field a wrong value mis-files the listing
+    // under. Named here it costs a glance; unnamed it costs the listing's
+    // visibility (US-2743 AC6).
+    manualFields: ["category", "condition", "size"],
     usesOwnTaxonomy: true,
     brandAllowList: false,
     fields: [
