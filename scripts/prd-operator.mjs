@@ -107,6 +107,33 @@ export const UNDECLARED_PATTERNS = [
   // census, and adding more speculative patterns would be tuning against
   // sentences nobody has written.
   /\bBLOCKED ON A HUMAN\b/i,
+
+  // ── Fourth measurement, 2026-08-22, and it corrects the paragraph above ──
+  //
+  // "Close to the census" was wrong. Six open stories were describing operator
+  // work in prose; these patterns saw two of them. The four misses were
+  // US-2738 (priority 8), US-2739 (priority 8), US-2700 and US-1968 — two of
+  // them the top-priority non-operator stories in the whole backlog, both
+  // sitting there looking like code work while their last item needed a
+  // browser and a logged-in account.
+  //
+  // The claim that survived longest here is the one worth retiring: that the
+  // remaining phrasings are speculative. They are not written speculatively.
+  // Every pattern below was READ OFF a sentence already in this backlog, the
+  // same standard the seven above were held to — the difference is only that
+  // nobody had gone looking a fourth time.
+  //
+  // "the only remaining item ... needs a live seller account" (US-1968),
+  // "it needs a live logged-in account" (US-2700),
+  // "it needs a live Poshmark form" (US-2739).
+  /\bneeds? a live\b/i,
+  // "nobody has put this in front of a live Poshmark form" (US-2738).
+  /\bin front of a live\b/i,
+  // "Nothing in the code can answer that" (US-2739 AC11) — a different
+  // predicate from the "cannot be done from here" family above, which is about
+  // the HOST. This one is about the code itself, and it read as a limitation
+  // rather than as a request, which is why it went unactioned.
+  /\bnothing (?:in the code|here|we can write) can answer\b/i,
 ];
 
 /** Sentence around `idx`, trimmed to something a terminal line can hold. */
