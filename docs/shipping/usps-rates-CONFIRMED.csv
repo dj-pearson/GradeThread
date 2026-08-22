@@ -1,0 +1,10 @@
+service,zone,max_oz,price_usd,source_url,read_on,confidence
+ground_advantage_retail,4,4,8.30,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,single_read
+ground_advantage_retail,4,8,8.30,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,single_read
+ground_advantage_retail,4,12,10.60,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,single_read
+ground_advantage_retail,4,16,10.60,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,cross_checked
+ground_advantage_retail,4,32,13.00,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,cross_checked
+ground_advantage_retail,4,48,13.70,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,single_read
+ground_advantage_retail,4,64,14.85,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,single_read
+ground_advantage_retail,4,80,15.80,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,single_read
+ground_advantage_retail,1-2,16,9.55,https://pe.usps.com/text/dmm300/Notice123.htm,2026-08-22,cross_checked

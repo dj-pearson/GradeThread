@@ -41,3 +41,39 @@ Advantage. Recorded so the next person does not repeat the two misses.
 Maximum weights and length-plus-girth limits are **not** in this file. They were
 not read from a primary source, so they are not written down as though they
 were.
+
+## `usps-rates-CONFIRMED.csv`
+
+Read 2026-08-22 from [USPS Notice 123, the published Price
+List](https://pe.usps.com/text/dmm300/Notice123.htm), table *USPS Ground
+Advantage-Retail*.
+
+**Effective date: July 12, 2026**, printed on the notice itself
+(*"Notice 123 - Effective July 12, 2026"*). This is the real `effectiveFrom`
+the design asked for — USPS does publish one, unlike the eBay fee schedule,
+where inventing a freshness stamp was refused.
+
+### Read this before using these numbers
+
+The page is a dense multi-service rate table, and it was read through a
+summarising fetch rather than parsed from the source PDF. That is a lossier
+channel than reading a single published rule, so the CSV carries a
+`confidence` column and says which is which:
+
+- `cross_checked` — the cell was asked for twice, in separately worded
+  requests, and both reads agreed. Zone 4 at 1 lb ($10.60) and 2 lb ($13.00),
+  and Zone 1&2 at 1 lb ($9.55). The zone relationship is also the right shape:
+  the nearer zone is cheaper.
+- `single_read` — read once. Plausible and unconfirmed.
+
+**Do not price against a `single_read` row without checking it.** The
+discipline in this directory exists because a real-but-wrong number is the
+dangerous kind, and a table transcribed once by a model is exactly where one
+would come from.
+
+### What is NOT here
+
+The published table continues to 70 lb and the bands above 5 lb are unread.
+Priority Mail is unread entirely. Zones other than 4 and 1&2 are unread. None
+of that is guessed at — it is simply absent, which is the correct state for a
+number nobody has looked up.
