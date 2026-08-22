@@ -17,6 +17,7 @@
     "ui:check": "node scripts/check-ui-antipatterns.mjs",
     "unwired:check": "node scripts/check-unwired-modules.mjs",
     "unwired:check:web": "node scripts/check-web-unwired.mjs",
+    "refs:check": "node scripts/check-comment-path-refs.mjs",
     "unwired:check:ios": "node scripts/check-ios-orphans.mjs",
     "unwired:check:android": "node scripts/check-android-orphans.mjs",
     "preview": "vite preview",

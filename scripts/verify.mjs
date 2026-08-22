@@ -316,6 +316,7 @@ if (on("web")) {
   // CLAUDE.md is read at the start of every session, so a path that has moved
   // costs every one of them. Cheap enough to sit beside prd-lint.
   run("web: doc path refs", "node scripts/doc-refs.mjs");
+  run("web: comment path refs", "node scripts/check-comment-path-refs.mjs");
   // US-2437: BEFORE eslint, deliberately. The bug that filed that story was
   // eslint linting supabase/.temp/start-secrets/ — 189 errors in generated,
   // minified code nobody wrote — which only appears once you run `supabase

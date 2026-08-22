@@ -1,7 +1,13 @@
 // US-1681: build/CI guard — every route's JSON-LD (and the dynamic cert/passport
 // nodes) must pass the structured-data linter, so a pSEO template can never ship
 // broken schema.org markup at scale. A violation fails CI (which runs before the
-// build gate). Runbook: docs/STRUCTURED_DATA_LINT.md.
+// build gate).
+//
+// There is no docs/STRUCTURED_DATA_LINT.md and there never has been — this
+// header used to promise one. What to read instead when a case here goes red:
+// the rules live in src/lib/seo/jsonld-lint.ts (LINTED_TYPES and the per-type
+// requirements), and what each route emits is built by
+// src/prerender/head-builder.ts jsonLdForRoute.
 
 import { describe, it, expect } from "vitest";
 import { PUBLIC_ROUTES } from "@/lib/seo/public-routes";

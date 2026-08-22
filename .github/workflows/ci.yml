@@ -195,6 +195,13 @@ jobs:
       - name: Doc path refs
         if: ${{ !cancelled() }}
         run: node scripts/doc-refs.mjs
+      # US-2793: the same question of the ~1100 path references inside CODE
+      # comments, which doc-refs.mjs does not read. All three of its first
+      # findings were a comment naming a GUARD by a filename that had been
+      # renamed, while the guard was alive under another name.
+      - name: Comment path refs
+        if: ${{ !cancelled() }}
+        run: node scripts/check-comment-path-refs.mjs
       # US-2437: a file that is both tracked and gitignored. The ignore silently
       # does nothing, so the file reads as modified in every working tree forever
       # and each person who notices adds another dead ignore line — one path here

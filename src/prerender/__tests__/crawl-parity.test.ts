@@ -13,7 +13,12 @@
 //
 // It runs against the built dist/ (skipped when absent so the unit suite stays
 // build-independent); CI runs `npm run build` before the test job, so a drift
-// fails the build. Runbook for fixing drift: docs/PRERENDER_PARITY.md.
+// fails the build.
+//
+// There is no docs/PRERENDER_PARITY.md — this header used to point at one that
+// was never written. The four bullets above ARE the checklist: each maps to one
+// case below, and the fix for a red one is to make the STATIC html satisfy it,
+// never to relax the assertion.
 
 import { describe, it, expect } from "vitest";
 import { requireDist } from "../../test/dist-required";
