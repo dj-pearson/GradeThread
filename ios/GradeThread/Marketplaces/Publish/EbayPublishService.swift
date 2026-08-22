@@ -25,9 +25,12 @@ public final class EbayPublishService {
     private let baseURL: URL
     private let session: URLSession
 
-    // US-1407: bounded session (was `URLSession.shared` = 60s) so a hung publish
-    // / revise / price request fails fast instead of spinning behind the action.
-    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.shared) {
+    // Publish/revise/end are MULTI-HOP: the edge makes several eBay calls in a
+    // row and streams nothing until the last one lands. The server allows 20s
+    // PER HOP, so the 20s-idle `EdgeNetwork.shared` this used to sit on could
+    // not survive one slow call, let alone five. See
+    // `EdgeNetwork.marketplaceRequestTimeout`.
+    init(baseURL: URL = AppConfig.edgeAPIURL, session: URLSession = EdgeNetwork.marketplaceSession) {
         self.baseURL = baseURL
         self.session = session
     }
@@ -73,7 +76,9 @@ public final class EbayPublishService {
         } catch let error as PublishHTTPError {
             return outcome(from: error)
         } catch {
-            return .failed(message: Self.networkFailureMessage(error))
+            // One-shot: a timeout here says nothing about whether eBay created
+            // the listing, so the copy must not invite a second attempt.
+            return .failed(message: Self.networkFailureMessage(error, verb: .oneShot))
         }
     }
 
@@ -241,7 +246,9 @@ public final class EbayPublishService {
         } catch let error as PublishHTTPError {
             return outcome(from: error)
         } catch {
-            return .failed(message: Self.networkFailureMessage(error))
+            // One-shot for the same reason as push: eBay may already have ended
+            // it, and "try again" on an ended listing is its own confusion.
+            return .failed(message: Self.networkFailureMessage(error, verb: .oneShot))
         }
     }
 
@@ -249,14 +256,54 @@ public final class EbayPublishService {
 
     private struct EmptyBody: Encodable {}
 
+    /// Whether this verb can safely be repeated after a failure that never
+    /// reached us.
+    ///
+    /// Validate and price-update can: the first may not have run, and if it did,
+    /// running it again lands on the same state. Publish, relist and end cannot
+    /// — the edge records that a 5xx or timeout can arrive AFTER eBay has
+    /// already acted (US-528), so a repeat is how one item becomes two live
+    /// listings.
+    enum Verb {
+        case idempotent
+        case oneShot
+    }
+
     /// Friendly copy for a transport-layer failure (no HTTP status reached us).
-    /// Classifies offline/DNS/timeout via ``FriendlyErrorCopy`` so the publish
-    /// surfaces "you're offline" instead of a raw `URLError` string (US-1006);
-    /// any other failure keeps its localized description.
-    nonisolated static func networkFailureMessage(_ error: Error) -> String {
-        FriendlyErrorCopy.isOffline(error)
+    ///
+    /// A TIMEOUT is separated from the rest, and the reason is worth stating.
+    /// ``FriendlyErrorCopy/isOffline(_:)`` returns true for every
+    /// `NSURLErrorDomain` code, timeouts included, so a publish that ran long
+    /// used to report "You're offline. Check your connection and try again." on
+    /// a connection that was fine, for work the server was still doing, and then
+    /// invited the seller to do the one thing that duplicates a listing.
+    ///
+    /// A timeout tells us only that we stopped listening. It says nothing about
+    /// whether eBay acted, so the copy must not imply either.
+    nonisolated static func networkFailureMessage(
+        _ error: Error,
+        verb: Verb = .idempotent,
+    ) -> String {
+        if isTimeout(error) {
+            return verb == .oneShot
+                ? "This is taking longer than we can wait for. It may still have gone through, so check the listing on eBay before trying again."
+                : "That took too long to answer. Check your connection and try again."
+        }
+        return FriendlyErrorCopy.isOffline(error)
             ? "You're offline. Check your connection and try again."
             : error.localizedDescription
+    }
+
+    /// True for a request that ran past its ceiling, at any depth in the error
+    /// chain. Matched on the CODE, not the message, so it holds in every device
+    /// language.
+    nonisolated static func isTimeout(_ error: Error) -> Bool {
+        var next: NSError? = error as NSError
+        while let e = next {
+            if e.domain == NSURLErrorDomain && e.code == NSURLErrorTimedOut { return true }
+            next = e.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        return false
     }
 
     /// 4xx/5xx that the typed PublishOutcome cases want to surface

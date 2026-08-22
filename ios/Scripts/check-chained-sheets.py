@@ -99,7 +99,7 @@ def main():
         print(f"{len(failures)} pair(s). Collapse each view's sheets into one "
               f".sheet(item:) over an Identifiable enum.")
         return 1
-    print("check_chained_sheets: every view carries at most one .sheet modifier")
+    print("check-chained-sheets: every view carries at most one .sheet modifier")
     return 0
 
 

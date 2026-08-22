@@ -8,6 +8,7 @@ import {
   mocNameFor,
   renderIndexBody,
   renderMoc,
+  sameContent,
   spliceGenerated,
   START,
   summaryFor,
@@ -124,5 +125,31 @@ describe("spliceGenerated", () => {
   it("is idempotent", () => {
     const existing = `A\n\n${START}\nOLD\n${END}\n\nB\n`;
     expect(spliceGenerated(spliceGenerated(existing, "NEW"), "NEW")).toBe(spliceGenerated(existing, "NEW"));
+  });
+});
+
+
+describe("sameContent", () => {
+  // The generator writes LF. `.md` is not pinned in .gitattributes, so a Windows
+  // checkout hands these files back as CRLF, and a raw !== then reported every
+  // generated file as stale on every run. It did: --check failed on
+  // moc-business.md while `git diff` showed one changed date, because git
+  // normalises line endings and the comparison did not.
+  //
+  // The cost was not noise. The only way to clear it was to re-run the
+  // generator, which rewrites `reviewed` to today - so a guard meant to make
+  // someone re-read a note trained them to bump its date without reading, which
+  // is the one failure mode no automation here can catch.
+  it("treats CRLF and LF copies of the same text as equal", () => {
+    const lf = "---\ntitle: T\n---\n\n- [A](a.md) - hook\n";
+    expect(sameContent(lf, lf.split("\n").join("\r\n"))).toBe(true);
+  });
+
+  it("still sees a real content change", () => {
+    expect(sameContent("- [A](a.md)\n", "- [B](b.md)\n")).toBe(false);
+  });
+
+  it("does not treat a missing line as a line-ending difference", () => {
+    expect(sameContent("a\nb\n", "a\n")).toBe(false);
   });
 });

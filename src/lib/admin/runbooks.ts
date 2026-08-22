@@ -402,7 +402,17 @@ export const RUNBOOKS: Runbook[] = [
     // have cleared the gate on that database. Now it says what to look at.
     // (The cron count moved again, 78 -> 77 -> 78; still not quoted here, and
     // still on purpose.)
-    reviewed: "2026-08-19",
+    //
+    // Re-read 2026-08-21. One change, and nothing to carry: a paragraph under
+    // the Android row saying the Play listing now exists in the repo
+    // (android/PLAY_STORE_SUBMISSION.md), that Android is still not a launch
+    // gate, and that preparing it surfaced one policy blocker which was fixed
+    // rather than deferred (in-app account deletion, US-2776). That is the same
+    // scope decision the 2026-08-15 re-read declined to carry, for the same
+    // reason: this copy is the steps an operator runs, not the shape of the
+    // backlog. US-2776 itself adds a public legal page, which §4's "the SEO
+    // endpoints succeed" already covers and the prerender guards already test.
+    reviewed: "2026-08-21",
     title: "Launch readiness gate",
     category: "Deploy",
     summary:

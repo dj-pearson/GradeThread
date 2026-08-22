@@ -135,6 +135,24 @@ export function renderMoc(folder, list) {
 }
 
 // Replace only the generated region, preserving hand-written prose around it.
+/**
+ * Compare generated text against what is on disk, ignoring line endings.
+ *
+ * The generator always writes LF. `.md` is not pinned in `.gitattributes`, so a
+ * Windows checkout hands these files back as CRLF — and a raw `!==` then reports
+ * every generated file as stale on every run, forever, on that machine. It did:
+ * `--check` failed on moc-business.md while `git diff` showed one changed date,
+ * because git normalises line endings and the comparison did not.
+ *
+ * That is worse than a noisy check. The only way to clear it is to re-run the
+ * generator, which rewrites `reviewed` to today — so a guard meant to make
+ * someone re-read a note instead trained them to bump its date without reading.
+ */
+export function sameContent(a, b) {
+  const norm = (s) => s.split("\r\n").join("\n");
+  return norm(a) === norm(b);
+}
+
 export function spliceGenerated(existing, body) {
   const s = existing.indexOf(START);
   const e = existing.indexOf(END);
@@ -161,8 +179,8 @@ export function main(argv = process.argv.slice(2)) {
     let prev = "";
     try { prev = readFileSync(p, "utf8"); } catch { /* new file */ }
     // Ignore the reviewed line when comparing, or --check flaps daily.
-    const norm = (s) => s.replace(/^reviewed: .*$/m, "");
-    if (norm(prev) !== norm(next)) {
+    const undate = (s) => s.replace(/^reviewed: .*$/m, "");
+    if (!sameContent(undate(prev), undate(next))) {
       if (check) { process.stdout.write(`  ✗ vault-index: ${mocNameFor(folder)}.md is stale\n`); return 1; }
       writeFileSync(p, next, "utf8");
       written.push(`vault/00-index/${mocNameFor(folder)}.md`);
@@ -187,7 +205,7 @@ export function main(argv = process.argv.slice(2)) {
     return 1;
   }
 
-  if (next !== existing) {
+  if (!sameContent(next, existing)) {
     if (check) {
       process.stdout.write("  ✗ vault-index: INDEX.md is out of date — run `npm run vault:index`\n");
       return 1;
