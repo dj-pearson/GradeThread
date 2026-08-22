@@ -21,6 +21,7 @@
 
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { GARMENT_CATEGORIES } from "../lib/constants";
 import {
   ebayCategoryLeaf,
   garmentDescriptorFor,
@@ -40,6 +41,60 @@ function normalized(path: string): string {
 describe("US-2225: the measurement templates are one definition in two files", () => {
   it("the web and edge copies are identical", () => {
     expect(normalized(EDGE)).toBe(normalized(WEB));
+  });
+});
+
+// ── US-2798: a group is only reachable if some WORD names it ────────────────
+//
+// GROUP_WORDS is a Record<NamedGroup, string[]>, so the compiler guarantees
+// every group has an entry. It does not guarantee the entry contains the words
+// that actually arrive. `neckwear` is a GARMENT_CATEGORIES value the extraction
+// classifier emits — US-2571 made sure of that — and no human types it, so it
+// was in nobody's word list. A tie therefore resolved to `generic`, whose
+// length and width are OPTIONAL, instead of `accessory`, where they are
+// REQUIRED and a belt gets its hole span. US-2224 created the accessory group
+// for ties and belts; the one category named after ties could not reach it.
+//
+// This is the same shape as US-2797 one table over: a value exists, a
+// destination exists, and nothing connects the two. Both halves look correct
+// read on their own.
+describe("US-2798: every taxonomy value reaches a real measurement group", () => {
+  it("no garment category falls through to generic", () => {
+    // `other` is the one honest exception: it means "we could not classify
+    // this", and generic — length and width, both optional — is the correct
+    // answer to that.
+    const fellThrough = GARMENT_CATEGORIES.filter(
+      (c) => c !== "other" && measurementGroupFor(c) === "generic",
+    );
+    expect(
+      fellThrough,
+      `these garment categories resolve to the generic template, so the seller ` +
+        `is offered length and width as OPTIONAL fields instead of the group ` +
+        `built for them: ${fellThrough.join(", ")}. Add the value itself to ` +
+        `that group's GROUP_WORDS — it is a taxonomy value, not a word anyone ` +
+        `says, so no ordinary synonym will ever match it.`,
+    ).toEqual([]);
+  });
+
+  it("every group is reachable by naming it", () => {
+    // Guards the reverse: a group whose own name does not resolve to it is one
+    // no caller can select deliberately, whatever else is in the word list.
+    for (const group of Object.keys(MEASUREMENT_TEMPLATES)) {
+      if (group === "generic") continue; // the fallback, never named
+      expect(measurementGroupFor(group), `group "${group}" cannot name itself`)
+        .toBe(group);
+    }
+  });
+
+  it("the accessory group really is stricter than generic", () => {
+    // The assertion above is only worth making if landing in `accessory`
+    // changes something. If these two templates ever converge, the first test
+    // becomes a no-op that still passes.
+    const acc = MEASUREMENT_TEMPLATES.accessory;
+    const gen = MEASUREMENT_TEMPLATES.generic;
+    expect(acc.filter((f) => f.required).length).toBeGreaterThan(
+      gen.filter((f) => f.required).length,
+    );
   });
 });
 

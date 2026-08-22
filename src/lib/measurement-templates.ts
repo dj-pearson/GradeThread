@@ -193,9 +193,20 @@ const GROUP_WORDS: Record<NamedGroup, readonly string[]> = {
     "hat", "cap", "beanie", "snapback", "fitted", "trucker", "visor", "fedora",
     "beret", "headwear", "balaclava",
   ],
+  // US-2798: `neckwear` is here because it is a GARMENT_CATEGORY VALUE, not
+  // a word a person says. US-2224 created this group for ties and belts, and
+  // US-2571 got `neckwear` into the classifier's vocabulary - but nothing
+  // taught this table the word, so the one category that most needed the
+  // group resolved to `generic` and got length and width as OPTIONAL fields.
+  // A tie measured by nobody is what the group exists to prevent.
+  //
+  // `headwear` was already in its own group's word list for exactly this
+  // reason. The rule is: every value a classifier can emit belongs in the
+  // word list of the group it should reach, even when no human would type it.
   accessory: [
-    "tie", "necktie", "belt", "scarf", "scarves", "glove", "mitten", "shawl",
-    "cravat", "ascot", "suspender", "accessory", "accessories",
+    "tie", "necktie", "neckwear", "belt", "scarf", "scarves", "glove",
+    "mitten", "shawl", "cravat", "ascot", "suspender", "accessory",
+    "accessories",
   ],
   shoes: [
     "shoe", "sneaker", "boot", "sandal", "footwear", "loafer", "mule", "clog",
