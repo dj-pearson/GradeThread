@@ -426,7 +426,7 @@ Deno.test("US-2790: the prediction does not disturb dimensions", () => {
 
 // ── US-2790 / US-268: the predicted-parcel read is owner-scoped ────────────
 //
-// A SOURCE assertion, deliberately. predictedParcelOz is not exported and its
+// A SOURCE assertion, deliberately. predictedParcel is not exported and its
 // read goes through the service-role client, which BYPASSES RLS — so the
 // property worth pinning is a WIRING one: does the query carry the owner
 // filter. A sabotage confirmed the behavioural cases above cannot see this
@@ -436,12 +436,12 @@ Deno.test("US-2790: the prediction does not disturb dimensions", () => {
 // preflight already proves ownership of the SALE. That is not enough on its
 // own: inventory_item_id comes off the joined row, and an id taken from a
 // request-derived row is still an id from a request.
-Deno.test("US-268: predictedParcelOz filters inventory_items by user_id", async () => {
+Deno.test("US-268: predictedParcel filters inventory_items by user_id", async () => {
   const src = await Deno.readTextFile(
     new URL("../routes/flipdesk-logistics.ts", import.meta.url),
   );
-  const start = src.indexOf("async function predictedParcelOz");
-  assertEquals(start > -1, true, "predictedParcelOz was renamed or removed");
+  const start = src.indexOf("async function predictedParcel(");
+  assertEquals(start > -1, true, "predictedParcel was renamed or removed");
   const body = src.slice(start, start + 1200);
 
   assertStringIncludes(body, 'from("inventory_items")');
@@ -457,8 +457,72 @@ Deno.test("US-2790: a failed prediction degrades to asking, not to throwing", ()
   const src = Deno.readTextFileSync(
     new URL("../routes/flipdesk-logistics.ts", import.meta.url),
   );
-  const start = src.indexOf("async function predictedParcelOz");
+  const start = src.indexOf("async function predictedParcel(");
   const body = src.slice(start, src.indexOf("\n}", start));
   assertStringIncludes(body, "catch");
   assertStringIncludes(body, "return null");
+});
+
+// ── US-2790: recording what was predicted ─────────────────────────────────
+//
+// sales.predicted_parcel (migration 00649) is how a SEEDED estimator becomes a
+// measured one: the payout sync already writes what the carrier charged, so the
+// only missing half is what we said beforehand.
+//
+// Source assertions, for the same reason the tenant-scope case above is one —
+// recordPrediction is not exported, it writes through the service-role client,
+// and the properties worth pinning are WIRING: who it is scoped to, when it
+// fires, and what it refuses to overwrite.
+
+Deno.test("US-2790: the prediction is recorded only when it was USED", () => {
+  // A body that named its own weight overrode the estimate. Storing our guess
+  // beside a parcel it never described would measure the estimator against
+  // shipments it did not predict — which biases the correction it exists to
+  // inform, rather than merely adding noise.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "const usedPrediction =");
+  assertStringIncludes(src, "if (usedPrediction) await recordPrediction(");
+});
+
+Deno.test("US-2790: the write is owner-scoped and first-write-wins", () => {
+  const src = Deno.readTextFileSync(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  const start = src.indexOf("async function recordPrediction");
+  assertEquals(start > -1, true, "recordPrediction was renamed or removed");
+  const body = src.slice(start, start + 1400);
+
+  // US-268: the service-role client bypasses RLS, so the update carries the
+  // owner as well as the row id.
+  assertStringIncludes(body, '.eq("user_id", ownerId)');
+  assertStringIncludes(body, '.eq("id", saleId)');
+
+  // The value worth keeping is what we said when the seller was DECIDING. A
+  // re-run of the rates call after they adjust something must not overwrite
+  // the original claim, which is what makes this comparable later.
+  assertStringIncludes(body, '.is("predicted_parcel", null)');
+});
+
+Deno.test("US-2790: the estimator table version is stored with the prediction", () => {
+  // Without it, rows predicted under different multipliers are averaged
+  // together and the error looks smaller than it is on both.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  assertStringIncludes(src, "tableVersion: PARCEL_TABLE_VERSION");
+});
+
+Deno.test("US-2790: a failed telemetry write never fails the seller's call", () => {
+  // This measures OUR accuracy. A seller pricing a label must not see an error
+  // because we could not write our own instrumentation.
+  const src = Deno.readTextFileSync(
+    new URL("../routes/flipdesk-logistics.ts", import.meta.url),
+  );
+  const start = src.indexOf("async function recordPrediction");
+  const body = src.slice(start, src.indexOf("\n}", src.indexOf("catch", start)));
+  assertStringIncludes(body, "catch");
+  // No rethrow: the catch logs and returns.
+  assertEquals(/catch[\s\S]*throw/.test(body), false, "recordPrediction must not rethrow");
 });

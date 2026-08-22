@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import { supabaseAdmin } from "../lib/supabase.ts";
 import {
   estimateParcel,
+  PARCEL_TABLE_VERSION,
+  type ParcelEstimate,
   type ParcelGarmentCategory,
 } from "../lib/parcel-estimate.ts";
 import { failSafe, jsonError } from "../lib/http-errors.ts";
@@ -315,10 +317,10 @@ export function parseParcel(
  * to asking for a weight — the behaviour it had before — rather than failing
  * the rate call over a prediction.
  */
-async function predictedParcelOz(
+async function predictedParcel(
   ownerId: string,
   inventoryItemId: string | null,
-): Promise<number | null> {
+): Promise<ParcelEstimate | null> {
   if (!inventoryItemId) return null;
   try {
     const { data, error } = await supabaseAdmin
@@ -339,9 +341,74 @@ async function predictedParcelOz(
       material: row.material,
       measurements: row.measurements,
       size: row.size,
-    }).billableWeightOz;
+    });
   } catch {
     return null;
+  }
+}
+
+/**
+ * The shape stored in sales.predicted_parcel (US-2790, migration 00649).
+ *
+ * THE TABLE VERSION IS NOT DECORATION. Rows predicted under different weights
+ * or multipliers are not comparable, and averaging them makes the error look
+ * smaller than it is on both. Without this field a later correction cannot be
+ * attributed to the table that produced it, and the whole predicted-vs-actual
+ * loop degrades into one undated average.
+ */
+interface PredictedParcelRecord {
+  weightOz: number;
+  billableWeightOz: number;
+  pack: string;
+  confidence: string;
+  basis: string[];
+  tableVersion: string;
+  predictedAt: string;
+}
+
+/**
+ * Record what was predicted, beside what the carrier will later charge.
+ *
+ * BEST-EFFORT AND NEVER FATAL. This is a measurement of our own accuracy; a
+ * seller pricing a label must not see an error because we failed to write our
+ * own telemetry.
+ *
+ * WRITTEN ONLY WHEN THE PREDICTION WAS ACTUALLY USED. A row recording a number
+ * the seller overrode is not a prediction that was tested — it is a prediction
+ * nobody shipped — and mixing those into the comparison measures the estimator
+ * against parcels it never described.
+ *
+ * FIRST WRITE WINS, for the same reason the column is written at pre-fill
+ * rather than at purchase: the value worth keeping is what we said when the
+ * seller was deciding, not what we would say now. Re-running the rates call
+ * after they adjust something must not overwrite the original claim.
+ */
+async function recordPrediction(
+  ownerId: string,
+  saleId: string,
+  parcel: ParcelEstimate,
+): Promise<void> {
+  const record: PredictedParcelRecord = {
+    weightOz: parcel.weightOz,
+    billableWeightOz: parcel.billableWeightOz,
+    pack: parcel.pack,
+    confidence: parcel.confidence,
+    basis: parcel.basis,
+    tableVersion: PARCEL_TABLE_VERSION,
+    predictedAt: new Date().toISOString(),
+  };
+  try {
+    await supabaseAdmin
+      .from("sales")
+      .update({ predicted_parcel: record })
+      .eq("id", saleId)
+      .eq("user_id", ownerId)
+      .is("predicted_parcel", null);
+  } catch (err) {
+    console.error(
+      `[logistics] predicted_parcel write failed for sale ${saleId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
   }
 }
 
@@ -430,9 +497,19 @@ flipdeskLogisticsRoutes.post("/sales/:saleId/rates", async (c) => {
   // user_id even though preflight already proved ownership of the SALE — the
   // service-role client bypasses RLS, and an id taken from a joined row is
   // still an id from a request (US-268).
-  const predictedOz = await predictedParcelOz(ownerId, pre.sale.inventory_item_id);
-  const parcel = parseParcel(body, predictedOz);
+  const predicted = await predictedParcel(ownerId, pre.sale.inventory_item_id);
+  const parcel = parseParcel(body, predicted?.billableWeightOz ?? null);
   if ("error" in parcel) return jsonError(c, 400, parcel.error);
+
+  // US-2790: record the prediction only when it was the number actually USED.
+  // A body that named its own weight overrode us, and storing our guess beside
+  // a parcel it never described would measure the estimator against shipments
+  // it did not predict. `suppliedWeight` is the same test parseParcel applied.
+  const suppliedWeight = (body as Record<string, unknown> | null)?.weight_value;
+  const usedPrediction = predicted != null &&
+    !(typeof suppliedWeight === "number" && Number.isFinite(suppliedWeight) &&
+      suppliedWeight > 0);
+  if (usedPrediction) await recordPrediction(ownerId, saleId, predicted);
 
   const { data: userRow } = await supabaseAdmin
     .from("users")
