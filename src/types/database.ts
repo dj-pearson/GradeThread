@@ -1929,6 +1929,17 @@ export interface ItemFullRow {
   grade_label: string | null;
   certificate_url: string | null;
   measurements: Record<string, number | string> | null;
+  // US-2790 (migration 00650): the parcel estimator's inputs, exposed on the
+  // items_full view so a per-item profit figure can count postage.
+  //
+  // ⚠ `category` above is NOT a substitute. It is
+  // coalesce(item_category, garment_category), so it is a merchandising
+  // category whenever one is set — passing it to estimateParcel hands a
+  // merchandising value to a function expecting a garment type, falls through
+  // to the `other` base weight, and still reports the number as
+  // category-derived.
+  garment_category: GarmentCategory | null;
+  material: string | null;
   location_bin: string | null;
   created_at: string;
   updated_at: string;

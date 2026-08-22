@@ -77,6 +77,9 @@ function makeItem(overrides: Partial<ItemFullRow> = {}): ItemFullRow {
     listing_needs_review: null,
     listing_reviewed_at: null,
     listing_title: null,
+    // US-2790 (00650): parcel-estimator inputs on items_full.
+    garment_category: null,
+    material: null,
     quality_score: null,
     ...overrides,
   };

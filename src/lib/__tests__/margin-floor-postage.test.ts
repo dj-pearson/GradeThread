@@ -9,8 +9,10 @@
 // Worth having separately from the two module suites, because both of those
 // can pass while the floor still gets zero. The defect was never in the
 // estimator or the rate table; it was in what the caller passed.
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { priceForMargin } from "../listing-profit";
+import { estimateListingProfit, priceForMargin } from "../listing-profit";
 import { estimateParcel } from "../parcel-estimate";
 import { estimatePostage } from "../shipping-rates";
 
@@ -119,5 +121,113 @@ describe("US-2790: the margin floor stops pricing postage at zero", () => {
       40,
     );
     expect(withPostage).toBeNull();
+  });
+});
+
+describe("US-2790: the per-item profit figure counts postage too", () => {
+  // item-card-list.tsx showed profit with no shipping, so every card read
+  // higher than the sale would. Asserted here rather than in a render test:
+  // the claim is arithmetic, and a render test would pass on a card that
+  // displayed the right number for the wrong reason.
+  it("lowers the shown profit once postage is counted", () => {
+    const parcel = estimateParcel({
+      garmentCategory: "coat",
+      material: "wool",
+      measurements: null,
+      size: null,
+    });
+    const postage = estimatePostage(parcel.billableWeightOz);
+    expect(postage).not.toBeNull();
+
+    const withPostage = estimateListingProfit({
+      price: 120,
+      costBasis: 40,
+      shippingCost: postage!.priceUsd,
+    });
+    const asShown = estimateListingProfit({ price: 120, costBasis: 40 });
+    expect(withPostage.net).toBeLessThan(asShown.net);
+    // And by the postage EXACTLY — net is linear in cost, unlike the floor,
+    // which divides by (1 - fee - margin) and therefore moves by more.
+    expect(asShown.net - withPostage.net).toBeCloseTo(postage!.priceUsd, 6);
+    // The margin percentage drops with it; that is the number on the card.
+    expect(withPostage.marginPct).toBeLessThan(asShown.marginPct);
+    // And postage lands in `costs`, not in `fees` — a seller reading the
+    // breakdown should see it where it actually is.
+    expect(withPostage.costs - asShown.costs).toBeCloseTo(postage!.priceUsd, 6);
+    expect(withPostage.fees).toBeCloseTo(asShown.fees, 6);
+  });
+
+  it("an uncovered parcel shows exactly what it showed before", () => {
+    const none = estimatePostage(100000);
+    expect(none).toBeNull();
+    expect(
+      estimateListingProfit({ price: 120, costBasis: 40, shippingCost: none?.priceUsd ?? null }),
+    ).toEqual(estimateListingProfit({ price: 120, costBasis: 40 }));
+  });
+
+  it("the merchandising `category` is not what the estimator reads", () => {
+    // items_full.category is coalesce(item_category, garment_category). Passing
+    // it would fall through to the `other` base weight AND still report
+    // basis ["category"] — a confident number from a wrong input.
+    const wrong = estimateParcel({
+      garmentCategory: "other",
+      material: "wool",
+      measurements: null,
+      size: null,
+    });
+    const right = estimateParcel({
+      garmentCategory: "coat",
+      material: "wool",
+      measurements: null,
+      size: null,
+    });
+    expect(wrong.weightOz).not.toBeCloseTo(right.weightOz, 1);
+    // Both claim a category basis, which is why the wrong one is dangerous
+    // rather than merely inaccurate.
+    expect(wrong.basis).toContain("category");
+    expect(right.basis).toContain("category");
+  });
+});
+
+describe("US-2790: the call sites keep passing postage", () => {
+  // A WIRING property, so a source scan is the right instrument — the cases
+  // above assert the arithmetic and a sabotage confirmed they stay green when
+  // the page stops passing shippingCost at all. That is the regression this
+  // catches and they cannot.
+  //
+  // COMMENTS ARE STRIPPED FIRST. Both files explain shippingCost at length in
+  // prose, and a guard satisfied by the comment describing the thing it checks
+  // is the failure US-2686 found here twice in one session.
+  function code(rel: string): string {
+    return readFileSync(resolve(process.cwd(), rel), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .split("\n")
+      .map((l) => l.replace(/\/\/.*$/, ""))
+      .join("\n");
+  }
+
+  it("item-card-list feeds predicted postage into the profit estimate", () => {
+    const src = code("src/components/flipdesk/item-card-list.tsx");
+    expect(src).toContain("estimateParcel(");
+    expect(src).toContain("estimatePostage(");
+    expect(src).toMatch(/shippingCost:\s*postage\?\.priceUsd/);
+  });
+
+  it("item-card-list reads garment_category, never the coalesced `category`", () => {
+    // The trap this story keeps naming: items_full.category is
+    // coalesce(item_category, garment_category), so it is a merchandising
+    // value whenever one is set.
+    const src = code("src/components/flipdesk/item-card-list.tsx");
+    expect(src).toContain("garmentCategory: it.garment_category");
+    expect(src).not.toMatch(/garmentCategory:\s*it\.category/);
+  });
+
+  it("the bulk grid still routes through the shared margin rule", () => {
+    const src = code("src/pages/flipdesk/autolister-bulk-edit.tsx");
+    expect(src).toContain("marginFloorWithPostage(");
+    // And does NOT call priceForMargin directly again — three copies of a
+    // pricing rule is how they end up disagreeing, which is why the rule was
+    // extracted in the first place.
+    expect(src).not.toContain("priceForMargin(");
   });
 });

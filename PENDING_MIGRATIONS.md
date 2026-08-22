@@ -1,8 +1,19 @@
 # PENDING MIGRATIONS — applied to prod separately from the push
 
-## HELD: 00650_items_full_parcel_inputs.sql
+## ✅ APPLIED 2026-08-22: 00650_items_full_parcel_inputs.sql
 
-US-2790, added 2026-08-22 and NOT pushed.
+US-2790. Applied by the owner and VERIFIED against the database rather than
+against this file:
+
+- `items_full` now reports **63 columns** in PostgREST's OpenAPI document for
+  production, with `garment_category` and `material` both **PRESENT** alongside
+  the pre-existing `category`, `quality_score` and `measurements`. Presence is
+  conclusive, and the older columns still being there is the evidence that
+  `create or replace` appended rather than replaced.
+- `GET /health/ready` reports
+  `{"expected":"00649","applied":"00650","status":"ahead","unexpected":["00650"]}`.
+  `ahead` only says the RUNNING edge build predates the schema; this commit
+  bumps `EXPECTED_SCHEMA_VERSION` and the next edge deploy resolves it.
 
 **What it does:** `create or replace view public.items_full`, appending two new
 LAST columns — `garment_category` and `material` — so the parcel estimator can

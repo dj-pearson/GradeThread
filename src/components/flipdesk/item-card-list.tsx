@@ -4,6 +4,8 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { NextActionBadge } from "@/components/flipdesk/next-action-badge";
 import { cn } from "@/lib/utils";
 import { estimateListingProfit } from "@/lib/listing-profit";
+import { estimateParcel } from "@/lib/parcel-estimate";
+import { estimatePostage } from "@/lib/shipping-rates";
 import type { ItemFullRow } from "@/types/database";
 
 function money(n: number | null | undefined): string | null {
@@ -45,9 +47,31 @@ export function ItemCardList({
         const price = money(it.target_price) ?? money(it.list_price);
         const cost = it.purchase_price;
         const askingPrice = it.target_price ?? it.list_price;
+        // US-2790: postage was absent here too, so the profit shown per card
+        // read higher than the sale would. The prediction comes from the
+        // garment's own record via items_full (migration 00650).
+        //
+        // `it.category` is deliberately NOT used: it is
+        // coalesce(item_category, garment_category), so it carries a
+        // merchandising value whenever one is set, and estimateParcel would
+        // fall through to the `other` base weight while still reporting the
+        // number as category-derived.
+        const parcel = estimateParcel({
+          garmentCategory: it.garment_category,
+          material: it.material,
+          measurements: it.measurements,
+          size: it.size,
+        });
+        const postage = estimatePostage(parcel.billableWeightOz);
         const est =
           askingPrice != null && askingPrice > 0
-            ? estimateListingProfit({ price: askingPrice, costBasis: cost })
+            ? estimateListingProfit({
+                price: askingPrice,
+                costBasis: cost,
+                // null above the heaviest sourced band, which reproduces the
+                // old figure rather than inventing a price.
+                shippingCost: postage?.priceUsd ?? null,
+              })
             : null;
         const sub = [it.brand, it.style, it.size].filter(Boolean).join(" · ");
         const isSel = selectedIds?.has(it.id) ?? false;
