@@ -331,7 +331,12 @@ export function AdminAiModelsPage() {
         supabase
           .from("human_reviews")
           .select("*")
-          .order("created_at", { ascending: false })
+          // US-2805: `created_at` — human_reviews has never had one; its
+          // timestamp is `reviewed_at` (00003). PostgREST answered 42703, the
+          // throw below fired, and this page failed to load. The sibling query
+          // above orders ai_prompt_versions, which really does have created_at,
+          // which is how the wrong name looked right here.
+          .order("reviewed_at", { ascending: false })
           .limit(REVIEW_LIMIT),
       ]);
       if (versionsRes.error) throw versionsRes.error;

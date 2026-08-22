@@ -117,6 +117,44 @@ for (const f of files) {
   }
 }
 
+// ── The other query surfaces: .eq(), .order(), .in(), … ─────────────────────
+//
+// US-2805: .select() is not the only place a column name appears, and it is not
+// even the place the next bug turned up. The admin AI-models page did
+// `.select("*")` — which this file skips, correctly — and then ordered by a
+// column that does not exist, so the page threw on load. A guard that only read
+// select lists could never have seen it.
+//
+// Chained calls make attribution harder here: the table is on .from() and the
+// filters follow, sometimes many lines later or through a reassigned builder
+// variable. This tracks the most recent .from() per file and attributes filters
+// to it until a blank line. That is an APPROXIMATION — it can mis-attribute in
+// a file interleaving two builders — so a finding is a prompt to go and look,
+// not a verdict. 4698 references produced exactly one, and it was real.
+const FILTER = /\.(eq|neq|gt|gte|lt|lte|like|ilike|in|contains|order)\(\s*["']([a-z0-9_]+)["']/g;
+const FROM_LINE = /\.from\(\s*["']([a-z0-9_]+)["']\s*\)/;
+
+for (const f of files) {
+  const lines = readFileSync(f, "utf8").replace(/\r\n?/g, "\n").split("\n");
+  let table = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fm = FROM_LINE.exec(line);
+    if (fm) table = fm[1].toLowerCase();
+    if (!table) continue;
+    if (/^\s*$/.test(line)) { table = null; continue; }
+    const known = cols.get(table);
+    if (!known || views.has(table) || matviews.has(table)) continue;
+    for (const m of line.matchAll(FILTER)) {
+      const c = m[2].toLowerCase();
+      checked++;
+      if (!known.has(c)) {
+        findings.push({ file: relative(R, f).replaceAll("\\", "/"), table, col: c });
+      }
+    }
+  }
+}
+
 const byKey = new Map();
 for (const f of findings) {
   const k = `${f.table}.${f.col}`;
@@ -130,7 +168,11 @@ for (const f of findings) {
 // completely green. These floors are well under the real numbers (5395 / 307)
 // and exist only to make "found nothing" impossible to confuse with "found
 // nothing wrong".
-const MIN_REFS = 3000;
+// Raised from 3000 when US-2805 added the filter/order surface and the count
+// went 5395 -> 9934. A floor that lags the real number by 3x stops being a
+// floor; if either half of the scan breaks, only a number near the truth
+// notices.
+const MIN_REFS = 7000;
 const MIN_TABLES = 200;
 if (checked < MIN_REFS || cols.size < MIN_TABLES) {
   console.error(
@@ -152,7 +194,9 @@ if (findings.length === 0) {
   process.exit(0);
 }
 
-console.error("\n[select-columns] .select() names column(s) no migration declares:\n");
+console.error(
+  "\n[select-columns] a query names column(s) no migration declares:\n",
+);
 for (const [k, where] of [...byKey].sort()) {
   console.error(`    ${k}`);
   console.error(`        ${[...where].slice(0, 3).join(", ")}`);
