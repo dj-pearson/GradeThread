@@ -409,6 +409,11 @@ if (on("ios")) {
   if (!existsSync(iosDir)) {
     skipped.push("ios: no ios/ directory in this checkout");
   } else {
+    // Node, not Python, so it runs on a checkout where the .py guards skip.
+    // Different question from the text guards too: they ask whether the code is
+    // WRITTEN safely, this asks whether anyone can REACH it.
+    run("ios: no unreachable types", "node scripts/check-ios-orphans.mjs");
+
     const py = resolvePython();
     if (!py) {
       skipped.push(
