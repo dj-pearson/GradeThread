@@ -202,6 +202,15 @@ jobs:
       - name: Comment path refs
         if: ${{ !cancelled() }}
         run: node scripts/check-comment-path-refs.mjs
+      # US-2802: form fields the edge parses that no client can send. The first
+      # run found that the photo Live Capture tier has never issued its badge
+      # once — evaluateLiveCapture returns early on an opt-in nothing sets — and
+      # that the seller-declared style-attribute hint has only ever filtered an
+      # empty list. Nothing about either looked dead: the parser, the column,
+      # the pipeline read and the certificate render were all alive.
+      - name: Unfed form fields
+        if: ${{ !cancelled() }}
+        run: node scripts/check-unfed-form-fields.mjs
       # US-2437: a file that is both tracked and gitignored. The ignore silently
       # does nothing, so the file reads as modified in every working tree forever
       # and each person who notices adds another dead ignore line — one path here

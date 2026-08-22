@@ -2,7 +2,7 @@
   "project": "GradeThread",
   "branchName": "ralph/gradethread-build",
   "description": "GradeThread is an AI-powered SaaS platform providing standardized condition grading for pre-owned clothing. Sellers submit structured photos of garments and receive a numerical condition grade (CG 1.0-10.0), a detailed condition report, and a shareable grade certificate. The platform addresses the trust gap in the $350B+ secondhand clothing market. Tech stack: React 19 + TypeScript + Vite frontend, self-hosted Supabase (api.gradethread.com) for auth/DB/storage, Deno/Hono edge functions for backend API, Claude Vision AI for grading, Stripe for payments, Cloudflare Pages for hosting. Brand colors: Navy #0F3460, Red #E94560, Night #1A1A2E, Soft Gray #F5F5F5. Tailwind v4 + shadcn/ui (New York style). The platform includes full inventory management with financial tracking from acquisition through sale and shipment, detailed financial reporting and analytics, and a comprehensive admin panel for user management, traffic monitoring, and AI model self-refinement.",
-  "nextId": "US-2802",
+  "nextId": "US-2803",
   "archive": "prd.archive.json",
   "userStories": [
     {
@@ -2305,6 +2305,21 @@
         "If the answer to AC4 is that it may move a grade, the prompt change goes through shadow then eval gate then canary per the grading-engine contract, not a silent edit."
       ],
       "priority": 29
+    },
+    {
+      "id": "US-2802",
+      "passes": false,
+      "title": "Live Capture and Verified 360 cannot be earned: no client sends the opt-in",
+      "description": "MEASURED 2026-08-22, not inferred. routes/grade.ts is the ONLY writer of submissions.live_capture_opt_in, verified_360_opt_in and capture_360, and it reads all three off the multipart form. Nothing on web, iOS, Android or the extension appends any of them. A repo-wide search for liveCapture / live_capture / LiveVerified returns 13 files and NONE is a .swift or .kt.\n\nTHE CONTRAST IS THE PROOF, and it sits on adjacent lines of the same insert. verified_capture_opt_in (grade.ts:839) IS fed — new-submission.tsx holds it in state and posts it. The three lines below it (840-842) are fed by nothing.\n\nevaluateLiveCapture (verified-capture.ts:330) opens with a hard gate: if the opt-in is false it returns immediately with reasons ['not opted into Live Capture']. So EVERY submission takes that branch and the `live_verified` badge — described in the pipeline as \"the strongest provenance tier\" — has never been issued. Its confidence boost has never applied.\n\nThere is a SECOND gate behind the first, also unfed: the badge additionally requires every image's capture_source to be the in-app value, which grade.ts reads from the `capture_sources` form field (grade.ts:472). Nothing sends that either.\n\ncertificate.tsx renders the badge on both branches (:1220 earned, :1240 not earned), so the display half was built and only ever shows the second one.\n\n⚠ NOT THE SAME AS THE VIDEO TIER, which works. video_live_capture_verified (certificate.tsx:1200) belongs to the US-1762 walk-around clip, and video-walkaround.tsx really does set IN_APP_VIDEO_CAPTURE_SOURCE. The PHOTO live-capture tier is the unreachable one; naming them apart matters because the working one makes the broken one look wired.\n\nUS-1283 (archived, passes:true) is the story that owns this. Its AC1 asks for \"a capture mode that accepts ONLY in-app camera images\" and its AC4 for \"clear UX explaining the value\". Neither exists. Its note carries no evidence trail — it is the text from the day it was FILED, so nothing records what was checked at close.",
+      "acceptanceCriteria": [
+        "Decide the scope first: this is a capture MODE with fraud claims attached, not a checkbox. Confirm which client ships it (the web camera dialog exists; iOS and Android have no live-capture concept at all) and whether device attestation is in scope or the in-app capture_source is the claim.",
+        "The chosen client posts live_capture_opt_in AND a capture_sources value per image, since the badge needs both and either alone earns nothing.",
+        "The same decision is made for verified_360_opt_in and capture_360, which are unfed in exactly the same way and were found in the same sweep.",
+        "A submission that does not opt in behaves byte-identically to today, which it already does — the point is that this stays true.",
+        "US-1283's closure is corrected: either its remaining ACs move here, or a note records what was actually shipped versus what its ACs asked for.",
+        "The guard added alongside this (scripts/check-unfed-form-fields.mjs) drops these fields from its allowlist when they are genuinely fed."
+      ],
+      "priority": 24
     }
   ]
 }

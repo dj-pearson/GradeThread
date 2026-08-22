@@ -317,6 +317,11 @@ if (on("web")) {
   // costs every one of them. Cheap enough to sit beside prd-lint.
   run("web: doc path refs", "node scripts/doc-refs.mjs");
   run("web: comment path refs", "node scripts/check-comment-path-refs.mjs");
+  // US-2802: a form field the edge parses that no client can send. Pure file
+  // reads, no Docker, no network — and it catches the one kind of dead code
+  // where every visible piece is alive and the missing piece is in another
+  // language in another directory, leaving no trace at all.
+  run("web: unfed form fields", "node scripts/check-unfed-form-fields.mjs");
   // US-2437: BEFORE eslint, deliberately. The bug that filed that story was
   // eslint linting supabase/.temp/start-secrets/ — 189 errors in generated,
   // minified code nobody wrote — which only appears once you run `supabase
