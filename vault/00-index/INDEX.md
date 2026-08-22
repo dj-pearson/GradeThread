@@ -39,7 +39,7 @@ New here? Read [[CONTRACT]] before adding a note.
 
 ## 30-platform — marketplace integration
 
-17 notes — see [[moc-platform]].
+18 notes — see [[moc-platform]].
 
 ## 40-growth — SEO, content, distribution
 
